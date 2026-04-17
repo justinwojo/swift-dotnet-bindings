@@ -1,0 +1,484 @@
+{
+  "$schema": "./schema.json",
+  "manifest_version": 1,
+  "generated_by": "Swift.Bindings --emit-apple-types-manifest",
+  "generated_at": "2026-04-17T07:19:46.4506810Z",
+  "sdk_train": {
+    "major": 18,
+    "label": "Xcode 16 / iOS 18 / macOS 15 / tvOS 18",
+    "platforms": {
+      "ios": "18.0",
+      "maccatalyst": "18.0",
+      "tvos": "18.0",
+      "macos": "15.0"
+    }
+  },
+  "modules": {
+    "CryptoKit": {
+      "types": [
+        {
+          "swift_identity": "CryptoKit.P256.Signing.ECDSASignature",
+          "managed_projection": {
+            "namespace": "Swift.CryptoKit",
+            "declaration_path": [
+              "P256",
+              "Signing",
+              "ECDSASignature"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.CryptoKit",
+            "declaration_path": [
+              "P256",
+              "Signing",
+              "ECDSASignature"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s9CryptoKit4P256O7SigningO14ECDSASignatureVMa",
+            "library": "CryptoKit",
+            "availability": {
+              "ios": "13.0",
+              "maccatalyst": null,
+              "tvos": "13.0",
+              "macos": "10.15"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "CryptoKit.P384.Signing.ECDSASignature",
+          "managed_projection": {
+            "namespace": "Swift.CryptoKit",
+            "declaration_path": [
+              "P384",
+              "Signing",
+              "ECDSASignature"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.CryptoKit",
+            "declaration_path": [
+              "P384",
+              "Signing",
+              "ECDSASignature"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s9CryptoKit4P384O7SigningO14ECDSASignatureVMa",
+            "library": "CryptoKit",
+            "availability": {
+              "ios": "13.0",
+              "maccatalyst": null,
+              "tvos": "13.0",
+              "macos": "10.15"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "CryptoKit.P521.Signing.ECDSASignature",
+          "managed_projection": {
+            "namespace": "Swift.CryptoKit",
+            "declaration_path": [
+              "P521",
+              "Signing",
+              "ECDSASignature"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.CryptoKit",
+            "declaration_path": [
+              "P521",
+              "Signing",
+              "ECDSASignature"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s9CryptoKit4P521O7SigningO14ECDSASignatureVMa",
+            "library": "CryptoKit",
+            "availability": {
+              "ios": "13.0",
+              "maccatalyst": null,
+              "tvos": "13.0",
+              "macos": "10.15"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        }
+      ],
+      "typealiases": []
+    },
+    "Foundation": {
+      "types": [
+        {
+          "swift_identity": "Foundation.Locale.Collation",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Collation"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Collation"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation6LocaleV9CollationVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "16",
+              "maccatalyst": null,
+              "tvos": "16",
+              "macos": "13"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "Foundation.Locale.Currency",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Currency"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Currency"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation6LocaleV8CurrencyVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "16",
+              "maccatalyst": null,
+              "tvos": "16",
+              "macos": "13"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "Foundation.Locale.Language",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Language"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Language"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation6LocaleV8LanguageVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "16",
+              "maccatalyst": null,
+              "tvos": "16",
+              "macos": "13"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "Foundation.Locale.LanguageCode",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "LanguageCode"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "LanguageCode"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation6LocaleV12LanguageCodeVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "16",
+              "maccatalyst": null,
+              "tvos": "16",
+              "macos": "13"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "Foundation.Locale.Region",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Region"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "Locale",
+              "Region"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation6LocaleV6RegionVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "16",
+              "maccatalyst": null,
+              "tvos": "16",
+              "macos": "13"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        }
+      ],
+      "typealiases": []
+    },
+    "ManagedSettings": {
+      "types": [
+        {
+          "swift_identity": "ManagedSettings.ActivityCategory",
+          "managed_projection": {
+            "namespace": "Swift.ManagedSettings",
+            "declaration_path": [
+              "ActivityCategory"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.ManagedSettings",
+            "declaration_path": [
+              "ActivityCategory"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s15ManagedSettings16ActivityCategoryVMa",
+            "library": "ManagedSettings",
+            "availability": {
+              "ios": "15.0",
+              "maccatalyst": null,
+              "tvos": null,
+              "macos": null
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "ManagedSettings.Application",
+          "managed_projection": {
+            "namespace": "Swift.ManagedSettings",
+            "declaration_path": [
+              "Application"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.ManagedSettings",
+            "declaration_path": [
+              "Application"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s15ManagedSettings11ApplicationVMa",
+            "library": "ManagedSettings",
+            "availability": {
+              "ios": "15.0",
+              "maccatalyst": null,
+              "tvos": null,
+              "macos": null
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "ManagedSettings.WebDomain",
+          "managed_projection": {
+            "namespace": "Swift.ManagedSettings",
+            "declaration_path": [
+              "WebDomain"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.ManagedSettings",
+            "declaration_path": [
+              "WebDomain"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": null,
+          "alignment": null,
+          "stride": null,
+          "metadata_accessor": {
+            "symbol": "$s15ManagedSettings9WebDomainVMa",
+            "library": "ManagedSettings",
+            "availability": {
+              "ios": "15.0",
+              "maccatalyst": null,
+              "tvos": null,
+              "macos": null
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        }
+      ],
+      "typealiases": []
+    }
+  }
+}

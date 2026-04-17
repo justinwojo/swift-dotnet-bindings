@@ -26,6 +26,7 @@ public sealed class VersionScope : IDisposable
             repoRoot / "src" / "Swift.Runtime" / "src" / "Swift.Runtime.csproj",
             repoRoot / "src" / "Swift.Bindings.Sdk" / "Swift.Bindings.Sdk.csproj",
             repoRoot / "src" / "Swift.Bindings.Templates" / "Swift.Bindings.Templates.csproj",
+            repoRoot / "src" / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj",
             repoRoot / "src" / "Swift.Bindings.Sdk" / "Sdk" / "Sdk.props",
             repoRoot / "src" / "Swift.Bindings.Templates" / "content" / "swift-binding" / "ProjectName.csproj",
             repoRoot / "src" / "Swift.Bindings.Templates" / "content" / "swift-binding" / ".template.config" / "template.json",
@@ -43,10 +44,11 @@ public sealed class VersionScope : IDisposable
         StampPackageVersion(files[0], version); // Runtime .csproj
         StampPackageVersion(files[1], version); // SDK .csproj
         StampPackageVersion(files[2], version); // Templates .csproj
-        StampSdkProps(files[3], version);       // _SwiftBindingSdkVersion + SwiftRuntimeVersion
-        StampTemplateSdk(files[4], version);    // Sdk="SwiftBindings.Sdk/..."
-        StampTemplateJson(files[5], version);   // template.json sdkVersion symbol
-        StampGeneratorDefault(files[6], version); // DefaultSwiftRuntimeVersion constant
+        StampPackageVersion(files[3], version); // Apple .csproj
+        StampSdkProps(files[4], version);       // _SwiftBindingSdkVersion + SwiftRuntimeVersion
+        StampTemplateSdk(files[5], version);    // Sdk="SwiftBindings.Sdk/..."
+        StampTemplateJson(files[6], version);   // template.json sdkVersion symbol
+        StampGeneratorDefault(files[7], version); // DefaultSwiftRuntimeVersion constant
     }
 
     public void Dispose()

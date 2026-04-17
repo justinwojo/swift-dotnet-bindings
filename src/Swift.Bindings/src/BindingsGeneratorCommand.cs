@@ -54,6 +54,18 @@ public static class BindingsGeneratorCommand
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
+        var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
+        var appleAbiJsonPaths = parseResult.GetValueForOption(options.AppleAbiJson);
+        var appleIncludeTypes = parseResult.GetValueForOption(options.AppleIncludeTypes);
+        var appleSdkTrainMajor = parseResult.GetValueForOption(options.AppleSdkTrainMajor);
+        var appleSdkTrainLabel = parseResult.GetValueForOption(options.AppleSdkTrainLabel);
+        var appleSdkMinIos = parseResult.GetValueForOption(options.AppleSdkMinIos);
+        var appleSdkMinMaccatalyst = parseResult.GetValueForOption(options.AppleSdkMinMaccatalyst);
+        var appleSdkMinTvos = parseResult.GetValueForOption(options.AppleSdkMinTvos);
+        var appleSdkMinMacos = parseResult.GetValueForOption(options.AppleSdkMinMacos);
+        var emitAppleTypesCs = parseResult.GetValueForOption(options.EmitAppleTypesCs);
+        var appleTypesManifestPath = parseResult.GetValueForOption(options.AppleTypesManifest);
+        var appleTypesSequentialLayoutWhitelistPath = parseResult.GetValueForOption(options.AppleTypesSequentialLayoutWhitelist);
         var configPath = parseResult.GetValueForOption(options.Config);
         var verbose = parseResult.GetValueForOption(options.Verbose);
         var help = parseResult.GetValueForOption(options.Help);
@@ -66,6 +78,58 @@ public static class BindingsGeneratorCommand
 
         ILoggerFactory loggerFactory = BindingsGenerator.CreateLoggerFactory(verbose);
         ILogger logger = loggerFactory.CreateLogger<BindingsGenerator>();
+
+        // Handle --emit-apple-types-manifest: fast path that ingests Apple ABI JSON dumps
+        // and writes the SwiftBindings.Apple type metadata manifest. Out-of-tree from the
+        // binding-generation pipeline — this mode never consumes dylib/TBD/swiftinterface,
+        // so it must run BEFORE --platform / --platform-version validation (those flags
+        // are unrelated to manifest emission).
+        if (emitAppleTypesManifest)
+        {
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                logger.LogError("Error: --emit-apple-types-manifest requires -o <output-manifest.json>.");
+                context.ExitCode = 1;
+                return;
+            }
+            var platforms = new AppleTypesManifest.Availability
+            {
+                Ios = appleSdkMinIos,
+                Maccatalyst = appleSdkMinMaccatalyst,
+                Tvos = appleSdkMinTvos,
+                Macos = appleSdkMinMacos,
+            };
+            context.ExitCode = AppleTypesManifest.AppleTypesManifestCommand.Run(
+                appleAbiJsonPaths ?? Array.Empty<string>(),
+                appleIncludeTypes,
+                outputDirectory!,
+                appleSdkTrainMajor,
+                appleSdkTrainLabel,
+                platforms,
+                generatedBy: null,
+                logger);
+            return;
+        }
+
+        // Handle --emit-apple-types-cs: second stage of the Apple-types pipeline. Reads the
+        // manifest emitted by --emit-apple-types-manifest plus an optional sequential-layout
+        // whitelist and writes C# source into -o. Out-of-tree from the binding-generation
+        // pipeline — must run BEFORE --platform validation, same as the manifest mode.
+        if (emitAppleTypesCs)
+        {
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                logger.LogError("Error: --emit-apple-types-cs requires -o <output-dir>.");
+                context.ExitCode = 1;
+                return;
+            }
+            context.ExitCode = AppleTypesManifest.AppleTypesCsCommand.Run(
+                appleTypesManifestPath ?? string.Empty,
+                appleTypesSequentialLayoutWhitelistPath,
+                outputDirectory!,
+                logger);
+            return;
+        }
 
         // Parse and validate --platform
         var parsedPlatform = PlatformInfoFactory.ParsePlatform(platformStr);
@@ -1017,6 +1081,15 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --skip-thunk-compilation    Optional. Skip native thunk assembly compilation.");
         Console.WriteLine("  --compile-wrapper-only      Optional. Compile existing .swift wrapper files only (no parsing/generation).");
         Console.WriteLine("  --compile-bridge-only       Optional. Compile existing SwiftUI bridge .swift files only (no parsing/generation).");
+        Console.WriteLine();
+        Console.WriteLine("Apple types manifest (SwiftBindings.Apple) — ignores binding-generation options:");
+        Console.WriteLine("  --emit-apple-types-manifest  Emit the Apple-types metadata manifest from ABI JSON dumps. With this flag, -o is a FILE path (the target .json), not a directory.");
+        Console.WriteLine("  --apple-abi-json         Repeatable. Path to an Apple SDK ABI JSON dump (from `swift-api-digester -dump-sdk`). Union-merged per-platform.");
+        Console.WriteLine("  --apple-include-types    Required. Path to include-types.json (positive-list of 'Module.NestedType' identities to emit).");
+        Console.WriteLine("  --apple-sdk-train-major  SDK train major. Default: 18.");
+        Console.WriteLine("  --apple-sdk-train-label  Optional. Human-readable SDK train label (e.g. 'Xcode 16 / iOS 18').");
+        Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
+        Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
         Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
     }

@@ -4,10 +4,11 @@
 // Build.Pack.cs — NuGet packaging
 //
 // Ports pack-all.sh into a Nuke target with VersionScope for automatic
-// version stamping and restoration. Builds all 3 packages in dependency order:
+// version stamping and restoration. Builds all 4 packages in dependency order:
 //   1. SwiftBindings.Runtime
 //   2. SwiftBindings.Sdk (publish generator + pack)
 //   3. SwiftBindings.Templates
+//   4. SwiftBindings.Apple (Phase 2 supplement for Apple Swift-only types)
 
 using System.IO;
 using Nuke.Common;
@@ -32,7 +33,7 @@ partial class Build
             using var scope = new VersionScope(Version!, RootDirectory);
 
             // 1. Runtime
-            Log.Information("=== [1/3] Packing SwiftBindings.Runtime ===");
+            Log.Information("=== [1/4] Packing SwiftBindings.Runtime ===");
             DotNetPack(s => s
                 .SetProject(SourceDir / "Swift.Runtime" / "src" / "Swift.Runtime.csproj")
                 .SetConfiguration("Release")
@@ -41,7 +42,7 @@ partial class Build
                 .SetVerbosity(DotNetVerbosity.quiet));
 
             // 2. SDK (publish generator first, then pack)
-            Log.Information("=== [2/3] Packing SwiftBindings.Sdk ===");
+            Log.Information("=== [2/4] Packing SwiftBindings.Sdk ===");
             Log.Information("  Publishing generator...");
             DotNetPublish(s => s
                 .SetProject(SourceDir / "Swift.Bindings" / "src" / "Swift.Bindings.csproj")
@@ -59,9 +60,19 @@ partial class Build
                 .SetVerbosity(DotNetVerbosity.quiet));
 
             // 3. Templates
-            Log.Information("=== [3/3] Packing SwiftBindings.Templates ===");
+            Log.Information("=== [3/4] Packing SwiftBindings.Templates ===");
             DotNetPack(s => s
                 .SetProject(SourceDir / "Swift.Bindings.Templates" / "Swift.Bindings.Templates.csproj")
+                .SetConfiguration("Release")
+                .SetOutputDirectory(outputDir)
+                .EnableNoLogo()
+                .SetVerbosity(DotNetVerbosity.quiet));
+
+            // 4. Apple supplement (Phase 2 — ProjectReference to Runtime is
+            //    stamped into the nuspec as a PackageReference at the same version).
+            Log.Information("=== [4/4] Packing SwiftBindings.Apple ===");
+            DotNetPack(s => s
+                .SetProject(SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj")
                 .SetConfiguration("Release")
                 .SetOutputDirectory(outputDir)
                 .EnableNoLogo()

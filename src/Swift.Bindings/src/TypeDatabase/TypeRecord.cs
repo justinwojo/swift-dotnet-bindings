@@ -197,4 +197,46 @@ public record TypeRecord
     /// <c>swift_conformsToProtocol</c> at runtime.
     /// </summary>
     public string? ProtocolDescriptorSymbol { get; init; }
+
+    /// <summary>
+    /// Swift-side canonical identity for this type. Synonym of <see cref="SwiftTypeName"/> — they
+    /// always refer to the same instance; no independent storage is intended. Introduced by the
+    /// Apple-supplement work (see <c>src/docs/apple-swift-types-architecture.md</c>
+    /// §"Implementation specifics" item 5) so the three conceptual aspects of a type —
+    /// Swift identity, managed projection, and ABI carrier — are all addressable as first-class
+    /// properties on the record.
+    /// </summary>
+    public SwiftTypeName SwiftIdentity => SwiftTypeName;
+
+    /// <summary>
+    /// Optional override for the managed (consumer-facing) C# projection of this type.
+    /// When <c>null</c>, <see cref="EffectiveManagedProjection"/> falls back to
+    /// <see cref="CSharpTypeName"/>. Populating this lets the Apple supplement pin the
+    /// consumer-visible surface to a type outside the declaring module (for example,
+    /// <c>global::Foundation.NSLocale</c> for a Swift <c>Foundation.Locale</c>) without
+    /// losing the carrier/identity distinction carried on the same record.
+    /// </summary>
+    public CSharpTypeName? ManagedProjectionTypeName { get; init; }
+
+    /// <summary>
+    /// Optional override for the C# type used as the ABI carrier across the Swift→C
+    /// boundary (copy/destroy/pass). When <c>null</c>, <see cref="EffectiveAbiCarrier"/>
+    /// falls back to <see cref="CSharpTypeName"/>. Populating this separates "the type
+    /// the consumer sees" from "the type actually marshalled" — required for
+    /// VWT-backed opaque supplement types whose projection is a surface struct but whose
+    /// carrier is a <c>SwiftHandle</c>/opaque payload.
+    /// </summary>
+    public CSharpTypeName? AbiCarrierTypeName { get; init; }
+
+    /// <summary>
+    /// The managed (consumer-facing) C# projection for this type. Returns
+    /// <see cref="ManagedProjectionTypeName"/> if set, otherwise <see cref="CSharpTypeName"/>.
+    /// </summary>
+    public CSharpTypeName EffectiveManagedProjection => ManagedProjectionTypeName ?? CSharpTypeName;
+
+    /// <summary>
+    /// The C# type used as the ABI carrier for this type. Returns
+    /// <see cref="AbiCarrierTypeName"/> if set, otherwise <see cref="CSharpTypeName"/>.
+    /// </summary>
+    public CSharpTypeName EffectiveAbiCarrier => AbiCarrierTypeName ?? CSharpTypeName;
 }

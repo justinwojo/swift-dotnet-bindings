@@ -1,0 +1,17 @@
+{
+  "comment": "Swift identities that the SwiftBindings.Apple supplement owns. Hand-maintained for Phase 2 Session 2. Session 7 will populate this from the 7 target frameworks' actual references. See src/docs/apple-swift-types-architecture.md for exclusion rules — legacy Runtime-owned canonicals (Foundation.Date, Foundation.Data, Foundation.URL, Foundation.Decimal, Foundation.Measurement, Foundation.AnyError, ManagedSettings.Token, SwiftUI.Text) must NOT appear here.",
+  "types": [
+    "Foundation.Locale.Language",
+    "Foundation.Locale.Region",
+    "Foundation.Locale.Currency",
+    "Foundation.Locale.LanguageCode",
+    "Foundation.Locale.Collation",
+    "ManagedSettings.Application",
+    "ManagedSettings.WebDomain",
+    "ManagedSettings.ActivityCategory",
+    "CryptoKit.P256.Signing.ECDSASignature",
+    "CryptoKit.P384.Signing.ECDSASignature",
+    "CryptoKit.P521.Signing.ECDSASignature"
+  ],
+  "typealiases": []
+}

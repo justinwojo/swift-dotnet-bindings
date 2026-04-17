@@ -157,6 +157,53 @@ public class CliOptions
                      "from the output directory into a {Module}Bridge.xcframework, and updates binding-metadata.props. Requires --xcframework and -o.",
         getDefaultValue: () => false);
 
+    public Option<bool> EmitAppleTypesManifest { get; } = new(
+        aliases: new[] { "--emit-apple-types-manifest" },
+        description: "Emit-apple-types-manifest mode: ingest one or more Apple Xcode SDK ABI JSON dumps and write the " +
+                     "SwiftBindings.Apple metadata manifest to -o. Requires --apple-abi-json and --apple-include-types. " +
+                     "See src/Swift.Bindings.Sdk/tools/apple-types-manifest/README.md.",
+        getDefaultValue: () => false);
+
+    public Option<string[]> AppleAbiJson { get; } = new(
+        aliases: new[] { "--apple-abi-json" },
+        description: "Path to an Apple Xcode SDK ABI JSON dump. Repeatable; one dump per (module, platform). Used only by --emit-apple-types-manifest.")
+    { AllowMultipleArgumentsPerToken = false };
+
+    public Option<string?> AppleIncludeTypes { get; } = new(
+        aliases: new[] { "--apple-include-types" },
+        description: "Path to an include-types.json file listing Swift identities (and optional typealiases) to emit into the Apple types manifest. " +
+                     "Positive-list only so the supplement never shadows Runtime-owned canonical types.");
+
+    public Option<int> AppleSdkTrainMajor { get; } = new(
+        aliases: new[] { "--apple-sdk-train-major" },
+        description: "Apple SDK train major (Xcode SDK major, e.g. 18). Written to sdk_train.major in the manifest.",
+        getDefaultValue: () => 18);
+
+    public Option<string?> AppleSdkTrainLabel { get; } = new(
+        aliases: new[] { "--apple-sdk-train-label" },
+        description: "Free-form label for sdk_train.label (e.g. 'Xcode 16 / iOS 18 / macOS 15 / tvOS 18').");
+
+    public Option<string?> AppleSdkMinIos { get; } = new(aliases: new[] { "--apple-sdk-min-ios" }, description: "sdk_train.platforms.ios value.");
+    public Option<string?> AppleSdkMinMaccatalyst { get; } = new(aliases: new[] { "--apple-sdk-min-maccatalyst" }, description: "sdk_train.platforms.maccatalyst value.");
+    public Option<string?> AppleSdkMinTvos { get; } = new(aliases: new[] { "--apple-sdk-min-tvos" }, description: "sdk_train.platforms.tvos value.");
+    public Option<string?> AppleSdkMinMacos { get; } = new(aliases: new[] { "--apple-sdk-min-macos" }, description: "sdk_train.platforms.macos value.");
+
+    public Option<bool> EmitAppleTypesCs { get; } = new(
+        aliases: new[] { "--emit-apple-types-cs" },
+        description: "Emit-apple-types-cs mode: read the Apple types manifest and write C# source for " +
+                     "SwiftBindings.Apple into -o. Requires --apple-types-manifest; optional " +
+                     "--apple-types-sequential-layout-whitelist gates sequential-layout emission.",
+        getDefaultValue: () => false);
+
+    public Option<string?> AppleTypesManifest { get; } = new(
+        aliases: new[] { "--apple-types-manifest" },
+        description: "Path to the Apple types manifest.json (produced by --emit-apple-types-manifest).");
+
+    public Option<string?> AppleTypesSequentialLayoutWhitelist { get; } = new(
+        aliases: new[] { "--apple-types-sequential-layout-whitelist" },
+        description: "Optional path to sequential-layout-whitelist.json. Absent or empty means every " +
+                     "entry emits via the default VWT-backed opaque storage path.");
+
     public Option<int> Verbose { get; } = new(
         aliases: new[] { "-v", "--verbose" },
         description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -199,6 +246,18 @@ public class CliOptions
             SkipThunkCompilation,
             CompileWrapperOnly,
             CompileBridgeOnly,
+            EmitAppleTypesManifest,
+            AppleAbiJson,
+            AppleIncludeTypes,
+            AppleSdkTrainMajor,
+            AppleSdkTrainLabel,
+            AppleSdkMinIos,
+            AppleSdkMinMaccatalyst,
+            AppleSdkMinTvos,
+            AppleSdkMinMacos,
+            EmitAppleTypesCs,
+            AppleTypesManifest,
+            AppleTypesSequentialLayoutWhitelist,
             Config,
             Verbose,
             Help,

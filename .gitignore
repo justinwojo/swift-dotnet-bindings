@@ -223,8 +223,12 @@ BindingTests/RuntimeTestsApp.tvOS/TestClasses.g.txt
 # Validation build artifacts (fingerprint stamps, rebuilt by nuke validate)
 .validation-output/
 
-# SDK build artifacts (published generator tooling, rebuilt by nuke pack)
-src/Swift.Bindings.Sdk/tools/
+# SDK build artifacts (published generator tooling, rebuilt by nuke pack).
+# apple-types-manifest/ is source (Phase 2 Apple-types metadata), not build output,
+# so it is explicitly re-included via the exception below — the parent rule now
+# matches tools/* instead of tools/ so the re-include applies.
+src/Swift.Bindings.Sdk/tools/*
+!src/Swift.Bindings.Sdk/tools/apple-types-manifest/
 src/Swift.Bindings.Sdk/bin/
 
 # Nuke build temp artifacts

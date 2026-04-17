@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swift-bindings.justinwojo.dev/apple-types-manifest/v1.json",
+  "title": "SwiftBindings.Apple type metadata manifest",
+  "description": "Authoritative metadata for Apple Swift-only types bound into the SwiftBindings.Apple supplement package. Consumed by the generator's TypeDatabase and by the supplement source-generation pipeline. See src/docs/apple-swift-types-architecture.md §Q7 for the design contract. Format is intentionally self-contained so a later extraction into a standalone SwiftBindings.Apple.Metadata data package is a relocation, not a reformat.",
+  "type": "object",
+  "required": ["manifest_version", "sdk_train", "modules"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "manifest_version": {
+      "description": "Schema version. Increment on breaking shape changes.",
+      "type": "integer",
+      "const": 1
+    },
+    "generated_by": {
+      "description": "Free-form provenance string (tool + invocation).",
+      "type": ["string", "null"]
+    },
+    "generated_at": {
+      "description": "ISO-8601 UTC timestamp or null for hand-seeded manifests.",
+      "type": ["string", "null"]
+    },
+    "sdk_train": {
+      "type": "object",
+      "required": ["major", "platforms"],
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "description": "Apple SDK train major (Xcode SDK major, e.g. 18 for iOS 18 / macOS 15 / Xcode 16). Also serves as the SwiftBindings.Apple NuGet package major.",
+          "type": "integer"
+        },
+        "label": { "type": "string" },
+        "platforms": {
+          "description": "Minimum platform version this manifest was generated against. Per-type availability may raise the floor further.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ios":          { "type": ["string", "null"] },
+            "maccatalyst":  { "type": ["string", "null"] },
+            "tvos":         { "type": ["string", "null"] },
+            "macos":        { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "modules": {
+      "description": "Keyed by Swift module name (e.g. 'Foundation', 'ManagedSettings', 'CryptoKit').",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/module" }
+    }
+  },
+  "$defs": {
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "types":       { "type": "array", "items": { "$ref": "#/$defs/type" } },
+        "typealiases": { "type": "array", "items": { "$ref": "#/$defs/typealias" } }
+      }
+    },
+    "type": {
+      "description": "A Swift-only type owned by SwiftBindings.Apple. Carries the 3-way TypeRecord split: swift_identity / managed_projection / abi_carrier (architecture doc §Implementation specifics item 5).",
+      "type": "object",
+      "required": [
+        "swift_identity",
+        "managed_projection",
+        "abi_carrier",
+        "kind",
+        "storage_strategy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "swift_identity": {
+          "description": "Dotted Swift identity, e.g. 'Foundation.Locale.Language'. Matches ABI JSON usr/name after normalization.",
+          "type": "string"
+        },
+        "managed_projection": { "$ref": "#/$defs/managed_ref" },
+        "abi_carrier":        { "$ref": "#/$defs/managed_ref" },
+        "kind": {
+          "description": "Swift declaration kind.",
+          "type": "string",
+          "enum": ["struct", "enum", "class", "actor", "protocol"]
+        },
+        "frozen": {
+          "description": "ABI JSON 'frozen' flag. Necessary but NOT sufficient for sequential layout (architecture doc §Q8).",
+          "type": "boolean"
+        },
+        "size":      { "type": ["integer", "null"] },
+        "alignment": { "type": ["integer", "null"] },
+        "stride":    { "type": ["integer", "null"] },
+        "metadata_accessor": { "$ref": "#/$defs/metadata_accessor" },
+        "value_witness":     { "$ref": "#/$defs/value_witness" },
+        "storage_strategy": {
+          "description": "Default is vwt_opaque per architecture doc §Decision summary item 3. 'sequential' requires whitelist + validation; see sequential_layout_whitelisted.",
+          "type": "string",
+          "enum": ["vwt_opaque", "sequential"]
+        },
+        "sequential_layout_whitelisted": {
+          "description": "Per-type explicit opt-in to [StructLayout(Sequential)] emission. Requires frozen=true, layout-known fields, size/alignment validated, copy/destroy trivial or handled, and a passing runtime round-trip test.",
+          "type": "boolean"
+        },
+        "conformance_descriptors": {
+          "description": "Cross-module protocol conformances anchored on this type. Conformance ownership may differ from type ownership (architecture doc §Q10 item 3).",
+          "type": "array",
+          "items": { "$ref": "#/$defs/conformance_descriptor" }
+        },
+        "status": {
+          "description": "Provenance tag. 'seed-placeholder' marks manually-seeded skeleton entries; 'generated' marks entries produced by Session 2's ABI-JSON pipeline.",
+          "type": "string",
+          "enum": ["seed-placeholder", "generated"]
+        }
+      }
+    },
+    "typealias": {
+      "description": "Typealias as alias/projection metadata — NOT duplicate type identity (architecture doc §Q10 item 4). Example: 'ApplicationToken = Token<Application>'.",
+      "type": "object",
+      "required": ["alias_identity", "target_identity"],
+      "additionalProperties": false,
+      "properties": {
+        "alias_identity":  { "type": "string" },
+        "target_identity": { "type": "string" },
+        "availability":    { "$ref": "#/$defs/availability" }
+      }
+    },
+    "managed_ref": {
+      "type": "object",
+      "required": ["namespace", "declaration_path"],
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "description": "CLR namespace root for the type (e.g. 'Swift.Foundation').",
+          "type": "string"
+        },
+        "declaration_path": {
+          "description": "Nested declaration path from the namespace to the type. E.g. ['Locale', 'Language'] means 'Swift.Foundation.Locale.Language'.",
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        }
+      }
+    },
+    "metadata_accessor": {
+      "description": "Pointer-to-metadata accessor symbol. The Swift ABI mandates these for resilient types; the generator uses them to obtain the VWT at runtime.",
+      "type": "object",
+      "required": ["symbol", "library"],
+      "additionalProperties": false,
+      "properties": {
+        "symbol":  { "type": "string" },
+        "library": {
+          "description": "Short dylib/framework name (Foundation, ManagedSettings, ...) used for [DllImport].",
+          "type": "string"
+        },
+        "availability": { "$ref": "#/$defs/availability" },
+        "weak_link": {
+          "description": "Must be weak-linked (platform-guard P/Invoke). Required when availability exceeds the supplement's SupportedOSPlatformVersion floor.",
+          "type": "boolean"
+        }
+      }
+    },
+    "value_witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "'metadata': VWT is obtained at runtime via the metadata accessor (resilient types). 'static_symbol': VWT is a known static symbol (rare, frozen types only).",
+          "type": "string",
+          "enum": ["metadata", "static_symbol"]
+        },
+        "static_symbol": { "type": ["string", "null"] },
+        "trivial": {
+          "description": "True when copy/destroy are memcpy + noop. Informational; runtime round-trip is still required before sequential-layout whitelist.",
+          "type": "boolean"
+        }
+      }
+    },
+    "conformance_descriptor": {
+      "type": "object",
+      "required": ["protocol_identity", "descriptor_symbol"],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_identity":  { "type": "string" },
+        "descriptor_symbol":  { "type": "string" },
+        "owning_module": {
+          "description": "Module that declares the conformance (may differ from the type's module).",
+          "type": "string"
+        },
+        "availability": { "$ref": "#/$defs/availability" }
+      }
+    },
+    "availability": {
+      "description": "Per-platform minimum version the symbol is available on, or null for not-available-on-that-platform.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ios":          { "type": ["string", "null"] },
+        "maccatalyst":  { "type": ["string", "null"] },
+        "tvos":         { "type": ["string", "null"] },
+        "macos":        { "type": ["string", "null"] }
+      }
+    }
+  }
+}

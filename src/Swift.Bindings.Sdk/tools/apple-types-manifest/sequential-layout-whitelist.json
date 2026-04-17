@@ -1,0 +1,4 @@
+{
+  "$comment": "Per-type positive list of Swift identities approved for [StructLayout(Sequential)] emission. Baseline is empty — default storage strategy is VWT-backed opaque. The whitelist is a second gate on top of storage_strategy=sequential / sequential_layout_whitelisted=true in manifest.json; the emitter ALSO requires frozen=true, non-generic, and validated size+alignment before honoring an entry. Adding a name here without a matching manifest + live-SDK size probe will refuse to emit. See src/docs/apple-swift-types-architecture.md §Decision summary item 3 / §Q8.",
+  "approved_identities": []
+}

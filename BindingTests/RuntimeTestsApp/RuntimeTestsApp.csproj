@@ -62,6 +62,13 @@
     <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <!-- SwiftBindings.Apple: Phase 2 Session 4 supplement package. Referenced so the
+         VWT-opaque emitted types (Foundation.Locale.Language, ManagedSettings.Application,
+         CryptoKit.P256.Signing.ECDSASignature, …) can be exercised by the runtime tests
+         against the live SDK. iOS-only TFM here matches RuntimeTestsApp; SwiftBindings.Apple
+         also supports maccatalyst/tvos/macos for consumers that need them. -->
+    <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.

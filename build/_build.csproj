@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <RootNamespace></RootNamespace>
-    <NoWarn>CS0649;CS0169</NoWarn>
+    <NoWarn>CS0649;CS0169;NU1901;NU1902;NU1903;NU1904</NoWarn>
     <NukeTelemetryVersion>1</NukeTelemetryVersion>
   </PropertyGroup>
   <ItemGroup>
