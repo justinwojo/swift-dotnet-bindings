@@ -276,7 +276,10 @@ namespace BindingsGeneration
             string? objcProjectName = null,
             PlatformInfo? platformInfo = null,
             bool hasBridgeSwift = false,
-            string? bridgeModuleName = null)
+            string? bridgeModuleName = null,
+            bool needsAppleSupplement = false,
+            string? appleSupplementVersion = null,
+            string? appleSupplementPrototypeCsprojPath = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
 
@@ -306,6 +309,23 @@ namespace BindingsGeneration
                               $"\n    <_SwiftBindingBridgeSliceCount>0</_SwiftBindingBridgeSliceCount>";
             }
 
+            // Apple-supplement handoff to the SDK. <_SwiftBindingNeedsAppleSupplement> drives the
+            // PackageReference injection in Sdk.targets (target 4f); the optional prototype csproj
+            // path takes precedence and becomes a ProjectReference so iterative supplement changes
+            // don't require a NuGet publish. Both properties stay absent on non-Apple consumers so
+            // unrelated projects don't pick up phantom references.
+            var supplementProps = "";
+            if (needsAppleSupplement)
+            {
+                var effectiveVersion = appleSupplementVersion ?? "18.0.0";
+                supplementProps = $"\n    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>" +
+                                  $"\n    <_SwiftBindingAppleSupplementVersion>{XmlEscape(effectiveVersion)}</_SwiftBindingAppleSupplementVersion>";
+                if (!string.IsNullOrEmpty(appleSupplementPrototypeCsprojPath))
+                {
+                    supplementProps += $"\n    <_SwiftBindingAppleSupplementPrototypeCsproj>{XmlEscape(appleSupplementPrototypeCsprojPath)}</_SwiftBindingAppleSupplementPrototypeCsproj>";
+                }
+            }
+
             var content = $"""
                 <Project>
                   <PropertyGroup>
@@ -315,7 +335,7 @@ namespace BindingsGeneration
                     <_SwiftBindingIsVersionPlaceholder>{metadata.IsVersionPlaceholder}</_SwiftBindingIsVersionPlaceholder>
                     <_SwiftBindingHasWrapperXCFramework>{hasWrapperXCFramework}</_SwiftBindingHasWrapperXCFramework>
                     <_SwiftBindingWrapperModuleName>{wrapperModuleName}</_SwiftBindingWrapperModuleName>
-                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{frameworkTypeProp}{objcProjProp}{bridgeProps}{depsProperty}
+                    <_SwiftBindingWrapperSliceCount>{wrapperSliceCount}</_SwiftBindingWrapperSliceCount>{frameworkTypeProp}{objcProjProp}{bridgeProps}{supplementProps}{depsProperty}
                   </PropertyGroup>
                 </Project>
                 """;

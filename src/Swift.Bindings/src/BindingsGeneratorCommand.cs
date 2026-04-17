@@ -66,6 +66,9 @@ public static class BindingsGeneratorCommand
         var emitAppleTypesCs = parseResult.GetValueForOption(options.EmitAppleTypesCs);
         var appleTypesManifestPath = parseResult.GetValueForOption(options.AppleTypesManifest);
         var appleTypesSequentialLayoutWhitelistPath = parseResult.GetValueForOption(options.AppleTypesSequentialLayoutWhitelist);
+        var validateAppleTypesManifest = parseResult.GetValueForOption(options.ValidateAppleTypesManifest);
+        var appleTypesManifestWriteBack = parseResult.GetValueForOption(options.AppleTypesManifestWriteBack);
+        var appleSupplementPrototypeDir = parseResult.GetValueForOption(options.AppleSupplementPrototypeDir);
         var configPath = parseResult.GetValueForOption(options.Config);
         var verbose = parseResult.GetValueForOption(options.Verbose);
         var help = parseResult.GetValueForOption(options.Help);
@@ -127,6 +130,21 @@ public static class BindingsGeneratorCommand
                 appleTypesManifestPath ?? string.Empty,
                 appleTypesSequentialLayoutWhitelistPath,
                 outputDirectory!,
+                logger);
+            return;
+        }
+
+        // Handle --validate-apple-types-manifest: live-SDK CI validator (Phase 2 / M10).
+        // Probes every manifest entry advertised on the host platform via dlsym +
+        // CallConvSwift accessor invocation, reads VWT size/alignment/stride, and either
+        // detects drift vs. the manifest or writes the probed values back in place.
+        // Out-of-tree from the binding-generation pipeline — must run BEFORE --platform
+        // validation, same as the other Apple-types modes.
+        if (validateAppleTypesManifest)
+        {
+            context.ExitCode = AppleTypesManifest.AppleTypesManifestValidateCommand.Run(
+                appleTypesManifestPath ?? string.Empty,
+                appleTypesManifestWriteBack,
                 logger);
             return;
         }
@@ -837,6 +855,24 @@ public static class BindingsGeneratorCommand
                 var hasBridgeSwift = bridgeFiles.Count > 0;
                 var bridgeModuleName = $"{resolution.ModuleName}Bridge";
 
+                // Apple-supplement prototype: materialized BEFORE metadata props emission so the
+                // resulting csproj path flows into binding-metadata.props for the SDK's
+                // _InjectAppleSupplementPrototype target to consume. No-op when the generator
+                // didn't resolve any supplement types or the consumer didn't pass the flag.
+                string? appleSupplementPrototypeCsproj = null;
+                if (!string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) && AppleSupplementReferences.Any)
+                {
+                    var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                    {
+                        PrototypeDirectory = appleSupplementPrototypeDir!,
+                        ReferencedIdentities = AppleSupplementReferences.Current,
+                        PlatformInfo = platformInfo,
+                        SwiftRuntimeVersion = swiftRuntimeVersion,
+                        MinimumOSVersion = metadata.EffectiveMinimumOSVersion,
+                    }, logger);
+                    appleSupplementPrototypeCsproj = protoResult.CsprojPath;
+                }
+
                 // Always emit metadata props (used by SDK and standalone)
                 XCFrameworkMetadataExtractor.EmitMetadataProps(
                     metadata, outputDirectory, hasWrapperXcfw,
@@ -847,7 +883,9 @@ public static class BindingsGeneratorCommand
                     objcProjectName: objcProjFileName,
                     platformInfo: platformInfo,
                     hasBridgeSwift: hasBridgeSwift,
-                    bridgeModuleName: bridgeModuleName);
+                    bridgeModuleName: bridgeModuleName,
+                    needsAppleSupplement: AppleSupplementReferences.Any,
+                    appleSupplementPrototypeCsprojPath: appleSupplementPrototypeCsproj);
 
                 // Read resource bundle manifest (written by CreateResourceBundleStubs during compilation)
                 var resourceBundleManifest = Path.Combine(outputDirectory, "_resource-bundles.txt");
@@ -877,6 +915,8 @@ public static class BindingsGeneratorCommand
                         ObjCProjectFileName = objcProjFileName,
                         PlatformInfo = platformInfo,
                         ResourceBundleNames = resourceBundleNames,
+                        EmitsAppleSupplementReference = AppleSupplementReferences.Any,
+                        AppleSupplementPrototypeProjectPath = appleSupplementPrototypeCsproj,
                     }, logger);
                 }
 
@@ -943,6 +983,23 @@ public static class BindingsGeneratorCommand
 
                 var projectFrameworkName = BindingsGenerator.InferFrameworkName(tbdPath, directModuleName);
                 var projectResolver = new NamespacePatternResolver(effectiveNamespacePattern, projectFrameworkName);
+
+                // Direct mode has no binding-metadata.props, so the prototype csproj only feeds
+                // the generator-emitted consumer csproj path below — no SDK-target handoff.
+                string? directPrototypeCsproj = null;
+                if (!string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) && AppleSupplementReferences.Any)
+                {
+                    var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                    {
+                        PrototypeDirectory = appleSupplementPrototypeDir!,
+                        ReferencedIdentities = AppleSupplementReferences.Current,
+                        PlatformInfo = platformInfo,
+                        SwiftRuntimeVersion = swiftRuntimeVersion,
+                        MinimumOSVersion = metadata.EffectiveMinimumOSVersion,
+                    }, logger);
+                    directPrototypeCsproj = protoResult.CsprojPath;
+                }
+
                 BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
                 {
                     OutputDirectory = outputDirectory,
@@ -953,6 +1010,8 @@ public static class BindingsGeneratorCommand
                     SwiftRuntimeVersion = swiftRuntimeVersion,
                     PlatformInfo = platformInfo,
                     ResolvedNamespace = projectResolver.ResolveNamespace(directModuleName),
+                    EmitsAppleSupplementReference = AppleSupplementReferences.Any,
+                    AppleSupplementPrototypeProjectPath = directPrototypeCsproj,
                 }, logger);
 
                 // Emit consumer targets too — BindingProjectEmitter unconditionally packs

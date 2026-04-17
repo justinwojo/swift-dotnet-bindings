@@ -48,7 +48,8 @@
         "SmokeTest",
         "Test",
         "UnitTests",
-        "Validate"
+        "Validate",
+        "ValidateAppleTypesManifest"
       ]
     },
     "Verbosity": {
@@ -252,6 +253,10 @@
         "Version": {
           "type": "string",
           "description": "Package version for NuGet"
+        },
+        "WriteBack": {
+          "type": "boolean",
+          "description": "Write probed VWT size/alignment/stride back into the manifest"
         }
       }
     },

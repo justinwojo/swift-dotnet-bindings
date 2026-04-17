@@ -1,0 +1,24 @@
+--- /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/baseline.otool-L.txt	2026-04-17 03:56:13
++++ /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/consumer.otool-L.txt	2026-04-17 03:56:13
+@@ -1,4 +1,4 @@
+-/Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/bin/Release/net10.0-macos/osx-arm64/BlastRadius.Baseline.app/Contents/MacOS/BlastRadius.Baseline:
++/Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Consumer/bin/Release/net10.0-macos/osx-arm64/BlastRadius.Consumer.app/Contents/MacOS/BlastRadius.Consumer:
+ 	@executable_path/../../Contents/MonoBundle/libSystem.Globalization.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
+ 	@executable_path/../../Contents/MonoBundle/libSystem.IO.Compression.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
+ 	@executable_path/../../Contents/MonoBundle/libSystem.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
+@@ -52,6 +52,7 @@
+ 	/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText (compatibility version 1.0.0, current version 877.2.0)
+ 	/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo (compatibility version 1.2.0, current version 726.2.0)
+ 	/System/Library/Frameworks/CoreWLAN.framework/Versions/A/CoreWLAN (compatibility version 1.0.0, current version 1.0.0)
++	/System/Library/Frameworks/CryptoKit.framework/Versions/A/CryptoKit (compatibility version 1.0.0, current version 1.0.0)
+ 	/System/Library/Frameworks/CryptoTokenKit.framework/Versions/A/CryptoTokenKit (compatibility version 0.0.0, current version 805.60.5)
+ 	/System/Library/Frameworks/DataDetection.framework/Versions/A/DataDetection (compatibility version 1.0.0, current version 821.1.0)
+ 	/System/Library/Frameworks/DeviceCheck.framework/Versions/A/DeviceCheck (compatibility version 1.0.0, current version 1.0.0)
+@@ -79,6 +80,7 @@
+ 	/System/Library/Frameworks/LocalAuthentication.framework/Versions/A/LocalAuthentication (compatibility version 1.0.0, current version 2005.60.9)
+ 	/System/Library/Frameworks/LocalAuthenticationEmbeddedUI.framework/Versions/A/LocalAuthenticationEmbeddedUI (compatibility version 1.0.0, current version 2005.60.9)
+ 	/System/Library/Frameworks/MailKit.framework/Versions/A/MailKit (compatibility version 1.0.0, current version 3864.255.41)
++	/System/Library/Frameworks/ManagedSettings.framework/Versions/A/ManagedSettings (compatibility version 1.0.0, current version 266.62.2)
+ 	/System/Library/Frameworks/MapKit.framework/Versions/A/MapKit (compatibility version 1.0.0, current version 0.0.0)
+ 	/System/Library/Frameworks/MediaAccessibility.framework/Versions/A/MediaAccessibility (compatibility version 1.0.0, current version 62.0.0)
+ 	/System/Library/Frameworks/MediaLibrary.framework/Versions/A/MediaLibrary (compatibility version 1.0.0, current version 811.0.0)

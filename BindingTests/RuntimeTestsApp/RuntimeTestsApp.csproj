@@ -69,6 +69,14 @@
          also supports maccatalyst/tvos/macos for consumers that need them. -->
     <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <!-- Phase 2 Session 6 / M8: two independent consumer libraries that each
+         reference SwiftBindings.Apple and touch Foundation.Locale.Language.
+         CrossAssemblyIdentityTests asserts typeof + TypeMetadata match across
+         both assemblies, guarding against per-consumer duplicate emission. -->
+    <ProjectReference Include="../AppleIdentity.ConsumerA/AppleIdentity.ConsumerA.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../AppleIdentity.ConsumerB/AppleIdentity.ConsumerB.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.

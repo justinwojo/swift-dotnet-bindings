@@ -289,6 +289,22 @@ public static class TypeDatabaseExtensions
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
             return true;
 
+        // SwiftBindings.Apple supplement: pulled in before the ObjC synthetic fallback
+        // so a Swift-only Apple type (e.g. Foundation.Locale.Language) resolves to its
+        // managed projection in SwiftBindings.Apple rather than being force-bridged to
+        // an ObjC class that does not exist. Records the identity so the csproj emitter
+        // can add the PackageReference only for consumers that actually touch a supplement
+        // type. No "current module" is passed — the main generator never rebuilds the
+        // supplement itself, so the TypeOwnerRegistry same-module fall-through is moot
+        // here. When the supplement is regenerated the dedicated AppleTypesCsEmitter path
+        // is used instead, which never flows through this helper.
+        if (AppleSupplementResolver.TryResolve(typeName, currentlyGeneratingModule: null, out var supplementRecord))
+        {
+            AppleSupplementReferences.Record(typeName.ModuleQualifiedName);
+            record = supplementRecord;
+            return true;
+        }
+
         // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
         if (IsObjCModuleType(typeSpec))
         {

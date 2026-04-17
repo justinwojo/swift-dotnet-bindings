@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Session 5 / M9 blast-radius smoke test.
+
+       This project is the "treatment" side of the framework-linkage measurement:
+       identical to BlastRadius.Baseline except it references SwiftBindings.Apple
+       and touches exactly one supplement type (Swift.Foundation.Locale.Language).
+       Diffing `otool -L` / `nm -gU` / `strings` output against the baseline
+       reveals what Apple frameworks and Swift runtime symbols the supplement
+       drags into the final binary.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-macos</TargetFramework>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+    <ApplicationId>com.swiftbindings.blastradius.consumer</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <MtouchLink>None</MtouchLink>
+    <EnableCodeSigning>false</EnableCodeSigning>
+    <!-- Skip native dylib relocation: we only need the managed assembly for
+         otool -L / nm -gU inspection. Mirrors RuntimeTestsApp.Mac. -->
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+  </ItemGroup>
+</Project>

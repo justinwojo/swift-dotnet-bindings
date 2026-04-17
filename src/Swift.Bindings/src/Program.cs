@@ -486,6 +486,10 @@ namespace BindingsGeneration
                     }
                 }
 
+                // Reset Apple supplement tracker at module boundary — stale references from a
+                // previous module must not leak into this module's emitted csproj.
+                AppleSupplementReferences.Reset();
+
                 // Emit the C# bindings
                 var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, markerProtocolConformances);
                 stringEmitter.EmitModule(decl, emissionContext);

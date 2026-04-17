@@ -1,0 +1,9 @@
+=== Mach-O executable ===
+Baseline size: 3968168 bytes
+Consumer size: 3968168 bytes
+Delta:         0 bytes (0.00%)
+
+=== .app bundle (includes dylibs + managed assemblies) ===
+Baseline bundle: 127668224 bytes
+Consumer bundle: 127713280 bytes
+Delta:           45056 bytes (0.04%)

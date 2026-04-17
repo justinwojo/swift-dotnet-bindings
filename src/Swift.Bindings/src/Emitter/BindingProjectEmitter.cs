@@ -52,6 +52,32 @@ namespace BindingsGeneration
         /// When non-empty, BundleResource and pack items are emitted for each bundle.
         /// </summary>
         public IReadOnlyList<string>? ResourceBundleNames { get; init; }
+
+        /// <summary>
+        /// When <c>true</c>, emit a PackageReference to <c>SwiftBindings.Apple</c> — meaning
+        /// the consumer's generated bindings referenced at least one Swift-only Apple type
+        /// resolved through <see cref="AppleSupplementResolver"/>. Non-Apple consumers leave
+        /// this <c>false</c> so they do not pick up the supplement.
+        /// </summary>
+        public bool EmitsAppleSupplementReference { get; init; }
+
+        /// <summary>
+        /// When <see cref="EmitsAppleSupplementReference"/> is true, the open-ended NuGet
+        /// version expression to attach (per architecture doc §Decision summary item 5 —
+        /// the Apple supplement is cross-major additive-only, so consumers float forward
+        /// on the Apple SDK train and do not pin to a specific minor). Defaults to
+        /// <c>18.0.0</c> (SDK train 18), overridable by callers that need a different floor.
+        /// </summary>
+        public string AppleSupplementVersion { get; init; } = "18.0.0";
+
+        /// <summary>
+        /// When non-null, emit a <c>ProjectReference</c> (instead of <c>PackageReference</c>)
+        /// to the Apple supplement at the given relative path. Used by the prototyping mode
+        /// where the SDK materializes a supplement project into <c>obj/</c> and the consumer
+        /// references it as a project to preserve canonical identity without round-tripping
+        /// through NuGet restore.
+        /// </summary>
+        public string? AppleSupplementPrototypeProjectPath { get; init; }
     }
 
     /// <summary>
@@ -165,6 +191,41 @@ namespace BindingsGeneration
                     <PackageReference Include="{dep.GetEffectivePackageId(pi)}" Version="{dep.EffectiveVersion}" />{depComment}
                 """;
                 }
+            }
+
+            // Apple supplement reference. Emitted only when the generator resolved at least one
+            // Swift-only Apple type (e.g. Foundation.Locale.Language) via AppleSupplementResolver.
+            // Non-Apple consumers leave EmitsAppleSupplementReference=false and pick up no extra dep.
+            //
+            // The open-ended version ("18.0.0" instead of a bounded range) is deliberate — the
+            // supplement is cross-major additive-only per architecture doc §Decision summary
+            // item 5, so consumers float forward as Apple ships new SDK trains. A closed upper
+            // bound would force a coordinated release for every train bump.
+            //
+            // Prototype mode takes precedence: when a prototype project path is supplied the
+            // consumer references it as a project (canonical identity preserved, no NuGet
+            // round-trip). Swapping project → package reference must be transparent so the
+            // consumer's generated code keeps compiling unchanged — that's what the SDK
+            // targets rely on in --apple-supplement-prototype-dir flows.
+            var appleSupplementRef = "";
+            if (!string.IsNullOrEmpty(options.AppleSupplementPrototypeProjectPath))
+            {
+                appleSupplementRef = $"""
+
+                    <!-- Apple supplement — prototyping mode. Project-reference form keeps
+                         canonical identity across compilations and is swappable for a
+                         PackageReference once the supplement version is pinned. -->
+                    <ProjectReference Include="{XmlEscape(options.AppleSupplementPrototypeProjectPath)}" />
+                """;
+            }
+            else if (options.EmitsAppleSupplementReference)
+            {
+                appleSupplementRef = $"""
+
+                    <!-- Apple supplement — open-ended version per supplement is cross-major
+                         additive-only (architecture doc §Decision summary item 5). -->
+                    <PackageReference Include="SwiftBindings.Apple" Version="{XmlEscape(options.AppleSupplementVersion ?? "")}" />
+                """;
             }
 
             // IsPackable for the dev sentinel: a project that resolves Swift.Runtime via the
@@ -303,7 +364,7 @@ namespace BindingsGeneration
                   </ItemGroup>
 
                   <ItemGroup>
-                {runtimeReference}{dependencyRefs}
+                {runtimeReference}{dependencyRefs}{appleSupplementRef}
                   </ItemGroup>
 
                   <!-- Generated C# bindings -->
@@ -353,6 +414,16 @@ namespace BindingsGeneration
         /// SemVer (e.g. someone passes "1" or "garbage") — defensive, so we never crash
         /// the emitter on a malformed input from a downstream tool.
         /// </summary>
+        private static string XmlEscape(string value)
+        {
+            return value
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;")
+                .Replace("\"", "&quot;")
+                .Replace("'", "&apos;");
+        }
+
         internal static string BuildBoundedRuntimeVersionRange(string version)
         {
             var firstDot = version.IndexOf('.');

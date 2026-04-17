@@ -204,6 +204,31 @@ public class CliOptions
         description: "Optional path to sequential-layout-whitelist.json. Absent or empty means every " +
                      "entry emits via the default VWT-backed opaque storage path.");
 
+    public Option<bool> ValidateAppleTypesManifest { get; } = new(
+        aliases: new[] { "--validate-apple-types-manifest" },
+        description: "Validate-apple-types-manifest mode: probe the live Apple SDK for every manifest " +
+                     "entry advertised on the host platform — load the framework dylib, dlsym the " +
+                     "metadata accessor, invoke it, and read VWT size/alignment/stride. Detects drift " +
+                     "vs. the manifest. Combine with --apple-types-manifest-write-back to populate " +
+                     "size/align/stride in place. Requires --apple-types-manifest <path>.",
+        getDefaultValue: () => false);
+
+    public Option<bool> AppleTypesManifestWriteBack { get; } = new(
+        aliases: new[] { "--apple-types-manifest-write-back" },
+        description: "Used with --validate-apple-types-manifest. When set, the validator writes " +
+                     "probed VWT size/alignment/stride back into the manifest at --apple-types-manifest, " +
+                     "preserving the existing two-space-indent JSON format.",
+        getDefaultValue: () => false);
+
+    public Option<string?> AppleSupplementPrototypeDir { get; } = new(
+        aliases: new[] { "--apple-supplement-prototype-dir" },
+        description: "When set, the generator emits a trimmed SwiftBindings.Apple.Prototype.csproj into this " +
+                     "directory (plus the .cs sources for the Apple-supplement types referenced by this run) " +
+                     "and wires the generated consumer project to it via ProjectReference instead of a " +
+                     "PackageReference to SwiftBindings.Apple. Lets developers iterate on supplement changes " +
+                     "without waiting for a new NuGet publish. No-op when the generator didn't resolve any " +
+                     "Apple-supplement types.");
+
     public Option<int> Verbose { get; } = new(
         aliases: new[] { "-v", "--verbose" },
         description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
@@ -258,6 +283,9 @@ public class CliOptions
             EmitAppleTypesCs,
             AppleTypesManifest,
             AppleTypesSequentialLayoutWhitelist,
+            ValidateAppleTypesManifest,
+            AppleTypesManifestWriteBack,
+            AppleSupplementPrototypeDir,
             Config,
             Verbose,
             Help,

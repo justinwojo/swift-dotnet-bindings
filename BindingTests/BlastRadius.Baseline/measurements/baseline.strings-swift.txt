@@ -1,0 +1,4 @@
+swift_task_enterThreadLocalContext
+swift_task_escalate
+swift_task_exitThreadLocalContext
+Swift.Runtime

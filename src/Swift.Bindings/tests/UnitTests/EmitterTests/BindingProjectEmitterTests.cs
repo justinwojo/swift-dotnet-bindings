@@ -1274,4 +1274,396 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region G. Apple Supplement Reference Tests (Session 5 / M6+M7)
+
+    public class BindingProjectAppleSupplementTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_WithoutSupplementReference_NoAppleSupplementPackageRef()
+        {
+            // Non-Apple consumer: generator did not resolve any Swift-only Apple type,
+            // so the csproj must not pick up SwiftBindings.Apple.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Lottie", emitsAppleSupplementRef: false);
+                Assert.DoesNotContain("SwiftBindings.Apple", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WithSupplementReference_AddsOpenEndedPackageReference()
+        {
+            // Positive case: at least one Apple-supplement type resolved during emission.
+            // Expect an open-ended version (architecture doc §Decision summary item 5 —
+            // supplement is cross-major additive-only).
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(dir, "Translation", emitsAppleSupplementRef: true);
+                Assert.Contains(
+                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"18.0.0\" />",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WithSupplementVersionOverride_FlowsThrough()
+        {
+            // Override hook for callers that need a different floor than the default.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(
+                    dir, "FamilyControls",
+                    emitsAppleSupplementRef: true, supplementVersion: "19.2.0");
+                Assert.Contains(
+                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"19.2.0\" />",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_WithPrototypePath_UsesProjectReferenceInsteadOfPackage()
+        {
+            // Prototype mode wins over PackageReference so canonical identity stays stable
+            // when the SDK materializes a supplement project into obj/.
+            var dir = CreateTempDir();
+            try
+            {
+                var content = EmitAndRead(
+                    dir, "Translation",
+                    emitsAppleSupplementRef: true,
+                    prototypePath: "obj/generated/SwiftBindings.Apple.Prototype.csproj");
+                Assert.DoesNotContain(
+                    "<PackageReference Include=\"SwiftBindings.Apple\"",
+                    content);
+                Assert.Contains(
+                    "<ProjectReference Include=\"obj/generated/SwiftBindings.Apple.Prototype.csproj\" />",
+                    content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string EmitAndRead(
+            string dir, string module,
+            bool emitsAppleSupplementRef,
+            string? supplementVersion = null,
+            string? prototypePath = null)
+        {
+            var sourceXcfwPath = Path.Combine(dir, "..", $"{module}.xcframework");
+            Directory.CreateDirectory(sourceXcfwPath);
+
+            BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+            {
+                OutputDirectory = dir,
+                ModuleName = module,
+                Metadata = CreateMinimalMetadata(module),
+                SourceXCFrameworkPath = sourceXcfwPath,
+                EmitsAppleSupplementReference = emitsAppleSupplementRef,
+                AppleSupplementVersion = supplementVersion ?? "18.0.0",
+                AppleSupplementPrototypeProjectPath = prototypePath,
+            }, _logger);
+            var defaultPi = PlatformInfoFactory.Create(ApplePlatform.iOS);
+            var packageId = defaultPi.GetDefaultSwiftPackageId(module);
+            return File.ReadAllText(Path.Combine(dir, $"{packageId}.csproj"));
+        }
+
+        private static XCFrameworkMetadata CreateMinimalMetadata(string module) => new()
+        {
+            LibraryVersion = "1.0.0",
+            PackageVersion = "1.0.0",
+            IsVersionPlaceholder = false,
+            MinimumOSVersion = "15.0",
+            EffectiveMinimumOSVersion = "15.0",
+            SdkVersion = null,
+            ModuleName = module,
+            Platforms = new List<string>()
+        };
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_supplement_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
+
+    #region H. Apple Supplement Resolver / Reference Tracker Tests
+
+    public class AppleSupplementResolverTests
+    {
+        [Fact]
+        public void Resolver_KnownManifestType_ProducesSyntheticRecord()
+        {
+            // Foundation.Locale.Language ships in the seeded manifest and resolves via the
+            // Apple supplement. The synthetic TypeRecord's C# projection mirrors the
+            // supplement's emitted type identity (Swift.Foundation.Locale.Language).
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("Foundation.Locale.Language");
+            var found = AppleSupplementResolver.TryResolve(
+                swiftName, currentlyGeneratingModule: null, out var record);
+
+            Assert.True(found);
+            Assert.Equal("Swift.Foundation.Locale", record.CSharpTypeName.Namespace);
+            Assert.Equal("Language", record.CSharpTypeName.Name);
+            Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        }
+
+        [Fact]
+        public void Resolver_LegacyRuntimeCanonical_DoesNotHijack()
+        {
+            // Foundation.Date is a legacy canonical pinned to SwiftBindings.Runtime via the
+            // per-type override. The supplement resolver must stay silent so the primary
+            // TypeDatabase entry (the hand-rolled Swift.Date) continues to win.
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("Foundation.Date");
+            var found = AppleSupplementResolver.TryResolve(
+                swiftName, currentlyGeneratingModule: null, out _);
+
+            Assert.False(found);
+        }
+
+        [Fact]
+        public void Resolver_UnknownType_ReturnsFalse()
+        {
+            // An arbitrary third-party Swift identity must not accidentally route through
+            // the supplement resolver — otherwise every non-Apple consumer would silently
+            // grow a SwiftBindings.Apple PackageReference.
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("Lottie.LottieAnimation");
+            var found = AppleSupplementResolver.TryResolve(
+                swiftName, currentlyGeneratingModule: null, out _);
+
+            Assert.False(found);
+        }
+
+        [Fact]
+        public void ReferenceTracker_RoundTrip_RecordsAndResets()
+        {
+            AppleSupplementReferences.Reset();
+            Assert.False(AppleSupplementReferences.Any);
+
+            AppleSupplementReferences.Record("Foundation.Locale.Language");
+            AppleSupplementReferences.Record("Foundation.Locale.Language"); // dedup
+            AppleSupplementReferences.Record("CryptoKit.P256.Signing.ECDSASignature");
+            Assert.True(AppleSupplementReferences.Any);
+            Assert.Equal(2, AppleSupplementReferences.Current.Count);
+
+            AppleSupplementReferences.Reset();
+            Assert.False(AppleSupplementReferences.Any);
+        }
+    }
+
+    #endregion
+
+    #region I. Apple Supplement Prototype Emitter Tests (Session 5 / M7)
+
+    public class AppleSupplementPrototypeEmitterTests
+    {
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Fact]
+        public void Emit_MaterializesCsprojAndSourceFile()
+        {
+            // Happy path: one known manifest identity → csproj + .cs source on disk.
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+
+                Assert.True(File.Exists(result.CsprojPath));
+                Assert.EndsWith("SwiftBindings.Apple.Prototype.csproj", result.CsprojPath);
+                Assert.NotEmpty(result.EmittedSourceFiles);
+                Assert.All(result.EmittedSourceFiles, f => Assert.True(File.Exists(f)));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_CsprojPinsCanonicalAssemblyIdentity()
+        {
+            // Prototype csproj MUST emit AssemblyName=SwiftBindings.Apple + RootNamespace=Swift
+            // so the generated consumer bindings resolve to the same symbols they would hit
+            // through a PackageReference. Drift here silently forks the supplement surface.
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+                var csproj = File.ReadAllText(result.CsprojPath);
+
+                Assert.Contains("<AssemblyName>SwiftBindings.Apple</AssemblyName>", csproj);
+                Assert.Contains("<RootNamespace>Swift</RootNamespace>", csproj);
+                Assert.Contains("<EnableDefaultCompileItems>false</EnableDefaultCompileItems>", csproj);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_CsprojListsEmittedSourcesAsCompileItems()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+                var csproj = File.ReadAllText(result.CsprojPath);
+
+                foreach (var emitted in result.EmittedSourceFiles)
+                {
+                    var rel = Path.GetRelativePath(dir, emitted).Replace('\\', '/');
+                    Assert.Contains($"<Compile Include=\"{rel}\" />", csproj);
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_UsesBoundedRuntimeVersionRangeForPublishedRuntime()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+                var csproj = File.ReadAllText(result.CsprojPath);
+
+                Assert.Contains(
+                    "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"[0.8.0,0.9.0)\" />",
+                    csproj);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_DevSentinelEmitsInTreeProjectReference()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = null,
+                }, _logger);
+                var csproj = File.ReadAllText(result.CsprojPath);
+
+                Assert.Contains("$(SwiftBindingsRepoRoot)/src/Swift.Runtime/src/Swift.Runtime.csproj", csproj);
+                Assert.Contains("[0.0.0-dev]", csproj);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_OnlyReferencedIdentitiesAppear()
+        {
+            // Trimming guarantee: even though the manifest carries many types, only the
+            // identities we asked for should produce .cs files.
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+
+                foreach (var emitted in result.EmittedSourceFiles)
+                    Assert.Contains("Locale.Language.cs", emitted);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_EmptyIdentitySet_Throws()
+        {
+            // Empty set is a caller bug — the wiring in BindingsGeneratorCommand gates on
+            // AppleSupplementReferences.Any specifically so we never reach the emitter
+            // with nothing to write. Fail loud if that invariant breaks.
+            var dir = CreateTempDir();
+            try
+            {
+                Assert.Throws<InvalidOperationException>(() =>
+                    AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                    {
+                        PrototypeDirectory = dir,
+                        ReferencedIdentities = Array.Empty<string>(),
+                        PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    }, _logger));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_SecondRun_CleansStaleSources()
+        {
+            // Fresh-emit: shrinking the identity set must remove sources a prior run left behind.
+            var dir = CreateTempDir();
+            try
+            {
+                var first = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+                Assert.NotEmpty(first.EmittedSourceFiles);
+
+                // Second invocation with an unknown identity — manifest trimmer drops it, so
+                // emitted source set shrinks to zero and the prior run's file must be gone.
+                var second = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.NotARealType.At.All" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = "0.8.0",
+                }, _logger);
+                Assert.Empty(second.EmittedSourceFiles);
+                foreach (var stale in first.EmittedSourceFiles)
+                    Assert.False(File.Exists(stale), $"Stale file lingered: {stale}");
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"asp_emitter_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

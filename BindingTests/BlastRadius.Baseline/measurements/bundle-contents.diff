@@ -1,0 +1,16 @@
+--- /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/baseline.bundle-contents.txt	2026-04-17 03:56:13
++++ /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/consumer.bundle-contents.txt	2026-04-17 03:56:13
+@@ -1,4 +1,4 @@
+-Contents/MonoBundle/BlastRadius.Baseline.dll
++Contents/MonoBundle/BlastRadius.Consumer.dll
+ Contents/MonoBundle/libclrgc.dylib
+ Contents/MonoBundle/libclrgcexp.dylib
+ Contents/MonoBundle/libclrjit.dylib
+@@ -21,6 +21,7 @@
+ Contents/MonoBundle/mscorlib.dll
+ Contents/MonoBundle/netstandard.dll
+ Contents/MonoBundle/Swift.Runtime.dll
++Contents/MonoBundle/SwiftBindings.Apple.dll
+ Contents/MonoBundle/System.AppContext.dll
+ Contents/MonoBundle/System.Buffers.dll
+ Contents/MonoBundle/System.Collections.Concurrent.dll

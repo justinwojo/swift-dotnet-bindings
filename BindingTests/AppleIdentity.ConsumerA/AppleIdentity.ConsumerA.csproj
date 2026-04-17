@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Session 6 / M8 cross-module type identity guardrail.
+
+       One of two minimal consumer libraries that both reference SwiftBindings.Apple
+       and touch a supplement-owned type (Foundation.Locale.Language). RuntimeTestsApp
+       links both and asserts the resolved System.Type + TypeMetadata are identical
+       across the two assemblies — if the generator ever regressed and started
+       duplicating emitted types per consumer, this regression test would fail
+       loudly instead of surfacing as a subtle runtime crash. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0-ios</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp. -->
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+  </ItemGroup>
+</Project>
