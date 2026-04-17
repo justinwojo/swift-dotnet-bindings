@@ -37,7 +37,7 @@ public class EveryProtocolEmitterTests
     {
         var output = EmitEveryProtocolClass();
 
-        Assert.Contains("var handle: UnsafeRawPointer?", output);
+        Assert.Contains("let handle: UnsafeRawPointer?", output);
     }
 
     [Fact]

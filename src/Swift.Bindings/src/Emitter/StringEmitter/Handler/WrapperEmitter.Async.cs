@@ -2124,8 +2124,20 @@ namespace BindingsGeneration
 
             if (isExtension)
             {
+                // Extension declarations on nested types inside OS-gated outer types
+                // (e.g. `extension TipKit.Tips.Event`, where `TipKit.Tips` is iOS 17+)
+                // must themselves carry availability — Swift treats a bare
+                // `extension Foo.Bar { @available(...) func ... }` as using `Foo.Bar`
+                // outside its window and emits `'Foo' is only available in …`.
+                // Use ONLY ancestor annotations (not the method's own) so a method
+                // introduced later than its containing type (e.g. iOS 26 on a Tips.Event)
+                // doesn't produce a more-restrictive extension than the inner method claims,
+                // which Swift rejects as "instance method cannot be more available than enclosing scope".
+                var ancestorAvailability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                    null, _env.ParentDecl);
+                var extensionAvailabilityLines = BuildAvailabilityLines(ancestorAvailability, "");
                 return $$"""
-            extension {{parentTypeName!.ModuleQualifiedName}} {
+            {{extensionAvailabilityLines}}extension {{parentTypeName!.ModuleQualifiedName}} {
             {{funcBody}}
             }
             """;

@@ -151,6 +151,45 @@
     "Foundation": {
       "types": [
         {
+          "swift_identity": "Foundation.DateComponents",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "DateComponents"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "DateComponents"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": 283,
+          "alignment": 8,
+          "stride": 288,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation14DateComponentsVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "10.0",
+              "maccatalyst": null,
+              "tvos": "10.0",
+              "macos": "10.12"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
           "swift_identity": "Foundation.Locale.Collation",
           "managed_projection": {
             "namespace": "Swift.Foundation",
@@ -343,6 +382,45 @@
               "maccatalyst": null,
               "tvos": "16",
               "macos": "13"
+            },
+            "weak_link": true
+          },
+          "value_witness": {
+            "source": "metadata",
+            "trivial": false
+          },
+          "storage_strategy": "vwt_opaque",
+          "sequential_layout_whitelisted": false,
+          "conformance_descriptors": [],
+          "status": "generated"
+        },
+        {
+          "swift_identity": "Foundation.PersonNameComponents",
+          "managed_projection": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "PersonNameComponents"
+            ]
+          },
+          "abi_carrier": {
+            "namespace": "Swift.Foundation",
+            "declaration_path": [
+              "PersonNameComponents"
+            ]
+          },
+          "kind": "struct",
+          "frozen": false,
+          "size": 8,
+          "alignment": 8,
+          "stride": 8,
+          "metadata_accessor": {
+            "symbol": "$s10Foundation20PersonNameComponentsVMa",
+            "library": "Foundation",
+            "availability": {
+              "ios": "10.0",
+              "maccatalyst": null,
+              "tvos": "10.0",
+              "macos": "10.12"
             },
             "weak_link": true
           },

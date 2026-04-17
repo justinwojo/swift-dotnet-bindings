@@ -20,12 +20,19 @@ partial class Build
     // --- Computed validation paths ---
     AbsolutePath GeneratorProject => RootDirectory / "src" / "Swift.Bindings" / "src" / "Swift.Bindings.csproj";
     AbsolutePath RuntimeProject => RootDirectory / "src" / "Swift.Runtime" / "src" / "Swift.Runtime.csproj";
+    AbsolutePath AppleSupplementProject => RootDirectory / "src" / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj";
     AbsolutePath GeneratorDll => RootDirectory / "src" / "Swift.Bindings" / "src" / "bin" / "Debug" / DotNetTfm / "Swift.Bindings.dll";
 
     AbsolutePath GetRuntimeDll(string platform)
     {
         var tfm = ApplePlatform.FromName(platform).GetTfm();
         return RootDirectory / "src" / "Swift.Runtime" / "src" / "bin" / "Debug" / tfm / "Swift.Runtime.dll";
+    }
+
+    AbsolutePath GetAppleSupplementDll(string platform)
+    {
+        var tfm = ApplePlatform.FromName(platform).GetTfm();
+        return RootDirectory / "src" / "Swift.Bindings.Apple" / "bin" / "Debug" / tfm / "SwiftBindings.Apple.dll";
     }
 
     // ============================================================
@@ -384,8 +391,9 @@ partial class Build
                             foundRefs.Select(r =>
                                 $"    <Reference Include=\"{r.Name}\"><HintPath>{r.DllPath}</HintPath></Reference>"));
 
+                        var appleDll = GetAppleSupplementDll(depPlatform);
                         WriteDependencyCsproj(depCsproj, platform.GetTfm(), platform.MinOsVersion,
-                            runtimeDll, depFwBase, csBasename, refElements);
+                            runtimeDll, appleDll, depFwBase, csBasename, refElements);
 
                         // Restore + build
                         RunDotnetRestore(depCsproj);
@@ -962,6 +970,18 @@ partial class Build
                     .AssertWaitForExit()
                     .AssertZeroExitCode();
 
+                // SwiftBindings.Apple supplement: the generator emits a
+                // <PackageReference Include="SwiftBindings.Apple"> line for any binding
+                // that resolves a Swift-only Apple type (e.g. Foundation.DateComponents).
+                // The 18.x.x nupkg isn't on any feed during local validation, so we build
+                // the in-tree project and PatchCsprojRuntime swaps the PackageReference
+                // for a raw <Reference HintPath=...> to the built DLL.
+                ProcessTasks.StartProcess(
+                        "dotnet", $"build \"{AppleSupplementProject}\" -v quiet",
+                        logOutput: false)
+                    .AssertWaitForExit()
+                    .AssertZeroExitCode();
+
                 Log.Information("Generator built");
                 Directory.CreateDirectory(outputBase);
                 File.WriteAllText(buildStamp, fingerprint);
@@ -979,9 +999,14 @@ partial class Build
     {
         var generatorSrc = RootDirectory / "src" / "Swift.Bindings" / "src";
         var runtimeSrc = RootDirectory / "src" / "Swift.Runtime" / "src";
+        var appleSupplementSrc = RootDirectory / "src" / "Swift.Bindings.Apple";
+        // apple-types-manifest.json is an embedded resource in the generator DLL and
+        // also the source-of-truth input for Swift.Bindings.Apple's codegen target.
+        // Changes must invalidate the fingerprint so both get rebuilt.
+        var appleManifestDir = RootDirectory / "src" / "Swift.Bindings.Sdk" / "tools" / "apple-types-manifest";
 
         var files = new List<string>();
-        foreach (var dir in new[] { generatorSrc.ToString(), runtimeSrc.ToString() })
+        foreach (var dir in new[] { generatorSrc.ToString(), runtimeSrc.ToString(), appleSupplementSrc.ToString() })
         {
             if (!Directory.Exists(dir)) continue;
             files.AddRange(Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories)
@@ -992,6 +1017,11 @@ partial class Build
                 .Where(f => !f.Contains("/bin/") && !f.Contains("/obj/")));
             files.AddRange(Directory.EnumerateFiles(dir, "*.targets", SearchOption.AllDirectories)
                 .Where(f => !f.Contains("/bin/") && !f.Contains("/obj/")));
+        }
+
+        if (Directory.Exists(appleManifestDir))
+        {
+            files.AddRange(Directory.EnumerateFiles(appleManifestDir, "*.json", SearchOption.TopDirectoryOnly));
         }
 
         files.Sort(StringComparer.Ordinal);
@@ -1125,8 +1155,12 @@ $"""
     }
 
     void WriteDependencyCsproj(string path, string tfm, string minOs,
-        AbsolutePath runtimeDll, string assemblyName, string csFilename, string refElements)
+        AbsolutePath runtimeDll, AbsolutePath appleDll, string assemblyName, string csFilename, string refElements)
     {
+        // SwiftBindings.Apple is included unconditionally: any binding whose upstream
+        // dependency resolves a Swift-only Apple type will pull it in via the generated
+        // bindings, and this dep-test csproj consumes that compiled DLL. Harmless if
+        // the referenced .cs file doesn't touch the supplement.
         File.WriteAllText(path,
 $"""
 <Project Sdk="Microsoft.NET.Sdk">
@@ -1145,6 +1179,9 @@ $"""
   <ItemGroup>
     <Reference Include="Swift.Runtime">
       <HintPath>{runtimeDll}</HintPath>
+    </Reference>
+    <Reference Include="SwiftBindings.Apple">
+      <HintPath>{appleDll}</HintPath>
     </Reference>
 {refElements}
   </ItemGroup>
@@ -1175,6 +1212,18 @@ $"""
         content = Regex.Replace(content,
             @"<PackageReference\s+Include=""Swift\.Runtime""[^>]*>.*?</PackageReference>",
             replacement, RegexOptions.Singleline);
+
+        // SwiftBindings.Apple supplement is emitted as a plain PackageReference with
+        // version 18.x.x — unpublished during local validation. Swap it for a raw
+        // <Reference HintPath=...> to the in-tree build so NuGet restore doesn't NU1101.
+        var appleDll = GetAppleSupplementDll(platformName);
+        var appleReplacement = $"<Reference Include=\"SwiftBindings.Apple\"><HintPath>{appleDll}</HintPath></Reference>";
+        content = Regex.Replace(content,
+            @"<PackageReference\s+Include=""SwiftBindings\.Apple""[^/]*/\s*>",
+            appleReplacement);
+        content = Regex.Replace(content,
+            @"<PackageReference\s+Include=""SwiftBindings\.Apple""[^>]*>.*?</PackageReference>",
+            appleReplacement, RegexOptions.Singleline);
 
         File.WriteAllText(csprojFile, content);
     }

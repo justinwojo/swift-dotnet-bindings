@@ -22,6 +22,37 @@ namespace BindingsGeneration;
 /// </summary>
 public static partial class ConcreteProtocolSpecializationEmitter
 {
+    // Safety cap on the cartesian product of conformer pairings per method.
+    // Why: a method like `WeatherKit.WeatherService.weather<T1,…,T6>` where every
+    // Ti is constrained to a widely-conformed marker protocol (e.g. Swift.Sendable)
+    // picks up N^6 pairings from ABI-discovered conformers and never terminates —
+    // none of the pairings are emission-eligible, but the predicate sweep walks
+    // the whole product. Legitimate CSM products are tiny (hint-declared protocols
+    // have ≤4 conformers, so 4^6 = 4096 is the realistic worst case). 10k gives
+    // headroom without letting pathological combinatorics through.
+    internal const int MaxCsmCartesianProductSize = 10_000;
+
+    /// <summary>
+    /// Returns the number of cartesian-product pairings that would be enumerated for
+    /// <paramref name="specParams"/>, clamped to <see cref="long.MaxValue"/> on overflow.
+    /// Used to short-circuit CSM-async emission for pathologically large products
+    /// (e.g. methods with many generic params constrained to marker protocols whose
+    /// ABI-discovered conformer count is large).
+    /// </summary>
+    internal static long ComputePairingCount(
+        IReadOnlyList<ConcreteSpecializationEngine.SpecializableParam> specParams)
+    {
+        long total = 1;
+        foreach (var p in specParams)
+        {
+            long n = p.Conformers.Count;
+            if (n == 0) return 0;
+            if (total > long.MaxValue / n) return long.MaxValue;
+            total *= n;
+        }
+        return total;
+    }
+
     /// <summary>
     /// Scans a type's methods for specializable protocol-constrained generics and emits
     /// concrete C# overloads for each known conformer.
@@ -88,6 +119,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else if (method.IsAsync)
             {
+                var pairingCount = ComputePairingCount(spec.SpecializableParams);
+                if (pairingCount > MaxCsmCartesianProductSize)
+                {
+                    logger.LogDebug(
+                        "CSM-async: Skipping {Method} — cartesian product of conformer pairings ({Count}) exceeds cap ({Cap}).",
+                        method.Name, pairingCount, MaxCsmCartesianProductSize);
+                    continue;
+                }
+
                 // Multi-param cartesian product: enumerate all combinations of conformers,
                 // filter pairs whose cross-parameter same-type constraints (e.g., S.Element == T)
                 // are not satisfied. Only emit the surviving substitution pairs.

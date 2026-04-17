@@ -303,6 +303,90 @@ public class ConcreteSpecializationEngineTests
         Assert.Single(result[0].SpecializableParams);
     }
 
+    [Fact]
+    public void ComputePairingCount_SingleParam_ReturnsConformerCount()
+    {
+        var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>
+        {
+            MakeSpecParam(conformerCount: 4),
+        };
+
+        Assert.Equal(4, ConcreteProtocolSpecializationEmitter.ComputePairingCount(specParams));
+    }
+
+    [Fact]
+    public void ComputePairingCount_MultipleParams_ReturnsProduct()
+    {
+        var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>
+        {
+            MakeSpecParam(conformerCount: 2),
+            MakeSpecParam(conformerCount: 3),
+            MakeSpecParam(conformerCount: 4),
+        };
+
+        Assert.Equal(24, ConcreteProtocolSpecializationEmitter.ComputePairingCount(specParams));
+    }
+
+    [Fact]
+    public void ComputePairingCount_ParamWithZeroConformers_ReturnsZero()
+    {
+        var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>
+        {
+            MakeSpecParam(conformerCount: 5),
+            MakeSpecParam(conformerCount: 0),
+        };
+
+        Assert.Equal(0, ConcreteProtocolSpecializationEmitter.ComputePairingCount(specParams));
+    }
+
+    [Fact]
+    public void ComputePairingCount_OverflowSaturatesToLongMaxValue()
+    {
+        // Six params each with 1000 conformers → 10^18, overflows Int64 when multiplied
+        // (Int64.MaxValue ≈ 9.2×10^18; still fits, but seven params × 1000 = 10^21 doesn't).
+        var specParams = Enumerable.Range(0, 7)
+            .Select(_ => MakeSpecParam(conformerCount: 1000))
+            .ToList();
+
+        Assert.Equal(long.MaxValue,
+            ConcreteProtocolSpecializationEmitter.ComputePairingCount(specParams));
+    }
+
+    [Fact]
+    public void ComputePairingCount_WeatherKitPathology_ExceedsCap()
+    {
+        // Reproduces the WeatherKit.WeatherService.weather<T1..T6> blow-up where every
+        // generic param is constrained to Swift.Sendable and the ABI yields ~50 module-local
+        // conformers per param. The product (50^6 ≈ 15 billion) must be above the cap so
+        // the CSM-async paths short-circuit before iterating the cartesian product.
+        var specParams = Enumerable.Range(0, 6)
+            .Select(_ => MakeSpecParam(conformerCount: 50))
+            .ToList();
+
+        var product = ConcreteProtocolSpecializationEmitter.ComputePairingCount(specParams);
+        Assert.True(product > ConcreteProtocolSpecializationEmitter.MaxCsmCartesianProductSize,
+            $"Pathological product ({product}) should exceed cap " +
+            $"({ConcreteProtocolSpecializationEmitter.MaxCsmCartesianProductSize}).");
+    }
+
+    private static ConcreteSpecializationEngine.SpecializableParam MakeSpecParam(int conformerCount)
+    {
+        var conformers = Enumerable.Range(0, conformerCount)
+            .Select(i => new ConcreteSpecializationEngine.ConcreteConformer(
+                SwiftQualifiedName: $"TestLib.Conformer{i}",
+                CSharpType: $"Conformer{i}"))
+            .ToList();
+
+        return new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: new GenericArgumentDecl(
+                TypeName: "T",
+                SugaredTypeName: "T",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()),
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Protocol"),
+            Conformers: conformers);
+    }
+
     // ==================== Test Doubles ====================
 
     private class EmptyTypeDatabase : ITypeDatabase

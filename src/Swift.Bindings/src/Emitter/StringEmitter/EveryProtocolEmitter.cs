@@ -44,10 +44,16 @@ public class EveryProtocolEmitter
             // EveryProtocol is a Swift class that can conform to any protocol.
             // Protocol method implementations call back to C# via vtable function pointers.
             // This class is used by generated proxy classes to implement Swift protocols from C#.
-            public final class EveryProtocol {
+            //
+            // @unchecked Sendable: transitive Sendable conformance flows in from framework
+            // protocols (e.g. TipKit.Tip inherits Sendable). onDeinit/onDeinitCtx must stay
+            // mutable because SBW_SetEveryProtocolDeinitCallback writes them after init,
+            // so strict Sendable checking can't verify them. Safety is enforced by the
+            // SwiftObjectRegistry lifetime contract, not by the compiler.
+            public final class EveryProtocol: @unchecked Sendable {
                 // Store a handle back to the C# proxy object
                 // This is used by vtable functions to find the C# implementation
-                public var handle: UnsafeRawPointer?
+                public let handle: UnsafeRawPointer?
 
                 // Deinit callback fired when Swift's last retain drops. The C# proxy
                 // registers this so the SwiftObjectRegistry strong root and the

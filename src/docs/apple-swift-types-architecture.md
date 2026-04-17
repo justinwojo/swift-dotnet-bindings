@@ -38,25 +38,26 @@ After two review rounds by Grok and Codex, the resolved approach is:
    package if needed. Both the generator and the supplement build consume
    the same manifest.
 5. **Package-version invariant (explicit):**
-   - **Package major = Apple SDK train major** (e.g., iOS 18 →
-     `18.x.x`, iOS 19 → `19.x.x`). One package release per Apple SDK
-     train.
+   - **Package major = Apple SDK train major** (e.g., iOS 26 →
+     `26.x.x`, iOS 27 → `27.x.x`). One package release per Apple SDK
+     train. Minor and patch are package-internal — see the "Versioning
+     for consumers" section below for the full semantics.
    - **Cross-major additive-only.** Every new major is a strict
      superset of every prior major's public surface. Types may be
      added; members may be added; items may be deprecated via
      attributes but NOT removed or renamed, across any number of
      majors. Deprecated items get shims, not drops.
-   - **Consumer ranges are open-ended** (`>=18.0.0`) and safe under
-     this invariant. A graph that mixes an iOS 18–built consumer with
-     an iOS 19–built consumer unifies at the higher supplement; the
-     additive-only commitment guarantees the iOS 18 consumer's type
+   - **Consumer ranges are open-ended** (`>=26.0.0`) and safe under
+     this invariant. A graph that mixes an iOS 26–built consumer with
+     an iOS 27–built consumer unifies at the higher supplement; the
+     additive-only commitment guarantees the iOS 26 consumer's type
      references still resolve.
    - **When an invariant violation is unavoidable** (extraordinarily
      rare — e.g., Apple performs a resilience-boundary reshuffle), we
      ship the break under a new package NAME
      (`SwiftBindings.Apple.v2`), NOT as a breaking-major of
      `SwiftBindings.Apple`. Consumers migrate explicitly with source
-     changes. This keeps `>=18.0.0` semantically honest.
+     changes. This keeps `>=26.0.0` semantically honest.
    - **v2 coexistence rule.** `SwiftBindings.Apple` and
      `SwiftBindings.Apple.v2` are allowed to coexist in the same
      graph without fracturing type identity because they live under
@@ -109,6 +110,170 @@ After two review rounds by Grok and Codex, the resolved approach is:
 The full analysis, options considered, and rejected paths remain below
 for context. Where this Decision summary contradicts anything below, the
 Decision summary is authoritative.
+
+## Status (2026-04-17): Phase 2 shipped; M11b remaining
+
+Phase 2 landed all architectural machinery described above across 7
+commits on `apple-nuget-rework` (`41d00b1e` → `70b37ea0`). The
+single-package supplement, `TypeOwnerRegistry` with 6-level resolver,
+VWT-backed opaque storage, manifest pipeline, cross-module identity
+test, live-SDK CI validation (`ValidateAppleTypesManifest`),
+demand-driven prototyping with canonical project-reference identity,
+and framework-linkage blast-radius smoke are all in place. See
+`src/docs/phase-2-session-plan.md` for the per-session breakdown and
+commit SHAs.
+
+The gap between "architecture complete" and "problem statement
+resolved" is **framework bootstrapping**. The Problem statement says
+this design exists to unblock 6 of 7 target frameworks; currently
+only ProximityReader is demonstrably unblocked (14 AnyTypeFallback
+skips → 0). CryptoKit has manifest entries but was not re-verified.
+Translation has its types in the manifest but was not re-verified.
+FamilyControls, LiveCommunicationKit, WeatherKit, and TipKit remain
+deferred to M11b with blockers that range from "never inventoried"
+to "generator hangs at 99% CPU".
+
+Two other items from the doc are also outstanding: `Foundation.Data.Payload`
+(Appendix A "Needs investigation") was never investigated, and
+CryptoKit's "SwiftHandle gap (Fix F)" annotation was not followed
+up on this phase.
+
+### M11b plan
+
+**Track 1 — M11b-recon + quick wins (one session).** Goal: accurate
+classification of every remaining blocker *and* clearing the items
+that only need verification. Concrete scope:
+
+1. Re-verify CryptoKit and Translation end-to-end. Their manifest
+   entries exist (P256/P384/P521 from Session 2; Locale.Language,
+   Locale.Region, Locale.Currency from Sessions 2 and 7). Regenerate;
+   confirm SB0001 counts drop for previously-skipped Swift-only-type
+   members. If they don't, diagnose.
+2. Inventory FamilyControls' own Swift-only surface (beyond the
+   ManagedSettings indirection already covered by the manifest) and
+   add any missing entries.
+3. Reproduce each hard blocker once and capture the exact failure
+   signature (concrete error text, stack/CPU sample where relevant).
+   Classify — no speculative fixes:
+   - **TipKit**: specific generator error.
+   - **LiveCommunicationKit**: is it the Appendix A generic-param
+     leak (`T`, `TT1`, `TT2`, `TT3`) or something else?
+   - **WeatherKit**: CPU sample during the 99% hang; classify as
+     runaway generic resolution vs ABI-parser loop vs other.
+4. Investigate `Foundation.Data.Payload` (Appendix A "Needs
+   investigation") — confirm real type vs false positive vs renamed.
+5. Investigate CryptoKit's "SwiftHandle gap (Fix F)" annotation from
+   Appendix A; determine whether it's already addressed or still open.
+
+Exit: one commit with the quick-win coverage + a concise classification
+document (`src/docs/m11b-recon.md`) naming the blocker class for each
+still-deferred framework. No speculative fixes in this session.
+
+**Track 2 — M11b-finish (one or two sessions, scope decided by recon).**
+Execute on whatever recon found. Likely shape:
+
+- If WeatherKit + LiveCommunicationKit both trace back to the
+  generic-param emitter bug (Appendix A), fix the emitter — one
+  scoped session unblocks both simultaneously. This is an emitter
+  change, not a supplement change; runs through generator gates
+  carefully.
+- Framework-specific remaining blockers get targeted fixes.
+- Exit: all 7 target frameworks regenerate cleanly, SB0001 down to
+  permanent-limit floors, gates green, validation baseline updated.
+
+### Non-code tracks (parallel, user-side)
+
+- **Q10 item 5 (legal/licensing check)** on shipping generated
+  metadata derived from Apple SDKs. Resolved: see
+  [`licensing-analysis.md`](./licensing-analysis.md) for the full
+  analysis (risk 2/5) and the 10-item pre-publish checklist. Doesn't
+  block M11b; checklist must be executed before the first
+  `nuget.org` publish.
+- **Phase 3 publishing** (`SwiftBindings.Apple 26.0.0` nupkg to
+  nuget.org + swift-dotnet-packages commit). Only meaningful after
+  M11b lands and the supplement covers the full 7-framework target
+  list.
+
+### Rationale for the recon/finish split
+
+Session 7 tried to inventory, diagnose, and fix simultaneously, hit
+auto-compact at 1h 35m, and had to rebuild state. Splitting recon
+from execution bounds recon to one commit with no speculative fixes,
+and gives execution accurate scope informed by concrete error
+signatures rather than labels like "unclassified".
+
+## Versioning for consumers
+
+**One-sentence rule:** if your app targets iOS 26, use
+`SwiftBindings.Apple >=26.0.0`. If it targets iOS 27, use
+`SwiftBindings.Apple >=27.0.0`. That's it.
+
+### What the three digits mean
+
+| Digit | What it tracks | Consumer impact |
+|---|---|---|
+| **Major** (e.g., `26`) | Apple SDK train (iOS 26, iOS 27, …) | Pick the major ≥ your app's minimum iOS target. Newer majors are always a strict superset — safe to upgrade across majors. |
+| **Minor** (e.g., `26.1.0`) | Package-internal: new types supplemented, new framework added, new generator capability | Always safe to upgrade. Not coupled to Apple's iOS minor cadence. |
+| **Patch** (e.g., `26.0.1`) | Package-internal: bug fixes within the same coverage surface | Always safe to upgrade. |
+
+### Why minor/patch are NOT coupled to Apple's minor/patch
+
+We deliberately decouple because:
+
+- **Package bug fixes happen on our cadence, not Apple's.** If Apple
+  doesn't ship an iOS 26.1, we still need to release 26.0.1 for
+  package bug fixes. Coupling would force us to skip version numbers
+  or manufacture bumps.
+- **Not every Apple minor adds Swift-only types.** If iOS 26.1 has
+  zero new Swift-only types, a minor bump would be arbitrary under
+  the coupled scheme. Under our scheme, we only bump minor when
+  coverage genuinely expands.
+- **Release notes, not version digits, tell consumers "covers
+  iOS 26.2 types."** The version number answers "is it safe to
+  upgrade?"; the changelog answers "what's new?". Separating these
+  concerns keeps the version number a clean signal.
+
+### What consumers never need to worry about
+
+- **Matching the supplement version to the SDK version they built
+  against.** The supplement's ABI metadata resolves Swift entry
+  points at runtime via `dlsym`; `@available(iOS N, *)` gating in
+  Apple's SDK is the runtime safety net. If a consumer builds
+  against iOS 26.0 SDK and pulls `SwiftBindings.Apple 26.2.0`, the
+  supplement may describe types that don't exist on iOS 26.0 — but
+  that's only a runtime issue if the consumer *calls* a
+  new-in-26.2 type on a 26.0 device, and Apple's availability
+  attributes would already flag that at build time.
+- **Cross-major mixes within a graph.** A graph containing one
+  consumer built against `SwiftBindings.Apple 26.x` and another
+  built against `27.x` resolves to the higher version (NuGet's
+  default rule). The cross-major additive-only invariant (Decision
+  summary item 5) guarantees the 26.x consumer's type references
+  still resolve under `27.x`.
+
+### First ship
+
+`SwiftBindings.Apple 26.0.0`. Built against iOS 26.2 SDK, covering
+the manifest types listed in the Status section. Coverage bumps ship
+as `26.1.0`, `26.2.0`, etc. Bug fixes ship as `26.0.1`. iOS 27 SDK
+train ships as `27.0.0` (still additive).
+
+### Decoupling from `SwiftBindings.Runtime` / `SwiftBindings.Sdk` versions
+
+`SwiftBindings.Runtime` and `SwiftBindings.Sdk` version on generator
+cadence (currently `0.8.x`). `SwiftBindings.Apple` versions on Apple
+SDK train (currently `26.x.x`). These are semantically unrelated and
+MUST NOT share a version stamp.
+
+**Tooling gap (blocks first `26.0.0` publish):**
+`build/Helpers/VersionScope.cs` currently stamps all four csproj
+files (Runtime, SDK, Templates, Apple) from a single `--version`
+argument. Before the first `SwiftBindings.Apple 26.0.0` publish, the
+stamp must be split so `nuke pack --version 0.8.0 --apple-version
+26.0.0` (or equivalent) sets each package independently. This is a
+small change local to `VersionScope.cs` and `Build.Pack.cs`, tracked
+in the pre-publish checklist of
+[`licensing-analysis.md`](./licensing-analysis.md).
 
 ## Problem statement
 
@@ -253,13 +418,13 @@ frameworks add `PackageReference` to whichever supplements they need.
 
 **Cons (the killers):**
 - **Diamond dependency conflicts.** Consumer app uses
-  `SwiftBindings.Translation` (depends on `Apple.Foundation 18.0`) AND
-  `SwiftBindings.WeatherKit` (depends on `Apple.Foundation 18.1`). NuGet
-  picks highest; if 18.1 ABI-broke 18.0, build fails.
+  `SwiftBindings.Translation` (depends on `Apple.Foundation 26.0`) AND
+  `SwiftBindings.WeatherKit` (depends on `Apple.Foundation 26.1`). NuGet
+  picks highest; if 26.1 ABI-broke 26.0, build fails.
 - **Cascading release matrix.** Each Apple SDK train = N supplement
   releases × M framework releases. CI pipeline owns coordination
   forever.
-- **Lockstep upgrade pressure.** Bump iOS 18→19? Every supplement
+- **Lockstep upgrade pressure.** Bump iOS 26→27? Every supplement
   releases, every framework releases pinning new majors, every consumer
   migrates. Forget one, transitive resolution breaks.
 - **First-mover lockin.** Once `SwiftBindings.Apple.Foundation 1.0`
@@ -283,7 +448,7 @@ Apple Swift-only types. Legacy canonical types (Date, URL, etc.) stay in
 `SwiftBindings.Runtime` — the supplement does NOT re-emit them.
 
 Versioned per Apple SDK train (Xcode SDK major). Consumer frameworks
-reference the supplement with an open-ended range (`>=18.0.0`). Internal
+reference the supplement with an open-ended range (`>=26.0.0`). Internal
 CLR namespacing splits per Swift module:
 
 ```
@@ -339,7 +504,7 @@ Variant of D. ONE NuGet package, but internally ships multiple `.dll`
 files (one per Apple Swift module, or grouped by frequency-of-use).
 
 ```
-SwiftBindings.Apple.18.0.0.nupkg
+SwiftBindings.Apple.26.0.0.nupkg
 ├── lib/net10.0-ios26.2/
 │   ├── SwiftBindings.Apple.Foundation.dll
 │   ├── SwiftBindings.Apple.ManagedSettings.dll
@@ -416,13 +581,14 @@ The following items supplement the Decision summary at the top. Where
 they overlap, the Decision summary is authoritative.
 
 1. **Package name:** `SwiftBindings.Apple`.
-2. **Versioning:** Package major = Apple SDK train major (iOS 18 →
-   `18.x.x`, iOS 19 → `19.x.x`). Minor/patch for within-train
+2. **Versioning:** Package major = Apple SDK train major (iOS 26 →
+   `26.x.x`, iOS 27 → `27.x.x`). Minor/patch for within-train
    additions. Supplement commits to cross-major additive-only (see
-   Decision summary item 5), so consumers use open-ended `>=18.0.0`
+   Decision summary item 5), so consumers use open-ended `>=26.0.0`
    ranges without upper bounds. Genuine Apple ABI breaks are handled
    by shipping under a new package name, not by bumping this package's
-   major past its additive guarantee.
+   major past its additive guarantee. See "Versioning for consumers"
+   below for the consumer-facing mental model.
 3. **CLR namespaces:** `Swift.Foundation.*`, `Swift.ManagedSettings.*`,
    `Swift.CryptoKit.*`, etc. Mirror Apple's module organization.
 4. **Generation modes:**
@@ -471,7 +637,7 @@ position (usually Codex's).
 Yes, for the per-module failure mode that matters most. One package =
 one version per consumer → no per-module diamond deps possible.
 
-With open-ended ranges (`>=18.0.0`), iOS 18-built and iOS 19-built
+With open-ended ranges (`>=26.0.0`), iOS 26-built and iOS 27-built
 consumers can coexist in a single app. Resolver picks highest; the
 **cross-major additive-only** commitment (Decision summary item 5) is
 what makes that unification safe — every newer supplement major is a
@@ -614,7 +780,10 @@ Codex flagged seven items the design should account for:
    identity.
 5. **Legal/licensing.** Shipping generated API/type metadata derived
    from Apple SDKs is probably fine (analogous to existing bindings),
-   but worth a deliberate check before publishing.
+   but worth a deliberate check before publishing. **Resolved** —
+   see [`licensing-analysis.md`](./licensing-analysis.md) for full
+   analysis (risk 2/5, ADPLA §7.5 library carve-out applies) and the
+   10-item pre-publish checklist.
 6. **CI validation against live SDK.** Smoke test that supplement
    metadata accessor symbols exist, size/alignment match, VWT
    copy/destroy works, optional/container round-trip works. Catches
@@ -636,7 +805,7 @@ assert reference equality on the CLR `Type`.
 | Frozen detection | Trust ABI JSON 100% | Necessary but not sufficient | **Codex** — corruption risk |
 | Multi-assembly inside package | Premature, never | Worth it for identity hygiene | **Defer** — monolith first, split if natural |
 | Bootstrap metadata | Just use ABI JSON | Need third manifest artifact | **Codex** — avoids cycle |
-| Version ranges | `[18.0,19.0)` | `>=18.0.0` open-ended | **Codex** — NuGet best practice |
+| Version ranges | `[26.0,27.0)` | `>=26.0.0` open-ended | **Codex** — NuGet best practice |
 | Non-Apple consumer model | Implicit transitive | Formal `TypeOwnerRegistry` | **Codex** — generalizes cleanly |
 | Hand-roll overlay strategy | Move overlays into supplement | Keep overlays where the canonical type lives | **Codex** — couples to Q2 decision |
 

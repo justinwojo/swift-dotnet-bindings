@@ -551,12 +551,10 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.Notification")]
     [InlineData("Foundation.Notification.Name")]
     [InlineData("Foundation.Measurement")]
-    [InlineData("Foundation.PersonNameComponents")]
     [InlineData("Foundation.CharacterSet")]
     [InlineData("Foundation.Decimal")]
     [InlineData("Foundation.NSRange")]
     [InlineData("Foundation.Date")]
-    [InlineData("Foundation.DateComponents")]
     [InlineData("Foundation.IndexSet")]
     [InlineData("Foundation.ComparisonResult")]
     [InlineData("Foundation.IndexPath")]
@@ -566,7 +564,6 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.objc_AssociationPolicy")]
     [InlineData("Foundation.Date.ComponentsFormatStyle")]
     [InlineData("Foundation.Decimal.FormatStyle.Currency")]
-    [InlineData("Foundation.Locale.Currency")]
     public void GetTypeRecordOrAnyType_FoundationValueType_ReturnsAnyType(string swiftType)
     {
         var typeDatabase = new TypeDatabase();

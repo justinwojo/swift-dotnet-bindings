@@ -537,6 +537,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
 
+        // Short-circuit the predicate when the cartesian product would blow up; the
+        // emitter path applies the same cap, so declaring ineligible here keeps the
+        // predicate consistent with what the emitter will actually do.
+        if (ComputePairingCount(specializable.SpecializableParams) > MaxCsmCartesianProductSize)
+        {
+            return false;
+        }
+
         // For each cartesian pairing: coupling + per-pairing structural guards + full
         // dry-run plan + dedup claim. The first pairing that passes all four makes the
         // method suppressible. TryClaim is idempotent for the same (key, owner), so

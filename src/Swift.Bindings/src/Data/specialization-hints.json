@@ -53,6 +53,16 @@
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.TableType", "csharpType": "RoomPlan.TableType" },
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.StorageType", "csharpType": "RoomPlan.StorageType" }
       ]
+    },
+    {
+      "protocol": "MusicKit.MusicLibraryAddable",
+      "conformers": [
+        { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album" },
+        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo" },
+        { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist" },
+        { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song" },
+        { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track" }
+      ]
     }
   ]
 }

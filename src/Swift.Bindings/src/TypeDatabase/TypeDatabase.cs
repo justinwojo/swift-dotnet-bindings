@@ -301,6 +301,18 @@ namespace BindingsGeneration
                 return true;
             }
 
+            // SwiftBindings.Apple supplement fallback. Covers cross-module Swift-only
+            // types (e.g. Foundation.Locale.Language referenced from Translation) that
+            // aren't published by any module XML database. Runs last so registered
+            // entries always win; the resolver itself honours TypeOwnerRegistry
+            // overrides that pin legacy canonicals (Foundation.Date etc.) to Runtime.
+            if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
+            {
+                AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName);
+                record = supplementRecord;
+                return true;
+            }
+
             return false;
         }
 

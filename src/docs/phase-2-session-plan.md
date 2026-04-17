@@ -173,7 +173,7 @@ byte footprint was).
 
 ---
 
-### Session 6 — M8 + M10: cross-module identity test + live-SDK CI validation — ✅ COMPLETE
+### Session 6 — M8 + M10: cross-module identity test + live-SDK CI validation — ✅ COMPLETE (commit `5639f2ce`)
 
 **Scope:**
 - **M8 — Cross-module type identity test** (permanent regression
@@ -194,9 +194,32 @@ locally via `nuke`) and passing.
 
 ---
 
-### Session 7 — M11: bootstrap the 7 target frameworks
+### Session 7 — M11: bootstrap the 7 target frameworks — ✅ M11a COMPLETE (commit `70b37ea0`) / M11b deferred
 
-**Scope:**
+**M11a delivered:** Foundation.DateComponents + Foundation.PersonNameComponents
+manifest entries (probed via `--write-back`). ProximityReader bootstrapped
+(14 AnyTypeFallback → 0). `AppleSupplementResolver` final-fallback path wired
+into TypeDatabase. `Build.Validation.cs` extended to build in-tree
+`SwiftBindings.Apple` and regex-patch `<PackageReference>` → raw
+`<Reference HintPath=...>` (mirroring the Runtime pattern) for the local
+validation path; `ComputeSourceFingerprint` now covers the Apple project +
+manifest JSON. Gates green (validate 95/95, binding-tests 0:40, unit tests
+green; baseline updated +3/-3 no-regression).
+
+**M11b deferred** (follow-up session, outside Phase 2 scope):
+- **Translation** — not inventoried; needs a fresh pass.
+- **LiveCommunicationKit** — not re-run this session; classification
+  unverified (may or may not still be the architecture-doc Appendix A
+  generic-param emitter bug). M11b must reproduce + classify.
+- **WeatherKit** — generator hung at 99% CPU mid-generation; blocker class
+  unknown. Needs a CPU-sample trace in M11b.
+- **TipKit** — no specific error captured; blocker class unclassified.
+- **FamilyControls** — currently covered only indirectly via the
+  ManagedSettings manifest; its own Swift-only surface not inventoried.
+- **CryptoKit** — manifest has 3 pre-existing P256/P384/P521 entries from
+  Session 2; not revisited this session (may be complete as-is).
+
+**Scope (original):**
 - Discover every Swift-only type referenced by the 7 target frameworks
   (Translation, ProximityReader, LiveCommunicationKit, FamilyControls,
   WeatherKit, TipKit, CryptoKit). Populate the manifest exhaustively.
