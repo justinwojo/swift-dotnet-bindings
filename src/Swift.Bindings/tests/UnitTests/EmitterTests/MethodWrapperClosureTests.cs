@@ -124,27 +124,21 @@ public class MethodWrapperClosureTests
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
-        // Register a non-frozen struct for genuinely non-Cdecl-compatible closure arg
-        var extraModule = new ModuleTypeDatabase("TestExtra", "/tmp/TestExtra.dylib");
-        extraModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeSized"),
-            new TypeRecord
-            {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestExtra", "RuntimeSized"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestExtra.RuntimeSized"),
-                MetadataAccessor = "$s9TestExtra11RuntimeSizedVMa",
-                Flags = TypeRecordFlags.RequiresMemoryManagement, // NOT frozen
-                Kind = TypeRecordKind.Struct
-            });
-        typeDb.AddModuleDatabase(extraModule);
-
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
         var cdeclClosure = CreateEscapingClosure(
             new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int32") }),
             TupleTypeSpec.Empty);
-        // Non-frozen struct is genuinely non-Cdecl-compatible
+        // Tuple arg is genuinely non-Cdecl-compatible — IsCdeclCompatibleType rejects
+        // any non-empty TupleTypeSpec because the @convention(c) ABI can't pass Swift tuples
+        // by value. Non-frozen structs used to be rejected here as well but are now supported
+        // via heap-alloc + initializeMemory (see ClosureEmitter.SwiftWrapper.cs:637).
+        var nonCdeclTupleArg = new TupleTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("Swift.Int32")
+        });
         var nonCdeclClosure = CreateEscapingClosure(
-            new TupleTypeSpec(new[] { new NamedTypeSpec("TestExtra.RuntimeSized") }),
+            new TupleTypeSpec(new TypeSpec[] { nonCdeclTupleArg }),
             TupleTypeSpec.Empty);
 
         var method = CreateMethodWithParams("doWork",

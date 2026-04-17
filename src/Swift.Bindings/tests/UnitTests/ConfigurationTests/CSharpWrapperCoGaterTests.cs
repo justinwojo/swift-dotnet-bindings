@@ -2078,4 +2078,615 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region I. Throwing-Closure Facade Stripping
+
+    public class CoGaterThrowingClosureFacadeTests
+    {
+        [Fact]
+        public void Process_FacadeWithStrippedBase_IsRemoved()
+        {
+            // Base overload calls a stripped P/Invoke -> Step B strips the base.
+            // ThrowingClosureSimplificationEmitter's facade forwards by method name and would
+            // survive without Step G, leaving a dangling self-call.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_ABC(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_ABC(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            Assert.DoesNotContain("Func<SwiftResult<int, SwiftError>> callback", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithLiveBase_IsPreserved()
+        {
+            // Base is not stripped -> facade's self-call resolves, facade must survive.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_OK(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_OK(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_unrelated" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("Func<int> callback", result.Content);
+            Assert.Contains("_wrapped_callback", result.Content);
+            Assert.Contains("Func<SwiftResult<int, SwiftError>> callback", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeInDifferentTypeScope_NotAffectedByOtherTypeStrip()
+        {
+            // TypeA.Run has a stripped base (facade should go) while TypeB.Run has a live
+            // base (facade should stay). Scope-aware grouping by (containingType, memberName)
+            // must keep the two groups isolated.
+            var input =
+                "namespace Test {\n" +
+                "public partial class TypeA {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_A_run_broken\")]\n" +
+                "    private static partial int PInvoke_A_run(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_A_run(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "public partial class TypeB {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_B_run_ok\")]\n" +
+                "    private static partial int PInvoke_B_run(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_B_run(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_A_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // TypeA: both base and facade gone.
+            Assert.DoesNotContain("PInvoke_A_run", result.Content);
+            // TypeB: base and facade both survive.
+            Assert.Contains("PInvoke_B_run", result.Content);
+            // The surviving facade in TypeB keeps its wrapper setup line.
+            Assert.Contains("_wrapped_callback", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithOnlyUnrelatedOverloadSurviving_IsRemoved()
+        {
+            // The throwing-closure base is stripped; the only surviving same-name overload
+            // is Run(string) which cannot bind _wrapped_callback. The facade must still be
+            // stripped — unrelated overloads are not valid call targets.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr label, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(string label)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            // The unrelated Run(string) overload must survive.
+            Assert.Contains("Run(string label)", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithDifferentArityLiveBase_IsRemoved()
+        {
+            // Two SwiftResult-typed base overloads exist; the arity-1 base (which matches
+            // the facade's single-arg self-call Run(_wrapped_callback)) is stripped. The
+            // surviving arity-2 base would cause CS1501 if the facade were kept, so the
+            // facade must still be stripped — the live base has the wrong arity.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr callback, int extra, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback, int extra)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, extra, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The arity-1 facade must be removed even though an arity-2 SwiftResult base
+            // survives — different arity cannot bind the facade's self-call.
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            // The surviving arity-2 base must not be touched.
+            Assert.Contains("int extra", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithMismatchedDelegateTypeLiveBase_IsRemoved()
+        {
+            // Two SwiftResult-typed arity-1 overloads exist — same shape, different closure
+            // element type. The facade's _wrapped_callback is Func<SwiftResult<int, SwiftError>>,
+            // and the ONLY surviving base takes Func<SwiftResult<long, SwiftError>>. The facade
+            // would emit CS1503 (cannot convert Func<SwiftResult<int>> to Func<SwiftResult<long>>)
+            // if kept, so Step G must strip it — arity alone is not enough, the delegate type
+            // must bind.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<long, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The facade's wrapper type Func<SwiftResult<int, SwiftError>> doesn't bind to the
+            // surviving Func<SwiftResult<long, SwiftError>> base — facade must be stripped.
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            // The surviving long base must not be touched.
+            Assert.Contains("Func<SwiftResult<long, SwiftError>> callback", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithMatchingDelegateTypeLiveBase_IsPreserved()
+        {
+            // Mirror of the mismatch case: the stripped base is the long variant; the surviving
+            // Func<SwiftResult<int, SwiftError>> base matches the facade's wrapper type exactly,
+            // so the self-call binds and the facade must be preserved.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<long, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(_wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("Func<int> callback", result.Content);
+            Assert.Contains("_wrapped_callback", result.Content);
+            Assert.Contains("Func<SwiftResult<int, SwiftError>> callback", result.Content);
+            // The stripped long base must be gone.
+            Assert.DoesNotContain("Func<SwiftResult<long, SwiftError>> callback", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithDuplicateWrapperTypes_RequiresPositionalMatch()
+        {
+            // Regression: a facade passes TWO _wrapped_* variables of the same delegate type.
+            // The original throwing base (both closure params) is stripped. A same-name,
+            // same-arity overload survives with only ONE closure param at the first ordinal
+            // and an unrelated string at the second. Naive "all wrapper types appear somewhere
+            // in the declaration" matching passes because the single unique type is present,
+            // but the facade self-call cannot bind: the second _wrapped_* would coerce to
+            // string and emit CS1503. Positional matching must catch this and strip the facade.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr a, IntPtr b, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr a, IntPtr label, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> first, Func<SwiftResult<int, SwiftError>> second)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> first, string label)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> first, Func<int> second)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_first = () => SwiftResult<int, SwiftError>.FromSuccess(first());\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_second = () => SwiftResult<int, SwiftError>.FromSuccess(second());\n" +
+                "        var _result = Run(_wrapped_first, _wrapped_second);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The facade must be stripped: position 2 of the surviving base is `string`,
+            // which cannot bind _wrapped_second (Func<SwiftResult<int, SwiftError>>).
+            Assert.DoesNotContain("Func<int> first", result.Content);
+            Assert.DoesNotContain("_wrapped_first", result.Content);
+            Assert.DoesNotContain("_wrapped_second", result.Content);
+            // The unrelated Run(Func<...>, string) overload must still be present.
+            Assert.Contains("string label", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithDuplicateWrapperTypes_MatchingBasePreserved()
+        {
+            // Mirror of the positional-mismatch case: the stripped base has a string second
+            // param, while the surviving base has matching Func<SwiftResult<int, SwiftError>>
+            // at BOTH ordinals. The facade's self-call binds cleanly, so it must be preserved.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr a, IntPtr label, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr a, IntPtr b, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> first, string label)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<SwiftResult<int, SwiftError>> first, Func<SwiftResult<int, SwiftError>> second)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(Func<int> first, Func<int> second)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_first = () => SwiftResult<int, SwiftError>.FromSuccess(first());\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_second = () => SwiftResult<int, SwiftError>.FromSuccess(second());\n" +
+                "        var _result = Run(_wrapped_first, _wrapped_second);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("Func<int> first", result.Content);
+            Assert.Contains("_wrapped_first", result.Content);
+            Assert.Contains("_wrapped_second", result.Content);
+            // The stripped Run(Func<...>, string) overload must be gone.
+            Assert.DoesNotContain("string label", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithMismatchedPassThroughParam_IsRemoved()
+        {
+            // Regression: the facade self-call passes a non-wrapped pass-through argument
+            // (`count`) alongside a wrapped closure. The true throwing base
+            // `Run(int count, Func<SwiftResult<int, SwiftError>> callback)` is stripped; a
+            // same-name/same-arity `SwiftResult<...>` sibling survives but its first param is
+            // `string label` instead of `int`. Round-4 matching only checks wrapped args
+            // positionally, so without pass-through validation the facade is incorrectly
+            // preserved and emits CS1503 (`int` → `string`). Positional pass-through
+            // matching must catch this and strip the facade.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(int count, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr label, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(int count, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(count, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(string label, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(int count, Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(count, _wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            // The facade must be stripped: the surviving base's first param is `string`,
+            // which cannot bind the facade's `int count` pass-through.
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            // The unrelated Run(string, ...) overload survives.
+            Assert.Contains("string label", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithMatchingPassThroughParam_IsPreserved()
+        {
+            // Mirror of the pass-through mismatch: the stripped base is the string variant,
+            // the surviving base matches the facade on both the pass-through `int count`
+            // and the wrapped closure type. The facade self-call binds, so it must survive.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr label, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(int count, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(string label, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(int count, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(count, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(int count, Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(count, _wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.Contains("Func<int> callback", result.Content);
+            Assert.Contains("_wrapped_callback", result.Content);
+            // The stripped string-variant base must be gone.
+            Assert.DoesNotContain("string label", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithTypePrefixCollision_IsRemoved()
+        {
+            // Regression: the facade pass-through parameter type is `URL` and a surviving
+            // sibling overload declares `URLRequest`. A naive Contains() check would accept
+            // the sibling because `URLRequest` contains `URL`, but the facade self-call
+            // cannot actually bind (no implicit URL → URLRequest conversion). Exact-type
+            // comparison on pass-through parameters must catch this and strip the facade.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(IntPtr value, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr value, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(URL value, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(URLRequest value, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(URL value, Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(value, _wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            // URLRequest sibling survives.
+            Assert.Contains("URLRequest value", result.Content);
+        }
+
+        [Fact]
+        public void Process_FacadeWithVerbatimIdentifier_IsRemoved()
+        {
+            // Regression: the facade's pass-through parameter is `int @event` (C# verbatim
+            // for reserved keyword). Without @-normalization the parameter-name lookup
+            // misses, the pass-through is accepted permissively, and a mismatched surviving
+            // base can keep the facade alive. After normalization the type-mismatch check
+            // strips the facade correctly.
+            var input =
+                "namespace Test {\n" +
+                "public partial class Runner {\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_broken\")]\n" +
+                "    private static partial int PInvoke_run_A(int e, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_run_ok\")]\n" +
+                "    private static partial int PInvoke_run_B(IntPtr e, IntPtr callback, IntPtr self);\n" +
+                "\n" +
+                "    public int Run(int @event, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_A(@event, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(string @event, Func<SwiftResult<int, SwiftError>> callback)\n" +
+                "    {\n" +
+                "        return PInvoke_run_B(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Run(int @event, Func<int> callback)\n" +
+                "    {\n" +
+                "        Func<SwiftResult<int, SwiftError>> _wrapped_callback = () => SwiftResult<int, SwiftError>.FromSuccess(callback());\n" +
+                "        var _result = Run(@event, _wrapped_callback);\n" +
+                "        if (_result.IsFailure) throw new Swift.SwiftErrorException(_result.Failure);\n" +
+                "        return _result.Success;\n" +
+                "    }\n" +
+                "}\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_run_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+
+            Assert.DoesNotContain("Func<int> callback", result.Content);
+            Assert.DoesNotContain("_wrapped_callback", result.Content);
+            // The string-variant sibling survives.
+            Assert.Contains("string @event", result.Content);
+        }
+    }
+
+    #endregion
+
 }

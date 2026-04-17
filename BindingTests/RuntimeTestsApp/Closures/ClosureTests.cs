@@ -211,6 +211,48 @@ public class ClosureTests : TestBase
         TestLogger.Info($"CallWithFrozenStruct(distance) = {result}");
     }
 
+    public void TestClosureWithNonFrozenStructParam()
+    {
+        // Non-frozen struct closure arg (StoreKit2 Storefront pattern). The Swift adapter
+        // heap-allocates NonFrozenInfo via initializeMemory (VWT copy retains the ARC-owning
+        // String field) and transfers ownership to C#. MarshalFromSwift<T> wraps the buffer
+        // in a SafeHandle whose ReleaseHandle pairs VWT.Destroy + NativeMemory.Free on
+        // finalize/dispose.
+        var result = TestLibFunctions.CallWithNonFrozenStruct(info => info.Value * 3);
+        AssertEqual(21, result, "CallWithNonFrozenStruct: value(7) * 3 = 21");
+        TestLogger.Info($"CallWithNonFrozenStruct(value*3) = {result}");
+    }
+
+    public void TestClosureWithNonFrozenStructParamLabel()
+    {
+        // Verifies the ARC-owning String field survives the heap copy and callback invocation.
+        var result = TestLibFunctions.CallWithNonFrozenStruct(info =>
+            info.Label.ToString() == "nonfrozen" ? info.Value : -1);
+        AssertEqual(7, result, "CallWithNonFrozenStruct: label round-trip");
+        TestLogger.Info($"CallWithNonFrozenStruct(label==nonfrozen ? value : -1) = {result}");
+    }
+
+    public void TestClosureWithNonFrozenStructParamEscapes()
+    {
+        // Escape-safety guard: the callback stores the wrapper in a field and reads it
+        // after CallWithNonFrozenStruct returns. With borrowed marshalling (previous
+        // behavior) the Swift-side defer would have freed the heap buffer and the
+        // escaped wrapper would dangle on its next access. With owned marshalling the
+        // SafeHandle keeps the buffer alive until C# disposes or finalizes it.
+        NonFrozenInfo? escaped = null;
+        var result = TestLibFunctions.CallWithNonFrozenStruct(info =>
+        {
+            escaped = info;
+            return info.Value;
+        });
+        AssertEqual(7, result, "CallWithNonFrozenStruct: callback returned 7");
+        AssertTrue(escaped is not null, "escaped wrapper is non-null");
+        // Reading the ARC-owning String field after the callback returns must not UAF.
+        AssertEqual("nonfrozen", escaped!.Label.ToString(), "escaped wrapper Label survives");
+        AssertEqual(7, escaped.Value, "escaped wrapper Value survives");
+        TestLogger.Info($"Non-frozen struct escape survived: label={escaped.Label}, value={escaped.Value}");
+    }
+
     #endregion
 
     #region Pass 2 — X2: Multiple Closure Parameters

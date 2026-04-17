@@ -734,6 +734,20 @@ public static partial class ClosureEmitter
             if (WitnessDispatchEmitter.IsStringType(namedType))
                 return $"SwiftMarshal.MarshalBorrowedFromSwift<Swift.SwiftString>(new IntPtr(arg{argIndex})).ToString()";
 
+            // Non-frozen struct cdecl param: the Swift adapter VWT-copies the value onto a
+            // malloc-compatible heap buffer (UnsafeMutableRawPointer.allocate → swift_slowAlloc
+            // → malloc on Darwin) and hands ownership to the C# callback — no Swift-side
+            // defer. MarshalFromSwift<T> wraps the buffer in a SwiftSafeHandle whose
+            // ReleaseHandle pairs VWT.Destroy + NativeMemory.Free. This makes it safe for the
+            // callback to escape the wrapper (store it in a field, return it, etc.) without
+            // UAF. The borrowed wrapper that used to live here would dangle the moment the
+            // callback returned.
+            if (useCdecl && closureHandler.IsNonFrozenStruct(namedType))
+            {
+                var ownedType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+                return $"SwiftMarshal.MarshalFromSwift<{ownedType}>(new IntPtr(arg{argIndex}))";
+            }
+
             // The callback receives void* but the delegate expects the actual type.
             // Use MarshalBorrowedFromSwift — callback parameters are borrowed references.
             var delegateType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);

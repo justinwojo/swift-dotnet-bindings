@@ -1413,6 +1413,55 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void IsClosureCdeclCompatible_InOutParam_ReturnsFalse()
+    {
+        // `inout T` in a closure arg cannot be plumbed through @convention(c). The Swift
+        // adapter would need `inout p0: T` with a writeback, which has no representation
+        // on the C# callback side. Regression guard for XMLCoder/Nuke/Swinject:
+        // `(inout Configuration) -> Void` was producing a broken Swift wrapper that got
+        // stripped by the post-processor, leaving half-stripped C# that failed to compile.
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var inoutArg = new NamedTypeSpec("TestModule.Configuration") { IsInOut = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { inoutArg }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void Emit_InOutClosureParam_DoesNotEmitCdeclAdapter()
+    {
+        // Method-wrapper-level regression guard: a method whose escaping closure takes an
+        // `inout` arg must NOT take the @_cdecl path. If the Layer 2 IsInOut gate regresses,
+        // this emits a broken Swift adapter whose compile failure cascades through the
+        // Swift post-processor + C# co-gater into a compile break.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+
+        var inoutArg = new NamedTypeSpec("TestModule.Configuration") { IsInOut = true };
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { inoutArg }),
+            TupleTypeSpec.Empty);
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("configure", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.False(method.HasClosureCdeclWrapper);
+        Assert.DoesNotContain("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", csOutput);
+        Assert.DoesNotContain("@_cdecl", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_SingleProtocolExistentialClosureParam_UsesCdecl()
     {
         // Fix 11A end-to-end: method with (any ImageProcessing) -> Void closure param

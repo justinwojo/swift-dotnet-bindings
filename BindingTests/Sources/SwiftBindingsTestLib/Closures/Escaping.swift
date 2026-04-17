@@ -253,3 +253,30 @@ public func callWithMixedCallbacks(
     return modeResult + valueResult
 }
 
+// MARK: - Non-Frozen Struct Closure Parameter (StoreKit2 Storefront pattern)
+// Non-frozen structs are opaque-payload class-backed types on the C# side. The
+// Swift adapter heap-allocates the struct via initializeMemory (VWT copy) and
+// transfers ownership of that buffer to C#. The C# callback wraps the pointer
+// with MarshalFromSwift<T>; SwiftSafeHandle.ReleaseHandle pairs VWT.Destroy
+// with NativeMemory.Free on dispose/finalize, so the wrapper is free to escape
+// the callback.
+
+/// A non-frozen struct carrying a String field (ARC-owning payload, non-trivial VWT).
+public struct NonFrozenInfo {
+    public let label: String
+    public let value: Int32
+
+    public init(label: String, value: Int32) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// Calls an escaping closure with a non-frozen struct argument.
+/// Exercises the cdecl adapter's heap-alloc + ownership-transfer path for
+/// non-frozen structs (StoreKit2 `onStorefrontChange((Storefront) -> Bool)` pattern).
+public func callWithNonFrozenStruct(_ callback: @escaping (NonFrozenInfo) -> Int32) -> Int32 {
+    let info = NonFrozenInfo(label: "nonfrozen", value: 7)
+    return callback(info)
+}
+

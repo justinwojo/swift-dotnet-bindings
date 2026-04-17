@@ -1,5 +1,5 @@
 {
-  "git_sha": "bf0867f7",
+  "git_sha": "a3b49703",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 83460,
+        "lines": 83431,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58558,
+        "lines": 58555,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -194,7 +194,7 @@
       "StripeFinancialConnections": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2078,
+        "lines": 2075,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -215,7 +215,7 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 66726,
+        "lines": 66714,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -663,7 +663,7 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 32804,
+        "lines": 32811,
         "dep_compile": "none",
         "swift_compile": "ok"
       }

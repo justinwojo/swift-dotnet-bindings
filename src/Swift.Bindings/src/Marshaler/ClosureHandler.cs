@@ -280,6 +280,13 @@ public class ClosureHandler
             if (namedType.ContainsGenericParameters)
                 return true;
 
+            // Bare generic type parameters (τ_0_0, T, U, ...) are not module-qualified
+            // and can't be resolved through the type database. Mirrors the guard in
+            // IsFrozenStruct / IsNonFrozenStruct so SwiftTypeName.FromModuleQualifiedName
+            // doesn't throw when this helper is called outside the fully prevalidated path.
+            if (IsGenericTypeParameter(namedType.Name) || !namedType.HasModule())
+                return false;
+
             // Struct returns that cannot be returned directly from callbacks
             // (for example non-frozen structs) use indirect return marshalling.
             if (!CanUseDirectCallbackReturn(closureTypeSpec.ReturnType))
@@ -1362,6 +1369,12 @@ public class ClosureHandler
 
         // Don't treat generic types as non-frozen structs - they need special handling
         if (namedType.ContainsGenericParameters)
+            return false;
+
+        // Generic type parameters (τ_0_0, T, U, ...) are not module-qualified and can't be
+        // resolved through the type database. Treat them as non-frozen for this check
+        // so SwiftTypeName.FromModuleQualifiedName doesn't throw. Mirrors IsFrozenStruct.
+        if (IsGenericTypeParameter(namedType.Name) || !namedType.HasModule())
             return false;
 
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);

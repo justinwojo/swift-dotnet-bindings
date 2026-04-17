@@ -120,6 +120,13 @@ namespace BindingsGeneration
             // and expression-bodied method overloads.
             StripOrphanedNarrowingOverloads(lines, removals, lineToType);
 
+            // Step G: Strip orphaned throwing-closure simplification facades.
+            // ThrowingClosureSimplificationEmitter emits convenience overloads that call the
+            // base overload by C# method name (not P/Invoke name), so they sit one hop outside
+            // Step B's transitive closure. When the base is stripped, the facade's self-call
+            // becomes CS1501/CS1503. Must run last — depends on Step B/C removals.
+            StripOrphanedThrowingClosureFacades(lines, removals, lineToType);
+
             if (removals.Count == 0)
                 return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
 
@@ -1005,6 +1012,526 @@ namespace BindingsGeneration
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Step G: Strip orphaned throwing-closure simplification facades.
+        /// <para>
+        /// <c>ThrowingClosureSimplificationEmitter</c> emits public convenience overloads that
+        /// wrap a caller-provided delegate and forward to the base throwing overload by C#
+        /// method name (not P/Invoke name). Step B follows P/Invoke references only, so the
+        /// facade's self-call sits one hop outside the transitive closure. When the base
+        /// overload is stripped, the facade's <c>Method(_wrapped_x)</c> call becomes a
+        /// dangling reference (CS1501/CS1503).
+        /// </para>
+        /// <para>
+        /// This pass scans method declarations for facade-shaped bodies (wrapper-delegate
+        /// setup plus a self-name call) whose same-name siblings in the same containing type
+        /// have all been stripped, and removes those facades.
+        /// </para>
+        /// </summary>
+        private sealed class FacadeMethodInfo
+        {
+            public int DeclStart;
+            public int BlockEnd;
+            public string ContainingType = "";
+            public string MemberName = "";
+            public bool IsFacade;
+            public int FacadeCallArity;
+            public Dictionary<string, string> WrappedVars = new(StringComparer.Ordinal);
+            public Dictionary<string, string> FacadeParams = new(StringComparer.Ordinal);
+            public List<string> SelfCallArgs = new();
+            public bool HasSwiftResult;
+            public int DeclArity;
+            public string DeclarationText = "";
+            public bool IsStripped;
+        }
+
+        private static void StripOrphanedThrowingClosureFacades(
+            List<string> lines, HashSet<int> removals, string?[] lineToType)
+        {
+            var methods = new List<FacadeMethodInfo>();
+
+            int i = 0;
+            while (i < lines.Count)
+            {
+                var trimmed = lines[i].TrimStart();
+                if (IsTypeOrNamespaceDeclaration(trimmed)) { i++; continue; }
+                if (!IsPotentialMemberDeclaration(trimmed)) { i++; continue; }
+
+                int braceOpenLine = FindOpeningBrace(lines, i);
+                if (braceOpenLine < 0 || braceOpenLine > i + 5) { i++; continue; }
+
+                int blockEnd = FindBlockEnd(lines, braceOpenLine);
+                if (blockEnd < braceOpenLine) { i++; continue; }
+
+                var containingType = i < lineToType.Length ? lineToType[i] : null;
+                if (containingType == null) { i = blockEnd + 1; continue; }
+
+                var memberName = ExtractMemberName(trimmed);
+                if (memberName == null) { i = blockEnd + 1; continue; }
+
+                var info = new FacadeMethodInfo
+                {
+                    DeclStart = i,
+                    BlockEnd = blockEnd,
+                    ContainingType = containingType,
+                    MemberName = memberName,
+                    IsStripped = removals.Contains(i),
+                    DeclarationText = JoinDeclarationText(lines, i, braceOpenLine),
+                    WrappedVars = ExtractFacadeWrappedVars(lines, braceOpenLine + 1, blockEnd),
+                };
+                if (info.WrappedVars.Count > 0)
+                {
+                    info.SelfCallArgs = TryExtractFacadeSelfCallArgs(
+                        lines, braceOpenLine + 1, blockEnd, memberName);
+                    info.FacadeCallArity = info.SelfCallArgs.Count;
+                    info.FacadeParams = BuildParameterTypeMap(info.DeclarationText);
+                }
+                info.IsFacade = info.FacadeCallArity > 0;
+                info.HasSwiftResult = !info.IsFacade && (
+                    info.DeclarationText.Contains("SwiftResult<", StringComparison.Ordinal) ||
+                    info.DeclarationText.Contains("Swift.SwiftResult<", StringComparison.Ordinal));
+                info.DeclArity = CountParameters(info.DeclarationText);
+
+                methods.Add(info);
+                i = blockEnd + 1;
+            }
+
+            foreach (var group in methods.GroupBy(m => (m.ContainingType, m.MemberName)))
+            {
+                var liveFacades = group.Where(m => m.IsFacade && !m.IsStripped).ToList();
+                if (liveFacades.Count == 0) continue;
+
+                foreach (var f in liveFacades)
+                {
+                    // A valid call target for the facade must satisfy:
+                    //   1. Carry a SwiftResult<...> closure marker — the emitter-stable
+                    //      signature of the throwing base the facade forwards to.
+                    //   2. Accept the same number of arguments as the facade's self-call.
+                    //   3. At each ordinal where the facade passes a _wrapped_* variable,
+                    //      the candidate's parameter at that ordinal must textually contain
+                    //      the variable's declared delegate type. Matching positionally
+                    //      (not just "somewhere in the declaration") is required because a
+                    //      multi-closure facade can reuse the same delegate type for several
+                    //      arguments, and a live overload that satisfies only one slot but
+                    //      not the other would still emit CS1503 if the facade were kept.
+                    var validTargets = group
+                        .Where(m => !m.IsFacade && m.HasSwiftResult && m.DeclArity == f.FacadeCallArity)
+                        .Where(m => FacadeSelfCallBindsPositionally(f, m))
+                        .ToList();
+                    if (validTargets.Count == 0) continue;
+                    if (!validTargets.All(m => m.IsStripped)) continue;
+
+                    int preambleStart = ScanBackwardForPreamble(lines, f.DeclStart);
+                    for (int j = preambleStart; j <= f.BlockEnd; j++)
+                        removals.Add(j);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Walks the facade body for lines declaring a <c>_wrapped_*</c> wrapper variable and
+        /// returns a map of variable name → declared delegate type. The emitter writes each
+        /// wrapper as <c>{originalType} _wrapped_{paramName} = (...) => ...;</c> — keeping
+        /// the name→type association lets the positional matcher verify, per self-call
+        /// argument position, that the base overload's parameter at that ordinal contains
+        /// the delegate type the wrapper would pass.
+        /// </summary>
+        private static Dictionary<string, string> ExtractFacadeWrappedVars(List<string> lines, int bodyStart, int bodyEnd)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            for (int j = bodyStart; j <= bodyEnd; j++)
+            {
+                var line = lines[j];
+                int searchFrom = 0;
+                while (true)
+                {
+                    int wIdx = line.IndexOf("_wrapped_", searchFrom, StringComparison.Ordinal);
+                    if (wIdx < 0) break;
+
+                    // Require an identifier char before the marker to anchor on the full token.
+                    if (wIdx > 0 && IsIdentifierChar(line[wIdx - 1]))
+                    {
+                        searchFrom = wIdx + 1;
+                        continue;
+                    }
+
+                    // End of the variable name: run of identifier chars starting at wIdx.
+                    int nameEnd = wIdx;
+                    while (nameEnd < line.Length && IsIdentifierChar(line[nameEnd])) nameEnd++;
+                    var varName = line.Substring(wIdx, nameEnd - wIdx);
+
+                    // A declaration uses `= ` after the identifier. Skip usages (pass-as-arg).
+                    int eq = nameEnd;
+                    while (eq < line.Length && char.IsWhiteSpace(line[eq])) eq++;
+                    if (eq >= line.Length || line[eq] != '=')
+                    {
+                        searchFrom = nameEnd;
+                        continue;
+                    }
+
+                    // Walk backward from the char before _wrapped_ to extract the declared type.
+                    int end = wIdx - 1;
+                    while (end >= 0 && char.IsWhiteSpace(line[end])) end--;
+                    int start = end;
+                    int depth = 0;
+                    while (start >= 0)
+                    {
+                        char c = line[start];
+                        if (c == '>' || c == ']' || c == ')') depth++;
+                        else if (c == '<' || c == '[' || c == '(') depth--;
+                        else if (depth == 0 && (char.IsWhiteSpace(c) || c == '=' || c == ';'))
+                            break;
+                        start--;
+                    }
+                    start++;
+                    if (end >= start)
+                    {
+                        var type = line.Substring(start, end - start + 1).Trim();
+                        if (type.Length > 0 && !map.ContainsKey(varName))
+                            map[varName] = type;
+                    }
+                    searchFrom = nameEnd;
+                }
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// Positionally verifies that the facade's self-call will bind to the candidate base
+        /// overload. At each argument ordinal:
+        /// <list type="bullet">
+        /// <item><description>If the arg is a known <c>_wrapped_*</c> variable, the candidate's
+        /// parameter at that ordinal must textually contain the variable's declared delegate
+        /// type.</description></item>
+        /// <item><description>If the arg is a simple identifier matching one of the facade's
+        /// own parameters (a pass-through), the candidate's parameter at that ordinal must
+        /// parse to the same declared type (exact match after normalization). Substring
+        /// matching is unsafe here: <c>URL</c> is a prefix of <c>URLRequest</c> and would
+        /// falsely report a bind. If either side cannot be parsed, return <c>false</c> so
+        /// we fail closed instead of preserving on incomplete evidence.</description></item>
+        /// <item><description>Anything else (literals, expressions) is accepted permissively.</description></item>
+        /// </list>
+        /// Arguments and parameter names are normalized against verbatim identifiers so that
+        /// <c>@event</c> and <c>event</c> map to the same lookup key.
+        /// </summary>
+        private static bool FacadeSelfCallBindsPositionally(FacadeMethodInfo facade, FacadeMethodInfo candidate)
+        {
+            var baseParams = SplitDeclarationParameters(candidate.DeclarationText);
+            if (baseParams.Count != facade.SelfCallArgs.Count) return false;
+            for (int idx = 0; idx < facade.SelfCallArgs.Count; idx++)
+            {
+                var arg = NormalizeVerbatimIdentifier(facade.SelfCallArgs[idx].Trim());
+                if (facade.WrappedVars.TryGetValue(arg, out var wrappedType))
+                {
+                    if (!baseParams[idx].Contains(wrappedType, StringComparison.Ordinal))
+                        return false;
+                    continue;
+                }
+                if (IsSimpleIdentifier(arg) && facade.FacadeParams.TryGetValue(arg, out var paramType))
+                {
+                    if (string.IsNullOrEmpty(paramType)) return false;
+                    var (_, candidateType) = ParseDeclarationParam(baseParams[idx]);
+                    if (string.IsNullOrEmpty(candidateType)) return false;
+                    if (!string.Equals(candidateType, paramType, StringComparison.Ordinal))
+                        return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="s"/> is a plain C# identifier (letter/underscore
+        /// followed by letters/digits/underscores), with no namespace/generic/call/index
+        /// characters. Pass-through matching only accepts such simple identifiers.
+        /// </summary>
+        private static bool IsSimpleIdentifier(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            char first = s[0];
+            if (!(char.IsLetter(first) || first == '_' || first == '@')) return false;
+            for (int i = 1; i < s.Length; i++)
+            {
+                if (!IsIdentifierChar(s[i])) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Parses a method declaration's parameter list into a map of parameter name →
+        /// declared type (with attribute/modifier prefixes stripped and any default value
+        /// clause removed). Parameters that cannot be parsed are skipped so the caller can
+        /// detect the absence and fail closed.
+        /// </summary>
+        private static Dictionary<string, string> BuildParameterTypeMap(string declText)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var slice in SplitDeclarationParameters(declText))
+            {
+                var (name, type) = ParseDeclarationParam(slice);
+                if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(type))
+                    map[name] = type;
+            }
+            return map;
+        }
+
+        /// <summary>
+        /// Splits a single C# parameter declaration into <c>(name, type)</c>. Strips leading
+        /// attribute blocks, common parameter modifier keywords, any trailing default value
+        /// clause, and normalizes verbatim identifiers (<c>@event</c> → <c>event</c>) so
+        /// callers can compare both sides uniformly. Returns empty strings when the shape
+        /// is not recognized so callers can fail closed.
+        /// </summary>
+        private static (string name, string type) ParseDeclarationParam(string paramText)
+        {
+            var s = paramText.Trim();
+            if (s.Length == 0) return ("", "");
+
+            int depth = 0;
+            int eqIdx = -1;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '<' || c == '(' || c == '[') depth++;
+                else if (c == '>' || c == ')' || c == ']') depth--;
+                else if (c == '=' && depth == 0) { eqIdx = i; break; }
+            }
+            var head = (eqIdx >= 0 ? s.Substring(0, eqIdx) : s).TrimEnd();
+            if (head.Length == 0) return ("", "");
+
+            int end = head.Length;
+            int start = end;
+            while (start > 0 && IsIdentifierChar(head[start - 1])) start--;
+            if (start == end) return ("", "");
+            if (start > 0 && head[start - 1] == '@') start--;
+
+            var name = NormalizeVerbatimIdentifier(head.Substring(start, end - start));
+            var typePart = head.Substring(0, start).TrimEnd();
+
+            while (typePart.StartsWith("[", StringComparison.Ordinal))
+            {
+                int close = typePart.IndexOf(']');
+                if (close < 0) break;
+                typePart = typePart.Substring(close + 1).TrimStart();
+            }
+
+            foreach (var mod in new[] { "ref ", "out ", "in ", "params ", "this " })
+            {
+                while (typePart.StartsWith(mod, StringComparison.Ordinal))
+                    typePart = typePart.Substring(mod.Length).TrimStart();
+            }
+
+            typePart = typePart.Trim();
+            if (typePart.Length == 0) return ("", "");
+            return (name, typePart);
+        }
+
+        /// <summary>
+        /// Strips a leading <c>@</c> verbatim-identifier prefix. Used to align parameter
+        /// names with self-call argument text so lookups on <c>FacadeParams</c> hit
+        /// regardless of which side spells a keyword-named identifier with <c>@</c>.
+        /// </summary>
+        private static string NormalizeVerbatimIdentifier(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            return s[0] == '@' ? s.Substring(1) : s;
+        }
+
+        /// <summary>
+        /// Splits the parameter list of a method declaration into ordered depth-0 slices.
+        /// Returns an empty list when the declaration has no parenthesized parameter list.
+        /// </summary>
+        private static List<string> SplitDeclarationParameters(string declText)
+        {
+            var parts = new List<string>();
+            int parenStart = declText.IndexOf('(');
+            int parenEnd = declText.LastIndexOf(')');
+            if (parenStart < 0 || parenEnd <= parenStart) return parts;
+            var inside = declText.Substring(parenStart + 1, parenEnd - parenStart - 1);
+            if (inside.Trim().Length == 0) return parts;
+
+            int depth = 0;
+            int segStart = 0;
+            for (int i = 0; i < inside.Length; i++)
+            {
+                char c = inside[i];
+                if (c == '<' || c == '(' || c == '[') depth++;
+                else if (c == '>' || c == ')' || c == ']') depth--;
+                else if (c == ',' && depth == 0)
+                {
+                    parts.Add(inside.Substring(segStart, i - segStart).Trim());
+                    segStart = i + 1;
+                }
+            }
+            var tail = inside.Substring(segStart).Trim();
+            if (tail.Length > 0) parts.Add(tail);
+            return parts;
+        }
+
+        /// <summary>
+        /// Returns true if a method's declaration (from <paramref name="declStart"/> through
+        /// the line containing its opening brace) carries a <c>SwiftResult&lt;...&gt;</c> closure
+        /// parameter — the emitter-stable marker for the throwing-closure base overload that
+        /// <c>ThrowingClosureSimplificationEmitter</c> facades forward to.
+        /// </summary>
+        private static bool HasSwiftResultInDeclaration(List<string> lines, int declStart, int braceOpenLine)
+        {
+            for (int j = declStart; j <= braceOpenLine && j < lines.Count; j++)
+            {
+                var text = lines[j];
+                if (text.Contains("SwiftResult<", StringComparison.Ordinal) ||
+                    text.Contains("Swift.SwiftResult<", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Joins declaration lines from <paramref name="declStart"/> through
+        /// <paramref name="braceOpenLine"/> into a single string so that multi-line signatures
+        /// (wrapped parameter lists, generic <c>where</c> clauses) can be parsed uniformly.
+        /// </summary>
+        private static string JoinDeclarationText(List<string> lines, int declStart, int braceOpenLine)
+        {
+            var sb = new StringBuilder();
+            for (int j = declStart; j <= braceOpenLine && j < lines.Count; j++)
+                sb.Append(lines[j]);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Detects a throwing-closure simplification facade body and returns the argument
+        /// count of its self-call, or 0 if the block is not a facade.
+        /// <para>
+        /// The emitter produces a distinctive pair of body lines (see
+        /// <c>ThrowingClosureSimplificationEmitter.EmitSimplifiedOverload</c>):
+        /// <c>{OriginalDelegate} _wrapped_{name} = ...;</c> followed by a self-name call
+        /// <c>{methodName}(..., _wrapped_{name}, ...)</c>. Requiring both signals within the
+        /// same block — and requiring the self-call arguments to reference a <c>_wrapped_</c>
+        /// variable — keeps ordinary methods from being misclassified. The returned arity is
+        /// used to gate base-candidate matching so the facade is only removed when no
+        /// live overload can actually satisfy its call.
+        /// </para>
+        /// </summary>
+        private static List<string> TryExtractFacadeSelfCallArgs(
+            List<string> lines, int bodyStart, int bodyEnd, string methodName)
+        {
+            var empty = new List<string>();
+            bool hasWrappedSetup = false;
+            for (int j = bodyStart; j <= bodyEnd; j++)
+            {
+                if (lines[j].Contains("_wrapped_", StringComparison.Ordinal))
+                {
+                    hasWrappedSetup = true;
+                    break;
+                }
+            }
+            if (!hasWrappedSetup) return empty;
+
+            var needle = methodName + "(";
+            for (int j = bodyStart; j <= bodyEnd; j++)
+            {
+                var line = lines[j];
+                int idx = 0;
+                while (idx < line.Length)
+                {
+                    int pos = line.IndexOf(needle, idx, StringComparison.Ordinal);
+                    if (pos < 0) break;
+                    if (pos != 0 && IsIdentifierChar(line[pos - 1]))
+                    {
+                        idx = pos + 1;
+                        continue;
+                    }
+                    int argListStart = pos + methodName.Length;
+                    int closing = FindMatchingParen(lines, j, argListStart, bodyEnd);
+                    if (closing < 0) { idx = pos + 1; continue; }
+                    var callText = ExtractCallArgs(lines, j, argListStart + 1, closing);
+                    if (!callText.Contains("_wrapped_", StringComparison.Ordinal))
+                    {
+                        idx = pos + 1;
+                        continue;
+                    }
+                    var args = SplitCallArgs(callText);
+                    if (args.Count > 0) return args;
+                    idx = pos + 1;
+                }
+            }
+            return empty;
+        }
+
+        /// <summary>
+        /// Splits a call's depth-0 comma-separated argument text into ordered trimmed slices.
+        /// Returns an empty list when the argument text is blank.
+        /// </summary>
+        private static List<string> SplitCallArgs(string argText)
+        {
+            var result = new List<string>();
+            var trimmed = argText.Trim();
+            if (trimmed.Length == 0) return result;
+            int depth = 0;
+            int start = 0;
+            for (int i = 0; i < trimmed.Length; i++)
+            {
+                char c = trimmed[i];
+                if (c == '(' || c == '<' || c == '[') depth++;
+                else if (c == ')' || c == '>' || c == ']') depth--;
+                else if (c == ',' && depth == 0)
+                {
+                    result.Add(trimmed.Substring(start, i - start).Trim());
+                    start = i + 1;
+                }
+            }
+            var tail = trimmed.Substring(start).Trim();
+            if (tail.Length > 0) result.Add(tail);
+            return result;
+        }
+
+        /// <summary>
+        /// Finds the offset of the paren that matches the <c>(</c> at the given position.
+        /// The returned tuple is encoded as <c>line * LargeConstant + column</c>; callers
+        /// should extract via the helper <see cref="FindMatchingParen"/> which returns a
+        /// single linear offset. Scans lines starting at <paramref name="startLine"/>
+        /// through <paramref name="lastLine"/> inclusive.
+        /// </summary>
+        private static int FindMatchingParen(List<string> lines, int startLine, int openCol, int lastLine)
+        {
+            int depth = 0;
+            for (int j = startLine; j <= lastLine && j < lines.Count; j++)
+            {
+                int col = j == startLine ? openCol : 0;
+                var line = lines[j];
+                for (; col < line.Length; col++)
+                {
+                    char c = line[col];
+                    if (c == '(') depth++;
+                    else if (c == ')')
+                    {
+                        depth--;
+                        if (depth == 0) return j * 100000 + col;
+                    }
+                }
+            }
+            return -1;
+        }
+
+        private static string ExtractCallArgs(List<string> lines, int startLine, int startCol, int closingEncoded)
+        {
+            int endLine = closingEncoded / 100000;
+            int endCol = closingEncoded % 100000;
+            var sb = new StringBuilder();
+            for (int j = startLine; j <= endLine && j < lines.Count; j++)
+            {
+                var line = lines[j];
+                int from = j == startLine ? startCol : 0;
+                int to = j == endLine ? endCol : line.Length;
+                if (from < 0) from = 0;
+                if (to > line.Length) to = line.Length;
+                if (to > from) sb.Append(line, from, to - from);
+            }
+            return sb.ToString();
         }
 
         /// <summary>

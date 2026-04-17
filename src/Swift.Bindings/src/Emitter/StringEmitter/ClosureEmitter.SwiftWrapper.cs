@@ -146,6 +146,11 @@ public static partial class ClosureEmitter
         // Build closure parameter list and identify complex enum args needing heap allocation
         var closureParams = new List<string>();
         var heapAllocArgs = new List<(int index, string swiftType)>();
+        // Non-frozen structs transfer ownership of the heap-allocated copy to the C#
+        // callback (MarshalFromSwift<T> → SwiftSafeHandle.ReleaseHandle). Tracked
+        // separately from `heapAllocArgs` so no Swift-side defer is emitted for this
+        // path — the wrapper is allowed to escape, and C# owns destroy/free.
+        var nonFrozenHeapArgs = new List<(int index, string swiftType)>();
         var nilForNoneArgs = new List<(int index, string innerSwiftType)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
         var existentialArgs = new List<(int index, string swiftType)>(); // `any Protocol`: heap-allocated ExistentialContainer pointer
         int argIndex = 0;
@@ -174,6 +179,11 @@ public static partial class ClosureEmitter
                          !closureHandler.IsClassType(frozenNamed) && !closureHandler.IsObjCBridgedClass(frozenNamed) &&
                          !closureHandler.IsSimpleEnum(frozenNamed))
                     heapAllocArgs.Add((argIndex, swiftType));
+                // Non-frozen structs: heap-alloc shape, ownership transferred to C# (no
+                // Swift-side defer). `initializeMemory(as:repeating:)` VWT-copies the value
+                // into the buffer; MarshalFromSwift<T> on the C# side owns destroy/free.
+                else if (arg is NamedTypeSpec nfsNamed && closureHandler.IsNonFrozenStruct(nfsNamed))
+                    nonFrozenHeapArgs.Add((argIndex, swiftType));
                 // Optional<NumericPrimitive>: full Optional on heap (tag-byte layout)
                 // MarshalOptionalFromSwift handles tag-byte reading for primitives
                 else if (arg is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
@@ -223,11 +233,17 @@ public static partial class ClosureEmitter
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var heapArg = heapAllocArgs.FirstOrDefault(h => h.index == argIndex);
+            var nonFrozenHeapArg = nonFrozenHeapArgs.FirstOrDefault(h => h.index == argIndex);
             var nilForNoneArg = nilForNoneArgs.FirstOrDefault(h => h.index == argIndex);
             var existentialArg = existentialArgs.FirstOrDefault(h => h.index == argIndex);
             if (heapArg != default)
             {
                 // Complex enum/frozen struct/Optional<Primitive>: use heap pointer
+                cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else if (nonFrozenHeapArg != default)
+            {
+                // Non-frozen struct: VWT-managed heap pointer, ownership transferred to C#.
                 cdeclArgs.Add($"__heap_{argIndex}");
             }
             else if (nilForNoneArg != default)
@@ -298,6 +314,18 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: ({swiftType}).self, repeating: p{idx}, count: 1)");
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: ({swiftType}).self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
+        }
+        // Non-frozen struct allocation: VWT-managed copy of the struct value transferred to C#.
+        // `initializeMemory(as:repeating:count:)` invokes VWT.initializeWithCopy which retains
+        // any ARC-owning payload inside the non-frozen struct. Ownership is transferred to
+        // C# — no defer here. The C# callback wraps the pointer with MarshalFromSwift<T>,
+        // whose SwiftSafeHandle.ReleaseHandle pairs VWT.Destroy + NativeMemory.Free on
+        // dispose/finalize. UnsafeMutableRawPointer.allocate routes to swift_slowAlloc
+        // (malloc on Darwin), so NativeMemory.Free is a safe paired deallocator.
+        foreach (var (idx, swiftType) in nonFrozenHeapArgs)
+        {
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
         }
 
         if (isIndirectReturn)
@@ -564,6 +592,16 @@ public static partial class ClosureEmitter
         if (typeSpec.IsEmptyTuple)
             return true;
 
+        // `inout` closure args require the adapter closure to take `inout p0: T` and write
+        // back to the caller's storage. The @convention(c) bridge can't plumb an inout across
+        // a C function pointer — the C# side receives a borrowed pointer and has no way to
+        // signal mutation back. Reject early so higher-level gates fall back to the
+        // non-Cdecl path (which may or may not support inout, but at least won't mis-compile).
+        // Surfaces e.g. `Nuke.ImagePipeline.init(delegate:_:)` whose trailing closure is
+        // `(inout ImagePipeline.Configuration) -> Void`.
+        if (typeSpec.IsInOut)
+            return false;
+
         // `any Error` stays on MCB (pointer-wraps the 5-word container via its own
         // IsEligible path). Non-Error existentials use the heap-allocated pointer
         // bridge below — Swift adapter allocates an ExistentialContainer{N},
@@ -600,6 +638,14 @@ public static partial class ClosureEmitter
             // Frozen structs: passed via UnsafeMutableRawPointer heap allocation in adapter closure.
             // The C# callback receives struct via stackalloc + MarshalToSwift (Layer 1 already handles this).
             if (closureHandler.IsFrozenStruct(named))
+                return true;
+
+            // Non-frozen structs: heap-allocate via initializeMemory (VWT initializeWithCopy)
+            // and pass the pointer to the cdecl callback. Ownership of the heap buffer transfers
+            // to C#; the callback wraps it with MarshalFromSwift<T> and SwiftSafeHandle.ReleaseHandle
+            // pairs VWT.Destroy + NativeMemory.Free on dispose/finalize. No Swift-side defer —
+            // the wrapper is allowed to escape the callback.
+            if (closureHandler.IsNonFrozenStruct(named))
                 return true;
 
             // Complex enums: passed via UnsafeMutableRawPointer heap allocation in adapter closure.
