@@ -49,11 +49,19 @@ public class ConcreteSpecializationEngine
 
     /// <summary>
     /// A generic parameter that can be concretely specialized.
+    /// <para>
+    /// <see cref="CouplingConstraints"/> captures cross-param same-type constraints like
+    /// <c>S.Element == T</c>. Each entry reads: "this param's conformer's
+    /// <c>AssociatedTypes[AssocName]</c> must equal the chosen conformer of
+    /// <c>OtherParamName</c>." These are applied at cartesian pairing time because the
+    /// other param's chosen conformer isn't known at conformer-filter time.
+    /// </para>
     /// </summary>
     public record SpecializableParam(
         GenericArgumentDecl GenericParam,
         SwiftTypeName ConstraintProtocol,
-        List<ConcreteConformer> Conformers);
+        List<ConcreteConformer> Conformers,
+        IReadOnlyList<(string AssocName, string OtherParamName)>? CouplingConstraints = null);
 
     // --- JSON Model for specialization-hints.json ---
 
@@ -238,15 +246,77 @@ public class ConcreteSpecializationEngine
 
             if (ownParams.Count == 0) continue;
 
+            var ownParamNames = new HashSet<string>(
+                ownParams.Select(p => p.TypeName), StringComparer.Ordinal);
+
+            // Discover cross-param same-type couplings like `S.Element == T`. These
+            // come in two ABI forms:
+            //   LHS: stored on S's AssosiatedTypeConformances with Path=["Element",...]
+            //        and ConformanceTarget = bare param name (module="", name="T").
+            //   RHS: stored on T's GenericConformances with Path.Length==1 and
+            //        ConformanceTarget = module-qualified member ("S.Element").
+            // Either form produces the same logical coupling on S:
+            //   (AssocName="Element", OtherParamName="T").
+            // We record them on the param that owns the associated type (S), and
+            // enforce them at cartesian pairing time in ConformerPairingSatisfiesCoupling.
+            var couplingsByParam = new Dictionary<string, List<(string AssocName, string OtherParamName)>>(
+                StringComparer.Ordinal);
+
+            void AddCoupling(string paramName, string assocName, string otherParamName)
+            {
+                if (!couplingsByParam.TryGetValue(paramName, out var list))
+                {
+                    list = new List<(string, string)>();
+                    couplingsByParam[paramName] = list;
+                }
+                var entry = (assocName, otherParamName);
+                if (!list.Contains(entry))
+                    list.Add(entry);
+            }
+
+            foreach (var param in ownParams)
+            {
+                var paramName = param.TypeName;
+
+                foreach (var c in param.AssosiatedTypeConformances)
+                {
+                    if (c.Kind != ConformanceKind.ConcreteType) continue;
+                    if (c.Path.Length < 2) continue;
+                    var target = c.ConformanceTarget;
+                    if (!string.IsNullOrEmpty(target.Module)) continue;
+                    if (!ownParamNames.Contains(target.Name)) continue;
+                    if (target.Name == paramName) continue;
+                    AddCoupling(paramName, c.Path[^1], target.Name);
+                }
+
+                foreach (var c in param.GenericConformances)
+                {
+                    if (c.Kind != ConformanceKind.ConcreteType) continue;
+                    if (c.Path.Length != 1) continue;
+                    var target = c.ConformanceTarget;
+                    if (string.IsNullOrEmpty(target.Module)) continue;
+                    if (!ownParamNames.Contains(target.Module)) continue;
+                    if (target.Module == paramName) continue;
+                    AddCoupling(target.Module, target.Name, paramName);
+                }
+            }
+
             var specializableParams = new List<SpecializableParam>();
 
             foreach (var param in ownParams)
             {
                 // Collect same-type constraints on the param's associated types
-                // (e.g., τ_0_0.Element == Swift.String). Conformers must satisfy these
-                // via their declared AssociatedTypes map, or we can't specialize safely.
+                // (e.g., τ_0_0.Element == Swift.String). Targets that point at another
+                // own generic param (bare name) are couplings and filtered out here —
+                // they're enforced after cartesian pairing is known.
                 var associatedConstraints = param.AssosiatedTypeConformances
                     .Where(c => c.Kind == ConformanceKind.ConcreteType && c.Path.Length >= 2)
+                    .Where(c =>
+                    {
+                        var t = c.ConformanceTarget;
+                        if (!string.IsNullOrEmpty(t.Module)) return true;
+                        return !ownParamNames.Contains(t.Name);
+                    })
                     .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
                     .ToList();
 
@@ -268,7 +338,10 @@ public class ConcreteSpecializationEngine
 
                 if (usableConformers.Count == 0) continue;
 
-                specializableParams.Add(new SpecializableParam(param, protocolConstraint, usableConformers));
+                couplingsByParam.TryGetValue(param.TypeName, out var paramCouplings);
+
+                specializableParams.Add(new SpecializableParam(
+                    param, protocolConstraint, usableConformers, paramCouplings));
             }
 
             // Only specializable if at least one param has conformers

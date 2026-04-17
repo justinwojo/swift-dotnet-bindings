@@ -25,7 +25,8 @@
     {
       "protocol": "Swift.Collection",
       "conformers": [
-        { "swiftType": "Swift.Array<Swift.String>", "csharpType": "Swift.SwiftArray<Swift.SwiftString>", "swiftLiteral": "[String]", "associatedTypes": { "Element": "Swift.String" } }
+        { "swiftType": "Swift.Array<Swift.String>", "csharpType": "Swift.SwiftArray<Swift.SwiftString>", "swiftLiteral": "[String]", "associatedTypes": { "Element": "Swift.String" } },
+        { "swiftType": "Swift.Array<StoreKit.Product.PromotionInfo>", "csharpType": "Swift.SwiftArray<StoreKit2.Product.PromotionInfo>", "swiftLiteral": "[StoreKit.Product.PromotionInfo]", "associatedTypes": { "Element": "StoreKit.Product.PromotionInfo" } }
       ]
     },
     {

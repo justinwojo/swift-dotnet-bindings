@@ -444,6 +444,56 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds a method @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
     public bool TryAddMethodWrapperSymbol(string symbol) => _methodWrapperSymbols.Add(symbol);
 
+    // ==================== CSM-Async Signature Claims ====================
+    // Two-state claim shared between the Phase-4a eligibility predicate and the
+    // actual async emitter. Reservation (predicate) is idempotent for the same
+    // owner so repeat predicate calls agree, but the Emitted bit flips exactly
+    // once per (sigKey, owner). That keeps the predicate/emitter handoff sound
+    // while preventing two pairings of the SAME method that collapse to the same
+    // C# signature from producing duplicate CS0111 member emissions.
+    private readonly Dictionary<string, (MethodDecl Owner, bool Emitted)> _csmAsyncClaims
+        = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Reserves a CSM-async signature key for <paramref name="owner"/> during the
+    /// Phase-4a eligibility dry-run. Returns true if the caller owns the reservation
+    /// (either freshly reserved or previously reserved by the same method and not
+    /// yet emitted). Returns false if the key is already emitted, or reserved by a
+    /// different method — in which case the predicate falls back to other pairings
+    /// (or keeps the generic SB0001 fallback alive).
+    /// </summary>
+    public bool TryReserveCsmAsyncSignature(string sigKey, MethodDecl owner)
+    {
+        if (_csmAsyncClaims.TryGetValue(sigKey, out var existing))
+        {
+            if (existing.Emitted) return false;
+            return ReferenceEquals(existing.Owner, owner);
+        }
+        _csmAsyncClaims[sigKey] = (owner, Emitted: false);
+        return true;
+    }
+
+    /// <summary>
+    /// Commits a CSM-async signature key for <paramref name="owner"/> at emission
+    /// time. Promotes an existing reservation (owned by the same method) to Emitted,
+    /// or creates a fresh Emitted entry when the emitter runs without a predicate
+    /// reservation (non-CSM test paths). Returns false when the key was already
+    /// emitted (duplicate within the same method or a lost race across methods),
+    /// or when a reservation exists for a different method.
+    /// </summary>
+    public bool TryCommitCsmAsyncSignature(string sigKey, MethodDecl owner)
+    {
+        if (_csmAsyncClaims.TryGetValue(sigKey, out var existing))
+        {
+            if (existing.Emitted) return false;
+            if (!ReferenceEquals(existing.Owner, owner)) return false;
+            _csmAsyncClaims[sigKey] = (owner, Emitted: true);
+            return true;
+        }
+        _csmAsyncClaims[sigKey] = (owner, Emitted: true);
+        return true;
+    }
+
     // ==================== Metadata @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _metadataWrapperSymbols = new();

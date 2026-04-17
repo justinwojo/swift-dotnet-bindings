@@ -155,6 +155,23 @@ public class MemberValidationPipeline
 
         // ── Phase 4: Protocol constraint gate (non-constructor only) ──
         // Constructors don't check this — C# generic constructors are caught in Phase 6.
+
+        // Phase 4a: CSM intercept. When a method is eligible for CSM-async specialization,
+        // skip the unspecialized generic emission so only the concrete overloads appear.
+        // Fires for async methods whose constraint protocol has hint conformers — these
+        // wouldn't be caught by HasUnsupportedProtocolConstraints when the protocol is
+        // not registered in TypeDatabase (e.g., Swift.Collection).
+        if (!methodDecl.IsConstructor &&
+            methodDecl.ParentDecl is TypeDecl parentTypeForCsm &&
+            context?.EmissionContext.SpecializationEngine is { } specEngineForCsm &&
+            ConcreteProtocolSpecializationEmitter.IsCsmAsyncEligible(
+                methodDecl, parentTypeForCsm, _typeDatabase, specEngineForCsm,
+                context.EmissionContext))
+        {
+            return ValidationResult.Skip(SkipReason.GenericProtocolConstraint,
+                "Routed to concrete specialization.");
+        }
+
         if (!methodDecl.IsConstructor &&
             MethodValidationGates.HasUnsupportedProtocolConstraints(methodDecl, _typeDatabase))
         {

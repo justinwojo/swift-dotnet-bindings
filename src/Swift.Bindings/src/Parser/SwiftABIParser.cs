@@ -2667,6 +2667,7 @@ namespace BindingsGeneration
             // rely on the default ISwiftObject base constraint.
             string constraintText = node.PrintedName.Substring("some ".Length).Trim();
             var conformances = new List<GenericParameterConformance>();
+            var assocConformances = new List<GenericParameterConformance>();
             if (!string.IsNullOrEmpty(constraintText))
             {
                 TypeSpec? constraintSpec = null;
@@ -2686,6 +2687,27 @@ namespace BindingsGeneration
                         new[] { syntheticTypeName },
                         SwiftTypeName.FromModuleQualifiedName(constraintNamed.Name),
                         ConformanceKind.Protocol));
+
+                    // Primary-associated-type sugar: `some Collection<X>` == `some P where P.Element == X`.
+                    // Swift's stdlib sequence/collection family uses "Element" as the primary associated
+                    // type, so a single generic argument is projected as a same-type constraint on Element.
+                    // This preserves the coupling that the CSM engine needs to pick the right conformer.
+                    if (constraintNamed.GenericParameters.Count == 1 &&
+                        constraintNamed.GenericParameters[0] is NamedTypeSpec elementNamed &&
+                        !string.IsNullOrEmpty(elementNamed.Name))
+                    {
+                        SwiftTypeName? elementTypeName = null;
+                        try { elementTypeName = SwiftTypeName.FromModuleQualifiedName(elementNamed.Name); }
+                        catch (ArgumentException) { /* Generic element (rare); skip associated constraint. */ }
+
+                        if (elementTypeName != null)
+                        {
+                            assocConformances.Add(new GenericParameterConformance(
+                                new[] { syntheticTypeName, "Element" },
+                                elementTypeName,
+                                ConformanceKind.ConcreteType));
+                        }
+                    }
                 }
                 else if (constraintSpec is ProtocolListTypeSpec compositionSpec &&
                          compositionSpec.Protocols.Count > 0)
@@ -2720,7 +2742,7 @@ namespace BindingsGeneration
                 TypeName: syntheticTypeName,
                 SugaredTypeName: syntheticTypeName,
                 GenericConformances: conformances,
-                AssosiatedTypeConformances: new List<GenericParameterConformance>()));
+                AssosiatedTypeConformances: assocConformances));
 
             return new NamedTypeSpec(syntheticTypeName);
         }

@@ -20,7 +20,7 @@ namespace BindingsGeneration;
 ///
 /// For generic constructors, emits static factory methods since C# cannot have generic constructors.
 /// </summary>
-public static class ConcreteProtocolSpecializationEmitter
+public static partial class ConcreteProtocolSpecializationEmitter
 {
     /// <summary>
     /// Scans a type's methods for specializable protocol-constrained generics and emits
@@ -40,22 +40,22 @@ public static class ConcreteProtocolSpecializationEmitter
 
         var moduleName = typeDecl.SwiftTypeName.Module;
         var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
-        // Track emitted C# method signatures to prevent CS0111 duplicate member errors
+        // Track emitted C# method signatures to prevent CS0111 duplicate member errors.
+        // Sync path keeps its local dedup set; async path uses the shared
+        // ModuleEmissionContext claim so it agrees with the Phase-4a predicate.
         var emittedSignatures = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var spec in specializableMethods)
         {
-            // For simplicity, handle single-generic-param specialization first.
-            // Multi-param specialization (cartesian product) is future work.
-            if (spec.SpecializableParams.Count != 1) continue;
-
-            var param = spec.SpecializableParams[0];
             var method = spec.Method;
 
-            // Skip async, throwing, accessor, and mutating methods for v1
-            // Mutating methods on structs require write-back through the pointer,
-            // which adds complexity not worth handling in the initial implementation.
-            if (method.IsAsync || method.Throws || method.IsAccessor || method.IsMutating) continue;
+            // Accessors and mutating methods stay gated: they use different emission
+            // paths (property accessors / inout self). Constructors likewise — Phase A
+            // only covers plain instance/static async methods.
+            if (method.IsAccessor || method.IsMutating) continue;
+
+            // Sync throws without async is also out of scope for CSM v1.
+            if (!method.IsAsync && method.Throws) continue;
 
             // Skip if parent is a generic type (double generic context is complex)
             if (typeDecl.IsGeneric) continue;
@@ -63,13 +63,115 @@ public static class ConcreteProtocolSpecializationEmitter
             // Verify xcframework mode
             if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) continue;
 
-            foreach (var conformer in param.Conformers)
+            // Sync multi-param not yet supported — only async path handles cartesian product.
+            if (!method.IsAsync && spec.SpecializableParams.Count != 1) continue;
+
+            if (spec.SpecializableParams.Count == 1)
             {
-                TryEmitConcreteOverload(
-                    csWriter, swiftWriter, method, typeDecl, param, conformer,
-                    moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, logger);
+                var param = spec.SpecializableParams[0];
+                foreach (var conformer in param.Conformers)
+                {
+                    if (method.IsAsync)
+                    {
+                        TryEmitConcreteOverloadAsync(
+                            csWriter, swiftWriter, method, typeDecl,
+                            new[] { (param, conformer) },
+                            moduleName, typeDatabase, emissionContext, logger);
+                    }
+                    else
+                    {
+                        TryEmitConcreteOverload(
+                            csWriter, swiftWriter, method, typeDecl, param, conformer,
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, logger);
+                    }
+                }
+            }
+            else if (method.IsAsync)
+            {
+                // Multi-param cartesian product: enumerate all combinations of conformers,
+                // filter pairs whose cross-parameter same-type constraints (e.g., S.Element == T)
+                // are not satisfied. Only emit the surviving substitution pairs.
+                foreach (var pairing in CartesianPairings(spec.SpecializableParams))
+                {
+                    if (!ConformerPairingSatisfiesCoupling(pairing))
+                    {
+                        logger.LogDebug(
+                            "CSM-async: Skipping {Method} multi-param pairing — cross-param same-type constraint not satisfied.",
+                            method.Name);
+                        continue;
+                    }
+
+                    TryEmitConcreteOverloadAsync(
+                        csWriter, swiftWriter, method, typeDecl,
+                        pairing,
+                        moduleName, typeDatabase, emissionContext, logger);
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// Enumerates the cartesian product of conformers across each specializable param,
+    /// yielding one pairing per combination.
+    /// </summary>
+    private static IEnumerable<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[]>
+        CartesianPairings(IReadOnlyList<ConcreteSpecializationEngine.SpecializableParam> specParams)
+    {
+        var indices = new int[specParams.Count];
+        while (true)
+        {
+            var pairing = new (ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[specParams.Count];
+            for (int i = 0; i < specParams.Count; i++)
+            {
+                pairing[i] = (specParams[i], specParams[i].Conformers[indices[i]]);
+            }
+            yield return pairing;
+
+            // Advance indices (odometer-style).
+            int pos = specParams.Count - 1;
+            while (pos >= 0)
+            {
+                indices[pos]++;
+                if (indices[pos] < specParams[pos].Conformers.Count) break;
+                indices[pos] = 0;
+                pos--;
+            }
+            if (pos < 0) yield break;
+        }
+    }
+
+    /// <summary>
+    /// Checks cross-param same-type constraints (e.g., S.Element == T) captured on
+    /// <see cref="ConcreteSpecializationEngine.SpecializableParam.CouplingConstraints"/>.
+    /// Each coupling on S reads: "S.conformer.AssociatedTypes[AssocName] must equal the
+    /// chosen conformer Swift type of OtherParamName." Concrete (non-coupling) assoc-type
+    /// constraints are already validated at conformer-filter time in the engine.
+    /// </summary>
+    private static bool ConformerPairingSatisfiesCoupling(
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        var paramTypeByName = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (p, c) in pairing)
+        {
+            paramTypeByName[p.GenericParam.TypeName] = c.SwiftQualifiedName;
+        }
+
+        foreach (var (param, conformer) in pairing)
+        {
+            if (param.CouplingConstraints is null) continue;
+            foreach (var (assocName, otherParamName) in param.CouplingConstraints)
+            {
+                if (conformer.AssociatedTypes is null) return false;
+                if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
+                    return false;
+                if (!paramTypeByName.TryGetValue(otherParamName, out var otherConformerType))
+                    return false;
+                if (!string.Equals(declared, otherConformerType, StringComparison.Ordinal))
+                    return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool TryEmitConcreteOverload(
