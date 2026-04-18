@@ -645,7 +645,7 @@ public static class ProtocolExtensionEmitter
                 return true;
 
             // Foundation.Data is a frozen blittable struct with NativeTypeRemapping.
-            // C# Swift.Data struct mirrors the ABI layout — pass by value through CallConvSwift.
+            // C# Swift.Foundation.Data struct mirrors the ABI layout — pass by value through CallConvSwift.
             if (namedType.Name == "Foundation.Data")
                 return true;
 

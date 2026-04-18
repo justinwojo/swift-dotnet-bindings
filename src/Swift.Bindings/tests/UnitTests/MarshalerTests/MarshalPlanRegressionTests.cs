@@ -12,7 +12,7 @@ namespace BindingsGeneration.Tests;
 /// produced by GetParameterPlan/GetReturnPlan to prevent unintentional changes.
 ///
 /// Tests marked [Trait("Stability", "PreSession5")] capture current behavior that is
-/// known to diverge from WrapperEmitter emission. Session 5 will unify these paths.
+/// known to diverge from WrapperEmitter emission. Future work will unify these paths.
 /// </summary>
 public class MarshalPlanRegressionTests
 {
@@ -707,10 +707,10 @@ public class MarshalPlanRegressionTests
     public void Existential_WellKnown_ReturnPlan_ConstructsDirectly()
     {
         var proj = new ExistentialProjection(
-            "Swift.Runtime.ExistentialContainer1", "Swift.AnyError", null);
+            "Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", null);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Equal("new Swift.AnyError(result)", plan.PInvokeExpression);
+        Assert.Equal("new Swift.Foundation.AnyError(result)", plan.PInvokeExpression);
     }
 
     [Fact]

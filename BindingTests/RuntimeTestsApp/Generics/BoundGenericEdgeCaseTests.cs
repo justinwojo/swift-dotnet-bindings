@@ -41,8 +41,8 @@ public class BoundGenericEdgeCaseTests : TestBase
     public void TestMakeRefPair()
     {
         // makeRefPair returns Pair<CoordinateRef, LabelRef> — two different class type args.
-        // Fixed in Session 10: generator now emits @_cdecl wrapper (not native thunk) for
-        // non-generic functions returning bound generic structs.
+        // The generator now emits an @_cdecl wrapper (not a native thunk) for non-generic
+        // functions returning bound generic structs.
         var coord = new CoordinateRef(x: 42, y: 99);
         var label = new LabelRef(text: "test");
         var pair = TestLibFunctions.MakeRefPair(coord, label);

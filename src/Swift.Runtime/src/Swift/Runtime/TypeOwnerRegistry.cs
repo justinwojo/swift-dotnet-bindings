@@ -12,8 +12,7 @@ namespace Swift.Runtime;
 /// <remarks>
 /// Drives the generator's decision of whether to emit a reference to an already-shipped
 /// package, pull a type from the ObjC workload, or emit the type locally in the consumer
-/// assembly. See <c>src/docs/apple-swift-types-architecture.md</c> §"Resolved questions"
-/// Q5 for the full resolution model.
+/// assembly.
 /// </remarks>
 public enum TypeOwnerKind
 {
@@ -98,8 +97,7 @@ public readonly record struct TypeOwner
 
 /// <summary>
 /// Central registry mapping Swift type identities to the package that owns their managed
-/// projection. See <c>src/docs/apple-swift-types-architecture.md</c> §"Decision summary"
-/// item 6 and §"Implementation specifics" item 7 for the authoritative resolver order.
+/// projection.
 /// </summary>
 /// <remarks>
 /// <para>Resolution precedence (first match wins):</para>
@@ -112,10 +110,10 @@ public readonly record struct TypeOwner
 ///   <item>Same-module type currently being generated → emit locally.</item>
 ///   <item>Unsupported — the member should be skipped.</item>
 /// </list>
-/// <para>Cross-module protocol conformances (architecture doc §Q10 item 3) are tracked
-/// separately via <see cref="RegisterConformanceOwner"/> because a type from module A
-/// may conform to a protocol from module B with the conformance itself owned by a
-/// third party — type ownership alone cannot answer that question.</para>
+/// <para>Cross-module protocol conformances are tracked separately via
+/// <see cref="RegisterConformanceOwner"/> because a type from module A may conform to a
+/// protocol from module B with the conformance itself owned by a third party — type
+/// ownership alone cannot answer that question.</para>
 /// </remarks>
 public static class TypeOwnerRegistry
 {
@@ -147,7 +145,9 @@ public static class TypeOwnerRegistry
         new(StringComparer.Ordinal);
 
     // Cross-module protocol conformance owners. Keyed on (type Swift identity,
-    // protocol Swift identity). See architecture doc §Q10 item 3.
+    // protocol Swift identity). A type from module A may conform to a protocol from
+    // module B with the conformance itself owned by a third party — this is distinct
+    // from simple type ownership.
     private static readonly ConcurrentDictionary<(string Type, string Protocol), TypeOwner> s_conformanceOwners =
         new();
 
@@ -155,6 +155,7 @@ public static class TypeOwnerRegistry
     {
         SeedLegacyCanonicals();
         SeedDefaultAppleModules();
+        SeedAppleSupplementOverrides();
     }
 
     /// <summary>
@@ -344,7 +345,7 @@ public static class TypeOwnerRegistry
     /// <summary>
     /// Records the owner of a specific type→protocol conformance. Conformance ownership is
     /// distinct from type ownership: a type from module A may conform to a protocol from
-    /// module B with the conformance itself published by a third party (architecture doc §Q10 item 3).
+    /// module B with the conformance itself published by a third party.
     /// </summary>
     public static void RegisterConformanceOwner(
         string typeSwiftIdentity,
@@ -386,14 +387,16 @@ public static class TypeOwnerRegistry
         s_conformanceOwners.Clear();
         SeedLegacyCanonicals();
         SeedDefaultAppleModules();
+        SeedAppleSupplementOverrides();
     }
 
     private static void SeedLegacyCanonicals()
     {
-        // Pinned to SwiftBindings.Runtime regardless of their declaring Swift module.
-        // See apple-swift-types-architecture.md §"Decision summary" item 2: these hand-rolled
-        // canonical types stay in Runtime even though their modules (Foundation, ManagedSettings,
-        // SwiftUI) default to the Apple supplement.
+        // Runtime-pinned stdlib canonical types. These pre-date the Apple supplement and
+        // have hand-tuned VWT/mangled-symbol layouts. Generic types are listed by stem only —
+        // the resolver strips "<...>" before lookup. The "Swift" module is not in
+        // s_defaultAppleModules; these pins prevent a future cleanup from silently flipping
+        // ownership to the supplement.
         foreach (var identity in s_legacyRuntimeCanonicals)
         {
             s_overrides[identity] = TypeOwner.Runtime with { ModuleName = GetModuleName(identity) };
@@ -408,27 +411,36 @@ public static class TypeOwnerRegistry
         }
     }
 
-    // Legacy canonical types (architecture doc §"Why hand-rolling won't scale" table + §"Decision summary" item 6).
-    // Generic types are listed by stem only — the resolver strips "<...>" before lookup.
-    // Swift.* entries pin hand-rolled Runtime types whose Swift module is "Swift" —
-    // the "Swift" module is not in s_defaultAppleModules today, so these work even
-    // unpinned, but pinning them explicitly prevents a future cleanup (that adds
-    // "Swift" as an Apple module) from silently flipping ownership to the supplement.
+    private static void SeedAppleSupplementOverrides()
+    {
+        // Per-type pins for Apple-supplement hand-rolled types whose Swift module is
+        // suppressed from s_defaultAppleModules (SwiftUI is filtered at generation time —
+        // see comment on s_defaultAppleModules). Without this pin, Resolve("SwiftUI.Text")
+        // would fall through to Unsupported.
+        foreach (var identity in s_appleSupplementOverrides)
+        {
+            s_overrides[identity] = TypeOwner.AppleSupplement with { ModuleName = GetModuleName(identity) };
+        }
+    }
+
+    // Swift stdlib canonicals kept in SwiftBindings.Runtime. The Foundation/ManagedSettings/
+    // SwiftUI entries that used to live here moved to SwiftBindings.Apple — see
+    // s_appleSupplementOverrides for the single SwiftUI.Text pin required because SwiftUI
+    // is excluded from the default Apple-module set.
     private static readonly string[] s_legacyRuntimeCanonicals =
     {
-        "Foundation.Date",
-        "Foundation.Data",
-        "Foundation.URL",
-        "Foundation.Decimal",
-        "Foundation.Measurement",
-        "Foundation.AnyError",
-        "ManagedSettings.Token",
-        "SwiftUI.Text",
         "Swift.AnyHashable",
         "Swift.Hasher",
         "Swift.DispatchQueue",
-        "Swift.CIContext",
         "Swift.String",
+    };
+
+    // SwiftUI.Text is hand-rolled in SwiftBindings.Apple but its Swift module is
+    // deliberately excluded from s_defaultAppleModules (SwiftUI types are suppressed at
+    // generation time). An explicit override keeps this one type resolvable.
+    private static readonly string[] s_appleSupplementOverrides =
+    {
+        "SwiftUI.Text",
     };
 
     // Default set of Apple SDK Swift module names. Generators can extend this at startup

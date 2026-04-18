@@ -7,10 +7,9 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Swift;
 using Swift.Runtime;
 
-namespace Swift;
+namespace Swift.Foundation;
 
 /// <summary>
 /// Represents Swift Foundation.DataProtocol in C#.
@@ -50,7 +49,7 @@ public struct Data : ISwiftObject
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataVMa")]
-    public static extern TypeMetadata PInvoke_getMetadata();
+    internal static extern TypeMetadata PInvoke_getMetadata();
 
     static ISwiftObject ISwiftObject.NewFromPayload(IntPtr handle)
     {
@@ -108,15 +107,18 @@ public struct Data : ISwiftObject
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV5bytes5countACSV_SitcfC")]
-    public static unsafe extern Data PInvoke_InitWithBytes(UnsafeRawPointer pointer, nint count);
+    internal static unsafe extern Data PInvoke_InitWithBytes(UnsafeRawPointer pointer, nint count);
 
+    /// <summary>Returns the number of bytes held by this Data.</summary>
     public readonly nint Count => PInvoke_GetCount(this);
-
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV5countSivg")]
-    public static unsafe extern nint PInvoke_GetCount(Data data);
+    internal static unsafe extern nint PInvoke_GetCount(Data data);
 
+    /// <summary>Copies the bytes of this Data into the supplied destination buffer.</summary>
+    /// <param name="buffer">Destination buffer; must be at least <paramref name="count"/> bytes wide.</param>
+    /// <param name="count">Number of bytes to copy (typically <see cref="Count"/>).</param>
     public unsafe void CopyBytes(UnsafeMutablePointer<byte> buffer, nint count)
     {
         PInvoke_CopyBytes(buffer, count, this);
@@ -124,7 +126,7 @@ public struct Data : ISwiftObject
 
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF")]
-    public static unsafe extern void PInvoke_CopyBytes(UnsafeMutablePointer<byte> buffer, nint count, Data data);
+    internal static unsafe extern void PInvoke_CopyBytes(UnsafeMutablePointer<byte> buffer, nint count, Data data);
 
     /// <summary>
     /// Creates a Swift.Data from a byte array.
@@ -162,21 +164,21 @@ public struct Data : ISwiftObject
 
 #if IOS || TVOS || MACCATALYST || MACOS
     /// <summary>
-    /// Converts this Swift.Data to a .NET iOS Foundation.NSData.
+    /// Converts this Swift.Data to a .NET iOS global::Foundation.NSData.
     /// </summary>
     /// <returns>An NSData representation of this Data.</returns>
-    public Foundation.NSData ToNSData()
+    public global::Foundation.NSData ToNSData()
     {
-        return Foundation.NSData.FromArray(ToByteArray());
+        return global::Foundation.NSData.FromArray(ToByteArray());
     }
 
     /// <summary>
-    /// Creates a Swift.Data from a .NET iOS Foundation.NSData.
+    /// Creates a Swift.Data from a .NET iOS global::Foundation.NSData.
     /// </summary>
     /// <param name="nsData">The NSData to convert.</param>
     /// <returns>A Swift.Data representation of the NSData.</returns>
     /// <exception cref="ArgumentNullException">Thrown if nsData is null.</exception>
-    public static unsafe Data FromNSData(Foundation.NSData nsData)
+    public static unsafe Data FromNSData(global::Foundation.NSData nsData)
     {
         if (nsData == null)
             throw new ArgumentNullException(nameof(nsData));
@@ -192,16 +194,16 @@ public struct Data : ISwiftObject
     }
 
     /// <summary>
-    /// Implicitly converts a Foundation.NSData to a Swift.Data.
+    /// Implicitly converts a global::Foundation.NSData to a Swift.Data.
     /// </summary>
     /// <param name="nsData">The NSData to convert.</param>
-    public static implicit operator Data(Foundation.NSData nsData) => FromNSData(nsData);
+    public static implicit operator Data(global::Foundation.NSData nsData) => FromNSData(nsData);
 
     /// <summary>
-    /// Implicitly converts a Swift.Data to a Foundation.NSData.
+    /// Implicitly converts a Swift.Data to a global::Foundation.NSData.
     /// </summary>
     /// <param name="data">The Swift.Data to convert.</param>
-    public static implicit operator Foundation.NSData(Data data) => data.ToNSData();
+    public static implicit operator global::Foundation.NSData(Data data) => data.ToNSData();
 #endif
 
     /// <inheritdoc/>

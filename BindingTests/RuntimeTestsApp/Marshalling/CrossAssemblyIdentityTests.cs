@@ -12,7 +12,7 @@ using Swift.Runtime;
 namespace RuntimeTestsApp.Marshalling;
 
 /// <summary>
-/// Phase 2 Session 6 / M8 — permanent cross-module type identity guardrail.
+/// Permanent cross-module type identity guardrail.
 ///
 /// Two independent consumer assemblies (AppleIdentity.ConsumerA, .ConsumerB)
 /// each reference SwiftBindings.Apple and touch Foundation.Locale.Language.

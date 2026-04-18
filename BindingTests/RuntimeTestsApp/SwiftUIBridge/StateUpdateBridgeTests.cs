@@ -11,8 +11,8 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SwiftUIBridge;
 
 /// <summary>
-/// Tests for Session 4A two-way state binding: Update* functions that
-/// dynamically change view state after creation via the ObservableObject pattern.
+/// Tests for two-way state binding: Update* functions that dynamically change
+/// view state after creation via the ObservableObject pattern.
 /// </summary>
 public class BridgeStateUpdateTests : TestBase
 {
@@ -206,7 +206,7 @@ public class BridgeStateUpdateTests : TestBase
         TestLogger.Info("UpdatableMixedView closure after state update: passed");
     }
 
-    // --- Existing view Update functions (Session 4A retrofit) ---
+    // --- Existing view Update functions (two-way state binding retrofit) ---
 
     public void TestEnumParamView_UpdateStyle()
     {

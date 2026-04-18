@@ -771,12 +771,13 @@ partial class Build
 
     // ValidateBlastRadius runs the blast-radius smoke script and fails the build if any of
     // the three committed golden diffs (otool-L, nm, strings-swift) diverges from HEAD.
-    // This is the automated gate behind the "supplement must be zero-link-line / zero-new-
-    // Swift-symbol" invariant in apple-swift-types-architecture.md §10. The raw script exits
-    // 0 regardless, so the pass/fail lives here. Diff header lines are normalized out so
-    // filename/timestamp noise does not trigger spurious failures. On a clean pass the
-    // working tree is restored to HEAD so the gate has no side effects; on failure the
-    // freshly-generated measurement files are left in place for inspection.
+    // This is the automated gate behind the invariant that pulling SwiftBindings.Apple into
+    // a consumer adds zero new `-framework` link lines and zero new Swift ABI symbols
+    // compared to a Swift.Runtime-only baseline. The raw script exits 0 regardless, so the
+    // pass/fail lives here. Diff header lines are normalized out so filename/timestamp noise
+    // does not trigger spurious failures. On a clean pass the working tree is restored to
+    // HEAD so the gate has no side effects; on failure the freshly-generated measurement
+    // files are left in place for inspection.
     Target ValidateBlastRadius => _ => _
         .Executes(() =>
         {

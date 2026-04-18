@@ -79,7 +79,7 @@ public class AsyncProjection : ITypeProjection
             : $"_sb_{context.ModuleName}_{context.MethodName}_async";
         var hasReturn = _innerReturnProjection != null;
 
-        // Use SwiftCallbackReturnType from context if provided (Session 3 emitter sets this),
+        // Use SwiftCallbackReturnType from context if provided (set by the emitter),
         // otherwise map C# PInvokeType to Swift equivalent
         var swiftReturnType = !string.IsNullOrEmpty(context.SwiftCallbackReturnType)
             ? context.SwiftCallbackReturnType
@@ -242,7 +242,7 @@ public class AsyncProjection : ITypeProjection
         "Float" or "float" => "Float",
         "byte" => "UInt8",
         "SwiftString" => "UnsafeRawPointer",  // strings pass as raw pointer in callbacks
-        _ => pInvokeType  // fallback — Session 3 emitter provides SwiftCallbackReturnType for complex types
+        _ => pInvokeType  // fallback — the emitter provides SwiftCallbackReturnType for complex types
     };
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);

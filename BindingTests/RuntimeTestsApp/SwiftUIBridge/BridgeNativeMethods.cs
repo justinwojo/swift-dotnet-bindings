@@ -212,7 +212,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void UpdatableMixedView_UpdateIsEnabled(IntPtr handle, int newValue);
 
-    // --- Update functions for existing views (Session 4A) ---
+    // --- Update functions for existing views ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_UpdateStyle")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void EnumParamView_UpdateStyle(IntPtr handle, int newValue);
@@ -468,7 +468,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void RichToolbarView_Free(IntPtr handle);
 
-    // --- BindingToggleView (Session 2 gate: Binding<Bool>) ---
+    // --- BindingToggleView (Binding<Bool> gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr BindingToggleView_Create(int isOn);
@@ -485,7 +485,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void BindingToggleView_UpdateIsOn(IntPtr handle, int newValue);
 
-    // --- NumberListView (Session 2 gate: Array<Int>) ---
+    // --- NumberListView (Array<Int> gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NumberListView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr NumberListView_Create(IntPtr numbersPtr, nint numbersCount);
@@ -498,7 +498,7 @@ internal static class BridgeNativeMethods
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern void NumberListView_Free(IntPtr handle);
 
-    // --- SymbolIconView (Session 2 gate: SwiftUI.Image) ---
+    // --- SymbolIconView (SwiftUI.Image gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_Create")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern IntPtr SymbolIconView_Create(IntPtr iconPtr, nint iconLen);
@@ -651,7 +651,7 @@ internal static class BridgeTestHelpers
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int MixedStringView_InvokeClosure(IntPtr handle, IntPtr valuePtr, nint valueLen);
 
-    // UpdatableCounterView (Session 4A)
+    // UpdatableCounterView (two-way state binding)
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableCounterView_GetCount")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int UpdatableCounterView_GetCount(IntPtr handle);
@@ -660,7 +660,7 @@ internal static class BridgeTestHelpers
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int UpdatableCounterView_GetLabelLength(IntPtr handle);
 
-    // UpdatableMixedView (Session 4A)
+    // UpdatableMixedView (two-way state binding with mixed param types)
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_UpdatableMixedView_GetTitleLength")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int UpdatableMixedView_GetTitleLength(IntPtr handle);
@@ -673,27 +673,27 @@ internal static class BridgeTestHelpers
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int UpdatableMixedView_FireOnTap(IntPtr handle);
 
-    // GenericPlaceholderView (Session 7)
+    // GenericPlaceholderView
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_GenericPlaceholderView_GetTitleLength")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int GenericPlaceholderView_GetTitleLength(IntPtr handle);
 
-    // PlaceholderOnlyView (Session 7)
+    // PlaceholderOnlyView
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_PlaceholderOnlyView_IsAlive")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int PlaceholderOnlyView_IsAlive(IntPtr handle);
 
-    // StringReturnClosureView (Session 7)
+    // StringReturnClosureView
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_StringReturnClosureView_InvokeTransformer")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int StringReturnClosureView_InvokeTransformer(IntPtr handle, int value);
 
-    // ClassReturnClosureView (Session 7)
+    // ClassReturnClosureView
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ClassReturnClosureView_InvokeFactory")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int ClassReturnClosureView_InvokeFactory(IntPtr handle, int value);
 
-    // ModifiableView (Session 7)
+    // ModifiableView
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_ModifiableView_GetHighlighted")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int ModifiableView_GetHighlighted(IntPtr handle);
@@ -702,7 +702,7 @@ internal static class BridgeTestHelpers
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int ModifiableView_GetModEnabled(IntPtr handle);
 
-    // LifecycleTestView (Session 7)
+    // LifecycleTestView
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_LifecycleTestView_FireOnAppear")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int LifecycleTestView_FireOnAppear(IntPtr handle);
@@ -752,12 +752,12 @@ internal static class BridgeTestHelpers
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int RichToolbarView_GetSubtitleLength(IntPtr handle);
 
-    // BindingToggleView (Session 2 gate: Binding<Bool>)
+    // BindingToggleView (Binding<Bool> gate)
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_BindingToggleView_GetIsOn")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int BindingToggleView_GetIsOn(IntPtr handle);
 
-    // NumberListView (Session 2 gate: Array<Int>)
+    // NumberListView (Array<Int> gate)
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_NumberListView_GetCount")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int NumberListView_GetCount(IntPtr handle);
@@ -766,7 +766,7 @@ internal static class BridgeTestHelpers
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int NumberListView_GetElement(IntPtr handle, int index);
 
-    // SymbolIconView (Session 2 gate: SwiftUI.Image)
+    // SymbolIconView (SwiftUI.Image gate)
     [DllImport(BridgeLib, EntryPoint = "SBW_TEST_SymbolIconView_GetIconLength")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
     internal static extern int SymbolIconView_GetIconLength(IntPtr handle);

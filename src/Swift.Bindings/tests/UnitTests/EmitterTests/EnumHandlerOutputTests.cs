@@ -1932,7 +1932,7 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_ExistentialWithoutProxy_UsesAnyError()
     {
-        // Swift.Error is a well-known protocol → maps to Swift.AnyError (not ExistentialContainer1)
+        // Swift.Error is a well-known protocol → maps to Swift.Foundation.AnyError (not ExistentialContainer1)
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("LoadError", moduleDecl, isFrozen: true);
@@ -1945,7 +1945,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Should use AnyError (well-known runtime type, no proxy)
-        Assert.Contains("Swift.AnyError", csOutput);
+        Assert.Contains("Swift.Foundation.AnyError", csOutput);
         // Should NOT contain raw ExistentialContainer or interface type
         Assert.DoesNotContain("IError", csOutput);
     }
@@ -1995,7 +1995,7 @@ public class EnumHandlerOutputTests
         // Known protocol → interface type in out param
         Assert.Contains("out IImageProcessing value0", csOutput);
         // Swift.Error → AnyError in out param (well-known runtime type)
-        Assert.Contains("out Swift.AnyError value1", csOutput);
+        Assert.Contains("out Swift.Foundation.AnyError value1", csOutput);
         // Proxy wrapping for known protocol
         Assert.Contains("new ImageProcessingProxy(", csOutput);
     }
@@ -3294,7 +3294,7 @@ public class EnumHandlerOutputTests
         };
     }
 
-    #region Session 9C: @_cdecl Enum Case Factory ABI Tests
+    #region @_cdecl Enum Case Factory ABI Tests
 
     [Fact]
     public void Emit_CdeclEnumCaseWithString_UsesUtf8PtrLen()

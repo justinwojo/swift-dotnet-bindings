@@ -14,64 +14,6 @@ namespace Swift.Runtime;
 public static class AsyncClosureHelper
 {
     /// <summary>
-    /// Runs an async closure that returns Swift.Data.
-    /// Converts the result to a byte array and calls the success callback with the pinned bytes.
-    /// </summary>
-    /// <param name="handle">The GCHandle to the closure state (will be freed on completion).</param>
-    /// <param name="state">The closure state containing the async function.</param>
-    /// <param name="continuationBoxPtr">Pointer to Swift's continuation box.</param>
-    /// <param name="successAction">Callback to invoke on success with (boxPtr, dataPtr, length).</param>
-    /// <param name="errorAction">Callback to invoke on error with (boxPtr, errorMsgPtr).</param>
-    public static void RunDataAsync(
-        GCHandle handle,
-        AsyncThrowingClosureState<Data> state,
-        IntPtr continuationBoxPtr,
-        Action<IntPtr, IntPtr, nint> successAction,
-        Action<IntPtr, IntPtr> errorAction)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                // Await the user's async function to get Swift.Data
-                var result = await state.AsyncFunc();
-
-                // Convert Swift.Data to byte array
-                var bytes = result.ToByteArray();
-
-                // Pin the bytes and call Swift's success callback
-                // Swift will copy the data, so we can release the pin after the callback returns
-                var pinnedBytes = GCHandle.Alloc(bytes, GCHandleType.Pinned);
-                try
-                {
-                    successAction(continuationBoxPtr, pinnedBytes.AddrOfPinnedObject(), bytes.Length);
-                }
-                finally
-                {
-                    pinnedBytes.Free();
-                }
-            }
-            catch (Exception ex)
-            {
-                var errorBytes = System.Text.Encoding.UTF8.GetBytes(ex.Message + "\0");
-                var pinnedBytes = GCHandle.Alloc(errorBytes, GCHandleType.Pinned);
-                try
-                {
-                    errorAction(continuationBoxPtr, pinnedBytes.AddrOfPinnedObject());
-                }
-                finally
-                {
-                    pinnedBytes.Free();
-                }
-            }
-            finally
-            {
-                handle.Free();
-            }
-        });
-    }
-
-    /// <summary>
     /// Runs an async closure that returns a generic type T.
     /// Marshals the result to a native buffer and calls the success callback.
     /// </summary>

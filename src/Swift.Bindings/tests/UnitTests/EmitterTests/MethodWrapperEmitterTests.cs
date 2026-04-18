@@ -2271,7 +2271,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_ArrayParam_ReturnsTrue()
     {
-        // Array params now handled via @_cdecl UnsafeRawPointer + .load(as:) (Session 9A)
+        // Array params now handled via @_cdecl UnsafeRawPointer + .load(as:)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2386,7 +2386,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_DictionaryParam_ReturnsTrue()
     {
-        // Dictionary params now handled via @_cdecl UnsafeRawPointer + .load(as:) (Session 9A)
+        // Dictionary params now handled via @_cdecl UnsafeRawPointer + .load(as:)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2438,7 +2438,7 @@ public class MethodWrapperEmitterTests
 
     #endregion
 
-    #region Session 9B: Protocol Existential Param Guard Tests
+    #region Protocol Existential Param Guard Tests
 
     [Fact]
     public void ShouldEmitWrapper_BareExistentialParam_ReturnsTrue()
@@ -2655,12 +2655,12 @@ public class MethodWrapperEmitterTests
 
     #endregion
 
-    #region Session 9A: Collection Container Guard Tests
+    #region Collection Container Guard Tests
 
     [Fact]
     public void ShouldEmitWrapper_SetParam_ReturnsTrue()
     {
-        // Set params now handled via @_cdecl UnsafeRawPointer + .load(as:) (Session 9A)
+        // Set params now handled via @_cdecl UnsafeRawPointer + .load(as:)
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2676,7 +2676,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_ArrayReturn_ReturnsTrue()
     {
-        // Array returns now handled via @_cdecl IndirectResult (Session 9A)
+        // Array returns now handled via @_cdecl IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2692,7 +2692,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_DictionaryReturn_ReturnsTrue()
     {
-        // Dictionary returns now handled via @_cdecl IndirectResult (Session 9A)
+        // Dictionary returns now handled via @_cdecl IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

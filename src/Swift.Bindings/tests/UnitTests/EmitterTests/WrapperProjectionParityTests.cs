@@ -37,7 +37,7 @@ public class WrapperProjectionParityTests
     [Fact]
     public void GetterVisitor_NativeRemapped_ReturnsConversionMethod()
     {
-        var proj = new NativeRemappedProjection("NSUrl", "Swift.Data", isFrozen: true,
+        var proj = new NativeRemappedProjection("NSUrl", "Swift.Foundation.Data", isFrozen: true,
             toConversionMethod: "ToNSUrl", requiresDisposal: true);
         var (conversion, disposal) = proj.Accept(new AccessorGetterConversionVisitor("result"));
 
@@ -126,28 +126,28 @@ public class WrapperProjectionParityTests
         var proj = new DataProjection();
         var (conversion, disposal) = proj.Accept(new AccessorSetterConversionVisitor("value"));
 
-        Assert.Equal("Swift.Data.FromByteArray(value)", conversion);
+        Assert.Equal("Swift.Foundation.Data.FromByteArray(value)", conversion);
         Assert.False(disposal);
     }
 
     [Fact]
     public void SetterVisitor_NativeRemapped_WithFactory_ReturnsFactoryCall()
     {
-        var proj = new NativeRemappedProjection("NSUrl", "Swift.Data", isFrozen: true,
+        var proj = new NativeRemappedProjection("NSUrl", "Swift.Foundation.Data", isFrozen: true,
             toConversionMethod: "ToNSUrl", fromFactoryMethod: "FromNSUrl");
         var (conversion, _) = proj.Accept(new AccessorSetterConversionVisitor("value"));
 
-        Assert.Equal("Swift.Data.FromNSUrl(value)", conversion);
+        Assert.Equal("Swift.Foundation.Data.FromNSUrl(value)", conversion);
     }
 
     [Fact]
     public void SetterVisitor_NativeRemapped_NoFactory_ReturnsConstructor()
     {
-        var proj = new NativeRemappedProjection("NSUrl", "Swift.Data", isFrozen: true,
+        var proj = new NativeRemappedProjection("NSUrl", "Swift.Foundation.Data", isFrozen: true,
             toConversionMethod: "ToNSUrl");
         var (conversion, _) = proj.Accept(new AccessorSetterConversionVisitor("value"));
 
-        Assert.Equal("new Swift.Data(value)", conversion);
+        Assert.Equal("new Swift.Foundation.Data(value)", conversion);
     }
 
     [Fact]

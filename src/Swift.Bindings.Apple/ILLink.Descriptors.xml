@@ -1,0 +1,14 @@
+<!-- Embedded linker descriptor for NativeAOT trimming.
+     Automatically applied when consumers reference SwiftBindings.Apple.
+     Preserves hand-rolled ISwiftObject wrappers that moved here from Runtime in the
+     supplement exodus so NewFromPayload / GetTypeMetadata stay discoverable under ILC.
+
+     Types with CallConvSwift P/Invoke members (URL, URLRequest, AnyError) are
+     intentionally excluded — preserve="methods" on them crashes ILC. Those types
+     self-register via AppleSupplementFactoryRegistration. -->
+<linker>
+  <assembly fullname="SwiftBindings.Apple">
+    <type fullname="Swift.Foundation.Data" preserve="all" />
+    <type fullname="Swift.Foundation.Measurement`1" preserve="all" />
+  </assembly>
+</linker>

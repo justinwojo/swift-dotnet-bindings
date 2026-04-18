@@ -118,11 +118,11 @@ public class URLBridgeTests : TestBase
 
     #endregion
 
-    #region Optional ObjC-Bridged Property Setter (Session 2 regression — 68926ecd)
+    #region Optional ObjC-Bridged Property Setter (regression — 68926ecd)
 
     public void TestMutableOptionalURLSetValue()
     {
-        // Session 2 fix: Optional<ObjC-bridged class> setter emission.
+        // Regression pin for Optional<ObjC-bridged class> setter emission.
         // The @_cdecl setter accepts UnsafeMutableRawPointer? and reconstructs via
         // param.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! URL }.
         var url = Foundation.NSUrl.FromString("https://example.com")!;

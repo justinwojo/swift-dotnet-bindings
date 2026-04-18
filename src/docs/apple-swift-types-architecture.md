@@ -90,9 +90,10 @@ hand-roll needs VWT/mangled-symbol/frozen analysis, and it couples
    assembly. Otherwise identity fractures.
 9. **CI validates supplement metadata against live SDK symbols.**
    Metadata accessor symbol resolves, manifest size/alignment/stride
-   match the live VWT, and POD types pass a VWT copy/destroy smoke.
-   Implemented as `ValidateAppleTypesManifest`. Container/Optional
-   round-trip and non-POD VWT exercise are explicit future work.
+   match the live VWT, every type (POD and non-POD) passes a zeroed-
+   buffer InitializeWithCopy + Destroy smoke, and Optional<T> round-
+   trips via the single-payload enum witnesses on T. Implemented as
+   `ValidateAppleTypesManifest`.
 10. **Framework-linkage blast-radius smoke test.** A macOS `otool -L` /
     `nm -gU` / `strings` diff between a baseline app (Swift.Runtime only)
     and a consumer app (Swift.Runtime + `SwiftBindings.Apple`, touching

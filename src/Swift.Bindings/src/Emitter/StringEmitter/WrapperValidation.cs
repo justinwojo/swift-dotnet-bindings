@@ -776,7 +776,7 @@ public static class WrapperValidation
         // Opaque returns (some Protocol): ALLOWED — @_cdecl wrapper boxes into existential.
         // Closure returns: blocked here because wrapper-owned trampoline paths (ClosureEmitter,
         // OptionalPointerWrapper, ArraySliceNormalization) use this predicate to check function shape.
-        // MethodWrapperEmitter.ShouldEmitWrapper allows closure returns since Session 5, but the
+        // MethodWrapperEmitter.ShouldEmitWrapper allows closure returns, but the
         // trampoline paths don't handle closure return marshalling (they delegate to the method wrapper).
         if (returnSpec is ClosureTypeSpec)
             return false;
@@ -1711,7 +1711,7 @@ public static class WrapperValidation
     /// Returns true for types from C-bridging modules (CoreGraphics, CoreFoundation, Darwin, simd).
     /// These modules expose pure C structs via Swift overlays — they have well-defined, platform-stable
     /// register layouts that both Mono and NativeAOT handle correctly at any size.
-    /// Evidence: CGRect (32 bytes) passes on both runtimes (evidence matrix, Session 2).
+    /// Evidence: CGRect (32 bytes) passes on both runtimes.
     ///
     /// Does NOT include Swift, ObjectiveC, or _Concurrency modules — those contain types with
     /// internal complexity (e.g., Swift.String at 16 bytes) that Mono JIT may not handle correctly

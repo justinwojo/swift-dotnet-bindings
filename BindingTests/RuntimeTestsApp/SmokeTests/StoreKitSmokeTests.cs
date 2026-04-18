@@ -12,15 +12,15 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SmokeTests;
 
 /// <summary>
-/// Session 5 end-to-end smoke test for the Apple-framework direct-mode pipeline:
+/// End-to-end smoke test for the Apple-framework direct-mode pipeline:
 /// consumes the externally-built <c>StoreKit.Swift.iOS.dll</c> + <c>StoreKitSwiftBindings.xcframework</c>
 /// and calls one trivial, non-throwing, non-async StoreKit 2 accessor to prove the
 /// whole chain (<c>SwiftFrameworkResolver</c> → wrapper dylib → system framework via dyld) resolves.
 ///
 /// Gated by the <c>STOREKIT_SMOKE</c> compile symbol, which the csproj sets only when the
-/// Session 4 artifacts exist at <c>/tmp/storekit2-session4</c> on an iOS Simulator build.
+/// reproducer artifacts exist at <c>/tmp/storekit2-session4</c> on an iOS Simulator build.
 /// Regenerate them via the reproducer command in <c>src/docs/0.8.0-storekit2-exploration.md</c>
-/// (Session 4 section) when re-running this on a fresh machine.
+/// when re-running this on a fresh machine.
 /// </summary>
 public class StoreKitSmokeTests : TestBase
 {
@@ -118,12 +118,12 @@ public class StoreKitSmokeTests : TestBase
     }
 
     /// <summary>
-    /// Session 6 end-to-end smoke test for StoreKit 2's async-sequence path through
+    /// End-to-end smoke test for StoreKit 2's async-sequence path through
     /// the Apple-framework direct-mode pipeline. Pivots to <c>Transaction.unfinished</c>
     /// rather than the headline <c>Transaction.updates</c> for two independent reasons,
-    /// both documented in the Session 6 outcome of <c>0.8.0-storekit2-exploration.md</c>:
+    /// both documented in <c>src/docs/0.8.0-storekit2-exploration.md</c>:
     ///
-    ///   1. <b>Generator orphan-PInvoke bug (filed as Session 6 follow-up):</b> the
+    ///   1. <b>Generator orphan-PInvoke bug:</b> the
     ///      generator emits the <c>[LibraryImport]</c> declaration for
     ///      <c>SBW_Get_StoreKit_Transaction_updates</c> but drops the private wrapper
     ///      method AND the public <c>Updates</c> property — there is literally no
@@ -137,7 +137,7 @@ public class StoreKitSmokeTests : TestBase
     ///      entry point — exercising it validates the entire async-iterator wrapper
     ///      code path that <c>Transaction.updates</c> would also use.
     ///
-    ///   2. <b>Foreign value-type metadata gap (Session 5 hazard, now fixed):</b>
+    ///   2. <b>Foreign value-type metadata gap (now fixed):</b>
     ///      <c>VerificationResult&lt;Transaction&gt;</c> exposes <c>UUID</c>/<c>Date</c>
     ///      fields whose runtime <c>RegisterMetadata</c> calls were previously missing.
     ///      The Foundation.UUID metadata registration gap is now resolved via
@@ -159,8 +159,7 @@ public class StoreKitSmokeTests : TestBase
     /// exercises the terminal-completion dispose path. Native ARC ref-count
     /// inspection isn't surfaced through <c>SwiftSafeHandle</c> in this repo, so
     /// the success bar is "no managed exception, no Mono abort, managed memory
-    /// delta on the third pass is bounded" — same bar Session 5 used for the
-    /// resolver smoke test.
+    /// delta on the third pass is bounded" — same bar the resolver smoke test uses.
     /// </summary>
     public async Task TestTransactionUnfinishedAsyncSequenceEnumerates()
     {
@@ -309,10 +308,9 @@ public class StoreKitSmokeTests : TestBase
             $"managed memory grew by {perLoopGrowth} bytes/loop across {MeasuredLoops} empty-complete async-iterator passes " +
             $"(ceiling: {PerLoopGrowthCeilingBytes} bytes/loop, total delta: {memoryDelta} bytes) — possible SafeHandle/GCHandle leak");
 
-        // The remainder of the success bar matches Session 5: the calls completed
-        // without throwing. We don't assert on `count` / `pass3Count` because
-        // empty-complete is a valid result on a fresh simulator with no sandbox
-        // account configured.
+        // The remainder of the success bar: the calls completed without throwing.
+        // We don't assert on `count` / `pass3Count` because empty-complete is a
+        // valid result on a fresh simulator with no sandbox account configured.
         AssertTrue(true, "Transaction.Unfinished AsyncSequence enumerated cleanly across early-termination, full empty-complete, and amplified memory-tracked passes");
     }
 

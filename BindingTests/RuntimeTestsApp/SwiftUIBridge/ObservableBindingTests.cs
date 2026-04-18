@@ -11,8 +11,8 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SwiftUIBridge;
 
 /// <summary>
-/// Tests for Session 6 observable binding: INotifyPropertyChanged ViewModel
-/// auto-dispatches property changes to Swift state updates.
+/// Tests for observable binding: INotifyPropertyChanged ViewModel auto-dispatches
+/// property changes to Swift state updates.
 /// </summary>
 public class ObservableBindingTests : TestBase
 {

@@ -773,7 +773,7 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("Type is missing from the type database", fallbackInfo.Value.Reason);
     }
 
-    // --- Foundation remapped value types (Session 10 additions) ---
+    // --- Foundation remapped value types ---
 
     [Theory]
     [InlineData("Foundation.URLSession.ResponseDisposition", "Foundation", "NSUrlSessionResponseDisposition")]

@@ -162,7 +162,7 @@ public class MethodClosureBridgeTests
     public void IsEligible_ClosureWithAnyErrorArg_ReturnsTrue()
     {
         // `(any Error) -> Void` — MCB must activate so the error existential can be bridged
-        // through ExistentialContainer1 to C# Swift.AnyError. Covers Stripe/Alamofire-style
+        // through ExistentialContainer1 to C# Swift.Foundation.AnyError. Covers Stripe/Alamofire-style
         // `Result<T, any Error>` completion handlers.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -266,8 +266,8 @@ public class MethodClosureBridgeTests
     {
         // `(any Error) -> Void` — MCB bridges the 5-word existential container:
         //   Swift: withUnsafePointer(to: err) { UnsafeMutableRawPointer(mutating: $0) }
-        //   C#:    new Swift.AnyError(*(ExistentialContainer1*)ptr)
-        // Public delegate must expose Swift.AnyError to consumers so they can call
+        //   C#:    new Swift.Foundation.AnyError(*(ExistentialContainer1*)ptr)
+        // Public delegate must expose Swift.Foundation.AnyError to consumers so they can call
         // .LocalizedDescription without touching raw containers.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -301,10 +301,10 @@ public class MethodClosureBridgeTests
         Assert.Contains("any", swift);
         Assert.Contains("Error", swift);
 
-        // Public API delegate must expose Swift.AnyError to the consumer.
-        Assert.Contains("Action<Swift.AnyError>", cs);
+        // Public API delegate must expose Swift.Foundation.AnyError to the consumer.
+        Assert.Contains("Action<Swift.Foundation.AnyError>", cs);
         // C# callback marshal must dereference the ExistentialContainer1* into a new AnyError.
-        Assert.Contains("new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)", cs);
+        Assert.Contains("new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)", cs);
     }
 
     // ─── Optional closure support ─────────────────────────────────────
@@ -1038,7 +1038,7 @@ public class MethodClosureBridgeTests
         Assert.Contains("onProgressFuncPtr", swift);
         Assert.Contains("onProgressContext", swift);
 
-        // Two separate callback methods in C# (MCB_xxx and MCB_xxx_1)
+        // Two separate callback methods in C# (MCB_xxx_0 and MCB_xxx_1)
         Assert.Contains("s_MCB_", cs); // funcPtr field references
 
         // Two GCHandle allocations in public method

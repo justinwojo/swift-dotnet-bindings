@@ -562,13 +562,13 @@ public static class TypeDatabaseExtensions
     };
 
     /// <summary>
-    /// Gets the type record for Swift.Error, mapped to Swift.AnyError.
+    /// Gets the type record for Swift.Error, mapped to Swift.Foundation.AnyError.
     /// This enables 'any Swift.Error' existentials to resolve through the type database
     /// instead of falling back to raw ExistentialContainer1.
     /// </summary>
     public static TypeRecord SwiftErrorType { get; } = new TypeRecord
     {
-        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "AnyError"),
+        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Foundation", "AnyError"),
         SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
         MetadataAccessor = string.Empty,
         Flags = TypeRecordFlags.Frozen,

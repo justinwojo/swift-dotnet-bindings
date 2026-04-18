@@ -1232,7 +1232,7 @@ namespace BindingsGeneration
 
             // Foundation.Data → byte[] conversion (received as IntPtr to heap-allocated buffer)
             if (element is NamedTypeSpec dataElement && dataElement.Name == "Foundation.Data")
-                return $"var {resultName} = (*(Swift.Data*)(void*){itemName}).ToByteArray();";
+                return $"var {resultName} = (*(Swift.Foundation.Data*)(void*){itemName}).ToByteArray();";
 
             // Use the computed P/Invoke type to determine marshalling
             if (pinvokeType == "IntPtr")

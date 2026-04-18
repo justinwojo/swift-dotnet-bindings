@@ -6,7 +6,7 @@ using Newtonsoft.Json;
 namespace BindingsGeneration.AppleTypesManifest;
 
 // Writes a manifest to disk using the same two-space indent + trailing newline format as
-// the hand-seeded Session 1 file, so diffs stay reviewable. Json.NET honors the property
+// the hand-seeded reference file, so diffs stay reviewable. Json.NET honors the property
 // ordering declared in the model via `JsonProperty(Order=...)`.
 public static class AppleTypesManifestSerializer
 {

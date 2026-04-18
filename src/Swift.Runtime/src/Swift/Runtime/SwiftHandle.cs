@@ -63,20 +63,6 @@ public sealed class SwiftSafeHandle<T> : SafeHandleZeroOrMinusOneIsInvalid where
     public readonly static SwiftSafeHandle<T> Zero = new SwiftSafeHandle<T>(IntPtr.Zero);
 
     /// <summary>
-    /// Registers a custom destroy action for this SafeHandle type parameter.
-    /// This method exists for backward compatibility with previously-generated bindings
-    /// that emitted @_cdecl destroy wrappers. New bindings no longer emit these wrappers
-    /// since VWT Destroy via the Cdecl trampoline is safe on both Mono and NativeAOT.
-    /// The registered action is ignored — VWT Destroy is always used directly.
-    /// </summary>
-    /// <param name="action">The destroy action (ignored).</param>
-    public static void RegisterDestroyAction(Action<IntPtr>? action)
-    {
-        // No-op for backward compatibility. Previously-generated bindings may call this
-        // during static initialization, but the action is not stored or used.
-    }
-
-    /// <summary>
     /// Tracks whether Dispose() was explicitly called.
     /// Used to distinguish explicit disposal from finalizer-triggered cleanup during
     /// process exit: explicit Dispose still runs VWT Destroy (Swift deinit may have

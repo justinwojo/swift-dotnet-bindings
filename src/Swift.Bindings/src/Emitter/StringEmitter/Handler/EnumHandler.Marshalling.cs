@@ -227,10 +227,10 @@ namespace BindingsGeneration
                 }
             }
 
-            // Foundation.Data → byte[]: marshal as Swift.Data, then convert
+            // Foundation.Data → byte[]: marshal as Swift.Foundation.Data, then convert
             if (typeSpec is NamedTypeSpec dataOffset && dataOffset.Name == "Foundation.Data")
             {
-                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Foundation.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
                 csWriter.WriteLine($"{varName} = _{varName}_raw.ToByteArray();");
                 return;
             }

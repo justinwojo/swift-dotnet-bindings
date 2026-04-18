@@ -252,11 +252,22 @@ public class TypeProjectionFactory
         if (name == "Swift.String")
             return new StringProjection();
 
+        // Foundation.Data and Foundation.Date are hand-rolled in SwiftBindings.Apple under
+        // the `Swift.Foundation.*` namespace. The AppleSupplementResolver manifest lookup
+        // short-circuits these identities (they are not machine-generated entries), so the
+        // normal TryGetTypeRecord path does not record the Apple supplement dependency.
+        // Record explicitly here so the consumer's csproj picks up the PackageReference.
         if (name == "Foundation.Data")
+        {
+            AppleSupplementReferences.Record("Foundation.Data");
             return new DataProjection();
+        }
 
         if (name == "Foundation.Date")
+        {
+            AppleSupplementReferences.Record("Foundation.Date");
             return new DateProjection();
+        }
 
         // Pointer types are always mapped to System.IntPtr
         if (AppleFrameworkRegistry.IsPointerType(name))

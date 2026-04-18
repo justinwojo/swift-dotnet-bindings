@@ -3770,7 +3770,7 @@ public class ConstructorWrapperEmitterTests
     /// and reconstructs via unsafeBitCast to Foundation.Data.
     /// Foundation.Data is ObjC-bridged (Data ↔ NSData*) in @_cdecl — passing it by value
     /// causes ABI mismatch (NSData* pointer in GP register vs raw Data buffer bytes).
-    /// The two-Int-word pattern avoids ObjC bridging: C# passes Swift.Data (16-byte struct)
+    /// The two-Int-word pattern avoids ObjC bridging: C# passes Swift.Foundation.Data (16-byte struct)
     /// in two GP registers, matching two Int parameters on the Swift side.
     /// Regression test for Nuke DataCache.storeData and Lottie LottieAnimation.from SIGSEGV.
     /// </summary>
@@ -3850,7 +3850,7 @@ public class ConstructorWrapperEmitterTests
 
     #endregion
 
-    #region Protocol Existential Parameter Tests (Session 3)
+    #region Protocol Existential Parameter Tests
 
     /// <summary>
     /// Verifies that CdeclParamMapper emits "any" prefix and parenthesized form

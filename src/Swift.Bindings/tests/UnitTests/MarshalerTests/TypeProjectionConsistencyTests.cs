@@ -236,7 +236,7 @@ public class TypeProjectionConsistencyTests
 
         // Swift.Error → AnyError
         yield return new object[] { "Swift.Error → AnyError", MakeProtocolList("Swift.Error"), false,
-            "Swift.AnyError", "Swift.Runtime.ExistentialContainer1", typeof(ExistentialProjection) };
+            "Swift.Foundation.AnyError", "Swift.Runtime.ExistentialContainer1", typeof(ExistentialProjection) };
 
         // Unknown protocol → object
         yield return new object[] { "Existential(unknown) → object", MakeProtocolList("TestModule.UnknownProtocol"), false,

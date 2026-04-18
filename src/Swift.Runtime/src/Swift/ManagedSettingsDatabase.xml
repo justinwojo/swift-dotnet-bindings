@@ -4,20 +4,20 @@
         <!-- Token<Kind> — non-frozen opaque generic struct used as typed identifier.
              FamilyControls uses type aliases (ApplicationToken, ActivityCategoryToken, WebDomainToken)
              that resolve to Token<Application>, Token<ActivityCategory>, Token<WebDomain>. -->
-        <entity managedNameSpace="ManagedSettings" managedTypeName="Token">
+        <entity managedNameSpace="Swift.ManagedSettings" managedTypeName="Token">
             <typedeclaration kind="struct" name="Token" module="ManagedSettings"
                              mangledName="$s15ManagedSettings5TokenV" frozen="false" requiresMemoryManagement="true" />
         </entity>
         <!-- Phantom marker types used as Token generic arguments. -->
-        <entity managedNameSpace="ManagedSettings" managedTypeName="Application">
+        <entity managedNameSpace="Swift.ManagedSettings" managedTypeName="Application">
             <typedeclaration kind="struct" name="Application" module="ManagedSettings"
                              mangledName="$s15ManagedSettings11ApplicationV" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="ManagedSettings" managedTypeName="ActivityCategory">
+        <entity managedNameSpace="Swift.ManagedSettings" managedTypeName="ActivityCategory">
             <typedeclaration kind="struct" name="ActivityCategory" module="ManagedSettings"
                              mangledName="$s15ManagedSettings16ActivityCategoryV" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="ManagedSettings" managedTypeName="WebDomain">
+        <entity managedNameSpace="Swift.ManagedSettings" managedTypeName="WebDomain">
             <typedeclaration kind="struct" name="WebDomain" module="ManagedSettings"
                              mangledName="$s15ManagedSettings9WebDomainV" frozen="true" requiresMemoryManagement="false" />
         </entity>

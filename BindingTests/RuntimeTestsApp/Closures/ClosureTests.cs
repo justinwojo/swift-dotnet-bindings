@@ -349,12 +349,12 @@ public class ClosureTests : TestBase
 
     #endregion
 
-    #region P1: Optional Closure Property Setter (Session 2 regression — ClosureHolder)
+    #region P1: Optional Closure Property Setter (ClosureHolder regression)
 
     public void TestClosureHolderSetCallback()
     {
-        // Session 2 fix (68926ecd): Optional closure property setter emission.
-        // The @_cdecl setter accepts optional function pointer — nil clears, non-nil wraps.
+        // Optional closure property setter emission (68926ecd): the @_cdecl setter
+        // accepts an optional function pointer — nil clears, non-nil wraps.
         var captured = -1;
         using var holder = new ClosureHolder();
         holder.OnValueChanged = v => { captured = v; };

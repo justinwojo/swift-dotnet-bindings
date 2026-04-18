@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// MARK: - TipKitSmokeTip (Session 6 — real-framework PAT fallback pin)
+// MARK: - TipKitSmokeTip (real-framework PAT fallback pin)
 //
-// Session 6 end-to-end smoke fixture for the Apple-framework direct-mode
-// pipeline on TipKit. Gated by the `TIPKIT_SMOKE` compile symbol, which
+// End-to-end smoke fixture for the Apple-framework direct-mode pipeline
+// on TipKit. Gated by the `TIPKIT_SMOKE` compile symbol, which
 // Nuke threads in via `-D` on BOTH the dylib compile AND the ABI JSON dump
 // (build/Build.BindingTests.cs::CompileModuleSlice). If either side drops
 // the define, the compiled C# runtime test file cannot reference

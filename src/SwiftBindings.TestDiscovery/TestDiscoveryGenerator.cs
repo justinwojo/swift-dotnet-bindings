@@ -228,7 +228,7 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
 
         sb.AppendLine("    };");
 
-        // Emit test manifest as a constant for future use (Session 3 crash recovery)
+        // Emit test manifest as a constant for crash recovery orchestration.
         sb.AppendLine();
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// Full test manifest: one ClassName.MethodName per line.");

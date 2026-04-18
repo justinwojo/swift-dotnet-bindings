@@ -47,7 +47,7 @@ public struct PlayerStyleView: View {
 // MARK: - Non-Raw-Value Enum Param (RichTextKit ActionButton pattern)
 
 /// Replicates RichTextKit.ActionButton — view taking a non-raw-value enum
-/// with associated values. Tests Session 3's BoundStruct bridge for enum types.
+/// with associated values. Tests the BoundStruct bridge for enum types.
 /// Uses TransformOutcome from Closures/StructClosureBridge.swift (has associated values).
 public struct FormatActionView: View {
     let action: TransformOutcome
@@ -64,7 +64,7 @@ public struct FormatActionView: View {
 // MARK: - Closure with BoundStruct Arg (RichTextKit Menu pattern)
 
 /// Replicates RichTextKit.Menu — closure taking non-raw-value enum arg.
-/// Tests Session 3's BoundStruct closure arg bridge (heap-allocate + initializeMemory).
+/// Tests the BoundStruct closure arg bridge (heap-allocate + initializeMemory).
 public struct FormatMenuView: View {
     let onFormat: (TransformOutcome) -> Void
 
@@ -98,7 +98,7 @@ public struct RichToolbarView: View {
     }
 }
 
-// MARK: - Binding<Bool> Param (Session 2 gate: Binding<T>)
+// MARK: - Binding<Bool> Param (Binding<T> gate)
 
 /// Tests the Binding<T> bridge parameter gate at runtime.
 /// The bridge stores the Bool in @Published state and passes $state.isOn
@@ -115,7 +115,7 @@ public struct BindingToggleView: View {
     }
 }
 
-// MARK: - Array<Int> Param (Session 2 gate: Array<T>)
+// MARK: - Array<Int> Param (Array<T> gate)
 
 /// Tests the BridgeArray parameter gate at runtime.
 /// The bridge receives a pointer + count and reconstructs via UnsafeBufferPointer.map.
@@ -131,7 +131,7 @@ public struct NumberListView: View {
     }
 }
 
-// MARK: - SwiftUI.Image Param (Session 2 gate: Image)
+// MARK: - SwiftUI.Image Param (Image gate)
 
 /// Tests the SwiftUI.Image bridge parameter gate at runtime.
 /// The bridge stores the SF Symbol name as a String and reconstructs

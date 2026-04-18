@@ -15,8 +15,8 @@ namespace RuntimeTestsApp.EdgeCases;
 /// Swift accessors, per-enum-case availability, and @_silgen_name extension
 /// wrappers on @available-gated extensions. All three were exercised only
 /// indirectly by the WeatherKit/AuthenticationServices compile gates before
-/// this fixture existed — Session 3 pinned fix #1 reflectively against the
-/// real WeatherKit snapshot, but the synthetic path was missing.
+/// this fixture existed — the WeatherKit smoke test pins fix #1 reflectively
+/// against the real WeatherKit snapshot, but the synthetic path was missing.
 ///
 /// The test shape mirrors WeatherKitSmokeTests.TestDayWeatherHighTemperatureTimeIos18Availability
 /// so a regression is diagnosable identically to the smoke path: we reach

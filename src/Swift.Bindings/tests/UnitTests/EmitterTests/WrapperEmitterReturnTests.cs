@@ -267,7 +267,7 @@ public class WrapperEmitterReturnTests
     [Fact]
     public void Return_WellKnownExistential_EmitsAnyError()
     {
-        // Bug fix: `any Swift.Error` must emit `new Swift.AnyError(result)`,
+        // Bug fix: `any Swift.Error` must emit `new Swift.Foundation.AnyError(result)`,
         // not `new ErrorProxy(result)` (ErrorProxy doesn't exist)
         var typeDatabase = CreateTypeDatabaseWithProtocol();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -287,7 +287,7 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("new Swift.AnyError(result)", csOutput);
+        Assert.Contains("new Swift.Foundation.AnyError(result)", csOutput);
         Assert.DoesNotContain("ErrorProxy", csOutput);
     }
 
@@ -295,7 +295,7 @@ public class WrapperEmitterReturnTests
     public void OptionalExistential_WellKnownProtocol_UnwrapsToAnyError()
     {
         // Bug fix: Optional<any Swift.Error> return must use TryGetWellKnownProtocolType
-        // to emit `new Swift.AnyError(result)` instead of `new ErrorProxy(result)`.
+        // to emit `new Swift.Foundation.AnyError(result)` instead of `new ErrorProxy(result)`.
         // This tests the ExistentialHandler logic used by WrapperEmitter.Return lines 170 and 451.
         var typeDatabase = CreateTypeDatabaseWithErrorProtocol();
         var existentialHandler = new ExistentialHandler(typeDatabase);
@@ -310,7 +310,7 @@ public class WrapperEmitterReturnTests
         var innerProtocolList = existentialHandler.UnwrapOptionalExistential(optionalExistential);
         Assert.NotNull(innerProtocolList);
         Assert.True(existentialHandler.TryGetWellKnownProtocolType(innerProtocolList!, out var wellKnownType));
-        Assert.Equal("Swift.AnyError", wellKnownType);
+        Assert.Equal("Swift.Foundation.AnyError", wellKnownType);
 
         // Verify GetProxyClassName would give the wrong answer (ErrorProxy)
         var proxyName = existentialHandler.GetProxyClassName(innerProtocolList!);

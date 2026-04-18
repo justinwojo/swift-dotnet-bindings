@@ -63,14 +63,13 @@ namespace BindingsGeneration
 
         /// <summary>
         /// When <see cref="EmitsAppleSupplementReference"/> is true, the open-ended NuGet
-        /// version expression to attach (per architecture doc §Decision summary item 5 —
-        /// the Apple supplement is cross-major additive-only, so consumers float forward
-        /// on the Apple SDK train and do not pin to a specific minor). Intentionally has
-        /// no default: every caller (CLI, tests, templates) must thread an explicit
-        /// version from <c>--apple-version</c> or the equivalent, and Emit throws if this
-        /// is null/empty when <see cref="EmitsAppleSupplementReference"/> is true. A
-        /// hardcoded fallback would silently ship stale supplement versions on train
-        /// bumps.
+        /// version expression to attach. The Apple supplement is cross-major additive-only,
+        /// so consumers float forward on the Apple SDK train and do not pin to a specific
+        /// minor. Intentionally has no default: every caller (CLI, tests, templates) must
+        /// thread an explicit version from <c>--apple-version</c> or the equivalent, and
+        /// Emit throws if this is null/empty when <see cref="EmitsAppleSupplementReference"/>
+        /// is true. A hardcoded fallback would silently ship stale supplement versions on
+        /// train bumps.
         /// </summary>
         public string? AppleSupplementVersion { get; init; }
 
@@ -201,10 +200,10 @@ namespace BindingsGeneration
             // Swift-only Apple type (e.g. Foundation.Locale.Language) via AppleSupplementResolver.
             // Non-Apple consumers leave EmitsAppleSupplementReference=false and pick up no extra dep.
             //
-            // The open-ended version (e.g. "26.0.0" instead of a bounded range) is deliberate —
-            // the supplement is cross-major additive-only per architecture doc §Decision summary
-            // item 5, so consumers float forward as Apple ships new SDK trains. A closed upper
-            // bound would force a coordinated release for every train bump.
+            // The open-ended version (e.g. "26.0.0" instead of a bounded range) is deliberate: the
+            // supplement is cross-major additive-only, so consumers must float forward as Apple
+            // ships new SDK trains. A closed upper bound would force a coordinated release for
+            // every train bump.
             //
             // Prototype mode takes precedence: when a prototype project path is supplied the
             // consumer references it as a project (canonical identity preserved, no NuGet
@@ -234,9 +233,12 @@ namespace BindingsGeneration
 
                 appleSupplementRef = $"""
 
-                    <!-- Apple supplement — open-ended version per supplement is cross-major
-                         additive-only (architecture doc §Decision summary item 5). -->
-                    <PackageReference Include="SwiftBindings.Apple" Version="{XmlEscape(options.AppleSupplementVersion)}" />
+                    <!-- Apple supplement — open-ended version range (e.g. [26.0.0,)) because
+                         the supplement is cross-major additive-only per architecture doc
+                         §Decision summary item 5. A bare "26.0.0" becomes an exact pin in
+                         NuGet, which blocks consumers from floating forward when Apple ships
+                         new SDK trains — use [ver,) so only the floor is enforced. -->
+                    <PackageReference Include="SwiftBindings.Apple" Version="[{XmlEscape(options.AppleSupplementVersion)},)" />
                 """;
             }
 

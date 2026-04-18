@@ -311,7 +311,7 @@ public func fireURLProcessorDelegate(_ delegate: any URLProcessorDelegate, urlSt
     return result.absoluteString
 }
 
-// MARK: - Existential Parameter Callback (Session 6)
+// MARK: - Existential Parameter Callback
 
 /// Protocol with a method that takes an existential parameter.
 /// Tests that Swift can call back into C# passing `any HasValue` as an arg.

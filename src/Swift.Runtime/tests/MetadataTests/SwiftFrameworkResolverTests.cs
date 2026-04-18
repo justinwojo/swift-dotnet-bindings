@@ -132,8 +132,8 @@ public class SwiftFrameworkResolverTests
         // absolute path proves the dyld-style branch runs NativeLibrary.TryLoad
         // against the verbatim input and hands back the dyld handle. If some
         // future regression rewrites the input to
-        // @rpath/libSystem.B.dylib.framework/libSystem.B.dylib (the very bug we
-        // fixed in Session 5), this test fails with IntPtr.Zero.
+        // @rpath/libSystem.B.dylib.framework/libSystem.B.dylib (the classic
+        // "prefix everything" bug), this test fails with IntPtr.Zero.
         var handle = SwiftFrameworkResolver.ResolveSwiftFramework(
             KnownLoadableAbsolutePath, Assembly.GetExecutingAssembly(), searchPath: null);
         try

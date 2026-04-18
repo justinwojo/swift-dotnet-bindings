@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Session 5 / M9 — framework-linkage blast-radius smoke test.
+# Framework-linkage blast-radius smoke test.
 #
 # Publishes BlastRadius.Baseline + BlastRadius.Consumer and captures
 # otool -L / nm -gU / strings diffs so we can quantify what the Apple

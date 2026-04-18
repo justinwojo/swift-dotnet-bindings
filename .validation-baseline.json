@@ -1,5 +1,5 @@
 {
-  "git_sha": "e24a56fa",
+  "git_sha": "ceaaec3f",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23534,
+        "lines": 23532,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23534,
+        "lines": 23532,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23534,
+        "lines": 23532,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -694,5 +694,13 @@
       "UnderscorePrefixInternal": 2
     }
   },
-  "runtime_tests": null
+  "runtime_tests": {
+    "simulator": {
+      "pass": 1446,
+      "fail": 0,
+      "skip": 40,
+      "crash": 0
+    },
+    "device": null
+  }
 }

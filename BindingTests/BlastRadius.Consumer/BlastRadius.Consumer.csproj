@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Session 5 / M9 blast-radius smoke test.
+  <!-- Blast-radius smoke test.
 
        This project is the "treatment" side of the framework-linkage measurement:
        identical to BlastRadius.Baseline except it references SwiftBindings.Apple

@@ -116,10 +116,11 @@ public class AppleVersionForwardingTests
 #region --platform-version CLI option
 
 /// <summary>
-/// The <c>--platform-version</c> flag was added in Session 1 of the 0.8.0 Apple-framework
-/// publishing release. It must (a) parse cleanly off the CLI, (b) default to null when
-/// not supplied so existing callers don't break, and (c) be in the option set returned
-/// by <see cref="CliOptions.CreateRootCommand"/> so System.CommandLine actually picks it up.
+/// The <c>--platform-version</c> flag lets the Apple-framework publishing flow stamp a
+/// concrete OS version (e.g. iOS 17.0) into generated artifacts. It must (a) parse
+/// cleanly off the CLI, (b) default to null when not supplied so existing callers don't
+/// break, and (c) be in the option set returned by
+/// <see cref="CliOptions.CreateRootCommand"/> so System.CommandLine actually picks it up.
 /// </summary>
 public class PlatformVersionCliOptionTests
 {

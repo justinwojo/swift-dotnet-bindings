@@ -220,7 +220,7 @@ public class ClosureHandler
         // while Swift uses withCheckedThrowingContinuation to create the actual async closure.
         //
         // Foundation.Data returns are supported via special byte[] marshalling:
-        // 1. User provides Func<Task<Swift.Data>>
+        // 1. User provides Func<Task<Swift.Foundation.Data>>
         // 2. C# awaits the task, calls result.ToByteArray()
         // 3. Pins bytes and calls Swift's success callback with (boxPtr, dataPtr, length)
         // 4. Swift copies the bytes to create a new Data object
@@ -1727,7 +1727,7 @@ public class ClosureHandler
     /// ExistentialContainer in callback/invoker code.
     /// </summary>
     /// <param name="typeSpec">The type specification.</param>
-    /// <param name="wrapType">The well-known C# type name (e.g., "Swift.AnyError") if applicable.</param>
+    /// <param name="wrapType">The well-known C# type name (e.g., "Swift.Foundation.AnyError") if applicable.</param>
     /// <returns>True if the type needs well-known protocol wrapping.</returns>
     public bool NeedsWellKnownProtocolWrapping(TypeSpec typeSpec, out string wrapType)
     {

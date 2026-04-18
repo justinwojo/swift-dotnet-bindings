@@ -609,7 +609,7 @@ public class OptionalMarshalStrategyTests
 
     #endregion
 
-    #region Session 4 — Value-Type Optional Classification
+    #region Value-Type Optional Classification
 
     [Fact]
     public void Classify_OptionalSimpleEnum_ReturnsLargeOptionalPointer()

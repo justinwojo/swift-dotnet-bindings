@@ -9,8 +9,9 @@ namespace BindingsGeneration.AppleTypesManifest;
 // emission. Default storage strategy is VWT-backed opaque; this list is consulted only
 // when an entry wants the sequential (frozen-trivially-copyable) path. The gate also
 // requires frozen=true, non-generic, size/alignment validated against the live SDK —
-// the whitelist name alone is not sufficient. See
-// `apple-swift-types-architecture.md` §Decision summary item 3 / §Q8.
+// the whitelist name alone is not sufficient. The positive-list design exists to keep
+// additions deliberate: a single wrong sequential emission on a non-frozen type would
+// be an ABI regression that binds every downstream package.
 public sealed class SequentialLayoutWhitelist
 {
     private HashSet<string>? _lookup;

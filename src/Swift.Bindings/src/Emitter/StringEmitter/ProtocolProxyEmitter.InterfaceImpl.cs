@@ -101,7 +101,7 @@ public partial class ProtocolProxyEmitter
         // the proxy's SetVtable/WitnessTable P/Invoke symbols don't exist — this is a pre-existing
         // latent issue (see ProtocolHandler.cs TODO). The static stubs here don't make it worse;
         // the proxy was already emitted and runtime-broken for these protocols. Full fix requires
-        // co-gating proxy emission with EveryProtocol conformance (roadmap Session 5).
+        // co-gating proxy emission with EveryProtocol conformance.
         EmitStaticAbstractStubs(writer, protocolDecl);
 
         // Emit implementations for inherited protocol interface members.

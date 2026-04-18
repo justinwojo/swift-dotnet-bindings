@@ -115,6 +115,10 @@ jobs:
           --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140
 
+      - name: Validate blast radius
+        timeout-minutes: 10
+        run: dotnet nuke validate-blast-radius
+
       - name: Upload simulator diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

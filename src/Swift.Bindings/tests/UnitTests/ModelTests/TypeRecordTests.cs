@@ -9,8 +9,7 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Exercises the three-aspect split introduced to <see cref="TypeRecord"/> for the Apple
-/// supplement work (see <c>src/docs/apple-swift-types-architecture.md</c> §"Implementation
-/// specifics" item 5). Swift identity / managed projection / ABI carrier must all be
+/// supplement work. Swift identity / managed projection / ABI carrier must all be
 /// addressable as first-class properties, with the projection and carrier defaulting to
 /// <c>CSharpTypeName</c> when not explicitly overridden so existing call sites are unaffected.
 /// </summary>

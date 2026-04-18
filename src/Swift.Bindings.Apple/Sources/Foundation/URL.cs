@@ -3,13 +3,14 @@
 
 // Minimal stub: exists only to satisfy ISwiftObject constraint in bound generic type arguments
 // (e.g., SwiftResult<URL, Error>, DownloadResponse<URL, AFError>). All public API surface uses
-// Foundation.NSUrl via ObjCBridgeableProjection. See objc-bridge-projection-design.md Session 5.
+// Foundation.NSUrl via ObjCBridgeableProjection — Swift's Foundation.URL bridges 1:1 to NSURL
+// so consumers get the familiar Microsoft.iOS ObjC type instead of a second managed URL.
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 
-namespace Swift;
+namespace Swift.Foundation;
 
 /// <summary>
 /// Minimal ISwiftObject stub for Foundation.URL, used only as a generic type argument
@@ -21,6 +22,7 @@ public sealed class URL : ISwiftObject, ISwiftStruct, IDisposable
     private bool _disposed;
     private static TypeMetadata? _cachedMetadata;
 
+    /// <summary>The safe handle wrapping the native Swift storage for this URL.</summary>
     public SwiftSafeHandle<URL> Payload => _payload;
 
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
@@ -76,6 +78,7 @@ public sealed class URL : ISwiftObject, ISwiftStruct, IDisposable
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation3URLVMa")]
     private static extern TypeMetadata PInvoke_GetMetadata();
 
+    /// <summary>Releases the native Swift storage backing this URL.</summary>
     public void Dispose()
     {
         if (!_disposed)

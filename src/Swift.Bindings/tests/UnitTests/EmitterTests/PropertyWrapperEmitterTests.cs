@@ -2234,7 +2234,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_ArrayProperty_ReturnsTrue()
     {
-        // Array properties now handled via @_cdecl UnsafeRawPointer transport (Session 9A)
+        // Array properties now handled via @_cdecl UnsafeRawPointer transport
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2249,7 +2249,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_DictionaryProperty_ReturnsTrue()
     {
-        // Dictionary properties now handled via @_cdecl UnsafeRawPointer transport (Session 9A)
+        // Dictionary properties now handled via @_cdecl UnsafeRawPointer transport
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2265,7 +2265,7 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_SetProperty_ReturnsTrue()
     {
-        // Set properties now handled via @_cdecl UnsafeRawPointer transport (Session 9A)
+        // Set properties now handled via @_cdecl UnsafeRawPointer transport
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

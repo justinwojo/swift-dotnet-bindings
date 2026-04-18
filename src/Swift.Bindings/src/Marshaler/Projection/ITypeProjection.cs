@@ -163,13 +163,13 @@ public record SwiftWrapperContext
 
     /// <summary>
     /// The Swift expression for calling the original method (e.g., "try await __self.fetchData(arg0)").
-    /// Set by the emitter in Session 3. If empty, falls back to a placeholder using MethodName.
+    /// Set by the emitter. If empty, falls back to a placeholder using MethodName.
     /// </summary>
     public string OriginalCallExpression { get; init; } = "";
 
     /// <summary>
     /// The Swift type name for the async callback's return parameter (e.g., "String", "(String, Int)").
-    /// Set by the emitter in Session 3 for complex return types where C# PInvokeType doesn't map to Swift.
+    /// Set by the emitter for complex return types where C# PInvokeType doesn't map to Swift.
     /// If empty, AsyncProjection falls back to mapping PInvokeType via MapPInvokeTypeToSwift.
     /// </summary>
     public string SwiftCallbackReturnType { get; init; } = "";

@@ -62,11 +62,11 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Emit_TargetFramework_AndBuildTransitive_AreConsistent()
         {
-            // Regression gate for the Session 7 trap: today's pack flow only produced an
-            // internally-consistent nupkg by coincidence (single Apple workload installed),
-            // because the TFM came from pi.Tfm (versionless) and the buildTransitive path
-            // came from pi.PackTfm (version-qualified). Both must now source from the same
-            // PackTfm value so they cannot drift.
+            // Regression gate: a previous pack flow only produced an internally-consistent
+            // nupkg by coincidence (single Apple workload installed), because the TFM came
+            // from pi.Tfm (versionless) and the buildTransitive path came from pi.PackTfm
+            // (version-qualified). Both must now source from the same PackTfm value so
+            // they cannot drift.
             var dir = CreateTempDir();
             try
             {
@@ -83,8 +83,8 @@ namespace BindingsGeneration.Tests
         {
             // The --platform-version CLI flag (threaded through PlatformInfoFactory.Create)
             // must rewrite BOTH the <TargetFramework> element and the buildTransitive/ pack
-            // path to the same overridden value. The Session 7 reproducer at
-            // 0.8.0-storekit2-exploration.md uses 26.2 — pin that here.
+            // path to the same overridden value. 26.2 is the canonical StoreKit2-era
+            // repro value — pin that here.
             var dir = CreateTempDir();
             try
             {
@@ -1275,7 +1275,7 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region G. Apple Supplement Reference Tests (Session 5 / M6+M7)
+    #region G. Apple Supplement Reference Tests
 
     public class BindingProjectAppleSupplementTests
     {
@@ -1299,14 +1299,14 @@ namespace BindingsGeneration.Tests
         public void Emit_WithSupplementReference_AddsOpenEndedPackageReference()
         {
             // Positive case: at least one Apple-supplement type resolved during emission.
-            // Expect an open-ended version (architecture doc §Decision summary item 5 —
-            // supplement is cross-major additive-only).
+            // Expect an open-ended version (the supplement is cross-major additive-only so
+            // consumers must be free to float forward onto a newer SDK train).
             var dir = CreateTempDir();
             try
             {
                 var content = EmitAndRead(dir, "Translation", emitsAppleSupplementRef: true);
                 Assert.Contains(
-                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"26.0.0\" />",
+                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"[26.0.0,)\" />",
                     content);
             }
             finally { Directory.Delete(dir, true); }
@@ -1323,7 +1323,7 @@ namespace BindingsGeneration.Tests
                     dir, "FamilyControls",
                     emitsAppleSupplementRef: true, supplementVersion: "19.2.0");
                 Assert.Contains(
-                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"19.2.0\" />",
+                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"[19.2.0,)\" />",
                     content);
             }
             finally { Directory.Delete(dir, true); }
@@ -1513,7 +1513,7 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
-    #region I. Apple Supplement Prototype Emitter Tests (Session 5 / M7)
+    #region I. Apple Supplement Prototype Emitter Tests
 
     public class AppleSupplementPrototypeEmitterTests : AppleSupplementReferencesTestBase
     {

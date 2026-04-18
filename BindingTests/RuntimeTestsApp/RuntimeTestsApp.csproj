@@ -62,17 +62,17 @@
     <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
-    <!-- SwiftBindings.Apple: Phase 2 Session 4 supplement package. Referenced so the
-         VWT-opaque emitted types (Foundation.Locale.Language, ManagedSettings.Application,
+    <!-- SwiftBindings.Apple: supplement package. Referenced so the VWT-opaque emitted
+         types (Foundation.Locale.Language, ManagedSettings.Application,
          CryptoKit.P256.Signing.ECDSASignature, …) can be exercised by the runtime tests
          against the live SDK. iOS-only TFM here matches RuntimeTestsApp; SwiftBindings.Apple
          also supports maccatalyst/tvos/macos for consumers that need them. -->
     <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
-    <!-- Phase 2 Session 6 / M8: two independent consumer libraries that each
-         reference SwiftBindings.Apple and touch Foundation.Locale.Language.
-         CrossAssemblyIdentityTests asserts typeof + TypeMetadata match across
-         both assemblies, guarding against per-consumer duplicate emission. -->
+    <!-- Two independent consumer libraries that each reference SwiftBindings.Apple and
+         touch Foundation.Locale.Language. CrossAssemblyIdentityTests asserts typeof +
+         TypeMetadata match across both assemblies, guarding against per-consumer
+         duplicate emission. -->
     <ProjectReference Include="../AppleIdentity.ConsumerA/AppleIdentity.ConsumerA.csproj"
                       AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
     <ProjectReference Include="../AppleIdentity.ConsumerB/AppleIdentity.ConsumerB.csproj"
@@ -136,7 +136,7 @@
   </ItemGroup>
 
   <!-- Extract test manifest from source generator output into a host-visible file.
-       Used by crash recovery orchestration (Session 3) to know the full test inventory. -->
+       Used by crash recovery orchestration to know the full test inventory. -->
   <Target Name="WriteTestManifest" AfterTargets="CoreCompile"
           Condition="Exists('$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs')">
     <Exec Command="grep '^//! ' '$(IntermediateOutputPath)generated/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.TestDiscoveryGenerator/TestManifest.g.cs' | sed 's|^//! ||' > '$(MSBuildProjectDirectory)/TestClasses.g.txt'" />
@@ -221,8 +221,8 @@
     <!-- Extern alias "StoreKitSwift": Microsoft.iOS's StoreKit ObjC bindings already
          provide a StoreKit.AppStore type, so a default-aliased reference collides
          (CS0433). The smoke test code picks Swift types via the StoreKitSwift alias.
-         NOTE: Do NOT add "global" to <Aliases>. Tried that during session 5 review
-         and it caused a Mono startup SIGABRT in load_aot_module during
+         NOTE: Do NOT add "global" to <Aliases>. Tried that once and it caused a
+         Mono startup SIGABRT in load_aot_module during
          xamarin_bridge_initialize — presumably the Microsoft.iOS ObjC type registrar
          walks every globally-visible type and collides with the Swift-side
          StoreKit.AppStore. The extern-alias-only binding hides these types from
@@ -269,13 +269,13 @@
   <Import Project="$(StoreKitSnapshotProjectRefTargets)"
           Condition="'$(EnableStoreKitSmoke)' == 'true' AND Exists('$(StoreKitSnapshotProjectRefTargets)')" />
 
-  <!-- CryptoKit smoke test (Apple-framework direct-mode pipeline) — Session 2 of the
-       apple-frameworks-bindingtests plan. Mirrors the StoreKit block above but with two
-       simplifications: (1) no extern alias — CryptoKit is a pure Swift framework and
-       Microsoft.iOS does not ship a CryptoKit namespace, so the Swift-side types do not
-       collide with anything in default discovery; (2) uses the canonical
-       <Framework>Snapshot/ path produced by the generalized RegenerateAppleFrameworkSnapshot
-       helper instead of StoreKit's legacy StoreKit2Snapshot/ name.
+  <!-- CryptoKit smoke test (Apple-framework direct-mode pipeline). Mirrors the StoreKit
+       block above but with two simplifications: (1) no extern alias — CryptoKit is a pure
+       Swift framework and Microsoft.iOS does not ship a CryptoKit namespace, so the
+       Swift-side types do not collide with anything in default discovery; (2) uses the
+       canonical <Framework>Snapshot/ path produced by the generalized
+       RegenerateAppleFrameworkSnapshot helper instead of StoreKit's legacy
+       StoreKit2Snapshot/ name.
 
        Opt in via `nuke runtime-tests-simulator enable-cryptokit-smoke`, which
        regenerates BindingTests/obj/CryptoKitSnapshot/ (gitignored) before the build.
@@ -316,10 +316,9 @@
   <Import Project="$(CryptoKitSnapshotProjectRefTargets)"
           Condition="'$(EnableCryptoKitSmoke)' == 'true' AND Exists('$(CryptoKitSnapshotProjectRefTargets)')" />
 
-  <!-- WeatherKit smoke test (Apple-framework direct-mode pipeline) — Session 3 of the
-       apple-frameworks-bindingtests plan. Mirrors the CryptoKit block: no extern alias
-       (WeatherKit is pure Swift, no Microsoft.iOS namespace collision), canonical
-       <Framework>Snapshot/ path, simulator-only slice.
+  <!-- WeatherKit smoke test (Apple-framework direct-mode pipeline). Mirrors the CryptoKit
+       block: no extern alias (WeatherKit is pure Swift, no Microsoft.iOS namespace
+       collision), canonical <Framework>Snapshot/ path, simulator-only slice.
 
        Opt in via `nuke runtime-tests-simulator enable-weatherkit-smoke`, which
        regenerates BindingTests/obj/WeatherKitSnapshot/ (gitignored) before the build.
@@ -358,21 +357,19 @@
   <Import Project="$(WeatherKitSnapshotProjectRefTargets)"
           Condition="'$(EnableWeatherKitSmoke)' == 'true' AND Exists('$(WeatherKitSnapshotProjectRefTargets)')" />
 
-  <!-- TipKit smoke test (Apple-framework direct-mode pipeline) — Session 6 of the
-       apple-frameworks-bindingtests plan. Mirrors the CryptoKit/WeatherKit blocks:
-       no extern alias (TipKit is pure Swift, Microsoft.iOS ships no TipKit namespace —
-       verified by grepping Microsoft.iOS.dll for "TipKit"), canonical
-       <Framework>Snapshot/ path, simulator-only slice.
+  <!-- TipKit smoke test (Apple-framework direct-mode pipeline). Mirrors the
+       CryptoKit/WeatherKit blocks: no extern alias (TipKit is pure Swift, Microsoft.iOS
+       ships no TipKit namespace — verified by grepping Microsoft.iOS.dll for "TipKit"),
+       canonical <Framework>Snapshot/ path, simulator-only slice.
 
        Opt in via `nuke runtime-tests-simulator` with the enable-tipkit-smoke
        flag, which regenerates BindingTests/obj/TipKitSnapshot/ before the build
        AND rebuilds SwiftBindingsTestLib with `-D TIPKIT_SMOKE` so the
        TipKitSmokeTip.swift fixture's concrete `TipKitSmokeMinimalTip: Tip`
-       conformer lands in the dylib. The `-D` threading through BOTH `swiftc`
-       and `swift-frontend` (ABI JSON dump) is what Session 1's
-       CompileModuleSlice plumbing exists for — if either side drops the define,
-       the compiled C# smoke test cannot reference the generator-emitted symbol
-       and the simulator run fails at compile time.
+       conformer lands in the dylib. The `-D` must thread through BOTH `swiftc`
+       and `swift-frontend` (ABI JSON dump) via CompileModuleSlice — if either
+       side drops the define, the compiled C# smoke test cannot reference the
+       generator-emitted symbol and the simulator run fails at compile time.
 
        See TipKitSmokeTests.cs for the runtime assertions (PAT fallback
        reflection pin on the real TipKit.TipUICollectionReusableView.ViewStyle
@@ -409,19 +406,18 @@
   <Import Project="$(TipKitSnapshotProjectRefTargets)"
           Condition="'$(EnableTipKitSmoke)' == 'true' AND Exists('$(TipKitSnapshotProjectRefTargets)')" />
 
-  <!-- MusicKit smoke test (Apple-framework direct-mode pipeline) — Session 7 of the
-       apple-frameworks-bindingtests plan. Mirrors the CryptoKit/WeatherKit/TipKit blocks:
-       no extern alias (MusicKit is pure Swift; Microsoft.iOS ships MediaPlayer types
-       under the MediaPlayer namespace, not MusicKit — verified by grepping
-       Microsoft.iOS.dll for "MusicKit"), canonical <Framework>Snapshot/ path,
-       simulator-only slice.
+  <!-- MusicKit smoke test (Apple-framework direct-mode pipeline). Mirrors the
+       CryptoKit/WeatherKit/TipKit blocks: no extern alias (MusicKit is pure Swift;
+       Microsoft.iOS ships MediaPlayer types under the MediaPlayer namespace, not MusicKit —
+       verified by grepping Microsoft.iOS.dll for "MusicKit"), canonical
+       <Framework>Snapshot/ path, simulator-only slice.
 
        Opt in via `nuke runtime-tests-simulator` with the enable-musickit-smoke
        flag, which regenerates BindingTests/obj/MusicKitSnapshot/ (gitignored)
        before the build. The smoke test deliberately avoids anything that would
        hit MusicAuthorization or the MusicCatalog network — it exercises MusicKit
        metadata (MusicItemID round-trip) and the per-property `@available`
-       propagation path (fix #2) through reflection on Song.AudioVariants only.
+       propagation path through reflection on Song.AudioVariants only.
        See MusicKitSmokeTests.cs. -->
   <PropertyGroup>
     <MusicKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/MusicKitSnapshot/</MusicKitSnapshotDir>

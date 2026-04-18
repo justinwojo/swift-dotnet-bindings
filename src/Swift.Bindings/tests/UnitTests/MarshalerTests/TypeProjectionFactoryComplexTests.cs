@@ -194,7 +194,7 @@ public class TypeProjectionFactoryComplexTests
 
         Assert.NotNull(projection);
         Assert.IsType<ExistentialProjection>(projection);
-        Assert.Equal("Swift.AnyError", projection.PublicType);
+        Assert.Equal("Swift.Foundation.AnyError", projection.PublicType);
     }
 
     #endregion

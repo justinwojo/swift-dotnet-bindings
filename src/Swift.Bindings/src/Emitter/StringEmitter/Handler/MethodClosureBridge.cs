@@ -168,9 +168,9 @@ public static class MethodClosureBridge
                 var cArgs = cts.EachArgument().ToList();
                 var retIsVoid = cts.ReturnType.IsEmptyTuple;
                 var paramName = NameProvider.GetCSharpParameterName(arg);
-                // When multiple closures, use indexed naming; single closure preserves backward compat
-                var cbName = $"MCB_{mangledHash}";
-                if (closureIndex > 0) cbName += $"_{closureIndex}";
+                // Always use indexed naming (MCB_{hash}_0, _1, …) so adding a closure later
+                // doesn't silently rename the first symbol from bare MCB_{hash} to MCB_{hash}_0.
+                var cbName = $"MCB_{mangledHash}_{closureIndex}";
                 // Optional<Closure>: delegate is nullable on C# side; Swift adapter must
                 // pass nil to the target method when funcPtr is nil. Per constraints.md,
                 // Optional closures are always escaping (GCHandle still leaked on non-nil path).
@@ -1257,13 +1257,13 @@ public static class MethodClosureBridge
             // (borrowed via withUnsafePointer). Copy the container out and wrap as AnyError so the
             // managed value outlives the callback frame. Payload references are retained via Swift's
             // normal existential-copy semantics by the caller — we read bytes, we do not take ownership.
-            csWriter.WriteLine($"var __a{index} = new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
+            csWriter.WriteLine($"var __a{index} = new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
         }
         else if (IsOptionalAnyErrorExistential(argType))
         {
             // Optional<any Error>: Swift adapter sends nil via IntPtr.Zero; otherwise pointer to
             // a borrowed ExistentialContainer1. Copy out to produce a managed-lifetime AnyError?.
-            csWriter.WriteLine($"global::Swift.AnyError? __a{index} = __p{index} == IntPtr.Zero ? null : new global::Swift.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
+            csWriter.WriteLine($"global::Swift.Foundation.AnyError? __a{index} = __p{index} == IntPtr.Zero ? null : new global::Swift.Foundation.AnyError(*(global::Swift.Runtime.ExistentialContainer1*)__p{index});");
         }
         else if (IsSwiftResultWithAnyErrorFailure(argType))
         {
@@ -1342,7 +1342,7 @@ public static class MethodClosureBridge
     /// <summary>
     /// Checks whether a TypeSpec is the <c>any Swift.Error</c> existential — the only
     /// existential currently supported as an MCB closure argument. The C# runtime type
-    /// is <see cref="Swift.AnyError"/>, and Swift passes its 5-word existential container
+    /// is <see cref="Swift.Foundation.AnyError"/>, and Swift passes its 5-word existential container
     /// through <c>withUnsafePointer</c> → <c>UnsafeMutableRawPointer</c> (pointer ABI,
     /// same shape as bound generic args).
     /// <para>
@@ -1374,10 +1374,10 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
-    /// Checks whether a TypeSpec is <c>Optional&lt;any Swift.Error&gt;</c> — Session 2 Pattern A.
+    /// Checks whether a TypeSpec is <c>Optional&lt;any Swift.Error&gt;</c> — Pattern A.
     /// Stripe completion handlers (<c>PaymentSheet.FlowController.update</c>, etc.) deliver
     /// errors via this shape: nil on success, existential container on failure.
-    /// ABI: <c>UnsafeMutableRawPointer?</c> — nil maps to C# <c>Swift.AnyError?</c> = null.
+    /// ABI: <c>UnsafeMutableRawPointer?</c> — nil maps to C# <c>Swift.Foundation.AnyError?</c> = null.
     /// </summary>
     internal static bool IsOptionalAnyErrorExistential(TypeSpec typeSpec)
     {
@@ -1388,7 +1388,7 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
-    /// Checks whether a TypeSpec is <c>Swift.Result&lt;T, any Swift.Error&gt;</c> — Session 2 Pattern B.
+    /// Checks whether a TypeSpec is <c>Swift.Result&lt;T, any Swift.Error&gt;</c> — Pattern B.
     /// Stripe's <c>(Result&lt;PaymentSheet.FlowController, any Error&gt;) -&gt; Void</c> completion
     /// handlers pass this shape. Routed through <c>withUnsafePointer</c> on the Swift side so
     /// the C# callback receives a pointer to the Result enum payload; the C# wrapper then
@@ -1412,7 +1412,7 @@ public static class MethodClosureBridge
         // any Swift.Error — bridged through ExistentialContainer1 pointer, wrapped as AnyError in C#.
         if (IsAnyErrorExistential(typeSpec)) return true;
 
-        // Optional<any Error> — nil-pointer ABI (UnsafeMutableRawPointer?), C# = Swift.AnyError?.
+        // Optional<any Error> — nil-pointer ABI (UnsafeMutableRawPointer?), C# = Swift.Foundation.AnyError?.
         if (IsOptionalAnyErrorExistential(typeSpec)) return true;
 
         // Result<T, any Error> — stdlib generic not in TypeDatabase; recognize explicitly.
@@ -1602,13 +1602,13 @@ public static class MethodClosureBridge
     /// </summary>
     private static string GetCSharpTypeForClosureArg(TypeSpec argType, MethodEnvironment env)
     {
-        // any Swift.Error existential → Swift.AnyError runtime struct
+        // any Swift.Error existential → Swift.Foundation.AnyError runtime struct
         if (IsAnyErrorExistential(argType))
-            return "Swift.AnyError";
+            return "Swift.Foundation.AnyError";
 
         // Optional<any Error> → nullable struct so callbacks can observe the nil branch.
         if (IsOptionalAnyErrorExistential(argType))
-            return "Swift.AnyError?";
+            return "Swift.Foundation.AnyError?";
 
         if (argType is NamedTypeSpec namedArg)
         {

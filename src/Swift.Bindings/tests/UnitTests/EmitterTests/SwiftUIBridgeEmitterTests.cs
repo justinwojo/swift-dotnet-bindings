@@ -1433,7 +1433,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region BoundStruct (Session 3)
+    #region BoundStruct
 
     [Fact]
     public void InitAnalyzer_MapsBoundStruct_ForFrozenWithMemoryStruct()
@@ -4391,7 +4391,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Closure String/Class Args + Optional<String/Closure> (Session 1)
+    #region Closure String/Class Args + Optional<String/Closure>
 
     [Fact]
     public void InitAnalyzer_TypedClosure_StringArg_AbiHasPtrAndLen()
@@ -4706,7 +4706,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Closure Non-Primitive Returns (Session 1B)
+    #region Closure Non-Primitive Returns
 
     [Fact]
     public void EmitStringReturnClosure_Swift_HasRetLenOutParameter()
@@ -5077,7 +5077,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         };
     }
 
-    #region Generic View Support (Session 2)
+    #region Generic View Support
 
     // --- Test Helpers ---
 
@@ -6233,7 +6233,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Two-Way State Binding (Session 4A)
+    #region Two-Way State Binding
 
     [Fact]
     public void StateBinding_Swift_EmitsStateClass_ForUpdatableParams()
@@ -6373,7 +6373,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void StateBinding_AlwaysWrapper_ForClosureOnlyView()
     {
-        // Session 5: All views always use State+Wrapper (for lifecycle + universal modifiers)
+        // All views always use State+Wrapper (for lifecycle + universal modifiers)
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("ClosureOnlyView", "action") };
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
@@ -6388,7 +6388,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     [Fact]
     public void StateBinding_AlwaysWrapper_ForParameterlessView()
     {
-        // Session 5: Even parameterless views use State+Wrapper
+        // Even parameterless views use State+Wrapper
         var views = new List<TypeDecl> { CreateSimpleViewStruct("EmptyView") };
 
         SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
@@ -6695,7 +6695,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region View Modifier Chain (Session 4C)
+    #region View Modifier Chain
 
     [Fact]
     public void Modifier_Detection_FindsParameterlessSelfReturning()
@@ -7768,7 +7768,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Session 5 — Lifecycle Callbacks
+    #region Lifecycle Callbacks
 
     [Fact]
     public void Lifecycle_Swift_StateHasLifecycleVars()
@@ -7877,7 +7877,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Session 5 — Universal Modifiers
+    #region Universal Modifiers
 
     [Fact]
     public void UniversalModifiers_Swift_StateHasModifierVars()
@@ -7992,7 +7992,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Session 5 — Presentation Helpers
+    #region Presentation Helpers
 
     [Fact]
     public void Presentation_Swift_EmitsPresentDismissFunctions()
@@ -8076,7 +8076,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Session 5 — Always-Wrapper & Closure Handle Integration
+    #region Always-Wrapper & Closure Handle Integration
 
     [Fact]
     public void AlwaysWrapper_CSharp_SessionAlwaysHasLifecycleHandles()
@@ -8170,7 +8170,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region Observable Binding (Session 6)
+    #region Observable Binding
 
     [Fact]
     public void ObservableBinding_EmitsBindToMethod()
@@ -8359,7 +8359,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
     #endregion
 
-    #region BridgeSummary (Session 6)
+    #region BridgeSummary
 
     [Fact]
     public void BridgeSummary_Populated_ForModuleWithViews()

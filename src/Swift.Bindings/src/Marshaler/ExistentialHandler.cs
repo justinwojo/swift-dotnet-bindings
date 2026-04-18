@@ -403,7 +403,7 @@ public class ExistentialHandler
 
     /// <summary>
     /// Checks whether a protocol composition maps to a well-known runtime type
-    /// (e.g., 'any Swift.Error' → Swift.AnyError). Extensible for future stdlib protocols.
+    /// (e.g., 'any Swift.Error' → Swift.Foundation.AnyError). Extensible for future stdlib protocols.
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>
     /// <param name="csharpType">The fully-qualified C# type name if this is a well-known protocol.</param>
@@ -419,7 +419,10 @@ public class ExistentialHandler
 
         if (swiftName == "Swift.Error")
         {
-            csharpType = "Swift.AnyError";
+            // AnyError is hand-rolled in SwiftBindings.Apple; record the reference so the
+            // consumer csproj adds the supplement PackageReference.
+            AppleSupplementReferences.Record("Foundation.AnyError");
+            csharpType = "Swift.Foundation.AnyError";
             return true;
         }
 
@@ -457,7 +460,10 @@ public class ExistentialHandler
 
             // Well-known stdlib protocols → direct runtime type (no proxy needed)
             if (firstProtocol.Name == "Swift.Error")
-                return "Swift.AnyError";
+            {
+                AppleSupplementReferences.Record("Foundation.AnyError");
+                return "Swift.Foundation.AnyError";
+            }
 
             // Validate that the protocol has a TypeRecord in the database with Kind=Protocol.
             // This handles multiple cases:

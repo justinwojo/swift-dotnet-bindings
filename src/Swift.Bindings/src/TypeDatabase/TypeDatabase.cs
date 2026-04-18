@@ -317,9 +317,12 @@ namespace BindingsGeneration
                     return true;
             }
 
-            // Well-known stdlib protocols (Swift.Error → AnyError)
+            // Well-known stdlib protocols (Swift.Error → AnyError). AnyError is hand-rolled
+            // in SwiftBindings.Apple; record the reference so the consumer csproj adds the
+            // supplement PackageReference alongside.
             if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
             {
+                AppleSupplementReferences.Record("Foundation.AnyError");
                 record = TypeDatabaseExtensions.SwiftErrorType;
                 return true;
             }

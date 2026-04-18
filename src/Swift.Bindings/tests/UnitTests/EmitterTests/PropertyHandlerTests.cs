@@ -544,7 +544,7 @@ public class PropertyHandlerTests
         Assert.Contains("get => Payload_Get().ToByteArray();", csOutput);
         Assert.DoesNotContain("using var __ret", csOutput);
         // Setter: Data is a struct — expression-bodied, no using
-        Assert.Contains("set => Payload_Set(Swift.Data.FromByteArray(value));", csOutput);
+        Assert.Contains("set => Payload_Set(Swift.Foundation.Data.FromByteArray(value));", csOutput);
         Assert.DoesNotContain("using var __val", csOutput);
     }
 
@@ -1448,14 +1448,14 @@ public class PropertyHandlerTests
     [Fact]
     public void ExistentialHandler_GetPublicExistentialType_StdlibError_ReturnsAnyError()
     {
-        // Swift.Error is a well-known protocol that maps to Swift.AnyError
+        // Swift.Error is a well-known protocol that maps to Swift.Foundation.AnyError
         var typeDatabase = new MockPropertyTypeDatabase();
         var handler = new ExistentialHandler(typeDatabase);
 
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
         var result = handler.GetPublicExistentialType(protocolList);
 
-        Assert.Equal("Swift.AnyError", result);
+        Assert.Equal("Swift.Foundation.AnyError", result);
     }
 
     [Fact]

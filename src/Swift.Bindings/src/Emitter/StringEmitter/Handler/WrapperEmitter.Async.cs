@@ -150,7 +150,7 @@ namespace BindingsGeneration
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
                     var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
 
-                    // For native-remapped types (e.g., byte[] -> Swift.Data), we need to
+                    // For native-remapped types (e.g., byte[] -> Swift.Foundation.Data), we need to
                     // convert to the Swift type first before copying. The wrapper signature uses the
                     // native type but the underlying Swift type is what we need to copy.
                     if (!_env.MethodDecl.IsAccessor && _env.TypeConversionHandler.HasNativeTypeRemapping(p.SwiftTypeSpec))

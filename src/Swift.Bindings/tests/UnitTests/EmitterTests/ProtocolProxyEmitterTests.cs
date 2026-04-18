@@ -270,7 +270,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_GetterReceiver_OptionalInt_WrapsInSwiftOptional()
     {
-        // Regression (Session 6): Optional<Int32> getter must wrap int? → SwiftOptional<int>.NewSome/NewNone.
+        // Regression: Optional<Int32> getter must wrap int? → SwiftOptional<int>.NewSome/NewNone.
         // MarshalToSwiftBuffer uses Unsafe.Write<T> — Nullable<int> is NOT layout-compatible with
         // SwiftOptional<int> (a class with SafeHandle). Without explicit wrapping, raw Nullable<int>
         // bytes are written instead of a proper SwiftOptional allocation.
@@ -290,7 +290,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_GetterReceiver_OptionalBool_WrapsInSwiftOptional()
     {
-        // Regression (Session 6): Same as Optional<Int> — bool? must be wrapped in SwiftOptional<bool>.
+        // Regression: Same as Optional<Int> — bool? must be wrapped in SwiftOptional<bool>.
         var optionalBool = new NamedTypeSpec("Swift.Optional");
         optionalBool.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
         var protocolDecl = CreateProtocolWithProperty("OptBoolProto", "flag", hasGetter: true, hasSetter: false, optionalBool);
@@ -306,7 +306,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_GetterReceiver_OptionalSimpleEnum_WrapsInSwiftOptional()
     {
-        // Regression (Session 6): Optional<SimpleEnum> getter must wrap in SwiftOptional.
+        // Regression: Optional<SimpleEnum> getter must wrap in SwiftOptional.
         // Register a simple enum type so the factory resolves it.
         _typeDatabase.AddOutOfModuleTypes(new[]
         {
@@ -336,7 +336,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_GetterReceiver_OptionalClass_UsesDangerousGetHandle()
     {
-        // Session 9: Optional<Class> getter must extract IntPtr via .Payload.DangerousGetHandle()
+        // Optional<Class> getter must extract IntPtr via .Payload.DangerousGetHandle()
         // because optType is IntPtr (PInvokeType) but the property value is the public C# class.
         _typeDatabase.AddOutOfModuleTypes(new[]
         {
@@ -369,7 +369,7 @@ public class ProtocolProxyEmitterTests
     [Fact]
     public void EmitProxyClass_GetterReceiver_OptionalNonFrozenStruct_UsesDangerousGetHandle()
     {
-        // Session 9: Optional<NonFrozenStruct> getter must use DangerousGetHandle() like Class,
+        // Optional<NonFrozenStruct> getter must use DangerousGetHandle() like Class,
         // because non-frozen structs use ClassWithOpaquePayload (SafeHandle-based) in C#.
         _typeDatabase.AddOutOfModuleTypes(new[]
         {
@@ -2770,12 +2770,12 @@ public class ProtocolProxyEmitterTests
 
     #endregion
 
-    #region Existential Parameter Receiver Tests (Session 6)
+    #region Existential Parameter Receiver Tests
 
     [Fact]
     public void EmitProxyClass_ExistentialParam_EmitsReceiver()
     {
-        // Session 6: Protocol methods with existential parameters should emit receivers
+        // Protocol methods with existential parameters should emit receivers
         // (not NotSupportedException stubs). The receiver unmarshals ExistentialContainer1
         // and wraps it in a proxy before dispatching to _csharpImpl.
         RegisterProtocol("SourceProtocol");

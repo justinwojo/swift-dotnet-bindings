@@ -530,7 +530,7 @@ namespace BindingsGeneration
                     else
                     {
                         // Frozen (Data): use NativeRemappedFrozen type.
-                        // For @_cdecl wrappers, C# passes the Swift.Data struct (16 bytes) via CallConvCdecl
+                        // For @_cdecl wrappers, C# passes the Swift.Foundation.Data struct (16 bytes) via CallConvCdecl
                         // in two GP registers, matching the two-Int-word @_cdecl parameter in the Swift wrapper.
                         AddParameter(new MarshalledType.NativeRemappedFrozen(swiftWrapperType!), csName);
                     }

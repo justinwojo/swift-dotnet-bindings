@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="Foundation" modulePath="/System/Library/Frameworks/Foundation.framework/Foundation">
     <entities>
-        <entity managedNameSpace="Swift" managedTypeName="Data">
+        <entity managedNameSpace="Swift.Foundation" managedTypeName="Data">
             <typedeclaration kind="struct" name="Data" module="Foundation" mangledName="s10Foundation4DataV" frozen="true" requiresMemoryManagement="false" nativeType="Foundation.NSData" />
         </entity>
-        <entity managedNameSpace="Swift" managedTypeName="URL">
+        <entity managedNameSpace="Swift.Foundation" managedTypeName="URL">
             <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrl" objcBridgeable="true" />
         </entity>
         <entity managedNameSpace="" managedTypeName="double">
@@ -16,7 +16,7 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSOperationQueue">
             <typedeclaration kind="class" name="OperationQueue" module="Foundation" mangledName="$sSo16NSOperationQueueC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="Swift" managedTypeName="URLRequest">
+        <entity managedNameSpace="Swift.Foundation" managedTypeName="URLRequest">
             <typedeclaration kind="struct" name="URLRequest" module="Foundation" mangledName="$s10Foundation10URLRequestV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrlRequest" objcBridgeable="true" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlResponse">
@@ -262,7 +262,7 @@
         </entity>
         <!-- Measurement<UnitType> — non-frozen generic struct. Uses VWT-backed storage.
              The generic arg is an ObjC-bridged unit type (NSUnit subclass). -->
-        <entity managedNameSpace="Swift" managedTypeName="Measurement">
+        <entity managedNameSpace="Swift.Foundation" managedTypeName="Measurement">
             <typedeclaration kind="struct" name="Measurement" module="Foundation"
                              mangledName="$s10Foundation11MeasurementV" frozen="false" requiresMemoryManagement="true" />
         </entity>

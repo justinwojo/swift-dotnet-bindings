@@ -24,8 +24,14 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
 
     public struct Buffer
     {
+        // Placeholder to match the 16-byte layout of Swift.String's storage (two-word
+        // Foundation.Data representation). The fields are never accessed by managed code —
+        // layout is the only thing that matters for PayloadBuffer<Buffer> size/alignment.
+        // Runtime cannot reference Swift.Foundation.Data (that type moved to
+        // SwiftBindings.Apple), so the layout is expressed with primitives here.
 #pragma warning disable CS0169
-        private Data _data;
+        private long _word0;
+        private IntPtr _word1;
 #pragma warning restore CS0169
     }
 

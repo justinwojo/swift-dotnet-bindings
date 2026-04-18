@@ -158,7 +158,7 @@ public class TypeProjectionFactoryTests
         Assert.NotNull(projection);
         Assert.IsType<DataProjection>(projection);
         Assert.Equal("byte[]", projection.PublicType);
-        Assert.Equal("Swift.Data", projection.PInvokeType);
+        Assert.Equal("Swift.Foundation.Data", projection.PInvokeType);
     }
 
     [Fact]

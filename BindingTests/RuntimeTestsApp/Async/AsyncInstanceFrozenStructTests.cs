@@ -8,10 +8,10 @@ namespace RuntimeTestsApp.Async;
 
 /// <summary>
 /// Tests for async INSTANCE methods with frozen blittable struct parameters.
-/// Validates the heap allocation fix covers instance methods, not just
-/// free/static functions tested in Session 5's AsyncFrozenStructParamTests.
-/// Before the fix, instance methods with frozen struct params could crash
-/// (stack buffer invalid across await boundary).
+/// Validates the heap allocation fix covers instance methods, not just free/static
+/// functions (already covered by AsyncFrozenStructParamTests). Before the fix,
+/// instance methods with frozen struct params could crash (stack buffer invalid
+/// across await boundary).
 /// </summary>
 public class AsyncInstanceFrozenStructTests : TestBase
 {

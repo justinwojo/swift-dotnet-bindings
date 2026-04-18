@@ -693,11 +693,11 @@ public static partial class SwiftUIBridgeEmitter
         var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
         var hasModifiers = modifiers != null && modifiers.Count > 0;
 
-        // Always emit State + Wrapper for lifecycle callbacks and universal modifiers (Session 5)
+        // Always emit State + Wrapper for lifecycle callbacks and universal modifiers.
         EmitSwiftStateClass(sb, prefix, info, bridgeParams, modifiers);
         EmitSwiftWrapperView(sb, prefix, info, bridgeParams, synthesizedArgs, modifiers);
 
-        // Session class — always uses Wrapper pattern (Session 5)
+        // Session class — always uses Wrapper pattern.
         var hostedViewType = $"{prefix}_Wrapper";
         sb.AppendLine($"final class {sessionClass} {{");
         sb.AppendLine($"    let state: {prefix}_State");
@@ -829,7 +829,7 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        // Always use Wrapper pattern (Session 5: lifecycle + universal modifiers)
+        // Always use Wrapper pattern (supports lifecycle + universal modifiers)
         // Convert ABI params to Swift-native values for state
         EmitSwiftStateConversions(sb, bridgeParams);
 
@@ -1017,14 +1017,14 @@ public static partial class SwiftUIBridgeEmitter
             EmitSwiftModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifiers!);
         }
 
-        // Lifecycle Set function (Session 5)
+        // Lifecycle Set function.
         EmitSwiftLifecycleSetFunction(sb, prefix, sessionClass, handlesVar);
 
-        // Universal modifier Set functions (Session 5) — skip any that collide with view-specific modifiers
+        // Universal modifier Set functions — skip any that collide with view-specific modifiers.
         var modifierSetNames = modifiers?.Select(m => $"Set{m.PascalName}").ToHashSet() ?? new HashSet<string>();
         EmitSwiftUniversalModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifierSetNames);
 
-        // Presentation helpers (Session 5)
+        // Presentation helpers.
         EmitSwiftPresentationFunctions(sb, prefix, sessionClass, handlesVar);
     }
 
@@ -1061,10 +1061,10 @@ public static partial class SwiftUIBridgeEmitter
             }
         }
 
-        // Lifecycle callback state vars (Session 5 — not @Published, just stored on state)
+        // Lifecycle callback state vars (not @Published, just stored on state).
         EmitSwiftLifecycleStateVars(sb);
 
-        // Universal modifier state vars (Session 5)
+        // Universal modifier state vars.
         EmitSwiftUniversalModifierStateVars(sb);
 
         // Init
@@ -1177,7 +1177,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("    }");
         }
 
-        // Universal modifier helper (Session 5 — always present, uses AnyView type erasure)
+        // Universal modifier helper (always present, uses AnyView type erasure).
         EmitSwiftUniversalModifierHelper(sb);
 
         sb.AppendLine("}");
@@ -2090,14 +2090,14 @@ public static partial class SwiftUIBridgeEmitter
         if (hasModifiers)
             EmitCSharpModifierPInvokeDeclarations(sb, prefix, bridgeLib, modifiers!);
 
-        // Lifecycle P/Invoke declaration (Session 5)
+        // Lifecycle P/Invoke declaration.
         EmitCSharpLifecyclePInvoke(sb, prefix, bridgeLib);
 
-        // Universal modifier P/Invoke declarations (Session 5) — skip collisions with view-specific modifiers
+        // Universal modifier P/Invoke declarations — skip collisions with view-specific modifiers.
         var csharpModifierSetNames = modifiers?.Select(m => $"Set{m.PascalName}").ToHashSet() ?? new HashSet<string>();
         EmitCSharpUniversalModifierPInvokes(sb, prefix, bridgeLib, csharpModifierSetNames);
 
-        // Presentation P/Invoke declarations (Session 5)
+        // Presentation P/Invoke declarations.
         EmitCSharpPresentationPInvokes(sb, prefix, bridgeLib);
 
         sb.AppendLine("    }");
@@ -2112,7 +2112,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             sb.AppendLine("        private GCHandle[] _closureHandles = Array.Empty<GCHandle>();");
         }
-        // Lifecycle handles (Session 5 — always present)
+        // Lifecycle handles (always present)
         sb.AppendLine("        private GCHandle[] _lifecycleHandles = Array.Empty<GCHandle>();");
         var hasUpdatableParams = bridgeParams.Any(p => p.IsUpdatable);
         if (hasUpdatableParams)
@@ -2163,7 +2163,7 @@ public static partial class SwiftUIBridgeEmitter
             EmitResultBranchTrampoline(sb, errorTrampolineName, param.ResultErrorParam!);
         }
 
-        // Lifecycle trampolines (Session 5)
+        // Lifecycle trampolines.
         EmitCSharpLifecycleTrampolines(sb);
 
         // Create factory method
@@ -2172,7 +2172,7 @@ public static partial class SwiftUIBridgeEmitter
         // Update methods for updatable params
         EmitCSharpUpdateMethods(sb, info, bridgeParams);
 
-        // Observable binding methods (Session 6)
+        // Observable binding methods.
         if (hasUpdatableParams)
             EmitCSharpObservableBindingMethods(sb, info, bridgeParams);
 
@@ -2180,13 +2180,13 @@ public static partial class SwiftUIBridgeEmitter
         if (hasModifiers)
             EmitCSharpModifierMethods(sb, info, modifiers!);
 
-        // Lifecycle method (Session 5)
+        // Lifecycle method.
         EmitCSharpLifecycleMethod(sb, info);
 
-        // Universal modifier methods (Session 5) — skip collisions with view-specific modifiers
+        // Universal modifier methods — skip collisions with view-specific modifiers.
         EmitCSharpUniversalModifierMethods(sb, info, csharpModifierSetNames);
 
-        // Presentation methods (Session 5)
+        // Presentation methods.
         EmitCSharpPresentationMethods(sb, info);
 
         sb.AppendLine("        public void Dispose()");
@@ -2203,7 +2203,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("                    if (h.IsAllocated) h.Free();");
             sb.AppendLine("                _closureHandles = Array.Empty<GCHandle>();");
         }
-        // Free lifecycle handles (Session 5)
+        // Free lifecycle handles.
         sb.AppendLine("                foreach (var h in _lifecycleHandles)");
         sb.AppendLine("                    if (h.IsAllocated) h.Free();");
         sb.AppendLine("                _lifecycleHandles = Array.Empty<GCHandle>();");
@@ -2244,7 +2244,7 @@ public static partial class SwiftUIBridgeEmitter
                 requiredParams.Add($"{type} {param.Name}");
         }
         requiredParams.AddRange(optionalParams);
-        // Lifecycle callback params (Session 5 — always present, always optional)
+        // Lifecycle callback params (always present, always optional).
         requiredParams.Add("Action? onAppear = null");
         requiredParams.Add("Action? onDisappear = null");
 

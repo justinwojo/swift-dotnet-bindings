@@ -7,7 +7,7 @@ import Foundation
 //
 // Synthetic mirror of the Apple-framework availability shapes exercised by
 // fixes b51d2ff6 (#1), fcd0ca9c/eafe252d/52ddafa4 (#2), and 26f764f1 (#12).
-// The Session 3 WeatherKit smoke already pins fix #1 at runtime on a real
+// The WeatherKit smoke test pins fix #1 at runtime on a real
 // `DayWeather.HighTemperatureTime` property; this file is the synthetic
 // counterpart so a regression shows up in `nuke binding-tests` long before
 // the WeatherKit snapshot is re-generated.

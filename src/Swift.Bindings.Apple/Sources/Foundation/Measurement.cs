@@ -4,7 +4,7 @@
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 
-namespace Swift;
+namespace Swift.Foundation;
 
 /// <summary>
 /// C# projection of Foundation.Measurement&lt;UnitType&gt;, a non-frozen generic struct
@@ -25,6 +25,7 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
     // to reflection on closed generic instantiations under NativeAOT. Mirrors SwiftOptional<T>.
     private static readonly nuint _payloadSize = SwiftObjectHelper<Measurement<T>>.GetTypeMetadata().Size;
 
+    /// <summary>The safe handle wrapping the native Swift storage for this Measurement.</summary>
     public SwiftSafeHandle<Measurement<T>> Payload => _payload;
 
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
@@ -134,6 +135,7 @@ public sealed class Measurement<T> : ISwiftObject, ISwiftStruct, IDisposable whe
 
     internal Measurement(IntPtr handle) => _payload = new SwiftSafeHandle<Measurement<T>>(handle);
 
+    /// <summary>Releases the native Swift storage backing this Measurement.</summary>
     public void Dispose()
     {
         if (!_disposed)

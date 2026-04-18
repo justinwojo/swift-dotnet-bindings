@@ -4,7 +4,7 @@
 // Async INSTANCE methods on a class that take frozen struct parameters.
 // Exercises the heap allocation fix for frozen blittable struct params in
 // async instance methods — the 3 instance method branches that were untested.
-// Session 5's fix covered free/static functions only.
+// The original heap-allocation fix covered free/static functions only.
 
 /// Class with async instance methods that accept FrozenPoint parameters.
 /// Tests the instance method path for async frozen struct marshalling.

@@ -108,7 +108,7 @@ public static class SwiftBuilder
             }
 
             // Optional<any Error> — existential uses pointer-to-container ABI; nil-pointer is none.
-            // Matches MCB's marshalling path (Swift.AnyError? in C#, IntPtr.Zero sentinel).
+            // Matches MCB's marshalling path (Swift.Foundation.AnyError? in C#, IntPtr.Zero sentinel).
             if (named.ContainsGenericParameters &&
                 named.Name == "Swift.Optional" && named.GenericParameters.Count == 1 &&
                 MethodClosureBridge.IsAnyErrorExistential(named.GenericParameters[0]))

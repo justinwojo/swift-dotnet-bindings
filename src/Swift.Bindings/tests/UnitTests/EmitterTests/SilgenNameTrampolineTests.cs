@@ -11,9 +11,9 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for Phase 3.5 Session 3: @_silgen_name → @_cdecl trampoline conversion.
-/// Verifies that all 7 wrapper-owned P/Invoke paths route through @_cdecl
-/// when eligible, eliminating CallConvSwift from generated code.
+/// Tests for @_silgen_name → @_cdecl trampoline conversion. Verifies that all 7
+/// wrapper-owned P/Invoke paths route through @_cdecl when eligible, eliminating
+/// CallConvSwift from generated code.
 /// </summary>
 public class SilgenNameTrampolineTests
 {

@@ -7,8 +7,9 @@ using Xunit;
 namespace Swift.Runtime.Tests;
 
 /// <summary>
-/// Exercises the 6-level resolver order specified in
-/// <c>src/docs/apple-swift-types-architecture.md</c> §"Implementation specifics" item 7.
+/// Exercises the 6-level resolver order: per-type overrides, per-conformance overrides,
+/// per-module policy, per-framework policy, per-package defaults, and global fallback.
+/// Each level shadows the ones below it; a miss at one level falls through to the next.
 /// </summary>
 /// <remarks>
 /// The registry is process-global static state. Tests run inside a dedicated collection so
@@ -23,7 +24,20 @@ public class TypeOwnerRegistryTests
         TypeOwnerRegistry.ResetForTests();
     }
 
-    // ---- Level 1 — Per-type overrides (legacy canonical types) --------------------
+    // ---- Level 1 — Per-type overrides (stdlib pins + SwiftUI.Text) ----------------
+
+    [Theory]
+    [InlineData("Swift.String")]
+    [InlineData("Swift.AnyHashable")]
+    [InlineData("Swift.Hasher")]
+    [InlineData("Swift.DispatchQueue")]
+    public void Resolve_StdlibCanonical_ResolvesToRuntime(string swiftIdentity)
+    {
+        var owner = TypeOwnerRegistry.Resolve(swiftIdentity);
+
+        Assert.Equal(TypeOwnerKind.Runtime, owner.Kind);
+        Assert.Equal(TypeOwnerRegistry.RuntimePackageId, owner.PackageId);
+    }
 
     [Theory]
     [InlineData("Foundation.Date")]
@@ -31,37 +45,42 @@ public class TypeOwnerRegistryTests
     [InlineData("Foundation.URL")]
     [InlineData("Foundation.Decimal")]
     [InlineData("Foundation.AnyError")]
-    [InlineData("SwiftUI.Text")]
-    public void Resolve_LegacyCanonical_ResolvesToRuntime(string swiftIdentity)
-    {
-        var owner = TypeOwnerRegistry.Resolve(swiftIdentity);
-
-        Assert.Equal(TypeOwnerKind.Runtime, owner.Kind);
-        Assert.Equal(TypeOwnerRegistry.RuntimePackageId, owner.PackageId);
-    }
-
-    [Theory]
     [InlineData("Foundation.Measurement")]
     [InlineData("Foundation.Measurement<UnitType>")]
     [InlineData("Foundation.Measurement<Foundation.UnitLength>")]
     [InlineData("ManagedSettings.Token")]
     [InlineData("ManagedSettings.Token<Application>")]
-    public void Resolve_LegacyGenericCanonical_ResolvesToRuntime_RegardlessOfTypeArguments(string swiftIdentity)
+    public void Resolve_AppleSupplementCanonical_ResolvesToAppleSupplement(string swiftIdentity)
     {
+        // Previously pinned to Runtime (legacy canonical list). Now resolve via the Apple
+        // module default — Foundation and ManagedSettings are both in s_defaultAppleModules.
         var owner = TypeOwnerRegistry.Resolve(swiftIdentity);
 
-        Assert.Equal(TypeOwnerKind.Runtime, owner.Kind);
-        Assert.Equal(TypeOwnerRegistry.RuntimePackageId, owner.PackageId);
+        Assert.Equal(TypeOwnerKind.AppleSupplement, owner.Kind);
+        Assert.Equal(TypeOwnerRegistry.AppleSupplementPackageId, owner.PackageId);
     }
 
     [Fact]
-    public void Resolve_LegacyCanonical_WinsOverModuleDefault()
+    public void Resolve_SwiftUIText_ResolvesToAppleSupplementViaOverride()
     {
-        // Foundation is a default Apple module. The override must still pin Foundation.Date
-        // to Runtime — that is the whole point of level 1.
-        var owner = TypeOwnerRegistry.Resolve("Foundation.Date");
+        // SwiftUI is deliberately excluded from s_defaultAppleModules (SwiftUI types are
+        // suppressed at generation time). SwiftUI.Text is the one hand-rolled exception and
+        // is pinned via s_appleSupplementOverrides — without that pin it would fall through
+        // to Unsupported.
+        var owner = TypeOwnerRegistry.Resolve("SwiftUI.Text");
 
-        Assert.NotEqual(TypeOwnerKind.AppleSupplement, owner.Kind);
+        Assert.Equal(TypeOwnerKind.AppleSupplement, owner.Kind);
+        Assert.Equal(TypeOwnerRegistry.AppleSupplementPackageId, owner.PackageId);
+        Assert.Equal("SwiftUI", owner.ModuleName);
+    }
+
+    [Fact]
+    public void Resolve_StdlibOverride_WinsOverModuleDefault()
+    {
+        // "Swift" module is not in s_defaultAppleModules so this is partly structural, but
+        // the intent of the stdlib pin is that the override layer applies regardless.
+        var owner = TypeOwnerRegistry.Resolve("Swift.String");
+
         Assert.Equal(TypeOwnerKind.Runtime, owner.Kind);
     }
 
@@ -278,7 +297,8 @@ public class TypeOwnerRegistryTests
     public void ConformanceOwner_Registered_ReturnsRegisteredOwner()
     {
         // Type from module A conforming to protocol from module B with the conformance
-        // itself owned by a third-party package. Architecture doc §Q10 item 3.
+        // itself owned by a third-party package — the conformance carrier, not either
+        // endpoint module, decides ownership so ordering cannot cause a split-package.
         var expected = new TypeOwner
         {
             Kind = TypeOwnerKind.ThirdPartyPackage,
@@ -300,26 +320,26 @@ public class TypeOwnerRegistryTests
     [Fact]
     public void ConformanceOwner_DistinctFromTypeOwner()
     {
-        // Foundation.Date's type owner stays pinned to Runtime (per-type override), while
-        // the conformance owner is separate — they must not collide.
+        // Swift.String's type owner is pinned to Runtime (legacy stdlib canonical). The
+        // conformance owner is a separate registration — they must not collide.
         var conformanceOwner = new TypeOwner
         {
-            Kind = TypeOwnerKind.AppleSupplement,
-            PackageId = TypeOwnerRegistry.AppleSupplementPackageId,
+            Kind = TypeOwnerKind.ThirdPartyPackage,
+            PackageId = "Contoso.StringExtensions",
         };
         TypeOwnerRegistry.RegisterConformanceOwner(
-            "Foundation.Date",
-            "Foundation.AppleSpecificProtocol",
+            "Swift.String",
+            "Contoso.SomeProtocol",
             conformanceOwner);
 
-        var typeOwner = TypeOwnerRegistry.Resolve("Foundation.Date");
+        var typeOwner = TypeOwnerRegistry.Resolve("Swift.String");
         var recordedConformance = TypeOwnerRegistry.TryGetConformanceOwner(
-            "Foundation.Date",
-            "Foundation.AppleSpecificProtocol");
+            "Swift.String",
+            "Contoso.SomeProtocol");
 
         Assert.Equal(TypeOwnerKind.Runtime, typeOwner.Kind);
         Assert.NotNull(recordedConformance);
-        Assert.Equal(TypeOwnerKind.AppleSupplement, recordedConformance!.Value.Kind);
+        Assert.Equal(TypeOwnerKind.ThirdPartyPackage, recordedConformance!.Value.Kind);
     }
 
     [Fact]
@@ -369,10 +389,18 @@ public class TypeOwnerRegistryTests
     // ---- TryGetOverride + input validation ----------------------------------------
 
     [Fact]
-    public void TryGetOverride_ReturnsTrue_ForLegacyCanonical()
+    public void TryGetOverride_ReturnsTrue_ForStdlibCanonical()
     {
-        Assert.True(TypeOwnerRegistry.TryGetOverride("Foundation.Date", out var owner));
+        Assert.True(TypeOwnerRegistry.TryGetOverride("Swift.String", out var owner));
         Assert.Equal(TypeOwnerKind.Runtime, owner.Kind);
+    }
+
+    [Fact]
+    public void TryGetOverride_ReturnsTrue_ForSwiftUIText()
+    {
+        Assert.True(TypeOwnerRegistry.TryGetOverride("SwiftUI.Text", out var owner));
+        Assert.Equal(TypeOwnerKind.AppleSupplement, owner.Kind);
+        Assert.Equal(TypeOwnerRegistry.AppleSupplementPackageId, owner.PackageId);
     }
 
     [Fact]
@@ -382,14 +410,12 @@ public class TypeOwnerRegistryTests
     }
 
     [Fact]
-    public void TryGetOverride_SucceedsForGenericInstantiation_OfRegisteredStem()
+    public void TryGetOverride_ReturnsFalse_ForMovedCanonical()
     {
-        // Mirrors the exact-then-stripped pattern inside Resolve: a per-type override registered
-        // for the unbound stem must be returned when callers query with a bound generic form.
-        Assert.True(
-            TypeOwnerRegistry.TryGetOverride("Foundation.Measurement<Foundation.UnitLength>", out var owner));
-        Assert.Equal(TypeOwnerKind.Runtime, owner.Kind);
-        Assert.Equal(TypeOwnerRegistry.RuntimePackageId, owner.PackageId);
+        // Foundation.Date and Foundation.Measurement used to be in s_legacyRuntimeCanonicals
+        // but are now served by the Foundation module default, not an override.
+        Assert.False(TypeOwnerRegistry.TryGetOverride("Foundation.Date", out _));
+        Assert.False(TypeOwnerRegistry.TryGetOverride("Foundation.Measurement<Foundation.UnitLength>", out _));
     }
 
     [Fact]

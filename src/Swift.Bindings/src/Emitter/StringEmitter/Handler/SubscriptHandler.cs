@@ -576,7 +576,7 @@ namespace BindingsGeneration
                 else if (proj is DataProjection)
                 {
                     var convertedName = $"__{bareName}Swift";
-                    setupLines.Add($"var {convertedName} = Swift.Data.FromByteArray({paramName});");
+                    setupLines.Add($"var {convertedName} = Swift.Foundation.Data.FromByteArray({paramName});");
                     argParts.Add(convertedName);
                 }
                 else if (proj is DateProjection)

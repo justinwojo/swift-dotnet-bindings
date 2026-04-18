@@ -185,13 +185,16 @@ public static class AppleTypesManifestValidator
                     $"stride {entry.Stride?.ToString() ?? "null"}->{probedStride}");
             }
 
-            // VWT copy/destroy smoke. Allocates a stride-sized buffer, calls
-            // InitializeWithCopy from a zero source for POD types only (a non-POD
-            // copy from arbitrary bytes would invoke ARC/destructors on garbage),
-            // then Destroy. Validates the function pointers are non-null and that
-            // the round-trip does not crash. Skipped for non-POD because we have
-            // no real source value here.
-            if (!probedIsNonPOD && probedSize > 0)
+            // VWT copy/destroy smoke. Allocates a stride-sized zeroed buffer and
+            // runs InitializeWithCopy + Destroy. Zeroed bytes are a deliberately safe
+            // source even for non-POD types: class-reference fields read as nil, which
+            // ARC retains/releases as a no-op. Struct invariants may be semantically
+            // violated (non-Optional class fields read nil) but no VWT primitive
+            // dereferences the payload beyond ref-counting, so the round-trip is
+            // physically safe. For types with custom copy/destroy routines that
+            // assert non-nil invariants, this gate will flag real bugs instead of
+            // pretending no-such-type exists (Phase 2 loose-gate fix).
+            if (probedSize > 0)
             {
                 unsafe
                 {
@@ -214,6 +217,61 @@ public static class AppleTypesManifestValidator
                     {
                         NativeMemory.Free(src);
                         NativeMemory.Free(dst);
+                    }
+                }
+            }
+
+            // Optional<T> round-trip smoke via single-payload enum witnesses. Optional<T>
+            // stores T in-place and uses a discriminator (spare bits or a trailing tag
+            // byte) for the .none case; the enum-tag witnesses on T's own VWT are what
+            // Optional<T> dispatches to. Exercising them here validates both that T
+            // implements the single-payload enum protocol correctly and that round-
+            // tripping T through an Optional representation does not corrupt memory —
+            // which is the shape every supplement-type consumer actually pays for when
+            // a framework API returns `T?`.
+            if (probedSize > 0)
+            {
+                unsafe
+                {
+                    var vwt = metadata.ValueWitnessTable;
+                    if (vwt->GetEnumTagSinglePayload == null || vwt->StoreEnumTagSinglePayload == null)
+                    {
+                        return new ValidationResult(
+                            entry.SwiftIdentity, moduleName, ValidationOutcome.Drift,
+                            probedSize, probedAlignment, probedStride, probedIsNonPOD,
+                            "VWT GetEnumTagSinglePayload or StoreEnumTagSinglePayload function pointer is null");
+                    }
+                    // emptyCases=1 matches Optional<T>'s single .none case.
+                    const uint emptyCases = 1;
+                    var buf = NativeMemory.AllocZeroed((nuint)probedSize);
+                    try
+                    {
+                        // Store .none (tag 1 = first empty case).
+                        vwt->StoreEnumTagSinglePayload(buf, 1, emptyCases, metadata);
+                        var noneTag = vwt->GetEnumTagSinglePayload(buf, emptyCases, metadata);
+                        if (noneTag != 1)
+                        {
+                            return new ValidationResult(
+                                entry.SwiftIdentity, moduleName, ValidationOutcome.Drift,
+                                probedSize, probedAlignment, probedStride, probedIsNonPOD,
+                                $"Optional round-trip: expected .none tag=1, got tag={noneTag}");
+                        }
+                        // Restore .some (tag 0 = payload case) before destroy so the buffer
+                        // is interpretable as T again.
+                        vwt->StoreEnumTagSinglePayload(buf, 0, emptyCases, metadata);
+                        var someTag = vwt->GetEnumTagSinglePayload(buf, emptyCases, metadata);
+                        if (someTag != 0)
+                        {
+                            return new ValidationResult(
+                                entry.SwiftIdentity, moduleName, ValidationOutcome.Drift,
+                                probedSize, probedAlignment, probedStride, probedIsNonPOD,
+                                $"Optional round-trip: expected .some tag=0 after restore, got tag={someTag}");
+                        }
+                        vwt->Destroy(buf, metadata);
+                    }
+                    finally
+                    {
+                        NativeMemory.Free(buf);
                     }
                 }
             }

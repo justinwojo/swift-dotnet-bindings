@@ -4,6 +4,7 @@
 using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
+using Swift.Foundation;
 using Swift.Runtime;
 using SwiftBindingsTestLib;
 
@@ -84,7 +85,7 @@ public class AnyErrorDescriptionTests : TestBase
     // ────────────────────────────────────────────────────────────────────
     // Closure callback path (Fix 3): exercise the MCB wrapper that bridges
     // `(any Error) -> Void` closures — the Swift side hands an existential
-    // container pointer to the @_cdecl callback, which constructs a Swift.AnyError
+    // container pointer to the @_cdecl callback, which constructs a Swift.Foundation.AnyError
     // the C# lambda can read. This is the pattern Stripe completion handlers
     // (Result<T, any Error>) rely on.
     // ────────────────────────────────────────────────────────────────────
@@ -134,7 +135,7 @@ public class AnyErrorDescriptionTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Session 2 Pattern A: Optional<any Error> closure parameter.
+    // Pattern A: Optional<any Error> closure parameter.
     // Matches Stripe PaymentSheet.FlowController.update completion shape.
     // ────────────────────────────────────────────────────────────────────
 
@@ -222,7 +223,7 @@ public class AnyErrorDescriptionTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Session 2 Pattern B: Result<T, any Error> closure parameter.
+    // Pattern B: Result<T, any Error> closure parameter.
     // Matches Stripe completion handlers like
     //   (Result<PaymentSheet.FlowController, any Error>) -> Void
     // Swift wraps the Result enum via withUnsafePointer; C# heap-copies
@@ -265,7 +266,7 @@ public class AnyErrorDescriptionTests : TestBase
             if (result.TryGetFailure(out var container))
             {
                 observedFailure = true;
-                var err = new Swift.AnyError(container);
+                var err = new Swift.Foundation.AnyError(container);
                 errDesc = err.LocalizedDescription;
             }
             result.Dispose();

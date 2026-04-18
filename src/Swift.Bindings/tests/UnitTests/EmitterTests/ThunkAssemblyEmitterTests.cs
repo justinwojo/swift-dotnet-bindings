@@ -418,7 +418,7 @@ namespace BindingsGeneration.Tests
         {
             // Property setter: cdecl order [newValue, self]
             // x0=newValue (Int), x1=self → thunk: mov x20, x1, x0 stays
-            // This is the exact pattern that caused SIGSEGV in Session 1 (test #30)
+            // This is the exact pattern that previously caused SIGSEGV (test #30)
             var descriptor = new ThunkDescriptor(
                 ThunkSymbol: "thunk_test_setIntValue",
                 SwiftSymbol: "_$s4Test19FinalPropertyHolderC8intValueSivs",

@@ -16,6 +16,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Swift.Runtime/src/Swift.Runtime.csproj" />
+    <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj" />
   </ItemGroup>
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.
        Using a targeted alias avoids ambiguity with identically-named types (e.g., Functions) in both namespaces. -->

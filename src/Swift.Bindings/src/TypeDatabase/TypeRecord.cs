@@ -139,7 +139,7 @@ public record TypeRecord
     /// <summary>
     /// Optional native type name to use in public method signatures.
     /// When set, the public API exposes this type (e.g., Foundation.NSUrl) instead of the
-    /// internal Swift wrapper type (e.g., Swift.Data). Conversion happens at the marshalling layer.
+    /// internal Swift wrapper type (e.g., Swift.Foundation.Data). Conversion happens at the marshalling layer.
     /// </summary>
     public CSharpTypeName? NativeTypeName { get; init; }
 
@@ -201,10 +201,9 @@ public record TypeRecord
     /// <summary>
     /// Swift-side canonical identity for this type. Synonym of <see cref="SwiftTypeName"/> — they
     /// always refer to the same instance; no independent storage is intended. Introduced by the
-    /// Apple-supplement work (see <c>src/docs/apple-swift-types-architecture.md</c>
-    /// §"Implementation specifics" item 5) so the three conceptual aspects of a type —
-    /// Swift identity, managed projection, and ABI carrier — are all addressable as first-class
-    /// properties on the record.
+    /// Apple-supplement work so the three conceptual aspects of a type — Swift identity,
+    /// managed projection, and ABI carrier — are all addressable as first-class properties on
+    /// the record.
     /// </summary>
     public SwiftTypeName SwiftIdentity => SwiftTypeName;
 

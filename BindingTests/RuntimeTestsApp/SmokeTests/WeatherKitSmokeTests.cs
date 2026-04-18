@@ -12,13 +12,13 @@ using WeatherKit;
 namespace RuntimeTestsApp.SmokeTests;
 
 /// <summary>
-/// Session 3 end-to-end smoke test for the Apple-framework direct-mode pipeline on
+/// End-to-end smoke test for the Apple-framework direct-mode pipeline on
 /// WeatherKit. Consumes the externally-built <c>WeatherKit.Swift.iOS.dll</c> +
 /// <c>WeatherKitSwiftBindings.xcframework</c> from the gitignored in-tree snapshot at
 /// <c>BindingTests/obj/WeatherKitSnapshot/</c> and exercises a hermetic, metadata-only
 /// surface: <c>WeatherError.errorDescription</c> round-trip plus a reflection-based
 /// assertion pinning the property-accessor <c>@available</c> propagation fix from
-/// commit <c>b51d2ff6</c> (fix #1 in the session plan).
+/// commit <c>b51d2ff6</c>.
 ///
 /// Gated by the <c>WEATHERKIT_SMOKE</c> compile symbol, which the csproj sets only
 /// when every prerequisite (snapshot csproj, simulator wrapper slice, ProjectReference

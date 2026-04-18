@@ -12,8 +12,8 @@ namespace BindingsGeneration;
 /// <summary>
 /// Resolves Swift identities published by <c>SwiftBindings.Apple</c> into synthetic
 /// <see cref="TypeRecord"/> instances that point at the supplement's managed projection.
-/// See <c>src/docs/apple-swift-types-architecture.md</c> §"Decision summary" item 6 and
-/// §"Resolved questions" Q5 for the end-to-end resolver order.
+/// The resolver runs AFTER <see cref="TypeOwnerRegistry"/> assigns canonical identity —
+/// it is a policy-neutral source of projections, not an identity authority.
 /// </summary>
 /// <remarks>
 /// <para>The manifest (<c>apple-types-manifest/manifest.json</c>) is embedded as a generator

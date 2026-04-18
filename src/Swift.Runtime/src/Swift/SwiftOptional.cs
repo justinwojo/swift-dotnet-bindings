@@ -38,13 +38,13 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// When Optional&lt;T&gt;.Size == T.Size, the type has extra inhabitants (e.g., classes where nil
     /// pointer encodes None) and the VWT must be used.
     ///
-    /// This generalizes the blittable primitive fast path from Session 8 to cover all types
-    /// without extra inhabitants, including complex enums and non-frozen structs.
+    /// Generalizes the blittable primitive fast path to cover all types without extra
+    /// inhabitants, including complex enums and non-frozen structs.
     /// </summary>
     internal static int GetTagByteOffset()
     {
-        // Blittable primitive fast path (original Session 8 logic) — these are known at compile time
-        // and avoid the metadata lookup cost.
+        // Blittable primitive fast path — these offsets are known at compile time and
+        // avoid the metadata lookup cost for the common case.
         var blittableOffset = GetBlittablePrimitiveTagOffset();
         if (blittableOffset >= 0)
             return blittableOffset;

@@ -948,7 +948,7 @@ public class AppleFrameworkRegistryTests
 
     // --- IsKnownAppleOrSystemModule ---
 
-    // --- Session 4: CoreGraphics / Apple Framework Type Edge Cases ---
+    // --- CoreGraphics / Apple Framework Type Edge Cases ---
 
     [Fact]
     public void CoreGraphics_IsNotAutoBridgeModule()

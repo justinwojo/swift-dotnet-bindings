@@ -1785,8 +1785,8 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ShouldEmitThunk_FrozenStructConstructor_ReturnsFalse()
         {
-            // Session 4 finding: Struct constructors can't use native thunks because
-            // Mono AOT can't JIT the LibraryImport-generated wrapper for struct returns
+            // Struct constructors can't use native thunks because Mono AOT can't JIT
+            // the LibraryImport-generated wrapper for struct returns
             // ("Attempting to JIT compile method" in aot-only mode). The @_cdecl wrapper
             // approach (void return + resultPtr) avoids this. The underlying x8 ABI
             // mechanism works (verified empirically), but LibraryImport doesn't produce

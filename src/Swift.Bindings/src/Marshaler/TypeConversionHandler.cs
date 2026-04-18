@@ -207,7 +207,7 @@ public class TypeConversionHandler
     /// <summary>
     /// Determines whether the specified type has a native type remapping configured.
     /// When true, public method signatures should use the native .NET type (e.g., Foundation.NSUrl)
-    /// instead of the Swift wrapper type (e.g., Swift.Data).
+    /// instead of the Swift wrapper type (e.g., Swift.Foundation.Data).
     /// </summary>
     public bool HasNativeTypeRemapping(TypeSpec? typeSpec)
     {
@@ -228,7 +228,7 @@ public class TypeConversionHandler
 
     /// <summary>
     /// Gets the conversion expression for converting a native .NET parameter to a Swift type.
-    /// For example: byte[] data → Swift.Data.FromByteArray(data)
+    /// For example: byte[] data → Swift.Foundation.Data.FromByteArray(data)
     /// Note: URL no longer needs this — ObjCBridgeableProjection handles it via IntPtr.
     /// </summary>
     /// <param name="paramName">The parameter name.</param>
@@ -238,8 +238,8 @@ public class TypeConversionHandler
     {
         if (IsFoundationData(typeSpec))
         {
-            // byte[] -> Swift.Data
-            return $"Swift.Data.FromByteArray({paramName})";
+            // byte[] -> Swift.Foundation.Data
+            return $"Swift.Foundation.Data.FromByteArray({paramName})";
         }
 
         return null;
@@ -247,7 +247,7 @@ public class TypeConversionHandler
 
     /// <summary>
     /// Gets the conversion expression for converting a Swift return value to a native .NET type.
-    /// For example: Swift.Data data → data.ToByteArray()
+    /// For example: Swift.Foundation.Data data → data.ToByteArray()
     /// Note: URL no longer needs this — ObjCBridgeableProjection handles it via IntPtr.
     /// </summary>
     /// <param name="resultVar">The variable containing the Swift result.</param>
@@ -257,7 +257,7 @@ public class TypeConversionHandler
     {
         if (IsFoundationData(typeSpec))
         {
-            // Swift.Data -> byte[]
+            // Swift.Foundation.Data -> byte[]
             return $"{resultVar}.ToByteArray()";
         }
 
@@ -273,7 +273,7 @@ public class TypeConversionHandler
     {
         if (IsFoundationData(typeSpec))
         {
-            return "Swift.Data";
+            return "Swift.Foundation.Data";
         }
 
         return null;

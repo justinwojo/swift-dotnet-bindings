@@ -12,7 +12,7 @@ import SwiftBindingsTestLib
 // MARK: - Session extensions (coupled to generated field names)
 // If the emitter renames internal fields, only this section needs updating.
 //
-// All views use the State/Wrapper pattern (Session 5: always-wrapper):
+// All views use the State/Wrapper pattern (always-wrapper):
 //   hostingController.rootView → Wrapper type
 //   Closures are stored as properties on the Wrapper
 //   Updatable/optional params are stored on state via session.state.{prop}
@@ -451,7 +451,7 @@ public func SBW_TEST_PlaceholderOnlyView_IsAlive(_ handle: UnsafeMutableRawPoint
     }
 }
 
-// MARK: - UpdatableCounterView helpers (State/Wrapper pattern, Session 4A)
+// MARK: - UpdatableCounterView helpers (State/Wrapper pattern)
 
 /// Read count from UpdatableCounterView via state.
 @_cdecl("SBW_TEST_UpdatableCounterView_GetCount")
@@ -477,7 +477,7 @@ public func SBW_TEST_UpdatableCounterView_GetLabelLength(_ handle: UnsafeMutable
     }
 }
 
-// MARK: - UpdatableMixedView helpers (State/Wrapper pattern, Session 4A)
+// MARK: - UpdatableMixedView helpers (State/Wrapper pattern)
 
 /// Read title string length from UpdatableMixedView via state.
 @_cdecl("SBW_TEST_UpdatableMixedView_GetTitleLength")
@@ -522,7 +522,7 @@ extension SBW_SwiftBindingsTestLib_FormatMenuView_Session {
     var rootView: SBW_SwiftBindingsTestLib_FormatMenuView_Wrapper { hostingController.rootView }
 }
 
-// MARK: - BindingToggleView helpers (Binding<Bool> param — Session 2 gate)
+// MARK: - BindingToggleView helpers (Binding<Bool> param gate)
 
 /// Read the isOn Bool state from BindingToggleView (1=true, 0=false).
 @_cdecl("SBW_TEST_BindingToggleView_GetIsOn")
@@ -536,7 +536,7 @@ public func SBW_TEST_BindingToggleView_GetIsOn(_ handle: UnsafeMutableRawPointer
     }
 }
 
-// MARK: - NumberListView helpers (Array<Int> param — Session 2 gate)
+// MARK: - NumberListView helpers (Array<Int> param gate)
 
 /// Read the count of the numbers array from NumberListView.
 @_cdecl("SBW_TEST_NumberListView_GetCount")
@@ -564,7 +564,7 @@ public func SBW_TEST_NumberListView_GetElement(_ handle: UnsafeMutableRawPointer
     }
 }
 
-// MARK: - SymbolIconView helpers (SwiftUI.Image param — Session 2 gate)
+// MARK: - SymbolIconView helpers (SwiftUI.Image param gate)
 
 /// Read the icon string length from SymbolIconView's state.
 @_cdecl("SBW_TEST_SymbolIconView_GetIconLength")

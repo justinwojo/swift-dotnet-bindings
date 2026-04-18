@@ -6,7 +6,7 @@ using System.Text;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Session 5: Lifecycle callbacks, universal SwiftUI modifiers, and presentation helpers.
+/// Lifecycle callbacks, universal SwiftUI modifiers, and presentation helpers.
 /// All functional bridged views get these features via the always-present Wrapper pattern.
 ///
 /// Lifecycle callbacks use the same pattern as universal modifiers: stored on the State

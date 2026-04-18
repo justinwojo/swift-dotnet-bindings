@@ -11,8 +11,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Emits a trimmed <c>SwiftBindings.Apple.Prototype.csproj</c> plus its .cs sources so a
 /// consumer can reference the supplement as a project instead of a NuGet package while
-/// iterating on new Apple-supplement types. See <c>src/docs/apple-swift-types-architecture.md</c>
-/// §"Decision summary" item 6 for the rationale — prototyping mode keeps canonical identity
+/// iterating on new Apple-supplement types. Prototyping mode keeps canonical identity
 /// (<c>SwiftBindings.Apple</c> assembly + <c>Swift.*</c> namespace) intact so flipping
 /// between project and package reference is transparent to the generated bindings.
 /// </summary>

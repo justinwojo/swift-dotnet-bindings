@@ -45,7 +45,6 @@
     <type fullname="Swift.SwiftResult`2" preserve="methods" />
     <type fullname="Swift.SwiftDictionary`2" preserve="methods" />
     <type fullname="Swift.SwiftSet`1" preserve="methods" />
-    <type fullname="Swift.Data" preserve="methods" />
     <type fullname="Swift.AnyHashable" preserve="methods" />
     <!-- NOTE: Foundation/UIKit/AppKit stub types (URL, UIImage, DispatchQueue, etc.) intentionally
          excluded — preserve="methods" on them crashes ILC due to CallConvSwift P/Invoke members.

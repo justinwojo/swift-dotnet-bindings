@@ -43,7 +43,7 @@ public func sbw_test_createValidationErrorContainer(_ bufferPtr: UnsafeMutableRa
 // (Fix 3 from ship-blockers.md). The generator emits an SBW_MCB_ @_cdecl
 // wrapper that wraps the existential container with withUnsafePointer and
 // hands an ExistentialContainer1 pointer to the C# callback, which
-// reconstructs a Swift.AnyError.
+// reconstructs a Swift.Foundation.AnyError.
 
 public final class AnyErrorCallbackFixture {
     public init() {}
@@ -71,7 +71,7 @@ public final class AnyErrorCallbackFixture {
         callback(error)
     }
 
-    // MARK: - Session 2 Pattern A: `(any Error)?` closure parameter
+    // MARK: - Pattern A: `(any Error)?` closure parameter
     //
     // Mirrors `PaymentSheet.FlowController.update(intentConfiguration:completion:)`
     // where Stripe delivers either a nil error (success) or an existential
@@ -88,7 +88,7 @@ public final class AnyErrorCallbackFixture {
         }
     }
 
-    // MARK: - Session 2 Pattern A (3-arg): `(T, U, (any Error)?)` closure parameter
+    // MARK: - Pattern A (3-arg): `(T, U, (any Error)?)` closure parameter
     //
     // Exercises Optional<any Error> in the trailing slot of a multi-arg closure,
     // mirroring the Stripe pattern `(STPIssuingCardPin?, STPPinStatus, (any Error)?)`
@@ -106,7 +106,7 @@ public final class AnyErrorCallbackFixture {
         }
     }
 
-    // MARK: - Session 2 Pattern B: `Result<T, any Error>` closure parameter
+    // MARK: - Pattern B: `Result<T, any Error>` closure parameter
     //
     // Mirrors Stripe's completion handler shape:
     //   `(Result<PaymentSheet.FlowController, any Error>) -> Void`

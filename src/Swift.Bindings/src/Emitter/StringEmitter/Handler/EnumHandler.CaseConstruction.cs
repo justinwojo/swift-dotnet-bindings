@@ -161,7 +161,7 @@ namespace BindingsGeneration
                 }
                 else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
                 {
-                    csWriter.WriteLine($"var __{bareName} = Swift.Data.FromByteArray({name});");
+                    csWriter.WriteLine($"var __{bareName} = Swift.Foundation.Data.FromByteArray({name});");
                 }
                 else if (typeSpec is NamedTypeSpec dateSpec && dateSpec.Name == "Foundation.Date")
                 {
@@ -202,9 +202,9 @@ namespace BindingsGeneration
                         }
                         else if (proj is DataProjection)
                         {
-                            // Data: convert byte[] → Swift.Data for P/Invoke tuple element.
+                            // Data: convert byte[] → Swift.Foundation.Data for P/Invoke tuple element.
                             var elemVarName = $"__{bareName}_e{j}";
-                            csWriter.WriteLine($"var {elemVarName} = Swift.Data.FromByteArray({elementAccess});");
+                            csWriter.WriteLine($"var {elemVarName} = Swift.Foundation.Data.FromByteArray({elementAccess});");
                             elementExprs.Add(elemVarName);
                         }
                         else if (proj is DateProjection)

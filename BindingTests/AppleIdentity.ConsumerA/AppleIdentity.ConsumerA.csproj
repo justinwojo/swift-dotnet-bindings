@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Session 6 / M8 cross-module type identity guardrail.
+  <!-- Cross-module type identity guardrail.
 
        One of two minimal consumer libraries that both reference SwiftBindings.Apple
        and touch a supplement-owned type (Foundation.Locale.Language). RuntimeTestsApp

@@ -8,7 +8,7 @@ using DemanglerNode = BindingsGeneration.Demangling.Node;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Session 2 tests for the demangler: DemangleSymbol() path, symbol category coverage,
+/// Demangler tests: DemangleSymbol() path, symbol category coverage,
 /// complex generics, and edge cases.
 /// </summary>
 public class DemanglerSession2Tests

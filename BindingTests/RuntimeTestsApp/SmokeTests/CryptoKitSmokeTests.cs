@@ -8,7 +8,7 @@ using RuntimeTestsApp.Infrastructure;
 namespace RuntimeTestsApp.SmokeTests;
 
 /// <summary>
-/// Session 2 end-to-end smoke test for the Apple-framework direct-mode pipeline on
+/// End-to-end smoke test for the Apple-framework direct-mode pipeline on
 /// CryptoKit. Consumes the externally-built <c>CryptoKit.Swift.iOS.dll</c> +
 /// <c>CryptoKitSwiftBindings.xcframework</c> from the gitignored in-tree snapshot at
 /// <c>BindingTests/obj/CryptoKitSnapshot/</c> and calls a handful of hermetic,
@@ -56,9 +56,9 @@ public class CryptoKitSmokeTests : TestBase
     /// deterministic function of the <c>SymmetricKeySize</c> enum case — any other
     /// value would indicate a marshalling bug rather than environment variance.
     ///
-    /// This is the Session 2 equivalent of <see cref="StoreKitSmokeTests.TestAppStoreCanMakePayments"/>:
+    /// This is the CryptoKit equivalent of <see cref="StoreKitSmokeTests.TestAppStoreCanMakePayments"/>:
     /// the minimum viable success signal for end-to-end Apple-framework direct-mode
-    /// pipeline on a framework other than StoreKit (fix #16 in the session plan).
+    /// pipeline on a framework other than StoreKit.
     /// </summary>
     public void TestSymmetricKeyBitCount()
     {
@@ -96,7 +96,7 @@ public class CryptoKitSmokeTests : TestBase
     ///
     /// Assertion: the public key is non-null and dispose completes cleanly. We
     /// deliberately do NOT call <c>RawRepresentation</c> or any API that returns
-    /// a <c>byte[]</c> derived from <c>Swift.Data</c>; while return-position
+    /// a <c>byte[]</c> derived from <c>Swift.Foundation.Data</c>; while return-position
     /// <c>Data</c> works (the wrapper packs it into the indirect-result buffer),
     /// we stick to the narrowest possible metadata-only surface for this smoke
     /// test so a regression here is unambiguous about which code path broke.

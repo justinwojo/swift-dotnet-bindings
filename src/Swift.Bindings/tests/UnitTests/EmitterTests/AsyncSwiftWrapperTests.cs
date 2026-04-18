@@ -459,7 +459,7 @@ public class AsyncSwiftWrapperTests
         // C#: callback delegate should use IntPtr for Data, not the struct type
         Assert.Contains("IntPtr", csOutput);
         // C#: should read Data from pointer and convert to byte[]
-        Assert.Contains("Swift.Data*", csOutput);
+        Assert.Contains("Swift.Foundation.Data*", csOutput);
         Assert.Contains("ToByteArray()", csOutput);
     }
 
@@ -1789,7 +1789,7 @@ public class AsyncSwiftWrapperTests
     public void AsyncWrapper_InstanceMethod_FrozenBlittableStructParam_UsesNativeMemoryAlloc()
     {
         // Instance methods with frozen blittable struct params in async context must also
-        // use NativeMemory.Alloc. Session 5's tests only covered static methods.
+        // use NativeMemory.Alloc (existing coverage only exercised static methods).
         var csOutput = GenerateAsyncInstanceMethodWithFrozenStructParam();
 
         // Should use NativeMemory.Alloc for heap allocation

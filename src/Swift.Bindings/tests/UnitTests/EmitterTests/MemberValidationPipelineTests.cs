@@ -734,7 +734,7 @@ public class MemberValidationPipelineTests
 
     #endregion
 
-    #region Phase 3-6 Gate Tests (Session 2)
+    #region Emission Gate Tests (Phases 3-6)
 
     [Fact]
     public void ValidateMethodEmission_ThunkClosureInGenericType_ReturnsSkip()

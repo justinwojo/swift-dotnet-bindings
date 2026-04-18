@@ -16,8 +16,8 @@ namespace BindingsGeneration.AppleTypesManifest;
 // platform — the builder unions them per swift_identity.
 //
 // Size/alignment/stride and conformance descriptor symbols require live-SDK probing and
-// are deliberately left unset here (null / empty). Session 6's M10 live-SDK validation
-// fills them in; Session 2's contract is the static ABI-JSON view only.
+// are deliberately left unset here (null / empty). The live-SDK validation step fills them
+// in; the builder's contract is the static ABI-JSON view only.
 public sealed class AppleTypesManifestBuilder
 {
     private static readonly HashSet<string> NominalDeclKinds = new(StringComparer.Ordinal)
@@ -338,7 +338,7 @@ public sealed class AppleTypesManifestBuilder
     {
         // Any per-platform minimum OR a platform-absence (null) implies an `@available` gate
         // exists in source; emitters must weak-link the metadata accessor. The supplement's
-        // own SupportedOSPlatformVersion floor is separate — Session 4 will refine this.
+        // own SupportedOSPlatformVersion floor is separate.
         return !a.IsEmpty;
     }
 
@@ -387,10 +387,11 @@ public sealed class ManifestOptions
 }
 
 // Filters which Swift identities land in the manifest. Kept minimal: one JSON file shape,
-// hand-maintained for Session 2 and filled out exhaustively by Session 7. Excluding legacy
-// Runtime-owned canonicals (Date, Data, URL, Decimal, Measurement<T>, AnyError,
-// ManagedSettings.Token<T>, SwiftUI.Text) is the caller's responsibility — the filter is
-// positive-list only so the supplement cannot accidentally shadow canonical identity.
+// hand-maintained and expanded over time. Excluding hand-rolled canonicals (Date, Data,
+// URL, Decimal, Measurement<T>, AnyError, ManagedSettings.Token<T>, SwiftUI.Text — all
+// compiled directly into Swift.Bindings.Apple/Sources/) is the caller's responsibility —
+// the filter is positive-list only so the manifest-driven emitter cannot accidentally
+// shadow a hand-rolled type.
 public sealed class IncludeFilter
 {
     private readonly HashSet<string> _identities;

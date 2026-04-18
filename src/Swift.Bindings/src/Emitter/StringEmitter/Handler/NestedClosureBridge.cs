@@ -180,7 +180,9 @@ public static class NestedClosureBridge
             if (innerClosures.Count == 0) continue;
 
             var paramName = NameProvider.GetCSharpParameterName(arg);
-            var baseName = nestedClosures.Count == 0 ? $"NCB_{mangledHash}" : $"NCB_{mangledHash}_{closureIndex}";
+            // Always use indexed naming (NCB_{hash}_0, _1, …) so adding a closure later
+            // doesn't silently rename the first symbol from bare NCB_{hash} to NCB_{hash}_0.
+            var baseName = $"NCB_{mangledHash}_{closureIndex}";
 
             nestedClosures.Add(new NestedClosureInfo(
                 cts, arg, outerArgs, innerClosures, outerNonClosureArgs,
@@ -191,18 +193,6 @@ public static class NestedClosureBridge
 
         if (nestedClosures.Count == 0)
             return false;
-
-        // If multiple outer closures, re-index with suffixes
-        if (nestedClosures.Count > 1)
-        {
-            var reindexed = new List<NestedClosureInfo>();
-            for (int i = 0; i < nestedClosures.Count; i++)
-            {
-                var nc = nestedClosures[i];
-                reindexed.Add(nc with { CallbackBaseName = $"NCB_{mangledHash}_{i}", Index = i });
-            }
-            nestedClosures = reindexed;
-        }
 
         var asyncLibName = env.TypeDatabase.AsyncLibraryName ?? "SwiftBindings";
 

@@ -7,8 +7,8 @@ namespace BindingsGeneration.AppleTypesManifest;
 
 // Serializable model mirroring `src/Swift.Bindings.Sdk/tools/apple-types-manifest/schema.json`.
 // Field order and naming here are contractual — they drive the on-disk JSON shape so the
-// hand-readable manifest stays stable across regenerations. See
-// `src/docs/apple-swift-types-architecture.md` §Q7 for the format contract.
+// hand-readable manifest stays stable across regenerations. The schema.json file next to
+// the tool is the authoritative contract.
 
 public sealed class Manifest
 {

@@ -520,7 +520,7 @@ namespace BindingsGeneration.Tests
             RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode);
 
             Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
-            // Open-ended floor range per architecture doc §Decision summary item 5 —
+            // Open-ended floor range: the supplement is cross-major additive-only so
             // diamond graphs across iOS majors unify at the higher supplement version.
             Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
         }
@@ -562,7 +562,7 @@ namespace BindingsGeneration.Tests
             RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode);
 
             Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
-            // Open-ended floor range per architecture doc §Decision summary item 5 —
+            // Open-ended floor range: the supplement is cross-major additive-only so
             // diamond graphs across iOS majors unify at the higher supplement version.
             Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
         }

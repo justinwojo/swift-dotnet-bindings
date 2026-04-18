@@ -113,6 +113,10 @@ jobs:
           --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140
 
+      - name: Validate blast radius
+        timeout-minutes: 10
+        run: dotnet nuke validate-blast-radius
+
       - name: Upload simulator diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -177,8 +181,9 @@ jobs:
         if: steps.version.outputs.is_dryrun == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          # SwiftBindings.Apple tracks the Apple SDK train, not the SDK version
-          # (ship plan §3.1). Hardcoded for 0.8.0 initial ship.
+          # SwiftBindings.Apple's major.minor mirrors the Apple SDK train (iOS 26 → 26.x.x),
+          # which is independent of the generator SDK version cadence. Hardcoded for the
+          # initial 0.8.0 ship; future releases source this from the release manifest.
           APPLE_VERSION="26.0.0"
           EXISTING=0
           TOTAL=0
@@ -208,8 +213,8 @@ jobs:
           fi
 
       - name: Build and pack NuGet packages
-        # Apple-version hardcoded for 0.8.0 initial ship. Post-ship two-lane
-        # releases will source it from release-manifest.json (ship plan §7.5.3).
+        # Apple-version hardcoded for the initial ship. Future two-lane releases
+        # (separate SDK and Apple tags) will source it from release-manifest.json.
         run: >
           dotnet nuke pack
           --version ${{ steps.version.outputs.version }}
@@ -243,17 +248,14 @@ jobs:
           done
 
       - name: Create git tag
-        # 0.8.0 initial ship is dual-lane (ship plan §7.3.5): the same commit
-        # should also carry `sdk-v0.8.0` and `apple-v26.0.0` to seed both
-        # lanes for future compares. Per §7.5.2 "Dual tag — simplest path",
-        # we keep the workflow pushing only `v${VERSION}` and push the
-        # lane-prefixed tags manually post-release:
+        # The initial 0.8.0 commit is dual-lane: it should also carry
+        # `sdk-v0.8.0` and `apple-v26.0.0` to seed future lane-prefixed
+        # compares. This workflow only pushes `v${VERSION}`; the two
+        # lane-prefixed tags are pushed manually post-release:
         #   git tag sdk-v0.8.0 <commit> && git push origin sdk-v0.8.0
         #   git tag apple-v26.0.0 <commit> && git push origin apple-v26.0.0
-        # Extending this step to push all three is the alternative the ship
-        # plan accepts; we chose manual because a one-time initial-ship
-        # procedure doesn't warrant lane-aware automation here (that work
-        # lives in §7.5.3 — post-ship two-lane releases).
+        # Lane-aware automation is deferred until recurring two-lane
+        # releases actually exist.
         if: steps.version.outputs.is_dryrun == 'false'
         run: |
           VERSION="${{ steps.version.outputs.version }}"

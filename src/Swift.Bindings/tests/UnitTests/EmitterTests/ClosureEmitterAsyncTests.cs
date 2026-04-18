@@ -124,7 +124,7 @@ public class ClosureEmitterAsyncTests
         var typeDatabase = CreateTypeDatabase();
         var closureHandler = new ClosureHandler(typeDatabase);
         // Closure returning Foundation.Data — projected as byte[] publicly,
-        // but AsyncThrowingClosureState<T> must use Swift.Data (ABI type)
+        // but AsyncThrowingClosureState<T> must use Swift.Foundation.Data (ABI type)
         // because AsyncClosureHelper.RunDataAsync expects it.
         var closureTypeSpec = new ClosureTypeSpec(null, new NamedTypeSpec("Foundation.Data"))
         {
@@ -140,8 +140,8 @@ public class ClosureEmitterAsyncTests
             "$s10TestModule9fetchDatayyF");
 
         var result = output.ToString();
-        // State type must use ABI type (Swift.Data), not projected type (byte[])
-        Assert.Contains("AsyncThrowingClosureState<Swift.Data>", result);
+        // State type must use ABI type (Swift.Foundation.Data), not projected type (byte[])
+        Assert.Contains("AsyncThrowingClosureState<Swift.Foundation.Data>", result);
         Assert.DoesNotContain("AsyncThrowingClosureState<byte[]>", result);
     }
 
@@ -164,11 +164,11 @@ public class ClosureEmitterAsyncTests
             "$s10TestModule9fetchDatayyF");
 
         var result = output.ToString();
-        // State type must use Swift.Data, not byte[]
-        Assert.Contains("AsyncThrowingClosureState<Swift.Data>", result);
+        // State type must use Swift.Foundation.Data, not byte[]
+        Assert.Contains("AsyncThrowingClosureState<Swift.Foundation.Data>", result);
         Assert.DoesNotContain("AsyncThrowingClosureState<byte[]>", result);
-        // Must convert Func<Task<byte[]>> to Func<Task<Swift.Data>>
-        Assert.Contains("Swift.Data.FromByteArray(r)", result);
+        // Must convert Func<Task<byte[]>> to Func<Task<Swift.Foundation.Data>>
+        Assert.Contains("Swift.Foundation.Data.FromByteArray(r)", result);
     }
 
     #endregion

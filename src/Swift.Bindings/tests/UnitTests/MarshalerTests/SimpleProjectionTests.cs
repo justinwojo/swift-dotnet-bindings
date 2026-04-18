@@ -281,7 +281,7 @@ public class SimpleProjectionTests
     {
         var proj = new DataProjection();
         Assert.Equal("byte[]", proj.PublicType);
-        Assert.Equal("Swift.Data", proj.PInvokeType);
+        Assert.Equal("Swift.Foundation.Data", proj.PInvokeType);
     }
 
     [Fact]
@@ -294,7 +294,7 @@ public class SimpleProjectionTests
         Assert.Single(plan.SetupStatements);
 
         var setup = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("Swift.Data.FromByteArray(data)", setup.Code);
+        Assert.Contains("Swift.Foundation.Data.FromByteArray(data)", setup.Code);
     }
 
     [Fact]
@@ -310,14 +310,14 @@ public class SimpleProjectionTests
     {
         var proj = new DataProjection();
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
-        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<Swift.Data>(result).ToByteArray()", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<Swift.Foundation.Data>(result).ToByteArray()", plan.PInvokeExpression);
     }
 
     [Fact]
     public void DataProjection_ElementConversions()
     {
         var proj = new DataProjection();
-        Assert.Equal("Swift.Data.FromByteArray(e)", proj.GetParameterElementConversion("e"));
+        Assert.Equal("Swift.Foundation.Data.FromByteArray(e)", proj.GetParameterElementConversion("e"));
         Assert.Equal("e.ToByteArray()", proj.GetReturnElementConversion("e"));
         Assert.False(proj.ElementRequiresDisposal);
     }

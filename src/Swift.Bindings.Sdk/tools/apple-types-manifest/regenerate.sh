@@ -4,15 +4,15 @@
 # and feeding them into `Swift.Bindings --emit-apple-types-manifest`.
 #
 # This is a small driver — the pipeline's authoritative entry point is the generator CLI.
-# Invoked manually during Phase 2 Session 2 and from Session 7's bootstrap.
+# Invoked manually when the seed type list or Apple SDK train changes.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../../../.. && pwd)"
 MANIFEST_DIR="$REPO_ROOT/src/Swift.Bindings.Sdk/tools/apple-types-manifest"
 GENERATOR_PROJECT="$REPO_ROOT/src/Swift.Bindings/src"
 
-# Modules owning the seed types in include-types.json. When Session 7 broadens coverage,
-# add its target-framework modules here too.
+# Modules owning the seed types in include-types.json. Extend this list when new
+# target-framework modules need supplement coverage.
 MODULES=(Foundation ManagedSettings CryptoKit)
 
 # Platform targets driving swift-api-digester. Each dump contributes its platform's

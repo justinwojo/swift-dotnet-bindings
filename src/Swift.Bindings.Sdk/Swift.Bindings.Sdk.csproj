@@ -27,10 +27,10 @@
   </ItemGroup>
 
   <!-- Pack the published generator into tools/ -->
-  <!-- Also packs tools/apple-types-manifest/ — Phase 2 embeds the Apple Swift-only
-       type metadata manifest under the SDK for the 0.8 train (architecture doc §Q7).
-       Format is designed so a later move to a standalone SwiftBindings.Apple.Metadata
-       data package is a relocation, not a reformat. -->
+  <!-- Also packs tools/apple-types-manifest/ — the Apple Swift-only type metadata manifest
+       rides inside the SDK package today to keep the NuGet coordination surface down to one
+       artifact. The manifest format is designed so a later move to a standalone
+       SwiftBindings.Apple.Metadata data package is a relocation, not a reformat. -->
   <ItemGroup>
     <None Include="tools/**/*" Pack="true" PackagePath="tools/" />
     <None Include="../../README.md" Pack="true" PackagePath="" />

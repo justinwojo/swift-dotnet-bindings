@@ -201,7 +201,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // BindingToggleView — Session 2 gate: Binding<Bool>
+    // BindingToggleView — Binding<Bool> gate
     // Tests $state.isOn Binding projection at runtime.
     // ────────────────────────────────────────────────────────────────
 
@@ -258,7 +258,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // NumberListView — Session 2 gate: Array<Int>
+    // NumberListView — Array<Int> gate
     // Tests pointer+count ABI and UnsafeBufferPointer.map reconstruction.
     // ────────────────────────────────────────────────────────────────
 
@@ -304,7 +304,7 @@ public class ValidationPatternBridgeTests : TestBase
     }
 
     // ────────────────────────────────────────────────────────────────
-    // SymbolIconView — Session 2 gate: SwiftUI.Image
+    // SymbolIconView — SwiftUI.Image gate
     // Tests Image(systemName:) construction from bridged String.
     // ────────────────────────────────────────────────────────────────
 

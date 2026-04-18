@@ -10,9 +10,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <!-- SB1001: Runtime analyzer fires on the interop primitives this package builds on.
-         CS1591: Public API XML docs land as types get generated; suppress for skeleton. -->
-    <NoWarn>$(NoWarn);SB1001;CS1591</NoWarn>
     <IsAotCompatible>true</IsAotCompatible>
     <AssemblyName>SwiftBindings.Apple</AssemblyName>
     <RootNamespace>Swift</RootNamespace>
@@ -57,6 +54,13 @@
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="" />
     <None Include="../icon.png" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <!-- NativeAOT trim-safety roots for hand-rolled ISwiftObject types migrated from Runtime. -->
+  <ItemGroup>
+    <EmbeddedResource Include="ILLink.Descriptors.xml">
+      <LogicalName>ILLink.Descriptors.xml</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Apple-types generated sources. The emitter runs as a BeforeCompile step so

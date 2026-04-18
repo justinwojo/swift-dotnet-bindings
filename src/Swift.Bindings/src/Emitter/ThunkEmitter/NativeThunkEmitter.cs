@@ -22,7 +22,7 @@ namespace BindingsGeneration;
 /// Thunks do NOT handle (deferred):
 ///   1. Typed throws (needs Swift-side error boxing)
 ///   2. Generic type constructors (needs Swift compiler for specialization)
-///   3. Struct constructors (Mono AOT can't JIT LibraryImport struct returns; see Session 4)
+///   3. Struct constructors (Mono AOT can't JIT LibraryImport struct returns)
 ///   4. Failable constructors (return Optional<Self>, needs indirect result)
 ///  10. Closure parameters (needs Swift adapter code)
 /// </summary>
@@ -93,8 +93,8 @@ public static class NativeThunkEmitter
             methodDecl.IsActorIsolated, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated))
             return false;
 
-        // Struct constructors: The thunk handles x8 indirect return correctly (Session 4 research
-        // proved AAPCS64 x8 works for struct returns >16B under CallConvCdecl). However, Mono's
+        // Struct constructors: The thunk handles x8 indirect return correctly (AAPCS64 x8 works
+        // for struct returns >16B under CallConvCdecl). However, Mono's
         // AOT compiler can't generate the managed-to-native wrapper when LibraryImport returns
         // a struct type ("Attempting to JIT compile method" in aot-only mode). The @_cdecl wrapper
         // approach (void return + IntPtr resultPtr) avoids this by never returning a struct.
@@ -229,7 +229,7 @@ public static class NativeThunkEmitter
                 return false;
         }
 
-        // Methods requiring indirect result can't be thunked yet (Session 4).
+        // Methods requiring indirect result can't be thunked yet.
         // Under CallConvCdecl, SwiftIndirectResult becomes a regular parameter (x0),
         // but the thunk reads x8 (AAPCS64 indirect return convention) → SIGSEGV.
         // This catches non-frozen structs, complex enums, and other types where

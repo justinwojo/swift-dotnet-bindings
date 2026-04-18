@@ -12,7 +12,7 @@ using Swift.Runtime;
 namespace AppleIdentity.ConsumerA;
 
 /// <summary>
-/// Session 6 / M8 probe. Exposes a stable type handle + metadata handle for a
+/// Cross-module identity probe. Exposes a stable type handle + metadata handle for a
 /// SwiftBindings.Apple-owned supplement type so RuntimeTestsApp can compare
 /// against the mirror probe in AppleIdentity.ConsumerB and assert both
 /// assemblies resolve to the exact same System.Type and Swift TypeMetadata.

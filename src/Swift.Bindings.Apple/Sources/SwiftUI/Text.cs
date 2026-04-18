@@ -3,10 +3,9 @@
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Swift;
 using Swift.Runtime;
 
-namespace SwiftUI;
+namespace Swift.SwiftUI;
 
 /// <summary>
 /// Represents SwiftUI.Text - a view that displays one or more lines of text.

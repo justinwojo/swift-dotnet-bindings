@@ -1883,7 +1883,7 @@ public class AbiSafetyTests
 
     #endregion
 
-    #region IsCBridgingModuleType Tests (Session 7G)
+    #region IsCBridgingModuleType Tests
 
     [Theory]
     [InlineData("CoreGraphics.CGRect", true)]
@@ -1994,7 +1994,7 @@ public class AbiSafetyTests
 
     #endregion
 
-    #region DefaultParameterOverloadEmitter ABI Safety Gating Tests (Session 7G)
+    #region DefaultParameterOverloadEmitter ABI Safety Gating Tests
 
     [Fact]
     public void OverloadCdeclCheck_IndependentOverload_GatedOnAbiSafety()
@@ -2002,7 +2002,7 @@ public class AbiSafetyTests
         // When the primary method doesn't have UsesCdeclMethodWrapper, the overload emitter
         // independently checks ShouldEmitWrapper && RequiresCdeclForAbiSafety.
         // A method on a final class with only primitive params does NOT need @_cdecl.
-        // Session 7G: verify that such methods don't get unnecessary @_cdecl wrappers.
+        // Verify that such methods don't get unnecessary @_cdecl wrappers.
         var typeDb = new TypeDatabase();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

@@ -4,7 +4,7 @@
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 
-namespace ManagedSettings;
+namespace Swift.ManagedSettings;
 
 /// <summary>
 /// C# projection of ManagedSettings.Token&lt;Kind&gt;, an opaque non-frozen generic struct
@@ -20,6 +20,7 @@ public sealed class Token<T> : ISwiftObject, ISwiftStruct, IDisposable where T :
     private bool _disposed;
     private static TypeMetadata? _cachedMetadata;
 
+    /// <summary>The safe handle wrapping the native Swift storage for this token.</summary>
     public SwiftSafeHandle<Token<T>> Payload => _payload;
 
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
@@ -78,6 +79,7 @@ public sealed class Token<T> : ISwiftObject, ISwiftStruct, IDisposable where T :
 
     internal Token(IntPtr handle) => _payload = new SwiftSafeHandle<Token<T>>(handle);
 
+    /// <summary>Releases the native Swift storage backing this token.</summary>
     public void Dispose()
     {
         if (!_disposed)

@@ -20,7 +20,7 @@ public class NativeRemappedProjection : ITypeProjection
     /// Creates a native remapped projection.
     /// </summary>
     /// <param name="publicType">The .NET type name (e.g., "NSUrl", "NSData").</param>
-    /// <param name="swiftWrapperType">The Swift wrapper type (e.g., "Swift.Data").</param>
+    /// <param name="swiftWrapperType">The Swift wrapper type (e.g., "Swift.Foundation.Data").</param>
     /// <param name="isFrozen">Whether the Swift type is frozen (affects SafeHandle vs value semantics).</param>
     /// <param name="toConversionMethod">Method for return conversion (e.g., "ToNSUrl"). Required — caller must derive from the native type name.</param>
     /// <param name="fromFactoryMethod">Factory method for parameter conversion (e.g., "FromNSUrl"). If null, uses constructor.</param>
@@ -48,7 +48,7 @@ public class NativeRemappedProjection : ITypeProjection
 
     /// <summary>
     /// For MarshalFromSwift deserialization, always use the Swift wrapper type name
-    /// (e.g., Swift.Data) so MarshalFromSwift returns the correct type with conversion methods.
+    /// (e.g., Swift.Foundation.Data) so MarshalFromSwift returns the correct type with conversion methods.
     /// </summary>
     public string MarshalFromSwiftType => _swiftWrapperType;
 
@@ -58,7 +58,7 @@ public class NativeRemappedProjection : ITypeProjection
     /// <summary>Factory method for converting native .NET → Swift wrapper (e.g., "FromNSUrl"), or null if constructor is used.</summary>
     public string? FromFactoryMethod => _fromFactoryMethod;
 
-    /// <summary>The Swift wrapper type name (e.g., "Swift.Data").</summary>
+    /// <summary>The Swift wrapper type name (e.g., "Swift.Foundation.Data").</summary>
     public string SwiftWrapperType => _swiftWrapperType;
 
     /// <summary>Whether the Swift type is frozen (affects SafeHandle vs value semantics in P/Invoke).</summary>
@@ -122,7 +122,7 @@ public class NativeRemappedProjection : ITypeProjection
     public string? GetReturnElementConversion(string elementVar)
     {
         // MarshalFromSwiftType returns _swiftWrapperType, so container elements are already the
-        // wrapper type (e.g., Swift.Data). Just call the conversion method directly.
+        // wrapper type (e.g., Swift.Foundation.Data). Just call the conversion method directly.
         return $"{elementVar}.{_toConversionMethod}()";
     }
     public bool ElementRequiresDisposal => true;

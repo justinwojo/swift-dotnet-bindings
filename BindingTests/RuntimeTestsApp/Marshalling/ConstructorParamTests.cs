@@ -186,8 +186,8 @@ public class ConstructorParamTests : TestBase
 
     public void TestDataRoundTrip()
     {
-        // Verify byte[] → Swift.Data → byte[] round-trip via DataProjection.
-        // Constructor marshals byte[] to Swift.Data; Contents property marshals back to byte[].
+        // Verify byte[] → Swift.Foundation.Data → byte[] round-trip via DataProjection.
+        // Constructor marshals byte[] to Swift.Foundation.Data; Contents property marshals back to byte[].
         var original = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE };
         var timestamp = DateTimeOffset.UtcNow;
         var blob = new TimestampedBlob(timestamp: timestamp, contents: original);

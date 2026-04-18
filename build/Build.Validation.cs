@@ -488,14 +488,17 @@ partial class Build
             // Load previous baseline for comparison
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
 
-            // Update baseline only on full unfiltered runs
+            // Update baseline only on full unfiltered runs. Preserve the existing runtime_tests
+            // baseline (populated by a separate nuke runtime-tests-simulator run) so a validate
+            // pass doesn't stomp it back to null on write-out.
             if (isFullRun)
             {
                 var newBaseline = new ValidationBaseline
                 {
                     GitSha = GetGitShortSha(),
                     Gate = new() { Libraries = currentResults },
-                    SkipMetrics = skipMetrics
+                    SkipMetrics = skipMetrics,
+                    RuntimeTests = prevBaseline.RuntimeTests
                 };
                 newBaseline.Save(BaselinePath);
             }

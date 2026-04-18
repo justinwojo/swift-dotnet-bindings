@@ -29,7 +29,7 @@ public static partial class ClosureEmitter
 
         // Get the ABI type for the state — use projection's PInvokeType when it differs
         // from PublicType. TranslateTypeSpecToCSharp returns projected types (e.g., byte[]
-        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Data)
+        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Foundation.Data)
         // because runtime helpers like AsyncClosureHelper.RunDataAsync expect them.
         var returnAbiType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
@@ -50,7 +50,7 @@ public static partial class ClosureEmitter
         // Check if return type is Data (special handling for byte arrays)
         var isDataReturn = hasReturn &&
             closureTypeSpec.ReturnType is NamedTypeSpec namedType &&
-            (namedType.Name == "Foundation.Data" || namedType.Name == "Swift.Data");
+            (namedType.Name == "Foundation.Data" || namedType.Name == "Swift.Foundation.Data");
 
         // NOTE: C# async lambdas cannot contain 'unsafe' blocks, so we use a helper method pattern.
         // The synchronous callback method is marked 'unsafe' to convert function pointers to delegates,
@@ -77,7 +77,7 @@ public static partial class ClosureEmitter
 
         if (isDataReturn)
         {
-            // Data return type - user provides Func<Task<Swift.Data>>, we extract bytes and pass to Swift
+            // Data return type - user provides Func<Task<Swift.Foundation.Data>>, we extract bytes and pass to Swift
             // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
@@ -91,8 +91,8 @@ public static partial class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using runtime helper (avoids async in unsafe class context)
-                    AsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
+                    // Spawn async work using supplement helper (Data moved to SwiftBindings.Apple)
+                    Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
                 }
                 """);
         }
@@ -175,7 +175,7 @@ public static partial class ClosureEmitter
 
         // Get the ABI type for the state — use projection's PInvokeType when it differs
         // from PublicType. TranslateTypeSpecToCSharp returns projected types (e.g., byte[]
-        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Data)
+        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Foundation.Data)
         // because runtime helpers like AsyncClosureHelper.RunDataAsync expect them.
         var returnPublicType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
@@ -196,7 +196,7 @@ public static partial class ClosureEmitter
 
         // Check if the public delegate return type differs from the ABI type.
         // The delegate parameter uses projected types (e.g., byte[] for Data) from BuildDelegateType,
-        // but AsyncThrowingClosureState<T> uses ABI types (e.g., Swift.Data) for MarshalToSwift.
+        // but AsyncThrowingClosureState<T> uses ABI types (e.g., Swift.Foundation.Data) for MarshalToSwift.
         // When they differ, wrap the user's delegate with ContinueWith to convert the result.
         // NOTE: Cannot use async/await here because this code may be inside an unsafe context (CS4004).
         string asyncFuncExpr = parameterName;
@@ -205,13 +205,13 @@ public static partial class ClosureEmitter
             // Only apply conversion when the public type differs from the ABI type AND
             // the conversion produces a value (not a handle extraction).
             // Classes/non-frozen structs have PublicType == ABI type — no conversion needed.
-            // Data (public="byte[]", ABI="Swift.Data") needs Swift.Data.FromByteArray(r).
+            // Data (public="byte[]", ABI="Swift.Foundation.Data") needs Swift.Foundation.Data.FromByteArray(r).
             var paramConversion = (returnProjection != null && returnProjection.PublicType != returnAbiType)
                 ? returnProjection.GetParameterElementConversion("r")
                 : null;
             if (paramConversion != null)
             {
-                // e.g., byte[] → Swift.Data.FromByteArray(r): wrap Func<Task<byte[]>> → Func<Task<Swift.Data>>
+                // e.g., byte[] → Swift.Foundation.Data.FromByteArray(r): wrap Func<Task<byte[]>> → Func<Task<Swift.Foundation.Data>>
                 // Use ContinueWith + Unwrap to avoid async/await in unsafe context.
                 asyncFuncExpr = $"() => {parameterName}().ContinueWith(t => {{ var r = t.GetAwaiter().GetResult(); return {paramConversion}; }}, TaskContinuationOptions.ExecuteSynchronously)";
             }

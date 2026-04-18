@@ -2,6 +2,13 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
+
+// The Apple supplement package consumes KnownLibraries for hand-rolled P/Invokes on
+// Foundation.Data/URL/URLRequest/etc. — promoting to internal-visible keeps these paths
+// a single source of truth rather than duplicating the library path strings.
+[assembly: InternalsVisibleTo("SwiftBindings.Apple")]
+
 namespace Swift.Runtime;
 
 internal static class KnownLibraries

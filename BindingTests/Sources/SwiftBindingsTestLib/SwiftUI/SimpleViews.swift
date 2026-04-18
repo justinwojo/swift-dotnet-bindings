@@ -171,7 +171,7 @@ public struct MixedStringView: View {
     }
 }
 
-// MARK: - View Modifier Chain (Session 4C)
+// MARK: - View Modifier Chain
 
 /// Tests self-returning modifier detection and bridge emission.
 public struct ModifiableView: View {
@@ -195,7 +195,7 @@ public struct ModifiableView: View {
     }
 }
 
-// MARK: - Generic View Support (Session 2)
+// MARK: - Generic View Support
 
 /// Tests generic view with View-constrained placeholder and two constructors:
 /// - init(title:) where Placeholder == EmptyView  →  bridge selects this (concrete constraint)
@@ -226,7 +226,7 @@ public struct PlaceholderOnlyView<Content: View>: View {
     }
 }
 
-// MARK: - Two-Way State Binding (Session 4A)
+// MARK: - Two-Way State Binding
 
 /// Tests updatable primitive + string params (no closures).
 public struct UpdatableCounterView: View {
@@ -260,7 +260,7 @@ public struct UpdatableMixedView: View {
     }
 }
 
-// MARK: - Closure Non-Primitive Returns (Session 1B)
+// MARK: - Closure Non-Primitive Returns
 
 /// Tests TypedClosure with String return: (Int32) -> String.
 /// C# callback encodes returned string as UTF-8 native buffer; Swift decodes.
@@ -276,7 +276,7 @@ public struct StringReturnClosureView: View {
     }
 }
 
-// MARK: - Lifecycle & Presentation (Session 5)
+// MARK: - Lifecycle & Presentation
 
 /// Tests lifecycle callbacks (onAppear/onDisappear) and universal modifiers.
 /// Bridge always emits lifecycle params on Create factory.

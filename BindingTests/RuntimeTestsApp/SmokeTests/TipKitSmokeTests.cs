@@ -13,8 +13,8 @@ using TipKit;
 namespace RuntimeTestsApp.SmokeTests;
 
 /// <summary>
-/// Session 6 end-to-end smoke test for the Apple-framework direct-mode pipeline
-/// on TipKit. Consumes the externally-built <c>TipKit.Swift.iOS.dll</c> +
+/// End-to-end smoke test for the Apple-framework direct-mode pipeline on TipKit.
+/// Consumes the externally-built <c>TipKit.Swift.iOS.dll</c> +
 /// <c>TipKitSwiftBindings.xcframework</c> from the gitignored in-tree snapshot
 /// at <c>BindingTests/obj/TipKitSnapshot/</c> AND the
 /// <c>TipKitSmokeTip.swift</c> fixture under
@@ -25,7 +25,7 @@ namespace RuntimeTestsApp.SmokeTests;
 /// </para>
 /// <list type="number">
 ///   <item>
-///     <b>Session 1 build-infra <c>-D</c> threading (end-to-end, both sides).</b>
+///     <b>Build-infra <c>-D</c> threading (end-to-end, both sides).</b>
 ///     <see cref="TestTipKitSmokeFixtureWasCompiled"/> reflectively asserts that
 ///     the generator emitted <c>ReadTipKitSmokeIdentifier</c> on
 ///     <see cref="TestLibFunctions"/>. For that method to exist at runtime the
@@ -43,9 +43,9 @@ namespace RuntimeTestsApp.SmokeTests;
 ///         ProjectReference resolved, so the <c>using TipKit;</c> directive at
 ///         the top of this file compiles at all.</item>
 ///     </list>
-///     If this test ever stops finding the method, Session 1's
+///     If this test ever stops finding the method, the
 ///     <c>CompileModuleSlice</c> plumbing in <c>Build.BindingTests.cs</c> has
-///     regressed — half of the reason Session 6 exists.
+///     regressed — catching that is half the reason this smoke test exists.
 ///   </item>
 ///   <item>
 ///     <b>Fix #7 (PAT fallback to <c>object</c>) compile-time half pinned on a
@@ -79,8 +79,8 @@ namespace RuntimeTestsApp.SmokeTests;
 /// Self/PAT requirement fallback, or a non-generic <c>ITip</c> interface that
 /// still falls back to <c>object</c> at parameter position), and the exact
 /// branch is implementation detail that may shift without the observed shape
-/// changing. Either way, the net effect is the same as the Session 5 latent
-/// bug pin: an <c>object</c> parameter that the runtime cannot box into an
+/// changing. Either way, the net effect is the same latent bug pin: an
+/// <c>object</c> parameter that the runtime cannot box into an
 /// <c>ExistentialContainer1</c> for a PAT conformer whose
 /// <c>_protocolConformanceSymbols</c> dictionary is empty.
 /// </para>
@@ -98,8 +98,8 @@ public class TipKitSmokeTests : TestBase
     public TipKitSmokeTests(TestResults results) : base(results) { }
 
     /// <summary>
-    /// Session 1 plumbing validator: reflectively confirms the generator
-    /// emitted <c>TestLibFunctions.ReadTipKitSmokeIdentifier</c> from the
+    /// Plumbing validator: reflectively confirms the generator emitted
+    /// <c>TestLibFunctions.ReadTipKitSmokeIdentifier</c> from the
     /// <c>#if TIPKIT_SMOKE</c>-gated Swift fixture. See the class-level
     /// comment for the full chain this pins.
     /// </summary>
@@ -123,12 +123,12 @@ public class TipKitSmokeTests : TestBase
         }
         AssertTrue(method is not null,
             "TestLibFunctions.ReadTipKitSmokeIdentifier must exist on the generated " +
-            "SwiftBindingsTestLib bindings. If this assertion fails, Session 1's " +
+            "SwiftBindingsTestLib bindings. If this assertion fails, the " +
             "`-D TIPKIT_SMOKE` threading through CompileModuleSlice has regressed — " +
             "either the dylib compile dropped the define (fixture not in binary) or " +
             "the ABI JSON dump dropped it (fixture not visible to the generator). " +
             "Both legs of the plumbing in Build.BindingTests.cs are required; this " +
-            "is exactly the end-to-end regression pin that Session 1 exists to prevent.");
+            "is the end-to-end regression pin for that plumbing.");
     }
 
     /// <summary>
@@ -182,7 +182,7 @@ public class TipKitSmokeTests : TestBase
             BindingFlags.Public | BindingFlags.Static);
         AssertTrue(method is not null,
             "Precondition: ReadTipKitSmokeIdentifier must exist. If this fails, " +
-            "see TestTipKitSmokeFixtureWasCompiled for the Session 1 plumbing.");
+            "see TestTipKitSmokeFixtureWasCompiled for the `-D TIPKIT_SMOKE` plumbing.");
 
         var parameters = method!.GetParameters();
         AssertEqual(1, parameters.Length,

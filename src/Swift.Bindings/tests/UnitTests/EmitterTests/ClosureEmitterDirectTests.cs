@@ -985,7 +985,7 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
-    #region Session 4 — GCHandle lifetime: Free in callback, not in calling method's finally block
+    #region GCHandle lifetime: Free in callback, not in calling method's finally block
 
     [Fact]
     public void EmitEscapingClosureCallback_SwiftMode_FreesGCHandleInCallback()

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Session 5 / M9 blast-radius smoke test — "treatment" binary.
+// Blast-radius smoke test — "treatment" binary.
 // Referenced dependencies: SwiftBindings.Runtime + SwiftBindings.Apple.
 // Touches exactly one supplement type to force the supplement to link.
 

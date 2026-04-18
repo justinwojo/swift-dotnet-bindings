@@ -580,7 +580,7 @@ public partial class ProtocolProxyEmitter
         return projection switch
         {
             StringProjection => $"new SwiftString({varName})",
-            DataProjection => $"Swift.Data.FromByteArray({varName})",
+            DataProjection => $"Swift.Foundation.Data.FromByteArray({varName})",
             DateProjection => $"({varName} - {DateProjection.SwiftEpoch}).TotalSeconds",
             NativeRemappedProjection nrp => nrp.FromFactoryMethod != null
                 ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName})"
@@ -636,7 +636,7 @@ public partial class ProtocolProxyEmitter
         return inner switch
         {
             StringProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(new SwiftString({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
-            DataProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(Swift.Data.FromByteArray({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
+            DataProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(Swift.Foundation.Data.FromByteArray({varName}Val)) : SwiftOptional<{optType}>.NewNone())",
             DateProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome(({varName}Val - {DateProjection.SwiftEpoch}).TotalSeconds) : SwiftOptional<{optType}>.NewNone())",
             NativeRemappedProjection nrp => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({(nrp.FromFactoryMethod != null ? $"{nrp.SwiftWrapperType}.{nrp.FromFactoryMethod}({varName}Val)" : $"new {nrp.SwiftWrapperType}({varName}Val)")}) : SwiftOptional<{optType}>.NewNone())",
             ObjCBridgedProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
@@ -738,7 +738,7 @@ public partial class ProtocolProxyEmitter
         return inner switch
         {
             StringProjection => $"((SwiftString?){varName})?.ToString()",
-            DataProjection => $"((Swift.Data?){varName})?.ToByteArray()",
+            DataProjection => $"((Swift.Foundation.Data?){varName})?.ToByteArray()",
             DateProjection => $"((double?){varName}) is {{}} {varName}DateVal ? (System.DateTimeOffset?){DateProjection.SwiftEpoch}.AddSeconds({varName}DateVal) : null",
             NativeRemappedProjection nrp => $"(({nrp.SwiftWrapperType}?){varName})?.{nrp.ToConversionMethod}()",
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
@@ -805,7 +805,7 @@ public partial class ProtocolProxyEmitter
         return projection switch
         {
             // StringProjection is special-cased to Utf8Slice in the receiver — never reaches MarshalToSwiftBuffer.
-            DataProjection => "Swift.Data",
+            DataProjection => "Swift.Foundation.Data",
             DateProjection => "double",
             NativeRemappedProjection nrp => nrp.SwiftWrapperType,
             ObjCBridgedProjection => "IntPtr",

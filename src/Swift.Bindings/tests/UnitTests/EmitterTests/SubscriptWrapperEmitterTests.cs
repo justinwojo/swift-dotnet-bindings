@@ -309,12 +309,12 @@ public class SubscriptWrapperEmitterTests
 
     #endregion
 
-    #region Session 9A: Collection Container Guard Tests
+    #region Collection Container Guard Tests
 
     [Fact]
     public void ShouldEmit_ArrayReturn_ReturnsTrue()
     {
-        // Array returns now handled via @_cdecl IndirectResult (Session 9A)
+        // Array returns now handled via @_cdecl IndirectResult
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -335,7 +335,7 @@ public class SubscriptWrapperEmitterTests
     [Fact]
     public void ShouldEmit_DictionaryIndexParam_ReturnsTrue()
     {
-        // Dictionary index params now handled via @_cdecl UnsafeRawPointer (Session 9A)
+        // Dictionary index params now handled via @_cdecl UnsafeRawPointer
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 

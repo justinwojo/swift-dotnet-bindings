@@ -12,13 +12,13 @@ using MusicKit;
 namespace RuntimeTestsApp.SmokeTests;
 
 /// <summary>
-/// Session 7 end-to-end smoke test for the Apple-framework direct-mode pipeline on
+/// End-to-end smoke test for the Apple-framework direct-mode pipeline on
 /// MusicKit. Consumes the externally-built <c>MusicKit.Swift.iOS.dll</c> +
 /// <c>MusicKitSwiftBindings.xcframework</c> from the gitignored in-tree snapshot at
 /// <c>BindingTests/obj/MusicKitSnapshot/</c> and exercises a hermetic, metadata-only
 /// surface: a <c>MusicItemID</c> string-backed round-trip plus a reflection-based
-/// assertion pinning the per-property <c>@available</c> propagation fix (fix #2 in
-/// the session plan) on a real Tier-A framework.
+/// assertion pinning the per-property <c>@available</c> propagation fix on a real
+/// Tier-A framework.
 ///
 /// Gated by the <c>MUSICKIT_SMOKE</c> compile symbol, which the csproj sets only
 /// when every prerequisite (snapshot csproj, simulator wrapper slice, ProjectReference
@@ -58,10 +58,10 @@ public class MusicKitSmokeTests : TestBase
     /// value would indicate a marshalling bug in the <c>String</c> parameter /
     /// return path through the wrapper — not an environment variance.
     ///
-    /// This is the Session 7 equivalent of
+    /// This is the MusicKit equivalent of
     /// <see cref="CryptoKitSmokeTests.TestSymmetricKeyBitCount"/>: the minimum
     /// viable success signal for end-to-end Apple-framework direct-mode pipeline on
-    /// MusicKit (fix #16 in the session plan).
+    /// MusicKit.
     /// </summary>
     [SupportedOSPlatform("ios15.0")]
     public void TestMusicItemIDRoundTrip()
@@ -84,8 +84,8 @@ public class MusicKitSmokeTests : TestBase
     }
 
     /// <summary>
-    /// Pins the per-property <c>@available</c> propagation fix (fix #2 in the
-    /// session plan) on a real Apple-framework snapshot. The fix propagates a
+    /// Pins the per-property <c>@available</c> propagation fix on a real
+    /// Apple-framework snapshot. The fix propagates a
     /// Swift member's <c>@available</c> attribute to the emitted C# property
     /// getter / setter, so a consumer compiling against a lower
     /// <c>SupportedOSPlatformVersion</c> than the member requires sees the

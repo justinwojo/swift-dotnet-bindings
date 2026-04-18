@@ -419,7 +419,7 @@ namespace BindingsGeneration
         /// NOTE: Sub-8-byte integer types (Int8, Int16, Int32) are classified as "i" (8-byte integer slot)
         /// because the layout string represents register FILE classification, not exact byte widths.
         /// Each leaf scalar field occupies one full ARM64 register in swiftcc. The exact byte sizes
-        /// needed for thunk store instructions are resolved at thunk emission time (Session 2) from
+        /// needed for thunk store instructions are resolved at thunk emission time from
         /// the original TypeSpec, not from this layout string.
         /// </summary>
         private string? ClassifyFieldType(NamedTypeSpec namedType)

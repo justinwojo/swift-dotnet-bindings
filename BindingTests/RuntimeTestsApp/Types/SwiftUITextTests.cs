@@ -2,12 +2,12 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using SwiftUI;
+using Swift.SwiftUI;
 
 namespace RuntimeTestsApp.Types;
 
 /// <summary>
-/// Tests for the runtime's SwiftUI.Text.Create(string) bridge.
+/// Tests for the Apple supplement's Swift.SwiftUI.Text.Create(string) bridge.
 /// Exercises the SBW_SwiftUI_Text_Create native helper directly.
 /// </summary>
 public class SwiftUITextTests : TestBase

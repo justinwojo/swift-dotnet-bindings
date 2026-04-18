@@ -178,7 +178,7 @@ Live Activities and Dynamic Island. Strongest demand signal in the entire candid
 1. **`ActivityAttributes` is a Swift protocol with an `associatedtype ContentState`.** `Activity<Attributes>` is generic over this protocol. The generator does not (and cannot in a useful way) emit C# types that conform to a Swift protocol with an associated type — the Swift compiler instantiates these per-consumer at compile time.
 2. **Live Activities require a WidgetKit widget extension** registered with `ActivityConfiguration` to render the UI. Widget extensions are SwiftUI-only and live in a separate framework that cannot be bound for MAUI consumption.
 
-**Viable path — Option B (Swift wrapper bridge).** Ship `SwiftBindings.ActivityKit` as a Swift wrapper bridge containing:
+**Viable path — Option B (Swift wrapper bridge).** Ship `SwiftBindings.Apple.ActivityKit` as a Swift wrapper bridge containing:
 
 - A pre-baked generic `ActivityAttributes` conformance carrying a JSON-shaped or dictionary-shaped `ContentState` (the consumer does not define a type; they pass data as a serialized payload).
 - C# wrapper methods: `RequestActivity(attributesJson, stateJson, pushType)`, `UpdateActivity(id, stateJson, alertConfig?, timestamp?)`, `EndActivity(id, finalStateJson?, dismissalPolicy)`, plus async streams for `ActivityUpdates`, `ContentUpdates`, `PushTokenUpdates`, `ActivityStateUpdates`.

@@ -12,7 +12,7 @@ namespace BindingsGeneration;
 /// Reusable context tracker for .swiftinterface parsing.
 /// Extracts the boilerplate duplicated across multiple methods in SwiftInterfaceAccessParser:
 /// type stack, brace depth, extension scope tracking, annotation accumulation, multi-line continuation.
-/// Used by GetAvailabilityAnnotations (Session 3) and GetDefaultParameterValues (Session 4).
+/// Used by GetAvailabilityAnnotations and GetDefaultParameterValues.
 /// </summary>
 internal sealed class SwiftInterfaceContextTracker
 {

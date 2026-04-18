@@ -3,13 +3,14 @@
 
 // Minimal stub: exists only to satisfy ISwiftObject constraint in bound generic type arguments
 // (e.g., SwiftResult<URLRequest, Error>). All public API surface uses Foundation.NSUrlRequest
-// via ObjCBridgeableProjection. See objc-bridge-projection-design.md Session 5.
+// via ObjCBridgeableProjection — Swift's Foundation.URLRequest bridges 1:1 to NSURLRequest so
+// consumers get the familiar Microsoft.iOS ObjC type instead of a second managed URLRequest.
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Swift.Runtime;
 
-namespace Swift;
+namespace Swift.Foundation;
 
 /// <summary>
 /// Minimal ISwiftObject stub for Foundation.URLRequest, used only as a generic type argument
@@ -21,6 +22,7 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     private bool _disposed;
     private static TypeMetadata? _cachedMetadata;
 
+    /// <summary>The safe handle wrapping the native Swift storage for this URLRequest.</summary>
     public SwiftSafeHandle<URLRequest> Payload => _payload;
 
     IntPtr ISwiftObject.SwiftHandle => _payload.DangerousGetHandle();
@@ -76,6 +78,7 @@ public sealed class URLRequest : ISwiftObject, ISwiftStruct, IDisposable
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation10URLRequestVMa")]
     private static extern TypeMetadata PInvoke_GetMetadata();
 
+    /// <summary>Releases the native Swift storage backing this URLRequest.</summary>
     public void Dispose()
     {
         if (!_disposed)

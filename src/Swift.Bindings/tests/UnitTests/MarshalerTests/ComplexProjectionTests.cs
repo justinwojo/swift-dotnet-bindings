@@ -18,8 +18,8 @@ public class ComplexProjectionTests
     [Fact]
     public void Existential_WellKnown_Types()
     {
-        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.AnyError", proxyClassName: null);
-        Assert.Equal("Swift.AnyError", proj.PublicType);
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", proxyClassName: null);
+        Assert.Equal("Swift.Foundation.AnyError", proj.PublicType);
         Assert.Equal("Swift.Runtime.ExistentialContainer1", proj.PInvokeType);
     }
 
@@ -58,9 +58,9 @@ public class ComplexProjectionTests
     [Fact]
     public void Existential_ReturnPlan_WellKnown_ConstructsType()
     {
-        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.AnyError", proxyClassName: null);
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", proxyClassName: null);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("new Swift.AnyError(result)", plan.PInvokeExpression);
+        Assert.Equal("new Swift.Foundation.AnyError(result)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class ComplexProjectionTests
     {
         // Well-known types (AnyError) are value types — can't use GetOrCreate's class constraint.
         // They use direct ISwiftExistentialConvertible cast instead.
-        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.AnyError", proxyClassName: null);
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", proxyClassName: null);
         var plan = proj.GetParameterPlan("err");
 
         Assert.Contains("ISwiftExistentialConvertible", plan.PInvokeExpression);

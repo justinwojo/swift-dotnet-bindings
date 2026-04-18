@@ -139,7 +139,7 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(StringProjection p) =>
         ($"((SwiftString?){_resultExpr})?.ToString()", true);
     public (string?, bool) Visit(DataProjection p) =>
-        ($"((Swift.Data?){_resultExpr})?.ToByteArray()", true);
+        ($"((Swift.Foundation.Data?){_resultExpr})?.ToByteArray()", true);
     public (string?, bool) Visit(NativeRemappedProjection p) =>
         ($"(({p.SwiftWrapperType}?){_resultExpr})?.{p.ToConversionMethod}()", true);
     public (string?, bool) Visit(DateProjection p) =>
@@ -200,7 +200,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
     public AccessorSetterConversionVisitor(string valueExpr) => _valueExpr = valueExpr;
 
     public (string?, bool) Visit(StringProjection p) => ($"new SwiftString({_valueExpr})", true);
-    public (string?, bool) Visit(DataProjection p) => ($"Swift.Data.FromByteArray({_valueExpr})", false);
+    public (string?, bool) Visit(DataProjection p) => ($"Swift.Foundation.Data.FromByteArray({_valueExpr})", false);
     public (string?, bool) Visit(NativeRemappedProjection p) => (
         p.FromFactoryMethod != null
             ? $"{p.SwiftWrapperType}.{p.FromFactoryMethod}({_valueExpr})"

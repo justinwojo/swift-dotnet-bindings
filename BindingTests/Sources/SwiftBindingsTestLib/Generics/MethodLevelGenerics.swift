@@ -3,7 +3,7 @@
 
 import Foundation
 
-// MARK: - Method-Level Generics (Session 5)
+// MARK: - Method-Level Generics
 // Tests for methods with their own generic type parameters constrained
 // to protocols without Self/associated type requirements.
 // The generator bridges these via Swift 5.7+ implicit existential opening.
