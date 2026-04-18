@@ -11,9 +11,13 @@ to be re-evaluated now, not after 1.0 locks us in.
 
 ## Session plan
 
-Four sessions. Ordering matters: Session 1 reshapes the Apple package,
-Session 2 renames on top of that shape, Session 3+4 are generator work
-that doesn't touch package identity.
+Six sessions. Sessions 1–4 are done. Sessions 5–6 pick up the two items
+deferred during the initial sweep. Ordering matters: Session 1 reshapes
+the Apple package, Session 2 renames on top of that shape, Session 3+4
+are generator work that doesn't touch package identity, Session 5 unblocks
+#11 so the legacy `SwiftUIBridgeEmitter` fork can be deleted before
+BlinkIDUX ships to NuGet, Session 6 is a focused NameProvider collision
+extension so #4 can land.
 
 ### Session 1 — Apple package exodus (items #1, #6, #7, #8, #13) ✅ `ceaaec3f`
 
@@ -32,7 +36,7 @@ once against the new type ownership.
 every binding that references `Foundation.Date` etc. If it cascades badly,
 push #13 to Session 2's tail.
 
-### Session 2 — Renames & symbol cleanups (items #2, #3, #5 ✅ · #4 deferred)
+### Session 2 — Renames & symbol cleanups (items #2, #3, #5 ✅ `0c6ff7eb` · #4 deferred)
 
 Rename framework packages to `SwiftBindings.Apple.*`. Delete
 `SwiftSafeHandle<T>.RegisterDestroyAction`. Unify `MCB_{hash}` closure
@@ -53,7 +57,7 @@ follow-up; see item #4 below.
 Batching saves three regen cycles and one `swift-dotnet-packages` PR
 storm. Same coordination surface.
 
-### Session 3 — Protocol correctness + dead code (items #9, #11)
+### Session 3 — Protocol correctness + dead code (item #9 ✅ `1d9a9024` · item #11 deferred)
 
 Flip the inherited-protocol requirement count in `ProtocolHandler` to the
 correct value, chase every downstream assert that breaks. Audit that every
@@ -64,7 +68,7 @@ async view resolves through `AsyncViewPattern`, then delete the legacy
 fix (highest-priority bug of the 13 items — the rest are aesthetics or
 scope). #11 is a delete-after-audit.
 
-### Session 4 — Emitter architecture completion (items #10, #12)
+### Session 4 — Emitter architecture completion (items #10, #12) ✅ `39345807`
 
 Implement single-wrapper multi-outer-closure ABI in `NestedClosureBridge`.
 Implement non-void result marshalling in `ExistentialBypassEmitter`.
@@ -72,6 +76,72 @@ Implement non-void result marshalling in `ExistentialBypassEmitter`.
 **Why together:** both expand emitter paths that were scope-limited at
 introduction. Back-to-back work keeps the ABI mental model warm between
 them.
+
+### Session 5 — Unblock & land #11 (AsyncViewPattern result-callback + legacy delete) ✅ `1458b31b`
+
+Grow the data-driven async-view path to support `HasResultCallback: true`,
+migrate BlinkIDUX to it, then delete the legacy fork. Runs as a single
+session because (a) the emitter feature and the delete are the same mental
+model, and (b) BlinkIDUX is the only consumer of either path so they
+regenerate together.
+
+**Scope:**
+- Extend `AsyncViewPattern` / `InferAsyncPattern` to carry
+  `HasResultCallback` through the data-driven emit. Port the
+  `resultTask` / `cancelResultMonitor` / `_ResultFn` / `EmitResultMonitor`
+  machinery from the legacy path.
+- Migrate `KnownAsyncPatterns["BlinkIDUX.BlinkIDUXView"]` from
+  `ConstructionChain: null` to a fully-populated `ConstructionChain` with
+  `HasResultCallback: true`.
+- Delete `EmitLegacySessionClass` / `EmitLegacyAsyncCreate` /
+  `EmitLegacyCreateAsyncFactory` in
+  `SwiftUIBridgeEmitter.AsyncPattern.cs`, plus the
+  `ConstructionChain == null` fork.
+- Regenerate BlinkIDUX; run `nuke runtime-tests-device` since this
+  changes async-view ABI on a manual-mode tier-1 library.
+
+**Why now, not later.** BlinkIDUX is planned for a public NuGet release.
+Shipping it on the legacy path pins the `HasResultCallback` ABI surface
+post-1.0 — exactly the kind of compat debt this whole doc exists to
+prevent. Pre-1.0 is the free window; after BlinkIDUX ships, this becomes
+a breaking change.
+
+**Breakage.** Internal to the generator plus one regenerated package.
+No consumer-source break.
+
+### Session 6 — Un-stick #4 (NameProvider nested-type collision) ✅ `a1651baf`
+
+Extend `NameProvider.GetPropertyName`'s collision logic to see nested
+types, then delete the two hardcoded `Property`-suffix overrides.
+
+**Scope:**
+- Thread nested-type-name context through `GetPropertyName`'s ~30 call
+  sites so the collision check has the enclosing type's nested-type set
+  available.
+- Teach the collision rule to append `"Value"` when the PascalCased
+  property name shadows a nested type (the current rule only handles
+  the CS0542 same-as-containing-type case).
+- Delete `isEligibleForIntroOffer → IsEligibleForIntroOfferProperty`
+  and `status → StatusProperty` from the `NameProvider` override table.
+- Regenerate `SwiftBindings.Apple.StoreKit2` (and any other binding
+  with a `Status`/`status` + nested `Status` enum collision).
+
+**Why own session, not folded into Session 5.** Different code area
+(`Marshaler/NameProvider.cs` vs. emitter/SwiftUI), different regeneration
+footprint (StoreKit2 properties rename in consumer source vs. BlinkIDUX
+ABI migration internal only). Bundling would needlessly couple two
+independent regen waves.
+
+**Breakage.** Consumer-source break for the two renamed properties and
+their (previously shadowed) nested enums. Actual outcome: property
+drops the `Property` suffix → `Status`, `IsEligibleForIntroOffer`;
+nested type gains the `Type` suffix → `StatusType` via the existing
+`ApplyNestedTypeRenames` cascade (consistent with the `OfferType`,
+`ConfigurationType`, `PriceIncreaseStatusType` pattern already in
+StoreKit2). ~9 consumer-visible symbol changes across StoreKit2,
+LiveCommunicationKit, MusicKit, ProximityReader, plus one method dedup
+edge case (`IsEligibleForIntroOfferAsync → IsEligibleForIntroOfferMethodAsync`).
+Pre-1.0 window makes this free; release notes cover the audience.
 
 ---
 
@@ -225,16 +295,16 @@ principled reason beyond "this is what StoreKit2 shipped with."
 
 **Why we deferred it.** Published `SwiftBindings.StoreKit2` consumers
 reference `IsEligibleForIntroOfferProperty` and `StatusProperty` by
-name. Removing the overrides renames them to `…Value` forms and breaks
-every StoreKit2 consumer's source.
+name. Removing the overrides renames them and breaks every StoreKit2
+consumer's source.
 
-**Proposal.** Delete both entries. Let the general collision logic
-produce `IsEligibleForIntroOfferValue` and `StatusValue`. Regenerate
-`SwiftBindings.StoreKit2` in the same release.
+**Proposal.** Delete both entries. Regenerate `SwiftBindings.Apple.StoreKit2`
+(and other collision-bearing bindings) in the same release.
 
-**Breakage.** StoreKit2 consumers referencing the two renamed properties
-fail to compile until they rename. Count is small (two property names in
-one framework); release notes handle it.
+**Breakage.** StoreKit2 (and a handful of sibling framework) consumers
+referencing the renamed properties / shadowed nested types fail to
+compile until they rename. Release notes handle it — see the Status
+section below for actual symbol changes.
 
 **Session 2 attempt (deferred).** Removing the overrides alone is not
 enough. `OrderContainer` and `PaymentContainer` in the BindingTests Swift
@@ -246,13 +316,35 @@ property instead of the nested type and fails to compile. The existing
 CS0542 collision logic (`pascalName == containingTypeName → +"Value"`)
 does not see nested types.
 
-**Real fix.** Extend `NameProvider.GetPropertyName` to accept the set of
-nested type names on the containing type and append `"Value"` when the
-pascaled property name matches any of them. Plumb nested-type names
-through the ~30 `GetPropertyName` call sites (most already have the
-`TypeDecl` in scope). Then re-delete the overrides. Track as a follow-up
-within the Session 2 scope — the other three items in this session
-shipped.
+**Real fix (what landed).** Extended `NameProvider.GetPropertyName` to
+accept the set of nested type names on the containing type and append
+`"Value"` when the pascaled property name matches any of them. Plumbed
+nested-type names through every `GetPropertyName` call site that had
+`TypeDecl` in scope. Then deleted both overrides.
+
+In practice the two-mechanism interaction matters: when a nested type
+shadows a property, `ApplyNestedTypeRenames` fires FIRST and renames
+the nested type with a `Type` suffix (e.g. `Status → StatusType`),
+which is consistent with the existing `OfferType`, `ConfigurationType`,
+`PriceIncreaseStatusType` cascade already present in StoreKit2. The
+`"Value"` branch becomes the fallback for nested-type collisions that
+`ApplyNestedTypeRenames` doesn't catch. This tension (two mechanisms
+racing for the same collision) is tracked separately under item #14.
+
+**Status (Session 6 — done, `a1651baf`).** NameProvider grew a
+`nestedTypeNames` parameter on `GetPropertyName` and a `Value`-suffix
+fallback branch. Both `Property`-suffix overrides removed. Downstream
+consumer-visible changes (iOS slice, four frameworks):
+
+- **StoreKit2** — `StatusProperty → Status`, nested `Status → StatusType`,
+  `IsEligibleForIntroOfferAsync → IsEligibleForIntroOfferMethodAsync`
+  (method/property dedup kicks in now that the property takes the
+  unsuffixed name).
+- **LiveCommunicationKit**, **MusicKit**, **ProximityReader** —
+  `StatusProperty → Status` + nested `Status → StatusType`.
+
+Nine symbol changes total. Release notes cover it; migration is a
+mechanical rename.
 
 ---
 
@@ -474,6 +566,15 @@ a lie.
 **Breakage.** Internal only. Regenerate consumers; generated output
 should be byte-identical if the audit is correct.
 
+**Status (Session 5 — done, `1458b31b`).** `AsyncViewPattern` grew
+`AsyncResultCallbackConfig` so the data-driven path now emits the
+`resultTask` / `cancelResultMonitor` / `_ResultFn` / `EmitResultMonitor`
+machinery that `HasResultCallback` used to drive on the legacy fork.
+BlinkIDUX migrated to a fully-populated `ConstructionChain` (6 steps +
+result-callback config), and the `EmitLegacy*` methods plus the
+`ConstructionChain == null` branch are deleted. The file header
+comment stops being a lie.
+
 ---
 
 ## 12. Lift `ExistentialBypassEmitter` void-return-only restriction
@@ -531,6 +632,67 @@ non-POD + Optional as explicit follow-ups.
 **Breakage.** None for consumers. Validator may fail on currently-
 passing supplement types once it actually exercises them — those
 failures are real bugs the loose gate was hiding.
+
+---
+
+## 14. Consolidate nested-type collision handling into one mechanism
+
+**Current state.** Two independent mechanisms fight for the same
+collision class — property name vs. nested type name with identical
+pascaled form:
+
+1. `ApplyNestedTypeRenames` (pre-emit pass over `TypeDecl`) renames
+   the *nested type* with a `Type` suffix (`Status → StatusType`) and
+   cascades through every reference in the enclosing type.
+2. `NameProvider.GetPropertyName`'s `nestedTypeNames`-aware branch
+   (introduced in Session 6) renames the *property* with a `Value`
+   suffix (`Status → StatusValue`) — but only fires for nested-type
+   names `ApplyNestedTypeRenames` did not touch.
+
+Whichever mechanism fires first wins. Today `ApplyNestedTypeRenames`
+runs earlier in the pipeline, so the `Value`-suffix branch is the
+fallback rather than the primary rule.
+
+**Why it's wrong.** The "rule" for collisions has no single source of
+truth. A future regression in `ApplyNestedTypeRenames` (e.g. a missed
+cascade site) silently shifts symbols between the `…Type`-on-nested
+and `…Value`-on-property naming schemes with no test coverage exercising
+both paths. New contributors reading `NameProvider.cs` see one rule
+(`+Value`); contributors reading `TypeDecl` pre-emit passes see another
+(`+Type`). A symptom: the Session 6 breakage analysis first predicted
+`StatusValue` (Value-suffix mechanism) before the regeneration actually
+produced `StatusType` (Type-suffix mechanism) — confirming the rule
+wasn't obvious from code review alone.
+
+**Proposal.** Pick one mechanism and retire the other. Two candidate
+shapes:
+
+- **(A) Type-suffix on the nested type wins always.** Keep
+  `ApplyNestedTypeRenames`, delete the `Value`-suffix branch from
+  `NameProvider`. Matches the existing `OfferType`, `ConfigurationType`,
+  `PriceIncreaseStatusType` cascade already in StoreKit2 — this is the
+  de-facto shipping convention. The `Property`-suffix overrides (now
+  removed) existed precisely because the author didn't want `StatusType`
+  and chose to suffix the property instead. With the overrides gone,
+  `StatusType` is the path of least resistance.
+- **(B) Value-suffix on the property wins always.** Bypass
+  `ApplyNestedTypeRenames` for property-shadowing collisions. Preserves
+  the property rename heritage but breaks every existing `…Type` nested
+  symbol (`OfferType`, `ConfigurationType`, …) on regeneration.
+
+(A) is almost certainly correct — it costs nothing (status quo) and
+pays off in one place to look for collision logic.
+
+**Why we deferred it.** Session 6 scoped down to "un-stick #4 via the
+minimal code addition" and explicitly kept `ApplyNestedTypeRenames`
+untouched. Consolidation is a separate architectural change.
+
+**Breakage.** Under (A), zero consumer-visible change beyond what
+Session 6 already shipped — the cleanup is pure deletion in
+`NameProvider`. Under (B), a large downstream regen wave across every
+framework that currently uses a `Type`-suffix nested rename; this is
+the "~200 symbol cascade" the Session-6-author quantified while
+scoping the work.
 
 ---
 

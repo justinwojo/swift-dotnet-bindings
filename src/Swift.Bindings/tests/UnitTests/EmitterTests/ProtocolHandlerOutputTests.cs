@@ -2081,9 +2081,9 @@ public class ProtocolHandlerOutputTests
         Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
         Assert.Equal(1, parentRecord.EmittedMemberCount);
 
-        // Child: inherited requirement counting is disabled, so stays at direct count (0)
+        // Child: inherits parent's 1 member → EmittedMemberCount = 0 direct + 1 inherited = 1
         Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
-        Assert.Equal(0, childRecord.EmittedMemberCount);
+        Assert.Equal(1, childRecord.EmittedMemberCount);
     }
 
     [Fact]
@@ -2206,13 +2206,13 @@ public class ProtocolHandlerOutputTests
         Assert.True(typeDatabase.TryGetTypeRecord(grandparentProtocol.SwiftTypeName, out var gpRecord));
         Assert.Equal(1, gpRecord.EmittedMemberCount);
 
-        // Parent: inherited requirement counting is disabled, stays at direct count (0)
+        // Parent: inherits Grandparent's 1 member → 0 direct + 1 inherited = 1
         Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
-        Assert.Equal(0, parentRecord.EmittedMemberCount);
+        Assert.Equal(1, parentRecord.EmittedMemberCount);
 
-        // Child: inherited requirement counting is disabled, stays at direct count (0)
+        // Child: transitively inherits via Parent → 0 direct + 1 inherited = 1
         Assert.True(typeDatabase.TryGetTypeRecord(childProtocol.SwiftTypeName, out var childRecord));
-        Assert.Equal(0, childRecord.EmittedMemberCount);
+        Assert.Equal(1, childRecord.EmittedMemberCount);
     }
 
     [Fact]
@@ -2328,9 +2328,9 @@ public class ProtocolHandlerOutputTests
         Assert.True(typeDatabase.TryGetTypeRecord(parentProtocol.SwiftTypeName, out var parentRecord));
         Assert.Equal(1, parentRecord.EmittedMemberCount);
 
-        // Nested child: inherited requirement counting is disabled, stays at direct count (0)
+        // Nested child: inherits parent's 1 member → 0 direct + 1 inherited = 1
         Assert.True(typeDatabase.TryGetTypeRecord(nestedProtocol.SwiftTypeName, out var childRecord));
-        Assert.Equal(0, childRecord.EmittedMemberCount);
+        Assert.Equal(1, childRecord.EmittedMemberCount);
     }
 
     [Fact]

@@ -322,6 +322,30 @@ public static class SwiftSourceStripper
         return PreservedProtocolPattern.IsMatch(body);
     }
 
+    /// <summary>
+    /// Returns true when the line at <paramref name="start"/> is nested inside an
+    /// `extension TypeName { ... }` block. Scans upward: the nearest unmatched `{`
+    /// that sits on a line starting with `extension ` means we're in an extension.
+    /// </summary>
+    private static bool IsInsideExtension(string[] lines, int start)
+    {
+        int depth = 0;
+        for (int j = start - 1; j >= 0; j--)
+        {
+            var trimmed = lines[j].Trim();
+            foreach (var c in trimmed)
+            {
+                if (c == '}') depth++;
+                else if (c == '{') depth--;
+            }
+            if (depth < 0)
+            {
+                return trimmed.StartsWith("extension ");
+            }
+        }
+        return false;
+    }
+
     private static bool IsBrokenSilgenBlock(string[] lines, int start, int end, string body)
     {
         // (a) EveryProtocol() — protocol witness dispatch for unimplemented conformances
@@ -331,8 +355,11 @@ public static class SwiftSourceStripper
                 return true;
         }
 
-        // (b) self.functionName() in free function (no _self: parameter)
-        if (!body.Contains("_self:") && !body.Contains("_self :"))
+        // (b) self.functionName() in free function (no _self: parameter).
+        // NestedClosureBridge emits its wrapper inside `extension TypeName { @_silgen_name ... }`,
+        // where `self` is a valid reference to the instance. Skip rule (b) when the silgen block
+        // is nested inside an extension declaration.
+        if (!body.Contains("_self:") && !body.Contains("_self :") && !IsInsideExtension(lines, start))
         {
             for (int j = start; j <= end; j++)
             {

@@ -19,7 +19,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         ["BlinkIDUX.BlinkIDUXView"] = new AsyncViewPattern(
             ViewName: "BlinkIDUXView",
-            SessionClassName: "BlinkIDUXSession",
+            SessionClassName: "SBW_BlinkIDUX_BlinkIDUXView_Session",
             ExtraSwiftImports: new[] { "BlinkID" },
             SessionFields: new[]
             {
@@ -41,7 +41,57 @@ public static partial class SwiftUIBridgeEmitter
                 new AsyncFlatParam("preferFrontCamera", AsyncFlatParamKind.Bool, "Int32",
                     "int", "!= 0", "? 1 : 0"),
             },
-            HasResultCallback: true),
+            ConstructionChain: new List<AsyncConstructionStep>
+            {
+                new("sdkSettings", "BlinkIDSdkSettings", IsAsync: false, Throws: false,
+                    new List<ConstructionArg>
+                    {
+                        new("licenseKey", ConstructionArgKind.FlattenedParam, "licenseKey"),
+                    }),
+                new("sdk", "BlinkIDSdk", IsAsync: true, Throws: true,
+                    new List<ConstructionArg>
+                    {
+                        new("withSettings", ConstructionArgKind.ChainReference, "sdkSettings"),
+                    },
+                    FactoryMethod: "createBlinkIDSdk"),
+                new("eventStream", "BlinkIDEventStream", IsAsync: false, Throws: false,
+                    new List<ConstructionArg>()),
+                new("analyzer", "BlinkIDAnalyzer", IsAsync: true, Throws: true,
+                    new List<ConstructionArg>
+                    {
+                        new("sdk", ConstructionArgKind.ChainReference, "sdk"),
+                        new("eventStream", ConstructionArgKind.ChainReference, "eventStream"),
+                    }),
+                new("uxSettings", "ScanningUXSettings", IsAsync: false, Throws: false,
+                    new List<ConstructionArg>
+                    {
+                        new("showIntroductionAlert", ConstructionArgKind.FlattenedParam, "showIntroductionAlert"),
+                        new("showHelpButton", ConstructionArgKind.FlattenedParam, "showHelpButton"),
+                        new("preferredCameraPosition", ConstructionArgKind.Literal, "preferFrontCameraVal ? .front : .back"),
+                        new("allowHapticFeedback", ConstructionArgKind.FlattenedParam, "allowHapticFeedback"),
+                    }),
+                new("model", "BlinkIDUXModel", IsAsync: false, Throws: false,
+                    new List<ConstructionArg>
+                    {
+                        new("analyzer", ConstructionArgKind.ChainReference, "analyzer"),
+                        new("uxSettings", ConstructionArgKind.ChainReference, "uxSettings"),
+                        new("sessionNumber", ConstructionArgKind.FieldAccess, "analyzer.sessionNumber"),
+                    }),
+            },
+            ResultCallback: new AsyncResultCallbackConfig(
+                SourceFieldName: "analyzer",
+                AwaitMethodName: "result",
+                ResultCases: new (string, int)[]
+                {
+                    ("completed", 0),
+                    ("interrupted", 1),
+                    ("cancelled", 2),
+                    ("ended", 3),
+                }),
+            ViewInitArgs: new[]
+            {
+                new ConstructionArg("viewModel", ConstructionArgKind.ChainReference, "model"),
+            }),
     };
 
     /// <summary>
@@ -211,7 +261,6 @@ public static partial class SwiftUIBridgeEmitter
             ExtraSwiftImports: extraImports,
             SessionFields: chain.Select(s => new AsyncSessionField(s.VariableName, s.SwiftTypeName)).ToArray(),
             FlattenedParams: flatParams.ToArray(),
-            HasResultCallback: false,
             ConstructionChain: chain);
     }
 
@@ -381,8 +430,7 @@ public static partial class SwiftUIBridgeEmitter
         StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
-        // Data-driven uses pattern's session name; legacy uses prefix-based naming for backward compat
-        var sessionClass = pattern.ConstructionChain != null ? pattern.SessionClassName : $"{prefix}_Session";
+        var sessionClass = pattern.SessionClassName;
         var handlesVar = $"{prefix}_liveHandles";
 
         sb.AppendLine($"// --- {info.ViewName} (Async) ---");
@@ -393,29 +441,21 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"public typealias {prefix}_ReadyFn = @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer?) -> Void");
         sb.AppendLine($"/// C function pointer: (msgPtr, msgLen, userData) → called on error.");
         sb.AppendLine($"public typealias {prefix}_ErrorFn = @convention(c) (UnsafePointer<UInt8>, Int, UnsafeMutableRawPointer?) -> Void");
-        if (pattern.HasResultCallback)
+        if (pattern.ResultCallback != null)
         {
             sb.AppendLine($"/// C function pointer: (resultCode, userData) → called when operation completes.");
             sb.AppendLine($"public typealias {prefix}_ResultFn = @convention(c) (Int32, UnsafeMutableRawPointer?) -> Void");
         }
         sb.AppendLine();
 
-        // Session class — data-driven vs legacy
-        if (pattern.ConstructionChain != null)
-        {
-            EmitDataDrivenSessionClass(sb, prefix, sessionClass, handlesVar, info, pattern);
-        }
-        else
-        {
-            EmitLegacySessionClass(sb, prefix, sessionClass, handlesVar, info, pattern);
-        }
+        EmitDataDrivenSessionClass(sb, prefix, sessionClass, handlesVar, info, pattern);
 
         // Handle tracking
         sb.AppendLine($"var {handlesVar} = Set<UnsafeMutableRawPointer>()");
         sb.AppendLine();
 
         // Create function (async factory)
-        EmitAsyncCreateFunction(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern);
+        EmitDataDrivenAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern);
 
         // GetViewController function
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
@@ -438,7 +478,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("    SBW_onMainThread {");
         sb.AppendLine($"        guard let handle = handle,");
         sb.AppendLine($"              {handlesVar}.remove(handle) != nil else {{ return }}");
-        if (pattern.HasResultCallback)
+        if (pattern.ResultCallback != null)
         {
             sb.AppendLine($"        let session = Unmanaged<{sessionClass}>.fromOpaque(handle).takeUnretainedValue()");
             sb.AppendLine($"        session.cancelResultMonitor()");
@@ -450,57 +490,88 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
-    /// Emits the Session class for data-driven async views.
-    /// The session receives a pre-built UIHostingController from the Create function
-    /// (where both chain outputs and flattened leaf params are in scope) and stores
-    /// chain step outputs as fields for ARC retention.
+    /// Emits the Session class for data-driven async views. The session receives a
+    /// pre-built UIHostingController from the Create function (where both chain outputs
+    /// and flattened leaf params are in scope) and stores SessionFields for ARC retention.
+    /// Intermediate chain steps that are not in SessionFields are discarded once Create
+    /// returns. When ResultCallback is set, emits a resultTask field and the
+    /// startResultMonitor / cancelResultMonitor helpers.
     /// </summary>
     private static void EmitDataDrivenSessionClass(
         StringBuilder sb, string prefix, string sessionClass, string handlesVar,
         ViewBridgeInfo info, AsyncViewPattern pattern)
     {
-        var chain = pattern.ConstructionChain!;
-
         sb.AppendLine($"final class {sessionClass} {{");
         foreach (var field in pattern.SessionFields)
         {
             sb.AppendLine($"    let {field.Name}: {field.SwiftType}");
         }
         sb.AppendLine($"    let hostingController: UIHostingController<{info.ViewName}>");
+        if (pattern.ResultCallback != null)
+        {
+            sb.AppendLine($"    private var resultTask: Task<Void, Never>?");
+        }
         sb.AppendLine();
 
-        // Session init takes chain step outputs (for retention) + pre-built hosting controller
+        // Session init takes session field values + pre-built hosting controller.
         sb.AppendLine($"    @MainActor");
         sb.Append($"    init(");
-        var initParams = chain.Select(s => $"{s.VariableName}: {s.SwiftTypeName}").ToList();
+        var initParams = pattern.SessionFields.Select(f => $"{f.Name}: {f.SwiftType}").ToList();
         initParams.Add($"hostingController: UIHostingController<{info.ViewName}>");
         sb.Append(string.Join(",\n         ", initParams));
         sb.AppendLine(") {");
 
-        // Store chain step outputs for ARC retention
-        foreach (var step in chain)
+        foreach (var field in pattern.SessionFields)
         {
-            sb.AppendLine($"        self.{step.VariableName} = {step.VariableName}");
+            sb.AppendLine($"        self.{field.Name} = {field.Name}");
         }
         sb.AppendLine($"        self.hostingController = hostingController");
         sb.AppendLine("    }");
+
+        if (pattern.ResultCallback != null)
+        {
+            sb.AppendLine();
+            EmitResultMonitor(sb, prefix, sessionClass, handlesVar, pattern.ResultCallback);
+        }
+
         sb.AppendLine("}");
         sb.AppendLine();
     }
 
     /// <summary>
-    /// Builds the View init argument list from the chain steps and flattened params.
-    /// Maps the View's constructor parameter labels to either chain step variables
-    /// or flattened leaf param variables (with Bool/String conversions applied).
+    /// Builds the View init argument list. If the pattern supplies an explicit
+    /// ViewInitArgs override, uses that directly (needed for dictionary patterns
+    /// where constructor metadata is unreliable or the chain variable name differs
+    /// from the View's parameter label). Otherwise auto-infers from the View's
+    /// first constructor by matching param labels against chain variable names.
     /// Called in the Create function scope where both chain outputs and leaf params exist.
     /// </summary>
-    private static List<string> BuildViewInitArgsFromChain(ViewBridgeInfo info, List<AsyncConstructionStep> chain,
-        AsyncFlatParam[]? flatParams = null)
+    private static List<string> BuildViewInitArgsFromChain(
+        ViewBridgeInfo info, AsyncViewPattern pattern)
     {
+        if (pattern.ViewInitArgs != null)
+        {
+            var overrideArgs = new List<string>();
+            foreach (var arg in pattern.ViewInitArgs)
+            {
+                var value = arg.Kind switch
+                {
+                    ConstructionArgKind.ChainReference => arg.Value,
+                    ConstructionArgKind.FlattenedParam => FormatFlatParamSwiftValue(arg.Value, pattern.FlattenedParams),
+                    ConstructionArgKind.FieldAccess => arg.Value,
+                    ConstructionArgKind.Literal => arg.Value,
+                    _ => arg.Value,
+                };
+                overrideArgs.Add($"{arg.ParamLabel}: {value}");
+            }
+            return overrideArgs;
+        }
+
         var args = new List<string>();
         if (info.Constructors.Count == 0)
             return args;
 
+        var chain = pattern.ConstructionChain;
         var ctor = info.Constructors[0];
         // CSSignature[0] is return type; params start at index 1
         for (int i = 1; i < ctor.CSSignature.Count; i++)
@@ -514,83 +585,37 @@ public static partial class SwiftUIBridgeEmitter
             }
             else
             {
-                // Leaf param — apply Bool/String conversion if flattened params are available
+                // Leaf param — apply Bool/String conversion via flattened params.
                 var varName = ToVariableName(param);
-                if (flatParams != null)
-                    varName = FormatFlatParamSwiftValue(varName, flatParams);
+                varName = FormatFlatParamSwiftValue(varName, pattern.FlattenedParams);
                 args.Add($"{param.Name}: {varName}");
             }
         }
         return args;
     }
 
-    /// <summary>
-    /// Legacy hard-coded Session class emission (BlinkIDUX-specific).
-    /// Used when ConstructionChain is null (dictionary-based patterns).
-    /// </summary>
-    private static void EmitLegacySessionClass(
-        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
-        ViewBridgeInfo info, AsyncViewPattern pattern)
-    {
-        sb.AppendLine($"final class {sessionClass} {{");
-        foreach (var field in pattern.SessionFields)
-        {
-            sb.AppendLine($"    let {field.Name}: {field.SwiftType}");
-        }
-        sb.AppendLine($"    let hostingController: UIHostingController<{info.ViewName}>");
-        if (pattern.HasResultCallback)
-        {
-            sb.AppendLine($"    private var resultTask: Task<Void, Never>?");
-        }
-        sb.AppendLine();
-
-        // Session init
-        sb.AppendLine($"    @MainActor");
-        sb.Append($"    init(");
-        var initParams = pattern.SessionFields.Select(f => $"{f.Name}: {f.SwiftType}");
-        sb.Append(string.Join(",\n         ", initParams));
-        sb.AppendLine(") {");
-        foreach (var field in pattern.SessionFields)
-        {
-            sb.AppendLine($"        self.{field.Name} = {field.Name}");
-        }
-        sb.AppendLine();
-        sb.AppendLine($"        let view = {info.ViewName}(viewModel: model)");
-        sb.AppendLine($"        self.hostingController = UIHostingController(rootView: view)");
-        sb.AppendLine("    }");
-
-        // Result monitor (if applicable)
-        if (pattern.HasResultCallback)
-        {
-            sb.AppendLine();
-            EmitResultMonitor(sb, prefix, sessionClass, handlesVar);
-        }
-
-        sb.AppendLine("}");
-        sb.AppendLine();
-    }
-
     private static void EmitResultMonitor(
-        StringBuilder sb, string prefix, string sessionClass, string handlesVar)
+        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
+        AsyncResultCallbackConfig config)
     {
         sb.AppendLine($"    @MainActor");
         sb.AppendLine($"    func startResultMonitor(handle: UnsafeMutableRawPointer,");
         sb.AppendLine($"                            resultCallback: {prefix}_ResultFn?,");
         sb.AppendLine($"                            userData: UnsafeMutableRawPointer?) {{");
-        sb.AppendLine($"        let analyzerRef = analyzer");
+        sb.AppendLine($"        let monitorSourceRef = {config.SourceFieldName}");
         sb.AppendLine($"        let cb = resultCallback");
         sb.AppendLine($"        let ud = userData");
         sb.AppendLine($"        let sessionHandle = handle");
         sb.AppendLine($"        self.resultTask = Task {{ @MainActor in");
-        sb.AppendLine($"            let result = await analyzerRef.result()");
+        sb.AppendLine($"            let result = await monitorSourceRef.{config.AwaitMethodName}()");
         sb.AppendLine($"            guard !Task.isCancelled else {{ return }}");
         sb.AppendLine($"            guard {handlesVar}.contains(sessionHandle) else {{ return }}");
         sb.AppendLine($"            let code: Int32");
         sb.AppendLine($"            switch result {{");
-        sb.AppendLine($"            case .completed: code = 0");
-        sb.AppendLine($"            case .interrupted: code = 1");
-        sb.AppendLine($"            case .cancelled: code = 2");
-        sb.AppendLine($"            case .ended: code = 3");
+        foreach (var (swiftCase, code) in config.ResultCases)
+        {
+            sb.AppendLine($"            case .{swiftCase}: code = {code}");
+        }
         sb.AppendLine($"            @unknown default: code = -1");
         sb.AppendLine($"            }}");
         sb.AppendLine($"            cb?(code, ud)");
@@ -603,29 +628,15 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"    }}");
     }
 
-    private static void EmitAsyncCreateFunction(
-        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
-        string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
-    {
-        if (pattern.ConstructionChain != null)
-        {
-            EmitDataDrivenAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern);
-        }
-        else
-        {
-            EmitLegacyAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern);
-        }
-    }
-
     /// <summary>
-    /// Data-driven async Create function emission (Phase 2B).
+    /// Data-driven async Create function emission.
     /// Iterates the ConstructionChain steps to emit the Swift @_cdecl factory.
     /// </summary>
     private static void EmitDataDrivenAsyncCreate(
         StringBuilder sb, string prefix, string sessionClass, string handlesVar,
         string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
     {
-        var chain = pattern.ConstructionChain!;
+        var chain = pattern.ConstructionChain;
 
         // @_cdecl signature with flattened params + callbacks
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
@@ -650,6 +661,10 @@ public static partial class SwiftUIBridgeEmitter
         }
         createParams.Add($"_ onReady: {prefix}_ReadyFn?");
         createParams.Add($"_ onError: {prefix}_ErrorFn?");
+        if (pattern.ResultCallback != null)
+        {
+            createParams.Add($"_ onResult: {prefix}_ResultFn?");
+        }
         createParams.Add("_ userData: UnsafeMutableRawPointer?");
 
         sb.AppendLine(string.Join(",\n    ", createParams));
@@ -755,14 +770,18 @@ public static partial class SwiftUIBridgeEmitter
             }
 
             var argStr = args.Count > 0 ? string.Join(", ", args) : "";
-            sb.AppendLine($"{indent}let {step.VariableName} = {tryAwait}{step.SwiftTypeName}({argStr})");
+            // Constructor call vs static factory method (e.g. BlinkIDSdk.createBlinkIDSdk(...)).
+            var constructorOrFactory = step.FactoryMethod != null
+                ? $"{step.SwiftTypeName}.{step.FactoryMethod}"
+                : step.SwiftTypeName;
+            sb.AppendLine($"{indent}let {step.VariableName} = {tryAwait}{constructorOrFactory}({argStr})");
         }
 
         sb.AppendLine();
 
         // Build the View here in Create scope where both chain outputs and
         // flattened leaf params are available (fixes mixed chain + leaf param views)
-        var viewInitArgs = BuildViewInitArgsFromChain(info, chain, pattern.FlattenedParams);
+        var viewInitArgs = BuildViewInitArgsFromChain(info, pattern);
         if (viewInitArgs.Count == 0)
             sb.AppendLine($"{indent}let rootView = {info.ViewName}()");
         else
@@ -770,15 +789,26 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"{indent}let hc = UIHostingController(rootView: rootView)");
         sb.AppendLine();
 
-        // Build session — pass chain step outputs (for retention) + pre-built hosting controller
+        // Build session — pass session field values (for retention) + pre-built hosting controller.
+        // Non-retained intermediate chain steps (e.g. sdkSettings, uxSettings) are dropped here.
         sb.AppendLine($"{indent}let session = {sessionClass}(");
-        var sessionArgs = chain.Select(s => $"{indent}    {s.VariableName}: {s.VariableName}").ToList();
+        var sessionArgs = pattern.SessionFields.Select(f => $"{indent}    {f.Name}: {f.Name}").ToList();
         sessionArgs.Add($"{indent}    hostingController: hc");
         sb.AppendLine(string.Join(",\n", sessionArgs));
         sb.AppendLine($"{indent})");
 
         sb.AppendLine($"{indent}let handle = Unmanaged.passRetained(session).toOpaque()");
         sb.AppendLine($"{indent}{handlesVar}.insert(handle)");
+
+        if (pattern.ResultCallback != null)
+        {
+            sb.AppendLine($"{indent}session.startResultMonitor(");
+            sb.AppendLine($"{indent}    handle: handle,");
+            sb.AppendLine($"{indent}    resultCallback: onResult,");
+            sb.AppendLine($"{indent}    userData: userData");
+            sb.AppendLine($"{indent})");
+        }
+
         sb.AppendLine();
         sb.AppendLine($"{indent}onReady(handle, userData)");
 
@@ -816,123 +846,6 @@ public static partial class SwiftUIBridgeEmitter
         return paramName;
     }
 
-    /// <summary>
-    /// Legacy hard-coded async Create function emission (BlinkIDUX-specific).
-    /// Used when ConstructionChain is null (dictionary-based patterns).
-    /// </summary>
-    private static void EmitLegacyAsyncCreate(
-        StringBuilder sb, string prefix, string sessionClass, string handlesVar,
-        string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
-    {
-        sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
-        sb.Append($"public func {prefix}_Create(");
-
-        var createParams = new List<string>();
-        foreach (var param in pattern.FlattenedParams)
-        {
-            if (param.Kind == AsyncFlatParamKind.String)
-            {
-                createParams.Add($"_ {param.Name}Ptr: UnsafePointer<UInt8>?");
-                createParams.Add($"_ {param.Name}Len: Int");
-            }
-            else
-            {
-                createParams.Add($"_ {param.Name}: {param.SwiftAbiType}");
-            }
-        }
-        createParams.Add($"_ onReady: {prefix}_ReadyFn?");
-        createParams.Add($"_ onError: {prefix}_ErrorFn?");
-        if (pattern.HasResultCallback)
-        {
-            createParams.Add($"_ onResult: {prefix}_ResultFn?");
-        }
-        createParams.Add("_ userData: UnsafeMutableRawPointer?");
-
-        sb.AppendLine(string.Join(",\n    ", createParams));
-        sb.AppendLine(") {");
-
-        // Guard onReady
-        sb.AppendLine("    guard let onReady = onReady else { return }");
-        sb.AppendLine();
-
-        // Copy string parameters
-        foreach (var param in pattern.FlattenedParams)
-        {
-            if (param.Kind == AsyncFlatParamKind.String)
-            {
-                sb.AppendLine($"    let {param.Name}: String");
-                sb.AppendLine($"    if let ptr = {param.Name}Ptr, {param.Name}Len > 0 {{");
-                sb.AppendLine($"        {param.Name} = String(");
-                sb.AppendLine($"            bytes: UnsafeBufferPointer(start: ptr, count: {param.Name}Len),");
-                sb.AppendLine($"            encoding: .utf8");
-                sb.AppendLine($"        ) ?? \"\"");
-                sb.AppendLine($"    }} else {{");
-                sb.AppendLine($"        {param.Name} = \"\"");
-                sb.AppendLine($"    }}");
-                sb.AppendLine();
-            }
-        }
-
-        // Build UX settings
-        sb.AppendLine("    let uxSettings = ScanningUXSettings(");
-        sb.AppendLine("        showIntroductionAlert: showIntroductionAlert != 0,");
-        sb.AppendLine("        showHelpButton: showHelpButton != 0,");
-        sb.AppendLine("        preferredCameraPosition: preferFrontCamera != 0 ? .front : .back,");
-        sb.AppendLine("        allowHapticFeedback: allowHapticFeedback != 0");
-        sb.AppendLine("    )");
-        sb.AppendLine();
-
-        // Async Task
-        sb.AppendLine("    Task { @MainActor in");
-        sb.AppendLine("        do {");
-        sb.AppendLine("            let sdkSettings = BlinkIDSdkSettings(licenseKey: licenseKey)");
-        sb.AppendLine("            let sdk = try await BlinkIDSdk.createBlinkIDSdk(withSettings: sdkSettings)");
-        sb.AppendLine("            let eventStream = BlinkIDEventStream()");
-        sb.AppendLine("            let analyzer = try await BlinkIDAnalyzer(");
-        sb.AppendLine("                sdk: sdk,");
-        sb.AppendLine("                eventStream: eventStream");
-        sb.AppendLine("            )");
-        sb.AppendLine("            let model = BlinkIDUXModel(");
-        sb.AppendLine("                analyzer: analyzer,");
-        sb.AppendLine("                uxSettings: uxSettings,");
-        sb.AppendLine("                sessionNumber: analyzer.sessionNumber");
-        sb.AppendLine("            )");
-        sb.AppendLine();
-        sb.AppendLine($"            let session = {sessionClass}(");
-        sb.AppendLine("                sdk: sdk,");
-        sb.AppendLine("                eventStream: eventStream,");
-        sb.AppendLine("                analyzer: analyzer,");
-        sb.AppendLine("                model: model");
-        sb.AppendLine("            )");
-        sb.AppendLine($"            let handle = Unmanaged.passRetained(session).toOpaque()");
-        sb.AppendLine($"            {handlesVar}.insert(handle)");
-
-        if (pattern.HasResultCallback)
-        {
-            sb.AppendLine("            session.startResultMonitor(");
-            sb.AppendLine("                handle: handle,");
-            sb.AppendLine("                resultCallback: onResult,");
-            sb.AppendLine("                userData: userData");
-            sb.AppendLine("            )");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("            onReady(handle, userData)");
-        sb.AppendLine("        } catch {");
-        sb.AppendLine("            if let onError = onError {");
-        sb.AppendLine("                let msg = \"\\(error)\"");
-        sb.AppendLine("                let utf8 = Array(msg.utf8)");
-        sb.AppendLine("                utf8.withUnsafeBufferPointer { buf in");
-        sb.AppendLine("                    guard let base = buf.baseAddress else { return }");
-        sb.AppendLine("                    onError(base, buf.count, userData)");
-        sb.AppendLine("                }");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
-        sb.AppendLine("}");
-        sb.AppendLine();
-    }
-
     #endregion
 
     #region Async C# Generation
@@ -965,7 +878,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         createPInvokeParams.Add("IntPtr onReady");
         createPInvokeParams.Add("IntPtr onError");
-        if (pattern.HasResultCallback)
+        if (pattern.ResultCallback != null)
         {
             createPInvokeParams.Add("IntPtr onResult");
         }
@@ -1034,7 +947,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"        private sealed class CreateState");
         sb.AppendLine("        {");
         sb.AppendLine($"            public TaskCompletionSource<{info.ViewName}Session> Tcs {{ get; }}");
-        if (pattern.HasResultCallback)
+        if (pattern.ResultCallback != null)
         {
             sb.AppendLine("            public Action<int>? OnResult { get; }");
             sb.AppendLine($"            public CreateState(TaskCompletionSource<{info.ViewName}Session> tcs, Action<int>? onResult)");
@@ -1081,7 +994,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // OnResult trampoline (if applicable)
-        if (pattern.HasResultCallback)
+        if (pattern.ResultCallback != null)
         {
             sb.AppendLine($"        [UnmanagedCallersOnly(CallConvs = new[] {{ typeof(global::System.Runtime.CompilerServices.CallConvCdecl) }})]");
             sb.AppendLine("        private static void OnResultTrampoline(int resultCode, IntPtr userData)");
@@ -1094,15 +1007,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine();
         }
 
-        // CreateAsync factory — data-driven vs legacy
-        if (pattern.ConstructionChain != null)
-        {
-            EmitDataDrivenCreateAsyncFactory(sb, info, pattern);
-        }
-        else
-        {
-            EmitLegacyCreateAsyncFactory(sb, info, pattern);
-        }
+        EmitDataDrivenCreateAsyncFactory(sb, info, pattern);
 
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
@@ -1148,6 +1053,10 @@ public static partial class SwiftUIBridgeEmitter
             else
                 requiredParams.Add($"{type} {param.Name}");
         }
+        if (pattern.ResultCallback != null)
+        {
+            optionalParams.Add("Action<int>? onResult = null");
+        }
         requiredParams.AddRange(optionalParams);
 
         sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
@@ -1165,7 +1074,14 @@ public static partial class SwiftUIBridgeEmitter
 
         sb.AppendLine($"            var tcs = new TaskCompletionSource<{info.ViewName}Session>(");
         sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");
-        sb.AppendLine("            var state = new CreateState(tcs);");
+        if (pattern.ResultCallback != null)
+        {
+            sb.AppendLine("            var state = new CreateState(tcs, onResult);");
+        }
+        else
+        {
+            sb.AppendLine("            var state = new CreateState(tcs);");
+        }
         sb.AppendLine("            var stateHandle = GCHandle.Alloc(state);");
         sb.AppendLine();
         sb.AppendLine("            try");
@@ -1174,6 +1090,10 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("                {");
         sb.AppendLine("                    delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> readyPtr = &OnReadyTrampoline;");
         sb.AppendLine("                    delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> errorPtr = &OnErrorTrampoline;");
+        if (pattern.ResultCallback != null)
+        {
+            sb.AppendLine("                    delegate* unmanaged[Cdecl]<int, IntPtr, void> resultPtr = &OnResultTrampoline;");
+        }
         sb.AppendLine();
 
         // String encoding
@@ -1236,134 +1156,7 @@ public static partial class SwiftUIBridgeEmitter
         }
         nativeArgs.Add("(IntPtr)readyPtr");
         nativeArgs.Add("(IntPtr)errorPtr");
-        nativeArgs.Add("GCHandle.ToIntPtr(stateHandle)");
-
-        sb.AppendLine($"{indent}{info.ViewName}BridgeNativeMethods.Create(");
-        for (int i = 0; i < nativeArgs.Count; i++)
-        {
-            var comma = i < nativeArgs.Count - 1 ? "," : ");";
-            sb.AppendLine($"{indent}    {nativeArgs[i]}{comma}");
-        }
-    }
-
-    /// <summary>
-    /// Legacy hard-coded C# CreateAsync factory emission (BlinkIDUX-specific).
-    /// Used when ConstructionChain is null (dictionary-based patterns).
-    /// </summary>
-    private static void EmitLegacyCreateAsyncFactory(
-        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern)
-    {
-        // Factory parameter list (idiomatic C# types)
-        // C# requires optional parameters after all required parameters.
-        var requiredParams = new List<string>();
-        var optionalParams = new List<string>();
-        foreach (var param in pattern.FlattenedParams)
-        {
-            var type = param.Kind switch
-            {
-                AsyncFlatParamKind.String => "string",
-                AsyncFlatParamKind.Bool => "bool",
-                _ => param.CSharpPInvokeType,
-            };
-            var defaultVal = param.Kind switch
-            {
-                AsyncFlatParamKind.Bool => " = true",
-                _ => "",
-            };
-            if (defaultVal.Length > 0)
-                optionalParams.Add($"{type} {param.Name}{defaultVal}");
-            else
-                requiredParams.Add($"{type} {param.Name}");
-        }
-        if (pattern.HasResultCallback)
-        {
-            optionalParams.Add("Action<int>? onResult = null");
-        }
-        requiredParams.AddRange(optionalParams);
-
-        sb.AppendLine($"        public static async Task<{info.ViewName}Session> CreateAsync({string.Join(", ", requiredParams)})");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            var tcs = new TaskCompletionSource<{info.ViewName}Session>(");
-        sb.AppendLine("                TaskCreationOptions.RunContinuationsAsynchronously);");
-        if (pattern.HasResultCallback)
-        {
-            sb.AppendLine("            var state = new CreateState(tcs, onResult);");
-        }
-        else
-        {
-            sb.AppendLine("            var state = new CreateState(tcs);");
-        }
-        sb.AppendLine("            var stateHandle = GCHandle.Alloc(state);");
-        sb.AppendLine();
-        sb.AppendLine("            try");
-        sb.AppendLine("            {");
-        sb.AppendLine("                unsafe");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> readyPtr = &OnReadyTrampoline;");
-        sb.AppendLine("                    delegate* unmanaged[Cdecl]<IntPtr, nint, IntPtr, void> errorPtr = &OnErrorTrampoline;");
-        if (pattern.HasResultCallback)
-        {
-            sb.AppendLine("                    delegate* unmanaged[Cdecl]<int, IntPtr, void> resultPtr = &OnResultTrampoline;");
-        }
-        sb.AppendLine();
-
-        // String encoding
-        var stringParams = pattern.FlattenedParams.Where(p => p.Kind == AsyncFlatParamKind.String).ToList();
-        foreach (var param in stringParams)
-        {
-            sb.AppendLine($"                    var {param.Name}Bytes = Encoding.UTF8.GetBytes({param.Name} ?? \"\");");
-        }
-
-        // Fixed block for strings (if any)
-        if (stringParams.Count > 0)
-        {
-            var fixedDecls = string.Join(", ", stringParams.Select(p => $"byte* {p.Name}Ptr = {p.Name}Bytes"));
-            sb.AppendLine($"                    fixed ({fixedDecls})");
-            sb.AppendLine("                    {");
-            EmitLegacyCreateAsyncCall(sb, info, pattern, "                        ");
-            sb.AppendLine("                    }");
-        }
-        else
-        {
-            EmitLegacyCreateAsyncCall(sb, info, pattern, "                    ");
-        }
-
-        sb.AppendLine("                }");
-        sb.AppendLine("            }");
-        sb.AppendLine("            catch");
-        sb.AppendLine("            {");
-        sb.AppendLine("                if (stateHandle.IsAllocated) stateHandle.Free();");
-        sb.AppendLine("                throw;");
-        sb.AppendLine("            }");
-        sb.AppendLine();
-        sb.AppendLine("            return await tcs.Task;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-    }
-
-    private static void EmitLegacyCreateAsyncCall(
-        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern, string indent)
-    {
-        var nativeArgs = new List<string>();
-        foreach (var param in pattern.FlattenedParams)
-        {
-            if (param.Kind == AsyncFlatParamKind.String)
-            {
-                nativeArgs.Add($"(IntPtr){param.Name}Ptr");
-                nativeArgs.Add($"{param.Name}Bytes.Length");
-            }
-            else if (param.Kind == AsyncFlatParamKind.Bool)
-            {
-                nativeArgs.Add($"{param.Name} ? 1 : 0");
-            }
-            else
-            {
-                nativeArgs.Add(param.Name);
-            }
-        }
-        nativeArgs.Add("(IntPtr)readyPtr");
-        nativeArgs.Add("(IntPtr)errorPtr");
-        if (pattern.HasResultCallback)
+        if (pattern.ResultCallback != null)
         {
             nativeArgs.Add("(IntPtr)resultPtr");
         }
@@ -1381,9 +1174,9 @@ public static partial class SwiftUIBridgeEmitter
 }
 
 /// <summary>
-/// Configuration for a known async View bridge pattern.
-/// When ConstructionChain is null, legacy hard-coded emission is used (BlinkIDUX).
-/// When ConstructionChain is non-null, data-driven emission iterates the chain steps.
+/// Configuration for a data-driven async View bridge pattern. The construction chain
+/// describes the sequence of Swift objects created inside the async Create function;
+/// <see cref="SessionFields"/> picks which of those are retained on the session class.
 /// </summary>
 public record AsyncViewPattern(
     string ViewName,
@@ -1391,12 +1184,26 @@ public record AsyncViewPattern(
     string[] ExtraSwiftImports,
     AsyncSessionField[] SessionFields,
     AsyncFlatParam[] FlattenedParams,
-    bool HasResultCallback,
-    List<AsyncConstructionStep>? ConstructionChain = null);
+    List<AsyncConstructionStep> ConstructionChain,
+    AsyncResultCallbackConfig? ResultCallback = null,
+    IReadOnlyList<ConstructionArg>? ViewInitArgs = null);
+
+/// <summary>
+/// Describes the result-callback machinery for async Views. When non-null on an
+/// <see cref="AsyncViewPattern"/>, the generator emits the ResultFn typedef,
+/// resultTask field, startResultMonitor / cancelResultMonitor helpers, plus the
+/// matching C# OnResultTrampoline, CreateState(Action&lt;int&gt;?), and resultPtr wiring.
+/// </summary>
+public record AsyncResultCallbackConfig(
+    string SourceFieldName,
+    string AwaitMethodName,
+    IReadOnlyList<(string SwiftCase, int Code)> ResultCases);
 
 /// <summary>
 /// A single step in an async construction chain.
 /// Each step represents creating one intermediate object that the View depends on.
+/// When <paramref name="FactoryMethod"/> is non-null, the step calls
+/// <c>SwiftTypeName.FactoryMethod(args)</c> instead of <c>SwiftTypeName(args)</c>.
 /// </summary>
 public record AsyncConstructionStep(
     string VariableName,

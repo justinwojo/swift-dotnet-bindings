@@ -1208,12 +1208,16 @@ namespace BindingsGeneration
                 changed = false;
                 foreach (var (protocolDecl, directCount) in protocolDecls)
                 {
-                    // NOTE: Inherited requirement counting is intentionally disabled.
-                    // InheritedProtocols was recently populated (was always empty before),
-                    // but counting inherited requirements would change EmittedMemberCount
-                    // and affect downstream conformance checks. TODO: Enable once all
-                    // consumers handle inherited protocol requirements correctly.
                     int inheritedRequirementCount = 0;
+                    foreach (var inherited in protocolDecl.InheritedProtocols)
+                    {
+                        var inheritedTypeName = SwiftTypeName.FromTypeSpec(inherited);
+                        if (typeDatabase.TryGetTypeRecord(inheritedTypeName, out var parentRecord)
+                            && parentRecord.EmittedMemberCount.HasValue)
+                        {
+                            inheritedRequirementCount += parentRecord.EmittedMemberCount.Value;
+                        }
+                    }
 
                     int totalRequirements = directCount + inheritedRequirementCount;
                     if (typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var currentRecord)

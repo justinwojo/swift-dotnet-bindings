@@ -324,12 +324,29 @@ public static class ExistentialBypassEmitter
             return false;
         }
 
-        // Only void return for now — non-void returns need result marshalling
+        // Supported returns: void, or existential (`any P`). Other non-void returns require
+        // full-wrapper result marshalling (string, SafeHandle, tuples, optionals, etc.) that
+        // the bypass path doesn't implement — fall through for those.
         var returnType = methodDecl.CSSignature.First();
-        if (!returnType.SwiftTypeSpec.IsEmptyTuple)
+        bool isExistentialReturn = env.ExistentialHandler.IsExistential(returnType.SwiftTypeSpec);
+        if (!returnType.SwiftTypeSpec.IsEmptyTuple && !isExistentialReturn)
         {
-            logger.LogDebug("ExistentialBypassEmitter: rejected — non-void return: {ReturnType}.", returnType.SwiftTypeSpec);
+            logger.LogDebug("ExistentialBypassEmitter: rejected — non-void, non-existential return: {ReturnType}.", returnType.SwiftTypeSpec);
             return false;
+        }
+
+        // Existential return must resolve to a protocol list we can wrap (proxy class or well-known type).
+        // Unresolved/zero-protocol existentials (`Any`) fall back — the public return would be `object`
+        // which the bypass's proxy-wrap path doesn't produce.
+        if (isExistentialReturn)
+        {
+            var retProtoList = env.ExistentialHandler.ToProtocolListTypeSpec(returnType.SwiftTypeSpec);
+            if (retProtoList == null || retProtoList.Protocols.Count == 0 ||
+                env.ExistentialHandler.GetPublicExistentialType(retProtoList) == "object")
+            {
+                logger.LogDebug("ExistentialBypassEmitter: rejected — existential return not resolvable to proxy/public type.");
+                return false;
+            }
         }
 
         // Throwing methods produce different Swift return shapes
@@ -550,11 +567,11 @@ public static class ExistentialBypassEmitter
 
         // --- Emit Swift wrapper ---
         EmitMethodSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, isClass,
-            passthroughArgs, existentialArgs, env);
+            passthroughArgs, existentialArgs, env, isExistentialReturn);
 
         // --- Emit C# method ---
         EmitMethodCSharpBinding(csWriter, env, typeName, wrapperSymbol, wrapperLibPath,
-            isClass, reducedWrapperSig, reducedPInvokeSig);
+            isClass, reducedWrapperSig, reducedPInvokeSig, isExistentialReturn);
 
         return true;
     }
@@ -566,12 +583,19 @@ public static class ExistentialBypassEmitter
         bool isClass,
         List<ArgumentDecl> passthroughArgs,
         List<ArgumentDecl> existentialArgs,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        bool isExistentialReturn)
     {
         var methodDecl = env.MethodDecl;
+        var returnArg = methodDecl.CSSignature.First();
 
-        // Build Swift parameter list: self first, then passthrough args
+        // Build Swift parameter list. For existential returns we write the result into a caller-
+        // provided buffer (out-parameter style) — resultPtr comes first, matching what the C#
+        // P/Invoke passes in. For void returns we keep the legacy shape (self first, no extra).
         var swiftParams = new List<string>();
+
+        if (isExistentialReturn)
+            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
 
         // Self parameter
         if (isClass)
@@ -632,19 +656,35 @@ public static class ExistentialBypassEmitter
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) {{");
         swiftWriter.Indent++;
 
-        // Convert self and call the method
-        if (!isClass)
+        var methodCallName = NameProvider.ParserNameToSwift(methodDecl);
+        if (isExistentialReturn)
+        {
+            // Render the Swift return type — Swift uses this to lay out the existential container
+            // in the caller's buffer so C# can read back matching bytes as ExistentialContainerN.
+            var returnSwiftType = RenderSwiftTypeSpec(returnArg.SwiftTypeSpec);
+            if (!isClass)
+            {
+                swiftWriter.WriteLine($"let __selfTyped = __self.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
+                swiftWriter.WriteLine($"let __result: {returnSwiftType} = __selfTyped.{methodCallName}({callArgString})");
+            }
+            else
+            {
+                swiftWriter.WriteLine($"let __result: {returnSwiftType} = __self.{methodCallName}({callArgString})");
+            }
+            swiftWriter.WriteLine($"resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: __result, count: 1)");
+        }
+        else if (!isClass)
         {
             // Non-frozen struct: dereference pointer to get value, call method.
             // Use 'var' to support mutating methods (though most bypass candidates are non-mutating).
             swiftWriter.WriteLine($"var __selfTyped = __self.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
-            swiftWriter.WriteLine($"__selfTyped.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})");
+            swiftWriter.WriteLine($"__selfTyped.{methodCallName}({callArgString})");
             // Write back for mutating methods
             swiftWriter.WriteLine($"__self.assumingMemoryBound(to: {swiftTypeName}.self).pointee = __selfTyped");
         }
         else
         {
-            swiftWriter.WriteLine($"__self.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})");
+            swiftWriter.WriteLine($"__self.{methodCallName}({callArgString})");
         }
 
         swiftWriter.Indent--;
@@ -659,16 +699,39 @@ public static class ExistentialBypassEmitter
         string wrapperLibPath,
         bool isClass,
         Signature reducedWrapperSig,
-        Signature reducedPInvokeSig)
+        Signature reducedPInvokeSig,
+        bool isExistentialReturn)
     {
         var methodDecl = env.MethodDecl;
         var accessModifier = NameProvider.GetAccessModifier(methodDecl.Visibility);
+        var returnArg = methodDecl.CSSignature.First();
+
+        // Resolve return-type info up-front: the existential container drives P/Invoke shape + buffer
+        // size, and the public/proxy type drives the public method signature + wrap statement.
+        string? containerType = null;
+        string? publicReturnType = null;
+        string? returnWrapExpr = null;
+        if (isExistentialReturn)
+        {
+            var protocolList = env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
+            containerType = env.ExistentialHandler.GetCSharpExistentialType(protocolList);
+            publicReturnType = env.ExistentialHandler.GetPublicExistentialType(protocolList);
+            // Mirror WrapperEmitter.Return.cs: well-known (Swift.Error → AnyError), else proxy.
+            returnWrapExpr = env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnown)
+                ? $"new {wellKnown}(__existentialResult)"
+                : $"new {env.ExistentialHandler.GetQualifiedProxyClassName(protocolList)}(__existentialResult)";
+        }
 
         // Build the public method parameter list from the reduced wrapper signature
         var paramString = reducedWrapperSig.ParametersString();
 
-        // P/Invoke params: self (IntPtr) + passthrough args
-        var pInvokeParamsList = new List<string> { "IntPtr self" };
+        // P/Invoke params. Existential return adds a leading resultPtr (indirect result buffer) so
+        // the P/Invoke itself stays void-return — mirrors the @_cdecl+resultPtr pattern used by
+        // full wrappers.
+        var pInvokeParamsList = new List<string>();
+        if (isExistentialReturn)
+            pInvokeParamsList.Add("IntPtr resultPtr");
+        pInvokeParamsList.Add("IntPtr self");
         var pInvokePassthroughParams = reducedPInvokeSig.PInvokeParametersString();
         if (!string.IsNullOrEmpty(pInvokePassthroughParams))
             pInvokeParamsList.Add(pInvokePassthroughParams);
@@ -701,18 +764,24 @@ public static class ExistentialBypassEmitter
             csWriter.WriteLine();
         }
 
-        // Build C# method name
+        // Build C# method name — hasReturnValue gates the "Get" prefix.
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: false, isSelfReturning: isSelfReturning,
+        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: isExistentialReturn, isSelfReturning: isSelfReturning,
             parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         // Pre-compute marshalling to determine if unsafe is needed before emitting the method declaration.
         var (marshalledArgs, setupLines, needsUnsafe) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);
 
-        // Build call arguments: self handle + passthrough args.
+        // Existential-return path allocates a native buffer and passes its pointer — forces unsafe.
+        if (isExistentialReturn)
+            needsUnsafe = true;
+
+        // Build call arguments: [resultPtr,] self handle, passthrough args.
         // Classes: _handle IS the Swift object pointer (SwiftClassHandle) — pass directly.
         // Non-frozen structs: _payload buffer IS the struct data — pass directly.
         var callArgsList = new List<string>();
+        if (isExistentialReturn)
+            callArgsList.Add("__resultPtr");
         var classParentDecl = env.ParentDecl as ClassDecl;
         var selfExpr = classParentDecl != null
             ? (classParentDecl.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
@@ -723,9 +792,10 @@ public static class ExistentialBypassEmitter
             callArgsList.Add(passthroughCallArgs);
         var callArgs = string.Join(", ", callArgsList);
 
-        // Emit public method (unsafe needed for stackalloc marshalling)
+        // Emit public method (unsafe needed for stackalloc marshalling or resultPtr alloc).
         var unsafeModifier = needsUnsafe ? "unsafe " : "";
-        csWriter.WriteLine($"{accessModifier} {unsafeModifier}void {methodName}({paramString})");
+        var returnTypeKeyword = isExistentialReturn ? publicReturnType! : "void";
+        csWriter.WriteLine($"{accessModifier} {unsafeModifier}{returnTypeKeyword} {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -737,7 +807,32 @@ public static class ExistentialBypassEmitter
             ? $"{env.PInvokeHelperContext.HelperClassName}.{wrapperSymbol}"
             : wrapperSymbol;
 
-        csWriter.WriteLine($"{wrapperCall}({callArgs});");
+        if (!isExistentialReturn)
+        {
+            csWriter.WriteLine($"{wrapperCall}({callArgs});");
+        }
+        else
+        {
+            // Allocate buffer sized to the existential container metadata, hand its pointer to the
+            // Swift wrapper (which writes the container bytes), then marshal back and wrap in a proxy.
+            csWriter.WriteLine($"var __returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<{containerType}>();");
+            csWriter.WriteLine($"void* __resultBuf = NativeMemory.Alloc((nuint)__returnMetadata.Size);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var __resultPtr = (IntPtr)__resultBuf;");
+            csWriter.WriteLine($"{wrapperCall}({callArgs});");
+            csWriter.WriteLine($"var __existentialResult = SwiftMarshal.MarshalFromSwift<{containerType}>(__resultPtr);");
+            csWriter.WriteLine($"return {returnWrapExpr};");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("NativeMemory.Free(__resultBuf);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
 
         csWriter.Indent--;
         csWriter.WriteLine("}");

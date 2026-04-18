@@ -1,5 +1,5 @@
 {
-  "git_sha": "ceaaec3f",
+  "git_sha": "d4333067",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -696,11 +696,16 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1446,
+      "pass": 1455,
       "fail": 0,
       "skip": 40,
       "crash": 0
     },
-    "device": null
+    "device": {
+      "pass": 1467,
+      "fail": 0,
+      "skip": 28,
+      "crash": 0
+    }
   }
 }

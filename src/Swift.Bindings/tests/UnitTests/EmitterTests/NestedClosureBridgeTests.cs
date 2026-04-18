@@ -106,9 +106,10 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
-    public void IsEligible_TwoOuterClosures_ReturnsFalse()
+    public void IsEligible_TwoOuterClosures_ReturnsTrue()
     {
-        // Multiple outer nested closures require single-wrapper architecture (not yet implemented)
+        // Multi-outer nested-closure methods ARE eligible — the bridge emits a single Swift
+        // wrapper covering all outer closures.
         var typeDatabase = CreateTypeDatabaseWithEnumTypes();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
@@ -141,7 +142,7 @@ public class NestedClosureBridgeTests
             TupleTypeSpec.Empty, outerClosure1, "handler", outerClosure2, "completion");
         var closureHandler = new ClosureHandler(typeDatabase);
 
-        Assert.False(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
+        Assert.True(NestedClosureBridge.IsEligible(method, closureHandler, typeDatabase));
     }
 
     [Fact]
@@ -190,9 +191,10 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
-    public void TryEmit_TwoOuterClosures_ReturnsFalse()
+    public void TryEmit_TwoOuterClosures_EmitsSingleWrapperWithOuterIndexedNames()
     {
-        // Multi-outer gated until single-wrapper architecture is implemented
+        // Multi-outer support: a single Swift wrapper should cover both outer closures,
+        // with outer-index-namespaced inner trampolines/boxes so the two outers don't collide.
         var typeDatabase = CreateTypeDatabaseWithEnumTypes();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
@@ -225,11 +227,19 @@ public class NestedClosureBridgeTests
         var env = new MethodEnvironment(method, typeDatabase);
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
-        var swiftWriter = new SwiftWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
 
         var result = NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
 
-        Assert.False(result);
+        Assert.True(result);
+
+        var swift = swiftOutput.ToString();
+        // Exactly one wrapper covers both outers (not one per outer).
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(swift, @"@_cdecl\(""SBW_NCB_"));
+        // Outer-index-namespaced trampoline names prevent collisions between outer 0 and outer 1.
+        Assert.Contains("innerTrampoline_0_0", swift);
+        Assert.Contains("innerTrampoline_1_0", swift);
     }
 
     [Fact]
@@ -577,7 +587,7 @@ public class NestedClosureBridgeTests
 
         Assert.True(result);
         var swift = swiftOutput.ToString();
-        Assert.Contains("@_silgen_name(\"SBW_NCB_", swift);
+        Assert.Contains("@_cdecl(\"SBW_NCB_", swift);
     }
 
     [Fact]

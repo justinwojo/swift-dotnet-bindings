@@ -115,6 +115,10 @@ public static class SwiftFrameworkResolver
     // live add_Accessor rather than being trimmed into a no-op. Documented as a
     // conceptual dependency in the XML above; the attribute is the enforceable form.
     [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(AssemblyLoadContext))]
+    [UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "RegisterAlcFallback only subscribes to AssemblyLoadContext.Default.ResolvingUnmanagedDll; " +
+            "the IL3050 fires because the DynamicDependency keeps every AssemblyLoadContext member rooted, and ilc " +
+            "transitively reaches Enum.GetValues<TEnum>() via members we never invoke at runtime.")]
     private static void RegisterAlcFallback()
     {
         if (Interlocked.Exchange(ref s_alcFallbackRegistered, 1) == 0)

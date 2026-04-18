@@ -468,8 +468,8 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         Assert.NotNull(pattern);
         Assert.Equal("BlinkIDUXView", pattern.ViewName);
-        Assert.Equal("BlinkIDUXSession", pattern.SessionClassName);
-        Assert.True(pattern.HasResultCallback);
+        Assert.Equal("SBW_BlinkIDUX_BlinkIDUXView_Session", pattern.SessionClassName);
+        Assert.NotNull(pattern.ResultCallback);
     }
 
     [Fact]

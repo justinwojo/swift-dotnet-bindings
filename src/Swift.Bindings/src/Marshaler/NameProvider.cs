@@ -104,13 +104,11 @@ public sealed class GenericContext
 public static class NameProvider
 {
     // Dictionary of Swift property names that need special renaming in C#.
-    // These mappings predate the general collision detection (lines 145-150) which uses "Value" suffix.
-    // Keep for backward compatibility with StoreKit bindings that use "Property" suffix.
-    private static readonly Dictionary<string, string> PropertyNameMappings = new()
-    {
-        { "isEligibleForIntroOffer", "IsEligibleForIntroOfferProperty" },
-        { "status", "StatusProperty"}
-    };
+    // Currently empty — historical StoreKit-specific overrides were removed when
+    // GetPropertyName grew a nested-type-aware collision path (see Session 6 /
+    // pre-1.0-cleanup.md item #4). Left in place as an extension point for any
+    // future unavoidable one-off renames.
+    private static readonly Dictionary<string, string> PropertyNameMappings = new();
 
     /// <summary>
     /// Converts a camelCase or SCREAMING_CASE string to PascalCase.
@@ -793,8 +791,15 @@ public static class NameProvider
     /// </summary>
     /// <param name="swiftPropertyName">The original Swift property name.</param>
     /// <param name="containingTypeName">Optional name of the containing type, used for collision detection (CS0542).</param>
+    /// <param name="nestedTypeNames">Optional set of sibling nested-type leaf names on the containing type.
+    /// When the pascaled property name matches one of these, a "Value" suffix is appended to avoid CS0102.
+    /// Only pass this at call sites that have TypeDecl in scope. Other call sites fall through to
+    /// the existing ComputePropertyRenames + GetFinalMemberName dictionary path for sibling collisions.</param>
     /// <returns>The appropriate C# property name in PascalCase.</returns>
-    public static string GetPropertyName(string swiftPropertyName, string? containingTypeName = null)
+    public static string GetPropertyName(
+        string swiftPropertyName,
+        string? containingTypeName = null,
+        IEnumerable<string>? nestedTypeNames = null)
     {
         // Check for explicit mappings first
         if (PropertyNameMappings.TryGetValue(swiftPropertyName, out var mappedName))
@@ -811,6 +816,30 @@ public static class NameProvider
         {
             // Suffix with "Value" to avoid collision
             return $"{pascalName}Value";
+        }
+
+        // Check for collision with a sibling nested-type name (CS0102: duplicate member name).
+        // Example: struct OrderContainer { enum Status: String; let status: Status } — property
+        // "Status" shadows nested "Status". When the ApplyNestedTypeRenames "Type"-suffix cascade
+        // does NOT apply (property type is not the nested type itself), this path rescues the
+        // collision with a "Value" suffix inline, without requiring the caller to round-trip
+        // through ComputePropertyRenames + GetFinalMemberName. Probes "Value", "Value2", ...
+        // to avoid landing on another sibling nested-type name (matches the probe loop in
+        // ComputePropertyRenamesForNestedTypeCollisions).
+        if (nestedTypeNames != null)
+        {
+            var nestedTypeSet = nestedTypeNames as ISet<string> ?? new HashSet<string>(nestedTypeNames);
+            if (nestedTypeSet.Contains(pascalName))
+            {
+                var candidate = $"{pascalName}Value";
+                var suffix = 2;
+                while (nestedTypeSet.Contains(candidate))
+                {
+                    candidate = $"{pascalName}Value{suffix}";
+                    suffix++;
+                }
+                return candidate;
+            }
         }
 
         return pascalName;

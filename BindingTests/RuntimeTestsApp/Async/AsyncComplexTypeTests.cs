@@ -79,8 +79,8 @@ public class AsyncComplexTypeTests : TestBase
         AssertNotNull(task, "AsyncGetTask not null");
         // Swift: AsyncTask(taskId: workerId, status: "completed async")
         AssertEqual("task-worker", task.TaskId.ToString(), "AsyncTask.TaskId");
-        AssertEqual("completed async", task.StatusProperty.ToString(), "AsyncTask.Status");
-        TestLogger.Info($"AsyncComplexWorker.AsyncGetTask() = Task[{task.TaskId}]: {task.StatusProperty}");
+        AssertEqual("completed async", task.Status.ToString(), "AsyncTask.Status");
+        TestLogger.Info($"AsyncComplexWorker.AsyncGetTask() = Task[{task.TaskId}]: {task.Status}");
     }
 
     public async Task TestAsyncStaticTask()
@@ -88,8 +88,8 @@ public class AsyncComplexTypeTests : TestBase
         var task = await WithTimeout(AsyncComplexWorker.StaticTaskAsync(), DefaultAsyncTimeout);
         AssertNotNull(task, "AsyncStaticTask not null");
         AssertEqual("static-task", task.TaskId.ToString(), "Static AsyncTask.TaskId");
-        AssertEqual("created", task.StatusProperty.ToString(), "Static AsyncTask.Status");
-        TestLogger.Info($"AsyncComplexWorker.GetStaticTaskAsync() = Task[{task.TaskId}]: {task.StatusProperty}");
+        AssertEqual("created", task.Status.ToString(), "Static AsyncTask.Status");
+        TestLogger.Info($"AsyncComplexWorker.GetStaticTaskAsync() = Task[{task.TaskId}]: {task.Status}");
     }
 
     #endregion
