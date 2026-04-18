@@ -1,5 +1,5 @@
 {
-  "git_sha": "87e2200a",
+  "git_sha": "e24a56fa",
   "compile_gate": {
     "libraries": {
       "Alamofire": {

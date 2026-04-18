@@ -13,11 +13,20 @@ namespace BindingsGeneration.AppleTypesManifest;
 // `apple-swift-types-architecture.md` §Decision summary item 3 / §Q8.
 public sealed class SequentialLayoutWhitelist
 {
+    private HashSet<string>? _lookup;
+
     [JsonProperty("approved_identities", Order = 1)]
     public List<string> ApprovedIdentities { get; set; } = new();
 
-    public bool Contains(string swiftIdentity) =>
-        ApprovedIdentities.Contains(swiftIdentity);
+    // Ordinal comparison to match every other identity comparison in the pipeline
+    // (TypeOwnerRegistry, AppleTypesManifestBuilder, etc.). A culture-sensitive default
+    // comparer would silently miss a casing/locale-aware edge and the whitelist opt-in
+    // would never activate for the affected identity.
+    public bool Contains(string swiftIdentity)
+    {
+        var lookup = _lookup ??= new HashSet<string>(ApprovedIdentities, StringComparer.Ordinal);
+        return lookup.Contains(swiftIdentity);
+    }
 
     public static SequentialLayoutWhitelist Empty() => new();
 
@@ -25,6 +34,11 @@ public sealed class SequentialLayoutWhitelist
     {
         var text = File.ReadAllText(path);
         var loaded = JsonConvert.DeserializeObject<SequentialLayoutWhitelist>(text);
-        return loaded ?? Empty();
+        // Fail-closed on null (empty file, literal `null`, or malformed top-level): silently
+        // returning an empty whitelist would look identical to a legitimate empty list and mask
+        // a corrupted ship artifact. Match AppleTypesManifestBuilder.IngestAbiJson's pattern.
+        return loaded ?? throw new InvalidDataException(
+            $"SequentialLayoutWhitelist: '{path}' deserialized to null. Expected a JSON object " +
+            "with 'approved_identities'. An empty whitelist must still be a valid object ({}).");
     }
 }

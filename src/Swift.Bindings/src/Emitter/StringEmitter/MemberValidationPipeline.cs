@@ -388,7 +388,7 @@ public class MemberValidationPipeline
         if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl)) return "non_copyable_struct_parent";
         if (ConstructorWrapperEmitter.HasNonCopyableStructParameter(env)) return "non_copyable_struct_parameter";
         if (ConstructorWrapperEmitter.HasNestedFrozenStructParameter(env)) return "nested_frozen_struct_parameter";
-        if (ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env)) return "buffer_pointer_parameter";
+        if (ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env)) return "unsupported_buffer_pointer_parameter";
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl)) return "raw_generic_type_params";
         if (env.MethodDecl.HasVariadicParameter) return "variadic_parameter";
         if (ConstructorWrapperEmitter.HasVariadicExpansionPattern(env)) return "variadic_expansion_pattern";

@@ -36,9 +36,15 @@ public static class TypeProbe
     /// Constructs a live <see cref="Swift.Foundation.Locale.Language"/> instance
     /// by having a Swift helper write an initialized value into a heap buffer,
     /// then wrapping the buffer through
-    /// <c>SwiftObjectHelper&lt;Language&gt;.NewFromPayload</c>. The source buffer
-    /// is destroyed via VWT and freed before returning; the caller owns the
-    /// returned instance and must Dispose it.
+    /// <c>SwiftObjectHelper&lt;Language&gt;.NewFromPayload</c>. The caller owns
+    /// the returned instance and must Dispose it.
+    ///
+    /// Ownership contract: <c>NewFromPayload</c> moves the value out of the
+    /// source buffer. We must NOT call <c>VWT.Destroy</c> on that buffer
+    /// afterwards — doing so is safe today only because <c>Language</c> is
+    /// trivially destructible, but would double-free the first non-POD
+    /// supplement type (e.g. anything holding a Swift reference). Just free
+    /// the raw allocation.
     /// </summary>
     public static Swift.Foundation.Locale.Language CreateDefaultLanguage()
     {
@@ -49,10 +55,8 @@ public static class TypeProbe
             try
             {
                 CreateLocaleLanguage((IntPtr)buf);
-                var instance = (Swift.Foundation.Locale.Language)
+                return (Swift.Foundation.Locale.Language)
                     SwiftObjectHelper<Swift.Foundation.Locale.Language>.NewFromPayload((IntPtr)buf);
-                metadata.ValueWitnessTable->Destroy(buf, metadata);
-                return instance;
             }
             finally
             {

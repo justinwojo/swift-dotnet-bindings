@@ -17,12 +17,16 @@ MODULES=(Foundation ManagedSettings CryptoKit)
 
 # Platform targets driving swift-api-digester. Each dump contributes its platform's
 # intro_* availability fields; the manifest builder unions them per swift_identity.
-# Targets track the Apple SDK train the supplement ships against (iOS 26 / macOS 26 / tvOS 26).
+# Targets track the Apple SDK train the supplement ships against. Override the default
+# (Xcode 26) via SDK_TRAIN_MAJOR=NN to regenerate against a newer train without
+# editing the script.
+SDK_TRAIN_MAJOR="${SDK_TRAIN_MAJOR:-26}"
+SDK_TRAIN_VERSION="${SDK_TRAIN_MAJOR}.0"
 PLATFORMS=(
-  "ios|iphonesimulator|arm64-apple-ios26.0-simulator"
-  "maccatalyst|macosx|arm64-apple-ios26.0-macabi"
-  "tvos|appletvsimulator|arm64-apple-tvos26.0-simulator"
-  "macos|macosx|arm64-apple-macos26.0"
+  "ios|iphonesimulator|arm64-apple-ios${SDK_TRAIN_VERSION}-simulator"
+  "maccatalyst|macosx|arm64-apple-ios${SDK_TRAIN_VERSION}-macabi"
+  "tvos|appletvsimulator|arm64-apple-tvos${SDK_TRAIN_VERSION}-simulator"
+  "macos|macosx|arm64-apple-macos${SDK_TRAIN_VERSION}"
 )
 
 WORKDIR="${WORKDIR:-/tmp/apple-abi-dump}"
@@ -86,12 +90,12 @@ dotnet run --project "$GENERATOR_PROJECT" -- \
   --emit-apple-types-manifest \
   "${abi_json_args[@]}" \
   --apple-include-types "$MANIFEST_DIR/include-types.json" \
-  --apple-version 26.0.0 \
-  --apple-sdk-train-label "Xcode 26 / iOS 26 / macOS 26 / tvOS 26" \
-  --apple-sdk-min-ios 26.0 \
-  --apple-sdk-min-maccatalyst 26.0 \
-  --apple-sdk-min-tvos 26.0 \
-  --apple-sdk-min-macos 26.0 \
+  --apple-version "${SDK_TRAIN_VERSION}.0" \
+  --apple-sdk-train-label "Xcode ${SDK_TRAIN_MAJOR} / iOS ${SDK_TRAIN_MAJOR} / macOS ${SDK_TRAIN_MAJOR} / tvOS ${SDK_TRAIN_MAJOR}" \
+  --apple-sdk-min-ios "$SDK_TRAIN_VERSION" \
+  --apple-sdk-min-maccatalyst "$SDK_TRAIN_VERSION" \
+  --apple-sdk-min-tvos "$SDK_TRAIN_VERSION" \
+  --apple-sdk-min-macos "$SDK_TRAIN_VERSION" \
   ${partial_forward[@]+"${partial_forward[@]}"} \
   -o "$MANIFEST_DIR/manifest.json"
 

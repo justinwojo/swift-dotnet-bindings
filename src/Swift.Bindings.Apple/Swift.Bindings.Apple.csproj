@@ -20,6 +20,13 @@
     <!-- NuGet package metadata -->
     <PackageId>SwiftBindings.Apple</PackageId>
     <PackageVersion>0.0.0-dev</PackageVersion>
+    <!-- Runtime dep declared at the bounded range (same floor/ceiling logic as the
+         SDK-emitted PackageReference via Sdk.props). Stamped by VersionScope at pack
+         time so the supplement nupkg declares Runtime at [MAJOR.MINOR.PATCH,MAJOR.(MINOR+1).0)
+         instead of an exact-version/min-only dep that would let consumers float across
+         incompatible Runtime minors. Mirrors the SDK-side SwiftRuntimePackageVersionRange
+         in Sdk.props; the two values are stamped together and must stay in sync. -->
+    <SwiftRuntimePackageVersionRange>[0.0.0-dev,0.1.0)</SwiftRuntimePackageVersionRange>
     <Description>Managed projections for Apple Swift-only value types (Foundation.Locale.Language, ManagedSettings.Application, CryptoKit.P256.Signing.ECDSASignature, etc.) that have no Objective-C bridge. Versioned per Apple SDK train; cross-major additive-only.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageTags>swift;interop;bindings;apple;ios;macos;tvos;maccatalyst</PackageTags>
@@ -33,10 +40,17 @@
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('tvos'))">15.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
-  <!-- Runtime dependency: ProjectReference here becomes a PackageReference in the
-       generated nuspec, stamped with Swift.Runtime's PackageVersion at pack time. -->
+  <!-- Runtime dependency: ProjectReference becomes a PackageReference in the generated
+       nuspec. The <Version> metadata overrides NuGet's default of taking the referenced
+       project's PackageVersion (which would emit an unbounded min-only dep) and instead
+       stamps the bounded range. VersionScope rewrites $(SwiftRuntimePackageVersionRange)
+       to the real bounded range at pack time so the shipped nupkg declares Runtime at
+       [MAJOR.MINOR.PATCH,MAJOR.(MINOR+1).0) — no drift risk vs. the SDK-side range in
+       Sdk.props because both stamps go through VersionScope. -->
   <ItemGroup>
-    <ProjectReference Include="../Swift.Runtime/src/Swift.Runtime.csproj" />
+    <ProjectReference Include="../Swift.Runtime/src/Swift.Runtime.csproj">
+      <Version>$(SwiftRuntimePackageVersionRange)</Version>
+    </ProjectReference>
   </ItemGroup>
 
   <!-- NuGet pack items -->
@@ -59,6 +73,7 @@
     <_AppleTypesManifestJson>$(_AppleTypesManifestDir)\manifest.json</_AppleTypesManifestJson>
     <_AppleTypesSequentialLayoutWhitelist>$(_AppleTypesManifestDir)\sequential-layout-whitelist.json</_AppleTypesSequentialLayoutWhitelist>
     <_AppleTypesGeneratorProject>$(MSBuildThisFileDirectory)..\Swift.Bindings\src\Swift.Bindings.csproj</_AppleTypesGeneratorProject>
+    <_AppleTypesGeneratorDir>$(MSBuildThisFileDirectory)..\Swift.Bindings\src</_AppleTypesGeneratorDir>
   </PropertyGroup>
 
   <Target Name="_ComputeAppleTypePaths">
@@ -66,12 +81,21 @@
       <_AppleTypesGeneratedDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(IntermediateOutputPath)AppleTypes'))</_AppleTypesGeneratedDir>
       <_AppleTypesStampFile>$(_AppleTypesGeneratedDir)\.stamp</_AppleTypesStampFile>
     </PropertyGroup>
+
+    <!-- Collect emitter source files + csproj so an emitter-only change invalidates the
+         stamp and regeneration runs. Without this, changes to AppleTypesCsEmitter or its
+         helpers would be compiled into the generator but the stamp-gated target would
+         short-circuit, leaving the consumer project compiling against stale .cs bodies. -->
+    <ItemGroup>
+      <_AppleTypesEmitterInput Include="$(_AppleTypesGeneratorDir)\**\*.cs" />
+      <_AppleTypesEmitterInput Include="$(_AppleTypesGeneratorDir)\Swift.Bindings.csproj" />
+    </ItemGroup>
   </Target>
 
   <Target Name="_GenerateAppleTypeSources"
           DependsOnTargets="_ComputeAppleTypePaths"
           BeforeTargets="CoreCompile"
-          Inputs="$(_AppleTypesManifestJson);$(_AppleTypesSequentialLayoutWhitelist)"
+          Inputs="$(_AppleTypesManifestJson);$(_AppleTypesSequentialLayoutWhitelist);@(_AppleTypesEmitterInput)"
           Outputs="$(_AppleTypesStampFile)">
     <MakeDir Directories="$(_AppleTypesGeneratedDir)" />
     <Exec Command="dotnet run --project &quot;$(_AppleTypesGeneratorProject)&quot; --configuration $(Configuration) -- --emit-apple-types-cs --apple-types-manifest &quot;$(_AppleTypesManifestJson)&quot; --apple-types-sequential-layout-whitelist &quot;$(_AppleTypesSequentialLayoutWhitelist)&quot; -o &quot;$(_AppleTypesGeneratedDir)&quot;" />

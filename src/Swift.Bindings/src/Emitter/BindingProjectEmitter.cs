@@ -65,11 +65,14 @@ namespace BindingsGeneration
         /// When <see cref="EmitsAppleSupplementReference"/> is true, the open-ended NuGet
         /// version expression to attach (per architecture doc §Decision summary item 5 —
         /// the Apple supplement is cross-major additive-only, so consumers float forward
-        /// on the Apple SDK train and do not pin to a specific minor). Defaults to
-        /// <c>26.0.0</c> (Apple SDK train 26); the generator CLI threads the value of
-        /// <c>--apple-version</c> through so a future train bump needs only a single flag.
+        /// on the Apple SDK train and do not pin to a specific minor). Intentionally has
+        /// no default: every caller (CLI, tests, templates) must thread an explicit
+        /// version from <c>--apple-version</c> or the equivalent, and Emit throws if this
+        /// is null/empty when <see cref="EmitsAppleSupplementReference"/> is true. A
+        /// hardcoded fallback would silently ship stale supplement versions on train
+        /// bumps.
         /// </summary>
-        public string AppleSupplementVersion { get; init; } = "26.0.0";
+        public string? AppleSupplementVersion { get; init; }
 
         /// <summary>
         /// When non-null, emit a <c>ProjectReference</c> (instead of <c>PackageReference</c>)
@@ -221,11 +224,19 @@ namespace BindingsGeneration
             }
             else if (options.EmitsAppleSupplementReference)
             {
+                if (string.IsNullOrWhiteSpace(options.AppleSupplementVersion))
+                {
+                    throw new InvalidOperationException(
+                        "BindingProjectEmitterOptions.AppleSupplementVersion must be set (typically threaded from --apple-version) " +
+                        "when EmitsAppleSupplementReference is true. A hardcoded fallback would silently ship a stale supplement version " +
+                        "on Apple SDK train bumps — fail loudly here instead.");
+                }
+
                 appleSupplementRef = $"""
 
                     <!-- Apple supplement — open-ended version per supplement is cross-major
                          additive-only (architecture doc §Decision summary item 5). -->
-                    <PackageReference Include="SwiftBindings.Apple" Version="{XmlEscape(options.AppleSupplementVersion ?? "")}" />
+                    <PackageReference Include="SwiftBindings.Apple" Version="{XmlEscape(options.AppleSupplementVersion)}" />
                 """;
             }
 

@@ -358,7 +358,9 @@ public sealed class AppleTypesManifestBuilder
         "class" => "class",
         "actor" => "actor",
         "protocol" => "protocol",
-        _ => declKind?.ToLowerInvariant() ?? "struct",
+        _ => throw new InvalidDataException(
+            $"AppleTypesManifestBuilder: unexpected declKind '{declKind}' — expected one of " +
+            "struct/enum/class/actor/protocol. Extend the manifest schema before emitting this kind."),
     };
 
     private static string LastDotSegment(string name)

@@ -199,6 +199,27 @@ public class AsyncStreamEmitterTests
     }
 
     [Fact]
+    public void EmitCompletionCallback_InvokesStreamCompletionCallback()
+    {
+        // Regression guard: the completion callback must resolve the stream
+        // from context and call GetCompletionCallback()(context). A previous
+        // emission left this empty, leaving the channel writer open forever
+        // and hanging any C# consumer iterating via `await foreach`.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateClassDecl("Sensor", moduleDecl);
+        var property = CreateAsyncStreamProperty("readings", classDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        AsyncStreamEmitter.EmitCompletionCallback(csWriter, property, asyncStreamHandler, "Sensor_readings");
+
+        var cs = csOutput.ToString();
+        Assert.Contains("stream.GetCompletionCallback()(context)", cs);
+    }
+
+    [Fact]
     public void MemberEmissionValidator_AllowsNonisolatedAsyncStreamOnMainActorType()
     {
         var typeDatabase = new MockTypeDatabase();

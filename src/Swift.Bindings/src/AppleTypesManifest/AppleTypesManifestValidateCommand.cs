@@ -92,13 +92,23 @@ public static class AppleTypesManifestValidateCommand
 
         if (writeBack && failures == 0 && (probed > 0 || matches > 0))
         {
+            // Temp-file + atomic rename: guards against a crash mid-serialization leaving
+            // the repo's manifest.json truncated or half-written. Mirrors the pattern in
+            // AppleTypesManifestCommand.Run so both write paths give consumers reading
+            // manifest.json through git / file-system watches a complete file.
+            var tempPath = manifestPath + ".tmp-" + Guid.NewGuid().ToString("N");
             try
             {
-                AppleTypesManifestSerializer.WriteTo(manifest, manifestPath);
+                AppleTypesManifestSerializer.WriteTo(manifest, tempPath);
+                File.Move(tempPath, manifestPath, overwrite: true);
                 logger.LogInformation("Wrote updated manifest to '{Path}'.", manifestPath);
             }
             catch (Exception ex)
             {
+                if (File.Exists(tempPath))
+                {
+                    try { File.Delete(tempPath); } catch { /* best effort */ }
+                }
                 logger.LogError(ex, "Failed to write back manifest '{Path}': {Message}", manifestPath, ex.Message);
                 return 1;
             }

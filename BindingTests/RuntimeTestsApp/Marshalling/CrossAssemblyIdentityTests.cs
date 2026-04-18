@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
 using Swift.Runtime;
 
@@ -26,6 +27,18 @@ public class CrossAssemblyIdentityTests : TestBase
 {
     public CrossAssemblyIdentityTests(TestResults results) : base(results) { }
 
+    // Known gap: both assemblies load into the default AssemblyLoadContext in
+    // the current test app, so `ReferenceEquals(typeFromA, typeFromB)` and
+    // `AssemblyQualifiedName` equality cannot distinguish "same type in one
+    // ALC" from "same-named type in two different ALCs." The Assembly.Load
+    // cross-check below pins the handle against the default-ALC resolution,
+    // which catches the specific case of a consumer privately re-emitting
+    // the type into its own assembly — but it does NOT catch the ALC-
+    // duplication case. Full ALC-isolation coverage (loading ConsumerA and
+    // ConsumerB into separately created AssemblyLoadContexts and asserting
+    // the resolved Language types diverge as expected, then re-merge via the
+    // shared SwiftBindings.Apple assembly in the default ALC) is deferred to
+    // a post-0.8 hardening pass — tracked in src/docs/roadmap.md.
     public void TestLanguageTypeReferenceEqualsAcrossAssemblies()
     {
         if (!OperatingSystem.IsIOSVersionAtLeast(16))
@@ -50,6 +63,24 @@ public class CrossAssemblyIdentityTests : TestBase
             typeof(Swift.Foundation.Locale.Language).Assembly.FullName,
             typeFromB.Assembly.FullName,
             "Consumer B resolves Language from the SwiftBindings.Apple assembly (not a local duplicate)");
+
+        // Default-ALC pin: resolve the supplement assembly explicitly by the
+        // name typeof reports and look up the type using typeof's FullName
+        // (which emits nested-type delimiters correctly — Language is nested
+        // inside Locale, so the reflection name is "Swift.Foundation.Locale+Language",
+        // not the Swift-style dotted form). Verifies the returned Type is
+        // reference-equal to what each consumer observed, catching a consumer
+        // privately re-emitting the type even if both observed it uniformly.
+        var canonicalAssemblyName = typeof(Swift.Foundation.Locale.Language).Assembly.GetName().Name!;
+        var canonicalTypeName = typeof(Swift.Foundation.Locale.Language).FullName!;
+        var canonicalAssembly = Assembly.Load(canonicalAssemblyName);
+        var canonicalType = canonicalAssembly.GetType(canonicalTypeName, throwOnError: true)!;
+        AssertTrue(
+            ReferenceEquals(canonicalType, typeFromA),
+            $"ConsumerA's Language handle matches SwiftBindings.Apple's canonical type; got {typeFromA.AssemblyQualifiedName}");
+        AssertTrue(
+            ReferenceEquals(canonicalType, typeFromB),
+            $"ConsumerB's Language handle matches SwiftBindings.Apple's canonical type; got {typeFromB.AssemblyQualifiedName}");
     }
 
     public void TestLanguageMetadataHandleMatchesAcrossAssemblies()

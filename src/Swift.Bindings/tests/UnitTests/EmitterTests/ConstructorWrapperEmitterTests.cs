@@ -931,6 +931,147 @@ public class ConstructorWrapperEmitterTests
 
     #endregion
 
+    #region HasUnsupportedBufferPointerParameter Tests
+
+    // Rejects Swift buffer-pointer types that CdeclParamMapper can't split at the
+    // @_cdecl boundary. UnsafeRawBufferPointer is deliberately absent — it does split
+    // into (ptr, len) and routes through ReadOnlySpan<byte> on the managed side.
+
+    [Fact]
+    public void HasUnsupportedBufferPointerParameter_NoParams_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env));
+    }
+
+    [Fact]
+    public void HasUnsupportedBufferPointerParameter_IntParam_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6MyTypeVySicfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "value",
+                    PrivateName = "value",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env));
+    }
+
+    [Theory]
+    [InlineData("Swift.UnsafeMutableRawBufferPointer")]
+    [InlineData("Swift.UnsafeBufferPointer")]
+    [InlineData("Swift.UnsafeMutableBufferPointer")]
+    public void HasUnsupportedBufferPointerParameter_UnsupportedBufferTypes_ReturnsTrue(string bufferTypeName)
+    {
+        // Each of these is a multi-word struct whose @_cdecl shape can't be
+        // expressed at the C ABI boundary; the emitter must refuse to wrap a
+        // constructor taking one as a parameter.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6MyTypeVyxcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "buffer",
+                    PrivateName = "buffer",
+                    SwiftTypeSpec = new NamedTypeSpec(bufferTypeName),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env),
+            $"{bufferTypeName} must be flagged as unsupported at the @_cdecl boundary.");
+    }
+
+    [Fact]
+    public void HasUnsupportedBufferPointerParameter_UnsafeRawBufferPointer_ReturnsFalse()
+    {
+        // UnsafeRawBufferPointer IS supported — CdeclParamMapper splits it into
+        // (ptr, len) and the managed side exposes ReadOnlySpan<byte>. Regression
+        // guard against a refactor that accidentally names it alongside the
+        // unsupported variants.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateStructDecl("MyType", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule6MyTypeVyxcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                new ArgumentDecl
+                {
+                    Name = "buffer",
+                    PrivateName = "buffer",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.UnsafeRawBufferPointer"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env));
+    }
+
+    #endregion
+
     #region Symbol Naming Tests
 
     [Fact]

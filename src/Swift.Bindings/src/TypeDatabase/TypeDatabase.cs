@@ -277,6 +277,13 @@ namespace BindingsGeneration
             // re-emitting a parallel local class. The resolver short-circuits to false
             // when the identity is not in the manifest, so non-supplement types fall
             // through to the normal module-database lookup untouched.
+            //
+            // INVARIANT: currentlyGeneratingModule is always null on this path. The
+            // main generator never rebuilds the supplement through TryGetTypeRecord —
+            // supplement regeneration uses the dedicated AppleTypesCsEmitter pipeline,
+            // which never flows through this helper. If the two paths ever merge, the
+            // TypeOwnerRegistry Level-5 (Local) fall-through would need a real module
+            // name to avoid a silent cross-module/supplement identity mismatch.
             if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
             {
                 AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName);

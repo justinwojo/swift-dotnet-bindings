@@ -83,13 +83,22 @@ public static class AppleTypesManifestValidator
         }
 
         var accessor = entry.MetadataAccessor;
-        var hostAvailability = GetHostAvailability(accessor.Availability);
-        if (hostAvailability is null)
+        // Distinguish "availability has no annotation at all" (treat as available
+        // everywhere — e.g. Swift stdlib types) from "annotation present but the host
+        // platform field is null" (explicitly unavailable on this platform). Only the
+        // latter is a legitimate skip. Treating the two equivalently would silently
+        // bypass VWT probing for types that lack any intro_* data, so their
+        // size/alignment drift across SDK trains would go undetected.
+        if (!accessor.Availability.IsEmpty)
         {
-            return new ValidationResult(
-                entry.SwiftIdentity, moduleName, ValidationOutcome.SkippedUnavailableOnHost,
-                null, null, null, null,
-                $"not advertised on host platform (host={GetCurrentPlatformToken()})");
+            var hostAvailability = GetHostAvailability(accessor.Availability);
+            if (hostAvailability is null)
+            {
+                return new ValidationResult(
+                    entry.SwiftIdentity, moduleName, ValidationOutcome.SkippedUnavailableOnHost,
+                    null, null, null, null,
+                    $"not advertised on host platform (host={GetCurrentPlatformToken()})");
+            }
         }
 
         var libraryPath = ResolveLibraryPath(accessor.Library);

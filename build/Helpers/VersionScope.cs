@@ -57,6 +57,7 @@ public sealed class VersionScope : IDisposable
         StampPackageVersion(files[1], version);                 // SDK .csproj
         StampPackageVersion(files[2], version);                 // Templates .csproj
         StampPackageVersion(files[3], effectiveAppleVersion);   // Apple .csproj
+        StampSupplementRuntimeRange(files[3], version);         // Apple .csproj Runtime dep range
         StampSdkProps(files[4], version, effectiveAppleVersion); // _SwiftBindingSdkVersion + SwiftRuntimeVersion + SwiftAppleSupplementVersion
         StampTemplateSdk(files[5], version);                    // Sdk="SwiftBindings.Sdk/..."
         StampTemplateJson(files[6], version);                   // template.json sdkVersion symbol
@@ -90,6 +91,22 @@ public sealed class VersionScope : IDisposable
         var element = doc.Descendants("PackageVersion").FirstOrDefault()
             ?? throw new InvalidOperationException($"<PackageVersion> not found in {file}");
         element.Value = version;
+        SaveXml(doc, file);
+    }
+
+    /// <summary>
+    /// Sets the <SwiftRuntimePackageVersionRange> property in the supplement csproj
+    /// so its Runtime ProjectReference &lt;Version&gt; metadata evaluates to the bounded
+    /// range at pack time. Without this the supplement nupkg would declare Runtime as
+    /// an unbounded min-only dep (inherited from Swift.Runtime's PackageVersion), which
+    /// would let consumers float into a future incompatible Runtime minor.
+    /// </summary>
+    private static void StampSupplementRuntimeRange(string file, string version)
+    {
+        var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
+        var element = doc.Descendants("SwiftRuntimePackageVersionRange").FirstOrDefault()
+            ?? throw new InvalidOperationException($"<SwiftRuntimePackageVersionRange> not found in {file}");
+        element.Value = BindingsGeneration.RuntimeVersionRange.Build(version);
         SaveXml(doc, file);
     }
 
@@ -145,12 +162,35 @@ public sealed class VersionScope : IDisposable
     /// <summary>
     /// Updates the sdkVersion symbol's defaultValue in template.json.
     /// </summary>
+    /// <remarks>
+    /// JsonNode's property iteration order tracks insertion order, so blind assignment to
+    /// <c>sdk["defaultValue"] / sdk["replaces"]</c> either preserves existing order (if the
+    /// keys were present) or appends in call order (if they weren't). Mixed-case inputs would
+    /// re-serialize with keys in different orders across stamp calls, producing noisy diffs
+    /// on every pack. Rebuild the symbol object with a fixed key order so the on-disk form is
+    /// byte-stable regardless of the input template's key order.
+    /// </remarks>
     private static void StampTemplateJson(string file, string version)
     {
         var node = JsonNode.Parse(File.ReadAllText(file))!;
-        var sdk = node["symbols"]!["sdkVersion"]!;
-        sdk["defaultValue"] = version;
-        sdk["replaces"] = version;
+        var symbols = node["symbols"]!.AsObject();
+        var existing = symbols["sdkVersion"]!.AsObject();
+        var rebuilt = new JsonObject();
+        // Known keys first in a fixed order; preserve any future/additional keys afterwards.
+        rebuilt["type"] = existing["type"]?.DeepClone();
+        rebuilt["datatype"] = existing["datatype"]?.DeepClone();
+        rebuilt["description"] = existing["description"]?.DeepClone();
+        rebuilt["defaultValue"] = version;
+        rebuilt["replaces"] = version;
+        foreach (var kvp in existing)
+        {
+            if (rebuilt.ContainsKey(kvp.Key)) continue;
+            rebuilt[kvp.Key] = kvp.Value?.DeepClone();
+        }
+        // Drop any rebuilt keys whose source was null (DeepClone on null yields null; JsonObject keeps them).
+        foreach (var key in rebuilt.Where(kvp => kvp.Value is null).Select(kvp => kvp.Key).ToList())
+            rebuilt.Remove(key);
+        symbols["sdkVersion"] = rebuilt;
         File.WriteAllText(file, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
     }
 

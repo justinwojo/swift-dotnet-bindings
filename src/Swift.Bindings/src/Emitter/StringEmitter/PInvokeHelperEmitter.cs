@@ -508,7 +508,7 @@ public class PInvokeHelperContext
     private string BuildBufferModeMetadataAccessorBlock(string libraryPath, string metadataAccessorSymbol)
     {
         var thinParams = GetTypeMetadataAccessorParameterDeclarations();
-        int totalArgs = thinParams.Count;
+        int metadataAndPwtArgCount = thinParams.Count;
 
         // Named IntPtr params for the wrapper (matches the thin-mode shape so callers
         // are oblivious to the ABI switch).
@@ -518,8 +518,8 @@ public class PInvokeHelperContext
 
         // Extract each param's variable name (last whitespace-separated token) for
         // buffer store statements. Each thinParams entry is "IntPtr {name}".
-        var storeLines = new List<string>(totalArgs);
-        for (int i = 0; i < totalArgs; i++)
+        var storeLines = new List<string>(metadataAndPwtArgCount);
+        for (int i = 0; i < metadataAndPwtArgCount; i++)
         {
             var decl = thinParams[i];
             var spaceIdx = decl.LastIndexOf(' ');
@@ -540,7 +540,7 @@ public class PInvokeHelperContext
 
             internal static global::Swift.Runtime.TypeMetadata PInvoke_getMetadata({{wrapperParamList}})
             {
-                global::System.IntPtr* buffer = stackalloc global::System.IntPtr[{{totalArgs}}];
+                global::System.IntPtr* buffer = stackalloc global::System.IntPtr[{{metadataAndPwtArgCount}}];
             {{storeBlock}}
                 return PInvoke_getMetadata_buffer(request, (global::System.IntPtr)buffer);
             }

@@ -86,9 +86,13 @@ public class TypeOwnerRegistryTests
     [Fact]
     public void RegisterSwiftStdlibType_ResolvesToSwiftStdlibKind()
     {
-        TypeOwnerRegistry.RegisterSwiftStdlibType("Swift.String");
+        // Swift.Int (not Swift.String) — Swift.String is pinned via s_legacyRuntimeCanonicals
+        // so it resolves at Level 1 as TypeOwnerKind.Runtime and would never reach the Level 2
+        // stdlib path. Pick an identity that's actually a pure stdlib registration to exercise
+        // the Level 2 resolver.
+        TypeOwnerRegistry.RegisterSwiftStdlibType("Swift.Int");
 
-        var owner = TypeOwnerRegistry.Resolve("Swift.String");
+        var owner = TypeOwnerRegistry.Resolve("Swift.Int");
 
         Assert.Equal(TypeOwnerKind.SwiftStdlib, owner.Kind);
         Assert.Equal(TypeOwnerRegistry.RuntimePackageId, owner.PackageId);
@@ -393,6 +397,49 @@ public class TypeOwnerRegistryTests
     {
         Assert.Throws<ArgumentNullException>(() => TypeOwnerRegistry.Resolve(null!));
         Assert.Throws<ArgumentException>(() => TypeOwnerRegistry.Resolve(""));
+    }
+
+    // ---- v1/v2 coexistence guard -------------------------------------------------
+
+    [Fact]
+    public void RegisterPerTypeOverride_ConflictingPackageId_Throws()
+    {
+        // Simulates a consumer graph that resolves both SwiftBindings.Apple and
+        // SwiftBindings.Apple.v2 — the second [ModuleInitializer] must not silently overwrite.
+        var v1 = new TypeOwner
+        {
+            Kind = TypeOwnerKind.AppleSupplement,
+            PackageId = "SwiftBindings.Apple",
+        };
+        var v2 = new TypeOwner
+        {
+            Kind = TypeOwnerKind.AppleSupplement,
+            PackageId = "SwiftBindings.Apple.v2",
+        };
+        TypeOwnerRegistry.RegisterPerTypeOverride("Foundation.SomeNewType", v1);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => TypeOwnerRegistry.RegisterPerTypeOverride("Foundation.SomeNewType", v2));
+
+        Assert.Contains("SwiftBindings.Apple", ex.Message);
+        Assert.Contains("SwiftBindings.Apple.v2", ex.Message);
+        Assert.Contains("Foundation.SomeNewType", ex.Message);
+    }
+
+    [Fact]
+    public void RegisterPerTypeOverride_SamePackageId_IsIdempotent()
+    {
+        // Re-registration by the same package (e.g. duplicate module-init path) must not throw.
+        var owner = new TypeOwner
+        {
+            Kind = TypeOwnerKind.AppleSupplement,
+            PackageId = "SwiftBindings.Apple",
+        };
+        TypeOwnerRegistry.RegisterPerTypeOverride("Foundation.SomeNewType", owner);
+        TypeOwnerRegistry.RegisterPerTypeOverride("Foundation.SomeNewType", owner);
+
+        var resolved = TypeOwnerRegistry.Resolve("Foundation.SomeNewType");
+        Assert.Equal("SwiftBindings.Apple", resolved.PackageId);
     }
 
     [Fact]

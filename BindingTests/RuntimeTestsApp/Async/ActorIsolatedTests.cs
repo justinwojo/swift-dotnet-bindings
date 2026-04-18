@@ -167,16 +167,22 @@ public class ActorIsolatedTests : TestBase
                 await source.EndAsync();
             });
 
-            var received = new List<int>();
+            // Build the list inside the consumer task and return it — avoids sharing
+            // a mutable List<int> across threads. Safe today under Task.WhenAll, but
+            // collect-after-join removes the cross-thread write/read entirely so a
+            // future refactor can't regress into a Heisenbug.
             var consume = Task.Run(async () =>
             {
+                var local = new List<int>();
                 await foreach (var value in source.Events)
                 {
-                    received.Add(value);
+                    local.Add(value);
                 }
+                return local;
             });
 
             await WithTimeout(Task.WhenAll(produce, consume), DefaultAsyncTimeout);
+            var received = await consume;
 
             AssertEqual(2, received.Count, "Iterator should have received both emitted values");
             AssertEqual(7, received[0], "First emitted value");

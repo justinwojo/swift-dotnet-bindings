@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.InteropServices;
 using RuntimeTestsApp.Infrastructure;
 using Swift.Runtime;
 
@@ -81,5 +82,127 @@ public class AppleSupplementRoundTripTests : TestBase
         var first = SwiftObjectHelper<Swift.Foundation.Locale.Language>.GetTypeMetadata();
         var second = SwiftObjectHelper<Swift.Foundation.Locale.Language>.GetTypeMetadata();
         AssertEqual(first, second, "Metadata handle is cached and stable across calls");
+    }
+
+    // Value ABI coverage — exercise Create → NewFromPayload → Dispose for each
+    // supplement type. Without these, a broken NewFromPayload path (bad VWT
+    // interop, mis-sized buffer, missing metadata registration) would still
+    // show green above since the metadata-only tests never touch a payload.
+    //
+    // NewFromPayload moves the value out of the source buffer, so we free the
+    // raw allocation but must NOT call VWT.Destroy on it afterwards.
+
+    [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_CreateLocaleLanguage")]
+    private static extern void CreateLocaleLanguage(IntPtr bufferPtr);
+
+    [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_CreateP256Signature")]
+    private static extern void CreateP256Signature(IntPtr bufferPtr);
+
+    [DllImport("SwiftBindingsTestLib", EntryPoint = "SBT_AppleSupplement_CreateManagedSettingsApplication")]
+    private static extern void CreateManagedSettingsApplication(IntPtr bufferPtr);
+
+    public void TestFoundationLocaleLanguageValueRoundTrip()
+    {
+        if (!OperatingSystem.IsIOSVersionAtLeast(16))
+        {
+            TestLogger.Info("Foundation.Locale.Language requires iOS 16+; skipping.");
+            return;
+        }
+
+        var metadata = SwiftObjectHelper<Swift.Foundation.Locale.Language>.GetTypeMetadata();
+        unsafe
+        {
+            void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            try
+            {
+                CreateLocaleLanguage((IntPtr)buf);
+                // ISwiftObject has static abstract members, so it can't be a generic type
+                // argument to AssertNotNull<T>. Cast to object for the null check, then down
+                // to the concrete supplement type for Dispose.
+                object boxed = SwiftObjectHelper<Swift.Foundation.Locale.Language>.NewFromPayload((IntPtr)buf);
+                AssertNotNull(boxed, "Foundation.Locale.Language materialized from payload");
+                var value = (Swift.Foundation.Locale.Language)(ISwiftObject)boxed;
+                try
+                {
+                    AssertEqual(typeof(Swift.Foundation.Locale.Language), value.GetType(), "Unboxed type matches");
+                }
+                finally
+                {
+                    value.Dispose();
+                }
+            }
+            finally
+            {
+                NativeMemory.Free(buf);
+            }
+        }
+    }
+
+    public void TestCryptoKitP256SignatureValueRoundTrip()
+    {
+        if (!OperatingSystem.IsIOSVersionAtLeast(13))
+        {
+            TestLogger.Info("CryptoKit.P256.Signing.ECDSASignature requires iOS 13+; skipping.");
+            return;
+        }
+
+        var metadata = SwiftObjectHelper<Swift.CryptoKit.P256.Signing.ECDSASignature>.GetTypeMetadata();
+        unsafe
+        {
+            void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            try
+            {
+                CreateP256Signature((IntPtr)buf);
+                object boxed = SwiftObjectHelper<Swift.CryptoKit.P256.Signing.ECDSASignature>.NewFromPayload((IntPtr)buf);
+                AssertNotNull(boxed, "P256.Signing.ECDSASignature materialized from payload");
+                var value = (Swift.CryptoKit.P256.Signing.ECDSASignature)(ISwiftObject)boxed;
+                try
+                {
+                    AssertEqual(typeof(Swift.CryptoKit.P256.Signing.ECDSASignature), value.GetType(), "Unboxed type matches");
+                }
+                finally
+                {
+                    value.Dispose();
+                }
+            }
+            finally
+            {
+                NativeMemory.Free(buf);
+            }
+        }
+    }
+
+    public void TestManagedSettingsApplicationValueRoundTrip()
+    {
+        if (!OperatingSystem.IsIOSVersionAtLeast(15))
+        {
+            TestLogger.Info("ManagedSettings.Application requires iOS 15+; skipping.");
+            return;
+        }
+
+        var metadata = SwiftObjectHelper<Swift.ManagedSettings.Application>.GetTypeMetadata();
+        unsafe
+        {
+            void* buf = NativeMemory.Alloc((nuint)metadata.Size);
+            try
+            {
+                CreateManagedSettingsApplication((IntPtr)buf);
+                object boxed = SwiftObjectHelper<Swift.ManagedSettings.Application>.NewFromPayload((IntPtr)buf);
+                AssertNotNull(boxed, "ManagedSettings.Application materialized from payload");
+                var value = (Swift.ManagedSettings.Application)(ISwiftObject)boxed;
+                try
+                {
+                    AssertEqual(typeof(Swift.ManagedSettings.Application), value.GetType(), "Unboxed type matches");
+                }
+                finally
+                {
+                    value.Dispose();
+                }
+            }
+            finally
+            {
+                NativeMemory.Free(buf);
+            }
+        }
     }
 }

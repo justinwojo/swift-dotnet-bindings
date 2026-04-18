@@ -210,6 +210,20 @@ done; true"
            Code="SWIFTBIND014"
            Text="Swift interface not found at '$(_SwiftAppleFrameworkInterface)'. The framework may not have a Swift module for this platform/architecture." />
 
+    <!-- Resolve the platform version that threads into the generator and the fingerprint.
+         The consumer-settable <SwiftAppleFrameworkPlatformVersion> property wins over MSBuild's
+         <TargetPlatformVersion>, which on .NET 10 library projects silently picks the oldest
+         installed TPV on multi-workload machines (see ship plan §3.3). Falling back to
+         $(TargetPlatformVersion) preserves existing behavior; failing closed when both are empty
+         prevents a silent drift between generator output and the shipped nupkg layout. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftAppleFrameworkPlatformVersion)' == ''">
+      <SwiftAppleFrameworkPlatformVersion>$(TargetPlatformVersion)</SwiftAppleFrameworkPlatformVersion>
+    </PropertyGroup>
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftAppleFrameworkPlatformVersion)' == ''"
+           Code="SWIFTBIND016"
+           Text="Cannot resolve platform version for Apple-framework direct mode. Set &lt;SwiftAppleFrameworkPlatformVersion&gt; to the canonical SDK version (e.g. '26.2') or use a versioned TargetFramework (e.g. net10.0-ios26.0)." />
+
     <!-- Compute swift-api-digester target triple -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_SwiftDigesterTarget>
@@ -287,7 +301,7 @@ done; true"
           Command="(
       shasum -a 256 &quot;$(_SwiftAppleFrameworkInterface)&quot; ; \
       if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(TargetPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -311,11 +325,29 @@ done; true"
                       Condition="'$(_SwiftBindingUpToDate)' != 'true'" />
   </Target>
 
+  <!--
+    Guard: SwiftAppleSupplementPrototypeDir must land under $(IntermediateOutputPath)
+    (i.e. obj/ for the current TFM) so a `dotnet clean` removes it. An absolute path
+    outside obj/ survives clean and risks ending up committed to source control.
+    Warn rather than error — the property accepts user-supplied paths and power users
+    may intentionally pin to a shared workspace.
+  -->
+  <Target Name="_ValidateSwiftAppleSupplementPrototypeDir"
+          Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">
+    <PropertyGroup>
+      <_SwiftPrototypeResolved>$([System.IO.Path]::GetFullPath('$(SwiftAppleSupplementPrototypeDir)'))</_SwiftPrototypeResolved>
+      <_SwiftObjResolved>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(IntermediateOutputPath)'))</_SwiftObjResolved>
+    </PropertyGroup>
+    <Warning Condition="!$(_SwiftPrototypeResolved.StartsWith($(_SwiftObjResolved)))"
+             Code="SWIFTBIND036"
+             Text="SwiftAppleSupplementPrototypeDir '$(_SwiftPrototypeResolved)' is outside the project's intermediate output directory ('$(_SwiftObjResolved)'). 'dotnet clean' will not remove the prototype project, and emitted sources may be committed accidentally. Prefer a path under $(IntermediateOutputPath)." />
+  </Target>
+
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 2c: Dump Apple-framework ABI via swift-api-digester             -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_DumpAppleFrameworkAbi"
-          DependsOnTargets="_ComputeSwiftFingerprint;_ResolveAppleFrameworkPaths">
+          DependsOnTargets="_ComputeSwiftFingerprint;_ValidateSwiftAppleSupplementPrototypeDir;_ResolveAppleFrameworkPaths">
 
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="xcrun swift-api-digester -dump-sdk -module $(_SwiftAppleFrameworkModule) -target $(_SwiftDigesterTarget) -sdk &quot;$(_SwiftAppleFrameworkSdkPath)&quot; $(_SwiftDigesterExtraFlags) -o &quot;$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json&quot;"
@@ -342,7 +374,7 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
-      <_SwiftGenCmd>$(_SwiftGenCmd) --platform-version $(TargetPlatformVersion)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform-version $(SwiftAppleFrameworkPlatformVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
@@ -553,7 +585,7 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindings"
           BeforeTargets="ResolveProjectReferences"
-          DependsOnTargets="_ComputeSwiftFingerprint">
+          DependsOnTargets="_ComputeSwiftFingerprint;_ValidateSwiftAppleSupplementPrototypeDir">
     <!--
       No Target-level Condition on @(SwiftFramework): MSBuild evaluates Target
       Conditions at evaluation time, but SwiftFramework items may only exist at
@@ -923,7 +955,7 @@ done"
     <ItemGroup Condition="'$(_SwiftBindingNeedsAppleSupplement)' == 'True'
                            AND '$(_SwiftBindingAppleSupplementPrototypeCsproj)' == ''
                            AND '$(_SwiftBindingAppleSupplementVersion)' != ''">
-      <PackageReference Include="SwiftBindings.Apple" Version="$(_SwiftBindingAppleSupplementVersion)" />
+      <PackageReference Include="SwiftBindings.Apple" Version="[$(_SwiftBindingAppleSupplementVersion),)" />
     </ItemGroup>
   </Target>
 
@@ -1297,9 +1329,14 @@ done"
           BeforeTargets="_ConfigureSwiftBindingPack"
           Condition="'$(IsPackable)' == 'true' AND '@(SwiftFrameworkDependency)' != ''">
 
-    <Warning Condition="'%(SwiftFrameworkDependency.PackageId)' == '' OR '%(SwiftFrameworkDependency.PackageVersion)' == ''"
-             Code="SWIFTBIND040"
-             Text="SwiftFrameworkDependency '%(SwiftFrameworkDependency.Identity)' is missing PackageId or PackageVersion metadata. The NuGet package will not declare this dependency. Add PackageId and PackageVersion metadata for correct NuGet dependency propagation." />
+    <!-- Fail-closed at pack time: a silently-dropped PackageReference produces a shipped
+         nupkg that declares zero dependency on a required Swift framework, which then
+         surfaces as a DllNotFoundException for consumers at runtime. The IsPackable
+         gate on the containing target keeps this error scoped to pack; a plain build
+         is unaffected. -->
+    <Error Condition="'%(SwiftFrameworkDependency.PackageId)' == '' OR '%(SwiftFrameworkDependency.PackageVersion)' == ''"
+           Code="SWIFTBIND040"
+           Text="SwiftFrameworkDependency '%(SwiftFrameworkDependency.Identity)' is missing PackageId or PackageVersion metadata. The NuGet package cannot declare this dependency. Add PackageId and PackageVersion metadata for correct NuGet dependency propagation, or exclude the dependency before pack." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -1450,6 +1487,18 @@ TARGETSEOF"
                       AND '$(TargetPlatformVersion)' == ''"
            Code="SWIFTBIND035"
            Text="Cannot resolve platform version for NuGet pack. Specify a versioned TargetFramework (e.g. net10.0-ios26.0) or install the corresponding platform workload." />
+
+    <!--
+      Guard: the managed DLL is added to lib/ by the .NET SDK's pack pipeline (not by our
+      TfmSpecificPackageFile ItemGroup below). If a consumer config accidentally suppresses
+      it (OutputType=Module, IncludeBuildOutput=false, or a missing compile), the resulting
+      nupkg would ship with native xcframeworks in runtimes/ but nothing in lib/ — bindings
+      at runtime would throw TypeLoadException. Verify the target assembly exists on disk
+      so we fail at pack, not at the consumer's first DllImport.
+    -->
+    <Error Condition="'$(IncludeBuildOutput)' != 'false' AND ('$(TargetPath)' == '' OR !Exists('$(TargetPath)'))"
+           Code="SWIFTBIND037"
+           Text="No managed build output resolved for pack. Expected '$(TargetPath)' to exist so NuGet can stage it under lib/$(_SwiftBindingPackTfm)/. Verify OutputType=Library and that the project actually produces a DLL for this TFM." />
 
     <!-- Arrange NuGet pack layout using TfmSpecificPackageFile for multi-TFM support.
          In multi-TFM projects, the .NET SDK's _WalkEachTargetPerFramework target invokes

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -109,6 +110,11 @@ public static class SwiftFrameworkResolver
     /// mechanism, so the fallback is safe here — but a future static-link mode would
     /// need its own symbol-export story.
     /// </summary>
+    // Trim-safety: keep the Mono <see cref="AssemblyLoadContext"/>
+    // `ResolvingUnmanagedDll` event accessor rooted under ILC so `+=` here binds to a
+    // live add_Accessor rather than being trimmed into a no-op. Documented as a
+    // conceptual dependency in the XML above; the attribute is the enforceable form.
+    [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(AssemblyLoadContext))]
     private static void RegisterAlcFallback()
     {
         if (Interlocked.Exchange(ref s_alcFallbackRegistered, 1) == 0)

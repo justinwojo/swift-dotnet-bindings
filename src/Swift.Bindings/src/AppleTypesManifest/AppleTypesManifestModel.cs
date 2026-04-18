@@ -136,12 +136,4 @@ public sealed class Availability
 
     [JsonIgnore]
     public bool IsEmpty => Ios is null && Maccatalyst is null && Tvos is null && Macos is null;
-
-    public void MergeFrom(Availability other)
-    {
-        Ios ??= other.Ios;
-        Maccatalyst ??= other.Maccatalyst;
-        Tvos ??= other.Tvos;
-        Macos ??= other.Macos;
-    }
 }

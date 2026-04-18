@@ -48,7 +48,8 @@
         "Test",
         "UnitTests",
         "Validate",
-        "ValidateAppleTypesManifest"
+        "ValidateAppleTypesManifest",
+        "ValidateBlastRadius"
       ]
     },
     "Verbosity": {

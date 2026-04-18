@@ -1330,6 +1330,33 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Emit_WithSupplementRefAndNullVersion_ThrowsMeaningfulException()
+        {
+            // Regression guard: the old hardcoded "26.0.0" default silently shipped
+            // a stale supplement version on Apple SDK train bumps if a caller
+            // forgot to thread --apple-version through. Emit must fail loudly.
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "Translation.xcframework");
+                Directory.CreateDirectory(sourceXcfwPath);
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                    {
+                        OutputDirectory = dir,
+                        ModuleName = "Translation",
+                        Metadata = CreateMinimalMetadata("Translation"),
+                        SourceXCFrameworkPath = sourceXcfwPath,
+                        EmitsAppleSupplementReference = true,
+                        AppleSupplementVersion = null,
+                    }, _logger));
+                Assert.Contains("AppleSupplementVersion", ex.Message);
+                Assert.Contains("--apple-version", ex.Message);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void Emit_WithPrototypePath_UsesProjectReferenceInsteadOfPackage()
         {
             // Prototype mode wins over PackageReference so canonical identity stays stable
@@ -1399,7 +1426,30 @@ namespace BindingsGeneration.Tests
 
     #region H. Apple Supplement Resolver / Reference Tracker Tests
 
-    public class AppleSupplementResolverTests
+    /// <summary>
+    /// Per-test reset for the <c>[ThreadStatic]</c> <see cref="AppleSupplementReferences"/>
+    /// set. xUnit instantiates one test-class object per test, so <c>InitializeAsync</c>
+    /// clears any leftover identities recorded by a prior test that ran on the same
+    /// threadpool thread; <c>DisposeAsync</c> scrubs after we finish to avoid leaking
+    /// out of the suite. Without this, a test that forgets a manual <c>Reset()</c> can
+    /// contaminate the next one's view of <c>AppleSupplementReferences.Any</c>.
+    /// </summary>
+    public abstract class AppleSupplementReferencesTestBase : IAsyncLifetime
+    {
+        public Task InitializeAsync()
+        {
+            AppleSupplementReferences.Reset();
+            return Task.CompletedTask;
+        }
+
+        public Task DisposeAsync()
+        {
+            AppleSupplementReferences.Reset();
+            return Task.CompletedTask;
+        }
+    }
+
+    public class AppleSupplementResolverTests : AppleSupplementReferencesTestBase
     {
         [Fact]
         public void Resolver_KnownManifestType_ProducesSyntheticRecord()
@@ -1446,7 +1496,8 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void ReferenceTracker_RoundTrip_RecordsAndResets()
         {
-            AppleSupplementReferences.Reset();
+            // InitializeAsync already reset the tracker; this test is about validating
+            // the Record/Reset round-trip behaviour itself.
             Assert.False(AppleSupplementReferences.Any);
 
             AppleSupplementReferences.Record("Foundation.Locale.Language");
@@ -1464,7 +1515,7 @@ namespace BindingsGeneration.Tests
 
     #region I. Apple Supplement Prototype Emitter Tests (Session 5 / M7)
 
-    public class AppleSupplementPrototypeEmitterTests
+    public class AppleSupplementPrototypeEmitterTests : AppleSupplementReferencesTestBase
     {
         private static readonly ILogger _logger = NullLogger.Instance;
 

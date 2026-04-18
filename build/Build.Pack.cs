@@ -80,8 +80,9 @@ partial class Build
                 .SetVerbosity(DotNetVerbosity.quiet));
 
             // 4. Apple supplement — versioned independently so it can ship per Apple
-            //    SDK train. The ProjectReference to Runtime is stamped into the
-            //    supplement's nuspec as a PackageReference at the main --version.
+            //    SDK train. Pack stamps the supplement's own PackageVersion from
+            //    --apple-version; its Runtime ProjectReference is stamped separately
+            //    to the main --version's bounded range (see VersionScope).
             Log.Information("=== [4/4] Packing SwiftBindings.Apple v{AppleVersion} ===", appleVersion);
             DotNetPack(s => s
                 .SetProject(SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj")

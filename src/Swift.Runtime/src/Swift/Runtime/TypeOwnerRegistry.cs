@@ -269,10 +269,28 @@ public static class TypeOwnerRegistry
     }
 
     /// <summary>Registers a per-type override. Keyed on generic-stripped Swift identity.</summary>
+    /// <remarks>
+    /// Enforces v1/v2 coexistence safety: if <paramref name="swiftIdentity"/> is already owned by a
+    /// different <see cref="TypeOwner.PackageId"/>, throws <see cref="InvalidOperationException"/>.
+    /// This is the dynamic safeguard paired with the namespace split (e.g. <c>Swift.Foundation.*</c>
+    /// vs <c>Swift.Foundation.V2.*</c>) — the static guard alone cannot catch a consumer graph that
+    /// resolves both <c>SwiftBindings.Apple</c> and <c>SwiftBindings.Apple.v2</c> at module-init time.
+    /// </remarks>
     public static void RegisterPerTypeOverride(string swiftIdentity, TypeOwner owner)
     {
         ArgumentException.ThrowIfNullOrEmpty(swiftIdentity);
-        s_overrides[StripGenericArguments(swiftIdentity)] = owner;
+        var key = StripGenericArguments(swiftIdentity);
+        if (s_overrides.TryGetValue(key, out var existing) &&
+            !string.Equals(existing.PackageId, owner.PackageId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Swift identity '{key}' is already registered by package '{existing.PackageId}' " +
+                $"and cannot be re-registered by '{owner.PackageId}'. This usually means the " +
+                "consumer assembly graph resolves two packages that both claim ownership of the " +
+                "same Swift type (for example both 'SwiftBindings.Apple' and its v2 successor). " +
+                "Remove one of the packages or ensure only one supplement is loaded.");
+        }
+        s_overrides[key] = owner;
     }
 
     /// <summary>Registers a Swift stdlib type. Stdlib types resolve to <see cref="TypeOwnerKind.SwiftStdlib"/>.</summary>
@@ -293,11 +311,15 @@ public static class TypeOwnerRegistry
     {
         ArgumentException.ThrowIfNullOrEmpty(swiftIdentity);
         ArgumentException.ThrowIfNullOrEmpty(projectedTypeName);
-        s_objcProjections[swiftIdentity] = new TypeOwner
+        // Strip generic arguments at registration time, mirroring RegisterPerTypeOverride.
+        // Resolver lookups canonicalize too, so pre-stripping here keeps the dictionary key
+        // shape consistent across all s_* stores (one invariant, not two).
+        var key = StripGenericArguments(swiftIdentity);
+        s_objcProjections[key] = new TypeOwner
         {
             Kind = TypeOwnerKind.ObjCWorkload,
             PackageId = string.Empty,
-            ModuleName = moduleName ?? GetModuleName(swiftIdentity),
+            ModuleName = moduleName ?? GetModuleName(key),
             ProjectedTypeName = projectedTypeName,
         };
     }
@@ -388,6 +410,10 @@ public static class TypeOwnerRegistry
 
     // Legacy canonical types (architecture doc §"Why hand-rolling won't scale" table + §"Decision summary" item 6).
     // Generic types are listed by stem only — the resolver strips "<...>" before lookup.
+    // Swift.* entries pin hand-rolled Runtime types whose Swift module is "Swift" —
+    // the "Swift" module is not in s_defaultAppleModules today, so these work even
+    // unpinned, but pinning them explicitly prevents a future cleanup (that adds
+    // "Swift" as an Apple module) from silently flipping ownership to the supplement.
     private static readonly string[] s_legacyRuntimeCanonicals =
     {
         "Foundation.Date",
@@ -398,12 +424,26 @@ public static class TypeOwnerRegistry
         "Foundation.AnyError",
         "ManagedSettings.Token",
         "SwiftUI.Text",
+        "Swift.AnyHashable",
+        "Swift.Hasher",
+        "Swift.DispatchQueue",
+        "Swift.CIContext",
+        "Swift.String",
     };
 
     // Default set of Apple SDK Swift module names. Generators can extend this at startup
     // via RegisterAppleModule(...) — e.g. loading from apple-frameworks.json on the
     // generator side. Kept intentionally broad: any module here defaults to the Apple
     // supplement unless an override, stdlib, or ObjC projection claims the type first.
+    //
+    // Deliberately EXCLUDED: SwiftUI, SwiftData, Observation, PreviewsObservation. These
+    // modules are suppressed before type resolution (see AppleFrameworkRegistry /
+    // MemberEmissionValidator "ReferencesUnsupportedModule" path and the include-types
+    // filter for the supplement manifest). Listing them here would make
+    // Resolve("SwiftUI.View") return AppleSupplement while the manifest contains no such
+    // entry, and any direct Resolve caller not routed through TryGetTypeRecord would act
+    // on the lie. Runtime-canonical types from these modules (e.g. SwiftUI.Text) are
+    // pinned explicitly via s_legacyRuntimeCanonicals and therefore unaffected.
     private static readonly string[] s_defaultAppleModules =
     {
         "Accessibility",
@@ -467,13 +507,11 @@ public static class TypeOwnerRegistry
         "Network",
         "NetworkExtension",
         "NotificationCenter",
-        "Observation",
         "OSLog",
         "PassKit",
         "PDFKit",
         "PhotosUI",
         "Photos",
-        "PreviewsObservation",
         "ProximityReader",
         "PushKit",
         "QuartzCore",
@@ -488,8 +526,6 @@ public static class TypeOwnerRegistry
         "SpriteKit",
         "StoreKit",
         "Symbols",
-        "SwiftData",
-        "SwiftUI",
         "SystemConfiguration",
         "TipKit",
         "Translation",
@@ -519,8 +555,10 @@ public static class TypeOwnerRegistry
     }
 
     // Callers pass canonical module-qualified Swift identities (e.g. "Foundation.Measurement<T>").
-    // Anything past the first '<' is treated as generic arguments and dropped; malformed inputs
-    // are tolerated and resolve downstream as unsupported rather than throwing.
+    // Returns the substring up to (but excluding) the first '<'. Malformed inputs that don't
+    // match the canonical form are silently truncated here rather than rejected — a stray '<'
+    // in the input will produce a short/empty key, which then resolves downstream as
+    // unsupported.
     private static string StripGenericArguments(string swiftIdentity)
     {
         var angle = swiftIdentity.IndexOf('<');

@@ -148,6 +148,16 @@ public static class MemberEmissionValidator
             // is Sendable and iterates without further isolation. Parameterized-protocol element types
             // are still blocked: the @_cdecl top-level function can't spell iOS 16+ parameterized
             // protocol types at an earlier deployment target.
+            //
+            // Two-pass isolation policy (ship-plan §3): this validator is pass 1 — it decides
+            // WHETHER the property can be emitted based on element type + actor/parameterized-
+            // protocol shape and reads `property.IsNonisolated` only through that lens.
+            // AsyncStreamEmitter is pass 2 — given the property passes here, it decides HOW the
+            // Swift wrapper body hops into actor isolation (`await __self.prop` vs direct access)
+            // by re-reading `IsNonisolated` to suppress the `await` on nonisolated actor members.
+            // The two reads serve orthogonal purposes; changing one without the other would either
+            // emit uncompilable Swift (missing/extra `await`) or silently skip emittable members.
+            // See AsyncStreamEmitter.EmitSwiftWrapperFunction (needsActorAwait).
             if (!property.IsStatic && property.ParentDecl is ClassDecl { IsActor: true } &&
                 WrapperValidation.ContainsParameterizedProtocol(property.SwiftTypeSpec, typeDatabase))
             {

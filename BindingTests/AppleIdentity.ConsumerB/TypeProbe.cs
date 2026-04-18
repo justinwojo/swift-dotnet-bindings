@@ -36,9 +36,14 @@ public static class TypeProbe
     /// <summary>
     /// Exercises the supplement's payload ABI end-to-end from ConsumerB:
     /// <c>MarshalToSwift</c> the input into a fresh buffer, wrap the buffer via
-    /// <c>NewFromPayload</c>, destroy the source copy via VWT, and Dispose the
-    /// wrapped copy. Returns the copy's <c>GetType()</c> so the caller can
-    /// assert cross-assembly type identity on the round-tripped value.
+    /// <c>NewFromPayload</c>, and Dispose the wrapped copy. Returns the copy's
+    /// <c>GetType()</c> so the caller can assert cross-assembly type identity
+    /// on the round-tripped value.
+    ///
+    /// Ownership contract: <c>NewFromPayload</c> moves the value out of the
+    /// source buffer. We must NOT call <c>VWT.Destroy</c> on that buffer
+    /// afterwards — safe today only for trivially destructible
+    /// <c>Language</c>, would double-free any non-POD supplement type.
     /// </summary>
     public static System.Type RoundTripLanguage(Swift.Foundation.Locale.Language value)
     {
@@ -53,7 +58,6 @@ public static class TypeProbe
                 ((ISwiftObject)value).MarshalToSwift(ref span);
                 var copy = (Swift.Foundation.Locale.Language)
                     SwiftObjectHelper<Swift.Foundation.Locale.Language>.NewFromPayload((IntPtr)buf);
-                metadata.ValueWitnessTable->Destroy(buf, metadata);
                 try
                 {
                     return copy.GetType();

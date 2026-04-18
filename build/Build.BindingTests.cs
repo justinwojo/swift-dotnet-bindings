@@ -769,6 +769,92 @@ partial class Build
             ReportBindingTestResults();
         });
 
+    // ValidateBlastRadius runs the blast-radius smoke script and fails the build if any of
+    // the three committed golden diffs (otool-L, nm, strings-swift) diverges from HEAD.
+    // This is the automated gate behind the "supplement must be zero-link-line / zero-new-
+    // Swift-symbol" invariant in apple-swift-types-architecture.md §10. The raw script exits
+    // 0 regardless, so the pass/fail lives here. Diff header lines are normalized out so
+    // filename/timestamp noise does not trigger spurious failures. On a clean pass the
+    // working tree is restored to HEAD so the gate has no side effects; on failure the
+    // freshly-generated measurement files are left in place for inspection.
+    Target ValidateBlastRadius => _ => _
+        .Executes(() =>
+        {
+            var measurementsDir = BindingTestsDir / "BlastRadius.Baseline" / "measurements";
+            var script = BindingTestsDir / "BlastRadius.Baseline" / "measure-blast-radius.sh";
+            var gates = new[] { "otool-L.diff", "nm.diff", "strings-swift.diff" };
+
+            if (!File.Exists(script))
+                throw new Exception($"Blast-radius script not found at {script}");
+
+            // Snapshot every measurement artifact BEFORE the script overwrites them so we
+            // can restore the working tree on a clean pass. Also captures the gate goldens
+            // for the regression check.
+            var measurementFiles = Directory.Exists(measurementsDir)
+                ? Directory.GetFiles(measurementsDir).Select(Path.GetFileName).ToArray()
+                : Array.Empty<string>();
+            var snapshots = measurementFiles.ToDictionary(
+                name => name!,
+                name => File.ReadAllBytes(measurementsDir / name!));
+
+            foreach (var gate in gates)
+            {
+                if (!snapshots.ContainsKey(gate))
+                    throw new Exception($"Expected golden diff missing: {measurementsDir / gate}. Commit the baseline output before gating.");
+            }
+
+            Log.Information("Running blast-radius measurement script...");
+            var proc = ProcessTasks.StartProcess(
+                "bash", $"\"{script}\"",
+                workingDirectory: RootDirectory,
+                logOutput: true);
+            proc.WaitForExit();
+            if (proc.ExitCode != 0)
+                throw new Exception($"measure-blast-radius.sh exited with code {proc.ExitCode}");
+
+            var regressions = new List<string>();
+            foreach (var name in gates)
+            {
+                var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[name]));
+                var fresh = NormalizeDiffOutput(File.ReadAllText(measurementsDir / name));
+                if (!string.Equals(snapshot, fresh, StringComparison.Ordinal))
+                    regressions.Add(name);
+            }
+
+            if (regressions.Count > 0)
+            {
+                var message = "Blast-radius regression detected. The following committed goldens diverged:\n  - "
+                    + string.Join("\n  - ", regressions)
+                    + "\nInspect the working-tree copies under BindingTests/BlastRadius.Baseline/measurements/."
+                    + "\nIf the change is intentional, review the added linkage and update the committed diffs.";
+                throw new Exception(message);
+            }
+
+            // Clean pass — restore the measurement directory so the working tree matches HEAD.
+            // (The script rewrites timestamped diff headers and binary-path headers even on a
+            // zero-regression run.)
+            foreach (var (name, content) in snapshots)
+                File.WriteAllBytes(measurementsDir / name, content);
+            Log.Information("Blast-radius gate passed: otool-L.diff, nm.diff, strings-swift.diff match HEAD.");
+        });
+
+    static string NormalizeDiffOutput(string diff)
+    {
+        // `diff -u` emits `--- path\ttimestamp` and `+++ path\ttimestamp` as the first two
+        // header lines. The absolute path and timestamp shift between machines/runs even
+        // when the semantic diff is identical, so we strip them before comparing.
+        var lines = diff.Split('\n');
+        var kept = new List<string>(lines.Length);
+        foreach (var line in lines)
+        {
+            if (line.StartsWith("--- ", StringComparison.Ordinal) ||
+                line.StartsWith("+++ ", StringComparison.Ordinal))
+                continue;
+            kept.Add(line);
+        }
+        return string.Join("\n", kept);
+    }
+
     void ReportBindingTestResults()
     {
         Log.Information("=========================================");

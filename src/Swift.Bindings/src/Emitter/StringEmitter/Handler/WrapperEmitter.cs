@@ -43,6 +43,16 @@ namespace BindingsGeneration
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
         private readonly List<string> _existentialHeapNames = new();
 
+        // Counts currently-open raw-buffer `fixed (...)` blocks. Every call to
+        // EmitRawBufferFixedStart increments by the number of UnsafeRawBufferPointer
+        // parameters; the paired EmitRawBufferFixedEnd decrements by the same count.
+        // AssertRawBufferFixedDepthZero (called at wrapper emission tail) fails fast
+        // if a future emitter adds an early return between Start and End, since that
+        // would produce uncompilable output with an unclosed fixed block. The
+        // emitter path is synchronous and not recursive within a single wrapper, so
+        // a plain int counter is sufficient — no disposable-scope plumbing needed.
+        private int _rawBufferFixedDepth;
+
         /// <summary>
         /// True when the method has @_cdecl existential parameters that require heap allocation.
         /// Used by constructor and method paths to determine if try/finally cleanup is needed.
@@ -268,6 +278,7 @@ namespace BindingsGeneration
 
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
+            AssertRawBufferFixedDepthZero();
         }
 
         /// <summary>
@@ -370,6 +381,7 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitReturnConstructor(csWriter); // Emits DangerousRelease()
             EmitBodyEnd(csWriter);
+            AssertRawBufferFixedDepthZero();
         }
 
         /// <summary>
@@ -434,6 +446,7 @@ namespace BindingsGeneration
             }
             EmitUnsafeBlockEnd(csWriter);
             EmitBodyEnd(csWriter);
+            AssertRawBufferFixedDepthZero();
         }
 
         /// <summary>
@@ -706,6 +719,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"fixed (byte* {csName}PinnedPtr = {csName})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                _rawBufferFixedDepth++;
             }
         }
 
@@ -720,6 +734,27 @@ namespace BindingsGeneration
                     continue;
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
+                _rawBufferFixedDepth--;
+            }
+        }
+
+        /// <summary>
+        /// Asserts every raw-buffer <c>fixed</c> block opened by
+        /// <see cref="EmitRawBufferFixedStart"/> was closed by the paired
+        /// <see cref="EmitRawBufferFixedEnd"/>. Called at the tail of every wrapper
+        /// emission entry point. Throws loudly on mismatch so a future emitter
+        /// that adds an early <c>return</c> (or reorders emission) between Start
+        /// and End is caught at generation time, not at the C# compile step
+        /// with a cryptic "closing brace expected" error.
+        /// </summary>
+        private void AssertRawBufferFixedDepthZero()
+        {
+            if (_rawBufferFixedDepth != 0)
+            {
+                throw new InvalidOperationException(
+                    $"WrapperEmitter: {_rawBufferFixedDepth} unclosed raw-buffer fixed block(s) for " +
+                    $"{_env.MethodDecl.ModuleDecl?.Name}.{_env.MethodDecl.Name}. EmitRawBufferFixedStart " +
+                    "and EmitRawBufferFixedEnd must be paired — check for an early return between them.");
             }
         }
 

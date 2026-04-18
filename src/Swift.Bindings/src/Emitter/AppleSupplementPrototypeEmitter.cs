@@ -107,11 +107,25 @@ public static class AppleSupplementPrototypeEmitter
         var emitter = new AppleTypesCsEmitter(whitelist, logger);
         emitter.Emit(trimmed, sourcesDir);
 
+        // Fail-closed on structural skips — same policy AppleTypesCsCommand applies to the
+        // canonical supplement build. A blank metadata accessor (or any other malformed
+        // entry) silently drops the type, and the prototype is meant to mirror the packaged
+        // artifact exactly. Swallowing here would let a hand-patched embedded manifest diverge
+        // undetected until ship.
+        if (emitter.StructuralSkips.Count > 0)
+        {
+            foreach (var skip in emitter.StructuralSkips)
+                logger.LogError("Structural skip: '{Identity}' — {Reason}", skip.SwiftIdentity, skip.Reason);
+            throw new InvalidOperationException(
+                $"AppleSupplementPrototypeEmitter: manifest contains {emitter.StructuralSkips.Count} " +
+                "structural skip(s). Fix the embedded apple-types-manifest before re-running the prototype.");
+        }
+
         var csprojPath = Path.Combine(options.PrototypeDirectory, PrototypeCsprojName);
         WriteCsproj(csprojPath, options, emitter.EmittedFiles);
 
         logger.LogInformation(
-            "Apple-supplement prototype emitted: {Csproj} ({FileCount} source file(s), {SkippedCount} skipped).",
+            "Apple-supplement prototype emitted: {Csproj} ({FileCount} source file(s), {SkippedCount} benign skips).",
             csprojPath, emitter.EmittedFiles.Count, emitter.SkippedEntries.Count);
 
         return new Result

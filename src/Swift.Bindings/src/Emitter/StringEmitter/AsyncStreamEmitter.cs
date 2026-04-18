@@ -127,6 +127,13 @@ public static class AsyncStreamEmitter
         // Custom actor isolated properties and @MainActor properties need `await` for actor-isolated
         // access. `nonisolated` actor properties are synchronous from any context — adding `await`
         // there produces a "no async operations" Swift warning.
+        //
+        // Pass 2 of the two-pass isolation policy — see MemberEmissionValidator.GetPropertySkipReason
+        // (AsyncStream branch). Pass 1 (there) already decided that a parameterized-protocol actor
+        // stream gets skipped regardless of isolation. Here we take the admitted property and decide
+        // how its Swift wrapper body hops onto the actor. Keeping the two decisions separate
+        // (validator vs. emitter) is deliberate: they serve orthogonal correctness questions. Update
+        // both in lockstep if the isolation rules change.
         bool needsActorAwait = (isOnCustomActor && !propertyDecl.IsNonisolated) || needsMainActor;
         var awaitPrefix = needsActorAwait ? "await " : "";
         var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";

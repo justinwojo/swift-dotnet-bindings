@@ -14,6 +14,18 @@
 
 set -euo pipefail
 
+# We cross-build for osx-arm64 below. On an Intel host the Mach-O output encodes
+# a different cpusubtype + different Swift stdlib path, so the diff would diverge
+# for reasons unrelated to framework linkage. Fail loud instead of producing a
+# misleading "clean" measurement.
+HOST_ARCH="$(uname -m)"
+if [ "$HOST_ARCH" != "arm64" ]; then
+  echo "ERROR: measure-blast-radius.sh requires an arm64 host; got '$HOST_ARCH'." >&2
+  echo "       The script builds -r osx-arm64 and compares the resulting Mach-Os;" >&2
+  echo "       an Intel cross-compile introduces differences unrelated to Swift linkage." >&2
+  exit 2
+fi
+
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT_DIR="$REPO_ROOT/BindingTests/BlastRadius.Baseline/measurements"
 mkdir -p "$OUT_DIR"
@@ -44,7 +56,11 @@ inspect() {
   echo ">>> Inspecting $label"
   otool -L "$bin" > "$OUT_DIR/$label.otool-L.txt"
   nm -gU "$bin"  > "$OUT_DIR/$label.nm.txt" 2>/dev/null || true
-  strings "$bin" | grep -E '^(_?swift|_?_swift|SB_|SBW_|SwiftBindings|Swift\.)' \
+  # `$s` is the Swift 5 mangling prefix (with `$S` as its Swift 4 predecessor and
+  # `_$s` as the same symbol seen through a leading-underscore ABI). Add them so
+  # stripped symbols still show up in the diff — `_swift`/`swift` alone misses
+  # every type-metadata accessor we care about ($s...Ma).
+  strings "$bin" | grep -E '^(_?swift|_?_swift|SB_|SBW_|SwiftBindings|Swift\.|_?\$[sS])' \
     | sort -u > "$OUT_DIR/$label.strings-swift.txt" || true
   wc -c "$bin" | awk '{print $1}' > "$OUT_DIR/$label.size-bytes.txt"
 }

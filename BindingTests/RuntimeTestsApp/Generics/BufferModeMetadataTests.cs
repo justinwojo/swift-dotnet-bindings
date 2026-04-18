@@ -24,11 +24,15 @@ public class BufferModeMetadataTests : TestBase
         // 4 unconstrained generic params → 4 metadata args in the Ma accessor.
         // Above the 3-arg threshold, so the accessor takes a buffer pointer.
         // Calling GetTypeMetadata() hits our emitted buffer-mode wrapper.
-        var metadata = SwiftObjectHelper<BufferModeQuad<SimpleItem, SimpleItem, SimpleItem, SimpleItem>>.GetTypeMetadata();
+        //
+        // Use four DISTINCT concrete types so a bug that writes the same metadata
+        // pointer to all four buffer slots (e.g., missing index increment) would
+        // produce a wrong total size instead of passing with aliased slots.
+        var metadata = SwiftObjectHelper<BufferModeQuad<SimpleItem, ValuePoint, BitwiseValue, SimpleDescribable>>.GetTypeMetadata();
         AssertTrue(metadata.Handle != IntPtr.Zero,
-            "BufferModeQuad<SimpleItem,SimpleItem,SimpleItem,SimpleItem> metadata handle is non-zero");
+            "BufferModeQuad<SimpleItem,ValuePoint,BitwiseValue,SimpleDescribable> metadata handle is non-zero");
         AssertTrue(metadata.Size > 0,
-            "BufferModeQuad<SimpleItem,SimpleItem,SimpleItem,SimpleItem> metadata size is non-zero");
+            "BufferModeQuad<SimpleItem,ValuePoint,BitwiseValue,SimpleDescribable> metadata size is non-zero");
     }
 
     public void TestBufferModeDescribablePair_MetadataPlusPwts_ResolvesViaBuffer()
