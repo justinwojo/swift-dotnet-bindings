@@ -42,6 +42,9 @@ partial class Build : NukeBuild
     [Parameter("Package version for NuGet")]
     readonly string? Version;
 
+    [Parameter("Package version for SwiftBindings.Apple (defaults to --version when unset)")]
+    readonly string? AppleVersion;
+
     [Parameter("NuGet output directory")]
     readonly string OutputDir = Path.Combine(Path.GetTempPath(), "swift-nuget");
 

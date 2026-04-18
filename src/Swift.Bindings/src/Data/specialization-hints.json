@@ -19,7 +19,12 @@
       "protocol": "Swift.Sequence",
       "conformers": [
         { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" },
-        { "swiftType": "Foundation.Data", "csharpType": "Data" }
+        { "swiftType": "Foundation.Data", "csharpType": "Data" },
+        { "swiftType": "Swift.Array<MusicKit.Album>", "csharpType": "Swift.SwiftArray<MusicKit.Album>", "swiftLiteral": "[MusicKit.Album]", "associatedTypes": { "Element": "MusicKit.Album" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.MusicVideo>", "csharpType": "Swift.SwiftArray<MusicKit.MusicVideo>", "swiftLiteral": "[MusicKit.MusicVideo]", "associatedTypes": { "Element": "MusicKit.MusicVideo" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.Playlist>", "csharpType": "Swift.SwiftArray<MusicKit.Playlist>", "swiftLiteral": "[MusicKit.Playlist]", "associatedTypes": { "Element": "MusicKit.Playlist" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.Song>", "csharpType": "Swift.SwiftArray<MusicKit.Song>", "swiftLiteral": "[MusicKit.Song]", "associatedTypes": { "Element": "MusicKit.Song" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<MusicKit.Track>", "csharpType": "Swift.SwiftArray<MusicKit.Track>", "swiftLiteral": "[MusicKit.Track]", "associatedTypes": { "Element": "MusicKit.Track" }, "modules": ["MusicKit"] }
       ]
     },
     {
@@ -62,6 +67,26 @@
         { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist" },
         { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song" },
         { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track" }
+      ]
+    },
+    {
+      "protocol": "MusicKit.MusicPlaylistAddable",
+      "conformers": [
+        { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track", "modules": ["MusicKit"] }
+      ]
+    },
+    {
+      "protocol": "MusicKit.PlayableMusicItem",
+      "conformers": [
+        { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track", "modules": ["MusicKit"] }
       ]
     }
   ]

@@ -104,6 +104,43 @@ public actor ActorVault {
     }
 }
 
+// MARK: - Actor with Isolated AsyncStream Property
+// BlinkIDUX.BlinkIDEventStream pattern — non-async stored property on an `actor` that
+// returns AsyncStream<T>. The @_cdecl wrapper must hop to the actor's serial executor
+// via `await __self.events` from inside a Task.
+
+public actor ActorEventStream {
+    public let events: AsyncStream<Int32>
+    private let continuation: AsyncStream<Int32>.Continuation
+
+    public init() {
+        var c: AsyncStream<Int32>.Continuation!
+        self.events = AsyncStream<Int32> { continuation in
+            c = continuation
+        }
+        self.continuation = c
+    }
+
+    public func emit(_ value: Int32) {
+        continuation.yield(value)
+    }
+
+    public func end() {
+        continuation.finish()
+    }
+
+    /// Nonisolated companion — access does not need `await`; regression for the
+    /// `IsNonisolated` sub-branch of the emitter.
+    nonisolated public var passthroughLabel: String {
+        return "ActorEventStream"
+    }
+}
+
+/// Creates an ActorEventStream actor.
+public func createActorEventStream() -> ActorEventStream {
+    return ActorEventStream()
+}
+
 // MARK: - Free Functions
 
 /// Creates a Counter actor.

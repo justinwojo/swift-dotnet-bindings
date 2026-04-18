@@ -50,6 +50,19 @@ public static class CdeclParamMapper
             var n => $"{n}: "
         };
 
+        // Swift.UnsafeRawBufferPointer: 16-byte stdlib struct (base + count) that @_cdecl can't
+        // represent. Split into (ptr, len) at the C ABI boundary and reconstruct via
+        // UnsafeRawBufferPointer(start:count:) in the wrapper body. C# side pins a
+        // ReadOnlySpan<byte> via `fixed` and passes (IntPtr)ptr + (nint)length. Empty span pins
+        // to a null pointer, so the Swift ptr parameter is UnsafeRawPointer? (optional) —
+        // UnsafeRawBufferPointer(start:count:) accepts an optional start already.
+        if (swiftTypeSpec is NamedTypeSpec rawBufSpec && rawBufSpec.Name == "Swift.UnsafeRawBufferPointer")
+        {
+            return ($"_ {label}Ptr: UnsafeRawPointer?, _ {label}Len: Int",
+                    $"let {label}Val = UnsafeRawBufferPointer(start: {label}Ptr, count: {label}Len)",
+                    $"{argLabel}{label}Val");
+        }
+
         // Primitives pass through directly
         if (IsCdeclPrimitive(swiftTypeSpec))
         {

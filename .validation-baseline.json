@@ -1,5 +1,5 @@
 {
-  "git_sha": "4f2ae4ae",
+  "git_sha": "2986b45c",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -19,7 +19,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13708,
+        "lines": 13744,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -33,7 +33,7 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21848,
+        "lines": 21894,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3244,
+        "lines": 3408,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -670,28 +670,27 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10789,
-    "total_skipped_members": 1917,
+    "total_emitted_members": 10790,
+    "total_skipped_members": 1923,
     "skip_rate_pct": 15.1,
     "skip_reasons": {
       "ModuleInternal": 722,
-      "UnsupportedSignature": 339,
+      "UnsupportedSignature": 341,
       "AnyTypeFallback": 303,
       "SynthesizedCodable": 178,
       "UnsupportedClosure": 131,
       "EveryProtocolConformanceSkipped": 129,
       "UnsatisfiedGenericConstraint": 78,
       "UnsupportedType": 72,
+      "GenericProtocolConstraint": 67,
       "SwiftUIConstraint": 66,
-      "GenericProtocolConstraint": 63,
       "SwiftUIView": 54,
       "UnsupportedExistential": 44,
       "StaticProtocolMember": 22,
       "GenericTypeCallback": 17,
       "DuplicateSignature": 3,
       "NonBlittableCallConvSwift": 2,
-      "UnderscorePrefixInternal": 2,
-      "ActorIsolatedAsyncStream": 1
+      "UnderscorePrefixInternal": 2
     }
   },
   "runtime_tests": null

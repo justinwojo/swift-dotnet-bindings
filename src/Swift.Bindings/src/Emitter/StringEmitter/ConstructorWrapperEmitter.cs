@@ -73,11 +73,10 @@ public static class ConstructorWrapperEmitter
         if (HasNestedFrozenStructParameter(env))
             return false;
 
-        // Skip constructors with UnsafeRawBufferPointer/UnsafeMutableRawBufferPointer parameters.
-        // Buffer pointer types are multi-word structs (base + count) that @_cdecl can't represent
-        // in the C calling convention. The Swift compiler rejects them with:
-        // "type of the parameter cannot be represented in Objective-C".
-        if (HasBufferPointerParameter(env))
+        // Skip constructors with unsupported buffer pointer parameters
+        // (UnsafeMutableRawBufferPointer, UnsafeBufferPointer<T>, UnsafeMutableBufferPointer<T>).
+        // UnsafeRawBufferPointer is supported via CdeclParamMapper (split into ptr+len at the C ABI boundary).
+        if (HasUnsupportedBufferPointerParameter(env))
             return false;
 
         // Skip constructors with raw ABI generic type params (τ_0_0) in signature,
@@ -251,22 +250,22 @@ public static class ConstructorWrapperEmitter
     }
 
     /// <summary>
-    /// Checks if any parameter is a buffer pointer type (UnsafeRawBufferPointer,
-    /// UnsafeMutableRawBufferPointer, UnsafeBufferPointer, UnsafeMutableBufferPointer).
-    /// These are multi-word structs that can't be represented in the @_cdecl C ABI.
+    /// Checks if any parameter is an unsupported buffer pointer type: UnsafeMutableRawBufferPointer,
+    /// UnsafeBufferPointer&lt;T&gt;, or UnsafeMutableBufferPointer&lt;T&gt;. These are multi-word structs
+    /// that can't be represented in the @_cdecl C ABI and don't yet have cross-ABI marshalling.
+    /// UnsafeRawBufferPointer is NOT treated as unsupported — CdeclParamMapper splits it into
+    /// (ptr, len) at the @_cdecl boundary and the C# side exposes ReadOnlySpan&lt;byte&gt;.
     /// </summary>
-    internal static bool HasBufferPointerParameter(MethodEnvironment env)
+    internal static bool HasUnsupportedBufferPointerParameter(MethodEnvironment env)
     {
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec is NamedTypeSpec namedSpec)
             {
                 var name = namedSpec.Name;
-                if (name.EndsWith("BufferPointer", StringComparison.Ordinal) &&
-                    (name.Contains("UnsafeRawBufferPointer") ||
-                     name.Contains("UnsafeMutableRawBufferPointer") ||
-                     name.Contains("UnsafeBufferPointer") ||
-                     name.Contains("UnsafeMutableBufferPointer")))
+                if (name == "Swift.UnsafeMutableRawBufferPointer" ||
+                    name == "Swift.UnsafeBufferPointer" ||
+                    name == "Swift.UnsafeMutableBufferPointer")
                     return true;
             }
         }

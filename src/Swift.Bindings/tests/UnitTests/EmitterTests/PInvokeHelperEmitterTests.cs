@@ -573,11 +573,10 @@ public class PInvokeHelperEmitterTests
         // runtime-metadata.md ordering: type metadata for every generic param
         // first (declaration order), THEN PWT args grouped by generic param,
         // sorted lex by protocol module-qualified name within each param.
-        // Use 1 param × 3 conformances = 1 metadata + 3 PWT = 4 args (still
-        // exceeds register threshold) so we can keep the cross-conformance
-        // ordering test below — except we need to drop one to stay UNDER
-        // threshold so the entries aren't cleared by the legacy fallback.
-        // Use 1 param × 2 conformances + 1 param × 1 conformance.
+        // This fixture uses 2 params × 3 total conformances = 2 metadata + 3 PWT
+        // = 5 args → exceeds the register threshold, routes through buffer mode
+        // in AddMetadataAccessorDeclaration. PwtEntries stay populated so the
+        // buffer-mode wrapper can produce the thin-mode parameter shape.
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = CreateConstrainedGenericClass(
             moduleDecl,
@@ -594,12 +593,14 @@ public class PInvokeHelperEmitterTests
 
         var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
 
-        // Total args = 2 metadata + 3 PWT = 5 → exceeds the 3-arg register threshold.
-        // TypeMetadataAccessorSkipGate skips such types entirely; PwtEntries is still
-        // cleared defensively in the constructor so any unintended downstream consumer
-        // sees an empty list.
         Assert.True(ctx.ExceedsRegisterArgumentThreshold);
-        Assert.Empty(ctx.PwtEntries);
+        // Entries are retained in buffer mode so AddMetadataAccessorDeclaration
+        // can synthesize the buffer packing wrapper with matching param names.
+        Assert.Equal(3, ctx.PwtEntries.Count);
+        // Per-param lex ordering by module-qualified name:
+        // Param T0: (Alpha, Beta), Param T1: (Carrier)
+        Assert.Equal(new[] { "Alpha", "Beta", "Carrier" },
+            ctx.PwtEntries.Select(e => e.ProtocolName).ToArray());
     }
 
     [Fact]
@@ -869,6 +870,117 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
         Assert.Empty(ctx.PwtEntries);
+    }
+
+    [Fact]
+    public void AddMetadataAccessorDeclaration_ThinMode_EmitsStandardPInvoke()
+    {
+        // <= 3 metadata/PWT args: route to the existing thin-mode PInvokeDeclaration
+        // path. No raw code block should be emitted.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateConstrainedGenericFrozenStructTwoParams(
+            moduleDecl,
+            "Pair",
+            secondParamConstraints: new[] { ("TestModule", "Describable") });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Describable", "$s10TestModule11DescribableMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(structDecl, typeDb)!;
+        Assert.False(ctx.ExceedsRegisterArgumentThreshold);
+
+        ctx.AddMetadataAccessorDeclaration("/tmp/TestModule.dylib", "$s10TestModule4PairVMa");
+
+        Assert.Single(ctx.Declarations);
+        var decl = ctx.Declarations[0];
+        Assert.Equal("PInvoke_getMetadata", decl.MethodName);
+        Assert.Equal("TypeMetadata", decl.ReturnType);
+        Assert.Equal("TypeMetadataRequest request", decl.ParametersString);
+        Assert.Equal("$s10TestModule4PairVMa", decl.EntryPoint);
+        Assert.NotNull(decl.MetadataParameters);
+        Assert.Equal(3, decl.MetadataParameters!.Count);
+        Assert.Empty(ctx.RawCodeBlocks);
+    }
+
+    [Fact]
+    public void AddMetadataAccessorDeclaration_BufferMode_EmitsBufferPInvokeAndWrapper()
+    {
+        // > 3 metadata/PWT args: indirect-buffer ABI. Expect a single raw code
+        // block containing both a private PInvoke_getMetadata_buffer declaration
+        // (single IntPtr parameters arg) and an internal wrapper method with the
+        // thin-mode parameter shape that stackallocs an IntPtr buffer.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateConstrainedGenericClass(
+            moduleDecl,
+            "Quad",
+            paramConstraints: new[]
+            {
+                new[] { ("TestModule", "Alpha") },
+                new[] { ("TestModule", "Beta") },
+                new[] { ("TestModule", "Gamma") },
+                new[] { ("TestModule", "Delta") },
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Alpha", "$s10TestModule5AlphaMp")
+            .WithProtocol("TestModule", "Beta", "$s10TestModule4BetaMp")
+            .WithProtocol("TestModule", "Gamma", "$s10TestModule5GammaMp")
+            .WithProtocol("TestModule", "Delta", "$s10TestModule5DeltaMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
+        Assert.True(ctx.ExceedsRegisterArgumentThreshold);
+        // 4 metadata + 4 PWT = 8 thin-mode param slots.
+        Assert.Equal(8, ctx.GetTypeMetadataAccessorParameterDeclarations().Count);
+
+        ctx.AddMetadataAccessorDeclaration("/tmp/TestModule.dylib", "$s10TestModule4QuadCMa");
+
+        // Thin-mode Declarations list stays empty — everything lives in the raw block.
+        Assert.Empty(ctx.Declarations);
+        Assert.Single(ctx.RawCodeBlocks);
+
+        var block = ctx.RawCodeBlocks[0];
+
+        // Private P/Invoke targeting the Ma symbol with a single buffer arg.
+        Assert.Contains("LibraryImport(\"/tmp/TestModule.dylib\", EntryPoint = \"$s10TestModule4QuadCMa\")", block);
+        Assert.Contains("private static partial", block);
+        Assert.Contains("PInvoke_getMetadata_buffer", block);
+        Assert.Contains("TypeMetadataRequest request, global::System.IntPtr parameters", block);
+
+        // Internal wrapper method with the thin-mode parameter shape and stackalloc buffer.
+        // Generic-param sugar names are T/U/V/W → lowercased to t/u/v/w for metadata slots.
+        Assert.Contains("internal static", block);
+        Assert.Contains("PInvoke_getMetadata(TypeMetadataRequest request", block);
+        Assert.Contains("stackalloc global::System.IntPtr[8]", block);
+        Assert.Contains("buffer[0] = tMetadata;", block);
+        Assert.Contains("buffer[7] =", block); // last slot assigned
+        Assert.Contains("PInvoke_getMetadata_buffer(request, (global::System.IntPtr)buffer)", block);
+    }
+
+    [Fact]
+    public void AddMetadataAccessorDeclaration_BufferMode_IdempotentForSameSymbol()
+    {
+        // Re-entry with the same metadata symbol must not emit a second block.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateConstrainedGenericClass(
+            moduleDecl,
+            "Quad",
+            paramConstraints: new[]
+            {
+                new[] { ("TestModule", "Alpha") },
+                new[] { ("TestModule", "Beta") },
+                new[] { ("TestModule", "Gamma") },
+                new[] { ("TestModule", "Delta") },
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Alpha", "$s10TestModule5AlphaMp")
+            .WithProtocol("TestModule", "Beta", "$s10TestModule4BetaMp")
+            .WithProtocol("TestModule", "Gamma", "$s10TestModule5GammaMp")
+            .WithProtocol("TestModule", "Delta", "$s10TestModule5DeltaMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
+
+        ctx.AddMetadataAccessorDeclaration("/tmp/TestModule.dylib", "$s10TestModule4QuadCMa");
+        ctx.AddMetadataAccessorDeclaration("/tmp/TestModule.dylib", "$s10TestModule4QuadCMa");
+
+        Assert.Single(ctx.RawCodeBlocks);
     }
 
     [Fact]

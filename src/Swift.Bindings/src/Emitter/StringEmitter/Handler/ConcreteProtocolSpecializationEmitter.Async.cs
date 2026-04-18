@@ -33,7 +33,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!PassesAsyncMethodLevelGuards(originalMethod, parentTypeDecl, typeDatabase, logger))
             return false;
 
-        if (!IsEmittableAsyncPairing(pairing, typeDatabase, out var conformerTypeSpecs, logger, originalMethod.Name))
+        if (!IsEmittableAsyncPairing(pairing, typeDatabase, moduleName, out var conformerTypeSpecs, logger, originalMethod.Name))
             return false;
 
         if (!TryBuildEmissionPlan(
@@ -442,6 +442,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     private static bool IsEmittableAsyncPairing(
         IReadOnlyList<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing,
         ITypeDatabase typeDatabase,
+        string? moduleName,
         out NamedTypeSpec[] conformerTypeSpecs,
         ILogger? logger = null,
         string? methodNameForLog = null)
@@ -454,11 +455,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var conformer = pairing[i].Conformer;
 
             if (!ConcreteSpecializationEngine.HasKnownHintConformers(
-                    param.ConstraintProtocol.ToString()))
+                    param.ConstraintProtocol.ToString(), moduleName))
             {
                 logger?.LogDebug(
-                    "CSM-async: Skipping {Method} — constraint {Protocol} not in specialization-hints.json (Phase A scope).",
-                    methodNameForLog, param.ConstraintProtocol);
+                    "CSM-async: Skipping {Method} — constraint {Protocol} not in specialization-hints.json (Phase A scope, module={Module}).",
+                    methodNameForLog, param.ConstraintProtocol, moduleName);
+                return false;
+            }
+
+            if (!ConcreteSpecializationEngine.IsConformerAllowedForModule(conformer, moduleName))
+            {
+                logger?.LogDebug(
+                    "CSM-async: Skipping {Method} for {Conformer} — conformer is module-scoped and {Module} is not in its allow-list.",
+                    methodNameForLog, conformer.SwiftQualifiedName, moduleName);
                 return false;
             }
 
@@ -552,7 +561,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         foreach (var pairing in CartesianPairings(specializable.SpecializableParams))
         {
             if (!ConformerPairingSatisfiesCoupling(pairing)) continue;
-            if (!IsEmittableAsyncPairing(pairing, typeDatabase, out var conformerTypeSpecs)) continue;
+            if (!IsEmittableAsyncPairing(pairing, typeDatabase, moduleName, out var conformerTypeSpecs)) continue;
             if (!TryBuildEmissionPlan(
                     method, parentTypeDecl, pairing, conformerTypeSpecs,
                     typeDatabase, moduleName,

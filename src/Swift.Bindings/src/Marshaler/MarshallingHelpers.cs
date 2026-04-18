@@ -86,6 +86,16 @@ namespace BindingsGeneration
         public static bool IsSwiftOptional(TypeSpec? typeSpec) => MatchesSwiftTypeName(typeSpec, SwiftOptionalTypeName);
 
         /// <summary>
+        /// Determines whether the specified type spec represents the read-only Swift.UnsafeRawBufferPointer.
+        /// Marshalled via splitting into (pointer, length) at the @_cdecl C ABI boundary,
+        /// bridged to ReadOnlySpan&lt;byte&gt; on the C# side.
+        /// </summary>
+        public static bool IsUnsafeRawBufferPointer(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec named && named.Name == "Swift.UnsafeRawBufferPointer";
+        }
+
+        /// <summary>
         /// Determines whether the specified type spec represents Swift.Optional wrapping
         /// an ObjC bridged type (e.g., Optional&lt;UIImage&gt;, Optional&lt;NSUrlResponse&gt;).
         /// ObjC optionals use nullable pointer ABI (nil = IntPtr.Zero), not SwiftOptional layout.

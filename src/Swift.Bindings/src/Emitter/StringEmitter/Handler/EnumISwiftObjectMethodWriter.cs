@@ -83,16 +83,7 @@ namespace BindingsGeneration
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
-                _pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
-                {
-                    LibraryPath = libPath,
-                    EntryPoint = _enumDecl.MetadataAccessor,
-                    MethodName = "PInvoke_getMetadata",
-                    ReturnType = "TypeMetadata",
-                    ParametersString = "TypeMetadataRequest request",
-                    IsAsync = false,
-                    MetadataParameters = _pinvokeHelperContext.GetTypeMetadataAccessorParameterDeclarations()
-                });
+                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _enumDecl.MetadataAccessor);
                 return;
             }
 

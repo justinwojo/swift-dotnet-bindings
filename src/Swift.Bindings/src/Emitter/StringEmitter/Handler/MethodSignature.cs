@@ -32,6 +32,8 @@ namespace BindingsGeneration
                 MarshalledType.NativeRemappedFrozen(var swiftWrapperType) => swiftWrapperType,
                 MarshalledType.FrozenBuffer(var typeName) => typeName + ".Buffer",
                 MarshalledType.ConventionCFuncPtr(var funcPtrType) => funcPtrType,
+                MarshalledType.RawBufferPtr => "IntPtr",
+                MarshalledType.RawBufferLen => "nint",
                 MarshalledType.SwiftSelfTyped(var innerType) => $"SwiftSelf<{innerType}>",
                 MarshalledType.AsyncCallbackType => "void*",
                 MarshalledType.AsyncErrorCallbackType => "void*",
@@ -100,6 +102,9 @@ namespace BindingsGeneration
             // Cdecl closure wrapper: func pointer and context as separate IntPtr params
             MarshalledType.CdeclClosureFuncPtr => $"{modifier} IntPtr {Name}",
             MarshalledType.CdeclClosureContext => $"{modifier} IntPtr {Name}",
+            // UnsafeRawBufferPointer split: pointer half is IntPtr, length half is nint.
+            MarshalledType.RawBufferPtr => $"{modifier} IntPtr {Name}",
+            MarshalledType.RawBufferLen => $"{modifier} nint {Name}",
             // Frozen struct buffer type
             MarshalledType.FrozenBuffer(var typeName) => $"{modifier} {typeName}.Buffer {Name}",
             // @convention(c) function pointer — emit the full delegate* type
@@ -193,6 +198,11 @@ namespace BindingsGeneration
                 // @_cdecl tuple: use the marshalled buffer pointer
                 { Type: MarshalledType.CdeclTuple } => $"{parameter.Name}Ptr",
                 { Type: MarshalledType.NonFrozenIntPtrType } => $"{parameter.Name}Handle",
+                // UnsafeRawBufferPointer pointer half: pinned via fixed block inside WrapperEmitter;
+                // local variable name is {SourceCsName}PinnedPtr (byte*), cast to IntPtr for P/Invoke.
+                { Type: MarshalledType.RawBufferPtr(var rawBufSrc) } => $"(IntPtr){rawBufSrc}PinnedPtr",
+                // UnsafeRawBufferPointer length half: span.Length is int, cast to nint.
+                { Type: MarshalledType.RawBufferLen(var rawBufLenSrc) } => $"(nint){rawBufLenSrc}.Length",
                 // Handle .Buffer params: ref modifier uses BufferRef (ref-returning property) for in-place mutation
                 { Type: MarshalledType.FrozenBuffer, modifier: "ref" } => $"ref {parameter.Name}Disposable.BufferRef",
                 { Type: MarshalledType.FrozenBuffer } => $"{parameter.Name}Disposable.Buffer",
@@ -613,6 +623,14 @@ namespace BindingsGeneration
                 {
                     AddParameter("IntPtr", csParamName + "Utf8Ptr");
                     AddParameter("nint", csParamName + "Utf8Len");
+                    continue;
+                }
+
+                // Swift.UnsafeRawBufferPointer → ReadOnlySpan<byte>. Pinning happens in the
+                // method body (WrapperEmitter) so the P/Invoke sees two args (IntPtr + nint).
+                if (MarshallingHelpers.IsUnsafeRawBufferPointer(argument.SwiftTypeSpec))
+                {
+                    AddParameter("ReadOnlySpan<byte>", csParamName);
                     continue;
                 }
 

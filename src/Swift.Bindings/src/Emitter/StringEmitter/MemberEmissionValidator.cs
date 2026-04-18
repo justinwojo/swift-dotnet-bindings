@@ -143,17 +143,15 @@ public static class MemberEmissionValidator
                 skipDetails = "AsyncStream element type is not supported.";
                 return SkipReason.UnsupportedAsyncStream;
             }
-            // Skip custom actor instance AsyncStream properties — the wrapper captures `self`
-            // as a function parameter and cannot dispatch through the actor's serial executor.
-            // @MainActor is NOT blocked: under -strict-concurrency=minimal, nonisolated wrappers
-            // can access @MainActor members. The consumer manages thread affinity.
-            // `nonisolated` actor members are explicit opt-outs and safe to reach from any context —
-            // except when the property type contains a parameterized-protocol usage (iOS 16+ runtime).
+            // Custom actor AsyncStream properties are emitted as `Task { for await e in await __self.prop { ... } }`.
+            // The `await` on the property access hops to the actor's serial executor; the stream itself
+            // is Sendable and iterates without further isolation. Parameterized-protocol element types
+            // are still blocked: the @_cdecl top-level function can't spell iOS 16+ parameterized
+            // protocol types at an earlier deployment target.
             if (!property.IsStatic && property.ParentDecl is ClassDecl { IsActor: true } &&
-                (!property.IsNonisolated ||
-                 WrapperValidation.ContainsParameterizedProtocol(property.SwiftTypeSpec, typeDatabase)))
+                WrapperValidation.ContainsParameterizedProtocol(property.SwiftTypeSpec, typeDatabase))
             {
-                skipDetails = "Custom actor AsyncStream property cannot be wrapped — requires async dispatch through actor executor.";
+                skipDetails = "Actor AsyncStream property has parameterized-protocol element type (@_cdecl wrapper cannot spell iOS 16+ parameterized protocol).";
                 return SkipReason.ActorIsolatedAsyncStream;
             }
             // AsyncStream is handled specially - it's emittable
@@ -918,16 +916,13 @@ public static class MemberEmissionValidator
             }
         }
 
-        // Skip methods with Swift.UnsafeRawBufferPointer / Swift.UnsafeMutableRawBufferPointer params.
-        // These are 16-byte Swift stdlib structs that cannot be represented in @_cdecl wrappers
-        // ("cannot be represented in Objective-C") and have no idiomatic cross-ABI marshalling yet.
-        // Deferred: proper marshalling would split the struct into pointer+count pairs and bridge
-        // to ReadOnlySpan<byte>/byte[] on the C# side.
+        // Swift.UnsafeRawBufferPointer is supported by splitting into (ptr, len) at the @_cdecl
+        // boundary and bridging to ReadOnlySpan<byte> on the C# side. See CdeclParamMapper.Map
+        // and RawBufferPointerProjection. The mutable variant remains unsupported.
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec is NamedTypeSpec rawBufSpec &&
-                (rawBufSpec.Name == "Swift.UnsafeRawBufferPointer" ||
-                 rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer"))
+                rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer")
             {
                 skipDetails = $"Parameter '{arg.Name}' uses '{rawBufSpec.Name}', which is not yet supported for @_cdecl marshalling.";
                 return SkipReason.UnsupportedSignature;

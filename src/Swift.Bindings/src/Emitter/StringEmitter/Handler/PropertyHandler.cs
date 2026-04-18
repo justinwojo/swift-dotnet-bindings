@@ -106,18 +106,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     "AsyncStream property requires [UnmanagedCallersOnly] callback inside generic type.");
                 return;
             }
-            // Skip custom actor instance AsyncStream properties — the wrapper captures `self`
-            // as a function parameter and cannot dispatch through the actor's serial executor.
-            // @MainActor is NOT blocked: under -strict-concurrency=minimal, nonisolated wrappers
-            // can access @MainActor members. The consumer manages thread affinity.
-            // `nonisolated` actor members are explicit opt-outs and safe to reach from any context —
-            // except when the property type contains a parameterized-protocol usage (requires iOS 16+).
+            // Custom actor AsyncStream properties are emitted as `Task { for await e in await __self.prop { ... } }`.
+            // The `await` on the property access hops to the actor's serial executor; the stream itself
+            // is Sendable and iterates without further isolation. Parameterized-protocol element types
+            // are still blocked: the @_cdecl top-level function can't spell iOS 16+ parameterized
+            // protocol types at an earlier deployment target.
             if (!propertyDecl.IsStatic && propertyDecl.ParentDecl is ClassDecl { IsActor: true } &&
-                (!propertyDecl.IsNonisolated ||
-                 WrapperValidation.ContainsParameterizedProtocol(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase)))
+                WrapperValidation.ContainsParameterizedProtocol(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
             {
                 SkipProperty(SkipReason.ActorIsolatedAsyncStream,
-                    "Custom actor AsyncStream property cannot be wrapped — requires async dispatch through actor executor.");
+                    "Actor AsyncStream property has parameterized-protocol element type (@_cdecl wrapper cannot spell iOS 16+ parameterized protocol).");
                 return;
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.PropertyRenames);

@@ -125,4 +125,30 @@ public class ActorIsolatedTests : TestBase
     }
 
     #endregion
+
+    #region ActorEventStream (actor-isolated AsyncStream property)
+
+    public async Task TestActorEventStream_IsolatedAsyncStreamPropertyAccessible()
+    {
+        // Primary goal: the actor-isolated non-async AsyncStream property is
+        // emitted (previously skipped by HasClosureUnsafeTupleElements /
+        // actor-parent gates). Accessing the getter must return a live
+        // IAsyncEnumerable without faulting. Full round-trip iteration of an
+        // actor-isolated AsyncStream crossing the .NET/Swift boundary is a
+        // separate marshalling concern and is not in scope here.
+        var source = Functions.CreateActorEventStream();
+
+        var stream = source.Events;
+        AssertTrue(stream != null, "Events getter must return non-null IAsyncEnumerable");
+
+        AssertEqual("ActorEventStream", source.PassthroughLabel.ToString(),
+            "nonisolated label should still be synchronous");
+
+        await WithTimeout(source.EmitAsync(11), DefaultAsyncTimeout);
+        await WithTimeout(source.EndAsync(), DefaultAsyncTimeout);
+
+        source.Dispose();
+    }
+
+    #endregion
 }

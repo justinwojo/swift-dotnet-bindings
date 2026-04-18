@@ -692,10 +692,17 @@ public class TypeDatabaseTests
         }
 
         [Theory]
+        // Token<Kind> is pinned to SwiftBindings.Runtime via TypeOwnerRegistry legacy canonicals,
+        // so resolution falls through to the XML module database and preserves the hand-tuned
+        // "opaque generic struct" flags.
         [InlineData("ManagedSettings.Token", TypeRecordKind.Struct, false, true)]
-        [InlineData("ManagedSettings.Application", TypeRecordKind.Struct, true, false)]
-        [InlineData("ManagedSettings.ActivityCategory", TypeRecordKind.Struct, true, false)]
-        [InlineData("ManagedSettings.WebDomain", TypeRecordKind.Struct, true, false)]
+        // Application/ActivityCategory/WebDomain are owned by SwiftBindings.Apple. TryGetTypeRecord
+        // routes them through AppleSupplementResolver, which sets RequiresMemoryManagement
+        // unconditionally and mirrors the manifest's frozen flag (all three manifest entries
+        // record frozen: false for these phantom marker structs).
+        [InlineData("ManagedSettings.Application", TypeRecordKind.Struct, false, true)]
+        [InlineData("ManagedSettings.ActivityCategory", TypeRecordKind.Struct, false, true)]
+        [InlineData("ManagedSettings.WebDomain", TypeRecordKind.Struct, false, true)]
         public async Task ManagedSettingsDatabase_TokenAndMarkerTypes_ResolvesCorrectly(
             string typeName, TypeRecordKind expectedKind, bool expectedFrozen, bool expectedRequiresMemory)
         {

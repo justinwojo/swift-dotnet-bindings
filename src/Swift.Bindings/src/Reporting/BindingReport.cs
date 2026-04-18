@@ -82,6 +82,7 @@ public enum SkipReason
     ExtensionDefault,
     NonBlittableCallConvSwift,
     EveryProtocolConformanceSkipped,
+    OwnedByAppleSupplement,
     Unknown,
 }
 

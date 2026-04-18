@@ -268,6 +268,22 @@ namespace BindingsGeneration
         /// <inheritdoc/>
         public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)
         {
+            // SwiftBindings.Apple supplement wins over local module databases for any
+            // identity it owns — both cross-module references (Foundation.Locale.Language
+            // from Translation) AND same-module references within an Apple framework
+            // package (CryptoKit.P256.Signing.ECDSASignature from CryptoKit bindings).
+            // Running the resolver FIRST for supplement-owned types keeps framework
+            // packages deferring to the supplement's canonical projection instead of
+            // re-emitting a parallel local class. The resolver short-circuits to false
+            // when the identity is not in the manifest, so non-supplement types fall
+            // through to the normal module-database lookup untouched.
+            if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
+            {
+                AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName);
+                record = supplementRecord;
+                return true;
+            }
+
             if (TryGetTypeRecordInternal(swiftTypeName, out record))
                 return true;
 
@@ -298,18 +314,6 @@ namespace BindingsGeneration
             if (swiftTypeName.ModuleQualifiedName == "Swift.Error")
             {
                 record = TypeDatabaseExtensions.SwiftErrorType;
-                return true;
-            }
-
-            // SwiftBindings.Apple supplement fallback. Covers cross-module Swift-only
-            // types (e.g. Foundation.Locale.Language referenced from Translation) that
-            // aren't published by any module XML database. Runs last so registered
-            // entries always win; the resolver itself honours TypeOwnerRegistry
-            // overrides that pin legacy canonicals (Foundation.Date etc.) to Runtime.
-            if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
-            {
-                AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName);
-                record = supplementRecord;
                 return true;
             }
 

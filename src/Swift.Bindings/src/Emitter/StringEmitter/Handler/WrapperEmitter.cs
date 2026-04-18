@@ -179,6 +179,13 @@ namespace BindingsGeneration
             {
                 _needsUnsafeBody = true;
             }
+
+            // UnsafeRawBufferPointer params pin via `fixed (byte* p = span)` which requires unsafe.
+            if (_env.MethodDecl.CSSignature.Skip(1).Any(arg =>
+                    MarshallingHelpers.IsUnsafeRawBufferPointer(arg.SwiftTypeSpec)))
+            {
+                _needsUnsafeBody = true;
+            }
         }
 
         /// <summary>
@@ -244,10 +251,12 @@ namespace BindingsGeneration
             }
 
             EmitArrayOwnershipRetain(csWriter);
+            EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnConstructor(csWriter);
+            EmitRawBufferFixedEnd(csWriter);
             EmitDisposeScopeRegistration(csWriter);
 
             // Add cleanup in finally block for generics and closures
@@ -319,6 +328,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("var resultPtr = (IntPtr)buf;");
                 else
                     csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
+                EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (*buf == IntPtr.Zero)");
@@ -326,10 +336,12 @@ namespace BindingsGeneration
                 csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
                 csWriter.Indent--;
                 csWriter.WriteLine("return new ObjCRuntime.NativeHandle(*buf);");
+                EmitRawBufferFixedEnd(csWriter);
             }
             else
             {
                 // Class constructors: P/Invoke returns IntPtr directly (pointer in register)
+                EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (result == IntPtr.Zero)");
@@ -337,6 +349,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
                 csWriter.Indent--;
                 csWriter.WriteLine("return new ObjCRuntime.NativeHandle(result);");
+                EmitRawBufferFixedEnd(csWriter);
             }
 
             if (needsTryFinally)
@@ -406,10 +419,12 @@ namespace BindingsGeneration
             EmitExistentialContainerMarshalling(csWriter);
             EmitProtocolWitnessTables(csWriter);
             EmitOptionalReturnBuffer(csWriter);
+            EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnMethod(csWriter);
+            EmitRawBufferFixedEnd(csWriter);
 
             EmitFixedBlockEnd(csWriter);
             if (needsTryFinally)
@@ -673,6 +688,39 @@ namespace BindingsGeneration
             if (_syncPlan.FixedBlockHeader == null) return;
             csWriter.Indent--;
             csWriter.WriteLine("}");
+        }
+
+        /// <summary>
+        /// Emits nested `fixed (byte* {name}PinnedPtr = {name})` blocks for every
+        /// Swift.UnsafeRawBufferPointer parameter, pinning the C# ReadOnlySpan&lt;byte&gt; so
+        /// its data survives across the P/Invoke call. Empty spans pin to a null pointer,
+        /// which the Swift side reconstructs as UnsafeRawBufferPointer(start: nil, count: 0).
+        /// </summary>
+        private void EmitRawBufferFixedStart(CSharpWriter csWriter)
+        {
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (!MarshallingHelpers.IsUnsafeRawBufferPointer(arg.SwiftTypeSpec))
+                    continue;
+                var csName = NameProvider.GetCSharpParameterName(arg);
+                csWriter.WriteLine($"fixed (byte* {csName}PinnedPtr = {csName})");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+            }
+        }
+
+        /// <summary>
+        /// Closes the nested fixed blocks opened by <see cref="EmitRawBufferFixedStart"/>.
+        /// </summary>
+        private void EmitRawBufferFixedEnd(CSharpWriter csWriter)
+        {
+            foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
+            {
+                if (!MarshallingHelpers.IsUnsafeRawBufferPointer(arg.SwiftTypeSpec))
+                    continue;
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
         }
 
         /// <summary>

@@ -2568,6 +2568,39 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void CdeclParamMapper_UnsafeRawBufferPointer_SplitsIntoPtrAndLen()
+    {
+        // Swift.UnsafeRawBufferPointer is 16 bytes (base + count) — can't flow through
+        // @_cdecl as a single struct. CdeclParamMapper splits it into (UnsafeRawPointer?, Int)
+        // and reconstructs the stdlib struct inside the wrapper body.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var rawBuf = new NamedTypeSpec("Swift.UnsafeRawBufferPointer");
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = rawBuf,
+            Name = "buffer",
+            PrivateName = "buffer",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("readBuffer", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "buffer", env);
+
+        Assert.Contains("bufferPtr: UnsafeRawPointer?", cdeclParam);
+        Assert.Contains("bufferLen: Int", cdeclParam);
+        Assert.Contains("UnsafeRawBufferPointer(start: bufferPtr, count: bufferLen)", reconstruction!);
+        Assert.Contains("buffer: bufferVal", callArg);
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_OptionalSelfReturn_ClassParent_ReturnsTrue()
     {
         // Optional<Self> return on class parents — Self resolves to concrete class,

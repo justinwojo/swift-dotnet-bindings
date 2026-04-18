@@ -10,27 +10,20 @@ namespace BindingsGeneration;
 /// non-frozen struct, class). Inspects a freshly-built <see cref="PInvokeHelperContext"/>
 /// for conditions that prevent emitting a correct type metadata accessor.
 ///
-/// The only fail-closed condition today is
+/// Historically the only fail-closed condition was
 /// <see cref="PInvokeHelperContext.ExceedsRegisterArgumentThreshold"/>: when
-/// (num_metadata + num_pwts) &gt; 3 the actual Swift <c>Ma</c> symbol uses the indirect-
-/// buffer ABI, but every C# call site we emit (cctor field initializers, expression-bodied
-/// <c>GetTypeMetadata()</c>, allocating-init metadata, enum case factories, raw-value
-/// <c>FromRawValue</c>) still calls it with explicit per-arg parameters. Letting the type
-/// through with a "wrong-but-lazy" call site only defers the PAC trap to first use, so we
-/// fail closed and skip the entire type instead. Audited across the validation matrix; no
-/// current library exceeds 3 metadata/PWT args. Full buffer-mode support is tracked in
-/// <c>src/docs/roadmap.md</c>.
-///
-/// When the gate fires the handler records the type as skipped, emits an
-/// <c>// Unsupported</c> comment in the generated C# file, logs a warning, and returns
-/// <c>true</c> so the handler can return early without emitting an invalid metadata
-/// accessor.
+/// (num_metadata + num_pwts) &gt; 3 the Swift <c>Ma</c> symbol uses the indirect-buffer
+/// ABI. That case is now handled by <see cref="PInvokeHelperContext.AddMetadataAccessorDeclaration"/>,
+/// which emits a buffer-mode P/Invoke plus a managed wrapper that preserves the thin-mode
+/// call shape, so the gate no longer skips on it. The gate is retained so handlers have a
+/// single, opt-in hook for any future fail-closed metadata-accessor conditions.
 /// </summary>
 public static class TypeMetadataAccessorSkipGate
 {
     /// <summary>
     /// Returns <c>true</c> when the handler should skip emission of <paramref name="typeDecl"/>
-    /// because the type's metadata accessor cannot be expressed correctly.
+    /// because the type's metadata accessor cannot be expressed correctly. No conditions
+    /// fire today.
     /// </summary>
     public static bool ShouldSkip(
         TypeDecl typeDecl,
@@ -38,19 +31,6 @@ public static class TypeMetadataAccessorSkipGate
         CSharpWriter csWriter,
         ILogger logger)
     {
-        if (context.ExceedsRegisterArgumentThreshold)
-        {
-            const string reason = "(num_metadata + num_pwts) > 3 — Swift Ma symbol uses indirect-buffer ABI, not yet supported (tracked in src/docs/roadmap.md)";
-            ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.UnsupportedType,
-                $"Constrained generic type metadata accessor: {reason}");
-            UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.UnsupportedType,
-                $"constrained generic metadata accessor: {reason}");
-            logger.LogWarning(
-                "Skipping type '{TypeName}' — constrained generic metadata accessor would require buffer-mode ABI: {Reason}.",
-                typeDecl.Name, reason);
-            return true;
-        }
-
         return false;
     }
 }

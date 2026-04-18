@@ -15,12 +15,23 @@ using Nuke.Common.IO;
 /// Restores originals on Dispose (even on exception).
 /// Replaces the backup-sed-restore-on-trap pattern in pack-all.sh.
 /// </summary>
+/// <remarks>
+/// Runtime, SDK, Templates, Sdk.props, template metadata, and the generator's
+/// <c>DefaultSwiftRuntimeVersion</c> constant all share the main version.
+/// The Apple supplement (<c>SwiftBindings.Apple</c>) is versioned per Apple
+/// SDK train and stamped independently, so consumers can adopt a new
+/// supplement release without waiting on a Runtime/SDK bump. When
+/// <paramref name="appleVersion"/> is null the main version is used for the
+/// supplement as well, preserving the pre-split behavior.
+/// </remarks>
 public sealed class VersionScope : IDisposable
 {
     private readonly Dictionary<string, byte[]> _originals = new();
 
-    public VersionScope(string version, AbsolutePath repoRoot)
+    public VersionScope(string version, AbsolutePath repoRoot, string? appleVersion = null)
     {
+        var effectiveAppleVersion = appleVersion ?? version;
+
         var files = new[]
         {
             repoRoot / "src" / "Swift.Runtime" / "src" / "Swift.Runtime.csproj",
@@ -40,15 +51,16 @@ public sealed class VersionScope : IDisposable
             _originals[file] = File.ReadAllBytes(file);
         }
 
-        // Apply version stamps — XML files via XDocument, others via text/JSON
-        StampPackageVersion(files[0], version); // Runtime .csproj
-        StampPackageVersion(files[1], version); // SDK .csproj
-        StampPackageVersion(files[2], version); // Templates .csproj
-        StampPackageVersion(files[3], version); // Apple .csproj
-        StampSdkProps(files[4], version);       // _SwiftBindingSdkVersion + SwiftRuntimeVersion
-        StampTemplateSdk(files[5], version);    // Sdk="SwiftBindings.Sdk/..."
-        StampTemplateJson(files[6], version);   // template.json sdkVersion symbol
-        StampGeneratorDefault(files[7], version); // DefaultSwiftRuntimeVersion constant
+        // Apply version stamps — XML files via XDocument, others via text/JSON.
+        // Apple supplement stamps from appleVersion; everything else from the main version.
+        StampPackageVersion(files[0], version);                 // Runtime .csproj
+        StampPackageVersion(files[1], version);                 // SDK .csproj
+        StampPackageVersion(files[2], version);                 // Templates .csproj
+        StampPackageVersion(files[3], effectiveAppleVersion);   // Apple .csproj
+        StampSdkProps(files[4], version);                       // _SwiftBindingSdkVersion + SwiftRuntimeVersion
+        StampTemplateSdk(files[5], version);                    // Sdk="SwiftBindings.Sdk/..."
+        StampTemplateJson(files[6], version);                   // template.json sdkVersion symbol
+        StampGeneratorDefault(files[7], version);               // DefaultSwiftRuntimeVersion constant
     }
 
     public void Dispose()

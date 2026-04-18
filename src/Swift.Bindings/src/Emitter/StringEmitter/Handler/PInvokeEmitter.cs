@@ -551,6 +551,17 @@ namespace BindingsGeneration
                     continue;
                 }
 
+                // Swift.UnsafeRawBufferPointer split: public C# ReadOnlySpan<byte> is pinned at the
+                // call site via a fixed block; the @_cdecl wrapper receives (UnsafeRawPointer?, Int).
+                // See CdeclParamMapper.Map for the Swift-side reconstruction and WrapperEmitter
+                // for the C# fixed-block emission that surrounds this P/Invoke call.
+                if (MarshallingHelpers.IsUnsafeRawBufferPointer(argument.SwiftTypeSpec))
+                {
+                    AddParameter(new MarshalledType.RawBufferPtr(csName), csName + "Ptr");
+                    AddParameter(new MarshalledType.RawBufferLen(csName), csName + "Len");
+                    continue;
+                }
+
                 if (argument.IsGeneric)
                 {
                     var payloadName = NameProvider.GetPayloadName(csName);

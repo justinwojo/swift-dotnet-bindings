@@ -62,16 +62,13 @@ public class PInvokeHelperContext
     public IReadOnlyList<HelperPwtEntry> PwtEntries { get; }
 
     /// <summary>
-    /// True when the type's metadata accessor would require the indirect-buffer ABI
-    /// (total of metadata + PWT params exceeds 3, per runtime-metadata.md). Buffer
-    /// mode is not implemented, so <see cref="TypeMetadataAccessorSkipGate"/> uses
-    /// this flag to skip the type entirely — every C# call site we emit (cctor field
-    /// initializers, expression-bodied <c>GetTypeMetadata()</c>, allocating-init
-    /// metadata, enum case factories, raw-value <c>FromRawValue</c>) calls the
-    /// accessor with explicit per-arg parameters, so even a "lazy" deferred call
-    /// would PAC-trap the first time the type is touched on arm64e. Audited across
-    /// the validation matrix; no current library exceeds 3 metadata/PWT args.
-    /// Buffer-mode emission is tracked in <c>src/docs/roadmap.md</c>.
+    /// True when the type's metadata accessor uses the indirect-buffer ABI
+    /// (total of metadata + PWT params exceeds 3, per runtime-metadata.md).
+    /// <see cref="AddMetadataAccessorDeclaration"/> consults this to pick between the
+    /// thin multi-argument P/Invoke (&lt;= 3) and a buffer-mode pair (private P/Invoke
+    /// taking a single <c>IntPtr</c> buffer + a managed wrapper that stackallocs the
+    /// buffer using the thin-mode parameter shape so every existing call site keeps
+    /// working unchanged). See <c>src/docs/runtime-metadata.md</c>.
     /// </summary>
     public bool ExceedsRegisterArgumentThreshold { get; }
 
@@ -97,13 +94,7 @@ public class PInvokeHelperContext
         HelperClassName = $"{typeName}_PInvoke";
         GenericTypeParameters = genericTypeParameters;
         ExceedsRegisterArgumentThreshold = exceedsRegisterThreshold;
-        // When the type would require the indirect-buffer ABI, TypeMetadataAccessorSkipGate
-        // skips the type entirely, so PwtEntries is unused in that branch. We still clear
-        // it here defensively so any unintended downstream consumer sees an empty list
-        // instead of a half-populated one.
-        PwtEntries = exceedsRegisterThreshold
-            ? Array.Empty<HelperPwtEntry>()
-            : (pwtEntries ?? Array.Empty<HelperPwtEntry>());
+        PwtEntries = pwtEntries ?? Array.Empty<HelperPwtEntry>();
     }
 
     /// <summary>
@@ -250,10 +241,10 @@ public class PInvokeHelperContext
         }
 
         // runtime-metadata.md: when (num_metadata + num_pwts) > 3, the metadata
-        // accessor signature switches to the indirect-buffer ABI. Buffer mode is
-        // not implemented yet (Option B in the design doc) — flag the type so the
-        // handler can skip emission with a diagnostic. Audited across the
-        // validation matrix; no current library exceeds 3 metadata/PWT args.
+        // accessor signature switches to the indirect-buffer ABI (the symbol takes
+        // a single const void * const * buffer of arg pointers instead of separate
+        // register args). AddMetadataAccessorDeclaration routes to the buffer-mode
+        // pair in that case.
         bool exceedsThreshold = (typeParams.Count + entries.Count) > 3;
 
         return (entries, exceedsThreshold);
@@ -416,6 +407,90 @@ public class PInvokeHelperContext
         }
 
         return args;
+    }
+
+    /// <summary>
+    /// Adds a <c>PInvoke_getMetadata</c> declaration for this generic type. Emits a
+    /// standard thin-mode P/Invoke when <see cref="ExceedsRegisterArgumentThreshold"/>
+    /// is false. Otherwise emits a buffer-mode pair — a private
+    /// <c>PInvoke_getMetadata_buffer(TypeMetadataRequest, IntPtr)</c> P/Invoke pointing
+    /// at the Swift <c>Ma</c> symbol, plus an <c>internal static</c> wrapper with the
+    /// thin-mode parameter shape that stackallocs the buffer. Call sites continue to
+    /// invoke <c>PInvoke_getMetadata(TypeMetadataRequest.Complete, ...)</c> unchanged.
+    /// Safe to call more than once per type — the underlying <see cref="AddDeclaration"/>
+    /// dedupes by method name and the raw block is guarded by
+    /// <see cref="_metadataAccessorEmitted"/>.
+    /// </summary>
+    /// <param name="libraryPath">Dylib hosting the Swift <c>Ma</c> symbol.</param>
+    /// <param name="metadataAccessorSymbol">Mangled Swift metadata-accessor symbol.</param>
+    public void AddMetadataAccessorDeclaration(string libraryPath, string metadataAccessorSymbol)
+    {
+        if (!ExceedsRegisterArgumentThreshold)
+        {
+            AddDeclaration(new PInvokeDeclaration
+            {
+                LibraryPath = libraryPath,
+                EntryPoint = metadataAccessorSymbol,
+                MethodName = "PInvoke_getMetadata",
+                ReturnType = "TypeMetadata",
+                ParametersString = "TypeMetadataRequest request",
+                IsAsync = false,
+                MetadataParameters = GetTypeMetadataAccessorParameterDeclarations()
+            });
+            return;
+        }
+
+        if (!_metadataAccessorEmitted.Add(metadataAccessorSymbol))
+            return;
+
+        RawCodeBlocks.Add(BuildBufferModeMetadataAccessorBlock(libraryPath, metadataAccessorSymbol));
+    }
+
+    // Guards against emitting the buffer-mode wrapper + P/Invoke more than once for
+    // the same metadata symbol when a handler re-enters AddMetadataAccessorDeclaration
+    // (e.g., failable init metadata re-emission).
+    private readonly HashSet<string> _metadataAccessorEmitted = new();
+
+    private string BuildBufferModeMetadataAccessorBlock(string libraryPath, string metadataAccessorSymbol)
+    {
+        var thinParams = GetTypeMetadataAccessorParameterDeclarations();
+        int totalArgs = thinParams.Count;
+
+        // Named IntPtr params for the wrapper (matches the thin-mode shape so callers
+        // are oblivious to the ABI switch).
+        var wrapperParamList = "TypeMetadataRequest request";
+        if (thinParams.Count > 0)
+            wrapperParamList += ", " + string.Join(", ", thinParams);
+
+        // Extract each param's variable name (last whitespace-separated token) for
+        // buffer store statements. Each thinParams entry is "IntPtr {name}".
+        var storeLines = new List<string>(totalArgs);
+        for (int i = 0; i < totalArgs; i++)
+        {
+            var decl = thinParams[i];
+            var spaceIdx = decl.LastIndexOf(' ');
+            var varName = spaceIdx >= 0 ? decl.Substring(spaceIdx + 1) : decl;
+            storeLines.Add($"        buffer[{i}] = {varName};");
+        }
+
+        var storeBlock = string.Join("\n", storeLines);
+
+        // CallConvCdecl on the buffer P/Invoke matches the Swift ABI for both thin
+        // and buffer metadata-accessor modes. The return remains TypeMetadata (single
+        // IntPtr): Swift's MetadataResponse is (metadata, state) but state is carried
+        // in x1 and we only read x0 — same truncation the thin-mode declaration does.
+        return $$"""
+            [global::System.Runtime.InteropServices.LibraryImport("{{libraryPath}}", EntryPoint = "{{metadataAccessorSymbol}}")]
+            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+            private static partial global::Swift.Runtime.TypeMetadata PInvoke_getMetadata_buffer(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
+
+            internal static global::Swift.Runtime.TypeMetadata PInvoke_getMetadata({{wrapperParamList}})
+            {
+                global::System.IntPtr* buffer = stackalloc global::System.IntPtr[{{totalArgs}}];
+            {{storeBlock}}
+                return PInvoke_getMetadata_buffer(request, (global::System.IntPtr)buffer);
+            }
+            """;
     }
 
     /// <summary>

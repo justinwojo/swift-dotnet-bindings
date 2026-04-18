@@ -25,7 +25,6 @@
       "type": "string",
       "enum": [
         "AnalyzerTests",
-        "AssertBindingReportConstraints",
         "BindingTests",
         "BindingTestsStrict",
         "BuildAsyncWrapper",
@@ -123,6 +122,10 @@
   "allOf": [
     {
       "properties": {
+        "AppleVersion": {
+          "type": "string",
+          "description": "Package version for SwiftBindings.Apple (defaults to --version when unset)"
+        },
         "ClassFilter": {
           "type": "string",
           "description": "Run only one test class"

@@ -525,24 +525,13 @@ namespace BindingsGeneration
             {
                 // Type metadata accessor: Swift's metadata accessor for a generic type expects
                 // metadata + witness tables for any protocol-constrained generic params (per
-                // runtime-metadata.md). Use the type-metadata-accessor-specific arg/param list
-                // so the right PWTs flow through.
+                // runtime-metadata.md). AddMetadataAccessorDeclaration transparently routes to
+                // thin-mode (<= 3 args) or buffer-mode (> 3 args) on the helper side.
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
                 _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
                 _writer.WriteLine();
 
-                // Add the P/Invoke declaration to the helper context
-                var declaration = new PInvokeDeclaration
-                {
-                    LibraryPath = libPath,
-                    EntryPoint = metadataAccessor,
-                    MethodName = "PInvoke_getMetadata",
-                    ReturnType = "TypeMetadata",
-                    ParametersString = "TypeMetadataRequest request",
-                    IsAsync = false,
-                    MetadataParameters = _pinvokeHelperContext.GetTypeMetadataAccessorParameterDeclarations()
-                };
-                _pinvokeHelperContext.AddDeclaration(declaration);
+                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, metadataAccessor);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
                      !string.IsNullOrEmpty(_typeDatabase.AsyncLibraryName))

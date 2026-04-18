@@ -438,7 +438,7 @@ namespace BindingsGeneration
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
 
                 // Create concrete specialization engine and index module-local conformances
-                var specializationEngine = new ConcreteSpecializationEngine(typeDatabase);
+                var specializationEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
                 specializationEngine.IndexModuleConformances(decl);
                 emissionContext.SpecializationEngine = specializationEngine;
 

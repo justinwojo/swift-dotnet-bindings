@@ -28,9 +28,14 @@ partial class Build
             var outputDir = (AbsolutePath)OutputDir;
             outputDir.CreateDirectory();
 
-            Log.Information("=== Packing SwiftBindings v{Version} ===", Version);
+            var appleVersion = AppleVersion ?? Version!;
+            if (AppleVersion is null)
+                Log.Information("=== Packing SwiftBindings v{Version} ===", Version);
+            else
+                Log.Information("=== Packing SwiftBindings v{Version} (Apple supplement v{AppleVersion}) ===",
+                    Version, appleVersion);
 
-            using var scope = new VersionScope(Version!, RootDirectory);
+            using var scope = new VersionScope(Version!, RootDirectory, AppleVersion);
 
             // 1. Runtime
             Log.Information("=== [1/4] Packing SwiftBindings.Runtime ===");
@@ -68,9 +73,10 @@ partial class Build
                 .EnableNoLogo()
                 .SetVerbosity(DotNetVerbosity.quiet));
 
-            // 4. Apple supplement (Phase 2 — ProjectReference to Runtime is
-            //    stamped into the nuspec as a PackageReference at the same version).
-            Log.Information("=== [4/4] Packing SwiftBindings.Apple ===");
+            // 4. Apple supplement — versioned independently so it can ship per Apple
+            //    SDK train. The ProjectReference to Runtime is stamped into the
+            //    supplement's nuspec as a PackageReference at the main --version.
+            Log.Information("=== [4/4] Packing SwiftBindings.Apple v{AppleVersion} ===", appleVersion);
             DotNetPack(s => s
                 .SetProject(SourceDir / "Swift.Bindings.Apple" / "Swift.Bindings.Apple.csproj")
                 .SetConfiguration("Release")

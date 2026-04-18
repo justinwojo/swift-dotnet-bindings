@@ -3,27 +3,18 @@
 
 import Foundation
 
-// MARK: - UnsafeRawBufferParam (fix #11)
+// MARK: - UnsafeRawBufferParam
 //
-// Synthetic fixture for commit 26f764f1's "UnsafeRawBufferPointer parameter
-// deferral". The generator must:
-//
-//   (a) skip `readBuffer(_:)` with `Reason=UnsupportedSignature` in
-//       binding-report.json — asserted by the Nuke build-side step
-//       `AssertBindingReportConstraints` in build/Build.BindingTests.cs.
-//   (b) keep the rest of the struct intact — asserted at runtime by the C#
-//       test calling `multiplier(_:)`.
-//
-// The hazard fix #11 protects against is an emitter-side failure mode where
-// a single unsupported parameter type propagates up and drops the entire
-// type. If that regresses, the build-side assertion can still pass (the
-// skip entry is recorded) while the runtime test fails to compile because
-// the type is missing from the generated C#. Two-layer coverage catches
-// either direction of regression.
+// Exercises UnsafeRawBufferPointer parameter marshalling. The generator splits
+// the Swift parameter into (ptr, len) at the @_cdecl C ABI boundary and
+// bridges to ReadOnlySpan<byte> on the C# side (see CdeclParamMapper.Map and
+// MarshalledType.RawBufferPtr/RawBufferLen). An empty span pins to a null
+// pointer, so the Swift ptr parameter is UnsafeRawPointer?; the
+// UnsafeRawBufferPointer(start:count:) initializer accepts that directly.
 
-/// Struct that exercises the `UnsafeRawBufferPointer` parameter deferral
-/// path. One member is deliberately unsupported; the other must still
-/// compile and run.
+/// Struct exercising UnsafeRawBufferPointer parameter round-trips. Two methods
+/// cover the main observables: the buffer length (for empty-span handling) and
+/// the byte contents (for pointer correctness).
 public struct UnsafeRawBufferHolder {
     public let scale: Int32
 
@@ -31,18 +22,28 @@ public struct UnsafeRawBufferHolder {
         self.scale = scale
     }
 
-    /// Plain method that must survive the deferral of `readBuffer(_:)`. The
-    /// runtime test calls this to prove the enclosing type is still intact.
+    /// Unrelated method — keeps coverage on the enclosing type alongside the
+    /// raw-buffer methods so a regression that drops the type is still caught.
     public func multiplier(_ value: Int32) -> Int32 {
         return value * scale
     }
 
-    /// Method that will be skipped by fix #11 with reason
-    /// `UnsupportedSignature`. The Nuke build-side assertion reads
-    /// binding-report.json to confirm the skip reason. If this regresses —
-    /// i.e., the generator starts emitting a wrapper — the assertion will
-    /// fail and remind the fixer to update both layers at once.
+    /// Returns the byte count of the incoming buffer. Proves the length half
+    /// of the split (ptr, len) ABI round-trips, including the empty-span case
+    /// where ptr is null.
     public func readBuffer(_ buffer: UnsafeRawBufferPointer) -> Int32 {
         return Int32(buffer.count)
+    }
+
+    /// Sums the bytes of the incoming buffer as Int32. Proves the pointer half
+    /// round-trips correctly — the Swift side must dereference the same bytes
+    /// the C# caller pinned. Uses Int32 accumulation so callers can verify the
+    /// exact byte pattern they sent.
+    public func sumBytes(_ buffer: UnsafeRawBufferPointer) -> Int32 {
+        var total: Int32 = 0
+        for b in buffer {
+            total &+= Int32(b)
+        }
+        return total
     }
 }

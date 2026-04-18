@@ -98,18 +98,22 @@ public static class AsyncStreamEmitter
         var isStatic = propertyDecl.IsStatic;
         var selfParam = isStatic ? "" : "_ self_: UnsafeMutableRawPointer, ";
         var selfAccess = isStatic ? parentTypeName : "__self";
-        // Note: Custom actor instance AsyncStream properties are skipped at the gate
-        // (PropertyHandler + MemberEmissionValidator) because they require async dispatch through
-        // the actor's serial executor. @MainActor properties are allowed — under
-        // -strict-concurrency=minimal, nonisolated wrappers can access them.
+        // Custom actor AsyncStream properties are supported: `await __self.prop` hops to the
+        // actor's serial executor (whether the property is actor-isolated or nonisolated), and
+        // the resulting AsyncStream iterates without further isolation because it is Sendable.
+        // The gate in PropertyHandler + MemberEmissionValidator still rejects parameterized-protocol
+        // element types (iOS 16+ spelling at the @_cdecl level).
         bool isOnCustomActor = (propertyDecl.ParentDecl as ClassDecl)?.IsActor == true;
         // @MainActor properties need Task { @MainActor in } and await to access the
         // actor-isolated member. Unmanaged<T> strips isolation from the reference, so
         // even inside a @MainActor context, the compiler requires explicit `await`.
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             propertyDecl.ParentDecl, propertyDecl.IsMainActorIsolated);
-        // Custom actor and @MainActor properties need `await` for actor-isolated access
-        var awaitPrefix = (isOnCustomActor || needsMainActor) ? "await " : "";
+        // Custom actor isolated properties and @MainActor properties need `await` for actor-isolated
+        // access. `nonisolated` actor properties are synchronous from any context — adding `await`
+        // there produces a "no async operations" Swift warning.
+        bool needsActorAwait = (isOnCustomActor && !propertyDecl.IsNonisolated) || needsMainActor;
+        var awaitPrefix = needsActorAwait ? "await " : "";
         var taskOpen = needsMainActor ? "Task { @MainActor in" : "Task {";
 
         // Self reconstruction for instance properties

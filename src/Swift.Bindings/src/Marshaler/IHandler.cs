@@ -230,6 +230,29 @@ namespace BindingsGeneration
                         UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.ModuleInternal, "@_spi type");
                         continue;
                     }
+
+                    // Suppress types that the Apple supplement (SwiftBindings.Apple) already
+                    // owns. Without this gate, framework packages (CryptoKit, Foundation, etc.)
+                    // re-emit parallel copies of supplement-owned types (e.g.
+                    // CryptoKit.P256.Signing.ECDSASignature) alongside the supplement's
+                    // canonical Swift.CryptoKit.* projection, breaking cross-module identity.
+                    // AppleSupplementResolver.TryResolve only succeeds when the identity is in
+                    // the Apple types manifest AND the registry resolves it to the supplement,
+                    // so types outside the manifest (e.g. P256 namespace containers) still emit
+                    // locally. The supplement's own emission path (AppleTypesCsEmitter) does
+                    // NOT go through HandleBaseDecl, so this gate never affects supplement builds.
+                    if (typeDecl.SwiftTypeName != null &&
+                        AppleSupplementResolver.TryResolve(
+                            typeDecl.SwiftTypeName,
+                            typeDecl.SwiftTypeName.Module,
+                            out _))
+                    {
+                        ReportCollector.RecordTypeSkipped(typeDecl, SkipReason.OwnedByAppleSupplement,
+                            $"Type '{typeDecl.SwiftTypeName.ModuleQualifiedName}' is owned by SwiftBindings.Apple; consume the supplement projection instead.");
+                        UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, typeDecl.Name, SkipReason.OwnedByAppleSupplement,
+                            "owned by SwiftBindings.Apple");
+                        continue;
+                    }
                 }
 
                 if (baseDecl is StructDecl structDecl)

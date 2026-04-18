@@ -7,10 +7,11 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Tests for AsyncStreamEmitter — custom actor AsyncStream properties are skipped because
-/// they require async dispatch through the actor's serial executor. @MainActor AsyncStream
-/// properties are allowed: under -strict-concurrency=minimal, nonisolated wrappers can
-/// access them, following the Xamarin.iOS synchronous access precedent.
+/// Tests for AsyncStreamEmitter — covers @MainActor, custom `actor`, and plain non-actor
+/// parents. Custom actor AsyncStream properties are emitted as `Task { for await e in await
+/// __self.prop { ... } }`; the `await` on property access hops to the actor's serial
+/// executor. Parameterized-protocol element types stay rejected because the @_cdecl
+/// wrapper can't spell iOS 16+ parameterized-protocol types.
 /// </summary>
 public class AsyncStreamEmitterTests
 {
@@ -75,9 +76,10 @@ public class AsyncStreamEmitterTests
     }
 
     [Fact]
-    public void MemberEmissionValidator_SkipsCustomActorAsyncStream()
+    public void MemberEmissionValidator_AllowsCustomActorAsyncStream()
     {
-        // Custom actor AsyncStream properties still blocked — require async dispatch
+        // Custom actor AsyncStream properties are now emitted; the Swift wrapper awaits the
+        // property across the actor's serial executor.
         var typeDatabase = new MockTypeDatabase();
 
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -89,9 +91,75 @@ public class AsyncStreamEmitterTests
         var skipReason = MemberEmissionValidator.CanEmitProperty(
             property, typeDatabase, out var skipDetails, out var projectedTypeName);
 
-        Assert.Equal(SkipReason.ActorIsolatedAsyncStream, skipReason);
-        Assert.Contains("Custom actor", skipDetails!);
-        Assert.Null(projectedTypeName);
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void MemberEmissionValidator_AllowsNonisolatedCustomActorAsyncStream()
+    {
+        // `nonisolated` actor property access is synchronous from any isolation; still allowed.
+        var typeDatabase = new MockTypeDatabase();
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var actorDecl = CreateClassDecl("DataProcessor", moduleDecl);
+        actorDecl.IsActor = true;
+
+        var property = CreateAsyncStreamProperty("results", actorDecl, moduleDecl);
+        property.IsNonisolated = true;
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out var projectedTypeName);
+
+        Assert.Null(skipReason);
+        Assert.Equal("long", projectedTypeName);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_CustomActorIsolated_EmitsAwaitOnPropertyAccess()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var actorDecl = CreateClassDecl("DataProcessor", moduleDecl);
+        actorDecl.IsActor = true;
+
+        var property = CreateAsyncStreamProperty("results", actorDecl, moduleDecl);
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
+            "DataProcessor_results_AsyncStream", "TestModule.DataProcessor");
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("Task {", swift);
+        Assert.DoesNotContain("@MainActor", swift);
+        // Actor-isolated property: hop through `await __self.results` to the actor's executor.
+        Assert.Contains("await __self.results", swift);
+    }
+
+    [Fact]
+    public void EmitSwiftWrapper_CustomActorNonisolated_OmitsAwaitOnPropertyAccess()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var actorDecl = CreateClassDecl("DataProcessor", moduleDecl);
+        actorDecl.IsActor = true;
+
+        var property = CreateAsyncStreamProperty("results", actorDecl, moduleDecl);
+        property.IsNonisolated = true;
+        var asyncStreamHandler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        AsyncStreamEmitter.EmitSwiftWrapper(swiftWriter, property, asyncStreamHandler,
+            "DataProcessor_results_AsyncStream", "TestModule.DataProcessor");
+
+        var swift = swiftOutput.ToString();
+        Assert.DoesNotContain("@MainActor", swift);
+        // Nonisolated property access is synchronous — no await prefix on the property access.
+        Assert.DoesNotContain("await __self.results", swift);
+        Assert.Contains("__self.results", swift);
     }
 
     [Fact]
