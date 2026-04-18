@@ -317,7 +317,7 @@ namespace BindingsGeneration
             var supplementProps = "";
             if (needsAppleSupplement)
             {
-                var effectiveVersion = appleSupplementVersion ?? "18.0.0";
+                var effectiveVersion = appleSupplementVersion ?? "26.0.0";
                 supplementProps = $"\n    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>" +
                                   $"\n    <_SwiftBindingAppleSupplementVersion>{XmlEscape(effectiveVersion)}</_SwiftBindingAppleSupplementVersion>";
                 if (!string.IsNullOrEmpty(appleSupplementPrototypeCsprojPath))
@@ -342,6 +342,46 @@ namespace BindingsGeneration
 
             File.WriteAllText(propsPath, content);
             logger.LogInformation("Wrote binding metadata props to {Path}", propsPath);
+        }
+
+        // Writes a standalone apple-supplement.props next to binding-metadata.props. The direct-
+        // mode SDK path writes binding-metadata.props via shell heredoc inside Sdk.targets and
+        // has no visibility into the generator's AppleSupplementReferences state; the heredoc
+        // <Import>s this file so the supplement signals (_SwiftBindingNeedsAppleSupplement,
+        // version, optional prototype csproj) still reach the PackageReference injection target.
+        // Emitted unconditionally (even when the supplement isn't needed) so the Import in
+        // Sdk.targets has a deterministic shape and doesn't have to probe for file existence.
+        public static void EmitAppleSupplementPropsFragment(
+            string outputDirectory,
+            bool needsAppleSupplement,
+            string appleSupplementVersion,
+            string? appleSupplementPrototypeCsprojPath,
+            ILogger logger)
+        {
+            var fragmentPath = Path.Combine(outputDirectory, "apple-supplement.props");
+            string body;
+            if (!needsAppleSupplement)
+            {
+                body = "    <!-- Apple supplement not referenced by this module. -->";
+            }
+            else
+            {
+                var proto = !string.IsNullOrEmpty(appleSupplementPrototypeCsprojPath)
+                    ? $"\n    <_SwiftBindingAppleSupplementPrototypeCsproj>{XmlEscape(appleSupplementPrototypeCsprojPath)}</_SwiftBindingAppleSupplementPrototypeCsproj>"
+                    : "";
+                body = "    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>" +
+                       $"\n    <_SwiftBindingAppleSupplementVersion>{XmlEscape(appleSupplementVersion)}</_SwiftBindingAppleSupplementVersion>" +
+                       proto;
+            }
+            var content = $"""
+                <Project>
+                  <PropertyGroup>
+                {body}
+                  </PropertyGroup>
+                </Project>
+                """;
+            File.WriteAllText(fragmentPath, content);
+            logger.LogInformation("Wrote Apple supplement props fragment to {Path}", fragmentPath);
         }
 
         /// <summary>

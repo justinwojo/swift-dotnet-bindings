@@ -83,6 +83,7 @@ public enum SkipReason
     NonBlittableCallConvSwift,
     EveryProtocolConformanceSkipped,
     OwnedByAppleSupplement,
+    IndeterminatePwtShape,
     Unknown,
 }
 

@@ -41,17 +41,32 @@ public static class AsyncStreamEmitter
     /// Emits the [UnmanagedCallersOnly] completion callback for an AsyncStream property.
     /// This callback signals when the Swift stream has completed.
     /// </summary>
+    /// <remarks>
+    /// Mirrors the element-callback shape: resolve the stream from <c>context</c>, then
+    /// invoke the instance completion callback. The previous emission was a no-op that
+    /// left the channel writer open forever — any C# consumer iterating with <c>await
+    /// foreach</c> after the Swift sequence ended would hang on <c>ReadAllAsync</c>.
+    /// </remarks>
     /// <param name="csWriter">The C# writer.</param>
+    /// <param name="propertyDecl">The property declaration.</param>
+    /// <param name="asyncStreamHandler">The AsyncStream handler.</param>
     /// <param name="callbackName">The callback function name.</param>
     public static void EmitCompletionCallback(
         CSharpWriter csWriter,
+        PropertyDecl propertyDecl,
+        AsyncStreamHandler asyncStreamHandler,
         string callbackName)
     {
+        var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
+
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static void {{callbackName}}_OnComplete(long context)
             {
-                // Stream completion is handled by the SwiftAsyncStream instance
+                var stream = SwiftAsyncStream<{{elementType}}>.FromContext(context);
+                if (stream == null) return;
+
+                stream.GetCompletionCallback()(context);
             }
             """);
     }

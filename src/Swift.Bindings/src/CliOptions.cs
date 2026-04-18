@@ -174,10 +174,19 @@ public class CliOptions
         description: "Path to an include-types.json file listing Swift identities (and optional typealiases) to emit into the Apple types manifest. " +
                      "Positive-list only so the supplement never shadows Runtime-owned canonical types.");
 
-    public Option<int> AppleSdkTrainMajor { get; } = new(
+    public Option<string> AppleVersion { get; } = new(
+        aliases: new[] { "--apple-version" },
+        description: "Apple SDK train / SwiftBindings.Apple supplement version (e.g. 26.0.0). " +
+                     "Drives the generated PackageReference floor, binding-metadata.props, and — when " +
+                     "--apple-sdk-train-major is not set explicitly — the manifest sdk_train.major " +
+                     "(parsed from the leading numeric component). Package major tracks Apple SDK train.",
+        getDefaultValue: () => "26.0.0");
+
+    // Optional override; falls back to the major component of --apple-version when null.
+    public Option<int?> AppleSdkTrainMajor { get; } = new(
         aliases: new[] { "--apple-sdk-train-major" },
-        description: "Apple SDK train major (Xcode SDK major, e.g. 18). Written to sdk_train.major in the manifest.",
-        getDefaultValue: () => 18);
+        description: "Apple SDK train major (e.g. 26). When omitted, derived from --apple-version.",
+        getDefaultValue: () => (int?)null);
 
     public Option<string?> AppleSdkTrainLabel { get; } = new(
         aliases: new[] { "--apple-sdk-train-label" },
@@ -203,6 +212,15 @@ public class CliOptions
         aliases: new[] { "--apple-types-sequential-layout-whitelist" },
         description: "Optional path to sequential-layout-whitelist.json. Absent or empty means every " +
                      "entry emits via the default VWT-backed opaque storage path.");
+
+    public Option<bool> AllowPartialAppleTypesManifest { get; } = new(
+        aliases: new[] { "--allow-partial-apple-types-manifest" },
+        description: "Dev-only opt-in for --emit-apple-types-manifest: suppress the hard failure " +
+                     "when include-types.json identities are unmatched in the ABI dumps. " +
+                     "Regenerate.sh never passes this by default — a ship manifest MUST cover every " +
+                     "requested identity, otherwise a typo or a dropped type goes undetected until a " +
+                     "consumer crashes at runtime.",
+        getDefaultValue: () => false);
 
     public Option<bool> ValidateAppleTypesManifest { get; } = new(
         aliases: new[] { "--validate-apple-types-manifest" },
@@ -274,6 +292,7 @@ public class CliOptions
             EmitAppleTypesManifest,
             AppleAbiJson,
             AppleIncludeTypes,
+            AppleVersion,
             AppleSdkTrainMajor,
             AppleSdkTrainLabel,
             AppleSdkMinIos,
@@ -283,6 +302,7 @@ public class CliOptions
             EmitAppleTypesCs,
             AppleTypesManifest,
             AppleTypesSequentialLayoutWhitelist,
+            AllowPartialAppleTypesManifest,
             ValidateAppleTypesManifest,
             AppleTypesManifestWriteBack,
             AppleSupplementPrototypeDir,

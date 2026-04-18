@@ -66,9 +66,10 @@ namespace BindingsGeneration
         /// version expression to attach (per architecture doc §Decision summary item 5 —
         /// the Apple supplement is cross-major additive-only, so consumers float forward
         /// on the Apple SDK train and do not pin to a specific minor). Defaults to
-        /// <c>18.0.0</c> (SDK train 18), overridable by callers that need a different floor.
+        /// <c>26.0.0</c> (Apple SDK train 26); the generator CLI threads the value of
+        /// <c>--apple-version</c> through so a future train bump needs only a single flag.
         /// </summary>
-        public string AppleSupplementVersion { get; init; } = "18.0.0";
+        public string AppleSupplementVersion { get; init; } = "26.0.0";
 
         /// <summary>
         /// When non-null, emit a <c>ProjectReference</c> (instead of <c>PackageReference</c>)
@@ -197,8 +198,8 @@ namespace BindingsGeneration
             // Swift-only Apple type (e.g. Foundation.Locale.Language) via AppleSupplementResolver.
             // Non-Apple consumers leave EmitsAppleSupplementReference=false and pick up no extra dep.
             //
-            // The open-ended version ("18.0.0" instead of a bounded range) is deliberate — the
-            // supplement is cross-major additive-only per architecture doc §Decision summary
+            // The open-ended version (e.g. "26.0.0" instead of a bounded range) is deliberate —
+            // the supplement is cross-major additive-only per architecture doc §Decision summary
             // item 5, so consumers float forward as Apple ships new SDK trains. A closed upper
             // bound would force a coordinated release for every train bump.
             //
@@ -426,21 +427,7 @@ namespace BindingsGeneration
 
         internal static string BuildBoundedRuntimeVersionRange(string version)
         {
-            var firstDot = version.IndexOf('.');
-            if (firstDot <= 0) return version;
-            var majorStr = version.Substring(0, firstDot);
-            // Validate the major component is a plain integer too — `"x.8.0"` would
-            // otherwise produce `[x.8.0,x.9.0)`, which NuGet rejects at restore time.
-            // Both halves must parse cleanly or the range is meaningless.
-            if (!int.TryParse(majorStr, out _)) return version;
-            var rest = version.Substring(firstDot + 1);
-            var secondDot = rest.IndexOf('.');
-            // The substring before the second dot may carry a pre-release suffix (e.g. "8-preview"),
-            // but minor must be a plain integer for the +1 to make sense — so strip nothing,
-            // and reject the input via TryParse below if it isn't a clean integer.
-            var minorStr = secondDot < 0 ? rest : rest.Substring(0, secondDot);
-            if (!int.TryParse(minorStr, out var minor)) return version;
-            return $"[{version},{majorStr}.{minor + 1}.0)";
+            return RuntimeVersionRange.Build(version);
         }
     }
 }

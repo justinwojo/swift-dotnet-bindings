@@ -1306,7 +1306,7 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "Translation", emitsAppleSupplementRef: true);
                 Assert.Contains(
-                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"18.0.0\" />",
+                    "<PackageReference Include=\"SwiftBindings.Apple\" Version=\"26.0.0\" />",
                     content);
             }
             finally { Directory.Delete(dir, true); }
@@ -1367,7 +1367,7 @@ namespace BindingsGeneration.Tests
                 Metadata = CreateMinimalMetadata(module),
                 SourceXCFrameworkPath = sourceXcfwPath,
                 EmitsAppleSupplementReference = emitsAppleSupplementRef,
-                AppleSupplementVersion = supplementVersion ?? "18.0.0",
+                AppleSupplementVersion = supplementVersion ?? "26.0.0",
                 AppleSupplementPrototypeProjectPath = prototypePath,
             }, _logger);
             var defaultPi = PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -1587,7 +1587,9 @@ namespace BindingsGeneration.Tests
         public void Emit_OnlyReferencedIdentitiesAppear()
         {
             // Trimming guarantee: even though the manifest carries many types, only the
-            // identities we asked for should produce .cs files.
+            // identities we asked for should produce .cs files. The registration side-car
+            // (`_AppleSupplementRegistration.cs`) is always emitted and is exempt from the
+            // trimming guarantee — it's a constant resolver-wiring file, not a type.
             var dir = CreateTempDir();
             try
             {
@@ -1599,7 +1601,11 @@ namespace BindingsGeneration.Tests
                     SwiftRuntimeVersion = "0.8.0",
                 }, _logger);
 
-                foreach (var emitted in result.EmittedSourceFiles)
+                var typeFiles = result.EmittedSourceFiles
+                    .Where(f => !f.EndsWith("_AppleSupplementRegistration.cs", StringComparison.Ordinal))
+                    .ToList();
+                Assert.NotEmpty(typeFiles);
+                foreach (var emitted in typeFiles)
                     Assert.Contains("Locale.Language.cs", emitted);
             }
             finally { Directory.Delete(dir, true); }
@@ -1629,6 +1635,8 @@ namespace BindingsGeneration.Tests
         public void Emit_SecondRun_CleansStaleSources()
         {
             // Fresh-emit: shrinking the identity set must remove sources a prior run left behind.
+            // The registration side-car (`_AppleSupplementRegistration.cs`) is always re-emitted,
+            // so we compare on type files only.
             var dir = CreateTempDir();
             try
             {
@@ -1639,10 +1647,13 @@ namespace BindingsGeneration.Tests
                     PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
                     SwiftRuntimeVersion = "0.8.0",
                 }, _logger);
-                Assert.NotEmpty(first.EmittedSourceFiles);
+                var firstTypeFiles = first.EmittedSourceFiles
+                    .Where(f => !f.EndsWith("_AppleSupplementRegistration.cs", StringComparison.Ordinal))
+                    .ToList();
+                Assert.NotEmpty(firstTypeFiles);
 
                 // Second invocation with an unknown identity — manifest trimmer drops it, so
-                // emitted source set shrinks to zero and the prior run's file must be gone.
+                // the emitted type set shrinks to zero and the prior run's type file must be gone.
                 var second = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
                 {
                     PrototypeDirectory = dir,
@@ -1650,9 +1661,12 @@ namespace BindingsGeneration.Tests
                     PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
                     SwiftRuntimeVersion = "0.8.0",
                 }, _logger);
-                Assert.Empty(second.EmittedSourceFiles);
-                foreach (var stale in first.EmittedSourceFiles)
-                    Assert.False(File.Exists(stale), $"Stale file lingered: {stale}");
+                var secondTypeFiles = second.EmittedSourceFiles
+                    .Where(f => !f.EndsWith("_AppleSupplementRegistration.cs", StringComparison.Ordinal))
+                    .ToList();
+                Assert.Empty(secondTypeFiles);
+                foreach (var stale in firstTypeFiles)
+                    Assert.False(File.Exists(stale), $"Stale type file lingered: {stale}");
             }
             finally { Directory.Delete(dir, true); }
         }

@@ -26,7 +26,8 @@ public class AppleTypesCsEmitterTests
         bool whitelisted = false,
         bool frozen = false,
         int? size = null,
-        int? alignment = null)
+        int? alignment = null,
+        SequentialLayoutEvidence? evidence = null)
     {
         return new TypeEntry
         {
@@ -37,6 +38,7 @@ public class AppleTypesCsEmitterTests
             Alignment = alignment,
             StorageStrategy = storage,
             SequentialLayoutWhitelisted = whitelisted,
+            SequentialLayoutEvidence = evidence,
             ManagedProjection = new ManagedRef
             {
                 Namespace = ns,
@@ -56,6 +58,16 @@ public class AppleTypesCsEmitterTests
         };
     }
 
+    private static SequentialLayoutEvidence FullEvidence()
+    {
+        return new SequentialLayoutEvidence
+        {
+            StoredFieldsKnown = true,
+            CopyDestroyHandling = "trivial",
+            RoundtripValidated = true,
+        };
+    }
+
     private static Manifest MakeManifest(string moduleName, params TypeEntry[] entries)
     {
         var manifest = new Manifest
@@ -69,6 +81,15 @@ public class AppleTypesCsEmitterTests
         return manifest;
     }
 
+    private const string RegistrationFileName = "_AppleSupplementRegistration.cs";
+
+    // Filters out the bare-name DllImport registration side-car so test assertions
+    // target the type-emission file. See `AppleTypesCsEmitter.EmitFrameworkResolverRegistration`.
+    private static string EntryFile(AppleTypesCsEmitter emitter)
+        => Assert.Single(
+            emitter.EmittedFiles,
+            f => !f.EndsWith(RegistrationFileName, StringComparison.Ordinal));
+
     private static (string generatedDir, string outputPath, string contents) Emit(
         TypeEntry entry, string moduleName, SequentialLayoutWhitelist? whitelist = null)
     {
@@ -77,7 +98,7 @@ public class AppleTypesCsEmitterTests
         Directory.CreateDirectory(dir);
         var emitter = new AppleTypesCsEmitter(whitelist ?? SequentialLayoutWhitelist.Empty(), NullLogger.Instance);
         emitter.Emit(manifest, dir);
-        var emitted = Assert.Single(emitter.EmittedFiles);
+        var emitted = EntryFile(emitter);
         return (dir, emitted, File.ReadAllText(emitted));
     }
 
@@ -109,9 +130,13 @@ public class AppleTypesCsEmitterTests
         var (_, _, contents) = Emit(entry, "Foundation");
 
         Assert.Contains("[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]", contents);
+        // Bare library name (no `.framework/` substring) so the macios linker doesn't
+        // force-add `-framework Foundation`. SwiftFrameworkResolver maps it to a system
+        // framework path at runtime via per-assembly DllImportResolver.
         Assert.Contains(
-            "[DllImport(\"/System/Library/Frameworks/Foundation.framework/Foundation\", EntryPoint = \"$s10Foundation6LocaleV8LanguageVMa\")]",
+            "[DllImport(\"Foundation\", EntryPoint = \"$s10Foundation6LocaleV8LanguageVMa\")]",
             contents);
+        Assert.DoesNotContain("/System/Library/Frameworks/Foundation.framework/Foundation", contents);
         Assert.Contains("private static extern TypeMetadata PInvoke_GetMetadata();", contents);
     }
 
@@ -204,8 +229,9 @@ public class AppleTypesCsEmitterTests
     public void Whitelist_OptInWithoutExternalWhitelistEntry_IsRefused()
     {
         // Manifest says "sequential_layout_whitelisted": true but the external whitelist
-        // file does not list the identity — emission must refuse rather than silently
-        // falling back to VWT-opaque (that would hide a misconfiguration).
+        // file does not list the identity — the gate refuses the sequential path and
+        // falls back to VWT-opaque emission so the type is still shippable, while
+        // recording the refusal so the CLI can fail the build.
         var entry = MakeEntry(
             "Foundation.SomeStruct",
             "Swift.Foundation",
@@ -216,27 +242,32 @@ public class AppleTypesCsEmitterTests
             whitelisted: true,
             frozen: true,
             size: 8,
-            alignment: 8);
+            alignment: 8,
+            evidence: FullEvidence());
         var manifest = MakeManifest("Foundation", entry);
 
         var dir = Path.Combine(Path.GetTempPath(), "apple-cs-refuse-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var emitter = new AppleTypesCsEmitter(SequentialLayoutWhitelist.Empty(), NullLogger.Instance);
         emitter.Emit(manifest, dir);
+        var emittedPath = EntryFile(emitter);
+        var contents = File.ReadAllText(emittedPath);
         Directory.Delete(dir, recursive: true);
 
-        Assert.Empty(emitter.EmittedFiles);
-        var skipped = Assert.Single(emitter.SkippedEntries);
-        Assert.Equal("Foundation.SomeStruct", skipped.SwiftIdentity);
-        Assert.Contains("not in sequential-layout-whitelist.json", skipped.Reason);
+        Assert.Empty(emitter.SkippedEntries);
+        var refused = Assert.Single(emitter.RefusedWhitelistEntries);
+        Assert.Equal("Foundation.SomeStruct", refused.SwiftIdentity);
+        Assert.Contains("sequential-layout-whitelist.json", refused.Reason);
+        // VWT-opaque fallback must be the emitted shape.
+        Assert.Contains("ISwiftObject", contents);
+        Assert.DoesNotContain("[StructLayout(LayoutKind.Sequential", contents);
     }
 
     [Fact]
     public void Whitelist_OptInWithNullSize_IsRefused()
     {
         // The sequential path REQUIRES size + alignment to have been validated against
-        // the live SDK. The baseline manifest has size=null everywhere until Session 6
-        // fills it in, so whitelist opt-in must refuse until that happens.
+        // the live SDK. A whitelist opt-in with size=null must refuse and fall back.
         var entry = MakeEntry(
             "Foundation.SomeStruct",
             "Swift.Foundation",
@@ -247,7 +278,8 @@ public class AppleTypesCsEmitterTests
             whitelisted: true,
             frozen: true,
             size: null,
-            alignment: null);
+            alignment: null,
+            evidence: FullEvidence());
         var manifest = MakeManifest("Foundation", entry);
 
         var whitelist = new SequentialLayoutWhitelist
@@ -259,11 +291,14 @@ public class AppleTypesCsEmitterTests
         Directory.CreateDirectory(dir);
         var emitter = new AppleTypesCsEmitter(whitelist, NullLogger.Instance);
         emitter.Emit(manifest, dir);
+        var emittedPath = EntryFile(emitter);
+        var contents = File.ReadAllText(emittedPath);
         Directory.Delete(dir, recursive: true);
 
-        Assert.Empty(emitter.EmittedFiles);
-        var skipped = Assert.Single(emitter.SkippedEntries);
-        Assert.Contains("size/alignment are null", skipped.Reason);
+        Assert.Empty(emitter.SkippedEntries);
+        var refused = Assert.Single(emitter.RefusedWhitelistEntries);
+        Assert.Contains("size/alignment are null", refused.Reason);
+        Assert.Contains("ISwiftObject", contents);
     }
 
     [Fact]
@@ -279,7 +314,8 @@ public class AppleTypesCsEmitterTests
             whitelisted: true,
             frozen: false,
             size: 8,
-            alignment: 8);
+            alignment: 8,
+            evidence: FullEvidence());
         var manifest = MakeManifest("Foundation", entry);
 
         var whitelist = new SequentialLayoutWhitelist
@@ -291,11 +327,156 @@ public class AppleTypesCsEmitterTests
         Directory.CreateDirectory(dir);
         var emitter = new AppleTypesCsEmitter(whitelist, NullLogger.Instance);
         emitter.Emit(manifest, dir);
+        var emittedPath = EntryFile(emitter);
+        var contents = File.ReadAllText(emittedPath);
         Directory.Delete(dir, recursive: true);
 
-        Assert.Empty(emitter.EmittedFiles);
-        var skipped = Assert.Single(emitter.SkippedEntries);
-        Assert.Contains("frozen=false", skipped.Reason);
+        Assert.Empty(emitter.SkippedEntries);
+        var refused = Assert.Single(emitter.RefusedWhitelistEntries);
+        Assert.Contains("frozen=false", refused.Reason);
+        Assert.Contains("ISwiftObject", contents);
+    }
+
+    [Fact]
+    public void Whitelist_OptInMissingEvidence_IsRefused()
+    {
+        // All structural gates pass but sequential_layout_evidence is null — the whitelist
+        // claim is unsupported and must refuse, falling back to VWT-opaque.
+        var entry = MakeEntry(
+            "Foundation.SomeStruct",
+            "Swift.Foundation",
+            new[] { "SomeStruct" },
+            "Foundation",
+            "$s10Foundation10SomeStructVMa",
+            storage: "sequential",
+            whitelisted: true,
+            frozen: true,
+            size: 16,
+            alignment: 8,
+            evidence: null);
+        var manifest = MakeManifest("Foundation", entry);
+
+        var whitelist = new SequentialLayoutWhitelist
+        {
+            ApprovedIdentities = new List<string> { "Foundation.SomeStruct" },
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), "apple-cs-refuse-evidence-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var emitter = new AppleTypesCsEmitter(whitelist, NullLogger.Instance);
+        emitter.Emit(manifest, dir);
+        _ = EntryFile(emitter);
+        Directory.Delete(dir, recursive: true);
+
+        var refused = Assert.Single(emitter.RefusedWhitelistEntries);
+        Assert.Contains("sequential_layout_evidence is missing", refused.Reason);
+    }
+
+    [Fact]
+    public void Whitelist_OptInEvidenceRoundtripUnvalidated_IsRefused()
+    {
+        var entry = MakeEntry(
+            "Foundation.SomeStruct",
+            "Swift.Foundation",
+            new[] { "SomeStruct" },
+            "Foundation",
+            "$s10Foundation10SomeStructVMa",
+            storage: "sequential",
+            whitelisted: true,
+            frozen: true,
+            size: 16,
+            alignment: 8,
+            evidence: new SequentialLayoutEvidence
+            {
+                StoredFieldsKnown = true,
+                CopyDestroyHandling = "trivial",
+                RoundtripValidated = false,
+            });
+        var manifest = MakeManifest("Foundation", entry);
+
+        var whitelist = new SequentialLayoutWhitelist
+        {
+            ApprovedIdentities = new List<string> { "Foundation.SomeStruct" },
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), "apple-cs-refuse-rt-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var emitter = new AppleTypesCsEmitter(whitelist, NullLogger.Instance);
+        emitter.Emit(manifest, dir);
+        _ = EntryFile(emitter);
+        Directory.Delete(dir, recursive: true);
+
+        var refused = Assert.Single(emitter.RefusedWhitelistEntries);
+        Assert.Contains("roundtrip_validated=false", refused.Reason);
+    }
+
+    [Fact]
+    public void Whitelist_OptInEvidenceBadCopyDestroyHandling_IsRefused()
+    {
+        var entry = MakeEntry(
+            "Foundation.SomeStruct",
+            "Swift.Foundation",
+            new[] { "SomeStruct" },
+            "Foundation",
+            "$s10Foundation10SomeStructVMa",
+            storage: "sequential",
+            whitelisted: true,
+            frozen: true,
+            size: 16,
+            alignment: 8,
+            evidence: new SequentialLayoutEvidence
+            {
+                StoredFieldsKnown = true,
+                CopyDestroyHandling = "bogus",
+                RoundtripValidated = true,
+            });
+        var manifest = MakeManifest("Foundation", entry);
+
+        var whitelist = new SequentialLayoutWhitelist
+        {
+            ApprovedIdentities = new List<string> { "Foundation.SomeStruct" },
+        };
+
+        var dir = Path.Combine(Path.GetTempPath(), "apple-cs-refuse-cdh-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var emitter = new AppleTypesCsEmitter(whitelist, NullLogger.Instance);
+        emitter.Emit(manifest, dir);
+        _ = EntryFile(emitter);
+        Directory.Delete(dir, recursive: true);
+
+        var refused = Assert.Single(emitter.RefusedWhitelistEntries);
+        Assert.Contains("copy_destroy_handling", refused.Reason);
+    }
+
+    [Fact]
+    public void FrameworkResolver_RegistrationFile_IsEmittedAlongsideTypes()
+    {
+        // Bare-name DllImports ("CryptoKit", "ManagedSettings") only resolve at runtime if
+        // SwiftFrameworkResolver is registered for the supplement assembly. The emitter
+        // must ship a [ModuleInitializer] side-car that wires it up — otherwise every
+        // supplement P/Invoke would DllNotFoundException because the macios linker no
+        // longer force-links the framework at build time.
+        var entry = MakeEntry(
+            "Foundation.Locale.Language",
+            "Swift.Foundation",
+            new[] { "Locale", "Language" },
+            "Foundation",
+            "$s10Foundation6LocaleV8LanguageVMa");
+        var manifest = MakeManifest("Foundation", entry);
+
+        var dir = Path.Combine(Path.GetTempPath(), "apple-cs-register-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var emitter = new AppleTypesCsEmitter(SequentialLayoutWhitelist.Empty(), NullLogger.Instance);
+        emitter.Emit(manifest, dir);
+
+        var registrationPath = Assert.Single(
+            emitter.EmittedFiles,
+            f => f.EndsWith(RegistrationFileName, StringComparison.Ordinal));
+        var registrationContents = File.ReadAllText(registrationPath);
+        Directory.Delete(dir, recursive: true);
+
+        Assert.Contains("[ModuleInitializer]", registrationContents);
+        Assert.Contains("SwiftFrameworkResolver.RegisterForAssembly", registrationContents);
     }
 
     [Fact]
@@ -311,7 +492,8 @@ public class AppleTypesCsEmitterTests
             whitelisted: true,
             frozen: true,
             size: 16,
-            alignment: 8);
+            alignment: 8,
+            evidence: FullEvidence());
         var whitelist = new SequentialLayoutWhitelist
         {
             ApprovedIdentities = new List<string> { "Foundation.SomeStruct" },

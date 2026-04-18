@@ -97,8 +97,11 @@
           "enum": ["vwt_opaque", "sequential"]
         },
         "sequential_layout_whitelisted": {
-          "description": "Per-type explicit opt-in to [StructLayout(Sequential)] emission. Requires frozen=true, layout-known fields, size/alignment validated, copy/destroy trivial or handled, and a passing runtime round-trip test.",
+          "description": "Per-type explicit opt-in to [StructLayout(Sequential)] emission. Requires frozen=true, layout-known fields, size/alignment validated, copy/destroy trivial or handled, and a passing runtime round-trip test. When true, sequential_layout_evidence MUST be present with every condition affirmative; otherwise the emitter refuses the sequential path, falls back to vwt_opaque, and fails the validation gate.",
           "type": "boolean"
+        },
+        "sequential_layout_evidence": {
+          "$ref": "#/$defs/sequential_layout_evidence"
         },
         "conformance_descriptors": {
           "description": "Cross-module protocol conformances anchored on this type. Conformance ownership may differ from type ownership (architecture doc §Q10 item 3).",
@@ -121,6 +124,27 @@
         "alias_identity":  { "type": "string" },
         "target_identity": { "type": "string" },
         "availability":    { "$ref": "#/$defs/availability" }
+      }
+    },
+    "sequential_layout_evidence": {
+      "description": "Evidence that a sequential-layout opt-in is safe. Every field must be affirmative to activate the opt-in; a whitelist claim without matching evidence is refused at emission time and falls back to vwt_opaque with a hard diagnostic that fails the validation gate.",
+      "type": "object",
+      "required": ["stored_fields_known", "copy_destroy_handling", "roundtrip_validated"],
+      "additionalProperties": false,
+      "properties": {
+        "stored_fields_known": {
+          "description": "True when every stored field's layout is known to the whitelist author and matches the SDK's ABI for the Swift compiler the supplement ships against.",
+          "type": "boolean"
+        },
+        "copy_destroy_handling": {
+          "description": "Handling strategy for copy/destroy semantics. 'trivial' = bitwise-copyable, no ARC. 'explicit_vwt' = sequential layout but copies/destroys still routed through the VWT.",
+          "type": "string",
+          "enum": ["trivial", "explicit_vwt"]
+        },
+        "roundtrip_validated": {
+          "description": "True when a live-SDK round-trip test (construct in Swift, marshal to C#, marshal back, field-wise equality) has passed against the target SDK.",
+          "type": "boolean"
+        }
       }
     },
     "managed_ref": {
@@ -146,10 +170,15 @@
       "required": ["symbol", "library"],
       "additionalProperties": false,
       "properties": {
-        "symbol":  { "type": "string" },
+        "symbol": {
+          "description": "Mangled symbol name for the metadata accessor. Must be non-empty — an empty symbol would emit a [DllImport(..., EntryPoint = \"\")] at codegen time, which silently resolves to an arbitrary export and crashes at runtime.",
+          "type": "string",
+          "minLength": 1
+        },
         "library": {
-          "description": "Short dylib/framework name (Foundation, ManagedSettings, ...) used for [DllImport].",
-          "type": "string"
+          "description": "Short dylib/framework name (Foundation, ManagedSettings, ...) used for [DllImport]. Must be non-empty.",
+          "type": "string",
+          "minLength": 1
         },
         "availability": { "$ref": "#/$defs/availability" },
         "weak_link": {

@@ -57,7 +57,7 @@ public sealed class VersionScope : IDisposable
         StampPackageVersion(files[1], version);                 // SDK .csproj
         StampPackageVersion(files[2], version);                 // Templates .csproj
         StampPackageVersion(files[3], effectiveAppleVersion);   // Apple .csproj
-        StampSdkProps(files[4], version);                       // _SwiftBindingSdkVersion + SwiftRuntimeVersion
+        StampSdkProps(files[4], version, effectiveAppleVersion); // _SwiftBindingSdkVersion + SwiftRuntimeVersion + SwiftAppleSupplementVersion
         StampTemplateSdk(files[5], version);                    // Sdk="SwiftBindings.Sdk/..."
         StampTemplateJson(files[6], version);                   // template.json sdkVersion symbol
         StampGeneratorDefault(files[7], version);               // DefaultSwiftRuntimeVersion constant
@@ -94,9 +94,14 @@ public sealed class VersionScope : IDisposable
     }
 
     /// <summary>
-    /// Sets <_SwiftBindingSdkVersion> and <SwiftRuntimeVersion> in Sdk.props.
+    /// Sets <_SwiftBindingSdkVersion>, <SwiftRuntimeVersion>,
+    /// <SwiftRuntimePackageVersionRange>, and <SwiftAppleSupplementVersion> in Sdk.props.
+    /// The range is the single source of truth for the SDK-emitted PackageReference —
+    /// bare "0.8.0" would let NuGet float consumers into 0.9.0 where compatibility is not
+    /// guaranteed. The supplement version is stamped separately so consumers can adopt a
+    /// new Apple SDK train without waiting on a Runtime/SDK bump.
     /// </summary>
-    private static void StampSdkProps(string file, string version)
+    private static void StampSdkProps(string file, string version, string appleVersion)
     {
         var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
 
@@ -107,6 +112,18 @@ public sealed class VersionScope : IDisposable
         var runtimeVersion = doc.Descendants("SwiftRuntimeVersion").FirstOrDefault()
             ?? throw new InvalidOperationException($"<SwiftRuntimeVersion> not found in {file}");
         runtimeVersion.Value = version;
+
+        var runtimeRange = doc.Descendants("SwiftRuntimePackageVersionRange").FirstOrDefault()
+            ?? throw new InvalidOperationException($"<SwiftRuntimePackageVersionRange> not found in {file}");
+        // RuntimeVersionRange is the shared single source of truth — the same file
+        // is link-compiled by both the generator (for standalone csproj emission via
+        // BindingProjectEmitter.BuildBoundedRuntimeVersionRange) and this build project
+        // (for Sdk.props stamping). Two callers, one implementation, zero drift risk.
+        runtimeRange.Value = BindingsGeneration.RuntimeVersionRange.Build(version);
+
+        var appleSupplementVersion = doc.Descendants("SwiftAppleSupplementVersion").FirstOrDefault()
+            ?? throw new InvalidOperationException($"<SwiftAppleSupplementVersion> not found in {file}");
+        appleSupplementVersion.Value = appleVersion;
 
         SaveXml(doc, file);
     }

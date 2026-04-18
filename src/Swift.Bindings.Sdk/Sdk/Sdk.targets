@@ -276,7 +276,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -287,7 +287,7 @@ done; true"
           Command="(
       shasum -a 256 &quot;$(_SwiftAppleFrameworkInterface)&quot; ; \
       if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(TargetPlatformVersion)&quot; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(TargetPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -347,6 +347,8 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
     </PropertyGroup>
 
@@ -381,6 +383,12 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot; &lt;&
     &lt;_SwiftBindingWrapperModuleName&gt;$(_AFW_WrapperModule)&lt;/_SwiftBindingWrapperModuleName&gt;
     &lt;_SwiftBindingWrapperSliceCount&gt;%24SLICES&lt;/_SwiftBindingWrapperSliceCount&gt;
   &lt;/PropertyGroup&gt;
+  &lt;!-- Apple-supplement signals live in apple-supplement.props, emitted by the generator    --&gt;
+  &lt;!-- (it's the only component that knows AppleSupplementReferences state). The Import is  --&gt;
+  &lt;!-- retained for custom targets that evaluate the properties via $(...); note XmlPeek    --&gt;
+  &lt;!-- reads raw XML and does NOT honor this import, so _InjectAppleSupplementPrototype     --&gt;
+  &lt;!-- queries apple-supplement.props as an explicit fallback.                              --&gt;
+  &lt;Import Project=&quot;apple-supplement.props&quot; Condition=&quot;Exists('apple-supplement.props')&quot; /&gt;
 &lt;/Project&gt;
 METAEOF"
           StandardOutputImportance="low" />
@@ -581,6 +589,8 @@ done; true"
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Force ObjC pipeline for ObjC-only framework type -->
       <_SwiftGenCmd Condition="'$(SwiftFrameworkType)' == 'ObjC'">$(_SwiftGenCmd) --objc</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(SwiftAppleSupplementVersion)' != ''">$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
       <!-- Skip wrapper compilation — deferred to _CompileSwiftWrapper after ResolveProjectReferences -->
       <_SwiftGenCmd>$(_SwiftGenCmd) --skip-wrapper-compilation</_SwiftGenCmd>
     </PropertyGroup>
@@ -857,9 +867,22 @@ done"
           AfterTargets="_ImportSwiftBindingMetadata"
           BeforeTargets="ResolveProjectReferences;CollectPackageReferences">
 
+    <!-- The xcframework path inlines supplement signals directly into binding-metadata.props
+         (via XCFrameworkMetadataExtractor). The direct Apple-framework path can't: Sdk.targets
+         writes binding-metadata.props via shell heredoc and has no visibility into the
+         generator's AppleSupplementReferences state, so it emits them to a sibling
+         apple-supplement.props and `<Import>`s that file. XmlPeek reads raw XML and does NOT
+         evaluate <Import>, so we have to query both files. binding-metadata.props is queried
+         first; if the property is empty (direct path case), apple-supplement.props is the
+         fallback source. Same pattern for all three properties. -->
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingNeedsAppleSupplement/text()"
              Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingNeedsAppleSupplement" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)apple-supplement.props"
+             Query="/Project/PropertyGroup/_SwiftBindingNeedsAppleSupplement/text()"
+             Condition="'$(_SwiftBindingNeedsAppleSupplement)' == '' AND Exists('$(_SwiftBindingIntermediateDir)apple-supplement.props')">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingNeedsAppleSupplement" />
     </XmlPeek>
 
@@ -868,10 +891,20 @@ done"
              Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingAppleSupplementVersion" />
     </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)apple-supplement.props"
+             Query="/Project/PropertyGroup/_SwiftBindingAppleSupplementVersion/text()"
+             Condition="'$(_SwiftBindingAppleSupplementVersion)' == '' AND Exists('$(_SwiftBindingIntermediateDir)apple-supplement.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingAppleSupplementVersion" />
+    </XmlPeek>
 
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingAppleSupplementPrototypeCsproj/text()"
              Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingAppleSupplementPrototypeCsproj" />
+    </XmlPeek>
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)apple-supplement.props"
+             Query="/Project/PropertyGroup/_SwiftBindingAppleSupplementPrototypeCsproj/text()"
+             Condition="'$(_SwiftBindingAppleSupplementPrototypeCsproj)' == '' AND Exists('$(_SwiftBindingIntermediateDir)apple-supplement.props')">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingAppleSupplementPrototypeCsproj" />
     </XmlPeek>
 
@@ -882,7 +915,7 @@ done"
       <ProjectReference Include="$(_SwiftBindingAppleSupplementPrototypeCsproj)" />
     </ItemGroup>
 
-    <!-- PackageReference fallback: open-ended version ("18.0.0" floor) because the
+    <!-- PackageReference fallback: open-ended version (e.g. "26.0.0" floor) because the
          supplement is cross-major additive-only per architecture doc §Decision summary item 5.
          The version guard prevents emitting an invalid PackageReference if the generator ever
          skips `_SwiftBindingAppleSupplementVersion` or a hand-authored binding-metadata.props

@@ -47,8 +47,48 @@ public sealed class TypeEntry
     [JsonProperty("value_witness", Order = 10)] public ValueWitness ValueWitness { get; set; } = new();
     [JsonProperty("storage_strategy", Order = 11)] public string StorageStrategy { get; set; } = "vwt_opaque";
     [JsonProperty("sequential_layout_whitelisted", Order = 12)] public bool SequentialLayoutWhitelisted { get; set; }
-    [JsonProperty("conformance_descriptors", Order = 13)] public List<ConformanceDescriptor> ConformanceDescriptors { get; set; } = new();
-    [JsonProperty("status", Order = 14)] public string Status { get; set; } = "generated";
+    [JsonProperty("sequential_layout_evidence", Order = 13, NullValueHandling = NullValueHandling.Ignore)] public SequentialLayoutEvidence? SequentialLayoutEvidence { get; set; }
+    [JsonProperty("conformance_descriptors", Order = 14)] public List<ConformanceDescriptor> ConformanceDescriptors { get; set; } = new();
+    [JsonProperty("status", Order = 15)] public string Status { get; set; } = "generated";
+}
+
+/// <summary>
+/// Evidence that a type is safe to emit with sequential (stored-field) layout instead of
+/// the default VWT-backed opaque storage. Every condition must be affirmative — the
+/// emitter refuses the sequential path otherwise and falls back to VWT-opaque while
+/// failing a validation gate, so the opt-in cannot silently become a memory-corruption
+/// vector when one of the inputs is missing or incorrect.
+/// </summary>
+/// <remarks>
+/// The three fields cover the conditions that the 6-gate checklist (frozen, non-generic,
+/// size+alignment) does NOT cover: exhaustive stored-field layout knowledge, ARC/destroy
+/// handling strategy, and a live-SDK round-trip validation result. Evidence lives in the
+/// manifest (not a separate approval record) so the whitelist claim and its justification
+/// travel together through git.
+/// </remarks>
+public sealed class SequentialLayoutEvidence
+{
+    /// <summary>
+    /// True when every stored field's layout is fully known to the manifest authors,
+    /// and the declaration path + sizes match the SDK's ABI for the exact Swift compiler
+    /// version the supplement ships against. False leaves the gate closed.
+    /// </summary>
+    [JsonProperty("stored_fields_known", Order = 1)] public bool StoredFieldsKnown { get; set; }
+
+    /// <summary>
+    /// How the type's copy/destroy semantics are handled in emitted code. "trivial" means
+    /// the type has no ARC / resource cleanup obligations (bitwise-copyable stored fields
+    /// only). "explicit_vwt" means the emitter wraps copies/destroys through the VWT
+    /// (sequential layout but non-trivial ARC).
+    /// </summary>
+    [JsonProperty("copy_destroy_handling", Order = 2)] public string CopyDestroyHandling { get; set; } = "";
+
+    /// <summary>
+    /// True when a live round-trip test (construct in Swift, marshal to C#, marshal back
+    /// to Swift, validate field-wise equality) has passed against the target SDK. The
+    /// validation gate flags a whitelist entry whose roundtrip has not yet been performed.
+    /// </summary>
+    [JsonProperty("roundtrip_validated", Order = 3)] public bool RoundtripValidated { get; set; }
 }
 
 public sealed class ManagedRef

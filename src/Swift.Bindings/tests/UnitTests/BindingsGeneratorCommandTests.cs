@@ -70,6 +70,49 @@ public class IsSystemFrameworkTargetTests
 
 #endregion
 
+#region --apple-version forwarding into BindingProjectEmitter
+
+/// <summary>
+/// <c>--apple-version</c> must flow into <c>BindingProjectEmitterOptions.AppleSupplementVersion</c>
+/// from BOTH emitter call sites in <c>BindingsGeneratorCommand.Execute</c>:
+/// the xcframework path and the direct system-framework path. If either call site drops the field,
+/// the emitted <c>SwiftBindings.Apple</c> PackageReference falls back to the hardcoded
+/// default in <c>BindingProjectEmitterOptions</c> and consumers silently target the wrong
+/// Apple SDK train. Unit tests on <c>BindingProjectEmitter</c> already cover end-to-end
+/// csproj content for a non-default version; this source-level guard catches a future
+/// regression in the command layer without spinning up the full CLI pipeline (which
+/// requires real dylib/ABI-JSON artifacts).
+/// </summary>
+public class AppleVersionForwardingTests
+{
+    [Fact]
+    public void BothEmitterCallSites_ForwardAppleVersion()
+    {
+        var commandFile = LocateCommandFile();
+        var source = File.ReadAllText(commandFile);
+        // Count is asserted ==2 (xcframework + direct-framework). A weaker >=1 check would
+        // have let the direct-framework regression Codex flagged slip through.
+        var occurrences = System.Text.RegularExpressions.Regex.Matches(
+            source, @"AppleSupplementVersion\s*=\s*appleVersion\s*,").Count;
+        Assert.Equal(2, occurrences);
+    }
+
+    private static string LocateCommandFile()
+    {
+        // Walk up from the test assembly to the repo root, then down to the source file.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "SwiftBindings.sln")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        var path = Path.Combine(
+            dir!.FullName, "src", "Swift.Bindings", "src", "BindingsGeneratorCommand.cs");
+        Assert.True(File.Exists(path), $"Command source not found at {path}");
+        return path;
+    }
+}
+
+#endregion
+
 #region --platform-version CLI option
 
 /// <summary>

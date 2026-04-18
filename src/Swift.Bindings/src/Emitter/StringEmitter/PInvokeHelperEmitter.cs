@@ -27,6 +27,28 @@ public sealed record HelperPwtEntry(
     string? LibraryPath);
 
 /// <summary>
+/// A conformance constraint the ABI described on a generic parameter that could not
+/// be lowered into a <see cref="HelperPwtEntry"/>. Carrying the constraint (rather
+/// than silently dropping it at flattening time) is what lets
+/// <see cref="TypeMetadataAccessorSkipGate"/> refuse to emit the type when the real
+/// PWT count is unknown.
+/// </summary>
+public sealed record UnresolvedPwtConstraint(
+    /// <summary>The declaration-order index of the generic parameter the conformance applied to.</summary>
+    int GenericParamIndex,
+    /// <summary>The C# generic parameter name, e.g. "T0".</summary>
+    string GenericParamCsName,
+    /// <summary>The simple protocol name (e.g. "MyTrait").</summary>
+    string ProtocolName,
+    /// <summary>The fully-qualified protocol name (e.g. "MyModule.MyTrait").</summary>
+    string ProtocolModuleQualifiedName,
+    /// <summary>
+    /// Why the constraint could not be lowered — e.g. "unknown protocol in type database"
+    /// or "PAT/Self-requirement protocol without descriptor symbol".
+    /// </summary>
+    string Reason);
+
+/// <summary>
 /// Context for collecting P/Invoke declarations that need to be emitted in a helper class.
 /// Used for generic types where DllImport cannot appear directly inside the generic class (CS7042).
 /// </summary>
@@ -62,6 +84,19 @@ public class PInvokeHelperContext
     public IReadOnlyList<HelperPwtEntry> PwtEntries { get; }
 
     /// <summary>
+    /// Conformance constraints that the ABI JSON declared on a generic parameter but
+    /// that could not be lowered into a <see cref="HelperPwtEntry"/> — an unknown or
+    /// unprojectable protocol, or a PAT/Self-requirement protocol whose descriptor
+    /// symbol the parser did not capture. Swift's metadata accessor still expects a
+    /// PWT argument for these slots; silently dropping them can push the real argument
+    /// count past 3 (flipping the accessor to the indirect-buffer ABI) while the
+    /// emitter still uses the thin-mode P/Invoke. Any non-empty value means the PWT
+    /// shape is indeterminate and <see cref="TypeMetadataAccessorSkipGate"/> must
+    /// fail closed for this type.
+    /// </summary>
+    public IReadOnlyList<UnresolvedPwtConstraint> UnresolvedPwtConstraints { get; }
+
+    /// <summary>
     /// True when the type's metadata accessor uses the indirect-buffer ABI
     /// (total of metadata + PWT params exceeds 3, per runtime-metadata.md).
     /// <see cref="AddMetadataAccessorDeclaration"/> consults this to pick between the
@@ -71,6 +106,13 @@ public class PInvokeHelperContext
     /// working unchanged). See <c>src/docs/runtime-metadata.md</c>.
     /// </summary>
     public bool ExceedsRegisterArgumentThreshold { get; }
+
+    /// <summary>
+    /// True when any ABI-required PWT slot could not be lowered, so the overall
+    /// metadata-accessor argument count is not known. Type emission must skip rather
+    /// than risk undercounting PWT args and picking the wrong ABI variant.
+    /// </summary>
+    public bool HasIndeterminatePwtShape => UnresolvedPwtConstraints.Count > 0;
 
     // Tracks (libraryPath, descriptorSymbol) pairs that have already had their cached
     // descriptor + witness-table helpers emitted into <see cref="RawCodeBlocks"/>, so
@@ -89,12 +131,14 @@ public class PInvokeHelperContext
         string typeName,
         IReadOnlyList<string> genericTypeParameters,
         IReadOnlyList<HelperPwtEntry>? pwtEntries = null,
-        bool exceedsRegisterThreshold = false)
+        bool exceedsRegisterThreshold = false,
+        IReadOnlyList<UnresolvedPwtConstraint>? unresolvedPwtConstraints = null)
     {
         HelperClassName = $"{typeName}_PInvoke";
         GenericTypeParameters = genericTypeParameters;
         ExceedsRegisterArgumentThreshold = exceedsRegisterThreshold;
         PwtEntries = pwtEntries ?? Array.Empty<HelperPwtEntry>();
+        UnresolvedPwtConstraints = unresolvedPwtConstraints ?? Array.Empty<UnresolvedPwtConstraint>();
     }
 
     /// <summary>
@@ -118,7 +162,7 @@ public class PInvokeHelperContext
             .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
-        var (entries, exceedsThreshold) =
+        var (entries, exceedsThreshold, unresolved) =
             FlattenConformances(typeDecl, typeParams, typeDatabase);
 
         // Use qualified name (e.g., "Outer_Inner") to avoid helper class name collisions
@@ -127,7 +171,8 @@ public class PInvokeHelperContext
             GetQualifiedTypeName(typeDecl),
             typeParams,
             entries,
-            exceedsThreshold);
+            exceedsThreshold,
+            unresolved);
     }
 
     /// <summary>
@@ -152,10 +197,12 @@ public class PInvokeHelperContext
     /// rule: walk generic params in declaration order, and for each param walk its
     /// conformances sorted lex by ConformanceTarget.ModuleQualifiedName.
     /// </summary>
-    private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold)
+    private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold,
+            IReadOnlyList<UnresolvedPwtConstraint> unresolved)
         FlattenConformances(TypeDecl typeDecl, IReadOnlyList<string> typeParams, ITypeDatabase typeDatabase)
     {
         var entries = new List<HelperPwtEntry>();
+        var unresolved = new List<UnresolvedPwtConstraint>();
 
         for (int i = 0; i < typeDecl.GenericParameters.Count; i++)
         {
@@ -182,20 +229,22 @@ public class PInvokeHelperContext
                     continue;
 
                 // Conformance must be a known protocol in the type database to be
-                // emitted as a witness-table arg. We MATCH the legacy filter from
-                // <see cref="MetatypeHelperEmitter.GetResolvablePwtParameterCount"/>
-                // (and the C# P/Invoke side's
-                // <see cref="PInvokeEmitter.HandleProtocolConformance"/>) which
-                // silently drops unknown / unprojectable conformances rather than
-                // failing the type. Stricter behaviour would regress every
-                // constrained-generic type whose constraint is on a Swift stdlib
-                // protocol (Hashable, Collection, ...) that the type database
-                // doesn't track — Alamofire, GRDB, DifferenceKit, RxSwift all
-                // contain these. The 0.7.0 fix only PROMOTES conformances we can
-                // emit safely; it does not regress ones we previously skipped.
+                // emitted as a witness-table arg. Legacy behaviour was to silently drop
+                // the constraint, but that causes a PWT undercount: Swift's metadata
+                // accessor still expects the argument, and a drop can flip the accessor
+                // past the 3-arg threshold without the emitter noticing — the thin-mode
+                // P/Invoke then uses the wrong ABI. We now RECORD the unresolved
+                // constraint; the skip gate fails emission closed so the regression
+                // surfaces instead of producing a silently broken binding.
                 if (!typeDatabase.TryGetTypeRecord(target, out var record) ||
                     record.Kind != TypeRecordKind.Protocol)
                 {
+                    unresolved.Add(new UnresolvedPwtConstraint(
+                        GenericParamIndex: i,
+                        GenericParamCsName: csName,
+                        ProtocolName: target.Name,
+                        ProtocolModuleQualifiedName: target.ModuleQualifiedName,
+                        Reason: "protocol not projected in the type database"));
                     continue;
                 }
 
@@ -213,15 +262,18 @@ public class PInvokeHelperContext
                 }
                 else
                 {
-                    // Self-requirement / associated-type protocols: need a runtime
-                    // descriptor lookup. If the parser failed to capture the
-                    // descriptor symbol we can't construct the lookup, so fall
-                    // back to the legacy silent-drop behaviour and let the call
-                    // site continue to omit the PWT — the same way the legacy
-                    // MetatypeHelperEmitter.GetResolvablePwtParameterCount path
-                    // dropped unknown / unprojectable conformances.
+                    // Self-requirement / associated-type protocols need a runtime
+                    // descriptor lookup. Without the descriptor symbol we cannot
+                    // construct the lookup, so the PWT shape is indeterminate —
+                    // record the constraint and let the skip gate handle it.
                     if (string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
                     {
+                        unresolved.Add(new UnresolvedPwtConstraint(
+                            GenericParamIndex: i,
+                            GenericParamCsName: csName,
+                            ProtocolName: target.Name,
+                            ProtocolModuleQualifiedName: target.ModuleQualifiedName,
+                            Reason: "PAT/Self-requirement protocol missing descriptor symbol"));
                         continue;
                     }
                     descriptorSymbol = record.ProtocolDescriptorSymbol;
@@ -244,10 +296,12 @@ public class PInvokeHelperContext
         // accessor signature switches to the indirect-buffer ABI (the symbol takes
         // a single const void * const * buffer of arg pointers instead of separate
         // register args). AddMetadataAccessorDeclaration routes to the buffer-mode
-        // pair in that case.
-        bool exceedsThreshold = (typeParams.Count + entries.Count) > 3;
+        // pair in that case. We count unresolved constraints toward the threshold —
+        // the skip gate will refuse the type anyway, but the threshold must reflect
+        // Swift's real argument count, not the emitter's reduced view.
+        bool exceedsThreshold = (typeParams.Count + entries.Count + unresolved.Count) > 3;
 
-        return (entries, exceedsThreshold);
+        return (entries, exceedsThreshold, unresolved);
     }
 
     /// <summary>

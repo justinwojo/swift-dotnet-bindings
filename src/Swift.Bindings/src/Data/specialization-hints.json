@@ -62,11 +62,11 @@
     {
       "protocol": "MusicKit.MusicLibraryAddable",
       "conformers": [
-        { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album" },
-        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo" },
-        { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist" },
-        { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song" },
-        { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track" }
+        { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track", "modules": ["MusicKit"] }
       ]
     },
     {

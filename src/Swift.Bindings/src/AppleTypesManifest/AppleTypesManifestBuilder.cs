@@ -40,7 +40,11 @@ public sealed class AppleTypesManifestBuilder
         _logger = logger;
     }
 
-    public IReadOnlyCollection<string> MatchedIdentities => _typesByIdentity.Keys;
+    // Union of nominal-type and typealias identities. Callers use this to assert that the
+    // include filter matched at least one entry; typealiases carry their own swift_identity
+    // and count toward that contract even though they live in a separate dictionary.
+    public IReadOnlyCollection<string> MatchedIdentities =>
+        _typesByIdentity.Keys.Concat(_aliasesByIdentity.Keys).ToHashSet(StringComparer.Ordinal);
 
     public void IngestAbiJson(string path)
     {
@@ -234,14 +238,32 @@ public sealed class AppleTypesManifestBuilder
     private static MetadataAccessor BuildMetadataAccessor(Node node, string module)
     {
         // Canonical Swift mangling rule: type metadata accessor symbol = `$s<type-mangled>Ma`.
-        // ABI JSON already carries the type's mangled name on the TypeDecl. If it's missing,
-        // fall back to leaving the symbol blank so the schema's `required` gate surfaces
-        // the omission at validation time.
-        var mangled = node.MangledName ?? string.Empty;
-        var symbol = string.IsNullOrEmpty(mangled) ? string.Empty : mangled + "Ma";
+        // ABI JSON already carries the type's mangled name on the TypeDecl. A missing or
+        // empty mangledName means the dump is malformed (missing usr, non-nominal TypeDecl,
+        // ABI JSON bug) — there is no sensible fallback. The schema's `required` gate only
+        // checks presence, not emptiness, so the build must fail loud here instead of
+        // silently writing an empty accessor that would [DllImport(..., EntryPoint="")]
+        // and crash at runtime, or sneak past downstream validators.
+        var mangled = node.MangledName;
+        if (string.IsNullOrWhiteSpace(mangled))
+        {
+            var identity = string.IsNullOrWhiteSpace(node.PrintedName)
+                ? $"module={module} usr={node.usr ?? "<null>"}"
+                : node.PrintedName;
+            throw new InvalidOperationException(
+                $"Missing or empty mangledName on TypeDecl for {identity}. " +
+                "Cannot construct metadata accessor symbol — refusing to emit a blank " +
+                "[DllImport] EntryPoint. Fix the ABI dump or add the type to an exclude list.");
+        }
+        if (string.IsNullOrWhiteSpace(module))
+        {
+            throw new InvalidOperationException(
+                $"Missing or empty module for TypeDecl {node.PrintedName ?? node.usr ?? "<unknown>"}. " +
+                "Metadata accessor library must be a concrete framework/dylib name.");
+        }
         return new MetadataAccessor
         {
-            Symbol = symbol,
+            Symbol = mangled + "Ma",
             Library = module,
             Availability = new Availability(),
         };
@@ -355,7 +377,7 @@ public sealed class AppleTypesManifestBuilder
 
 public sealed class ManifestOptions
 {
-    public int SdkTrainMajor { get; init; } = 18;
+    public int SdkTrainMajor { get; init; } = 26;
     public string? SdkTrainLabel { get; init; }
     public Availability? Platforms { get; init; }
     public string? GeneratedBy { get; init; }
@@ -375,6 +397,15 @@ public sealed class IncludeFilter
     {
         _identities = new HashSet<string>(identities, StringComparer.Ordinal);
     }
+
+    /// <summary>
+    /// Swift identities the caller asked for. Exposed so the regen command can diff
+    /// this set against <see cref="AppleTypesManifestBuilder.MatchedIdentities"/> and
+    /// fail loud on any unmatched identity — otherwise a typo in include-types.json
+    /// (or a type the ABI dump silently dropped) would ship a manifest missing the
+    /// expected entry and nobody would notice until a consumer crashed.
+    /// </summary>
+    public IReadOnlyCollection<string> RequestedIdentities => _identities;
 
     public bool Matches(string swiftIdentity) => _identities.Contains(swiftIdentity);
 

@@ -685,7 +685,10 @@ namespace BindingsGeneration
                     // the bypass to bridge-eligible methods so ineligible ones (constructors,
                     // instance methods) fall through to the existential-skip path instead of
                     // emitting a broken wrapper.
-                    if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _) &&
+                    if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(
+                            argument.SwiftTypeSpec,
+                            methodEnv.MethodDecl.ModuleDecl?.Name,
+                            out _) &&
                         MetatypeArrayBridgeEmitter.IsEligible(methodEnv.MethodDecl))
                         continue;
 

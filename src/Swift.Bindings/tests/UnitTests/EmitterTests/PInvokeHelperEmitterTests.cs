@@ -820,14 +820,13 @@ public class PInvokeHelperEmitterTests
     }
 
     [Fact]
-    public void Emit_GenericEnum_UnknownProtocolConstraint_SilentlyDropped()
+    public void Emit_GenericEnum_UnknownProtocolConstraint_RecordedAsUnresolved()
     {
-        // A constraint protocol that the type database has never heard of
-        // (e.g. Swift stdlib Hashable/Collection that aren't tracked by the
-        // generator's type database) is silently dropped to MATCH the legacy
-        // MetatypeHelperEmitter.GetResolvablePwtParameterCount filter. Failing
-        // hard would regress every Alamofire/GRDB/RxSwift/DifferenceKit
-        // constrained generic that uses such constraints today.
+        // A constraint protocol the type database has never heard of cannot be
+        // lowered to a HelperPwtEntry, but Swift's metadata accessor still
+        // expects a PWT slot at that position. Recording the constraint in
+        // UnresolvedPwtConstraints lets TypeMetadataAccessorSkipGate refuse
+        // the type instead of undercounting PWT args and picking the wrong ABI.
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateConstrainedGenericEnum(
             moduleDecl,
@@ -838,23 +837,18 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
         Assert.Empty(ctx.PwtEntries);
-
-        // Only the type metadata arg is emitted — same shape the previous
-        // generator output had.
-        var parameters = ctx.GetTypeMetadataAccessorParameterDeclarations();
-        Assert.Single(parameters);
-        Assert.Equal("IntPtr tMetadata", parameters[0]);
+        var unresolved = Assert.Single(ctx.UnresolvedPwtConstraints);
+        Assert.Equal("GhostProtocol", unresolved.ProtocolName);
+        Assert.Equal("OtherModule.GhostProtocol", unresolved.ProtocolModuleQualifiedName);
+        Assert.True(ctx.HasIndeterminatePwtShape);
     }
 
     [Fact]
-    public void Emit_GenericEnum_ProtocolWithoutDescriptorSymbol_SilentlyDropped()
+    public void Emit_GenericEnum_ProtocolWithoutDescriptorSymbol_RecordedAsUnresolved()
     {
-        // A protocol with HasSelfRequirement BUT no ProtocolDescriptorSymbol
-        // (parser failed to capture it, or older module DB without the field)
-        // is silently dropped: with no symbol there is no way to construct a
-        // runtime witness-table lookup. Falling back to the legacy
-        // metadata-only emission preserves backward compatibility for types
-        // that previously compiled with this constraint.
+        // A PAT/Self-requirement protocol whose descriptor symbol the parser
+        // did not capture cannot be lowered to a runtime witness-table lookup.
+        // Previously silently dropped; now recorded so the skip gate fails closed.
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateConstrainedGenericEnum(
             moduleDecl,
@@ -870,6 +864,36 @@ public class PInvokeHelperEmitterTests
         var ctx = PInvokeHelperContext.CreateIfGeneric(enumDecl, typeDb)!;
 
         Assert.Empty(ctx.PwtEntries);
+        var unresolved = Assert.Single(ctx.UnresolvedPwtConstraints);
+        Assert.Equal("OpaqueProto", unresolved.ProtocolName);
+        Assert.Contains("descriptor symbol", unresolved.Reason);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_UnresolvedPushesAccessorOverThreshold()
+    {
+        // 2 generic params each with a resolvable conformance + one unresolvable
+        // conformance on param 1 = 2 metadata + 2 known-PWT + 1 unresolved-PWT = 5.
+        // Swift's real ABI switches to the indirect-buffer variant; the threshold
+        // flag MUST reflect that real count, not just the knowable subset.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var classDecl = CreateConstrainedGenericClass(
+            moduleDecl,
+            "Triple",
+            paramConstraints: new[]
+            {
+                new[] { ("TestModule", "Known1"), ("OtherModule", "Unknown") },
+                new[] { ("TestModule", "Known2") },
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("TestModule", "Known1", "$s10TestModule6Known1Mp")
+            .WithProtocol("TestModule", "Known2", "$s10TestModule6Known2Mp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
+
+        Assert.Single(ctx.UnresolvedPwtConstraints);
+        Assert.True(ctx.HasIndeterminatePwtShape);
+        Assert.True(ctx.ExceedsRegisterArgumentThreshold);
     }
 
     [Fact]

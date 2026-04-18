@@ -1,5 +1,5 @@
---- /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/baseline.strings-swift.txt	2026-04-17 03:56:13
-+++ /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/consumer.strings-swift.txt	2026-04-17 03:56:13
+--- /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/baseline.strings-swift.txt	2026-04-17 21:32:46
++++ /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/consumer.strings-swift.txt	2026-04-17 21:32:46
 @@ -2,3 +2,4 @@
  swift_task_escalate
  swift_task_exitThreadLocalContext

@@ -92,7 +92,7 @@ public class AppleTypesManifestBuilderTests
             "]");
         var builder = NewBuilder("ManagedSettings.Application");
         IngestString(builder, abi);
-        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 18 });
+        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
 
         var entry = Assert.Single(manifest.Modules["ManagedSettings"].Types);
         Assert.Equal("ManagedSettings.Application", entry.SwiftIdentity);
@@ -116,7 +116,7 @@ public class AppleTypesManifestBuilderTests
             "]");
         var builder = NewBuilder(); // no includes -> everything is filtered out
         IngestString(builder, abi);
-        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 18 });
+        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
         Assert.Empty(manifest.Modules);
     }
 
@@ -130,7 +130,7 @@ public class AppleTypesManifestBuilderTests
 
         var builder = NewBuilder("CryptoKit.P256.Signing.ECDSASignature");
         IngestString(builder, abi);
-        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 18 });
+        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
 
         var entry = Assert.Single(manifest.Modules["CryptoKit"].Types);
         Assert.Equal("CryptoKit.P256.Signing.ECDSASignature", entry.SwiftIdentity);
@@ -156,7 +156,7 @@ public class AppleTypesManifestBuilderTests
         IngestString(builder, iosAbi);
         IngestString(builder, macAbi);
 
-        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 18 });
+        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
         var entry = Assert.Single(manifest.Modules["ManagedSettings"].Types);
         Assert.Equal("15.0", entry.MetadataAccessor?.Availability.Ios);
         Assert.Equal("14.0", entry.MetadataAccessor?.Availability.Macos);
@@ -171,7 +171,7 @@ public class AppleTypesManifestBuilderTests
             "]");
         var builder = NewBuilder("Foundation.Locale");
         IngestString(builder, abi);
-        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 18 });
+        var manifest = builder.Build(new ManifestOptions { SdkTrainMajor = 26 });
         Assert.True(manifest.Modules["Foundation"].Types[0].Frozen);
     }
 
@@ -202,6 +202,7 @@ public class AppleTypesManifestBuilderTests
                 sdkTrainLabel: null,
                 platforms: null,
                 generatedBy: "unit-test",
+                allowPartial: false,
                 logger: NullLogger.Instance);
             Assert.Equal(0, exit);
             Assert.True(File.Exists(tmpOut));
@@ -235,6 +236,7 @@ public class AppleTypesManifestBuilderTests
                 sdkTrainLabel: null,
                 platforms: null,
                 generatedBy: null,
+                allowPartial: false,
                 logger: NullLogger.Instance);
             Assert.NotEqual(0, exit);
             Assert.False(File.Exists(tmpOut));
@@ -257,7 +259,7 @@ public class AppleTypesManifestBuilderTests
         IngestString(builder, abi);
         var manifest = builder.Build(new ManifestOptions
         {
-            SdkTrainMajor = 18,
+            SdkTrainMajor = 26,
             SdkTrainLabel = "Xcode 16",
             Platforms = new Availability { Ios = "18.0", Macos = "15.0" },
             GeneratedBy = "unit-test",
@@ -266,7 +268,7 @@ public class AppleTypesManifestBuilderTests
         var json = AppleTypesManifestSerializer.Serialize(manifest);
         var parsed = JObject.Parse(json);
         Assert.Equal(1, (int)parsed["manifest_version"]!);
-        Assert.Equal(18, (int)parsed["sdk_train"]!["major"]!);
+        Assert.Equal(26, (int)parsed["sdk_train"]!["major"]!);
         Assert.Equal("18.0", (string)parsed["sdk_train"]!["platforms"]!["ios"]!);
         var entry = parsed["modules"]!["Foundation"]!["types"]![0]!;
         Assert.Equal("Foundation.Locale.Language", (string)entry["swift_identity"]!);

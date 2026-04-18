@@ -57,7 +57,9 @@ public static class BindingsGeneratorCommand
         var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
         var appleAbiJsonPaths = parseResult.GetValueForOption(options.AppleAbiJson);
         var appleIncludeTypes = parseResult.GetValueForOption(options.AppleIncludeTypes);
-        var appleSdkTrainMajor = parseResult.GetValueForOption(options.AppleSdkTrainMajor);
+        var appleVersion = parseResult.GetValueForOption(options.AppleVersion) ?? "26.0.0";
+        var appleSdkTrainMajorExplicit = parseResult.GetValueForOption(options.AppleSdkTrainMajor);
+        var appleSdkTrainMajor = appleSdkTrainMajorExplicit ?? ParseAppleVersionMajor(appleVersion);
         var appleSdkTrainLabel = parseResult.GetValueForOption(options.AppleSdkTrainLabel);
         var appleSdkMinIos = parseResult.GetValueForOption(options.AppleSdkMinIos);
         var appleSdkMinMaccatalyst = parseResult.GetValueForOption(options.AppleSdkMinMaccatalyst);
@@ -66,6 +68,7 @@ public static class BindingsGeneratorCommand
         var emitAppleTypesCs = parseResult.GetValueForOption(options.EmitAppleTypesCs);
         var appleTypesManifestPath = parseResult.GetValueForOption(options.AppleTypesManifest);
         var appleTypesSequentialLayoutWhitelistPath = parseResult.GetValueForOption(options.AppleTypesSequentialLayoutWhitelist);
+        var allowPartialAppleTypesManifest = parseResult.GetValueForOption(options.AllowPartialAppleTypesManifest);
         var validateAppleTypesManifest = parseResult.GetValueForOption(options.ValidateAppleTypesManifest);
         var appleTypesManifestWriteBack = parseResult.GetValueForOption(options.AppleTypesManifestWriteBack);
         var appleSupplementPrototypeDir = parseResult.GetValueForOption(options.AppleSupplementPrototypeDir);
@@ -110,6 +113,7 @@ public static class BindingsGeneratorCommand
                 appleSdkTrainLabel,
                 platforms,
                 generatedBy: null,
+                allowPartial: allowPartialAppleTypesManifest,
                 logger);
             return;
         }
@@ -885,6 +889,7 @@ public static class BindingsGeneratorCommand
                     hasBridgeSwift: hasBridgeSwift,
                     bridgeModuleName: bridgeModuleName,
                     needsAppleSupplement: AppleSupplementReferences.Any,
+                    appleSupplementVersion: appleVersion,
                     appleSupplementPrototypeCsprojPath: appleSupplementPrototypeCsproj);
 
                 // Read resource bundle manifest (written by CreateResourceBundleStubs during compilation)
@@ -916,6 +921,7 @@ public static class BindingsGeneratorCommand
                         PlatformInfo = platformInfo,
                         ResourceBundleNames = resourceBundleNames,
                         EmitsAppleSupplementReference = AppleSupplementReferences.Any,
+                        AppleSupplementVersion = appleVersion,
                         AppleSupplementPrototypeProjectPath = appleSupplementPrototypeCsproj,
                     }, logger);
                 }
@@ -958,6 +964,41 @@ public static class BindingsGeneratorCommand
                 context.ExitCode = 1;
                 return;
             }
+        }
+        else if (sdkMode && isSystemFrameworkTarget && !string.IsNullOrEmpty(directModuleName))
+        {
+            // Direct-mode SDK build (Apple system frameworks). The SDK target writes
+            // binding-metadata.props itself via shell heredoc, but it has no visibility into
+            // AppleSupplementReferences state. Emit an auxiliary apple-supplement.props so the
+            // SDK's heredoc can <Import> it and the _SwiftBindingNeedsAppleSupplement signal
+            // reaches the PackageReference injection in target 4f. Prototype mode also routes
+            // through here: the csproj path flows into the aux file alongside the version.
+            string? directSdkPrototypeCsproj = null;
+            if (!string.IsNullOrWhiteSpace(appleSupplementPrototypeDir) && AppleSupplementReferences.Any)
+            {
+                try
+                {
+                    var protoResult = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                    {
+                        PrototypeDirectory = appleSupplementPrototypeDir!,
+                        ReferencedIdentities = AppleSupplementReferences.Current,
+                        PlatformInfo = platformInfo,
+                        SwiftRuntimeVersion = swiftRuntimeVersion,
+                        MinimumOSVersion = "15.0",
+                    }, logger);
+                    directSdkPrototypeCsproj = protoResult.CsprojPath;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning("Failed to emit Apple-supplement prototype: {Message}", ex.Message);
+                }
+            }
+            XCFrameworkMetadataExtractor.EmitAppleSupplementPropsFragment(
+                outputDirectory,
+                AppleSupplementReferences.Any,
+                appleVersion,
+                directSdkPrototypeCsproj,
+                logger);
         }
         else if (isSystemFrameworkTarget && !sdkMode && !string.IsNullOrEmpty(directModuleName))
         {
@@ -1008,6 +1049,7 @@ public static class BindingsGeneratorCommand
                     SourceXCFrameworkPath = null,
                     WrapperXCFrameworkPath = hasWrapperXcfw ? compilationResult!.XCFrameworkPath : null,
                     SwiftRuntimeVersion = swiftRuntimeVersion,
+                    AppleSupplementVersion = appleVersion,
                     PlatformInfo = platformInfo,
                     ResolvedNamespace = projectResolver.ResolveNamespace(directModuleName),
                     EmitsAppleSupplementReference = AppleSupplementReferences.Any,
@@ -1052,6 +1094,21 @@ public static class BindingsGeneratorCommand
         if (value != null && value.StartsWith("\\@", StringComparison.Ordinal))
             return value.Substring(1);
         return value;
+    }
+
+    // Parses the leading numeric component of an Apple supplement version string
+    // (e.g. "26.0.0" → 26). Used to derive sdk_train.major when --apple-sdk-train-major
+    // is not set explicitly. Fails loud on malformed input so a future train bump
+    // can't silently fall back to the previous default.
+    internal static int ParseAppleVersionMajor(string appleVersion)
+    {
+        if (string.IsNullOrWhiteSpace(appleVersion))
+            throw new ArgumentException("--apple-version must not be empty.", nameof(appleVersion));
+        var dot = appleVersion.IndexOf('.');
+        var majorStr = dot >= 0 ? appleVersion.Substring(0, dot) : appleVersion;
+        if (!int.TryParse(majorStr, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var major) || major <= 0)
+            throw new ArgumentException($"--apple-version '{appleVersion}' is not a valid version (expected leading integer major).", nameof(appleVersion));
+        return major;
     }
 
     /// <summary>
@@ -1145,8 +1202,9 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --emit-apple-types-manifest  Emit the Apple-types metadata manifest from ABI JSON dumps. With this flag, -o is a FILE path (the target .json), not a directory.");
         Console.WriteLine("  --apple-abi-json         Repeatable. Path to an Apple SDK ABI JSON dump (from `swift-api-digester -dump-sdk`). Union-merged per-platform.");
         Console.WriteLine("  --apple-include-types    Required. Path to include-types.json (positive-list of 'Module.NestedType' identities to emit).");
-        Console.WriteLine("  --apple-sdk-train-major  SDK train major. Default: 18.");
-        Console.WriteLine("  --apple-sdk-train-label  Optional. Human-readable SDK train label (e.g. 'Xcode 16 / iOS 18').");
+        Console.WriteLine("  --apple-version          Apple SDK train / SwiftBindings.Apple supplement version (e.g. 26.0.0). Default: 26.0.0.");
+        Console.WriteLine("  --apple-sdk-train-major  Optional override for sdk_train.major. Derived from --apple-version when omitted.");
+        Console.WriteLine("  --apple-sdk-train-label  Optional. Human-readable SDK train label (e.g. 'Xcode 26 / iOS 26').");
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");

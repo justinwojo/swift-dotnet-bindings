@@ -23,17 +23,23 @@ partial class Build
         .DependsOn(Compile)
         .After(RuntimeTestsMacOS)
         .Requires(() => Version)
+        .Requires(() => AppleVersion)
         .Executes(() =>
         {
             var outputDir = (AbsolutePath)OutputDir;
             outputDir.CreateDirectory();
 
-            var appleVersion = AppleVersion ?? Version!;
-            if (AppleVersion is null)
-                Log.Information("=== Packing SwiftBindings v{Version} ===", Version);
-            else
-                Log.Information("=== Packing SwiftBindings v{Version} (Apple supplement v{AppleVersion}) ===",
-                    Version, appleVersion);
+            // Pack ships artifacts to NuGet, so --apple-version must be explicit — defaulting
+            // silently to the main version would let a stale Apple SDK train ride out a future
+            // bump. Required() above already fails the build when omitted; this guard is just
+            // paranoia in case someone passes an empty string.
+            if (string.IsNullOrWhiteSpace(AppleVersion))
+                throw new System.InvalidOperationException(
+                    "--apple-version is required for 'nuke pack' so the shipped SwiftBindings.Apple " +
+                    "nupkg cannot silently ride an unrelated main version.");
+            var appleVersion = AppleVersion!;
+            Log.Information("=== Packing SwiftBindings v{Version} (Apple supplement v{AppleVersion}) ===",
+                Version, appleVersion);
 
             using var scope = new VersionScope(Version!, RootDirectory, AppleVersion);
 

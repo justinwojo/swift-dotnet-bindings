@@ -2,15 +2,15 @@
   "$schema": "./schema.json",
   "manifest_version": 1,
   "generated_by": "Swift.Bindings --emit-apple-types-manifest",
-  "generated_at": "2026-04-17T07:19:46.4506810Z",
+  "generated_at": "2026-04-18T01:12:36.2519300Z",
   "sdk_train": {
-    "major": 18,
-    "label": "Xcode 16 / iOS 18 / macOS 15 / tvOS 18",
+    "major": 26,
+    "label": "Xcode 26 / iOS 26 / macOS 26 / tvOS 26",
     "platforms": {
-      "ios": "18.0",
-      "maccatalyst": "18.0",
-      "tvos": "18.0",
-      "macos": "15.0"
+      "ios": "26.0",
+      "maccatalyst": "26.0",
+      "tvos": "26.0",
+      "macos": "26.0"
     }
   },
   "modules": {
@@ -36,9 +36,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 16,
-          "alignment": 8,
-          "stride": 16,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s9CryptoKit4P256O7SigningO14ECDSASignatureVMa",
             "library": "CryptoKit",
@@ -79,9 +79,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 16,
-          "alignment": 8,
-          "stride": 16,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s9CryptoKit4P384O7SigningO14ECDSASignatureVMa",
             "library": "CryptoKit",
@@ -122,9 +122,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 16,
-          "alignment": 8,
-          "stride": 16,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s9CryptoKit4P521O7SigningO14ECDSASignatureVMa",
             "library": "CryptoKit",
@@ -166,17 +166,17 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 283,
-          "alignment": 8,
-          "stride": 288,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation14DateComponentsVMa",
             "library": "Foundation",
             "availability": {
-              "ios": "10.0",
+              "ios": "8.0",
               "maccatalyst": null,
-              "tvos": "10.0",
-              "macos": "10.12"
+              "tvos": "9.0",
+              "macos": "10.9"
             },
             "weak_link": true
           },
@@ -207,9 +207,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 32,
-          "alignment": 8,
-          "stride": 32,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation6LocaleV9CollationVMa",
             "library": "Foundation",
@@ -248,9 +248,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 32,
-          "alignment": 8,
-          "stride": 32,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation6LocaleV8CurrencyVMa",
             "library": "Foundation",
@@ -289,9 +289,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 96,
-          "alignment": 8,
-          "stride": 96,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation6LocaleV8LanguageVMa",
             "library": "Foundation",
@@ -330,9 +330,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 32,
-          "alignment": 8,
-          "stride": 32,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation6LocaleV12LanguageCodeVMa",
             "library": "Foundation",
@@ -371,9 +371,9 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 32,
-          "alignment": 8,
-          "stride": 32,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation6LocaleV6RegionVMa",
             "library": "Foundation",
@@ -410,17 +410,17 @@
           },
           "kind": "struct",
           "frozen": false,
-          "size": 8,
-          "alignment": 8,
-          "stride": 8,
+          "size": null,
+          "alignment": null,
+          "stride": null,
           "metadata_accessor": {
             "symbol": "$s10Foundation20PersonNameComponentsVMa",
             "library": "Foundation",
             "availability": {
-              "ios": "10.0",
+              "ios": "9.0",
               "maccatalyst": null,
-              "tvos": "10.0",
-              "macos": "10.12"
+              "tvos": "9.0",
+              "macos": "10.11"
             },
             "weak_link": true
           },

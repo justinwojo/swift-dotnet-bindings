@@ -234,10 +234,15 @@ public static class AppleTypesManifestValidator
         }
     }
 
-    // Mirrors AppleTypesCsEmitter.ResolveLibraryPath. Kept private so we don't
-    // accidentally drift from the emitter's path. Both are intentionally simple
-    // — if the table grows, the two should be unified, but for the 11-entry
-    // baseline manifest the duplication is clearer than a shared helper.
+    // Resolves manifest `library` to an absolute dyld path for host-side validation.
+    //
+    // INTENTIONALLY DIFFERENT from AppleTypesCsEmitter.ResolveLibraryPath: the emitter
+    // emits BARE names (e.g. "CryptoKit") into supplement DllImports so the macios
+    // linker's `.framework/` substring scan doesn't force-add `-framework` entries for
+    // modules the consumer never references (BlastRadius FINDINGS #9). This validator
+    // runs at manifest-validation time on the host (macOS) where `NativeLibrary.Load`
+    // needs a concrete dyld path — no macios linker, no blast-radius concern — so we
+    // expand bare names to `/System/Library/Frameworks/X.framework/X` here.
     private static string ResolveLibraryPath(string library)
     {
         return library switch

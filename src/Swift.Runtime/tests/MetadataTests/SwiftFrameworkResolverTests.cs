@@ -38,6 +38,10 @@ public class SwiftFrameworkResolverTests
         Assert.Contains("@rpath/TestLibrary.dylib", result);
         Assert.Contains("@executable_path/libTestLibrary.dylib", result);
         Assert.Contains("@executable_path/TestLibrary.dylib", result);
+        // System-framework fallback: supports bare DllImport names emitted by the
+        // Apple supplement (e.g. "CryptoKit") so they resolve to system frameworks
+        // without the `.framework/` substring that would force build-time linkage.
+        Assert.Contains("/System/Library/Frameworks/TestLibrary.framework/TestLibrary", result);
     }
 
     [Fact]

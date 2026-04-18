@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text;
 
 namespace Swift.Runtime;
@@ -33,6 +34,7 @@ public static class SwiftFrameworkResolver
         // path may run before AppDomain.ProcessExit has been wired up.
         SwiftExitGuard.EnsureInitialized();
 
+        RegisterAlcFallback();
         RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
 
         // Pre-register NewFromPayload factories for all non-generic Swift.Runtime ISwiftObject types.
@@ -65,9 +67,14 @@ public static class SwiftFrameworkResolver
     /// <summary>
     /// Registers the standard Swift framework resolver for an assembly.
     /// Safe to call multiple times — subsequent calls are silently ignored.
+    /// Also installs the process-wide ALC fallback on first call, so any assembly
+    /// that never called this (hand-written consumers, third-party code) still
+    /// gets framework-path resolution via the AssemblyLoadContext fallback event.
     /// </summary>
     public static void RegisterForAssembly(Assembly assembly)
     {
+        RegisterAlcFallback();
+
         try
         {
             NativeLibrary.SetDllImportResolver(assembly, ResolveSwiftFramework);
@@ -79,6 +86,37 @@ public static class SwiftFrameworkResolver
             // (ModuleInitializer fires before consumer's Main).
         }
     }
+
+    private static int s_alcFallbackRegistered;
+
+    /// <summary>
+    /// Installs a process-wide <see cref="AssemblyLoadContext.ResolvingUnmanagedDll"/>
+    /// handler as a safety net for assemblies that never called
+    /// <see cref="RegisterForAssembly"/>. The documented .NET P/Invoke load order is:
+    /// per-assembly <c>DllImportResolver</c> → <c>ALC.LoadUnmanagedDll</c> → built-in
+    /// native probing → <c>ALC.ResolvingUnmanagedDll</c>. Per-assembly registrations
+    /// still win on the hot path; this only catches misses.
+    ///
+    /// Safe on both Mono (iOS simulator) and NativeAOT (iOS device) — NativeAOT's lazy
+    /// P/Invoke fixup routes through <c>GetResolvedUnmanagedDll</c> which raises this
+    /// event, and Mono's ALC implementation has a <c>DynamicDependency</c> keeping the
+    /// event accessor rooted against trimming.
+    ///
+    /// This does NOT address <a href="https://github.com/dotnet/macios/issues/25008">
+    /// dotnet/macios#25008</a>: that bug is about statically linked NativeReference
+    /// symbols becoming local-visibility when DllImports are redirected to the main
+    /// binary. Our model is dynamic <c>@rpath/X.framework/X</c> loading, a different
+    /// mechanism, so the fallback is safe here — but a future static-link mode would
+    /// need its own symbol-export story.
+    /// </summary>
+    private static void RegisterAlcFallback()
+    {
+        if (Interlocked.Exchange(ref s_alcFallbackRegistered, 1) == 0)
+            AssemblyLoadContext.Default.ResolvingUnmanagedDll += ResolveSwiftFrameworkFromAlc;
+    }
+
+    private static IntPtr ResolveSwiftFrameworkFromAlc(Assembly assembly, string libraryName)
+        => ResolveSwiftFramework(libraryName, assembly, searchPath: null);
 
     /// <summary>
     /// Returns true when <paramref name="libraryName"/> is already a dyld-style path
@@ -102,6 +140,14 @@ public static class SwiftFrameworkResolver
 
     /// <summary>
     /// The search paths tried for a bare Swift module / framework name, in order.
+    ///
+    /// The <c>/System/Library/Frameworks/{name}.framework/{name}</c> fallback lets the
+    /// Apple supplement emit bare DllImport names (e.g. <c>"CryptoKit"</c>) without
+    /// triggering the macios linker's <c>.framework/</c> substring scan — which otherwise
+    /// force-adds <c>-framework X</c> to the native link line for every module in the
+    /// shared supplement assembly, regardless of what the consumer actually uses
+    /// (BlastRadius FINDINGS #9). The system path is tried last so app-bundled and
+    /// rpath-resident frameworks still win when both exist.
     /// </summary>
     internal static string[] GetSearchPaths(string libraryName) =>
     [
@@ -114,6 +160,7 @@ public static class SwiftFrameworkResolver
         // Contents/Resources/, which is @executable_path/../Resources/.
         $"@executable_path/../Resources/lib{libraryName}.dylib",
         $"@executable_path/../Resources/{libraryName}.dylib",
+        $"/System/Library/Frameworks/{libraryName}.framework/{libraryName}",
     ];
 
     internal static IntPtr ResolveSwiftFramework(

@@ -61,14 +61,34 @@
     <!-- Default to both slices (device + simulator) so dotnet pack always works -->
     <!-- Fast-iteration users can override to 'simulator' for quicker dev builds -->
     <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == ''">all</SwiftWrapperArchitectures>
-    <!-- Property-driven version floor — users can override to use newer runtime -->
+    <!-- Property-driven version floor — users can override to use newer runtime.
+         SwiftRuntimeVersion is the exact version generated code depends on (stamped by
+         VersionScope at pack time). SwiftRuntimePackageVersionRange is the NuGet version
+         range used in PackageReference — a bare "0.8.0" is interpreted by NuGet as a
+         minimum-only float, which would let consumers slide into 0.9.0 and break the
+         compatibility boundary; the bounded range pins the minor floor instead. Both values
+         derive from the same VersionScope stamp so SDK and standalone paths cannot drift. -->
     <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.0.0-dev</SwiftRuntimeVersion>
+    <SwiftRuntimePackageVersionRange Condition="'$(SwiftRuntimePackageVersionRange)' == ''">[0.0.0-dev,0.1.0)</SwiftRuntimePackageVersionRange>
+    <!-- SwiftBindings.Apple supplement version (follows the Apple SDK train, not SwiftRuntimeVersion).
+         Stamped by VersionScope at pack time; users can override for prototype workflows. Threaded
+         through to both generator invocations via the apple-version option so future Apple train bumps
+         need only a single input, instead of being hardcoded across CliOptions, BindingProjectEmitter,
+         and XCFrameworkMetadataExtractor. -->
+    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">0.0.0-dev</SwiftAppleSupplementVersion>
     <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
     <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
     <SwiftGenerateDocComments Condition="'$(SwiftGenerateDocComments)' == ''">true</SwiftGenerateDocComments>
     <!-- Auto-detect framework dependencies from binary linkage (set to false to disable) -->
     <SwiftAutoDetectDependencies Condition="'$(SwiftAutoDetectDependencies)' == ''">true</SwiftAutoDetectDependencies>
+    <!-- Apple-supplement prototype mode: when set, the generator emits a trimmed
+         SwiftBindings.Apple.Prototype.csproj into this directory (plus .cs sources for the
+         Apple-supplement types referenced by this run) and wires the generated consumer project
+         to it via ProjectReference instead of a PackageReference. Lets developers iterate on
+         supplement changes without waiting for a new NuGet publish. No default — users opt in
+         explicitly by setting this property. No-op when the run resolves no supplement types. -->
+    <SwiftAppleSupplementPrototypeDir Condition="'$(SwiftAppleSupplementPrototypeDir)' == ''"></SwiftAppleSupplementPrototypeDir>
     <!-- Apple-framework target mode: minimum deployment target for swift-api-digester.
          Platform-specific floors match .NET 10 minimums. maccatalyst before macos to
          avoid substring overlap. -->
@@ -95,9 +115,11 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
   </ItemGroup>
 
-  <!-- Implicit Swift.Runtime reference with minimum version floor -->
+  <!-- Implicit Swift.Runtime reference. Uses the bounded range (not bare version) so NuGet
+       pins consumers inside the current minor and they can't silently slide across a
+       compatibility boundary (see SwiftRuntimePackageVersionRange above). -->
   <ItemGroup>
-    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimeVersion)"
+    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimePackageVersionRange)"
                       Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
   </ItemGroup>
 

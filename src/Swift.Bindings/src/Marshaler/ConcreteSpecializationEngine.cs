@@ -190,15 +190,17 @@ public class ConcreteSpecializationEngine
     /// <summary>
     /// Returns true if the conformer is allowed to apply while generating bindings for
     /// <paramref name="moduleFilter"/>. A conformer with no <see cref="ConcreteConformer.AllowedModules"/>
-    /// set is global (current behavior). A conformer with a non-empty allow-list only applies
-    /// when <paramref name="moduleFilter"/> is non-null and listed. A null filter lets every
-    /// hint through — used by static callers with no module context who only need a coarse
-    /// "any conformer exists" check.
+    /// set is global — it always applies. A conformer with a non-empty allow-list only applies
+    /// when <paramref name="moduleFilter"/> is non-null and listed. Scoped conformers FAIL
+    /// CLOSED when the caller passes no module context: without a filter we cannot prove the
+    /// conformer belongs to the module being generated, so we refuse to apply it. The previous
+    /// behavior (null = let-every-hint-through) leaked scoped conformers into unrelated
+    /// consumer modules.
     /// </summary>
     internal static bool IsConformerAllowedForModule(ConcreteConformer conformer, string? moduleFilter)
     {
         if (conformer.AllowedModules is null || conformer.AllowedModules.Count == 0) return true;
-        if (moduleFilter is null) return true;
+        if (moduleFilter is null) return false;
         foreach (var allowed in conformer.AllowedModules)
         {
             if (string.Equals(allowed, moduleFilter, StringComparison.Ordinal)) return true;
@@ -207,18 +209,14 @@ public class ConcreteSpecializationEngine
     }
 
     /// <summary>
-    /// Checks whether the specialization hints registry has conformers for the given
-    /// module-qualified protocol name (e.g., "MusicKit.MusicCatalogSearchable"). Hint-only —
-    /// does not consider ABI-discovered conformers, since those require an engine instance.
-    /// Used by validator paths that need a stateless conformer check. When
-    /// <paramref name="moduleFilter"/> is non-null, module-scoped hints whose allow-list
-    /// does not include the filter are ignored; global hints always count.
+    /// Checks whether the specialization hints registry has any conformer for the protocol
+    /// that is allowed in <paramref name="moduleFilter"/>. Scoped hints require a matching
+    /// module filter; a null filter only matches unscoped (global) hints.
     /// </summary>
     public static bool HasKnownHintConformers(string protocolQualifiedName, string? moduleFilter = null)
     {
         if (!_sharedHints.Value.TryGetValue(protocolQualifiedName, out var list) || list.Count == 0)
             return false;
-        if (moduleFilter is null) return true;
         foreach (var c in list)
         {
             if (IsConformerAllowedForModule(c, moduleFilter)) return true;
@@ -228,15 +226,13 @@ public class ConcreteSpecializationEngine
 
     /// <summary>
     /// Returns hint-registered conformers for a protocol, filtered to those that apply while
-    /// generating bindings for <paramref name="moduleFilter"/>. Stateless accessor — does not
-    /// consider ABI-discovered conformers. A null filter returns all hint conformers (legacy
-    /// behavior for callers with no module context).
+    /// generating bindings for <paramref name="moduleFilter"/>. Scoped conformers fail closed
+    /// when no filter is passed (see <see cref="IsConformerAllowedForModule"/>).
     /// </summary>
     public static IReadOnlyList<ConcreteConformer> GetHintConformers(string protocolQualifiedName, string? moduleFilter = null)
     {
         if (!_sharedHints.Value.TryGetValue(protocolQualifiedName, out var list))
             return Array.Empty<ConcreteConformer>();
-        if (moduleFilter is null) return list;
         var filtered = new List<ConcreteConformer>(list.Count);
         foreach (var c in list)
         {

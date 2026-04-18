@@ -45,7 +45,24 @@ namespace BindingsGeneration.Tests
         public void Props_IncludesSwiftRuntimeReference()
         {
             Assert.Contains("SwiftBindings.Runtime", PropsContent);
-            Assert.Contains("$(SwiftRuntimeVersion)", PropsContent);
+            // PackageReference uses the BOUNDED range, not the bare exact version.
+            // A bare "0.8.0" would be interpreted by NuGet as a minimum-only float,
+            // letting consumers silently slide into 0.9.0 where compatibility is not
+            // guaranteed. The range pins the minor floor instead.
+            Assert.Contains("$(SwiftRuntimePackageVersionRange)", PropsContent);
+            Assert.DoesNotContain(
+                "Version=\"$(SwiftRuntimeVersion)\"",
+                PropsContent);
+        }
+
+        [Fact]
+        public void Props_DefinesSwiftRuntimePackageVersionRange()
+        {
+            // Must be a bracket-bounded range (e.g. "[0.0.0-dev,0.1.0)") — a bare
+            // version here would defeat the whole point of splitting it from
+            // SwiftRuntimeVersion.
+            Assert.Contains("<SwiftRuntimePackageVersionRange Condition=", PropsContent);
+            Assert.Contains("</SwiftRuntimePackageVersionRange>", PropsContent);
         }
 
         [Fact]

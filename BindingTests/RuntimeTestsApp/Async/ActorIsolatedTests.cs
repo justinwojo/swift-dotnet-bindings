@@ -150,5 +150,43 @@ public class ActorIsolatedTests : TestBase
         source.Dispose();
     }
 
+    public async Task TestActorEventStream_CompletionClosesIterator()
+    {
+        // Regression for the AsyncStream completion-callback plumbing. Before the fix
+        // the emitted `_OnComplete` was a no-op, so `channel.Writer.TryComplete()` was
+        // never called and `await foreach` hung forever after Swift's continuation
+        // finished. The 5s timeout here is the contract: an iterator that has seen all
+        // emitted values AND the finish() must exit promptly.
+        var source = Functions.CreateActorEventStream();
+        try
+        {
+            var produce = Task.Run(async () =>
+            {
+                await source.EmitAsync(7);
+                await source.EmitAsync(8);
+                await source.EndAsync();
+            });
+
+            var received = new List<int>();
+            var consume = Task.Run(async () =>
+            {
+                await foreach (var value in source.Events)
+                {
+                    received.Add(value);
+                }
+            });
+
+            await WithTimeout(Task.WhenAll(produce, consume), DefaultAsyncTimeout);
+
+            AssertEqual(2, received.Count, "Iterator should have received both emitted values");
+            AssertEqual(7, received[0], "First emitted value");
+            AssertEqual(8, received[1], "Second emitted value");
+        }
+        finally
+        {
+            source.Dispose();
+        }
+    }
+
     #endregion
 }

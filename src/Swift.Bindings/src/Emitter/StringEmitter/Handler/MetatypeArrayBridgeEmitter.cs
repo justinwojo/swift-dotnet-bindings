@@ -27,7 +27,10 @@ public static class MetatypeArrayBridgeEmitter
     /// Returns true when the method is eligible for metatype array bridging.
     /// Must be synchronous, non-throwing, non-generic, non-accessor, non-constructor,
     /// not mutating, a free function (ParentDecl is ModuleDecl or null), and have at
-    /// least one parameter that is Array&lt;any P.Type&gt; with known hint conformers.
+    /// least one parameter that is Array&lt;any P.Type&gt; with known hint conformers
+    /// allowed for the method's owning module. Module context comes from
+    /// <c>methodDecl.ModuleDecl?.Name</c> so scoped hints (e.g. MusicKit-only) fail
+    /// closed when the method lives in an unrelated module.
     /// </summary>
     public static bool IsEligible(MethodDecl methodDecl, ILogger? logger = null)
     {
@@ -42,12 +45,14 @@ public static class MetatypeArrayBridgeEmitter
         if (methodDecl.IsModuleInternal)
             return false;
 
+        var moduleFilter = methodDecl.ModuleDecl?.Name;
+
         // At least one CSSignature arg (skip return at index 0) must be a metatype array
         bool hasMetatypeArray = false;
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
         {
             if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(
-                methodDecl.CSSignature[i].SwiftTypeSpec, out _))
+                methodDecl.CSSignature[i].SwiftTypeSpec, moduleFilter, out _))
             {
                 hasMetatypeArray = true;
                 break;
@@ -72,8 +77,10 @@ public static class MetatypeArrayBridgeEmitter
             return false;
 
         // Build the normalized MethodDecl: each [any P.Type] param becomes
-        // two scalar args (UnsafeRawPointer + Int).
-        var normalized = NormalizeMethodDecl(methodDecl);
+        // two scalar args (UnsafeRawPointer + Int). Pass the method's owning module
+        // so scoped hint conformers are only matched within their allow-list.
+        var moduleFilter = methodDecl.ModuleDecl?.Name;
+        var normalized = NormalizeMethodDecl(methodDecl, moduleFilter);
 
         var normalizedEnv = new MethodEnvironment(
             normalized,
@@ -100,7 +107,7 @@ public static class MetatypeArrayBridgeEmitter
             return false;
         }
 
-        EmitSwiftWrapper(swiftWriter, methodDecl, normalized, cdeclSymbol);
+        EmitSwiftWrapper(swiftWriter, methodDecl, normalized, cdeclSymbol, moduleFilter);
 
         TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
         foreach (var argument in normalized.CSSignature)
@@ -122,8 +129,10 @@ public static class MetatypeArrayBridgeEmitter
     /// <summary>
     /// Creates a new MethodDecl where each [any P.Type] array parameter is replaced
     /// by two scalar parameters: {name}Ptr: Swift.UnsafeRawPointer and {name}Count: Swift.Int.
+    /// <paramref name="moduleFilter"/> scopes the metatype-array detection so hint conformers
+    /// restricted to other modules don't trigger normalization here.
     /// </summary>
-    internal static MethodDecl NormalizeMethodDecl(MethodDecl original)
+    internal static MethodDecl NormalizeMethodDecl(MethodDecl original, string? moduleFilter = null)
     {
         // Record `with` clones every field, preserving metadata like IsSpiProtected,
         // IsMainActorIsolated/IsNonisolated, availability annotations, etc. Manual
@@ -142,7 +151,7 @@ public static class MetatypeArrayBridgeEmitter
         for (int i = 1; i < original.CSSignature.Count; i++)
         {
             var arg = original.CSSignature[i];
-            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(arg.SwiftTypeSpec, out _))
+            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(arg.SwiftTypeSpec, moduleFilter, out _))
             {
                 var baseName = !string.IsNullOrEmpty(arg.Name) ? arg.Name : $"arg{i}";
                 var privateBase = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : baseName;
@@ -194,12 +203,15 @@ public static class MetatypeArrayBridgeEmitter
     /// <summary>
     /// Emits the Swift <c>@_cdecl</c> wrapper that reconstructs each <c>[any P.Type]</c>
     /// array from a C pointer + count pair, then calls the original Swift function.
+    /// <paramref name="moduleFilter"/> scopes the hint-registry lookup so scoped conformers
+    /// are only emitted for methods in their allow-listed modules.
     /// </summary>
     private static void EmitSwiftWrapper(
         SwiftWriter swiftWriter,
         MethodDecl original,
         MethodDecl normalized,
-        string wrapperSymbol)
+        string wrapperSymbol,
+        string? moduleFilter)
     {
         var returnSpec = original.CSSignature[0].SwiftTypeSpec;
         bool isVoid = returnSpec is TupleTypeSpec tup && tup == TupleTypeSpec.Empty;
@@ -216,7 +228,7 @@ public static class MetatypeArrayBridgeEmitter
         for (int i = 1; i < original.CSSignature.Count; i++)
         {
             var origArg = original.CSSignature[i];
-            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(origArg.SwiftTypeSpec, out var protocolName))
+            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(origArg.SwiftTypeSpec, moduleFilter, out var protocolName))
             {
                 var ptrLabel = (!string.IsNullOrEmpty(origArg.PrivateName) ? origArg.PrivateName : origArg.Name) + "Ptr";
                 var countLabel = (!string.IsNullOrEmpty(origArg.PrivateName) ? origArg.PrivateName : origArg.Name) + "Count";
@@ -231,7 +243,7 @@ public static class MetatypeArrayBridgeEmitter
                 // and assign the concrete metatype — Swift resolves the witness table statically.
                 var anyTypeSpec = $"(any {protocolName!}.Type)";
                 var conformers = ConcreteSpecializationEngine
-                    .GetHintConformers(protocolName!)
+                    .GetHintConformers(protocolName!, moduleFilter)
                     .Where(c => !string.IsNullOrEmpty(c.SwiftQualifiedName))
                     .ToList();
 

@@ -85,15 +85,52 @@ public static class AppleTypesCsCommand
 
         var emittedCount = emitter.EmittedFiles.Count;
         var skippedCount = emitter.SkippedEntries.Count;
+        var structuralSkipCount = emitter.StructuralSkips.Count;
+        var refusedCount = emitter.RefusedWhitelistEntries.Count;
         logger.LogInformation(
-            "Emitted {EmittedCount} C# files to '{OutputDir}'; skipped {SkippedCount} entries.",
-            emittedCount, outputDir, skippedCount);
+            "Emitted {EmittedCount} C# files to '{OutputDir}'; skipped {SkippedCount} benign entries; " +
+            "{StructuralSkipCount} structural skips; refused {RefusedCount} whitelist opt-ins.",
+            emittedCount, outputDir, skippedCount, structuralSkipCount, refusedCount);
 
-        // Hard gate failures (whitelist opt-in with missing validation) land in SkippedEntries
-        // but should NOT fail the command today, because the baseline manifest has size=null
-        // everywhere. If a later session probes sizes and adds a real whitelist entry, a
-        // refused emission is a configuration bug and should fail — but that's enforced via
-        // the baseline zero-regression policy at the `nuke test` level, not here.
+        // Fail-closed: structural skips mean the manifest is malformed (blank metadata
+        // accessor, missing accessor on a non-Runtime-owned type, …) and a type was
+        // silently dropped. Benign skips (Runtime-owned canonicals) do NOT count — those
+        // are expected per TypeOwnerRegistry and the type lives in Swift.Runtime instead.
+        if (structuralSkipCount > 0)
+        {
+            foreach (var skip in emitter.StructuralSkips)
+            {
+                logger.LogError(
+                    "Structural skip: '{Identity}' — {Reason}",
+                    skip.SwiftIdentity, skip.Reason);
+            }
+            logger.LogError(
+                "Manifest contains {StructuralSkipCount} structural skip(s). Fix the manifest " +
+                "(regenerate via apple-types-manifest or repair malformed entries) before emitting.",
+                structuralSkipCount);
+            return 1;
+        }
+
+        // Fail-closed: any refused whitelist opt-in (missing or incomplete evidence, or a
+        // structural gate miss) means the manifest is shipping a broken layout claim. The
+        // type is still emitted via the VWT-opaque fallback so consumers don't lose it,
+        // but the build must fail so the regression cannot slip into a release manifest.
+        if (refusedCount > 0)
+        {
+            foreach (var refused in emitter.RefusedWhitelistEntries)
+            {
+                logger.LogError(
+                    "Refused sequential-layout opt-in: '{Identity}' — {Reason}",
+                    refused.SwiftIdentity, refused.Reason);
+            }
+            logger.LogError(
+                "Manifest contains {RefusedCount} whitelist opt-in(s) that failed the " +
+                "evidence/structural gate. Fix the manifest (add/correct " +
+                "sequential_layout_evidence) or drop the whitelist entry.",
+                refusedCount);
+            return 1;
+        }
+
         return 0;
     }
 }

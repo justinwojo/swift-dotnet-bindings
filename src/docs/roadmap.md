@@ -1,9 +1,9 @@
 # Roadmap to 1.0
 
-**Updated**: April 10, 2026
+**Updated**: April 17, 2026
 
 **Current baseline**: 95/95 CS compile, 61/61 Swift compile. All targets passing.
-**Skip metrics**: 10,762 emitted members, 1,956 skipped (15.4% skip rate) across 95 validation targets.
+**Skip metrics**: 10,790 emitted members, 1,923 skipped (15.1% skip rate) across 95 validation targets.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
 
@@ -19,12 +19,12 @@
 
 ## Theme A: Skip Reduction *(low priority)*
 
-Skip rate is 15.4%. The remaining ~1,956 skips are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
+Skip rate is 15.1%. The remaining ~1,923 skips are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
 
 | Item | Remaining skips | Effort | Why low priority |
 |------|----------------:|--------|-----------------|
-| **Unsupported signatures** (associated types, bare generics) | ~351 | Very high | Swift patterns with no C# equivalent |
-| **AnyTypeFallback** (cross-library types) | ~307 | Very high | Needs full dependency graph resolution — different product scope |
+| **Unsupported signatures** (associated types, bare generics) | ~341 | Very high | Swift patterns with no C# equivalent |
+| **AnyTypeFallback** (cross-library types) | ~303 | Very high | Needs full dependency graph resolution — different product scope |
 | **UnsupportedClosure** (multi-blocker methods) | ~131 | High | Reduced from 153 via setter-only closure properties. Remaining are generic params, async closures, nested closures. |
 | **UnsatisfiedGenericConstraint** (remaining) | ~92 | High | Fundamental type system constraints, not relaxable gates |
 | **Result<T,E> parameter direction** | blocked | Medium | Needs native payload synthesis for C#-created instances |
@@ -99,6 +99,7 @@ Remaining items tracked in [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md).
 | **Self-requirement existential boxing untested** | `GetPublicExistentialType()` lowers `HasSelfRequirement` protocols to `object` at call sites, but no runtime test exercises an `any SelfReqProto`-typed parameter end-to-end. Same-module conformers have `typeof(IFoo<TSelf>)` keyed dictionary entries — whether this round-trips correctly through `GetOrCreate<object>` is unverified. Separate from the PAT fix. |
 | **Multi-PAT existential boxing** | A type conforming to 2+ PAT protocols cannot box through the `object` fallback because the `typeof(object)` dictionary key is ambiguous. Guarded to fail explicitly (`InvalidCastException`) rather than silently select the wrong witness table. Extremely rare in practice. |
 | **tvOS device runner** | Requires provisioning profile + physical Apple TV. Generator, SDK, runtime, and build infra already support tvOS; only the `nuke runtime-tests-tvos-device` Nuke target and deployment mechanism are missing. |
+| **`UnsafeMutableRawBufferPointer` / mutable raw-buffer bridging** | Post-ship **new feature/design item** — not missing §5.2 coverage. §5.2 shipped read-only `UnsafeRawBufferPointer` → `ReadOnlySpan<byte>`. Extending to the mutable Swift type requires a separate design: likely map synchronous nonescaping calls to `Span<byte>` or an explicit mutable-buffer wrapper. Define lifetime, aliasing, write-back semantics, and async/escaping restrictions before implementation. Runtime coverage: zero-length, sliced/aliased, large payload, write-back. |
 
 ---
 

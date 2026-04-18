@@ -68,4 +68,33 @@ public class CrossAssemblyIdentityTests : TestBase
         AssertEqual(metadataFromA, metadataFromB,
             "Both assemblies observe the same Swift runtime metadata handle for Language");
     }
+
+    /// <summary>
+    /// Constructs a live Foundation.Locale.Language value in ConsumerA via a
+    /// SwiftBindingsTestLib factory, passes the instance to ConsumerB, and
+    /// asserts that (1) ConsumerB observes the same <c>System.Type</c> handle
+    /// for the value and (2) a MarshalToSwift + NewFromPayload round-trip in
+    /// ConsumerB yields the same type. Exercises payload copy/destroy ABI and
+    /// cross-assembly value flow on top of the existing type-identity probes.
+    /// </summary>
+    public void TestLanguageValueRoundTripsAcrossAssemblies()
+    {
+        if (!OperatingSystem.IsIOSVersionAtLeast(16))
+        {
+            TestLogger.Info("Foundation.Locale.Language requires iOS 16+; skipping.");
+            return;
+        }
+
+        using var lang = AppleIdentity.ConsumerA.TypeProbe.CreateDefaultLanguage();
+
+        var typeInB = AppleIdentity.ConsumerB.TypeProbe.AcceptLanguageTyped(lang);
+        AssertTrue(
+            ReferenceEquals(typeof(Swift.Foundation.Locale.Language), typeInB),
+            $"ConsumerB observes typeof(Language) reference-equal to the SwiftBindings.Apple type; got {typeInB.AssemblyQualifiedName}");
+
+        var roundTrippedType = AppleIdentity.ConsumerB.TypeProbe.RoundTripLanguage(lang);
+        AssertTrue(
+            ReferenceEquals(typeof(Swift.Foundation.Locale.Language), roundTrippedType),
+            $"ConsumerB round-tripped Language via MarshalToSwift + NewFromPayload and observed the same typeof; got {roundTrippedType.AssemblyQualifiedName}");
+    }
 }

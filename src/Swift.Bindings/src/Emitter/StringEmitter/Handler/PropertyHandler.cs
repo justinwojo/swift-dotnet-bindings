@@ -1235,7 +1235,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         csWriter.WriteLine();
         AsyncStreamEmitter.EmitElementCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
         csWriter.WriteLine();
-        AsyncStreamEmitter.EmitCompletionCallback(csWriter, callbackName);
+        AsyncStreamEmitter.EmitCompletionCallback(csWriter, propertyDecl, asyncStreamHandler, callbackName);
         csWriter.WriteLine();
 
         // Emit P/Invoke

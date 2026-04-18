@@ -529,7 +529,10 @@ public static class MemberEmissionValidator
             // Only exempt when the method shape is actually bridge-eligible (free functions in the
             // MVP). Instance methods/constructors that slip through the exemption would fall into
             // an incompatible fallback and produce broken wrappers — let the existential skip apply.
-            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(argument.SwiftTypeSpec, out _) &&
+            if (BoundGenericsHandler.IsArrayOfExistentialMetatypes(
+                    argument.SwiftTypeSpec,
+                    method.ModuleDecl?.Name,
+                    out _) &&
                 MetatypeArrayBridgeEmitter.IsEligible(method))
                 continue;
 

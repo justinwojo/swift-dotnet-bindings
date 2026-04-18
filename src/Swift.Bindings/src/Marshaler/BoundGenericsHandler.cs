@@ -172,7 +172,14 @@ public class BoundGenericsHandler
     /// via <c>unsafeBitCast</c>. The validator allows this pattern through so the bridge
     /// can fire.
     /// </summary>
-    public static bool IsArrayOfExistentialMetatypes(TypeSpec typeSpec, out string? protocolName)
+    /// <summary>
+    /// Returns true when <paramref name="typeSpec"/> is <c>Array&lt;any P.Type&gt;</c> and the
+    /// specialization-hints registry has at least one conformer for P that is allowed while
+    /// generating bindings for <paramref name="moduleFilter"/>. Scoped hints (e.g.
+    /// MusicKit-owned conformers) fail closed when <paramref name="moduleFilter"/> is null —
+    /// unscoped global hints still match.
+    /// </summary>
+    public static bool IsArrayOfExistentialMetatypes(TypeSpec typeSpec, string? moduleFilter, out string? protocolName)
     {
         protocolName = null;
         if (typeSpec is not NamedTypeSpec outer || !MarshallingHelpers.IsSwiftArray(outer))
@@ -192,7 +199,7 @@ public class BoundGenericsHandler
         if (!qualified.EndsWith(".Type", StringComparison.Ordinal))
             return false;
         qualified = qualified.Substring(0, qualified.Length - ".Type".Length);
-        if (!ConcreteSpecializationEngine.HasKnownHintConformers(qualified))
+        if (!ConcreteSpecializationEngine.HasKnownHintConformers(qualified, moduleFilter))
             return false;
         protocolName = qualified;
         return true;

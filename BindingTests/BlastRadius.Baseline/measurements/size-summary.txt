@@ -5,5 +5,5 @@ Delta:         0 bytes (0.00%)
 
 === .app bundle (includes dylibs + managed assemblies) ===
 Baseline bundle: 127668224 bytes
-Consumer bundle: 127713280 bytes
-Delta:           45056 bytes (0.04%)
+Consumer bundle: 127717376 bytes
+Delta:           49152 bytes (0.04%)

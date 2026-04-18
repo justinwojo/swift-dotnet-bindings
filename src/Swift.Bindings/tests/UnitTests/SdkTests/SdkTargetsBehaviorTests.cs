@@ -487,6 +487,152 @@ namespace BindingsGeneration.Tests
             File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
         }
 
+        // ── _InjectAppleSupplementPrototype: supplement signals reach the target via
+        //    both binding-metadata.props (xcframework path, inlined) and apple-supplement.props
+        //    (direct Apple-framework path, sibling file). XmlPeek reads raw XML and does NOT
+        //    evaluate `<Import>`, so the target must query both files.
+
+        [Fact]
+        public void InjectAppleSupplementPrototype_ReadsFromBindingMetadataProps_XcframeworkPath()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // Xcframework path: supplement signals are inlined directly into binding-metadata.props.
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestModuleSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>
+                    <_SwiftBindingAppleSupplementVersion>26.0.0</_SwiftBindingAppleSupplementVersion>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode);
+
+            Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
+            Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|26.0.0", output);
+        }
+
+        [Fact]
+        public void InjectAppleSupplementPrototype_ReadsFromAppleSupplementProps_DirectPath()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // Direct Apple-framework path: binding-metadata.props lacks supplement signals
+            // (the heredoc in Sdk.targets has no visibility into generator state). Signals
+            // live in a sibling apple-supplement.props. XmlPeek must fall back to it.
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestModuleSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <Import Project="apple-supplement.props" Condition="Exists('apple-supplement.props')" />
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(intermediateDir, "apple-supplement.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>
+                    <_SwiftBindingAppleSupplementVersion>26.0.0</_SwiftBindingAppleSupplementVersion>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode);
+
+            Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
+            Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|26.0.0", output);
+        }
+
+        [Fact]
+        public void InjectAppleSupplementPrototype_NoSupplement_EmitsNoReference()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // Consumer that resolved no supplement types: binding-metadata.props has no
+            // supplement signals and apple-supplement.props either is absent or records
+            // a comment body. Target must not inject any reference.
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestModuleSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode);
+
+            Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
+            Assert.DoesNotContain("SUPPLEMENT_PKG:SwiftBindings.Apple", output);
+            Assert.DoesNotContain("SUPPLEMENT_PROJ:", output);
+        }
+
+        private void RunInjectSupplementTarget(string intermediateDir, out string output, out int exitCode)
+        {
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  <Target Name="_ValidateSwiftPackageItems" />
+                  <Target Name="_GenerateSwiftBindings" />
+                  <Target Name="_GenerateSwiftBindingsAppleFramework" />
+                  <Target Name="TestDump" DependsOnTargets="_InjectAppleSupplementPrototype">
+                    <Message Importance="High" Text="SUPPLEMENT_PKG:%(PackageReference.Identity)|%(PackageReference.Version)"
+                             Condition="'%(PackageReference.Identity)' == 'SwiftBindings.Apple'" />
+                    <Message Importance="High" Text="SUPPLEMENT_PROJ:%(ProjectReference.Identity)"
+                             Condition="$([System.String]::Copy('%(ProjectReference.Identity)').Contains('SwiftBindings.Apple'))" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            output = result.StdOut + "\n" + result.StdErr;
+            exitCode = result.ExitCode;
+        }
+
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;
@@ -546,6 +692,31 @@ namespace BindingsGeneration.Tests
             var stdErr = process.StandardError.ReadToEnd();
             process.WaitForExit(30_000);
             return (process.ExitCode, stdOut, stdErr);
+        }
+    }
+
+    /// <summary>
+    /// XML well-formedness smoke test for the shipped SDK files. MSBuild fails imports on
+    /// malformed XML (e.g. "--" in a comment) with a generic error at the consumer end —
+    /// an easy trap when hand-editing props/targets. This test loads both files through
+    /// <see cref="System.Xml.Linq.XDocument.Load(string)"/> so the regression surfaces at
+    /// unit-test time instead of inside a user's build.
+    /// </summary>
+    public class SdkFileWellFormednessTests
+    {
+        [Theory]
+        [InlineData("Sdk.props")]
+        [InlineData("Sdk.targets")]
+        public void SdkFile_IsWellFormedXml(string fileName)
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "SwiftBindings.sln")))
+                dir = dir.Parent;
+            Assert.NotNull(dir);
+            var path = Path.Combine(
+                dir!.FullName, "src", "Swift.Bindings.Sdk", "Sdk", fileName);
+            Assert.True(File.Exists(path), $"SDK file not found at {path}");
+            System.Xml.Linq.XDocument.Load(path);
         }
     }
 }
