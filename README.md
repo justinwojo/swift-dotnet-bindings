@@ -1,15 +1,19 @@
 # Swift + ObjC .NET Bindings
 
-A single tool that generates .NET bindings from Swift, Objective-C, or mixed Apple frameworks.
+A tool that generates .NET bindings from Swift, Objective-C, or mixed Apple frameworks, starting from a compiled `.xcframework`.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![.NET](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/)
+[![Platforms](https://img.shields.io/badge/Platforms-iOS%20%7C%20macOS%20%7C%20Mac%20Catalyst%20%7C%20tvOS-007ACC)](https://developer.apple.com/)
 
 > *This project is not affiliated with, endorsed by, or sponsored by Apple Inc. `SwiftBindings.*` is an independent Swift/.NET interoperability toolkit. See [`NOTICE`](src/legal/NOTICE.md).*
 
 ### Swift Bindings
-**Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code.**
 
-Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more, so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
+Swift Bindings reads the ABI metadata from a compiled Swift framework and produces idiomatic C# that calls directly into the Swift dylib via P/Invoke — no proxy layers, bridging headers, or manual wrapper code. The generated bindings handle memory management (ARC), async methods, closures, generics, protocols, and more, so you can consume Swift libraries from .NET the same way you'd consume a NuGet package.
 
 ### Objective-C Bindings
+
 Also handles pure Objective-C frameworks — a full replacement for Objective Sharpie with ready-to-compile output. See [below](#objective-c-support).
 
 For the story behind this project — why I created it, the process of building it, and lessons learned along the way — check out the [full write-up on my blog](https://wojosoftware.com/blog/swift-dotnet-bindings/).
@@ -189,7 +193,12 @@ Then just ask Claude: *"I want to create a Swift binding for [library name]"*
 
 SwiftUI Views can't be bound through conventional interop — they rely on opaque return types, property wrappers, and a declarative rendering pipeline with no C# equivalent.
 
-Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). This bridge generation is fully automatic — the generator analyzes View initializer parameters and produces the correct interop code for primitives, strings, closures, enums, class references, and async factory patterns. The bridge also supports two-way state updates via `Update{Param}()` methods, view modifier chains, and multi-level async view hierarchies with cycle detection.
+Swift Bindings generates a bridge layer that wraps SwiftUI Views in `UIHostingController`, exposing them as `UIViewController` instances that .NET can embed in any UIKit-based layout (including .NET MAUI). The bridge is generated automatically from each View's initializer and supports:
+
+- Primitive, string, enum, closure, and class reference parameters
+- Two-way state updates via generated `Update{Param}()` methods
+- View modifier chains
+- Async factory patterns and multi-level view hierarchies with cycle detection
 
 For customization options (bridge hints, constructor selection, import overrides), see the [SwiftUI Interop docs](https://github.com/justinwojo/swift-dotnet-bindings/wiki/SwiftUI-Interop).
 

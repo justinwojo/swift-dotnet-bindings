@@ -722,6 +722,7 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ReportSwiftBindingCoverage"
           AfterTargets="_ImportSwiftBindingMetadata"
+          BeforeTargets="ResolveProjectReferences"
           Condition="Exists('$(_SwiftBindingIntermediateDir)binding-report.json')">
 
     <!-- Parse skip counts from the JSON report.
@@ -997,7 +998,13 @@ done"
     <PropertyGroup>
       <!-- Apple-framework mode: wrapper was compiled inline by the generator -->
       <_SwiftWrapperSkip Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">true</_SwiftWrapperSkip>
-      <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''">true</_SwiftWrapperSkip>
+      <!-- Fingerprint-based skip also requires the wrapper xcframework to exist on disk.
+           _GenerateSwiftBindings writes the stamp but passes skip-wrapper-compilation, so a
+           stamp-present/xcframework-absent state is legitimate (e.g. restore-time generation) and
+           must force recompilation instead of a false up-to-date skip. -->
+      <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true'
+                                    AND '@(ProjectReference)' == ''
+                                    AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">true</_SwiftWrapperSkip>
     </PropertyGroup>
 
     <!-- Filter out ObjC ProjectReferences (e.g. BlinkID.ObjC.iOS.csproj) which use
@@ -1087,11 +1094,16 @@ done"
       <Output TaskParameter="Result" PropertyName="_SwiftBindingBridgeModuleName" />
     </XmlPeek>
 
-    <!-- Bridge compilation skip: same logic as wrapper — skip if fingerprint unchanged and no ProjectReferences -->
+    <!-- Bridge compilation skip: same logic as wrapper — skip if fingerprint unchanged,
+         no ProjectReferences, and the bridge xcframework already exists on disk (same
+         stamp-present/output-absent guard used by _CompileSwiftWrapper). -->
     <PropertyGroup>
       <_SwiftBridgeSkip Condition="'$(_SwiftBindingHasBridgeSwift)' != 'True'">true</_SwiftBridgeSkip>
       <_SwiftBridgeSkip Condition="'$(SwiftFrameworkType)' == 'ObjC'">true</_SwiftBridgeSkip>
-      <_SwiftBridgeSkip Condition="'$(_SwiftBridgeSkip)' != 'true' AND '$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''">true</_SwiftBridgeSkip>
+      <_SwiftBridgeSkip Condition="'$(_SwiftBridgeSkip)' != 'true'
+                                   AND '$(_SwiftBindingUpToDate)' == 'true'
+                                   AND '@(ProjectReference)' == ''
+                                   AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework')">true</_SwiftBridgeSkip>
     </PropertyGroup>
 
     <!-- Build the compile-bridge-only command -->
@@ -1150,6 +1162,7 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeGeneratedSwiftBindings"
           AfterTargets="_ImportSwiftBindingMetadata"
+          BeforeTargets="ResolveProjectReferences"
           Condition="Exists('$(_SwiftBindingIntermediateDir)')">
 
     <!-- Swift/Mixed: include generated C# files, excluding ObjC binding definitions
@@ -1177,6 +1190,7 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_IncludeSwiftResourceBundleStubs"
           AfterTargets="_IncludeGeneratedSwiftBindings"
+          BeforeTargets="ResolveProjectReferences"
           Condition="Exists('$(_SwiftBindingIntermediateDir)_resource-bundles.txt')">
 
     <ReadLinesFromFile File="$(_SwiftBindingIntermediateDir)_resource-bundles.txt">
@@ -1389,6 +1403,7 @@ done"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_SynthesizeAppleFrameworkConsumerTargets"
           AfterTargets="_ImportSwiftBindingMetadata"
+          BeforeTargets="ResolveProjectReferences"
           Condition="'@(SwiftAppleFrameworkTarget)' != ''
                      AND '$(_SwiftBindingModuleName)' != ''
                      AND ('$(_SwiftBindingUpToDate)' != 'true'

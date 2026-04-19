@@ -123,6 +123,25 @@
                       Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
   </ItemGroup>
 
+  <!-- Implicit SwiftBindings.Apple reference.
+       Must be declared here (props, evaluation-time) instead of in a target so NuGet restore
+       picks it up before build. On a cold build, the generator has not yet run, so
+       _InjectAppleSupplementPrototype in Sdk.targets cannot inject a PackageReference in time
+       for restore; by the time it fires, restore has finished and CS0234 fires on any generated
+       type referencing Swift.Foundation (or any other supplement namespace). Adding it here
+       means the package is always restored, even for bindings that turn out not to need any
+       supplement types — negligible cost (metadata + assemblies) for a silent-crash avoidance.
+       Skipped for ObjC-only framework bindings (no Swift-only supplement types possible) and
+       when DisableImplicitSwiftAppleReference opts out. Floor-only range matches the supplement
+       policy: cross-major additive-only, so consumers can always float forward onto a newer
+       Apple SDK train. _InjectAppleSupplementPrototype still handles the prototype-csproj branch
+       (ProjectReference wins over PackageReference when both are present). -->
+  <ItemGroup>
+    <PackageReference Include="SwiftBindings.Apple" Version="[$(SwiftAppleSupplementVersion),)"
+                      Condition="'$(DisableImplicitSwiftAppleReference)' != 'true'
+                                 AND '$(SwiftFrameworkType)' != 'ObjC'" />
+  </ItemGroup>
+
   <!-- Inject PackageReference for each SwiftFrameworkDependency with PackageId + PackageVersion.
        This must be in .props (evaluation-time) so NuGet restore picks up the references
        before the build targets run. Without both metadata values, the reference is skipped. -->
