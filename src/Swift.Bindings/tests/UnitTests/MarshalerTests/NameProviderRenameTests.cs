@@ -787,50 +787,7 @@ public class NameProviderRenameTests
 
     #endregion
 
-    #region GetPropertyName CS0102 (sibling nested-type collision) Tests
-
-    [Fact]
-    public void GetPropertyName_CS0102_ShadowsSiblingNestedType_AppendsValueSuffix()
-    {
-        // Swift: struct OrderContainer { enum Status: String { ... }; let status: Status }
-        // "status" → "Status" collides with sibling nested enum "Status" → CS0102
-        var result = NameProvider.GetPropertyName(
-            "status",
-            containingTypeName: "OrderContainer",
-            nestedTypeNames: new[] { "Status" });
-        Assert.Equal("StatusValue", result);
-    }
-
-    [Fact]
-    public void GetPropertyName_CS0102_NoMatchingNestedType_NoSuffix()
-    {
-        // PascalCase "status" → "Status", but siblings are "Kind" and "Flags" — no collision
-        var result = NameProvider.GetPropertyName(
-            "status",
-            containingTypeName: "OrderContainer",
-            nestedTypeNames: new[] { "Kind", "Flags" });
-        Assert.Equal("Status", result);
-    }
-
-    [Fact]
-    public void GetPropertyName_CS0102_NullNestedTypes_NoSuffix()
-    {
-        // Legacy call sites that do not pass nestedTypeNames must see unchanged behavior.
-        var result = NameProvider.GetPropertyName("status", containingTypeName: "OrderContainer");
-        Assert.Equal("Status", result);
-    }
-
-    [Fact]
-    public void GetPropertyName_CS0102_ValueSuffixOccupied_ProbesValue2()
-    {
-        // Sibling nested types include both "Status" AND "StatusValue" — probe must step past
-        // "StatusValue" to "StatusValue2" to avoid re-entering CS0102.
-        var result = NameProvider.GetPropertyName(
-            "status",
-            containingTypeName: "X",
-            nestedTypeNames: new[] { "Status", "StatusValue" });
-        Assert.Equal("StatusValue2", result);
-    }
+    #region GetPropertyName PropertyNameMappings deletion regression Tests
 
     [Fact]
     public void GetPropertyName_DeletedPropertyNameMappings_StatusNoLongerOverridden()

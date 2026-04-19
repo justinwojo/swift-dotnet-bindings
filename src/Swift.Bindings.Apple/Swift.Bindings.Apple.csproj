@@ -27,6 +27,7 @@
     <Description>Managed projections for Apple Swift-only value types (Foundation.Locale.Language, ManagedSettings.Application, CryptoKit.P256.Signing.ECDSASignature, etc.) that have no Objective-C bridge. Versioned per Apple SDK train; cross-major additive-only.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageTags>swift;interop;bindings;apple;ios;macos;tvos;maccatalyst</PackageTags>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
 
@@ -53,6 +54,8 @@
   <!-- NuGet pack items -->
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../legal/NOTICE.md" Pack="true" PackagePath="" />
     <None Include="../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 

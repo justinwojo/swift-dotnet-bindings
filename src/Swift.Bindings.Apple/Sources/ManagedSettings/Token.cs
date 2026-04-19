@@ -20,6 +20,12 @@ public sealed class Token<T> : ISwiftObject, ISwiftStruct, IDisposable where T :
     private bool _disposed;
     private static TypeMetadata? _cachedMetadata;
 
+    // Routes through SwiftObjectHelper so the NewFromPayload factory is registered with
+    // NewFromPayloadDispatcher on first use of each closed generic instantiation. Without
+    // this, MarshalFromSwift&lt;Token&lt;SomeMarker&gt;&gt; falls back to reflection on NativeAOT
+    // which can miss explicit interface implementations after trimming. Mirrors Measurement&lt;T&gt;.
+    private static readonly nuint _payloadSize = SwiftObjectHelper<Token<T>>.GetTypeMetadata().Size;
+
     /// <summary>The safe handle wrapping the native Swift storage for this token.</summary>
     public SwiftSafeHandle<Token<T>> Payload => _payload;
 

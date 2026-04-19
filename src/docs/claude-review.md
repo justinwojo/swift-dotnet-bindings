@@ -6,7 +6,7 @@ domains. Review performed after the four-session Codex pass was complete.
 
 **Grounding:** [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md),
 [`apple-swift-types-architecture.md`](apple-swift-types-architecture.md),
-[`licensing-analysis.md`](licensing-analysis.md), `CLAUDE.md`.
+`CLAUDE.md`.
 
 **Method:** Five parallel domain reviewers (Sonnet), each grounded in the
 design docs and scoped to a disjoint file set. Findings consolidated and

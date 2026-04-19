@@ -4,7 +4,7 @@
     <PackageVersion>0.0.0-dev</PackageVersion>
     <Description>MSBuild SDK for generating C# bindings from Swift xcframeworks. Drop an xcframework into your project and run dotnet build.</Description>
     <Authors>Justin Wojciechowski</Authors>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageTags>swift;dotnet;bindings;interop;ios;msbuild-sdk</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
@@ -34,6 +34,8 @@
   <ItemGroup>
     <None Include="tools/**/*" Pack="true" PackagePath="tools/" />
     <None Include="../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../legal/NOTICE.md" Pack="true" PackagePath="" />
     <None Include="../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

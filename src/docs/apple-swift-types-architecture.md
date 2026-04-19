@@ -227,9 +227,9 @@ post-Phase-2 cleanup.
 - **Q: Typealias representation?** `ApplicationToken = Token<Application>`
   emitted as alias/projection metadata, NOT duplicate type identity.
 - **Q: Legal/licensing for shipping generated metadata derived from
-  Apple SDKs?** Risk 2/5; ADPLA §7.5 library carve-out applies. See
-  [`licensing-analysis.md`](./licensing-analysis.md) for the full
-  analysis and 10-item pre-publish checklist.
+  Apple SDKs?** Risk low; ADPLA §7.5 library carve-out applies. See
+  [`src/legal/RATIONALE.md`](../legal/RATIONALE.md) for the full
+  rationale and pre-publish checks.
 - **Q: Why does `@cdecl` support the opaque-transport model?** Swift
   formally rejects structs/protocol existentials from C-compatible
   signatures. Opaque/VWT transport at the Swift→C boundary is the

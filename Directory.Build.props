@@ -1,7 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Copyright>Copyright (c) Microsoft Corporation. Copyright (c) 2026 Justin Wojciechowski.</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <Copyright>Copyright (c) .NET Foundation and Contributors. Copyright (c) 2026 Justin Wojciechowski.</Copyright>
     <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
     <DebugType>embedded</DebugType>
     <DebugSymbols>true</DebugSymbols>

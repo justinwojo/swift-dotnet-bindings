@@ -19,6 +19,7 @@
     <Description>Runtime library for Swift/.NET interop. Provides SwiftString, SwiftArray, SwiftOptional, ARC memory management, protocol witness tables, and type metadata for generated Swift bindings.</Description>
     <Authors>Justin Wojciechowski</Authors>
     <PackageTags>swift;interop;bindings;dotnet;ios;macos</PackageTags>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
     <!-- Minimum OS versions -->
@@ -129,6 +130,8 @@
     <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
     <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
     <None Include="../../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="../../legal/NOTICE.md" Pack="true" PackagePath="" />
     <None Include="../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 

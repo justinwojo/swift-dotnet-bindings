@@ -2,6 +2,8 @@
 
 A single tool that generates .NET bindings from Swift, Objective-C, or mixed Apple frameworks.
 
+> *This project is not affiliated with, endorsed by, or sponsored by Apple Inc. `SwiftBindings.*` is an independent Swift/.NET interoperability toolkit. See [`NOTICE`](src/legal/NOTICE.md).*
+
 ### Swift Bindings
 **Automatically generate C# bindings from compiled Swift libraries. No proxy layers. No Objective-C bridging headers. No manual wrapper code.**
 
