@@ -83,7 +83,6 @@
       "protocol": "MusicKit.PlayableMusicItem",
       "conformers": [
         { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album", "modules": ["MusicKit"] },
-        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo", "modules": ["MusicKit"] },
         { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist", "modules": ["MusicKit"] },
         { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song", "modules": ["MusicKit"] },
         { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track", "modules": ["MusicKit"] }

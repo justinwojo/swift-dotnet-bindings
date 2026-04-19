@@ -20,6 +20,28 @@ public static class ReportCollector
 
     public static bool IsActive => SessionActive.Value && _report != null;
 
+    /// <summary>
+    /// Query whether a type is known to be skipped. Populated by <see cref="RecordTypeSkipped"/>
+    /// and by a pre-emission pass that runs the skip predicates upfront so member gates
+    /// can prune signatures referencing types that will never be declared. The key is the
+    /// module-qualified name (e.g., "MusicKit.MusicRelationshipProperty"). Returns false
+    /// when no session is active.
+    /// </summary>
+    public static bool IsTypeSkipped(string moduleQualifiedTypeName)
+    {
+        if (!SessionActive.Value || _report == null)
+            return false;
+        lock (Sync)
+            return SkippedTypeKeys.Contains(moduleQualifiedTypeName);
+    }
+
+    /// <summary>
+    /// Same as <see cref="IsTypeSkipped(string)"/> but convenient at the <see cref="SwiftTypeName"/>
+    /// level. Uses <see cref="SwiftTypeName.ModuleQualifiedName"/> as the key.
+    /// </summary>
+    public static bool IsTypeSkipped(SwiftTypeName typeName) =>
+        IsTypeSkipped(typeName.ModuleQualifiedName);
+
     public static void Start(ModuleDecl moduleDecl)
     {
         ArgumentNullException.ThrowIfNull(moduleDecl);

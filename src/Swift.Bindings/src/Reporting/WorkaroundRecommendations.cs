@@ -52,6 +52,8 @@ public static class WorkaroundRecommendations
             "No handler exists for this declaration kind.",
         SkipReason.UnsupportedType =>
             "Ensure the type is exported in the module's public ABI.",
+        SkipReason.AncestorSkipped =>
+            "Parent type was skipped; nested declarations are unreachable until the parent is supported.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -101,6 +103,8 @@ public static class WorkaroundRecommendations
             "no handler for this declaration kind",
         SkipReason.UnsupportedType =>
             "type not exported in the module's public ABI",
+        SkipReason.AncestorSkipped =>
+            "nested type whose parent was skipped",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

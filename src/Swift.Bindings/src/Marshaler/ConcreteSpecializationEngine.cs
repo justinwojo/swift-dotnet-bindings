@@ -23,7 +23,13 @@ public class ConcreteSpecializationEngine
     private readonly ITypeDatabase _typeDatabase;
     private readonly Dictionary<string, List<ConcreteConformer>> _hintConformers;
     private readonly Dictionary<string, List<ConcreteConformer>> _abiConformers;
+    private readonly HashSet<string> _abiIndexedTypes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _abiDeclaredProtocolsByType =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ProtocolDecl> _abiProtocols = new(StringComparer.Ordinal);
     private readonly string? _currentModuleName;
+    private string? _indexedModuleName;
+    private HashSet<string>? _indexedModuleDependencies;
 
     /// <summary>
     /// A concrete type that conforms to a protocol, usable for specialization.
@@ -123,8 +129,40 @@ public class ConcreteSpecializationEngine
     /// </summary>
     public void IndexModuleConformances(ModuleDecl moduleDecl)
     {
+        // Capture the indexed module's identity + dependency list so the plausibility
+        // check in VerifyHintAgainstAbi can honor cross-module refinement chains for
+        // imported protocols (e.g. a user type refining Swift.Sequence through a
+        // local but unindexed helper protocol).
+        //
+        // Union both ModuleDecl dependency fields: `Dependencies` is the ABI parser's
+        // nominal list (currently initialized empty in production — the parser never
+        // adds to it), while `DependencyModuleNames` is the resolved
+        // --framework-dependency list populated by Program.cs before IndexModuleConformances
+        // runs and consumed by ModuleHandler for wrapper imports. Using only one
+        // yields false negatives: Dependencies is empty in real runs, and
+        // DependencyModuleNames is empty in ABI-parser unit tests. Merging is the
+        // single source of truth for "modules this module imports".
+        _indexedModuleName = moduleDecl.Name;
+        _indexedModuleDependencies = new HashSet<string>(
+            moduleDecl.Dependencies, StringComparer.Ordinal);
+        foreach (var dep in moduleDecl.DependencyModuleNames)
+            _indexedModuleDependencies.Add(dep);
+
+        // First pass: index protocol declarations so transitive-conformance checks at
+        // query time can walk ProtocolDecl.InheritedProtocols. Types may appear before
+        // their declared protocols in the module, so we index protocols up front.
+        foreach (var typeDecl in moduleDecl.Types)
+            IndexProtocolDecls(typeDecl);
         foreach (var typeDecl in moduleDecl.Types)
             IndexTypeConformances(typeDecl);
+    }
+
+    private void IndexProtocolDecls(TypeDecl typeDecl)
+    {
+        if (typeDecl is ProtocolDecl pd && pd.SwiftTypeName is { } name)
+            _abiProtocols[name.ToString()] = pd;
+        foreach (var nested in typeDecl.Types)
+            IndexProtocolDecls(nested);
     }
 
     private void IndexTypeConformances(TypeDecl typeDecl)
@@ -147,6 +185,19 @@ public class ConcreteSpecializationEngine
             EnumDecl ed => ed.Conformances,
             _ => Enumerable.Empty<TypeConformance>()
         };
+
+        if (typeDecl.SwiftTypeName is { } indexedTypeName)
+        {
+            var indexedKey = indexedTypeName.ToString();
+            _abiIndexedTypes.Add(indexedKey);
+            if (!_abiDeclaredProtocolsByType.TryGetValue(indexedKey, out var declaredSet))
+            {
+                declaredSet = new HashSet<string>(StringComparer.Ordinal);
+                _abiDeclaredProtocolsByType[indexedKey] = declaredSet;
+            }
+            foreach (var c in conformances)
+                declaredSet.Add(c.Protocol.ToString());
+        }
 
         foreach (var conformance in conformances)
         {
@@ -254,16 +305,35 @@ public class ConcreteSpecializationEngine
 
         var key = protocolName.ToString();
 
+        _abiConformers.TryGetValue(key, out var abiList);
+
         if (_hintConformers.TryGetValue(key, out var hintList))
         {
             foreach (var c in hintList)
             {
-                if (IsConformerAllowedForModule(c, _currentModuleName))
-                    result.Add(c);
+                if (!IsConformerAllowedForModule(c, _currentModuleName))
+                    continue;
+
+                // Cross-check hint-declared conformers against the current module's ABI.
+                // If the conformer type was indexed from this module but none of its
+                // declared conformances is `protocolName` or inherits it, the hint is a
+                // false positive (common when a hint outlives an SDK change or was wrong
+                // from the start — e.g. MusicKit.MusicVideo wrongly listed under
+                // PlayableMusicItem). Trusting the hint produces an uncompilable Swift
+                // wrapper. The check walks ProtocolDecl.InheritedProtocols transitively
+                // so hints remain valid when the type declares a refining protocol.
+                //
+                // Conformers not indexed in this module, or whose refinement chain walks
+                // into a protocol from another module, yield Uncertain — the hint is
+                // kept because we have no ground truth to disprove it.
+                if (VerifyHintAgainstAbi(c.SwiftQualifiedName, key) == AbiVerification.Disproved)
+                    continue;
+
+                result.Add(c);
             }
         }
 
-        if (_abiConformers.TryGetValue(key, out var abiList))
+        if (abiList is not null)
         {
             // Dedup: don't add ABI conformers that are already in hints
             var existingTypes = new HashSet<string>(result.Select(c => c.SwiftQualifiedName));
@@ -275,6 +345,126 @@ public class ConcreteSpecializationEngine
         }
 
         return result;
+    }
+
+    private enum AbiVerification
+    {
+        Confirmed,
+        Disproved,
+        Uncertain,
+    }
+
+    /// <summary>
+    /// Checks whether <paramref name="conformerQualifiedName"/> is known, from the current
+    /// module's ABI, to conform to <paramref name="protocolKey"/>. Walks the declared
+    /// protocols' <see cref="ProtocolDecl.InheritedProtocols"/> chains transitively so
+    /// a type declaring a refining protocol still verifies for the refined one.
+    /// Returns <see cref="AbiVerification.Uncertain"/> whenever the conformer is not
+    /// indexed in our module (no ground truth), or when an indexed chain reaches an
+    /// unindexed protocol that could plausibly refine the target (same-module
+    /// plausibility). Unrelated external conformances — e.g. Swift.Hashable /
+    /// Swift.Sendable declared on a user type against a user protocol target — do NOT
+    /// preserve uncertainty: a protocol in module X can only refine a protocol in
+    /// module Y if X imports Y, so cross-module refinement of an arbitrary external
+    /// protocol to a user target is implausible.
+    /// </summary>
+    private AbiVerification VerifyHintAgainstAbi(string conformerQualifiedName, string protocolKey)
+    {
+        if (!_abiIndexedTypes.Contains(conformerQualifiedName))
+            return AbiVerification.Uncertain;
+
+        if (!_abiDeclaredProtocolsByType.TryGetValue(conformerQualifiedName, out var declared)
+            || declared.Count == 0)
+        {
+            return AbiVerification.Disproved;
+        }
+
+        bool anyUncertain = false;
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var declaredProtocol in declared)
+        {
+            switch (ProtocolChainContains(declaredProtocol, protocolKey, visited))
+            {
+                case AbiVerification.Confirmed:
+                    return AbiVerification.Confirmed;
+                case AbiVerification.Uncertain:
+                    anyUncertain = true;
+                    break;
+            }
+        }
+        return anyUncertain ? AbiVerification.Uncertain : AbiVerification.Disproved;
+    }
+
+    private AbiVerification ProtocolChainContains(string protocolKey, string targetKey, HashSet<string> visited)
+    {
+        if (string.Equals(protocolKey, targetKey, StringComparison.Ordinal))
+            return AbiVerification.Confirmed;
+        if (!visited.Add(protocolKey))
+            return AbiVerification.Disproved;
+        if (!_abiProtocols.TryGetValue(protocolKey, out var pd))
+        {
+            // Unindexed protocol — we cannot walk its InheritedProtocols. Preserve
+            // uncertainty only when refinement to the target is plausible. A protocol
+            // P in module M can refine a protocol Q in module N only if M imports N
+            // (directly or transitively). We approximate "M imports N" as:
+            //   - M == N (same-module refinement, always plausible), OR
+            //   - M is the current indexed module AND N is Swift stdlib OR a listed
+            //     dependency (ModuleDecl.Dependencies gives at least partial ground
+            //     truth for what the current module imports).
+            // Otherwise Disproved — this prevents unrelated conformances
+            // (Swift.Hashable, Sendable, Codable) from masking false-positive hints
+            // against user protocols, while still allowing a local unparsed helper
+            // protocol to refine an imported target like Swift.Sequence.
+            return IsPlausibleRefiner(protocolKey, targetKey)
+                ? AbiVerification.Uncertain
+                : AbiVerification.Disproved;
+        }
+
+        bool anyUncertain = false;
+        foreach (var inherited in pd.InheritedProtocols)
+        {
+            switch (ProtocolChainContains(inherited.Name, targetKey, visited))
+            {
+                case AbiVerification.Confirmed:
+                    return AbiVerification.Confirmed;
+                case AbiVerification.Uncertain:
+                    anyUncertain = true;
+                    break;
+            }
+        }
+        return anyUncertain ? AbiVerification.Uncertain : AbiVerification.Disproved;
+    }
+
+    private bool IsPlausibleRefiner(string refinerQualifiedName, string targetQualifiedName)
+    {
+        var refinerModule = ModuleOf(refinerQualifiedName);
+        var targetModule = ModuleOf(targetQualifiedName);
+        if (refinerModule is null || targetModule is null) return false;
+
+        // Same-module refinement is always plausible — the refiner's module can see
+        // the target declaration directly.
+        if (string.Equals(refinerModule, targetModule, StringComparison.Ordinal))
+            return true;
+
+        // Cross-module: only plausible when the refiner's module imports the target's.
+        // We only have ground truth for the module currently being indexed, so we can
+        // only answer plausibility when the refiner lives in the indexed module.
+        if (_indexedModuleName is null
+            || !string.Equals(refinerModule, _indexedModuleName, StringComparison.Ordinal))
+            return false;
+
+        // Swift stdlib is implicitly imported by every Swift module.
+        if (string.Equals(targetModule, "Swift", StringComparison.Ordinal)) return true;
+
+        // Otherwise defer to the indexed module's declared dependency list.
+        return _indexedModuleDependencies is not null
+            && _indexedModuleDependencies.Contains(targetModule);
+    }
+
+    private static string? ModuleOf(string qualifiedName)
+    {
+        var dot = qualifiedName.IndexOf('.');
+        return dot <= 0 ? null : qualifiedName.Substring(0, dot);
     }
 
     /// <summary>
@@ -575,4 +765,13 @@ public class ConcreteSpecializationEngine
     /// Exposes hint-based conformers for testing.
     /// </summary>
     internal static IReadOnlyDictionary<string, List<ConcreteConformer>> LoadedHints => _sharedHints.Value;
+
+    /// <summary>
+    /// Test-only view of the indexed module's plausibility-dependency set — the union
+    /// of <see cref="ModuleDecl.Dependencies"/> and <see cref="ModuleDecl.DependencyModuleNames"/>
+    /// captured during <see cref="IndexModuleConformances"/>. Exposed so tests can assert
+    /// both lists are merged; production code reads the private field directly.
+    /// </summary>
+    internal IReadOnlySet<string> IndexedModuleDependenciesForTesting
+        => _indexedModuleDependencies ?? (IReadOnlySet<string>)new HashSet<string>();
 }

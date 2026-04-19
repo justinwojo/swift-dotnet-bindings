@@ -84,6 +84,7 @@ public enum SkipReason
     EveryProtocolConformanceSkipped,
     OwnedByAppleSupplement,
     IndeterminatePwtShape,
+    AncestorSkipped,
     Unknown,
 }
 

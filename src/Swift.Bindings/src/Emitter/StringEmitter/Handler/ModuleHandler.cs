@@ -72,6 +72,14 @@ namespace BindingsGeneration
 
             // Per-module state is now on ModuleEmissionContext (no more static resets needed).
 
+            // Seed ReportCollector with the set of types that type handlers will skip.
+            // Member gates (ValidationRuleSet.ReferencesUnsupportedModule) consult this
+            // set via ReportCollector.IsTypeSkipped so signatures referencing a skipped
+            // generic (e.g., MusicKit.MusicRelationshipProperty<_,_>) get pruned in the
+            // same pass they're emitted, instead of producing a dangling reference that
+            // fails C# compilation with CS0234.
+            TypeSkipPrePass.Run(moduleDecl, env.TypeDatabase);
+
             // Emit Swift imports at the top of the Swift wrapper file
             EmitSwiftImports(swiftWriter, moduleDecl, context.GetEmissionContext());
 

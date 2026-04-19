@@ -739,9 +739,12 @@ namespace BindingsGeneration.Tests
         public void Targets_WrapperSkipOnlyWhenUpToDateAndNoProjectReferences()
         {
             // _SwiftWrapperSkip should require BOTH conditions:
-            // fingerprint up-to-date AND no ProjectReferences
+            // fingerprint up-to-date AND no ProjectReferences. The condition is
+            // formatted across multiple lines for readability, so collapse whitespace
+            // before asserting the clause order.
             Assert.Contains("_SwiftWrapperSkip", TargetsContent);
-            Assert.Contains("'$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''", TargetsContent);
+            var collapsed = System.Text.RegularExpressions.Regex.Replace(TargetsContent, @"\s+", " ");
+            Assert.Contains("'$(_SwiftBindingUpToDate)' == 'true' AND '@(ProjectReference)' == ''", collapsed);
         }
 
         [Fact]

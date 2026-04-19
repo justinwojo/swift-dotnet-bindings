@@ -37,12 +37,20 @@
   </ItemGroup>
 
   <!-- Include pre-built native runtime library when available.
+       ALL item conditions gate on '$(RuntimeIdentifier)' != '' so they only fire at
+       consumer publish/run time (when the RID is known), never during the assembly's
+       own compile or during NuGet pack (RID is empty). Without this gate, a Content
+       item like `!RuntimeIdentifier.Contains('simulator')` evaluates TRUE when RID is
+       empty, causing the .NET iOS workload to bake the dylib into the managed DLL as
+       a BundleResource (monotouch_content_Frameworks_s...) which then extracts into
+       consumer app bundles and overrides the RID-correct slice selected by
+       buildTransitive/SwiftBindings.Runtime.targets. Empirically this shipped the
+       iphoneos device slice into iossimulator-arm64 bundles and broke sim load.
        iOS device vs simulator is distinguished by RuntimeIdentifier, not TargetFramework
-       (both use net10.0-ios). Device condition excludes simulator RIDs to prevent
-       duplicate content items. -->
+       (both use net10.0-ios). -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/macos/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('macos')) AND !$(TargetFramework.Contains('maccatalyst'))"
+             Condition="$(TargetFramework.Contains('macos')) AND !$(TargetFramework.Contains('maccatalyst')) AND '$(RuntimeIdentifier)' != ''"
              Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
@@ -50,7 +58,7 @@
   </ItemGroup>
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/ios/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('ios')) AND !$(RuntimeIdentifier.Contains('simulator'))"
+             Condition="$(TargetFramework.Contains('ios')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('ios-'))"
              Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
@@ -58,7 +66,7 @@
   </ItemGroup>
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/iossimulator/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('ios')) AND $(RuntimeIdentifier.Contains('simulator'))"
+             Condition="$(TargetFramework.Contains('ios')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('iossimulator-'))"
              Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
@@ -67,7 +75,7 @@
   <!-- Mac Catalyst: maccatalyst TFM -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib')">
     <NativeReference Include="$(MSBuildThisFileDirectory)../native/maccatalyst/libSwiftBindingsRuntime.dylib"
-                     Condition="$(TargetFramework.Contains('maccatalyst'))"
+                     Condition="$(TargetFramework.Contains('maccatalyst')) AND '$(RuntimeIdentifier)' != ''"
                      Pack="false">
       <Kind>Dynamic</Kind>
     </NativeReference>
@@ -75,7 +83,7 @@
   <!-- tvOS device -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/tvos/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('tvos')) AND !$(RuntimeIdentifier.Contains('simulator'))"
+             Condition="$(TargetFramework.Contains('tvos')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('tvos-'))"
              Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>
@@ -84,7 +92,7 @@
   <!-- tvOS simulator -->
   <ItemGroup Condition="'$(IncludeSwiftBindingsRuntimeNative)' == 'true' AND Exists('$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib')">
     <Content Include="$(MSBuildThisFileDirectory)../native/tvossimulator/libSwiftBindingsRuntime.dylib"
-             Condition="$(TargetFramework.Contains('tvos')) AND $(RuntimeIdentifier.Contains('simulator'))"
+             Condition="$(TargetFramework.Contains('tvos')) AND '$(RuntimeIdentifier)' != '' AND $(RuntimeIdentifier.StartsWith('tvossimulator-'))"
              Pack="false">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>Frameworks/libSwiftBindingsRuntime.dylib</Link>

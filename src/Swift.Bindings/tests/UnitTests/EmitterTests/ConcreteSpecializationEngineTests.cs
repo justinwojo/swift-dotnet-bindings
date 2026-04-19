@@ -75,6 +75,213 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void IndexModuleConformances_MergesDependencyModuleNamesIntoPlausibilitySet()
+    {
+        // Production wires resolved --framework-dependency module names through
+        // ModuleDecl.DependencyModuleNames (Program.cs), while ModuleDecl.Dependencies
+        // is the ABI parser's nominal list (empty in production today). The cross-module
+        // plausibility check in VerifyHintAgainstAbi must see both sources, or imported
+        // non-stdlib targets can be wrongly disproved.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.MyType", "TestLib.MyProtocol");
+        moduleDecl.Dependencies = new List<string> { "DepFromAbi" };
+        moduleDecl.DependencyModuleNames = new List<string> { "DepFromProgram" };
+
+        engine.IndexModuleConformances(moduleDecl);
+
+        Assert.Contains("DepFromAbi", engine.IndexedModuleDependenciesForTesting);
+        Assert.Contains("DepFromProgram", engine.IndexedModuleDependenciesForTesting);
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerInABIButNotDeclaringProtocol_IsFiltered()
+    {
+        // Hints list SwiftBindingsTestLib.ColorAttribute under AttributeKind. If the
+        // current module's ABI indexes ColorAttribute WITHOUT a declared conformance
+        // to AttributeKind, the engine must drop the hint — otherwise the emitted
+        // Swift wrapper would call a generic overload the type can't satisfy. This
+        // mirrors the MusicKit.MusicVideo / PlayableMusicItem bug that caused the
+        // original uncompilable wrappers.
+        var db = new ResolvingTypeDatabase();
+        var colorName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(colorName, "SwiftBindingsTestLib", "ColorAttribute");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithTypeOnly(
+            "SwiftBindingsTestLib", "SwiftBindingsTestLib.ColorAttribute");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind");
+        var conformers = engine.GetConformers(protocol);
+
+        // ColorAttribute was indexed but did not declare AttributeKind conformance → dropped.
+        // SizeAttribute and FlagAttribute were not indexed, so they pass through (we
+        // can't verify cross-module hints).
+        Assert.DoesNotContain(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+        Assert.Contains(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.SizeAttribute");
+        Assert.Contains(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.FlagAttribute");
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerNotInABI_PassesThrough()
+    {
+        // Cross-module hints (conformer type from a module we didn't index) must
+        // bypass the ABI cross-check — we have no ground truth to verify them.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Swift.DataProtocol");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Contains(conformers, c => c.CSharpType == "Data");
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerDeclaresRefiningProtocol_IsKept()
+    {
+        // ColorAttribute declares conformance to RefinedAttribute, which inherits
+        // AttributeKind. The hint ColorAttribute→AttributeKind must survive the
+        // ABI cross-check because Swift conformance is transitive through protocol
+        // refinement. Prior to the fix, the check only accepted direct conformers
+        // and would silently drop this valid hint.
+        var db = new ResolvingTypeDatabase();
+        var colorName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(colorName, "SwiftBindingsTestLib", "ColorAttribute");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithRefinedConformance(
+            moduleName: "SwiftBindingsTestLib",
+            conformerType: "SwiftBindingsTestLib.ColorAttribute",
+            refiningProtocol: "SwiftBindingsTestLib.RefinedAttribute",
+            baseProtocol: "SwiftBindingsTestLib.AttributeKind");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Contains(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerDeclaresOnlyUnrelatedExternalProtocols_IsDropped()
+    {
+        // ColorAttribute is indexed in our module and declares conformance only to a
+        // protocol from an unrelated external module. For that protocol to refine the
+        // target AttributeKind, the external module would have to import our module —
+        // implausible. The old behavior (treat every unindexed declared protocol as
+        // Uncertain) let Swift.Hashable/Sendable/Codable mask false-positive hints
+        // against user protocols. The engine now uses same-module plausibility:
+        // cross-module unindexed protocols cannot save the hint.
+        var db = new ResolvingTypeDatabase();
+        var colorName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(colorName, "SwiftBindingsTestLib", "ColorAttribute");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithExternalConformance(
+            moduleName: "SwiftBindingsTestLib",
+            conformerType: "SwiftBindingsTestLib.ColorAttribute",
+            externalProtocol: "ExternalModule.ExternalProtocol");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.DoesNotContain(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerDeclaresSameModuleUnindexedProtocol_IsKept()
+    {
+        // ColorAttribute declares conformance to a same-module protocol we don't have
+        // indexed as a ProtocolDecl (the ABI can legitimately omit protocols that were
+        // never fully parsed). Same-module refinement is plausible, so we preserve
+        // uncertainty and keep the hint rather than producing a false negative.
+        var db = new ResolvingTypeDatabase();
+        var colorName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(colorName, "SwiftBindingsTestLib", "ColorAttribute");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithExternalConformance(
+            moduleName: "SwiftBindingsTestLib",
+            conformerType: "SwiftBindingsTestLib.ColorAttribute",
+            externalProtocol: "SwiftBindingsTestLib.UnindexedSiblingProtocol");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Contains(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerRefinesImportedTargetThroughCurrentModuleUnindexedProtocol_IsKept()
+    {
+        // Foundation.Data is a hint conformer for Swift.DataProtocol. Index Foundation
+        // as our current module with Data declaring conformance to a same-module
+        // helper protocol we don't have parsed. Target Swift.DataProtocol lives in
+        // Swift stdlib, which is implicitly imported by every Swift module. The
+        // relaxed plausibility check must preserve Uncertain — same-module-only
+        // plausibility would drop this valid hint because refiner module
+        // (Foundation) != target module (Swift).
+        var db = new ResolvingTypeDatabase();
+        var dataName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data");
+        db.Register(dataName, "Foundation", "Data");
+
+        var engine = new ConcreteSpecializationEngine(db, currentModuleName: "Foundation");
+
+        var moduleDecl = CreateModuleWithExternalConformance(
+            moduleName: "Foundation",
+            conformerType: "Foundation.Data",
+            externalProtocol: "Foundation.UnparsedSequenceHelper");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Swift.DataProtocol");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Contains(conformers,
+            c => c.SwiftQualifiedName == "Foundation.Data");
+    }
+
+    [Fact]
+    public void GetConformers_HintConformerMixesRefinedAndUnrelatedExternal_IsKept()
+    {
+        // ColorAttribute declares BOTH RefinedAttribute (same-module, refines target)
+        // AND an unrelated external protocol. The indexed refining chain confirms
+        // conformance; the external protocol is irrelevant. Hint must survive —
+        // guards against the plausibility check accidentally overriding a Confirmed
+        // result from a sibling declaration.
+        var db = new ResolvingTypeDatabase();
+        var colorName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.ColorAttribute");
+        db.Register(colorName, "SwiftBindingsTestLib", "ColorAttribute");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithRefinedAndExternalConformances(
+            moduleName: "SwiftBindingsTestLib",
+            conformerType: "SwiftBindingsTestLib.ColorAttribute",
+            refiningProtocol: "SwiftBindingsTestLib.RefinedAttribute",
+            baseProtocol: "SwiftBindingsTestLib.AttributeKind",
+            externalProtocol: "Swift.Hashable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var protocol = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.AttributeKind");
+        var conformers = engine.GetConformers(protocol);
+
+        Assert.Contains(conformers,
+            c => c.SwiftQualifiedName == "SwiftBindingsTestLib.ColorAttribute");
+    }
+
+    [Fact]
     public void FindSpecializableMethods_NonGenericMethod_ReturnsEmpty()
     {
         var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
@@ -470,6 +677,224 @@ public class ConcreteSpecializationEngineTests
             Types = new List<TypeDecl> { structDecl },
             Dependencies = new List<string>(),
             Protocols = new List<ProtocolDecl>(),
+            AvailabilityAnnotations = null
+        };
+    }
+
+    /// <summary>
+    /// Builds a module with a single type that declares no protocol conformances.
+    /// Used to exercise the ABI cross-check: a hint conformer for a type indexed
+    /// here (but not declaring the target protocol) must be dropped.
+    /// </summary>
+    private static ModuleDecl CreateModuleWithTypeOnly(string moduleName, string typeQualifiedName)
+    {
+        var typeName = SwiftTypeName.FromModuleQualifiedName(typeQualifiedName);
+        var structDecl = new StructDecl
+        {
+            Name = typeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = typeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { structDecl },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            AvailabilityAnnotations = null
+        };
+    }
+
+    /// <summary>
+    /// Builds a module containing a conformer that declares conformance to a refining
+    /// protocol, plus two ProtocolDecls — the refining protocol (inheriting the base)
+    /// and the base protocol. Used to verify the ABI cross-check walks
+    /// <see cref="ProtocolDecl.InheritedProtocols"/> transitively so hints keyed on a
+    /// refined protocol survive when the conformer declares only the refining one.
+    /// </summary>
+    private static ModuleDecl CreateModuleWithRefinedConformance(
+        string moduleName, string conformerType, string refiningProtocol, string baseProtocol)
+    {
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName(conformerType);
+        var refiningName = SwiftTypeName.FromModuleQualifiedName(refiningProtocol);
+        var baseName = SwiftTypeName.FromModuleQualifiedName(baseProtocol);
+
+        var structDecl = new StructDecl
+        {
+            Name = conformerTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = conformerTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(conformerTypeName, refiningName, "")
+            },
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        var refiningProto = BuildProtocolDecl(
+            refiningName,
+            inherited: new List<NamedTypeSpec> { new NamedTypeSpec(baseName.ToString()) });
+        var baseProto = BuildProtocolDecl(baseName, inherited: new List<NamedTypeSpec>());
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { structDecl, refiningProto, baseProto },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl> { refiningProto, baseProto },
+            AvailabilityAnnotations = null
+        };
+    }
+
+    /// <summary>
+    /// Builds a module whose conformer declares conformance to a protocol from another
+    /// module that the engine doesn't have indexed. The ABI cross-check must treat this
+    /// as Uncertain (cannot verify) and keep the hint rather than dropping it.
+    /// </summary>
+    private static ModuleDecl CreateModuleWithExternalConformance(
+        string moduleName, string conformerType, string externalProtocol)
+    {
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName(conformerType);
+        var externalName = SwiftTypeName.FromModuleQualifiedName(externalProtocol);
+
+        var structDecl = new StructDecl
+        {
+            Name = conformerTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = conformerTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(conformerTypeName, externalName, "")
+            },
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { structDecl },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            AvailabilityAnnotations = null
+        };
+    }
+
+    /// <summary>
+    /// Builds a module whose conformer declares TWO conformances: one to a refining
+    /// protocol that transitively reaches the target base protocol (indexed locally),
+    /// and one to an unrelated external protocol (unindexed, cross-module). The ABI
+    /// cross-check must produce Confirmed from the local chain and ignore the external
+    /// noise — the same-module plausibility gate shouldn't downgrade a Confirmed
+    /// result once the walk has already found one.
+    /// </summary>
+    private static ModuleDecl CreateModuleWithRefinedAndExternalConformances(
+        string moduleName, string conformerType, string refiningProtocol,
+        string baseProtocol, string externalProtocol)
+    {
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName(conformerType);
+        var refiningName = SwiftTypeName.FromModuleQualifiedName(refiningProtocol);
+        var baseName = SwiftTypeName.FromModuleQualifiedName(baseProtocol);
+        var externalName = SwiftTypeName.FromModuleQualifiedName(externalProtocol);
+
+        var structDecl = new StructDecl
+        {
+            Name = conformerTypeName.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = conformerTypeName,
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>
+            {
+                new(conformerTypeName, refiningName, ""),
+                new(conformerTypeName, externalName, ""),
+            },
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        var refiningProto = BuildProtocolDecl(
+            refiningName,
+            inherited: new List<NamedTypeSpec> { new NamedTypeSpec(baseName.ToString()) });
+        var baseProto = BuildProtocolDecl(baseName, inherited: new List<NamedTypeSpec>());
+
+        return new ModuleDecl
+        {
+            Name = moduleName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { structDecl, refiningProto, baseProto },
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl> { refiningProto, baseProto },
+            AvailabilityAnnotations = null
+        };
+    }
+
+    private static ProtocolDecl BuildProtocolDecl(SwiftTypeName name, List<NamedTypeSpec> inherited)
+    {
+        return new ProtocolDecl
+        {
+            Name = name.Name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = name,
+            MangledName = "",
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = inherited,
             AvailabilityAnnotations = null
         };
     }

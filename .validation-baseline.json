@@ -1,5 +1,5 @@
 {
-  "git_sha": "bdee6a70",
+  "git_sha": "004e0a5e",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -278,7 +278,7 @@
       "Valet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3553,
+        "lines": 3551,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16350,
+        "lines": 16317,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -663,32 +663,32 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 32811,
+        "lines": 32416,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10723,
-    "total_skipped_members": 1869,
-    "skip_rate_pct": 14.8,
+    "total_emitted_members": 10720,
+    "total_skipped_members": 1872,
+    "skip_rate_pct": 14.9,
     "skip_reasons": {
       "ModuleInternal": 701,
-      "UnsupportedSignature": 324,
+      "UnsupportedSignature": 323,
       "AnyTypeFallback": 300,
       "SynthesizedCodable": 178,
-      "EveryProtocolConformanceSkipped": 129,
       "UnsupportedClosure": 129,
+      "EveryProtocolConformanceSkipped": 128,
+      "SwiftUIConstraint": 81,
       "UnsatisfiedGenericConstraint": 74,
-      "UnsupportedType": 72,
+      "UnsupportedType": 71,
       "GenericProtocolConstraint": 67,
-      "SwiftUIConstraint": 66,
-      "SwiftUIView": 54,
-      "UnsupportedExistential": 37,
+      "SwiftUIView": 46,
+      "UnsupportedExistential": 35,
       "StaticProtocolMember": 22,
-      "IndeterminatePwtShape": 17,
-      "GenericTypeCallback": 17,
+      "GenericTypeCallback": 19,
+      "IndeterminatePwtShape": 18,
       "DuplicateSignature": 3,
       "NonBlittableCallConvSwift": 2,
       "UnderscorePrefixInternal": 2

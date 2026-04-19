@@ -153,6 +153,33 @@ public class MemberValidationPipeline
             }
         }
 
+        // ── Phase 3b: Method-own generic async callback gate ──
+        // Async methods emit a [UnmanagedCallersOnly] completion callback whose body
+        // references the return-type generics via MarshalFromSwift<T>. The callback
+        // lands at class scope (non-generic parent) or in a non-generic PInvokeHelper
+        // class (generic parent) — neither scope can see method-local generic params.
+        // If the return type references any method-own generic, the callback won't
+        // compile (CS0246). Skip these methods.
+        if (methodDecl.IsAsync && methodDecl.IsGeneric)
+        {
+            var parentTypeParamNames = methodDecl.ParentDecl is TypeDecl parentForAsync && parentForAsync.IsGeneric
+                ? new HashSet<string>(parentForAsync.GenericParameters.Select(p => p.TypeName))
+                : new HashSet<string>();
+            var methodOwnParamNames = new HashSet<string>(
+                methodDecl.GenericParameters
+                    .Where(p => !parentTypeParamNames.Contains(p.TypeName))
+                    .Select(p => p.TypeName));
+            if (methodOwnParamNames.Count > 0)
+            {
+                var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
+                if (TypeSpecHelpers.ContainsAnyTypeName(returnTypeSpec, methodOwnParamNames))
+                {
+                    return ValidationResult.Skip(SkipReason.GenericTypeCallback,
+                        "Async callback references method-own generic type parameters.");
+                }
+            }
+        }
+
         // ── Phase 4: Protocol constraint gate (non-constructor only) ──
         // Constructors don't check this — C# generic constructors are caught in Phase 6.
 

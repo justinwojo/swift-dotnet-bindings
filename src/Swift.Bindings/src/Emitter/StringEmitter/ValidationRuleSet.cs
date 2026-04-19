@@ -61,6 +61,14 @@ public static class ValidationRuleSet
                 // (or similar) assembly. Referencing them would produce CS0234.
                 if (IsNetUnavailableBridgedType(namedType.Name))
                     return true;
+                // Types the current module's type handlers will skip (populated by
+                // TypeSkipPrePass before member emission begins). Referencing a
+                // skipped generic (e.g., MusicKit.MusicRelationshipProperty<_,_>) would
+                // produce a CS0234 dangling reference since the declaration was never
+                // emitted. Enforces the invariant "if a type is skipped, every use of
+                // it must be skipped too."
+                if (namedType.HasModule() && ReportCollector.IsTypeSkipped(namedType.Name))
+                    return true;
                 // Types the emitter will never produce (e.g., single-case no-payload
                 // enums marked Unemittable). Skip anything referencing them so we don't
                 // leave dangling references to a type that will never exist.

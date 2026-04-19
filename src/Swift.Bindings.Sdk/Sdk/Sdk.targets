@@ -393,38 +393,55 @@ done; true"
     <!-- Write binding-metadata.props for downstream SDK targets.
          The generator in direct mode does not emit this file, so the SDK
          synthesizes it from known values. Wrapper status is determined by
-         checking whether the generator produced the xcframework directory. -->
-    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'">
+         checking whether the generator produced the xcframework directory.
+
+         This step is NOT gated on _SwiftBindingUpToDate: GetNativeManifest is
+         called from every consumer build (including ProjectReference
+         consumers whose own fingerprint is unrelated to this binding's), so
+         binding-metadata.props must be present even when the generator was
+         skipped as up-to-date. A missing props file would make
+         GetNativeManifest return nothing, silently dropping the wrapper
+         xcframework NativeReference from the consumer's app bundle and
+         surfacing as a DllNotFoundException at runtime. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_AFW_WrapperModule>$(_SwiftAppleFrameworkModule)SwiftBindings</_AFW_WrapperModule>
       <_AFW_WrapperPath>$(_SwiftBindingIntermediateDir)$(_AFW_WrapperModule).xcframework</_AFW_WrapperPath>
     </PropertyGroup>
 
-    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
-          Command="WRAPPER=&quot;False&quot;; SLICES=0; \
-if [ -d &quot;$(_AFW_WrapperPath)&quot; ]; then \
-  WRAPPER=&quot;True&quot;; \
-  SLICES=`find &quot;$(_AFW_WrapperPath)&quot; -maxdepth 1 -type d -name '*-*' | wc -l | tr -d ' '`; \
-fi; \
-cat &gt; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot; &lt;&lt;METAEOF
-&lt;Project&gt;
-  &lt;PropertyGroup&gt;
-    &lt;_SwiftBindingModuleName&gt;$(_SwiftAppleFrameworkModule)&lt;/_SwiftBindingModuleName&gt;
-    &lt;_SwiftBindingMinimumOSVersion&gt;%(SwiftAppleFrameworkTarget.MinDeploymentVersion)&lt;/_SwiftBindingMinimumOSVersion&gt;
-    &lt;_SwiftBindingPackageVersion&gt;$(Version)&lt;/_SwiftBindingPackageVersion&gt;
-    &lt;_SwiftBindingIsVersionPlaceholder&gt;False&lt;/_SwiftBindingIsVersionPlaceholder&gt;
-    &lt;_SwiftBindingHasWrapperXCFramework&gt;%24WRAPPER&lt;/_SwiftBindingHasWrapperXCFramework&gt;
-    &lt;_SwiftBindingWrapperModuleName&gt;$(_AFW_WrapperModule)&lt;/_SwiftBindingWrapperModuleName&gt;
-    &lt;_SwiftBindingWrapperSliceCount&gt;%24SLICES&lt;/_SwiftBindingWrapperSliceCount&gt;
-  &lt;/PropertyGroup&gt;
-  &lt;!-- Apple-supplement signals live in apple-supplement.props, emitted by the generator    --&gt;
-  &lt;!-- (it's the only component that knows AppleSupplementReferences state). The Import is  --&gt;
-  &lt;!-- retained for custom targets that evaluate the properties via $(...); note XmlPeek    --&gt;
-  &lt;!-- reads raw XML and does NOT honor this import, so _InjectAppleSupplementPrototype     --&gt;
-  &lt;!-- queries apple-supplement.props as an explicit fallback.                              --&gt;
-  &lt;Import Project=&quot;apple-supplement.props&quot; Condition=&quot;Exists('apple-supplement.props')&quot; /&gt;
-&lt;/Project&gt;
-METAEOF"
-          StandardOutputImportance="low" />
+    <!-- Native MSBuild emission — the prior heredoc-based Exec tripped MSBuild's
+         expression parser on the embedded <Import ... Condition="Exists(...)" />
+         literal (MSB4184 at Command parse time), blocking every Apple-framework
+         build. WriteLinesToFile stays inside the evaluator and avoids any shell
+         escaping / %24 gymnastics. Wrapper presence and slice count come from
+         filesystem probing on items rather than embedded `find`/`wc` in a heredoc. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_HasWrapper Condition="Exists('$(_AFW_WrapperPath)')">True</_AFW_HasWrapper>
+      <_AFW_HasWrapper Condition="!Exists('$(_AFW_WrapperPath)')">False</_AFW_HasWrapper>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_AFW_HasWrapper)' == 'True'">
+      <_AFW_WrapperSliceDir Include="$([System.IO.Directory]::GetDirectories('$(_AFW_WrapperPath)', '*-*'))" />
+    </ItemGroup>
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_WrapperSliceCount>@(_AFW_WrapperSliceDir->Count())</_AFW_WrapperSliceCount>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_AFW_MetadataLines Include="&lt;Project&gt;" />
+      <_AFW_MetadataLines Include="  &lt;PropertyGroup&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingModuleName&gt;$(_SwiftAppleFrameworkModule)&lt;/_SwiftBindingModuleName&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingMinimumOSVersion&gt;%(SwiftAppleFrameworkTarget.MinDeploymentVersion)&lt;/_SwiftBindingMinimumOSVersion&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingPackageVersion&gt;$(Version)&lt;/_SwiftBindingPackageVersion&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingIsVersionPlaceholder&gt;False&lt;/_SwiftBindingIsVersionPlaceholder&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingHasWrapperXCFramework&gt;$(_AFW_HasWrapper)&lt;/_SwiftBindingHasWrapperXCFramework&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingWrapperModuleName&gt;$(_AFW_WrapperModule)&lt;/_SwiftBindingWrapperModuleName&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingWrapperSliceCount&gt;$(_AFW_WrapperSliceCount)&lt;/_SwiftBindingWrapperSliceCount&gt;" />
+      <_AFW_MetadataLines Include="  &lt;/PropertyGroup&gt;" />
+      <_AFW_MetadataLines Include="  &lt;Import Project=&quot;apple-supplement.props&quot; Condition=&quot;Exists('apple-supplement.props')&quot; /&gt;" />
+      <_AFW_MetadataLines Include="&lt;/Project&gt;" />
+    </ItemGroup>
+    <WriteLinesToFile Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'"
+                      File="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+                      Lines="@(_AFW_MetadataLines)"
+                      Overwrite="true" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

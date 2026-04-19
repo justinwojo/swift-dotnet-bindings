@@ -29,13 +29,19 @@ build_single_arch() {
     sdk_path=$(xcrun --sdk "$sdk" --show-sdk-path)
 
     # Unset SDKROOT to prevent clang sysroot mismatch warnings when
-    # cross-compiling (swiftc uses the explicit -sdk flag instead)
+    # cross-compiling (swiftc uses the explicit -sdk flag instead).
+    # -Xlinker -install_name @rpath/...: the install name must be a relative
+    # rpath token so consumer bundles can load this dylib from their
+    # Frameworks/ directory. Without it, LC_ID_DYLIB records the absolute
+    # build-machine path, leaking dev paths into shipped nupkgs and preventing
+    # relocation to the app bundle.
     SDKROOT="" swiftc -emit-library \
         -o "$output" \
         -module-name SwiftBindingsRuntime \
         -parse-as-library \
         -target "$triple" \
         -sdk "$sdk_path" \
+        -Xlinker -install_name -Xlinker "@rpath/libSwiftBindingsRuntime.dylib" \
         "$SOURCE"
 }
 
