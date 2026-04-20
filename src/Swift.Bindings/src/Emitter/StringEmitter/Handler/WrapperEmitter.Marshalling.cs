@@ -360,13 +360,15 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
                     }
                 }
-                else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec)
-                         && _env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureTypeSpec))
+                else if (_env.ClosureHandler.IsAsyncClosure(closureTypeSpec)
+                         && _env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec))
                 {
-                    // Async+throwing closures use a special pattern with AsyncThrowingClosureState
-                    // The state holds the user's async delegate, and we pass context + start function to Swift.
-                    // Only emit for baseline shapes — non-baseline async-throwing closures fall through
-                    // to AnyType placeholder in PInvokeEmitter so the outer method is skipped cleanly.
+                    // Async closures (throwing baseline from Session A/B + non-throwing
+                    // baseline from Session C) share a state-based pattern: the state
+                    // type holds the user's async delegate, and we pass (context,
+                    // startFunc) to Swift. Non-baseline async closures fall through
+                    // to AnyType placeholder in PInvokeEmitter so the outer method
+                    // is skipped cleanly.
                     ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
                         csWriter,
                         _env.MethodDecl.Name,
@@ -756,15 +758,18 @@ namespace BindingsGeneration
 
                 if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                 {
-                    // Check if this is an async+throwing closure (must check before throwing-only)
-                    if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                    // Async-throwing closures (Session A/B) or baseline async non-throwing
+                    // closures (Session C) emit the Start-thunk callback pair. Non-baseline
+                    // async-throwing closures fall through with no callback emitted —
+                    // PInvokeEmitter projects them to AnyType so the outer method is skipped
+                    // via the placeholder path instead of crashing here. Non-baseline async
+                    // non-throwing closures (e.g., Alamofire's NSHTTPURLResponse callback)
+                    // keep their legacy escaping-callback path below — the async bridge only
+                    // handles primitive-return baseline shapes.
+                    if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec)
+                        || _env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
                     {
-                        // Only emit the Start-thunk callback pair for closures that the
-                        // baseline async bridge can actually express. Non-baseline async-throwing
-                        // closures (e.g., Bool arg, non-primitive return) fall through with no
-                        // callback emitted — PInvokeEmitter projects them to AnyType so the outer
-                        // method is skipped via the placeholder path instead of crashing here.
-                        if (_env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureTypeSpec))
+                        if (_env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec))
                         {
                             ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
                             ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
@@ -1104,9 +1109,13 @@ namespace BindingsGeneration
                     }
                     else if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                         _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
-                        !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
+                        !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                         !isEffectivelyEscaping)
                     {
+                        // Async closures (throwing + non-throwing baselines) share the
+                        // intentional GCHandle leak — Swift may retain/invoke them past
+                        // the call's return, so freeing here would dangle the handle.
+                        // See AsyncClosureHelper.RunAsync/RunAsyncNonThrowing remarks.
                         csWriter.WriteLine($"if ({csName}Handle.IsAllocated) {csName}Handle.Free();");
                     }
                 }

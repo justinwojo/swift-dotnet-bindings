@@ -428,12 +428,17 @@ public static class WrapperValidation
                 var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
                 if (spec == null || !env.ClosureHandler.IsAsyncClosure(spec))
                     return false;
-                if (!env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec))
-                    return true;
-                // Baseline bridge requires an async-throws outer method: the
+                // Throwing baseline: requires an async-throws outer method — the
                 // generated Task {} body uses `try await` and routes errors
                 // through the async-throws harness's catch block.
-                return !env.MethodDecl.IsAsync || !env.MethodDecl.Throws;
+                if (env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec))
+                    return !env.MethodDecl.IsAsync || !env.MethodDecl.Throws;
+                // Non-throwing baseline (Session C): the adapter uses
+                // `await` (no try). The outer method must still be async, but
+                // it does NOT need to be throwing.
+                if (env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(spec))
+                    return !env.MethodDecl.IsAsync;
+                return true;
             });
     }
 
@@ -460,12 +465,15 @@ public static class WrapperValidation
             .ToList();
         if (closureArgs.Count == 0) return false;
 
-        bool hasAsyncThrowing = closureArgs.Any(arg =>
+        bool hasBridgeableShape = closureArgs.Any(arg =>
         {
             var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-            return spec != null && env.ClosureHandler.IsAsyncThrowingClosure(spec);
+            if (spec == null) return false;
+            return env.ClosureHandler.IsAsyncThrowingClosure(spec)
+                || (env.ClosureHandler.IsAsyncClosure(spec)
+                    && env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(spec));
         });
-        if (!hasAsyncThrowing) return false;
+        if (!hasBridgeableShape) return false;
 
         // Reserved-prefix collision: any param named _SBW* would shadow generated
         // handoff/adapter/widened identifiers inside the Swift wrapper scope.
@@ -478,12 +486,26 @@ public static class WrapperValidation
         return closureArgs.Any(arg =>
         {
             var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-            if (spec == null || !env.ClosureHandler.IsAsyncThrowingClosure(spec))
-                return false;
-            return !(env.MethodDecl.UsesCdeclMethodWrapper &&
-                     env.MethodDecl.IsAsync &&
-                     env.MethodDecl.Throws &&
-                     env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec));
+            if (spec == null) return false;
+            if (env.ClosureHandler.IsAsyncThrowingClosure(spec))
+            {
+                // Throwing baseline requires outer async throws + Cdecl wrapper +
+                // baseline shape; otherwise the P/Invoke emits (ctx, startFunc)
+                // but no Swift adapter will materialise.
+                return !(env.MethodDecl.UsesCdeclMethodWrapper &&
+                         env.MethodDecl.IsAsync &&
+                         env.MethodDecl.Throws &&
+                         env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec));
+            }
+            if (env.ClosureHandler.IsAsyncClosure(spec)
+                && env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(spec))
+            {
+                // Non-throwing baseline: outer method still has to be async +
+                // Cdecl-wrapped, but Throws is NOT required.
+                return !(env.MethodDecl.UsesCdeclMethodWrapper &&
+                         env.MethodDecl.IsAsync);
+            }
+            return false;
         });
     }
 

@@ -789,7 +789,7 @@ public static partial class ClosureEmitter
             if (closureTypeSpec != null &&
                 closureHandler.IsSupportedClosure(closureTypeSpec) &&
                 closureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
-                !closureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                !closureHandler.IsAsyncClosure(closureTypeSpec))
             {
                 // Replace closure param with (funcPtr, context) pair
                 // Closure-derived names (FuncPtr, Context, _adapted_) use csName suffix which is safe
@@ -1099,17 +1099,17 @@ public static partial class ClosureEmitter
         if (HasConventionCInMangledName(methodDecl.MangledName))
             return false;
 
-        // If the method has ANY async-throwing closures, don't use Cdecl wrapper.
-        // Async-throwing closures use a specialized P/Invoke pattern that is incompatible
-        // with the standalone Swift wrapper.
-        var hasAsyncThrowingClosure = methodDecl.CSSignature.Skip(1)
+        // If the method has ANY async closures (throwing or non-throwing baseline),
+        // don't use Cdecl wrapper. Async closures use a specialized P/Invoke pattern
+        // that is incompatible with the standalone Swift wrapper.
+        var hasAsyncClosure = methodDecl.CSSignature.Skip(1)
             .Where(closureHandler.IsClosure)
             .Any(arg =>
             {
                 var spec = closureHandler.GetClosureTypeSpec(arg);
-                return spec != null && closureHandler.IsAsyncThrowingClosure(spec);
+                return spec != null && closureHandler.IsAsyncClosure(spec);
             });
-        if (hasAsyncThrowingClosure) return false;
+        if (hasAsyncClosure) return false;
 
         // Find all escaping closures that need thunks (candidates for Cdecl wrapping)
         var closureParamCount = methodDecl.CSSignature.Skip(1).Count(closureHandler.IsClosure);
@@ -1121,7 +1121,7 @@ public static partial class ClosureEmitter
                 return spec != null
                     && closureHandler.IsSupportedClosure(spec)
                     && closureHandler.RequiresThunk(spec, methodDecl.MangledName, closureParamCount)
-                    && !closureHandler.IsAsyncThrowingClosure(spec);
+                    && !closureHandler.IsAsyncClosure(spec);
             })
             .ToList();
 

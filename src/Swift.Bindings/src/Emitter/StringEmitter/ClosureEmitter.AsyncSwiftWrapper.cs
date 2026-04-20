@@ -57,52 +57,87 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Emits the continuation box class and success/error <c>@_cdecl</c> resume
-    /// callbacks for a given (module, T) pair. Deduped via
-    /// <see cref="ModuleEmissionContext.TryAddAsyncClosureSwiftWrapperKey"/>.
+    /// callbacks for a given (module, T, isThrowing) triple. Non-throwing variants
+    /// use <c>CheckedContinuation&lt;T, Never&gt;</c> and emit no <c>_error</c>
+    /// symbol — the C# side <c>Environment.FailFast</c>s on unhandled exceptions.
+    /// Deduped via <see cref="ModuleEmissionContext.TryAddAsyncClosureSwiftWrapperKey"/>
+    /// with a T/NT discriminator so mixed throwing/non-throwing closures of the
+    /// same return type coexist without symbol collision.
     /// </summary>
     public static bool EmitAsyncClosureBoxIfNeeded(
         SwiftWriter swiftWriter,
         string moduleName,
         string swiftReturnType,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        bool isThrowing = true)
     {
         var sanitizedModule = SanitizeModuleName(moduleName);
         var hash = EmitterUtility.DeterministicHash8(swiftReturnType);
-        var dedupKey = $"{sanitizedModule}|{hash}";
+        var throwingSuffix = isThrowing ? "T" : "NT";
+        var dedupKey = $"{sanitizedModule}|{hash}|{throwingSuffix}";
         if (!ctx.TryAddAsyncClosureSwiftWrapperKey(dedupKey))
             return false;
 
-        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash);
-        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash);
+        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing);
+        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing);
 
-        swiftWriter.WriteLines($$"""
-            // Continuation box retained across the C# start-thunk call. The C#
-            // helper resumes exactly once via the paired success/error symbols.
-            private final class {{boxClassName}} {
-                let cont: CheckedContinuation<{{swiftReturnType}}, Error>
-                init(_ cont: CheckedContinuation<{{swiftReturnType}}, Error>) { self.cont = cont }
-            }
+        if (isThrowing)
+        {
+            swiftWriter.WriteLines($$"""
+                // Continuation box retained across the C# start-thunk call. The C#
+                // helper resumes exactly once via the paired success/error symbols.
+                private final class {{boxClassName}} {
+                    let cont: CheckedContinuation<{{swiftReturnType}}, Error>
+                    init(_ cont: CheckedContinuation<{{swiftReturnType}}, Error>) { self.cont = cont }
+                }
 
-            @_cdecl("{{symbolRoot}}_success")
-            internal func {{symbolRoot}}_success(
-                _ boxPtr: UnsafeMutableRawPointer,
-                _ resultPtr: UnsafeMutableRawPointer
-            ) {
-                let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
-                let value = resultPtr.load(as: {{swiftReturnType}}.self)
-                box.cont.resume(returning: value)
-            }
+                @_cdecl("{{symbolRoot}}_success")
+                internal func {{symbolRoot}}_success(
+                    _ boxPtr: UnsafeMutableRawPointer,
+                    _ resultPtr: UnsafeMutableRawPointer
+                ) {
+                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let value = resultPtr.load(as: {{swiftReturnType}}.self)
+                    box.cont.resume(returning: value)
+                }
 
-            @_cdecl("{{symbolRoot}}_error")
-            internal func {{symbolRoot}}_error(
-                _ boxPtr: UnsafeMutableRawPointer,
-                _ msgPtr: UnsafePointer<CChar>
-            ) {
-                let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
-                box.cont.resume(throwing: SwiftBindingsBridgeError(String(cString: msgPtr)))
-            }
+                @_cdecl("{{symbolRoot}}_error")
+                internal func {{symbolRoot}}_error(
+                    _ boxPtr: UnsafeMutableRawPointer,
+                    _ msgPtr: UnsafePointer<CChar>
+                ) {
+                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    box.cont.resume(throwing: SwiftBindingsBridgeError(String(cString: msgPtr)))
+                }
 
-            """);
+                """);
+        }
+        else
+        {
+            // Non-throwing variant: CheckedContinuation<T, Never> has no error
+            // channel. The C# helper Environment.FailFasts on unhandled exceptions
+            // so there is no path that ever produces a Swift error to resume with.
+            swiftWriter.WriteLines($$"""
+                // Continuation box retained across the C# start-thunk call. Non-throwing
+                // closures use CheckedContinuation<T, Never> — the C# helper
+                // Environment.FailFasts on exceptions, so no error resume symbol exists.
+                private final class {{boxClassName}} {
+                    let cont: CheckedContinuation<{{swiftReturnType}}, Never>
+                    init(_ cont: CheckedContinuation<{{swiftReturnType}}, Never>) { self.cont = cont }
+                }
+
+                @_cdecl("{{symbolRoot}}_success")
+                internal func {{symbolRoot}}_success(
+                    _ boxPtr: UnsafeMutableRawPointer,
+                    _ resultPtr: UnsafeMutableRawPointer
+                ) {
+                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let value = resultPtr.load(as: {{swiftReturnType}}.self)
+                    box.cont.resume(returning: value)
+                }
+
+                """);
+        }
 
         return true;
     }
@@ -161,17 +196,24 @@ public static partial class ClosureEmitter
     /// nested <c>withUnsafePointer</c>, class: <c>Unmanaged.passUnretained.toOpaque</c>).
     /// </summary>
     /// <param name="indent">Whitespace prefix applied to every emitted line.</param>
+    /// <param name="isThrowing">
+    /// When false, emits a non-throwing adapter (<c>@Sendable (…) async -&gt; T</c>)
+    /// backed by <c>withCheckedContinuation</c> and the NT-suffixed box class.
+    /// The Start thunk ABI is still uniform (trailing errorFP slot), but we pass
+    /// a sentinel pointer for errorFP — the C# helper never invokes it.
+    /// </param>
     public static string BuildAsyncClosureAdapter(
         string paramName,
         string moduleName,
         string swiftReturnType,
         IReadOnlyList<AsyncClosureArgInfo> args,
-        string indent)
+        string indent,
+        bool isThrowing = true)
     {
         var sanitizedModule = SanitizeModuleName(moduleName);
         var hash = EmitterUtility.DeterministicHash8(swiftReturnType);
-        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash);
-        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash);
+        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing);
+        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing);
         var handoffVar = GetAsyncClosureHandoffVarName(paramName);
         var adaptedVar = GetAdaptedClosureVarName(paramName);
 
@@ -251,22 +293,50 @@ public static partial class ClosureEmitter
             innerBlock = sb.ToString().TrimEnd('\r', '\n');
         }
 
+        if (isThrowing)
+        {
+            return $$"""
+                {{indent}}// Adapter closure for async-throwing closure parameter '{{paramName}}'.
+                {{indent}}// Bridges Swift's `{{closureParamList}} async throws -> {{swiftReturnType}}` back into
+                {{indent}}// the C# start thunk via a CheckedContinuation owned by the per-T box class.
+                {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async throws -> {{swiftReturnType}} = { {{closureParamBindings}}
+                {{indent}}    return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<{{swiftReturnType}}, Error>) in
+                {{indent}}        let box = {{boxClassName}}(cont)
+                {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
+                {{indent}}        let successFP = unsafeBitCast(
+                {{indent}}            {{symbolRoot}}_success as
+                {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void,
+                {{indent}}            to: UnsafeMutableRawPointer.self)
+                {{indent}}        let errorFP = unsafeBitCast(
+                {{indent}}            {{symbolRoot}}_error as
+                {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void,
+                {{indent}}            to: UnsafeMutableRawPointer.self)
+                {{indent}}        let typedStart = unsafeBitCast({{handoffVar}}.startFuncPtr,
+                {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Void).self)
+                {{innerBlock}}
+                {{indent}}    }
+                {{indent}}}
+                """;
+        }
+
+        // Non-throwing variant: withCheckedContinuation + Never error type. The
+        // Start ABI still carries a trailing errorFP slot (decision §3.6(a) —
+        // uniform typedStart shape) so we pass a sentinel non-null pointer that
+        // the C# Start thunk never dereferences.
         return $$"""
-            {{indent}}// Adapter closure for async-throwing closure parameter '{{paramName}}'.
-            {{indent}}// Bridges Swift's `{{closureParamList}} async throws -> {{swiftReturnType}}` back into
-            {{indent}}// the C# start thunk via a CheckedContinuation owned by the per-T box class.
-            {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async throws -> {{swiftReturnType}} = { {{closureParamBindings}}
-            {{indent}}    return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<{{swiftReturnType}}, Error>) in
+            {{indent}}// Adapter closure for non-throwing async closure parameter '{{paramName}}'.
+            {{indent}}// Bridges Swift's `{{closureParamList}} async -> {{swiftReturnType}}` back into the C#
+            {{indent}}// start thunk via a CheckedContinuation<_, Never>. No error channel — the C#
+            {{indent}}// helper Environment.FailFasts if the user delegate throws.
+            {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async -> {{swiftReturnType}} = { {{closureParamBindings}}
+            {{indent}}    return await withCheckedContinuation { (cont: CheckedContinuation<{{swiftReturnType}}, Never>) in
             {{indent}}        let box = {{boxClassName}}(cont)
             {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
             {{indent}}        let successFP = unsafeBitCast(
             {{indent}}            {{symbolRoot}}_success as
             {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void,
             {{indent}}            to: UnsafeMutableRawPointer.self)
-            {{indent}}        let errorFP = unsafeBitCast(
-            {{indent}}            {{symbolRoot}}_error as
-            {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void,
-            {{indent}}            to: UnsafeMutableRawPointer.self)
+            {{indent}}        let errorFP = UnsafeMutableRawPointer(bitPattern: 1)!
             {{indent}}        let typedStart = unsafeBitCast({{handoffVar}}.startFuncPtr,
             {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Void).self)
             {{innerBlock}}
@@ -283,11 +353,15 @@ public static partial class ClosureEmitter
 
     private static string GetAsyncClosureHandoffVarName(string paramName) => $"_SBWHandoff_{paramName}";
 
-    private static string GetAsyncClosureBoxClassName(string sanitizedModule, string hash)
-        => $"_SBW_{sanitizedModule}_AsyncBox_{hash}";
+    private static string GetAsyncClosureBoxClassName(string sanitizedModule, string hash, bool isThrowing = true)
+        => isThrowing
+            ? $"_SBW_{sanitizedModule}_AsyncBox_{hash}"
+            : $"_SBW_{sanitizedModule}_AsyncBoxNT_{hash}";
 
-    private static string GetAsyncClosureSymbolRoot(string sanitizedModule, string hash)
-        => $"_SBW_{sanitizedModule}_asyncBox_{hash}";
+    private static string GetAsyncClosureSymbolRoot(string sanitizedModule, string hash, bool isThrowing = true)
+        => isThrowing
+            ? $"_SBW_{sanitizedModule}_asyncBox_{hash}"
+            : $"_SBW_{sanitizedModule}_asyncBoxNT_{hash}";
 
     private static string SanitizeModuleName(string moduleName)
         => moduleName.Replace('.', '_').Replace('-', '_').Replace(' ', '_');

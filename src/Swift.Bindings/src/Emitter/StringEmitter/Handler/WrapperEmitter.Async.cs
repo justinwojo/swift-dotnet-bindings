@@ -784,14 +784,15 @@ namespace BindingsGeneration
             // Reconstruction code for @_cdecl converted params (emitted before Task {})
             var cdeclReconstructionLines = new List<string>();
 
-            // Baseline async-throwing closure params: routed through the dedicated
-            // Swift-side adapter bridge. Collected here so both the param list and
-            // method-call arg list can special-case them, and the outer wrapper can
-            // inject the adapter construction before the `try await` line.
+            // Baseline async closure params (Session A/B throwing + Session C
+            // non-throwing): routed through the dedicated Swift-side adapter
+            // bridge. Collected here so both the param list and method-call arg
+            // list can special-case them, and the outer wrapper can inject the
+            // adapter construction before the `try await` line.
             var baselineAsyncClosureParams = usesCdecl
                 ? _env.MethodDecl.CSSignature.Skip(1)
                     .Where(p => p.SwiftTypeSpec is ClosureTypeSpec cts
-                        && _env.ClosureHandler.IsBaselineAsyncThrowingClosure(cts))
+                        && _env.ClosureHandler.IsBaselineAsyncClosure(cts))
                     .ToList()
                 : new List<ArgumentDecl>();
 
@@ -1119,8 +1120,10 @@ namespace BindingsGeneration
                 {
                     var closureSpec = (ClosureTypeSpec)bp.SwiftTypeSpec;
                     var swiftReturnType = SwiftTypeNameHelper.GetSwiftTypeName(closureSpec.ReturnType);
+                    var isClosureThrowing = closureSpec.Throws;
                     ClosureEmitter.EmitAsyncClosureBoxIfNeeded(
-                        swiftWriter, moduleName, swiftReturnType, _emissionContext);
+                        swiftWriter, moduleName, swiftReturnType, _emissionContext,
+                        isThrowing: isClosureThrowing);
                     // Per-arity arg info: ParamName (a0, a1, …), Swift-side signature type
                     // (Int32 / String / MyClass), @convention(c) ABI type
                     // (UnsafeMutableRawPointer for reference + string, else primitive), and
@@ -1147,7 +1150,8 @@ namespace BindingsGeneration
                             category: category));
                     }
                     adapterParts.Add(ClosureEmitter.BuildAsyncClosureAdapter(
-                        bp.Name, moduleName, swiftReturnType, adapterArgs, adapterIndent));
+                        bp.Name, moduleName, swiftReturnType, adapterArgs, adapterIndent,
+                        isThrowing: isClosureThrowing));
                 }
                 adapterSetupCode = string.Join("\n", adapterParts) + "\n";
             }
@@ -2239,7 +2243,7 @@ namespace BindingsGeneration
             {{i}}        defer {
             {{i}}            _sbwUnregisterTask(_sbwTask)
             {{i}}        }
-            {{i}}        {{resultAssign}}{{awaitKeyword}} {{callExpression}}
+            {{adapterSetupCode}}{{i}}        {{resultAssign}}{{awaitKeyword}} {{callExpression}}
             {{i}}        {{stringMarshalCode}}
             {{i}}        callback({{callbackResultArgs}}_sbwTask)
             {{i}}    }

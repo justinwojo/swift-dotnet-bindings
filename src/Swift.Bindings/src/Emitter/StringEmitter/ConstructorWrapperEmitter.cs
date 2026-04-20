@@ -403,7 +403,7 @@ public static class ConstructorWrapperEmitter
                         if (closureTypeSpec != null &&
                             env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                             env.ClosureHandler.RequiresThunk(closureTypeSpec, methodDecl.MangledName, closureParamCount) &&
-                            !env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                            !env.ClosureHandler.IsAsyncClosure(closureTypeSpec))
                         {
                             var csName = NameProvider.StripVerbatimPrefix(
                                 NameProvider.GetCSharpParameterName(arg));

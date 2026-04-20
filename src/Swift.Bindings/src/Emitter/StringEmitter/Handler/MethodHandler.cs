@@ -970,13 +970,17 @@ namespace BindingsGeneration
                     if (p.IsGeneric) return false;
                     if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
                     {
-                        // Baseline async-throwing closures (`() async throws -> T` with T a
-                        // blittable primitive) are bridged by the async wrapper via
-                        // withCheckedThrowingContinuation. The outer method must also be
-                        // `async throws` — the generated Task {} body emits `try await`
-                        // and routes errors through the async-throws catch harness.
-                        return methodEnv.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec)
-                            && methodEnv.MethodDecl.Throws;
+                        // Baseline async closures (Session A/B throwing + Session C
+                        // non-throwing) are bridged by the async wrapper via a
+                        // CheckedContinuation. Throwing baseline requires the outer
+                        // method to also be `throws` (adapter uses `try await` inside
+                        // the catch harness). Non-throwing baseline only requires the
+                        // outer method to be async — the adapter uses plain `await`.
+                        if (methodEnv.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec))
+                            return methodEnv.MethodDecl.Throws;
+                        if (methodEnv.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureSpec))
+                            return true;
+                        return false;
                     }
                     if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
                     // Frozen blittable struct params are now supported in async via heap allocation

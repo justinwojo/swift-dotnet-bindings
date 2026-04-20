@@ -208,10 +208,16 @@ public class ClosureHandler
         // IsBaselineAsyncThrowingClosure accepts the shape; otherwise the closure still
         // has to pass the generic IsSupportedClosureParameterType loop below.
 
-        // CX-12: Async-only closures with non-void returns are not supported.
-        // The delegate returns Task<T> but the sync [UnmanagedCallersOnly] callback
-        // can't await it. The emitter generates an invalid cast (e.g., (int)Task<Enum>).
-        if (closureTypeSpec.IsAsync && !closureTypeSpec.Throws && !closureTypeSpec.ReturnType.IsEmptyTuple)
+        // CX-12 (narrowed — Session C): Async-only closures with non-void returns
+        // are supported only for the baseline non-throwing shape
+        // (@escaping (Args) async -> T where T is a blittable primitive and args
+        // are Session B-bridgeable). Anything wider still routes to the generic
+        // skip path — the emitter can't synthesize a Task-returning delegate
+        // under an [UnmanagedCallersOnly] callback for arbitrary shapes.
+        if (closureTypeSpec.IsAsync
+            && !closureTypeSpec.Throws
+            && !closureTypeSpec.ReturnType.IsEmptyTuple
+            && !IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
             return false;
 
         // Async+throwing closures are now supported via Swift continuation wrapper pattern (Phase 28)
@@ -880,6 +886,47 @@ public class ClosureHandler
         }
         return true;
     }
+
+    /// <summary>
+    /// Session C counterpart of <see cref="IsBaselineAsyncThrowingClosure"/> for
+    /// non-throwing closures: <c>@escaping (A0, …) async -&gt; T</c> where T is a
+    /// blittable primitive, arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
+    /// and each arg matches a Session B category. The non-throwing bridge uses
+    /// <c>withCheckedContinuation</c> (no error channel) on the Swift side and
+    /// routes C# exceptions to <c>Environment.FailFast</c>.
+    /// </summary>
+    public bool IsBaselineAsyncNonThrowingClosure(ClosureTypeSpec closureTypeSpec)
+    {
+        if (!closureTypeSpec.IsAsync || closureTypeSpec.Throws)
+            return false;
+        if (closureTypeSpec.ReturnType.IsEmptyTuple)
+            return false;
+        if (closureTypeSpec.ReturnType is not NamedTypeSpec namedReturn || namedReturn.ContainsGenericParameters)
+            return false;
+        if (!CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name))
+            return false;
+
+        var args = closureTypeSpec.EachArgument().ToList();
+        if (args.Count > MaxAsyncThrowingClosureArity)
+            return false;
+        foreach (var arg in args)
+        {
+            if (GetAsyncThrowingArgCategory(arg) == AsyncThrowingArgCategory.Unsupported)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Combined predicate that accepts either the Session A/B throwing baseline
+    /// shape or the Session C non-throwing baseline shape. Call sites that
+    /// previously tested <see cref="IsBaselineAsyncThrowingClosure"/> typically
+    /// want this — the emitter paths are unified past the <c>isThrowing</c>
+    /// branch.
+    /// </summary>
+    public bool IsBaselineAsyncClosure(ClosureTypeSpec closureTypeSpec)
+        => IsBaselineAsyncThrowingClosure(closureTypeSpec)
+           || IsBaselineAsyncNonThrowingClosure(closureTypeSpec);
 
     /// <summary>
     /// Maximum closure arity supported by the Session B async-throwing bridge.

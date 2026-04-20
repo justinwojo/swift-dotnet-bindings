@@ -80,21 +80,48 @@ public func callAsyncThrowingClosureOneArgForError(
     return try await closure(value)
 }
 
-#if swift(>=99.0)
+// MARK: - Session C: non-throwing async closures (primitive return, 0–4 args)
+// Baseline non-throwing shape: `@escaping (Args) async -> T` where T is a
+// BitwiseCopyable primitive and the outer method is `async`. Exceptions inside
+// the managed closure trigger Environment.FailFast (no Swift error channel).
 
-/// Accepts an async closure and awaits its result.
+/// Baseline non-throwing async closure: no args, primitive return.
 public func callAsyncClosure(_ closure: @escaping () async -> Int32) async -> Int32 {
     return await closure()
 }
 
+/// Invokes the same non-throwing async closure twice within a single outer
+/// call. Mirrors the throwing "…Twice" variant and validates the continuation
+/// box / adapter lifetime when a single closure value is awaited multiple times.
+public func callAsyncClosureTwice(_ closure: @escaping () async -> Int32) async -> Int32 {
+    let a = await closure()
+    let b = await closure()
+    return a &+ b
+}
+
+/// Arity-1 primitive arg: `(Int32) async -> Int32`.
+public func callAsyncClosureWithParam(_ value: Int32, closure: @escaping (Int32) async -> Int32) async -> Int32 {
+    return await closure(value)
+}
+
+/// Arity-3 mixed non-throwing: `(Int32, String, AsyncClosureArgBox) async -> Int32`.
+/// Mirrors `callAsyncThrowingClosureThreeArgs` for the Session C non-throwing
+/// bridge so the String + class arg categories are exercised end-to-end on the
+/// non-throwing path (not just primitives).
+public func callAsyncClosureThreeArgs(
+    _ n: Int32,
+    _ tag: String,
+    _ box: AsyncClosureArgBox,
+    _ closure: @escaping (Int32, String, AsyncClosureArgBox) async -> Int32
+) async -> Int32 {
+    return await closure(n, tag, box)
+}
+
+#if swift(>=99.0)
+
 /// Accepts an async closure returning String.
 public func callAsyncStringClosure(_ closure: @escaping () async -> String) async -> String {
     return await closure()
-}
-
-/// Accepts an async closure with a parameter.
-public func callAsyncClosureWithParam(_ value: Int32, closure: @escaping (Int32) async -> Int32) async -> Int32 {
-    return await closure(value)
 }
 
 /// Accepts an async closure returning void.

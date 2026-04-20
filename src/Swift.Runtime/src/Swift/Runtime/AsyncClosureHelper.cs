@@ -283,6 +283,134 @@ public static class AsyncClosureHelper
         });
     }
 
+    // ---- Non-throwing variants (Session C) ----
+    // Mirror the throwing RunAsync family for @escaping (...) async -> T closures.
+    // Key difference: the Swift closure has no error channel, so a C# exception
+    // cannot surface as a `throws` resume. Explicit try/catch -> Environment.FailFast
+    // is required; unobserved Task exceptions only surface via TaskScheduler events
+    // and do not reliably crash the process.
+
+    /// <summary>Runs a zero-arg non-throwing async closure returning T.</summary>
+    public static void RunAsyncNonThrowing<T>(
+        GCHandle handle,
+        AsyncClosureState<T> state,
+        IntPtr continuationBoxPtr,
+        Action<IntPtr, IntPtr> successAction)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await state.AsyncFunc();
+                CompleteWithResult(result, continuationBoxPtr, successAction);
+            }
+            catch (Exception ex)
+            {
+                FailFastNonThrowing(ex);
+            }
+        });
+    }
+
+    /// <summary>Runs a single-arg non-throwing async closure returning T.</summary>
+    public static void RunAsyncNonThrowing<A0, T>(
+        GCHandle handle,
+        AsyncClosureState<A0, T> state,
+        IntPtr continuationBoxPtr,
+        A0 a0,
+        Action<IntPtr, IntPtr> successAction)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await state.AsyncFunc(a0);
+                CompleteWithResult(result, continuationBoxPtr, successAction);
+            }
+            catch (Exception ex)
+            {
+                FailFastNonThrowing(ex);
+            }
+        });
+    }
+
+    /// <summary>Runs a two-arg non-throwing async closure returning T.</summary>
+    public static void RunAsyncNonThrowing<A0, A1, T>(
+        GCHandle handle,
+        AsyncClosureState<A0, A1, T> state,
+        IntPtr continuationBoxPtr,
+        A0 a0,
+        A1 a1,
+        Action<IntPtr, IntPtr> successAction)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await state.AsyncFunc(a0, a1);
+                CompleteWithResult(result, continuationBoxPtr, successAction);
+            }
+            catch (Exception ex)
+            {
+                FailFastNonThrowing(ex);
+            }
+        });
+    }
+
+    /// <summary>Runs a three-arg non-throwing async closure returning T.</summary>
+    public static void RunAsyncNonThrowing<A0, A1, A2, T>(
+        GCHandle handle,
+        AsyncClosureState<A0, A1, A2, T> state,
+        IntPtr continuationBoxPtr,
+        A0 a0,
+        A1 a1,
+        A2 a2,
+        Action<IntPtr, IntPtr> successAction)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await state.AsyncFunc(a0, a1, a2);
+                CompleteWithResult(result, continuationBoxPtr, successAction);
+            }
+            catch (Exception ex)
+            {
+                FailFastNonThrowing(ex);
+            }
+        });
+    }
+
+    /// <summary>Runs a four-arg non-throwing async closure returning T.</summary>
+    public static void RunAsyncNonThrowing<A0, A1, A2, A3, T>(
+        GCHandle handle,
+        AsyncClosureState<A0, A1, A2, A3, T> state,
+        IntPtr continuationBoxPtr,
+        A0 a0,
+        A1 a1,
+        A2 a2,
+        A3 a3,
+        Action<IntPtr, IntPtr> successAction)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await state.AsyncFunc(a0, a1, a2, a3);
+                CompleteWithResult(result, continuationBoxPtr, successAction);
+            }
+            catch (Exception ex)
+            {
+                FailFastNonThrowing(ex);
+            }
+        });
+    }
+
+    private static void FailFastNonThrowing(Exception ex)
+    {
+        Environment.FailFast(
+            $"Unhandled exception in non-throwing async closure: {ex}", ex);
+    }
+
     // Shared success/error completion paths — marshal T into a native buffer and
     // fire the success callback; pin a UTF-8 error message and fire the error
     // callback. Kept local to avoid duplicating the boilerplate across 9 helpers.

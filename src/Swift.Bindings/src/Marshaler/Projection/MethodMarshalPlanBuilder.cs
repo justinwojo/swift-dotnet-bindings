@@ -160,14 +160,20 @@ internal class MethodMarshalPlanBuilder
         if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
             lines.Add("var swiftError = default(SwiftError);");
 
-        // Declare GCHandle variables for escaping closures (except async+throwing which handle their own)
+        // Declare GCHandle variables for escaping closures. Skip only closures
+        // that the async bridge (Session A/B throwing baseline, Session C
+        // non-throwing baseline) handles internally via
+        // EmitAsyncThrowingClosureMarshallingSetup — those emit their own
+        // handle. Non-baseline async non-throwing closures still take the
+        // legacy SwiftClosureData path, which requires this declaration.
         var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
         {
             var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
             if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                 _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount) &&
-                !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
+                !_env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
             {
                 var csName = NameProvider.GetCSharpParameterName(argument);
                 lines.Add($"GCHandle {csName}Handle = default;");

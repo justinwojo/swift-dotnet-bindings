@@ -50,14 +50,29 @@ public static partial class ClosureEmitter
         var argAbiTypes = args.Select(a => closureHandler.GetAsyncThrowingArgCSharpAbiType(a)).ToList();
         var argPublicTypes = args.Select(a => closureHandler.GetAsyncThrowingArgPublicCSharpType(a)).ToList();
 
-        // State type: AsyncThrowingClosureState<A0Public,…,TResult> or Void variant.
-        var stateType = hasReturn
-            ? args.Count == 0
-                ? $"AsyncThrowingClosureState<{returnAbiType}>"
-                : $"AsyncThrowingClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>"
-            : args.Count == 0
-                ? "AsyncThrowingClosureStateVoid"
-                : $"AsyncThrowingClosureStateVoid<{string.Join(", ", argPublicTypes)}>";
+        var isThrowing = closureTypeSpec.Throws;
+
+        // State type: AsyncThrowingClosureState / AsyncThrowingClosureStateVoid
+        // for the throwing baseline, or AsyncClosureState (primitive-return only)
+        // for the Session C non-throwing baseline. Non-throwing has no void variant
+        // yet — the generic skip path still rejects `async -> Void` closures.
+        string stateType;
+        if (isThrowing)
+        {
+            stateType = hasReturn
+                ? args.Count == 0
+                    ? $"AsyncThrowingClosureState<{returnAbiType}>"
+                    : $"AsyncThrowingClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>"
+                : args.Count == 0
+                    ? "AsyncThrowingClosureStateVoid"
+                    : $"AsyncThrowingClosureStateVoid<{string.Join(", ", argPublicTypes)}>";
+        }
+        else
+        {
+            stateType = args.Count == 0
+                ? $"AsyncClosureState<{returnAbiType}>"
+                : $"AsyncClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>";
+        }
 
         // Check if return type is Data (special handling for byte arrays)
         var isDataReturn = hasReturn &&
@@ -100,7 +115,11 @@ public static partial class ClosureEmitter
         // The helper call: AsyncClosureHelper.RunAsync[<A0Public,…>,TResult](handle, state, contBox, a0Val, a1Val, …, success, error)
         // — extra generic args are inferred from the `state` argument, so no explicit generics needed.
         var argValList = string.Concat(Enumerable.Range(0, args.Count).Select(i => $", a{i}Val"));
-        var helperName = hasReturn ? "RunAsync" : "RunVoidAsync";
+        string helperName;
+        if (!isThrowing)
+            helperName = "RunAsyncNonThrowing";
+        else
+            helperName = hasReturn ? "RunAsync" : "RunVoidAsync";
 
         csWriter.WriteLines($$"""
             /// <summary>
@@ -135,6 +154,24 @@ public static partial class ClosureEmitter
                     });
 
                     Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
+                }
+                """);
+        }
+        else if (hasReturn && !isThrowing)
+        {
+            // Session C non-throwing: success-only helper, no error channel.
+            // errorFuncPtr param stays in the Start signature (uniform ABI with
+            // the throwing variant per §3.6(a)) but is intentionally unused —
+            // the Swift adapter passes a sentinel pointer for it.
+            csWriter.WriteLines($$"""
+                    _ = errorFuncPtr; // unused on the non-throwing path — FailFast handles exceptions
+                    var successAction = new Action<IntPtr, IntPtr>((box, resultPtr) =>
+                    {
+                        var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)successFuncPtr;
+                        fp(box, resultPtr);
+                    });
+
+                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction);
                 }
                 """);
         }
@@ -227,14 +264,25 @@ public static partial class ClosureEmitter
 
         var args = closureTypeSpec.EachArgument().ToList();
         var argPublicTypes = args.Select(a => closureHandler.GetAsyncThrowingArgPublicCSharpType(a)).ToList();
+        var isThrowing = closureTypeSpec.Throws;
 
-        var stateType = hasReturn
-            ? args.Count == 0
-                ? $"AsyncThrowingClosureState<{returnAbiType}>"
-                : $"AsyncThrowingClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>"
-            : args.Count == 0
-                ? "AsyncThrowingClosureStateVoid"
-                : $"AsyncThrowingClosureStateVoid<{string.Join(", ", argPublicTypes)}>";
+        string stateType;
+        if (isThrowing)
+        {
+            stateType = hasReturn
+                ? args.Count == 0
+                    ? $"AsyncThrowingClosureState<{returnAbiType}>"
+                    : $"AsyncThrowingClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>"
+                : args.Count == 0
+                    ? "AsyncThrowingClosureStateVoid"
+                    : $"AsyncThrowingClosureStateVoid<{string.Join(", ", argPublicTypes)}>";
+        }
+        else
+        {
+            stateType = args.Count == 0
+                ? $"AsyncClosureState<{returnAbiType}>"
+                : $"AsyncClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>";
+        }
 
         // If the public delegate return type differs from the ABI type (Data case),
         // wrap the user delegate with ContinueWith to materialise an ABI-shaped value.
