@@ -16,6 +16,16 @@ public func callAsyncThrowingClosure(_ closure: @escaping () async throws -> Int
     return try await closure()
 }
 
+/// Invokes the same async-throwing closure twice within a single outer call.
+/// Exercises the continuation box / adapter lifetime when a single closure
+/// value is awaited multiple times — the adapter must build a fresh
+/// CheckedContinuation + box on each invocation, not reuse stale state.
+public func callAsyncThrowingClosureTwice(_ closure: @escaping () async throws -> Int32) async throws -> Int32 {
+    let a = try await closure()
+    let b = try await closure()
+    return a &+ b
+}
+
 #if swift(>=99.0)
 
 /// Accepts an async closure and awaits its result.

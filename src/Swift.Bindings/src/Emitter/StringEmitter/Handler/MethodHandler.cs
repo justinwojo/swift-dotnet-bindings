@@ -1030,6 +1030,19 @@ namespace BindingsGeneration
             // the member IS emitted, and marking it skipped prevents RecordMemberEmitted from
             // tracking it, causing incorrect coverage data.
 
+            // Async-throwing closure bridge eligibility: the P/Invoke layer emits
+            // (context, startFunc) for every async-throwing closure, but the matching
+            // Swift @_cdecl adapter is only produced when Phase 1 promoted this method
+            // to a @_cdecl wrapper AND the outer method is async throws AND the closure
+            // has the baseline shape. If any of those fail, the P/Invoke disagrees with
+            // the Swift side on the parameter ABI. Skip the method cleanly here.
+            if (!isAccessor && WrapperValidation.HasUnbridgeableAsyncThrowingClosure(methodEnv))
+            {
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Async-throwing closure parameter cannot be bridged (non-baseline shape or outer method is not a @_cdecl async-throws wrapper).");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async-throwing closure");
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)

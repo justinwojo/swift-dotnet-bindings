@@ -438,6 +438,56 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when a method declares an async-throwing closure parameter
+    /// that cannot be bridged by the Session A baseline adapter. The P/Invoke
+    /// layer emits <c>(context, startFunc)</c> whenever it sees an
+    /// async-throwing closure, but the matching Swift-side adapter is only
+    /// generated when the method itself is promoted to a <c>@_cdecl</c> wrapper
+    /// AND the outer method is <c>async throws</c> AND the closure has the
+    /// baseline shape. If any of those fail, the P/Invoke and the Swift wrapper
+    /// disagree on the parameter ABI — catch it at the member level so the
+    /// method is skipped cleanly instead of emitting a broken binding.
+    ///
+    /// Also rejects methods whose parameter names collide with the reserved
+    /// <c>_SBW</c> prefix used by generated handoff/adapter Swift identifiers —
+    /// without this, a sibling param named e.g. <c>_SBWAdapted_x</c> would
+    /// shadow the adapter var for a closure named <c>x</c>.
+    /// </summary>
+    public static bool HasUnbridgeableAsyncThrowingClosure(MethodEnvironment env)
+    {
+        var closureArgs = env.MethodDecl.CSSignature.Skip(1)
+            .Where(env.ClosureHandler.IsClosure)
+            .ToList();
+        if (closureArgs.Count == 0) return false;
+
+        bool hasAsyncThrowing = closureArgs.Any(arg =>
+        {
+            var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+            return spec != null && env.ClosureHandler.IsAsyncThrowingClosure(spec);
+        });
+        if (!hasAsyncThrowing) return false;
+
+        // Reserved-prefix collision: any param named _SBW* would shadow generated
+        // handoff/adapter/widened identifiers inside the Swift wrapper scope.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(p =>
+            p.Name != null && p.Name.StartsWith("_SBW", System.StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return closureArgs.Any(arg =>
+        {
+            var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+            if (spec == null || !env.ClosureHandler.IsAsyncThrowingClosure(spec))
+                return false;
+            return !(env.MethodDecl.UsesCdeclMethodWrapper &&
+                     env.MethodDecl.IsAsync &&
+                     env.MethodDecl.Throws &&
+                     env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec));
+        });
+    }
+
+    /// <summary>
     /// Returns true when a method has its own generic type parameters that are NOT inherited
     /// from the parent type. In Swift ABI JSON, methods on generic types include the parent's
     /// generic signature (e.g., &lt;τ_0_0 where τ_0_0 : Describable&gt;) in GenericSig. This means

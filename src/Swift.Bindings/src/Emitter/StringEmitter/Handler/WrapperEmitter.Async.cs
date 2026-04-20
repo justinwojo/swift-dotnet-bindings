@@ -1070,7 +1070,11 @@ namespace BindingsGeneration
             var adapterSetupCode = "";
             if (baselineAsyncClosureParams.Count > 0)
             {
-                var adapterIndent = isExtension ? "                " : "            ";
+                // baselineAsyncClosureParams is populated only when usesCdecl is true
+                // (see the collection above), and isExtension is forced false whenever
+                // usesCdecl is true. The extension branch of the indent ternary was
+                // therefore unreachable — use the free-function indent directly.
+                var adapterIndent = "            ";
                 var moduleName = _env.MethodDecl.ModuleDecl!.Name;
                 ClosureEmitter.EmitAsyncClosureBridgePreambleIfNeeded(swiftWriter, _emissionContext);
                 var adapterParts = new List<string>();

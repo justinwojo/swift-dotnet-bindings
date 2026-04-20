@@ -389,15 +389,31 @@ namespace BindingsGeneration
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec))
                     {
                         // Async+throwing closures use a different pattern - they pass context + start function
-                        // to a Swift wrapper that creates the actual async closure
+                        // to a Swift wrapper that creates the actual async closure. Emission of the
+                        // matching Swift-side @_cdecl adapter in WrapperEmitter.Async requires the full
+                        // Session A gate: baseline shape + outer method is async throws + the method was
+                        // promoted to a @_cdecl wrapper. Without all three, the Swift wrapper would
+                        // render the param as a native closure type — an ABI mismatch with (context,
+                        // startFunc). Fall through to AnyType placeholder so the method is skipped via
+                        // ContainsPlaceholder rather than emitting a broken binding.
                         if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                         {
-                            // Pass context pointer and start function pointer as separate parameters
-                            // The Swift wrapper will use these to create the async closure
-                            var callbackName = ClosureHandler.GetCallbackFunctionName(
-                                _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
-                            AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
-                            AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName), csName + "StartFunc");
+                            bool asyncBridgeEligible =
+                                _env.MethodDecl.UsesCdeclMethodWrapper &&
+                                _env.MethodDecl.IsAsync &&
+                                _env.MethodDecl.Throws &&
+                                _env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureTypeSpec);
+                            if (asyncBridgeEligible)
+                            {
+                                var callbackName = ClosureHandler.GetCallbackFunctionName(
+                                    _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                                AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
+                                AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName), csName + "StartFunc");
+                            }
+                            else
+                            {
+                                AddParameter(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, csName);
+                            }
                         }
                         else if (_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount))
                         {

@@ -1,5 +1,5 @@
 {
-  "git_sha": "18e876ca",
+  "git_sha": "696acbd8",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23532,
+        "lines": 22669,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23532,
+        "lines": 22669,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23532,
+        "lines": 22669,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33076,
+        "lines": 31669,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -670,12 +670,12 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10719,
-    "total_skipped_members": 1873,
+    "total_emitted_members": 10717,
+    "total_skipped_members": 1875,
     "skip_rate_pct": 14.9,
     "skip_reasons": {
       "ModuleInternal": 701,
-      "UnsupportedSignature": 325,
+      "UnsupportedSignature": 327,
       "AnyTypeFallback": 300,
       "SynthesizedCodable": 178,
       "UnsupportedClosure": 129,
@@ -696,7 +696,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1460,
+      "pass": 1461,
       "fail": 0,
       "skip": 40,
       "crash": 0

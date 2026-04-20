@@ -74,4 +74,29 @@ public class AsyncThrowingClosureTests : TestBase
             "Sum of 2*i for i in [0..iterations) should match arithmetic series");
         TestLogger.Info($"AsyncThrowingClosure.MultiInvoke sum={sum}");
     }
+
+    /// <summary>
+    /// Invokes the SAME closure value twice within a single outer Swift call.
+    /// The per-iteration loop above only exercises single-invoke adapter
+    /// lifetime; this covers the case where the adapter must build a fresh
+    /// <c>CheckedContinuation</c> and continuation box on each await, rather
+    /// than reusing stale per-invocation state.
+    /// </summary>
+    public async Task TestBaselineAsyncClosureSameClosureInvokedTwice()
+    {
+        int callCount = 0;
+        Func<Task<int>> userLambda = () =>
+        {
+            int n = System.Threading.Interlocked.Increment(ref callCount);
+            return Task.FromResult(n);
+        };
+
+        var result = await WithTimeout(
+            Functions.CallAsyncThrowingClosureTwiceAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(2, callCount, "Closure should have been invoked exactly twice");
+        AssertEqual(3, result, "Sum of 1 + 2 should be 3");
+        TestLogger.Info($"AsyncThrowingClosure.SameClosureTwice sum={result} callCount={callCount}");
+    }
 }
