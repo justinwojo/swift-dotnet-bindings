@@ -142,10 +142,18 @@ public static class ConstructorWrapperEmitter
     }
 
     /// <summary>
-    /// Checks whether any closure parameter is an async closure.
+    /// Checks whether any closure parameter is an async closure. Session A's
+    /// async-closure bridge routes only through the method-wrapper path; all
+    /// async closures on constructors are still rejected here.
     /// </summary>
     private static bool HasAnyAsyncClosure(MethodEnvironment env)
-        => WrapperValidation.HasAnyAsyncClosure(env);
+        => env.MethodDecl.CSSignature.Skip(1)
+            .Where(env.ClosureHandler.IsClosure)
+            .Any(arg =>
+            {
+                var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+                return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
+            });
 
     /// <summary>
     /// Checks whether any constructor parameter is a protocol existential type.

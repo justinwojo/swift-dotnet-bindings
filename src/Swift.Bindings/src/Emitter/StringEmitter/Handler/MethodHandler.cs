@@ -968,7 +968,16 @@ namespace BindingsGeneration
             {
                 asyncCdeclEligible = methodEnv.MethodDecl.CSSignature.Skip(1).All(p => {
                     if (p.IsGeneric) return false;
-                    if (p.SwiftTypeSpec is ClosureTypeSpec) return false;
+                    if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
+                    {
+                        // Baseline async-throwing closures (`() async throws -> T` with T a
+                        // blittable primitive) are bridged by the async wrapper via
+                        // withCheckedThrowingContinuation. The outer method must also be
+                        // `async throws` — the generated Task {} body emits `try await`
+                        // and routes errors through the async-throws catch harness.
+                        return methodEnv.ClosureHandler.IsBaselineAsyncThrowingClosure(closureSpec)
+                            && methodEnv.MethodDecl.Throws;
+                    }
                     if (MethodWrapperEmitter.IsNestedFrozenStructParam(p, methodEnv.TypeDatabase)) return false;
                     // Frozen blittable struct params are now supported in async via heap allocation
                     // (NativeMemory.Alloc instead of stackalloc). See WrapperEmitter.Async.cs.

@@ -18,11 +18,19 @@ public static class AsyncClosureHelper
     /// Marshals the result to a native buffer and calls the success callback.
     /// </summary>
     /// <typeparam name="T">The return type of the async operation.</typeparam>
-    /// <param name="handle">The GCHandle to the closure state (will be freed on completion).</param>
+    /// <param name="handle">The GCHandle to the closure state. Intentionally leaked — see remarks.</param>
     /// <param name="state">The closure state containing the async function.</param>
     /// <param name="continuationBoxPtr">Pointer to Swift's continuation box.</param>
     /// <param name="successAction">Callback to invoke on success with (boxPtr, resultPtr).</param>
     /// <param name="errorAction">Callback to invoke on error with (boxPtr, errorMsgPtr).</param>
+    /// <remarks>
+    /// The GCHandle is intentionally NOT freed. Async closures share the escaping-closure
+    /// leak semantics documented at <c>WrapperEmitter.Marshalling.cs</c>: Swift may retain
+    /// the closure context and invoke it more than once (e.g. retry, fan-out), so freeing
+    /// after a single invocation would leave Swift with a dangling GCHandle.
+    /// A leak-free model via an explicit Swift-side release callback is tracked as a
+    /// post-1.0 improvement.
+    /// </remarks>
     public static void RunAsync<T>(
         GCHandle handle,
         AsyncThrowingClosureState<T> state,
@@ -36,7 +44,6 @@ public static class AsyncClosureHelper
             {
                 var result = await state.AsyncFunc();
 
-                // Marshal result to native buffer and call Swift's success callback
                 var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
                 try
                 {
@@ -57,9 +64,6 @@ public static class AsyncClosureHelper
                 }
                 finally
                 {
-                    // Dispose the result if it's a disposable wrapper type (e.g., SwiftString
-                    // created by an async closure conversion lambda). Without this, the native
-                    // resource is retained until GC/finalization.
                     (result as IDisposable)?.Dispose();
                 }
             }
@@ -76,10 +80,6 @@ public static class AsyncClosureHelper
                     pinnedBytes.Free();
                 }
             }
-            finally
-            {
-                handle.Free();
-            }
         });
     }
 
@@ -87,7 +87,7 @@ public static class AsyncClosureHelper
     /// Runs an async closure that returns void (Task).
     /// Calls the success callback when complete or error callback on failure.
     /// </summary>
-    /// <param name="handle">The GCHandle to the closure state (will be freed on completion).</param>
+    /// <param name="handle">The GCHandle to the closure state. Intentionally leaked — see <see cref="RunAsync{T}"/> remarks.</param>
     /// <param name="state">The closure state containing the async function.</param>
     /// <param name="continuationBoxPtr">Pointer to Swift's continuation box.</param>
     /// <param name="successAction">Callback to invoke on success with (boxPtr).</param>
@@ -118,10 +118,6 @@ public static class AsyncClosureHelper
                 {
                     pinnedBytes.Free();
                 }
-            }
-            finally
-            {
-                handle.Free();
             }
         });
     }

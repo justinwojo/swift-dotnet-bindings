@@ -190,6 +190,16 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks a generic closure bridge error P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddGenericClosureBridgeErrorPInvoke(string typeKey) => _genericClosureBridgeTypes.Add(typeKey);
 
+    // ==================== Async Closure Swift Wrapper ====================
+
+    private readonly HashSet<string> _asyncClosureSwiftWrapperKeys = new();
+
+    /// <summary>Whether the SwiftBindingsBridgeError error type stub has been emitted for the current Swift module.</summary>
+    public bool AsyncClosureBridgeErrorEmitted { get; set; }
+
+    /// <summary>Marks an async-closure box + resume-callback trio as emitted for a (module, T) pair. Returns true if newly added.</summary>
+    public bool TryAddAsyncClosureSwiftWrapperKey(string key) => _asyncClosureSwiftWrapperKeys.Add(key);
+
     // ==================== NativeAOT Factory Registration ====================
 
     private readonly List<string> _emittedSwiftObjectTypes = new();

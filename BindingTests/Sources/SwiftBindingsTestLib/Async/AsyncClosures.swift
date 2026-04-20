@@ -6,9 +6,15 @@ import Foundation
 // MARK: - Async Closure Parameters
 // Tests: Functions accepting async closures, calling with await
 // Expected C#: Func<Task<T>> or similar async delegate pattern
-// Limitation: Async closures are not yet supported by the generator.
-// Generator bug: Emits _payload/this in static context + Task<T>→T return mismatch.
-// Guarded until generator can handle async closure parameters.
+// Most shapes are still guarded — Session A only ungates the baseline
+// `@escaping () async throws -> T` shape where T is a BitwiseCopyable primitive
+// and the outer method is `async throws`.
+
+/// Baseline async-throwing closure shape supported by Session A:
+/// no args, BitwiseCopyable primitive return, outer method is `async throws`.
+public func callAsyncThrowingClosure(_ closure: @escaping () async throws -> Int32) async throws -> Int32 {
+    return try await closure()
+}
 
 #if swift(>=99.0)
 

@@ -1076,7 +1076,7 @@ namespace BindingsGeneration
                 // context beyond the P/Invoke return (e.g., EventHandler.onComplete stored for later
                 // fire()). Freeing here would leave Swift with a stale GCHandle context.
                 // The callback thunk also does NOT free — escaping closures may fire multiple times.
-                // Async+throwing closures free their GCHandle inside Task.Run's finally block.
+                // Async+throwing closures also intentionally leak — see AsyncClosureHelper.RunAsync.
                 // Optional closures in Swift are always escaping by definition (no @noescape Optional<Closure>
                 // exists), but the inner ClosureTypeSpec may not have the escaping attribute because the ABI
                 // parser only propagates it to top-level closure nodes, not those inside Optional wrappers.

@@ -73,12 +73,15 @@ public static class MethodWrapperEmitter
             return false;
 
         // 8. Closure parameters: allowed only when NeedsClosureCdeclWrapper validates them
-        // AND no plain async closures (GetSwiftClosureAdapterCode only emits sync adapters).
+        // AND no unsupported async closures. Baseline-shape async-throwing closures
+        // (`() async throws -> T` with T a blittable primitive) are bridged via
+        // the async wrapper's withCheckedThrowingContinuation harness, so they fall
+        // outside the "unsupported" bucket (see Session A of async-closure-plan.md).
         if (env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return false;
-            if (HasAnyAsyncClosure(env))
+            if (HasUnsupportedAsyncClosure(env))
                 return false;
         }
 
@@ -1183,12 +1186,12 @@ public static class MethodWrapperEmitter
     }
 
     /// <summary>
-    /// Checks whether any closure parameter is an async closure (IsAsync).
-    /// GetSwiftClosureAdapterCode() only emits synchronous adapter code, so async closures
-    /// (even non-throwing ones) are not supported in @_cdecl wrappers.
+    /// Checks whether any closure parameter is an async closure the emitter can't
+    /// bridge (baseline `() async throws -> primitive` is supported — see
+    /// <see cref="ClosureHandler.IsBaselineAsyncThrowingClosure"/>).
     /// </summary>
-    private static bool HasAnyAsyncClosure(MethodEnvironment env)
-        => WrapperValidation.HasAnyAsyncClosure(env);
+    private static bool HasUnsupportedAsyncClosure(MethodEnvironment env)
+        => WrapperValidation.HasUnsupportedAsyncClosure(env);
 
     /// <summary>
     /// Checks whether any method parameter is a protocol existential type.

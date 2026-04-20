@@ -412,18 +412,28 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Checks whether any closure parameter is an async closure (IsAsync).
-    /// GetSwiftClosureAdapterCode() only emits synchronous adapter code, so async closures
-    /// (even non-throwing ones) are not supported in @_cdecl wrappers.
+    /// Checks whether any closure parameter is an async closure the emitter can NOT
+    /// bridge. Baseline async-throwing closures (see
+    /// <see cref="ClosureHandler.IsBaselineAsyncThrowingClosure"/>) are emitted via
+    /// <c>withCheckedThrowingContinuation</c> and are therefore considered supported;
+    /// anything else (async-only, arg-bearing, non-primitive return) falls through
+    /// the existing skip path.
     /// </summary>
-    public static bool HasAnyAsyncClosure(MethodEnvironment env)
+    public static bool HasUnsupportedAsyncClosure(MethodEnvironment env)
     {
         return env.MethodDecl.CSSignature.Skip(1)
             .Where(env.ClosureHandler.IsClosure)
             .Any(arg =>
             {
                 var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
-                return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
+                if (spec == null || !env.ClosureHandler.IsAsyncClosure(spec))
+                    return false;
+                if (!env.ClosureHandler.IsBaselineAsyncThrowingClosure(spec))
+                    return true;
+                // Baseline bridge requires an async-throws outer method: the
+                // generated Task {} body uses `try await` and routes errors
+                // through the async-throws harness's catch block.
+                return !env.MethodDecl.IsAsync || !env.MethodDecl.Throws;
             });
     }
 
@@ -1031,7 +1041,16 @@ public static class WrapperValidation
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return "closure_params";
-            if (HasAnyAsyncClosure(env))
+            // Sync outer methods cannot bridge async closures (no Task harness to host
+            // the adapter). Keep rejecting regardless of baseline-shape eligibility —
+            // async-closure bridging is currently gated to async outer methods only.
+            if (env.MethodDecl.CSSignature.Skip(1)
+                    .Where(env.ClosureHandler.IsClosure)
+                    .Any(arg =>
+                    {
+                        var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+                        return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
+                    }))
                 return "closure_params";
         }
 

@@ -853,6 +853,24 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Determines whether an async-throwing closure matches the Session A baseline
+    /// shape: `@escaping () async throws -> T` where T is a bitwise-copyable
+    /// primitive (Int32, Int64, Double, …). The emitter can bridge this shape
+    /// into Swift via <c>withCheckedThrowingContinuation</c>; any wider shape
+    /// falls through to the existing "unsupported async closure" skip path.
+    /// </summary>
+    public bool IsBaselineAsyncThrowingClosure(ClosureTypeSpec closureTypeSpec)
+    {
+        if (!closureTypeSpec.IsAsync || !closureTypeSpec.Throws)
+            return false;
+        if (closureTypeSpec.EachArgument().Any())
+            return false;
+        if (closureTypeSpec.ReturnType is not NamedTypeSpec namedReturn || namedReturn.ContainsGenericParameters)
+            return false;
+        return CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name);
+    }
+
+    /// <summary>
     /// Gets the P/Invoke function pointer type for an async+throwing closure's "start" function.
     /// The start function is called synchronously by Swift and spawns the async work via Task.Run.
     /// Signature: (contextPtr, continuationBoxPtr, successCallbackPtr, errorCallbackPtr) -> void

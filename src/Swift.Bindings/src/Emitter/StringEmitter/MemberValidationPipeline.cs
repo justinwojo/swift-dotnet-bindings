@@ -408,7 +408,15 @@ public class MemberValidationPipeline
         {
             if (!ClosureEmitter.NeedsClosureCdeclWrapper(env.MethodDecl, env.ClosureHandler))
                 return "unsupported_closure_params";
-            if (WrapperValidation.HasAnyAsyncClosure(env))
+            // Constructors still reject all async closures — the async-closure bridge
+            // (Session A) is wired only through the async method wrapper path.
+            if (env.MethodDecl.CSSignature.Skip(1)
+                    .Where(env.ClosureHandler.IsClosure)
+                    .Any(arg =>
+                    {
+                        var spec = env.ClosureHandler.GetClosureTypeSpec(arg);
+                        return spec != null && env.ClosureHandler.IsAsyncClosure(spec);
+                    }))
                 return "async_closure_params";
         }
         if (env.MethodDecl.IsAsync) return "async_constructor";
