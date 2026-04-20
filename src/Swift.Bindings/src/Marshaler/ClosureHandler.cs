@@ -382,8 +382,12 @@ public class ClosureHandler
                     // This enables Optional<String> and [String] closure returns.
                     if (genericParam is NamedTypeSpec innerNamed && !innerNamed.ContainsGenericParameters && innerNamed.HasModule())
                     {
-                        var innerTypeName = SwiftTypeName.FromModuleQualifiedName(innerNamed.Name);
-                        if (_typeDatabase.TryGetTypeRecord(innerTypeName, out var innerRecord) &&
+                        // Use the NamedTypeSpec overload so ObjC-bridged types from auto-bridge
+                        // Apple modules (e.g. PassKit classes) resolve via the synthetic
+                        // ObjCBridged fallback — without this, Optional<PKPaymentAuthorizationResult>
+                        // would bypass the Optional<Class> block because the scanned DB has no record.
+                        if (_typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord) &&
+                            innerRecord != TypeDatabaseExtensions.AnyType &&
                             MarshallingHelpers.RequiresMemoryManagement(innerRecord))
                         {
                             // Allow Swift.String through — the callback uses indirect return
@@ -401,6 +405,15 @@ public class ClosureHandler
             // GetSwiftReturnConversion and RequiresIndirectReturnMarshalling don't handle
             // complex enum returns. Only complex enum parameters are supported (via heap alloc).
             if (IsComplexEnum(typeSpec))
+                return false;
+
+            // ObjC-bridged class returns are not supported as closure returns. The closure-invoker
+            // emitter reconstructs a C# class from the raw pointer via `new Type(SwiftHandle)`,
+            // which is the Swift-class pattern. ObjC-bridged types don't expose that constructor
+            // (they take NSCoder / IntPtr factories instead), so the generated code fails to
+            // compile. They remain supported as closure PARAMETERS — e.g. PassKit completion
+            // handlers `(PKPaymentAuthorizationResult) -> Void` pass pointers directly.
+            if (IsObjCBridgedClass(typeSpec))
                 return false;
 
             return true;
@@ -508,9 +521,18 @@ public class ClosureHandler
                 if (!namedType.HasModule())
                     return false;
 
-                // Non-generic named types must be in the type database
-                var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var closureTypeRecord))
+                // Use the NamedTypeSpec overload so ObjC-bridged types from auto-bridge
+                // Apple modules (e.g. PassKit classes like PKPaymentAuthorizationResult)
+                // resolve via the synthetic ObjCBridged fallback in TypeDatabaseExtensions.
+                if (!_typeDatabase.TryGetTypeRecord(namedType, out var closureTypeRecord))
+                    return false;
+
+                // The NamedTypeSpec overload short-circuits several non-real types
+                // (Swift.Any, Swift.AnyObject, metatypes, unsupported Apple modules) to
+                // TypeDatabaseExtensions.AnyType. Those are NOT supported as closure params
+                // — downstream callback emission would produce SwiftMarshal calls against
+                // Swift.AnyType, which throws at metadata lookup. Reject them here.
+                if (closureTypeRecord == TypeDatabaseExtensions.AnyType)
                     return false;
 
                 // Reject bare generic types (e.g., Dictionary without <K,V>) — they resolve
@@ -1487,8 +1509,11 @@ public class ClosureHandler
         if (!namedType.HasModule())
             return false;
 
-        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
-        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+        // Use the NamedTypeSpec overload so ObjC-bridged types from auto-bridge
+        // Apple modules resolve via the synthetic ObjCBridged fallback (e.g. PassKit
+        // classes that never appear as plain parameters elsewhere and therefore have
+        // no scanned TypeRecord).
+        if (!_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
             return false;
 
         return MarshallingHelpers.IsObjCBridged(typeRecord)

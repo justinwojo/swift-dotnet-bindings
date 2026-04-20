@@ -2278,6 +2278,174 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void IsObjCBridgedClass_PassKitSyntheticFallback_ReturnsTrue()
+    {
+        // PassKit types have no scanned TypeRecord but must resolve via the synthetic
+        // ObjCBridged fallback in TypeDatabaseExtensions (apple-frameworks.json registers
+        // PassKit with autoBridge=true and PK prefix). Without the NamedTypeSpec-overload
+        // migration this returned false, causing StripeApplePay/StripeIssuing completion
+        // handlers like `(PKPaymentAuthorizationResult) -> Void` to be skipped.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.True(handler.IsObjCBridgedClass(new NamedTypeSpec("PassKit.PKPaymentAuthorizationResult")));
+    }
+
+    [Fact]
+    public void IsObjCBridgedClass_SwiftAny_ReturnsFalse()
+    {
+        // Swift.Any short-circuits to TypeDatabaseExtensions.AnyType, which has no
+        // ObjCBridged/ObjCRooted flags. Guard against future regressions that would
+        // incorrectly route AnyType through ObjC pointer ABI.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsObjCBridgedClass(new NamedTypeSpec("Swift.Any")));
+    }
+
+    [Fact]
+    public void IsObjCBridgedClass_SwiftAnyObject_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+        Assert.False(handler.IsObjCBridgedClass(new NamedTypeSpec("Swift.AnyObject")));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_PassKitSyntheticObjCBridged_AsParameter_ReturnsTrue()
+    {
+        // End-to-end: a closure parameter whose type resolves via the synthetic ObjC
+        // fallback must pass IsSupportedClosureParameterType. Pairs with the PassKit
+        // completion-handler unblock for StripeApplePay / StripeIssuing.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("PassKit.PKPaymentAuthorizationResult"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.True(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_SwiftAnyParameter_ReturnsFalse()
+    {
+        // After the NamedTypeSpec-overload migration, Swift.Any short-circuits to
+        // TypeDatabaseExtensions.AnyType. IsSupportedClosureParameterType must still
+        // reject AnyType — downstream callback emission would produce SwiftMarshal
+        // calls against Swift.AnyType, which throws at metadata lookup.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Any"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_SwiftAnyObjectParameter_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.AnyObject"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_MetatypeParameter_ReturnsFalse()
+    {
+        // Metatypes short-circuit to TypeDatabaseExtensions.AnyType in the NamedTypeSpec
+        // overload; the P1.1 guard in IsSupportedClosureParameterType must reject them.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.Config.Type"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_UnsupportedAppleModuleParameter_ReturnsFalse()
+    {
+        // Types from unsupported Apple modules (Combine, XCTest, ...) short-circuit to
+        // TypeDatabaseExtensions.AnyType in the NamedTypeSpec overload; the P1.1 guard
+        // must reject them so downstream callback emission doesn't generate
+        // SwiftMarshal calls against Swift.AnyType.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("Combine.Publisher"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_UnknownModuleTypeAsParameter_ReturnsFalse()
+    {
+        // Negative pin: types not in the type database AND not an ObjC-bridged Apple
+        // framework (no PK/NS/UI/etc prefix, unregistered module) still fail cleanly.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            new NamedTypeSpec("UnknownModule.UnknownType"),
+            TupleTypeSpec.Empty);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_ObjCBridgedReturn_Blocked()
+    {
+        // ObjC-bridged class returns (e.g. CoreAnimation.CAAnimation, PassKit.PKPayment)
+        // fail closure-invoker emission because the generated code uses `new Type(SwiftHandle)`
+        // which only exists on Swift classes, not ObjC-bridged types. Keep them rejected as
+        // closure RETURN types. They remain supported as closure PARAMETERS.
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var closure = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("PassKit.PKPaymentAuthorizationResult"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
+    public void IsSupportedClosure_B7_OptionalObjCBridgedReturn_StillBlocked()
+    {
+        // B7 guard must survive the NamedTypeSpec-overload migration. Optional<PKType>
+        // returns resolve the inner type via synthetic ObjCBridged fallback, which is
+        // memory-managed — must still be rejected (matches the Optional<Class> block
+        // in IsSupportedClosure_B7_OptionalClassReturn_StillBlocked).
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("PassKit.PKPaymentAuthorizationResult"));
+
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, optionalReturn);
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        Assert.False(handler.IsSupportedClosure(closure));
+    }
+
+    [Fact]
     public void IsReferenceType_Class_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();

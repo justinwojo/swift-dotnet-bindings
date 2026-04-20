@@ -421,6 +421,7 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UIImage")]
     [InlineData("AppKit.NSImage")]
     [InlineData("CoreImage.CIImage")]
+    [InlineData("PassKit.PKPaymentAuthorizationResult")]
     public void TryGetTypeRecord_AppleFrameworkType_ReturnsObjCBridgedRecord(string swiftType)
     {
         var typeDatabase = new TypeDatabase();
