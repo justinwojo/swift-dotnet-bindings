@@ -149,6 +149,12 @@ namespace BindingsGeneration
                     var csName = NameProvider.GetCSharpParameterName(p);
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(p.SwiftTypeSpec);
                     var typeName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                    // Swift classes project to an instance pointer payload, so
+                    // InitializeWithCopy needs the address of a local IntPtr
+                    // (&selfPtr pattern). Non-frozen structs / enums project to a
+                    // buffer payload, so the buffer address is already the value
+                    // pointer and we pass Payload directly.
+                    bool isClassPayload = typeRecord.Kind == TypeRecordKind.Class;
 
                     // For native-remapped types (e.g., byte[] -> Swift.Foundation.Data), we need to
                     // convert to the Swift type first before copying. The wrapper signature uses the
@@ -157,13 +163,19 @@ namespace BindingsGeneration
                     {
                         // Convert native type to Swift type, then copy from Swift type
                         var conversion = _env.TypeConversionHandler.GetNativeParameterConversion(csName, p.SwiftTypeSpec);
+                        var srcExpr = isClassPayload
+                            ? $"&{csName}SelfPtr"
+                            : $"(void*){csName}SwiftTemp.Payload.DangerousGetHandle()";
+                        var selfPtrDecl = isClassPayload
+                            ? $"IntPtr {csName}SelfPtr = {csName}SwiftTemp.Payload.DangerousGetHandle();\n"
+                            : "";
                         csWriter.WriteLines($"""
                             var {csName}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
                             IntPtr {csName}CopyBuffer = (IntPtr)NativeMemory.Alloc({csName}Metadata.Size);
                             using var {csName}SwiftTemp = {conversion};
-                            {csName}Metadata.ValueWitnessTable->InitializeWithCopy(
+                            {selfPtrDecl}{csName}Metadata.ValueWitnessTable->InitializeWithCopy(
                                 (void*){csName}CopyBuffer,
-                                (void*){csName}SwiftTemp.Payload.DangerousGetHandle(),
+                                {srcExpr},
                                 {csName}Metadata);
                             IntPtr {csName}Handle = {csName}CopyBuffer;
                             var {csName}CopyBufferWrapper = new CopyBufferWithType({csName}CopyBuffer, {csName}Metadata);
@@ -171,12 +183,18 @@ namespace BindingsGeneration
                     }
                     else
                     {
+                        var srcExpr = isClassPayload
+                            ? $"&{csName}SelfPtr"
+                            : $"(void*){csName}.Payload.DangerousGetHandle()";
+                        var selfPtrDecl = isClassPayload
+                            ? $"IntPtr {csName}SelfPtr = {csName}.Payload.DangerousGetHandle();\n"
+                            : "";
                         csWriter.WriteLines($"""
                             var {csName}Metadata = SwiftObjectHelper<{typeName}>.GetTypeMetadata();
                             IntPtr {csName}CopyBuffer = (IntPtr)NativeMemory.Alloc({csName}Metadata.Size);
-                            {csName}Metadata.ValueWitnessTable->InitializeWithCopy(
+                            {selfPtrDecl}{csName}Metadata.ValueWitnessTable->InitializeWithCopy(
                                 (void*){csName}CopyBuffer,
-                                (void*){csName}.Payload.DangerousGetHandle(),
+                                {srcExpr},
                                 {csName}Metadata);
                             IntPtr {csName}Handle = {csName}CopyBuffer;
                             var {csName}CopyBufferWrapper = new CopyBufferWithType({csName}CopyBuffer, {csName}Metadata);
@@ -798,9 +816,28 @@ namespace BindingsGeneration
                     if (baselineAsyncClosureParams.Any(bp => bp.Name == p.Name))
                     {
                         cdeclReconstructionLines.Add(ClosureEmitter.BuildAsyncClosureHandoffInit(p.Name));
+                        // Per-arity @convention(c) startFunc: args widen the middle of the signature
+                        // (ctx, box, A0_abi, A1_abi, …, successFP, errorFP).
+                        var bpClosureSpec = (ClosureTypeSpec)p.SwiftTypeSpec;
+                        var sigParts = new List<string> { "UnsafeMutableRawPointer", "UnsafeMutableRawPointer" };
+                        foreach (var arg in bpClosureSpec.EachArgument())
+                        {
+                            var cat = _env.ClosureHandler.GetAsyncThrowingArgCategory(arg);
+                            sigParts.Add(cat switch
+                            {
+                                ClosureHandler.AsyncThrowingArgCategory.Primitive => SwiftTypeNameHelper.GetSwiftTypeName(arg),
+                                ClosureHandler.AsyncThrowingArgCategory.SwiftString => "UnsafeMutableRawPointer",
+                                ClosureHandler.AsyncThrowingArgCategory.SwiftClass => "UnsafeMutableRawPointer",
+                                _ => throw new InvalidOperationException(
+                                    $"Unsupported async-throwing closure arg category {cat} for '{arg}'")
+                            });
+                        }
+                        sigParts.Add("UnsafeMutableRawPointer");
+                        sigParts.Add("UnsafeMutableRawPointer");
+                        var sig = string.Join(", ", sigParts);
                         return $"_ {p.Name}ContextPtr: UnsafeMutableRawPointer, "
                              + $"_ {p.Name}StartFunc: @convention(c) "
-                             + "(UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void";
+                             + $"({sig}) -> Void";
                     }
                     // For closure parameters in async wrappers, closures are captured by Task {}
                     // which requires @escaping (outlives function) and @Sendable (concurrency safety).
@@ -1084,8 +1121,33 @@ namespace BindingsGeneration
                     var swiftReturnType = SwiftTypeNameHelper.GetSwiftTypeName(closureSpec.ReturnType);
                     ClosureEmitter.EmitAsyncClosureBoxIfNeeded(
                         swiftWriter, moduleName, swiftReturnType, _emissionContext);
+                    // Per-arity arg info: ParamName (a0, a1, …), Swift-side signature type
+                    // (Int32 / String / MyClass), @convention(c) ABI type
+                    // (UnsafeMutableRawPointer for reference + string, else primitive), and
+                    // the category that drives the adapter's marshal expression.
+                    var closureArgs = closureSpec.EachArgument().ToList();
+                    var adapterArgs = new List<ClosureEmitter.AsyncClosureArgInfo>(closureArgs.Count);
+                    for (int i = 0; i < closureArgs.Count; i++)
+                    {
+                        var arg = closureArgs[i];
+                        var category = _env.ClosureHandler.GetAsyncThrowingArgCategory(arg);
+                        var swiftSignatureType = SwiftTypeNameHelper.GetSwiftTypeName(arg);
+                        var abiType = category switch
+                        {
+                            ClosureHandler.AsyncThrowingArgCategory.Primitive => swiftSignatureType,
+                            ClosureHandler.AsyncThrowingArgCategory.SwiftString => "UnsafeMutableRawPointer",
+                            ClosureHandler.AsyncThrowingArgCategory.SwiftClass => "UnsafeMutableRawPointer",
+                            _ => throw new InvalidOperationException(
+                                $"Unsupported async-throwing closure arg category {category} for '{arg}'")
+                        };
+                        adapterArgs.Add(new ClosureEmitter.AsyncClosureArgInfo(
+                            paramName: $"a{i}",
+                            swiftSignatureType: swiftSignatureType,
+                            abiType: abiType,
+                            category: category));
+                    }
                     adapterParts.Add(ClosureEmitter.BuildAsyncClosureAdapter(
-                        bp.Name, moduleName, swiftReturnType, adapterIndent));
+                        bp.Name, moduleName, swiftReturnType, adapterArgs, adapterIndent));
                 }
                 adapterSetupCode = string.Join("\n", adapterParts) + "\n";
             }

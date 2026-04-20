@@ -36,18 +36,17 @@ public static partial class ClosureEmitter
                 public init(_ description: String) { self.description = description }
             }
 
-            // Sendable shim for the (contextPtr, startFunc) pair that C# passes in
+            // Sendable shim for the (contextPtr, startFuncPtr) pair that C# passes in
             // place of an async closure. UnsafeMutableRawPointer is non-Sendable in
             // Swift 6, so we ferry the pair across Task {} via this @unchecked
             // Sendable struct. Safe because: (a) the context pointer is owned by
             // C# for the lifetime of the outer call, (b) the start function is a
             // stable @_cdecl symbol with no mutable captured state.
+            // startFuncPtr is opaque — each adapter site unsafeBitCasts it to its
+            // own per-arity @convention(c) signature.
             private struct _SBW_AsyncClosureHandoff: @unchecked Sendable {
                 let contextPtr: UnsafeMutableRawPointer
-                let startFunc: @convention(c) (UnsafeMutableRawPointer,
-                                               UnsafeMutableRawPointer,
-                                               UnsafeMutableRawPointer,
-                                               UnsafeMutableRawPointer) -> Void
+                let startFuncPtr: UnsafeMutableRawPointer
             }
 
             """);
@@ -117,20 +116,56 @@ public static partial class ClosureEmitter
     public static string BuildAsyncClosureHandoffInit(string paramName)
     {
         var handoffVar = GetAsyncClosureHandoffVarName(paramName);
-        return $"let {handoffVar} = _SBW_AsyncClosureHandoff(contextPtr: {paramName}ContextPtr, startFunc: {paramName}StartFunc)";
+        // The typed @convention(c) startFunc arrives with a per-arity signature. Erase
+        // it to a raw pointer here so the Sendable shim has a single shape across all
+        // call sites; each adapter casts back to its own signature.
+        return $"let {handoffVar} = _SBW_AsyncClosureHandoff(contextPtr: {paramName}ContextPtr, startFuncPtr: unsafeBitCast({paramName}StartFunc, to: UnsafeMutableRawPointer.self))";
+    }
+
+    /// <summary>
+    /// Info for a single async-throwing closure arg used when building the Swift
+    /// adapter body. Populated from <see cref="ClosureHandler.GetAsyncThrowingArgCategory"/>.
+    /// <list type="bullet">
+    /// <item><c>ParamName</c>: Swift-side parameter name (<c>a0</c>, <c>a1</c>, …) bound inside the adapter.</item>
+    /// <item><c>SwiftSignatureType</c>: type as rendered in the adapter's Swift signature (<c>String</c>, <c>MyClass</c>, <c>Int32</c>).</item>
+    /// <item><c>AbiType</c>: type in the <c>@convention(c)</c> startFunc signature (<c>UnsafeMutableRawPointer</c> for reference/string, else primitive).</item>
+    /// <item><c>Category</c>: drives the marshalling expression inside <c>withCheckedThrowingContinuation</c>.</item>
+    /// </list>
+    /// </summary>
+    public readonly struct AsyncClosureArgInfo
+    {
+        public string ParamName { get; }
+        public string SwiftSignatureType { get; }
+        public string AbiType { get; }
+        public ClosureHandler.AsyncThrowingArgCategory Category { get; }
+
+        public AsyncClosureArgInfo(
+            string paramName,
+            string swiftSignatureType,
+            string abiType,
+            ClosureHandler.AsyncThrowingArgCategory category)
+        {
+            ParamName = paramName;
+            SwiftSignatureType = swiftSignatureType;
+            AbiType = abiType;
+            Category = category;
+        }
     }
 
     /// <summary>
     /// Swift block that constructs the <c>adapted_&lt;name&gt;</c> closure inside
     /// <c>Task { }</c>, before the <c>try await &lt;target&gt;</c> line. The
-    /// adapter routes Swift's <c>() async throws -&gt; T</c> into the C# start
-    /// thunk via <c>withCheckedThrowingContinuation</c>.
+    /// adapter routes Swift's <c>(A0, A1, …) async throws -&gt; T</c> into the C#
+    /// start thunk via <c>withCheckedThrowingContinuation</c>. Args are marshalled
+    /// synchronously inside the continuation body (primitive: pass-through, String:
+    /// nested <c>withUnsafePointer</c>, class: <c>Unmanaged.passUnretained.toOpaque</c>).
     /// </summary>
     /// <param name="indent">Whitespace prefix applied to every emitted line.</param>
     public static string BuildAsyncClosureAdapter(
         string paramName,
         string moduleName,
         string swiftReturnType,
+        IReadOnlyList<AsyncClosureArgInfo> args,
         string indent)
     {
         var sanitizedModule = SanitizeModuleName(moduleName);
@@ -140,11 +175,87 @@ public static partial class ClosureEmitter
         var handoffVar = GetAsyncClosureHandoffVarName(paramName);
         var adaptedVar = GetAdaptedClosureVarName(paramName);
 
+        // Per-arity @Sendable closure signature. Zero args -> `()`, otherwise `(A0, A1, …)`.
+        var closureParamList = args.Count == 0
+            ? "()"
+            : "(" + string.Join(", ", args.Select(a => a.SwiftSignatureType)) + ")";
+        var closureParamBindings = args.Count == 0
+            ? ""
+            : "(" + string.Join(", ", args.Select(a => a.ParamName)) + ") in ";
+
+        // Per-arity @convention(c) startFunc ABI type. Args appear BETWEEN (ctx, box)
+        // and (successFP, errorFP) to match the C# Start thunk layout.
+        var startAbiParams = "UnsafeMutableRawPointer, UnsafeMutableRawPointer";
+        foreach (var a in args)
+            startAbiParams += ", " + a.AbiType;
+        startAbiParams += ", UnsafeMutableRawPointer, UnsafeMutableRawPointer";
+
+        // Each arg's call-site expression and the set of `withUnsafePointer` nests we
+        // need to wrap the final startFunc call in (only Strings need one).
+        var argCallExprs = new List<string>();
+        var stringNests = new List<AsyncClosureArgInfo>();
+        foreach (var a in args)
+        {
+            switch (a.Category)
+            {
+                case ClosureHandler.AsyncThrowingArgCategory.Primitive:
+                    argCallExprs.Add(a.ParamName);
+                    break;
+                case ClosureHandler.AsyncThrowingArgCategory.SwiftString:
+                    stringNests.Add(a);
+                    argCallExprs.Add($"UnsafeMutableRawPointer(mutating: {a.ParamName}Ptr)");
+                    break;
+                case ClosureHandler.AsyncThrowingArgCategory.SwiftClass:
+                    argCallExprs.Add($"Unmanaged.passUnretained({a.ParamName}).toOpaque()");
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"AsyncClosureArgInfo '{a.ParamName}' has unsupported category {a.Category}");
+            }
+        }
+
+        var callArgList = string.Join(", ", argCallExprs);
+        var innerIndent = indent + "        ";
+
+        // Emit the innermost call: typedStart(ctx, box, a0_raw, a1_raw, …, successFP, errorFP)
+        string callLine;
+        if (args.Count == 0)
+        {
+            callLine = $"{innerIndent}typedStart({handoffVar}.contextPtr, boxPtr, successFP, errorFP)";
+        }
+        else
+        {
+            callLine = $"{innerIndent}typedStart({handoffVar}.contextPtr, boxPtr, {callArgList}, successFP, errorFP)";
+        }
+
+        // Nest `withUnsafePointer(to: aN) { aNPtr in … }` blocks for each String arg.
+        // Outermost first, innermost deepest. The deepest line is the typedStart(…) call.
+        string innerBlock = callLine;
+        if (stringNests.Count > 0)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < stringNests.Count; i++)
+            {
+                var openIndent = innerIndent + new string(' ', 4 * i);
+                sb.AppendLine($"{openIndent}withUnsafePointer(to: {stringNests[i].ParamName}) {{ ({stringNests[i].ParamName}Ptr: UnsafePointer<{stringNests[i].SwiftSignatureType}>) in");
+            }
+            var deepestIndent = innerIndent + new string(' ', 4 * stringNests.Count);
+            sb.AppendLine(args.Count == 0
+                ? $"{deepestIndent}typedStart({handoffVar}.contextPtr, boxPtr, successFP, errorFP)"
+                : $"{deepestIndent}typedStart({handoffVar}.contextPtr, boxPtr, {callArgList}, successFP, errorFP)");
+            for (int i = stringNests.Count - 1; i >= 0; i--)
+            {
+                var closeIndent = innerIndent + new string(' ', 4 * i);
+                sb.AppendLine($"{closeIndent}}}");
+            }
+            innerBlock = sb.ToString().TrimEnd('\r', '\n');
+        }
+
         return $$"""
             {{indent}}// Adapter closure for async-throwing closure parameter '{{paramName}}'.
-            {{indent}}// Bridges Swift's `() async throws -> {{swiftReturnType}}` back into the C#
-            {{indent}}// start thunk via a CheckedContinuation owned by the per-T box class.
-            {{indent}}let {{adaptedVar}}: @Sendable () async throws -> {{swiftReturnType}} = {
+            {{indent}}// Bridges Swift's `{{closureParamList}} async throws -> {{swiftReturnType}}` back into
+            {{indent}}// the C# start thunk via a CheckedContinuation owned by the per-T box class.
+            {{indent}}let {{adaptedVar}}: @Sendable {{closureParamList}} async throws -> {{swiftReturnType}} = { {{closureParamBindings}}
             {{indent}}    return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<{{swiftReturnType}}, Error>) in
             {{indent}}        let box = {{boxClassName}}(cont)
             {{indent}}        let boxPtr = Unmanaged.passRetained(box).toOpaque()
@@ -156,7 +267,9 @@ public static partial class ClosureEmitter
             {{indent}}            {{symbolRoot}}_error as
             {{indent}}                @convention(c) (UnsafeMutableRawPointer, UnsafePointer<CChar>) -> Void,
             {{indent}}            to: UnsafeMutableRawPointer.self)
-            {{indent}}        {{handoffVar}}.startFunc({{handoffVar}}.contextPtr, boxPtr, successFP, errorFP)
+            {{indent}}        let typedStart = unsafeBitCast({{handoffVar}}.startFuncPtr,
+            {{indent}}            to: (@convention(c) ({{startAbiParams}}) -> Void).self)
+            {{innerBlock}}
             {{indent}}    }
             {{indent}}}
             """;

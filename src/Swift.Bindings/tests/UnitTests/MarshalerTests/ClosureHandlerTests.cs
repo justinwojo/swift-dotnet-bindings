@@ -543,21 +543,57 @@ public class ClosureHandlerTests
     }
 
     [Fact]
-    public void IsSupportedClosure_WithAsyncThrowingClosureWithParams_ReturnsFalse()
+    public void IsBaselineAsyncThrowingClosure_PrimitiveArgAndReturn_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Async + throwing closures WITH parameters are NOT supported (B13).
-        // AsyncThrowingClosureState<T>.AsyncFunc is Func<Task<T>> (parameterless),
-        // so (Int) async throws -> Bool would produce Func<Int, Task<Bool>> vs Func<Task<Bool>>.
+        // Session B: async-throwing closures with a primitive arg and a blittable primitive
+        // return type are accepted by the per-arity bridge gate.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("Swift.Bool"));
+            new NamedTypeSpec("Swift.Int"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
 
-        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.True(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsBaselineAsyncThrowingClosure_BoolArg_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Session B: arg categories are Primitive / SwiftString / SwiftClass. Bool is
+        // excluded from the blittable-primitive set because C# [UnmanagedCallersOnly]
+        // cannot accept a non-blittable Bool on the ABI.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsBaselineAsyncThrowingClosure_ObjCBridgedArg_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // ObjC-bridged / ObjC-rooted class args must NOT be promoted into the Session B
+        // SwiftClass path — the Start thunk uses Arc.Retain + SwiftMarshal.MarshalFromSwift<T>,
+        // which is wrong for ObjC projections (they require Handle/GetNSObject semantics).
+        // The closure must fall through to the generic "unsupported async closure" skip path.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Foundation.NSError"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
     }
 
     [Fact]

@@ -40,3 +40,63 @@ public sealed class AsyncThrowingClosureStateVoid
     /// </summary>
     public CancellationTokenSource? CancellationSource { get; set; }
 }
+
+/// <summary>
+/// Async-throwing closure state for a single-arg closure <c>(A0) async throws -&gt; TResult</c>.
+/// The Start thunk marshals the Swift-owned argument synchronously before <c>Task.Run</c>
+/// and captures the managed value inside the closure that calls <see cref="AsyncFunc"/>.
+/// </summary>
+public sealed class AsyncThrowingClosureState<A0, TResult>
+{
+    public required Func<A0, Task<TResult>> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Single-arg void-returning async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureStateVoid<A0>
+{
+    public required Func<A0, Task> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Two-arg async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureState<A0, A1, TResult>
+{
+    public required Func<A0, A1, Task<TResult>> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Two-arg void-returning async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureStateVoid<A0, A1>
+{
+    public required Func<A0, A1, Task> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Three-arg async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureState<A0, A1, A2, TResult>
+{
+    public required Func<A0, A1, A2, Task<TResult>> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Three-arg void-returning async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureStateVoid<A0, A1, A2>
+{
+    public required Func<A0, A1, A2, Task> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Four-arg async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureState<A0, A1, A2, A3, TResult>
+{
+    public required Func<A0, A1, A2, A3, Task<TResult>> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}
+
+/// <summary>Four-arg void-returning async-throwing closure state.</summary>
+public sealed class AsyncThrowingClosureStateVoid<A0, A1, A2, A3>
+{
+    public required Func<A0, A1, A2, A3, Task> AsyncFunc { get; init; }
+    public CancellationTokenSource? CancellationSource { get; set; }
+}

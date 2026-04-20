@@ -9,6 +9,11 @@ public static partial class ClosureEmitter
     /// Emits an [UnmanagedCallersOnly] "start" callback function for an async+throwing closure.
     /// This function is called synchronously by Swift and spawns Task.Run to execute the async work.
     /// When the async work completes, it calls the appropriate Swift callback (success or error).
+    ///
+    /// Per-arity (Session B): the Start thunk widens between (contextPtr, continuationBoxPtr)
+    /// and (successFuncPtr, errorFuncPtr) with one ABI-typed slot per closure arg
+    /// (primitive scalar, or IntPtr for String/class). Args are marshalled synchronously
+    /// BEFORE Task.Run — Swift-owned pointers die the moment this thunk returns.
     /// </summary>
     /// <param name="csWriter">The C# writer.</param>
     /// <param name="methodName">The name of the method containing the closure parameter.</param>
@@ -27,10 +32,7 @@ public static partial class ClosureEmitter
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName) + "_Start";
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
 
-        // Get the ABI type for the state — use projection's PInvokeType when it differs
-        // from PublicType. TranslateTypeSpecToCSharp returns projected types (e.g., byte[]
-        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Foundation.Data)
-        // because runtime helpers like AsyncClosureHelper.RunDataAsync expect them.
+        // Return ABI type — projected when different from public (e.g., Data → byte[]).
         var returnAbiType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
@@ -42,43 +44,84 @@ public static partial class ClosureEmitter
                 returnAbiType = projection.PInvokeType;
         }
 
-        // Determine the state type based on return type
+        // Per-arity arg info — ABI type (int/long/IntPtr), public type (int/string/Class),
+        // raw param name a0/a1/…, managed var name a0Val/a1Val/….
+        var args = closureTypeSpec.EachArgument().ToList();
+        var argAbiTypes = args.Select(a => closureHandler.GetAsyncThrowingArgCSharpAbiType(a)).ToList();
+        var argPublicTypes = args.Select(a => closureHandler.GetAsyncThrowingArgPublicCSharpType(a)).ToList();
+
+        // State type: AsyncThrowingClosureState<A0Public,…,TResult> or Void variant.
         var stateType = hasReturn
-            ? $"AsyncThrowingClosureState<{returnAbiType}>"
-            : "AsyncThrowingClosureStateVoid";
+            ? args.Count == 0
+                ? $"AsyncThrowingClosureState<{returnAbiType}>"
+                : $"AsyncThrowingClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>"
+            : args.Count == 0
+                ? "AsyncThrowingClosureStateVoid"
+                : $"AsyncThrowingClosureStateVoid<{string.Join(", ", argPublicTypes)}>";
 
         // Check if return type is Data (special handling for byte arrays)
         var isDataReturn = hasReturn &&
             closureTypeSpec.ReturnType is NamedTypeSpec namedType &&
             (namedType.Name == "Foundation.Data" || namedType.Name == "Swift.Foundation.Data");
+        if (isDataReturn && args.Count > 0)
+        {
+            throw new NotSupportedException(
+                "Async-throwing closures with Data return and arguments are not supported; "
+                + "widen DataAsyncClosureHelper first.");
+        }
 
-        // NOTE: C# async lambdas cannot contain 'unsafe' blocks, so we use a helper method pattern.
-        // The synchronous callback method is marked 'unsafe' to convert function pointers to delegates,
-        // then passes those delegates to a non-unsafe helper that runs the async work.
+        // Build the Start thunk's param list: (ctx, box, a0_raw, a1_raw, …, successFP, errorFP).
+        var paramLines = new List<string>
+        {
+            "IntPtr contextPtr,          // GCHandle to " + stateType,
+            "IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer"
+        };
+        for (int i = 0; i < args.Count; i++)
+            paramLines.Add($"{argAbiTypes[i]} a{i},                 // raw ABI value for closure arg {i}");
+        paramLines.Add("IntPtr successFuncPtr,      // Function pointer for success callback");
+        paramLines.Add("IntPtr errorFuncPtr)        // Function pointer for error callback");
+        var paramList = string.Join("\n    ", paramLines);
+
+        // Sync arg-marshal statements: produce a0Val/a1Val/… from a0/a1/…
+        // before Task.Run. Indentation matches the generated C# method body.
+        var marshalBlock = "";
+        if (args.Count > 0)
+        {
+            var marshalLines = new List<string>();
+            for (int i = 0; i < args.Count; i++)
+            {
+                var stmts = closureHandler.GetAsyncThrowingArgSyncMarshalStatements(args[i], $"a{i}", $"a{i}Val");
+                foreach (var line in stmts.Split('\n'))
+                    marshalLines.Add("    " + line);
+            }
+            marshalBlock = string.Join("\n", marshalLines) + "\n";
+        }
+
+        // The helper call: AsyncClosureHelper.RunAsync[<A0Public,…>,TResult](handle, state, contBox, a0Val, a1Val, …, success, error)
+        // — extra generic args are inferred from the `state` argument, so no explicit generics needed.
+        var argValList = string.Concat(Enumerable.Range(0, args.Count).Select(i => $", a{i}Val"));
+        var helperName = hasReturn ? "RunAsync" : "RunVoidAsync";
+
         csWriter.WriteLines($$"""
             /// <summary>
             /// [UnmanagedCallersOnly] start function for async+throwing closure parameter '{{parameterName}}'.
-            /// Called synchronously by Swift, spawns Task.Run to execute the async delegate.
+            /// Called synchronously by Swift, marshals args, spawns Task.Run to execute the async delegate.
             /// </summary>
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             private static unsafe void {{callbackName}}(
-                IntPtr contextPtr,          // GCHandle to {{stateType}}
-                IntPtr continuationBoxPtr,  // Swift's ContinuationBox pointer
-                IntPtr successFuncPtr,      // Function pointer for success callback
-                IntPtr errorFuncPtr)        // Function pointer for error callback
+                {{paramList}}
             {
                 var handle = GCHandle.FromIntPtr(contextPtr);
                 if (handle.Target is not {{stateType}} state)
                     return;
 
-                // Convert function pointers to delegates while we're in the unsafe context
-                // These delegates can then be called from the async code without unsafe blocks
+            {{marshalBlock}}    // Convert function pointers to delegates while we're in the unsafe context.
+                // These delegates can then be called from the async code without unsafe blocks.
             """);
 
         if (isDataReturn)
         {
-            // Data return type - user provides Func<Task<Swift.Foundation.Data>>, we extract bytes and pass to Swift
-            // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
+            // Data return type — same shape as Session A, no args.
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr, nint>((box, dataPtr, len) =>
                     {
@@ -91,15 +134,12 @@ public static partial class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using supplement helper (Data moved to SwiftBindings.Apple)
                     Swift.Foundation.DataAsyncClosureHelper.RunDataAsync(handle, state, continuationBoxPtr, successAction, errorAction);
                 }
                 """);
         }
         else if (hasReturn)
         {
-            // Generic return type - success callback takes (boxPtr, resultPtr)
-            // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr, IntPtr>((box, resultPtr) =>
                     {
@@ -112,15 +152,12 @@ public static partial class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using runtime helper (avoids async in unsafe class context)
-                    AsyncClosureHelper.RunAsync(handle, state, continuationBoxPtr, successAction, errorAction);
+                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
                 }
                 """);
         }
         else
         {
-            // Void return type
-            // Use runtime helper to avoid async in unsafe context (the class may be marked unsafe)
             csWriter.WriteLines($$"""
                     var successAction = new Action<IntPtr>((box) =>
                     {
@@ -133,8 +170,7 @@ public static partial class ClosureEmitter
                         fp(box, errPtr);
                     });
 
-                    // Spawn async work using runtime helper (avoids async in unsafe class context)
-                    AsyncClosureHelper.RunVoidAsync(handle, state, continuationBoxPtr, successAction, errorAction);
+                    AsyncClosureHelper.{{helperName}}(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
                 }
                 """);
         }
@@ -142,22 +178,24 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Emits the static field that holds the function pointer for an async+throwing closure's start callback.
+    /// The function pointer type is per-arity — args widen the middle of the signature.
     /// </summary>
     public static void EmitAsyncThrowingClosureCallbackPointer(
         CSharpWriter csWriter,
         string methodName,
         string parameterName,
+        ClosureTypeSpec closureTypeSpec,
+        ClosureHandler closureHandler,
         string mangledName)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName) + "_Start";
-        var funcPtrType = "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>";
-
+        var funcPtrType = closureHandler.GetAsyncThrowingStartFunctionPointerType(closureTypeSpec);
         csWriter.WriteLine($"private static unsafe readonly {funcPtrType} s_{callbackName} = &{callbackName};");
     }
 
     /// <summary>
     /// Emits code to set up marshalling for an async+throwing closure parameter.
-    /// Creates the AsyncThrowingClosureState and allocates a GCHandle.
+    /// Creates the per-arity AsyncThrowingClosureState and allocates a GCHandle.
     /// </summary>
     public static void EmitAsyncThrowingClosureMarshallingSetup(
         CSharpWriter csWriter,
@@ -173,10 +211,7 @@ public static partial class ClosureEmitter
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
 
-        // Get the ABI type for the state — use projection's PInvokeType when it differs
-        // from PublicType. TranslateTypeSpecToCSharp returns projected types (e.g., byte[]
-        // for Data), but AsyncThrowingClosureState<T> must use ABI types (e.g., Swift.Foundation.Data)
-        // because runtime helpers like AsyncClosureHelper.RunDataAsync expect them.
+        // Return ABI type (projected if different from public — e.g. Data → byte[]).
         var returnPublicType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
@@ -190,29 +225,31 @@ public static partial class ClosureEmitter
                 returnAbiType = returnProjection.PInvokeType;
         }
 
-        var stateType = hasReturn
-            ? $"AsyncThrowingClosureState<{returnAbiType}>"
-            : "AsyncThrowingClosureStateVoid";
+        var args = closureTypeSpec.EachArgument().ToList();
+        var argPublicTypes = args.Select(a => closureHandler.GetAsyncThrowingArgPublicCSharpType(a)).ToList();
 
-        // Check if the public delegate return type differs from the ABI type.
-        // The delegate parameter uses projected types (e.g., byte[] for Data) from BuildDelegateType,
-        // but AsyncThrowingClosureState<T> uses ABI types (e.g., Swift.Foundation.Data) for MarshalToSwift.
-        // When they differ, wrap the user's delegate with ContinueWith to convert the result.
-        // NOTE: Cannot use async/await here because this code may be inside an unsafe context (CS4004).
+        var stateType = hasReturn
+            ? args.Count == 0
+                ? $"AsyncThrowingClosureState<{returnAbiType}>"
+                : $"AsyncThrowingClosureState<{string.Join(", ", argPublicTypes)}, {returnAbiType}>"
+            : args.Count == 0
+                ? "AsyncThrowingClosureStateVoid"
+                : $"AsyncThrowingClosureStateVoid<{string.Join(", ", argPublicTypes)}>";
+
+        // If the public delegate return type differs from the ABI type (Data case),
+        // wrap the user delegate with ContinueWith to materialise an ABI-shaped value.
         string asyncFuncExpr = parameterName;
         if (hasReturn && returnAbiType != null)
         {
-            // Only apply conversion when the public type differs from the ABI type AND
-            // the conversion produces a value (not a handle extraction).
-            // Classes/non-frozen structs have PublicType == ABI type — no conversion needed.
-            // Data (public="byte[]", ABI="Swift.Foundation.Data") needs Swift.Foundation.Data.FromByteArray(r).
             var paramConversion = (returnProjection != null && returnProjection.PublicType != returnAbiType)
                 ? returnProjection.GetParameterElementConversion("r")
                 : null;
             if (paramConversion != null)
             {
-                // e.g., byte[] → Swift.Foundation.Data.FromByteArray(r): wrap Func<Task<byte[]>> → Func<Task<Swift.Foundation.Data>>
-                // Use ContinueWith + Unwrap to avoid async/await in unsafe context.
+                if (args.Count > 0)
+                    throw new NotSupportedException(
+                        "Async-throwing closures with both arg-bearing signatures and projected "
+                        + "return types (e.g. Data) are not supported yet.");
                 asyncFuncExpr = $"() => {parameterName}().ContinueWith(t => {{ var r = t.GetAwaiter().GetResult(); return {paramConversion}; }}, TaskContinuationOptions.ExecuteSynchronously)";
             }
         }

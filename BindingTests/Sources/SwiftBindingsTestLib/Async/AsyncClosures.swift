@@ -26,6 +26,60 @@ public func callAsyncThrowingClosureTwice(_ closure: @escaping () async throws -
     return a &+ b
 }
 
+// MARK: - Session B: arg-bearing async-throwing closures
+// Exercises the per-arity adapter that marshals closure args from Swift to C#
+// synchronously before Task.Run spawns the managed async work.
+
+/// Box used as the Swift class argument for async-throwing closures. Lets the
+/// C# test assert the instance identity round-trips through the per-arity
+/// bridge (Unmanaged.passUnretained → Arc.Retain → SwiftMarshal.MarshalFromSwift).
+public final class AsyncClosureArgBox {
+    public let tag: Int32
+    public init(tag: Int32) { self.tag = tag }
+}
+
+/// Arity-1 primitive arg: `(Int32) async throws -> Int32`.
+public func callAsyncThrowingClosureOneArg(
+    _ value: Int32,
+    _ closure: @escaping (Int32) async throws -> Int32
+) async throws -> Int32 {
+    return try await closure(value)
+}
+
+/// Arity-2 mixed: `(Int32, String) async throws -> Int32`. Confirms the String
+/// arg survives the Swift→C# synchronous marshal (withUnsafePointer + SwiftString
+/// borrowed marshal) before Task.Run captures the managed value.
+public func callAsyncThrowingClosureTwoArgs(
+    _ n: Int32,
+    _ tag: String,
+    _ closure: @escaping (Int32, String) async throws -> Int32
+) async throws -> Int32 {
+    return try await closure(n, tag)
+}
+
+/// Arity-3 with a Swift class arg: `(Int32, String, AsyncClosureArgBox) async throws -> Int32`.
+/// Ensures the class arg round-trips via Unmanaged.passUnretained → Arc.Retain
+/// and that the adapter keeps the original reference alive until the managed
+/// Task completes.
+public func callAsyncThrowingClosureThreeArgs(
+    _ n: Int32,
+    _ tag: String,
+    _ box: AsyncClosureArgBox,
+    _ closure: @escaping (Int32, String, AsyncClosureArgBox) async throws -> Int32
+) async throws -> Int32 {
+    return try await closure(n, tag, box)
+}
+
+/// Arity-1 primitive arg, error path: same shape as the one-arg success path
+/// but the closure is expected to throw. Covers the error route of the arg-
+/// bearing bridge (continuation.resume(throwing:) → SwiftBindingsBridgeError).
+public func callAsyncThrowingClosureOneArgForError(
+    _ value: Int32,
+    _ closure: @escaping (Int32) async throws -> Int32
+) async throws -> Int32 {
+    return try await closure(value)
+}
+
 #if swift(>=99.0)
 
 /// Accepts an async closure and awaits its result.

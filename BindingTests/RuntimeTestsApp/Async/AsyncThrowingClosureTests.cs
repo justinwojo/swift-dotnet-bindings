@@ -99,4 +99,96 @@ public class AsyncThrowingClosureTests : TestBase
         AssertEqual(3, result, "Sum of 1 + 2 should be 3");
         TestLogger.Info($"AsyncThrowingClosure.SameClosureTwice sum={result} callCount={callCount}");
     }
+
+    // MARK: - Session B: arg-bearing async-throwing closures
+
+    /// <summary>
+    /// Arity-1 primitive arg: the C# closure receives the Int32 sent in from Swift
+    /// and returns a value derived from it. Validates the Start-thunk marshals the
+    /// primitive arg synchronously before Task.Run captures it.
+    /// </summary>
+    public async Task TestOneArgPrimitiveClosureReceivesValue()
+    {
+        Func<int, Task<int>> userLambda = v => Task.FromResult(v * 3);
+        var result = await WithTimeout(
+            Functions.CallAsyncThrowingClosureOneArgAsync(14, userLambda),
+            DefaultAsyncTimeout);
+        AssertEqual(42, result, "OneArg closure should return 14 * 3");
+        TestLogger.Info($"AsyncThrowingClosure.OneArgPrimitive = {result}");
+    }
+
+    /// <summary>
+    /// Arity-1 primitive arg, error path: confirms the per-arity bridge routes
+    /// continuation.resume(throwing:) back through SwiftBindingsBridgeError when
+    /// args are present (not just the no-args baseline).
+    /// </summary>
+    public async Task TestOneArgPrimitiveClosurePropagatesError()
+    {
+        Func<int, Task<int>> userLambda = async v =>
+        {
+            await Task.Yield();
+            throw new InvalidOperationException($"oneArg-boom-{v}");
+        };
+
+        try
+        {
+            await WithTimeout(
+                Functions.CallAsyncThrowingClosureOneArgForErrorAsync(7, userLambda),
+                DefaultAsyncTimeout);
+            throw new AssertionException("Expected SwiftException but no exception was thrown");
+        }
+        catch (SwiftException ex)
+        {
+            if (!ex.Message.Contains("oneArg-boom-7"))
+                throw new AssertionException($"Expected 'oneArg-boom-7' in message, got: {ex.Message}");
+            TestLogger.Info($"AsyncThrowingClosure.OneArgPrimitive.Error threw: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Arity-2 mixed (Int32, String): confirms SwiftString survives the
+    /// Swift→C# synchronous marshal (withUnsafePointer + borrowed marshal)
+    /// before Task.Run captures the managed `string` value.
+    /// </summary>
+    public async Task TestTwoArgMixedClosureReceivesString()
+    {
+        Func<int, string, Task<int>> userLambda = (n, tag) =>
+        {
+            // Mix the args: return n + length of the tag string.
+            return Task.FromResult(n + tag.Length);
+        };
+
+        var result = await WithTimeout(
+            Functions.CallAsyncThrowingClosureTwoArgsAsync(40, "ab", userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(42, result, "TwoArgs closure should return 40 + len(\"ab\")");
+        TestLogger.Info($"AsyncThrowingClosure.TwoArgs = {result}");
+    }
+
+    /// <summary>
+    /// Arity-3 with a Swift class arg (Int32, String, AsyncClosureArgBox):
+    /// confirms the Swift class arg round-trips via Unmanaged.passUnretained
+    /// → Arc.Retain → MarshalFromSwift, and that the C# closure sees the
+    /// correct instance payload.
+    /// </summary>
+    public async Task TestThreeArgsClassArgRoundTrips()
+    {
+        using var originalBox = new AsyncClosureArgBox(tag: 99);
+
+        Func<int, string, AsyncClosureArgBox, Task<int>> userLambda = (n, tag, box) =>
+        {
+            TestLogger.Info($"ThreeArgs.Lambda: n={n} tag='{tag}' box.Tag={box.Tag} handle=0x{((Swift.Runtime.ISwiftObject)box).SwiftHandle.ToInt64():X}");
+            return Task.FromResult(n + tag.Length + box.Tag);
+        };
+
+        TestLogger.Info($"ThreeArgs.OriginalBox handle=0x{((Swift.Runtime.ISwiftObject)originalBox).SwiftHandle.ToInt64():X} tag={originalBox.Tag}");
+
+        var result = await WithTimeout(
+            Functions.CallAsyncThrowingClosureThreeArgsAsync(10, "xyz", originalBox, userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(10 + 3 + 99, result, "ThreeArgs closure should return n + len(tag) + box.Tag");
+        TestLogger.Info($"AsyncThrowingClosure.ThreeArgs = {result}");
+    }
 }

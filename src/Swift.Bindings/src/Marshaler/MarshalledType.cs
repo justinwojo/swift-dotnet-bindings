@@ -47,7 +47,13 @@ public abstract record MarshalledType
     public sealed record AsyncThrowingContext(string ParamName) : MarshalledType;
 
     /// <summary>Async+throwing closure start function pointer.</summary>
-    public sealed record AsyncThrowingStartFunc(string CallbackName) : MarshalledType;
+    /// <remarks>
+    /// <see cref="FuncPtrType"/> carries the per-arity <c>delegate* unmanaged[Cdecl]&lt;…&gt;</c>
+    /// type. The 0-arg baseline is <c>&lt;IntPtr, IntPtr, IntPtr, IntPtr, void&gt;</c>;
+    /// arg-bearing closures widen it with one ABI scalar/IntPtr per closure arg
+    /// (see <see cref="BindingsGeneration.ClosureHandler.GetAsyncThrowingStartFunctionPointerType"/>).
+    /// </remarks>
+    public sealed record AsyncThrowingStartFunc(string CallbackName, string FuncPtrType) : MarshalledType;
 
     /// <summary>Native-remapped frozen type (e.g. SwiftData).</summary>
     public sealed record NativeRemappedFrozen(string SwiftWrapperType) : MarshalledType;
@@ -175,7 +181,7 @@ public abstract record MarshalledType
         CdeclClosureFuncPtr => "IntPtr",
         CdeclClosureContext => "IntPtr",
         AsyncThrowingContext => "IntPtr",
-        AsyncThrowingStartFunc => "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>",
+        AsyncThrowingStartFunc(_, var funcPtrType) => funcPtrType,
         RawBufferPtr => "IntPtr",
         RawBufferLen => "nint",
         Simple(var csharpType) => csharpType,

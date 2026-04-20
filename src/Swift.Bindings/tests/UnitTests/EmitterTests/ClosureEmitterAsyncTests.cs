@@ -178,11 +178,19 @@ public class ClosureEmitterAsyncTests
     [Fact]
     public void AsyncCallbackPointer_EmitsStaticField()
     {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(null, TupleTypeSpec.Empty)
+        {
+            IsAsync = true,
+            Throws = true
+        };
+
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
 
         ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(
-            csWriter, "doWork", "handler", "$s_mangled");
+            csWriter, "doWork", "handler", closureTypeSpec, closureHandler, "$s_mangled");
 
         var result = output.ToString();
         Assert.Contains("private static unsafe readonly", result);
@@ -193,16 +201,49 @@ public class ClosureEmitterAsyncTests
     [Fact]
     public void AsyncCallbackPointer_NameDerivedFromMethodAndParam()
     {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(null, TupleTypeSpec.Empty)
+        {
+            IsAsync = true,
+            Throws = true
+        };
+
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
 
         ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(
-            csWriter, "fetchResource", "completion", "$s_xyz");
+            csWriter, "fetchResource", "completion", closureTypeSpec, closureHandler, "$s_xyz");
 
         var result = output.ToString();
         // The callback name is derived from method name + parameter name
         Assert.Contains("fetchResource", result);
         Assert.Contains("completion", result);
+    }
+
+    [Fact]
+    public void AsyncCallbackPointer_WithPrimitiveArg_EmitsWiderFuncPtr()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        // (Swift.Int32) async throws -> Void
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            TupleTypeSpec.Empty)
+        {
+            IsAsync = true,
+            Throws = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(
+            csWriter, "doWork", "handler", closureTypeSpec, closureHandler, "$s_m");
+
+        var result = output.ToString();
+        // 1-arg: (ctx, box, int, successFP, errorFP) → 5 IntPtr/int slots + void
+        Assert.Contains("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, IntPtr, IntPtr, void>", result);
     }
 
     #endregion

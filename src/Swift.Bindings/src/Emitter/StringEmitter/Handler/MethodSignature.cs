@@ -28,7 +28,7 @@ namespace BindingsGeneration
                 MarshalledType.CdeclClosureFuncPtr => "IntPtr",
                 MarshalledType.CdeclClosureContext => "IntPtr",
                 MarshalledType.AsyncThrowingContext => "IntPtr",
-                MarshalledType.AsyncThrowingStartFunc => "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>",
+                MarshalledType.AsyncThrowingStartFunc(_, var asyncStartFuncType) => asyncStartFuncType,
                 MarshalledType.NativeRemappedFrozen(var swiftWrapperType) => swiftWrapperType,
                 MarshalledType.FrozenBuffer(var typeName) => typeName + ".Buffer",
                 MarshalledType.ConventionCFuncPtr(var funcPtrType) => funcPtrType,
@@ -97,8 +97,8 @@ namespace BindingsGeneration
             // Async+throwing closure context pointer
             MarshalledType.AsyncThrowingContext => $"{modifier} IntPtr {Name}",
             // Async+throwing closure start function pointer
-            MarshalledType.AsyncThrowingStartFunc =>
-                $"{modifier} delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> {Name}",
+            MarshalledType.AsyncThrowingStartFunc(_, var asyncStartFuncType) =>
+                $"{modifier} {asyncStartFuncType} {Name}",
             // Cdecl closure wrapper: func pointer and context as separate IntPtr params
             MarshalledType.CdeclClosureFuncPtr => $"{modifier} IntPtr {Name}",
             MarshalledType.CdeclClosureContext => $"{modifier} IntPtr {Name}",
@@ -224,7 +224,7 @@ namespace BindingsGeneration
                 { Type: MarshalledType.AsyncThrowingContext(var paramName) } =>
                     $"{paramName}ContextPtr",
                 // Handle async+throwing closure start function
-                { Type: MarshalledType.AsyncThrowingStartFunc(var callbackName) } =>
+                { Type: MarshalledType.AsyncThrowingStartFunc(var callbackName, _) } =>
                     $"s_{callbackName}_Start",
                 // Handle @convention(c) closure function pointers
                 { Type: MarshalledType.ConventionCFuncPtr } =>

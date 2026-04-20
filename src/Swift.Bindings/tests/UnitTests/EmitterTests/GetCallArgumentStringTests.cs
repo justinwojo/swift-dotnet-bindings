@@ -193,7 +193,8 @@ public class GetCallArgumentStringTests
     [Fact]
     public void GetCallArgumentString_AsyncThrowingStartFunc_ReturnsStartFunc()
     {
-        var param = new Parameter(new MarshalledType.AsyncThrowingStartFunc("onStart"), "startFunc");
+        var funcPtrType = "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>";
+        var param = new Parameter(new MarshalledType.AsyncThrowingStartFunc("onStart", funcPtrType), "startFunc");
         var result = Signature.GetCallArgumentString(param);
         Assert.Equal("s_onStart_Start", result);
     }

@@ -362,22 +362,40 @@ public class ThirdPartyValidationFixTestsV3
 
     #endregion
 
-    #region B13 — Async closure arity mismatch
+    #region B13 — Async closure arg/return shape gates
 
     [Fact]
-    public void IsSupportedClosure_AsyncThrowingWithParams_ReturnsFalse()
+    public void IsBaselineAsyncThrowingClosure_StringArgBlittableReturn_ReturnsTrue()
     {
         var typeDatabase = CreateTypeDatabaseWithString();
         var handler = new ClosureHandler(typeDatabase);
 
-        // (String) async throws -> String
+        // Session B: (String) async throws -> Int — String is a supported arg category
+        // via the per-arity bridge; return type must still be a blittable primitive.
         var closureTypeSpec = new ClosureTypeSpec(
             new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsBaselineAsyncThrowingClosure_StringReturn_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Return type must still be a blittable primitive; String/class returns are not
+        // part of the baseline bridge.
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
             new NamedTypeSpec("Swift.String"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
 
-        Assert.False(handler.IsSupportedClosure(closureTypeSpec));
+        Assert.False(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
     }
 
     [Fact]

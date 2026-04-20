@@ -360,10 +360,13 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"var {csName}FuncPtr = ({funcPtrType}){baseName}_ptr;");
                     }
                 }
-                else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
+                else if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec)
+                         && _env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureTypeSpec))
                 {
                     // Async+throwing closures use a special pattern with AsyncThrowingClosureState
-                    // The state holds the user's async delegate, and we pass context + start function to Swift
+                    // The state holds the user's async delegate, and we pass context + start function to Swift.
+                    // Only emit for baseline shapes — non-baseline async-throwing closures fall through
+                    // to AnyType placeholder in PInvokeEmitter so the outer method is skipped cleanly.
                     ClosureEmitter.EmitAsyncThrowingClosureMarshallingSetup(
                         csWriter,
                         _env.MethodDecl.Name,
@@ -756,11 +759,16 @@ namespace BindingsGeneration
                     // Check if this is an async+throwing closure (must check before throwing-only)
                     if (_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec))
                     {
-                        // Async+throwing closures use a special "start" callback pattern
-                        // The start function is synchronous and spawns Task.Run
-                        // These always use their own Cdecl pattern, not gated by useCdecl
-                        ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
-                        ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        // Only emit the Start-thunk callback pair for closures that the
+                        // baseline async bridge can actually express. Non-baseline async-throwing
+                        // closures (e.g., Bool arg, non-primitive return) fall through with no
+                        // callback emitted — PInvokeEmitter projects them to AnyType so the outer
+                        // method is skipped via the placeholder path instead of crashing here.
+                        if (_env.ClosureHandler.IsBaselineAsyncThrowingClosure(closureTypeSpec))
+                        {
+                            ClosureEmitter.EmitAsyncThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                            ClosureEmitter.EmitAsyncThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName);
+                        }
                     }
                     // Check if this is a throwing closure (but not async+throwing)
                     else if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))

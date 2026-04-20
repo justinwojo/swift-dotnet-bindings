@@ -108,8 +108,17 @@ public class ParameterSignatureTests
     [Fact]
     public void SignatureString_AsyncThrowingStartFunc_ReturnsDelegateUnmanaged()
     {
-        var param = new Parameter(new MarshalledType.AsyncThrowingStartFunc("onStart"), "startFunc");
+        var funcPtrType = "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>";
+        var param = new Parameter(new MarshalledType.AsyncThrowingStartFunc("onStart", funcPtrType), "startFunc");
         Assert.Equal(" delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> startFunc", param.SignatureString());
+    }
+
+    [Fact]
+    public void SignatureString_AsyncThrowingStartFunc_OneArgPrimitive_ReturnsWiderDelegate()
+    {
+        var funcPtrType = "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, IntPtr, IntPtr, void>";
+        var param = new Parameter(new MarshalledType.AsyncThrowingStartFunc("onStart", funcPtrType), "startFunc");
+        Assert.Equal(" delegate* unmanaged[Cdecl]<IntPtr, IntPtr, int, IntPtr, IntPtr, void> startFunc", param.SignatureString());
     }
 
     [Fact]

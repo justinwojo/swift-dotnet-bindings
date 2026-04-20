@@ -407,8 +407,9 @@ namespace BindingsGeneration
                             {
                                 var callbackName = ClosureHandler.GetCallbackFunctionName(
                                     _env.MethodDecl.Name, argument.Name, _env.MethodDecl.MangledName);
+                                var funcPtrType = _env.ClosureHandler.GetAsyncThrowingStartFunctionPointerType(closureTypeSpec);
                                 AddParameter(new MarshalledType.AsyncThrowingContext(csName), csName + "Context");
-                                AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName), csName + "StartFunc");
+                                AddParameter(new MarshalledType.AsyncThrowingStartFunc(callbackName, funcPtrType), csName + "StartFunc");
                             }
                             else
                             {

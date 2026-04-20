@@ -61,8 +61,10 @@ public class MarshalledTypeTests
     [Fact]
     public void AsyncThrowingStartFunc_ConstructsAndDeconstructs()
     {
-        var type = new MarshalledType.AsyncThrowingStartFunc("onStart");
+        var funcPtrType = "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>";
+        var type = new MarshalledType.AsyncThrowingStartFunc("onStart", funcPtrType);
         Assert.Equal("onStart", type.CallbackName);
+        Assert.Equal(funcPtrType, type.FuncPtrType);
     }
 
     [Fact]

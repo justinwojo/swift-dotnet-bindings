@@ -202,12 +202,11 @@ public class ClosureHandler
     /// <returns><c>true</c> if the closure is supported; otherwise, <c>false</c>.</returns>
     public bool IsSupportedClosure(ClosureTypeSpec closureTypeSpec)
     {
-        // B13: Async+throwing closures WITH parameters are not supported.
-        // AsyncThrowingClosureState<T>.AsyncFunc is Func<Task<T>> (parameterless).
-        // A closure like (String) async throws -> String produces Func<SwiftString, Task<SwiftString>>
-        // which can't be assigned to Func<Task<SwiftString>>.
-        if (closureTypeSpec.IsAsync && closureTypeSpec.Throws && closureTypeSpec.EachArgument().Any())
-            return false;
+        // B13 (removed Session B): async-throwing closures with arguments are now
+        // supported via per-arity AsyncThrowingClosureState<A0,…,TResult> + arg-bearing
+        // Start signatures. The Session B bridge only kicks in when
+        // IsBaselineAsyncThrowingClosure accepts the shape; otherwise the closure still
+        // has to pass the generic IsSupportedClosureParameterType loop below.
 
         // CX-12: Async-only closures with non-void returns are not supported.
         // The delegate returns Task<T> but the sync [UnmanagedCallersOnly] callback
@@ -853,40 +852,193 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Determines whether an async-throwing closure matches the Session A baseline
-    /// shape: `@escaping () async throws -> T` where T is a bitwise-copyable
-    /// primitive (Int32, Int64, Double, …). The emitter can bridge this shape
-    /// into Swift via <c>withCheckedThrowingContinuation</c>; any wider shape
-    /// falls through to the existing "unsupported async closure" skip path.
+    /// Determines whether an async-throwing closure matches the Session A/B bridge
+    /// shape: `@escaping (A0, …) async throws -> T` where:
+    ///   - T is a bitwise-copyable primitive (Int32, Int64, Double, …),
+    ///   - arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
+    ///   - each argument is a Session B-bridgeable type (primitive, Swift.String,
+    ///     or a Swift class).
+    /// Any wider shape falls through to the existing "unsupported async closure"
+    /// skip path.
     /// </summary>
     public bool IsBaselineAsyncThrowingClosure(ClosureTypeSpec closureTypeSpec)
     {
         if (!closureTypeSpec.IsAsync || !closureTypeSpec.Throws)
             return false;
-        if (closureTypeSpec.EachArgument().Any())
-            return false;
         if (closureTypeSpec.ReturnType is not NamedTypeSpec namedReturn || namedReturn.ContainsGenericParameters)
             return false;
-        return CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name);
+        if (!CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name))
+            return false;
+
+        var args = closureTypeSpec.EachArgument().ToList();
+        if (args.Count > MaxAsyncThrowingClosureArity)
+            return false;
+        foreach (var arg in args)
+        {
+            if (GetAsyncThrowingArgCategory(arg) == AsyncThrowingArgCategory.Unsupported)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Maximum closure arity supported by the Session B async-throwing bridge.
+    /// Per-arity state/helper overloads live in <c>Swift.Runtime.AsyncThrowingClosureState</c>
+    /// and <c>Swift.Runtime.AsyncClosureHelper</c>; raising this cap requires adding
+    /// matching per-arity types there.
+    /// </summary>
+    public const int MaxAsyncThrowingClosureArity = 4;
+
+    /// <summary>
+    /// Category for a closure argument that participates in the Session B async-throwing
+    /// bridge. Drives both the Swift-side adapter marshalling and the C# Start thunk
+    /// arg-read code. Non-frozen structs, Optionals, and generics are intentionally
+    /// excluded from the baseline bridge.
+    /// </summary>
+    public enum AsyncThrowingArgCategory
+    {
+        Unsupported = 0,
+        Primitive,
+        SwiftString,
+        SwiftClass,
+    }
+
+    /// <summary>
+    /// Returns the <see cref="AsyncThrowingArgCategory"/> for a closure argument. Any
+    /// shape outside the three supported categories reports <see cref="AsyncThrowingArgCategory.Unsupported"/>,
+    /// which forces the closure back onto the generic "unsupported async closure" path.
+    /// </summary>
+    public AsyncThrowingArgCategory GetAsyncThrowingArgCategory(TypeSpec argSpec)
+    {
+        if (argSpec is not NamedTypeSpec named || named.ContainsGenericParameters)
+            return AsyncThrowingArgCategory.Unsupported;
+        // Use the blittable-primitive subset (Bool excluded) — the C# Start thunk is
+        // [UnmanagedCallersOnly], which forbids non-blittable C# types on the ABI.
+        // Bool support is a follow-up; the existing closure skip path handles it.
+        if (CdeclParamMapper.IsBlittablePrimitiveSwiftType(named.Name))
+            return AsyncThrowingArgCategory.Primitive;
+        if (named.Name == "Swift.String")
+            return AsyncThrowingArgCategory.SwiftString;
+        // IsClassType already excludes ObjCBridged/ObjCRooted — the Start thunk
+        // reads SwiftClass args with Arc.Retain + SwiftMarshal.MarshalFromSwift<T>,
+        // which is wrong for ObjC projections (Handle/GetNSObject / ObjCRootedClassProjection).
+        if (IsClassType(named)
+            && _typeDatabase.TryGetTypeRecord(named, out var record)
+            && !TypeDatabaseExtensions.IsBareGenericTypeName(record.CSharpTypeName.FullyQualifiedName))
+        {
+            return AsyncThrowingArgCategory.SwiftClass;
+        }
+        return AsyncThrowingArgCategory.Unsupported;
     }
 
     /// <summary>
     /// Gets the P/Invoke function pointer type for an async+throwing closure's "start" function.
     /// The start function is called synchronously by Swift and spawns the async work via Task.Run.
-    /// Signature: (contextPtr, continuationBoxPtr, successCallbackPtr, errorCallbackPtr) -> void
+    /// Signature: (contextPtr, continuationBoxPtr, A0_raw, A1_raw, …, successCallbackPtr, errorCallbackPtr) -> void
+    /// where each A_raw is the C# ABI scalar for the closure arg (primitive) or IntPtr (String/class).
     /// </summary>
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <returns>The unmanaged function pointer type string for the start function.</returns>
     public string GetAsyncThrowingStartFunctionPointerType(ClosureTypeSpec closureTypeSpec)
     {
-        // The start function always has this signature:
-        // - IntPtr contextPtr: GCHandle to AsyncThrowingClosureState
-        // - IntPtr continuationBoxPtr: Swift's ContinuationBox pointer
-        // - IntPtr successCallbackPtr: Function pointer for success callback
-        // - IntPtr errorCallbackPtr: Function pointer for error callback
-        // - Returns void (spawns Task.Run internally)
-        return "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>";
+        var sb = new System.Text.StringBuilder();
+        sb.Append("delegate* unmanaged[Cdecl]<IntPtr, IntPtr");
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            sb.Append(", ");
+            sb.Append(GetAsyncThrowingArgCSharpAbiType(arg));
+        }
+        sb.Append(", IntPtr, IntPtr, void>");
+        return sb.ToString();
     }
+
+    /// <summary>
+    /// Returns the C# ABI type used for a single async-throwing closure arg in the
+    /// <c>[UnmanagedCallersOnly]</c> Start thunk signature. Must stay in sync with
+    /// <see cref="GetAsyncThrowingArgCategory"/> so C# signatures match the Swift
+    /// <c>@convention(c)</c> startFunc type that the Swift adapter casts to.
+    /// </summary>
+    public string GetAsyncThrowingArgCSharpAbiType(TypeSpec argSpec)
+    {
+        var category = GetAsyncThrowingArgCategory(argSpec);
+        return category switch
+        {
+            AsyncThrowingArgCategory.Primitive => GetPrimitiveCSharpAbiType((NamedTypeSpec)argSpec),
+            AsyncThrowingArgCategory.SwiftString => "IntPtr",
+            AsyncThrowingArgCategory.SwiftClass => "IntPtr",
+            _ => throw new InvalidOperationException(
+                $"Cannot emit async-throwing closure Start thunk: arg '{argSpec}' is not a supported category.")
+        };
+    }
+
+    /// <summary>
+    /// Returns the user-facing C# type for an async-throwing closure arg (what the
+    /// caller-provided <c>Func&lt;…, Task&lt;T&gt;&gt;</c> expects). Primitives use
+    /// the scalar C# type; Swift.String becomes managed <c>string</c>; Swift classes
+    /// use their generated C# class type via <see cref="TranslateTypeSpecToCSharp"/>.
+    /// </summary>
+    public string GetAsyncThrowingArgPublicCSharpType(TypeSpec argSpec)
+    {
+        var category = GetAsyncThrowingArgCategory(argSpec);
+        return category switch
+        {
+            AsyncThrowingArgCategory.Primitive => GetPrimitiveCSharpAbiType((NamedTypeSpec)argSpec),
+            AsyncThrowingArgCategory.SwiftString => "string",
+            AsyncThrowingArgCategory.SwiftClass => TranslateTypeSpecToCSharp(argSpec),
+            _ => throw new InvalidOperationException(
+                $"Cannot project async-throwing closure arg '{argSpec}' to a public C# type.")
+        };
+    }
+
+    /// <summary>
+    /// Emits the Start-thunk sync-marshal statements that produce a managed variable
+    /// <paramref name="managedVar"/> of type <see cref="GetAsyncThrowingArgPublicCSharpType"/>
+    /// from the raw ABI-typed parameter <paramref name="rawVar"/>. Called before
+    /// <c>Task.Run</c> so the resulting value is safe to capture. For Swift classes
+    /// the helper retains via <c>Arc.Retain</c> and wraps the pointer in an owning
+    /// SafeHandle; borrowed lifetime would dangle the moment Start returns.
+    /// </summary>
+    public string GetAsyncThrowingArgSyncMarshalStatements(TypeSpec argSpec, string rawVar, string managedVar)
+    {
+        var category = GetAsyncThrowingArgCategory(argSpec);
+        return category switch
+        {
+            AsyncThrowingArgCategory.Primitive =>
+                $"var {managedVar} = {rawVar};",
+            AsyncThrowingArgCategory.SwiftString =>
+                $"var {managedVar} = SwiftMarshal.MarshalBorrowedFromSwift<Swift.SwiftString>({rawVar}).ToString();",
+            AsyncThrowingArgCategory.SwiftClass =>
+                // Matches the sync SwiftResult class-extraction pattern: Arc.Retain pins
+                // the object for C#, MarshalFromSwift wraps into an owning SafeHandle
+                // whose Release fires when the capturing Task completes.
+                $"Swift.Runtime.Arc.Retain({rawVar});\n"
+                + $"var {managedVar} = SwiftMarshal.MarshalFromSwift<{TranslateTypeSpecToCSharp(argSpec)}>({rawVar});",
+            _ => throw new InvalidOperationException(
+                $"Cannot emit async-throwing closure Start-thunk marshal for arg '{argSpec}'.")
+        };
+    }
+
+    /// <summary>
+    /// Returns the C# scalar type for a Swift primitive arg in the Start thunk
+    /// (e.g. <c>Swift.Int32</c> → <c>int</c>, <c>Swift.Double</c> → <c>double</c>).
+    /// </summary>
+    private static string GetPrimitiveCSharpAbiType(NamedTypeSpec named) => named.Name switch
+    {
+        "Swift.Int" or "Int" => "nint",
+        "Swift.UInt" or "UInt" => "nuint",
+        "Swift.Int8" or "Int8" => "sbyte",
+        "Swift.UInt8" or "UInt8" => "byte",
+        "Swift.Int16" or "Int16" => "short",
+        "Swift.UInt16" or "UInt16" => "ushort",
+        "Swift.Int32" or "Int32" => "int",
+        "Swift.UInt32" or "UInt32" => "uint",
+        "Swift.Int64" or "Int64" => "long",
+        "Swift.UInt64" or "UInt64" => "ulong",
+        "Swift.Float" or "Float" => "float",
+        "Swift.Double" or "Double" => "double",
+        "CoreFoundation.CGFloat" or "CGFloat" => "double",
+        _ => throw new InvalidOperationException($"Unrecognised primitive arg type '{named.Name}'")
+    };
 
     /// <summary>
     /// Gets the Swift success callback signature for an async+throwing closure.
