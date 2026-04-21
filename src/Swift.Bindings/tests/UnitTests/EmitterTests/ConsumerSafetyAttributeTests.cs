@@ -181,6 +181,75 @@ public class ConsumerSafetyAttributeTests
     }
 
     [Fact]
+    public void SilentTombstoneReturn_EmitsObsoleteWithSB0002()
+    {
+        // A method returning a type that was emitted with [OpaqueSwiftType] but has zero
+        // usable members should be flagged SB0002 so audits grep them out.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getBox", classDecl, moduleDecl, isStatic: true);
+        method.UsesCdeclMethodWrapper = true; // no SB0001 — signature has a wrapper
+        moduleDecl.ExportedSymbols = new HashSet<string> { method.MangledName };
+        // Return type points at TestModule.Box, which the emission context marks as a tombstone.
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.Box"), moduleDecl);
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.AddSilentTombstone("TestModule.Box");
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase, emissionContext);
+
+        Assert.Contains("[Obsolete(\"", csOutput);
+        Assert.Contains("Return type has no usable surface", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0002\"", csOutput);
+    }
+
+    [Fact]
+    public void OptionalSilentTombstoneReturn_EmitsObsoleteWithSB0002()
+    {
+        // Optional<Tombstone> return should also be flagged — the inner type is what matters.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getBoxIfAny", classDecl, moduleDecl, isStatic: true);
+        method.UsesCdeclMethodWrapper = true;
+        moduleDecl.ExportedSymbols = new HashSet<string> { method.MangledName };
+        var optionalBox = new NamedTypeSpec("Swift.Optional");
+        optionalBox.GenericParameters.Add(new NamedTypeSpec("TestModule.Box"));
+        method.CSSignature[0] = CreateArg("", optionalBox, moduleDecl);
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.AddSilentTombstone("TestModule.Box");
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase, emissionContext);
+
+        Assert.Contains("Return type has no usable surface", csOutput);
+        Assert.Contains("DiagnosticId = \"SB0002\"", csOutput);
+    }
+
+    [Fact]
+    public void NonTombstoneReturn_DoesNotEmitSB0002()
+    {
+        // A method returning a non-tombstoned type must not be flagged, even when the
+        // emission context tracks other tombstones.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("getBox", classDecl, moduleDecl, isStatic: true);
+        method.UsesCdeclMethodWrapper = true;
+        moduleDecl.ExportedSymbols = new HashSet<string> { method.MangledName };
+        method.CSSignature[0] = CreateArg("", new NamedTypeSpec("TestModule.Box"), moduleDecl);
+
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.AddSilentTombstone("OtherModule.SomethingElse");
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase, emissionContext);
+
+        Assert.DoesNotContain("Return type has no usable surface", csOutput);
+        Assert.DoesNotContain("DiagnosticId = \"SB0002\"", csOutput);
+    }
+
+    [Fact]
     public void ExportedSymbolsNull_NoCheck_NoFlag()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -598,7 +667,8 @@ public class ConsumerSafetyAttributeTests
 
     private static (string csOutput, string swiftOutput) EmitMethod(
         MethodDecl methodDecl,
-        TypeDatabase typeDatabase)
+        TypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -608,7 +678,10 @@ public class ConsumerSafetyAttributeTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null
+            ? TypeHandlerContext.Empty
+            : new TypeHandlerContext(null, new(), null, EmissionContext: emissionContext);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
     }

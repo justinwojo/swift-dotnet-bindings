@@ -69,6 +69,10 @@ namespace BindingsGeneration
                     // any emission. This ensures all type references (including protocol interfaces
                     // that may be emitted before their parent types) use the correct renamed names.
                     NameProvider.PrecomputeNestedTypeRenames(moduleDecl, _typeDatabase);
+                    // Pre-pass: register silent tombstones (types emitted with opaqueEmittable == 0
+                    // && opaqueSkipped > 0) BEFORE any method wrappers so SB0002 diagnostics fire on
+                    // call sites regardless of declaration order. See SilentTombstoneRegistrar.
+                    SilentTombstoneRegistrar.Precompute(moduleDecl, _typeDatabase, emissionContext);
                     var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews();

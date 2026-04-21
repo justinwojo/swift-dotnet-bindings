@@ -136,7 +136,7 @@ namespace BindingsGeneration
                 // Decide up-front whether the Collection-with-metadata projection will fire,
                 // so we can add IReadOnlyList<TElement> to the interface list before the header
                 // is emitted. The actual member emission happens after property emission below.
-                string? collectionProjectionInterface = CollectionProjectionEmitter.TryPlanInterface(structDecl);
+                string? collectionProjectionInterface = CollectionProjectionEmitter.TryPlanInterface(structDecl, env.TypeDatabase);
                 if (collectionProjectionInterface is not null)
                     interfaces.Add(collectionProjectionInterface);
 
@@ -254,7 +254,7 @@ namespace BindingsGeneration
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 
                 if (collectionProjectionInterface is not null)
-                    CollectionProjectionEmitter.EmitMembers(csWriter, structDecl, env.TypeDatabase, _logger);
+                    CollectionProjectionEmitter.EmitMembers(csWriter, structDecl, env.TypeDatabase, propertyRenames, _logger);
 
                 var emissionCtx = context.GetEmissionContext();
                 emissionCtx?.PushTypeNesting(typeNameWithGenerics);

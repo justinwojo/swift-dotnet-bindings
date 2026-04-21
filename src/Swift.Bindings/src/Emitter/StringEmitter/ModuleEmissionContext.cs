@@ -567,6 +567,30 @@ public sealed class ModuleEmissionContext
         _wrapperSkipReasons[reason] = count + 1;
     }
 
+    // ==================== Silent Tombstones ====================
+
+    private readonly HashSet<string> _silentTombstones = new();
+
+    /// <summary>
+    /// Module-qualified names of types that were emitted with [OpaqueSwiftType] but have zero
+    /// usable surface (opaqueEmittable == 0 && opaqueSkipped > 0). Used to annotate call sites
+    /// whose return type is a silent tombstone so audits can grep for SB0002 diagnostics.
+    /// </summary>
+    public IReadOnlyCollection<string> SilentTombstones => _silentTombstones;
+
+    /// <summary>Records that a type was emitted as a silent tombstone.</summary>
+    public void AddSilentTombstone(string moduleQualifiedName)
+    {
+        if (!string.IsNullOrEmpty(moduleQualifiedName))
+            _silentTombstones.Add(moduleQualifiedName);
+    }
+
+    /// <summary>Returns true if the given module-qualified type name was recorded as a silent tombstone.</summary>
+    public bool IsSilentTombstone(string moduleQualifiedName)
+    {
+        return !string.IsNullOrEmpty(moduleQualifiedName) && _silentTombstones.Contains(moduleQualifiedName);
+    }
+
     // ==================== Native ARM64 Thunks ====================
 
     private readonly System.Text.StringBuilder _assemblyBuilder = new();

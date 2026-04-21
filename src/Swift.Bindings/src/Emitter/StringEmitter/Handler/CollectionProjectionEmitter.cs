@@ -38,9 +38,9 @@ internal static class CollectionProjectionEmitter
     /// does not apply. Must be called before the class header is written so the
     /// interface can be inserted.
     /// </summary>
-    public static string? TryPlanInterface(StructDecl structDecl)
+    public static string? TryPlanInterface(StructDecl structDecl, ITypeDatabase typeDatabase)
     {
-        var backing = TryFindBacking(structDecl);
+        var backing = TryFindBacking(structDecl, typeDatabase);
         if (backing is null)
             return null;
         var (_, elementCsName) = backing.Value;
@@ -49,20 +49,25 @@ internal static class CollectionProjectionEmitter
 
     /// <summary>
     /// Emits the projection member bodies. Call only after <see cref="TryPlanInterface"/>
-    /// has returned non-null for this struct.
+    /// has returned non-null for this struct. Uses <paramref name="propertyRenames"/> so
+    /// the delegated property name matches what <see cref="NonFrozenStructHandler"/>
+    /// actually emitted (C# identifier collisions between a property and a nested type
+    /// trigger a rename; see <see cref="NameProvider.ComputePropertyRenames"/>).
     /// </summary>
     public static void EmitMembers(
         CSharpWriter csWriter,
         StructDecl structDecl,
         ITypeDatabase typeDatabase,
+        IReadOnlyDictionary<string, string>? propertyRenames,
         ILogger logger)
     {
-        var backing = TryFindBacking(structDecl);
+        var backing = TryFindBacking(structDecl, typeDatabase);
         if (backing is null)
             return;
 
         var (prop, elementCsName) = backing.Value;
-        var backingCsName = NameProvider.GetPropertyName(prop.Name, structDecl.Name);
+        var backingCsName = NameProvider.GetFinalMemberName(
+            NameProvider.GetPropertyName(prop.Name, structDecl.Name), propertyRenames);
 
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c>.</summary>");
@@ -81,7 +86,7 @@ internal static class CollectionProjectionEmitter
             structDecl.Name, prop.Name);
     }
 
-    private static (PropertyDecl prop, string elementCsName)? TryFindBacking(StructDecl structDecl)
+    private static (PropertyDecl prop, string elementCsName)? TryFindBacking(StructDecl structDecl, ITypeDatabase typeDatabase)
     {
         if (structDecl.GenericParameters.Count != 1)
             return null;
@@ -101,7 +106,12 @@ internal static class CollectionProjectionEmitter
         PropertyDecl? match = null;
         foreach (var p in structDecl.Properties)
         {
-            if (p.IsStatic || p.IsModuleInternal)
+            // Keep backing-property filters in sync with MemberEmissionValidator.CanEmitProperty:
+            // if the property won't be emitted, the projection body has nothing to delegate to.
+            if (p.IsStatic || p.IsModuleInternal || p.IsSpiProtected)
+                continue;
+            var skipReason = MemberEmissionValidator.CanEmitProperty(p, typeDatabase, out _, out _);
+            if (skipReason != null)
                 continue;
             if (p.SwiftTypeSpec is not NamedTypeSpec named)
                 continue;

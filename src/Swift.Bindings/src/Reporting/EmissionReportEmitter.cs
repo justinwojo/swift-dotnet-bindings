@@ -23,6 +23,14 @@ public class EmissionReport
 
     [JsonProperty("conformanceDecisions")]
     public ConformanceDecisionsSummary ConformanceDecisions { get; set; } = new();
+
+    /// <summary>
+    /// Module-qualified names of types that were emitted with [OpaqueSwiftType] but have
+    /// zero usable surface (all members skipped). Call sites whose return type is a silent
+    /// tombstone are flagged with the SB0002 diagnostic so audits can grep them out.
+    /// </summary>
+    [JsonProperty("silentTombstones")]
+    public List<string> SilentTombstones { get; set; } = new();
 }
 
 /// <summary>
@@ -79,6 +87,12 @@ public static class EmissionReportEmitter
             logger.LogInformation("Emission: {Emitted} conformances emitted in source, {Skipped} skipped at emission",
                 decisions.EmittedInSource, decisions.SkippedAtEmission);
         }
+
+        if (report.SilentTombstones.Count > 0)
+        {
+            logger.LogInformation("Emission: {Count} silent tombstones (types emitted with [OpaqueSwiftType] but zero usable members)",
+                report.SilentTombstones.Count);
+        }
     }
 
     internal static EmissionReport BuildReport(ModuleEmissionContext emissionContext, string moduleName)
@@ -105,6 +119,11 @@ public static class EmissionReportEmitter
             else
                 report.ConformanceDecisions.SkippedAtEmission++;
         }
+
+        // Silent tombstones (sorted for deterministic output)
+        report.SilentTombstones = emissionContext.SilentTombstones
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
 
         return report;
     }

@@ -21,6 +21,7 @@ public class EmissionReportEmitterTests
         Assert.Empty(report.SkipReasons);
         Assert.Equal(0, report.ConformanceDecisions.EmittedInSource);
         Assert.Equal(0, report.ConformanceDecisions.SkippedAtEmission);
+        Assert.Empty(report.SilentTombstones);
     }
 
     [Fact]
@@ -74,5 +75,43 @@ public class EmissionReportEmitterTests
 
         Assert.NotNull(report.ConformanceDecisions.Note);
         Assert.Contains("EveryProtocol", report.ConformanceDecisions.Note);
+    }
+
+    [Fact]
+    public void BuildReport_SilentTombstones_SortedAndDeduped()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.AddSilentTombstone("WeatherKit.Forecast");
+        ctx.AddSilentTombstone("StoreKit.VerificationResult");
+        ctx.AddSilentTombstone("WeatherKit.Forecast"); // duplicate — should dedup
+
+        var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
+
+        Assert.Equal(2, report.SilentTombstones.Count);
+        Assert.Equal("StoreKit.VerificationResult", report.SilentTombstones[0]);
+        Assert.Equal("WeatherKit.Forecast", report.SilentTombstones[1]);
+    }
+
+    [Fact]
+    public void BuildReport_SilentTombstones_EmptyInputIgnored()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.AddSilentTombstone("");
+        ctx.AddSilentTombstone(null!);
+
+        var report = EmissionReportEmitter.BuildReport(ctx, "TestModule");
+
+        Assert.Empty(report.SilentTombstones);
+    }
+
+    [Fact]
+    public void IsSilentTombstone_ReturnsTrueForRegisteredType()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.AddSilentTombstone("WeatherKit.Forecast");
+
+        Assert.True(ctx.IsSilentTombstone("WeatherKit.Forecast"));
+        Assert.False(ctx.IsSilentTombstone("WeatherKit.Weather"));
+        Assert.False(ctx.IsSilentTombstone(""));
     }
 }

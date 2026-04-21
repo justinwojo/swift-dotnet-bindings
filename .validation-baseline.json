@@ -1,11 +1,11 @@
 {
-  "git_sha": "a56ba42b",
+  "git_sha": "b19ff5dd",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49362,
+        "lines": 49049,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59407,
+        "lines": 59173,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31964,
+        "lines": 31965,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14887,
+        "lines": 14795,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -648,15 +648,15 @@
       },
       "RichTextKit": {
         "compile": "known_errors",
-        "errors": 32,
-        "lines": 27458,
+        "errors": 26,
+        "lines": 27344,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
         "errors": 3,
-        "lines": 8314,
+        "lines": 8226,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

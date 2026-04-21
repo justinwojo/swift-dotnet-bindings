@@ -215,14 +215,26 @@ namespace BindingsGeneration
                     "This method will throw EntryPointNotFoundException at runtime");
             }
 
-            bool hasSafetyIssues = hasJitRisk || (!_env.MethodDecl.IsAccessor && _env.MethodDecl.IsMissingExportedSymbol);
+            // Silent tombstone: return type was emitted with [OpaqueSwiftType] but has no usable
+            // members. Callers can't do anything useful with the returned value — flag via SB0002
+            // so audits catch them by grep. Skip accessors (property-level surfacing deferred).
+            bool returnsSilentTombstone = !_env.MethodDecl.IsAccessor && IsReturnTypeSilentTombstone();
+            if (returnsSilentTombstone)
+            {
+                issues.Add("Return type has no usable surface (all members skipped during emission). " +
+                    "The returned value cannot be meaningfully consumed");
+            }
+
+            bool hasSafetyIssues = hasJitRisk
+                || (!_env.MethodDecl.IsAccessor && _env.MethodDecl.IsMissingExportedSymbol)
+                || returnsSilentTombstone;
             if (issues.Count > 0)
             {
                 var message = string.Join(". ", issues) + ".";
                 if (hasSafetyIssues)
                 {
                     // SB0001: JIT risk (suppressible on NativeAOT via SwiftBindingsInteropMode=Direct)
-                    // SB0002: Missing symbol (not runtime-dependent — always relevant)
+                    // SB0002: Missing symbol or silent-tombstone return (not runtime-dependent — always relevant)
                     var diagnosticId = hasJitRisk ? "SB0001" : "SB0002";
                     csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
                         $"DiagnosticId = \"{diagnosticId}\", " +
@@ -242,6 +254,29 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             }
+        }
+
+        /// <summary>
+        /// Returns true if this method's return type was recorded as a silent tombstone
+        /// (emitted with [OpaqueSwiftType] but zero usable members). Optional&lt;T&gt; is unwrapped
+        /// so Optional of a tombstone is also flagged. Constructors and void returns short-circuit.
+        /// </summary>
+        private bool IsReturnTypeSilentTombstone()
+        {
+            if (_env.MethodDecl.IsConstructor)
+                return false;
+            if (_env.MethodDecl.CSSignature.Count == 0)
+                return false;
+
+            var returnSpec = _env.MethodDecl.CSSignature[0].SwiftTypeSpec;
+            if (returnSpec is null)
+                return false;
+
+            var unwrapped = MarshallingHelpers.UnwrapOptionalTypeSpec(returnSpec) ?? returnSpec;
+            if (unwrapped is not NamedTypeSpec named)
+                return false;
+
+            return _emissionContext.IsSilentTombstone(named.Name);
         }
 
         /// <summary>

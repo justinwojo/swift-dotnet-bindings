@@ -1128,10 +1128,12 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Walks a TypeSpec and returns true if any generic argument (at any nesting level)
-        /// is a NamedTypeSpec whose module-qualified name has an ObjC-bridged remap in
-        /// AppleFrameworkRegistry (e.g., Foundation.UnitTemperature → Foundation.NSUnitTemperature).
-        /// Remapped types are NSObject-rooted and do not implement ISwiftObject, so using them
-        /// as a generic argument where the outer type has `where T : ISwiftObject` produces CS0311.
+        /// names an ObjC-bridged type — either an explicit remap in AppleFrameworkRegistry
+        /// (e.g. Foundation.UnitTemperature → Foundation.NSUnitTemperature) or an auto-bridged
+        /// type matching a known ObjC class prefix (e.g. Security.SecPolicy). Such types are
+        /// NSObject-rooted and do not implement ISwiftObject, so using them as a generic
+        /// argument where the outer type has `where T : ISwiftObject` produces CS0311.
+        /// Kept in sync with <see cref="IsObjCBridgedTypeSpec"/>.
         /// </summary>
         private static bool ContainsRemappedObjCTypeInGenericArgs(TypeSpec typeSpec)
         {
@@ -1143,6 +1145,8 @@ namespace BindingsGeneration
                 if (genericArg is NamedTypeSpec argNamed)
                 {
                     if (AppleFrameworkRegistry.TryGetNetTypeName(argNamed.Name, out _))
+                        return true;
+                    if (AppleFrameworkRegistry.HasObjCClassPrefix(argNamed.Name))
                         return true;
                 }
                 // Recurse into nested generics.
