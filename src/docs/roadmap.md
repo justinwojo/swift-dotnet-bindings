@@ -1,9 +1,9 @@
 # Roadmap to 1.0
 
-**Updated**: April 17, 2026
+**Updated**: April 21, 2026
 
 **Current baseline**: 95/95 CS compile, 61/61 Swift compile. All targets passing.
-**Skip metrics**: 10,790 emitted members, 1,923 skipped (15.1% skip rate) across 95 validation targets.
+**Skip metrics**: 10,719 emitted members, 1,873 skipped (14.9% skip rate) across 95 validation targets.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
 

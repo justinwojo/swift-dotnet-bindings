@@ -284,12 +284,16 @@ internal static class GenericDispatchEmitter
                     }
                 }
 
-                // Check return: T-typed returns are OK (routed through resultPtr)
+                // Check return: T-typed returns are OK (routed through resultPtr).
+                // Allow either bare T (e.g. `T`) or a NamedTypeSpec whose T-referencing
+                // generic arguments are themselves bare parent generics (e.g.
+                // `AliasGenericPayload<T>`). Wrapper emission already supports both
+                // shapes via RenderSwiftTypeSpecWithSugaredNames + initializeMemory.
                 var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-                if (WrapperValidation.TypeSpecReferencesGenericParam(returnSpec, genericParamNames))
+                if (WrapperValidation.TypeSpecReferencesGenericParam(returnSpec, genericParamNames)
+                    && !IsBareOrSimplyParameterizedNamedTypeSpec(returnSpec, genericParamNames))
                 {
-                    if (returnSpec is not NamedTypeSpec named || !genericParamNames.Contains(named.Name))
-                        return false;
+                    return false;
                 }
 
                 return true;
@@ -359,6 +363,41 @@ internal static class GenericDispatchEmitter
         // Match patterns like "τ_0_0 ==" which constrain parent-level generic params
         // (depth 0) to specific types. Method-level params are depth 1+ (τ_1_0).
         return System.Text.RegularExpressions.Regex.IsMatch(sig, @"τ_0_\d+\s*==");
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="spec"/> is either a bare parent generic param
+    /// (e.g. <c>T</c>) or a NamedTypeSpec like <c>AliasGenericPayload&lt;T&gt;</c> whose
+    /// every T-referencing generic argument is itself a bare parent generic. The static
+    /// dispatch wrapper can render this shape directly via
+    /// <c>RenderSwiftTypeSpecWithSugaredNames</c> + <c>initializeMemory(as: ...)</c>.
+    /// Nested bound generics like <c>Foo&lt;Bar&lt;T&gt;&gt;</c> are excluded — they
+    /// would render correctly but haven't been validated end-to-end and would expand
+    /// the supported surface beyond what the gate is currently proven to handle.
+    /// </summary>
+    internal static bool IsBareOrSimplyParameterizedNamedTypeSpec(TypeSpec spec, HashSet<string> genericParamNames)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+        if (genericParamNames.Contains(named.Name))
+            return true;
+        // Nested types (e.g. `StreamOf<E>.Iterator`) are kept out of the CSM widening
+        // conservatively: the renderer now emits them correctly via InnerType, but the
+        // full static-dispatch round-trip for a nested bound-generic return hasn't been
+        // validated end-to-end. Detect nesting via InnerType (populated by TypeSpecParser
+        // for dotted names) — don't use Name.Contains('.') because Name is module-qualified
+        // and that dot can simply be a cross-module prefix on a top-level type.
+        if (named.InnerType is not null)
+            return false;
+        foreach (var gp in named.GenericParameters)
+        {
+            if (!WrapperValidation.TypeSpecReferencesGenericParam(gp, genericParamNames))
+                continue;
+            if (gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name))
+                continue;
+            return false;
+        }
+        return true;
     }
 
     /// <summary>

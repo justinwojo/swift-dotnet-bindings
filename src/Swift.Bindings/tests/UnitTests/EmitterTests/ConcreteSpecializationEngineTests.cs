@@ -20,8 +20,8 @@ public class ConcreteSpecializationEngineTests
     public void LoadedHints_ContainsDataProtocol()
     {
         var hints = ConcreteSpecializationEngine.LoadedHints;
-        Assert.True(hints.ContainsKey("Swift.DataProtocol"), "Should have DataProtocol hints");
-        Assert.True(hints["Swift.DataProtocol"].Count >= 2, "DataProtocol should have at least 2 conformers");
+        Assert.True(hints.ContainsKey("Foundation.DataProtocol"), "Should have DataProtocol hints");
+        Assert.True(hints["Foundation.DataProtocol"].Count >= 2, "DataProtocol should have at least 2 conformers");
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class ConcreteSpecializationEngineTests
     {
         var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
 
-        var protocol = SwiftTypeName.FromModuleQualifiedName("Swift.DataProtocol");
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Foundation.DataProtocol");
         var conformers = engine.GetConformers(protocol);
 
         Assert.True(conformers.Count >= 2, "DataProtocol should have at least 2 conformers from hints");
@@ -134,7 +134,7 @@ public class ConcreteSpecializationEngineTests
         // bypass the ABI cross-check — we have no ground truth to verify them.
         var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
 
-        var protocol = SwiftTypeName.FromModuleQualifiedName("Swift.DataProtocol");
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Foundation.DataProtocol");
         var conformers = engine.GetConformers(protocol);
 
         Assert.Contains(conformers, c => c.CSharpType == "Data");
@@ -226,9 +226,9 @@ public class ConcreteSpecializationEngineTests
     [Fact]
     public void GetConformers_HintConformerRefinesImportedTargetThroughCurrentModuleUnindexedProtocol_IsKept()
     {
-        // Foundation.Data is a hint conformer for Swift.DataProtocol. Index Foundation
+        // Foundation.Data is a hint conformer for Foundation.DataProtocol. Index Foundation
         // as our current module with Data declaring conformance to a same-module
-        // helper protocol we don't have parsed. Target Swift.DataProtocol lives in
+        // helper protocol we don't have parsed. Target Foundation.DataProtocol lives in
         // Swift stdlib, which is implicitly imported by every Swift module. The
         // relaxed plausibility check must preserve Uncertain — same-module-only
         // plausibility would drop this valid hint because refiner module
@@ -245,7 +245,7 @@ public class ConcreteSpecializationEngineTests
             externalProtocol: "Foundation.UnparsedSequenceHelper");
         engine.IndexModuleConformances(moduleDecl);
 
-        var protocol = SwiftTypeName.FromModuleQualifiedName("Swift.DataProtocol");
+        var protocol = SwiftTypeName.FromModuleQualifiedName("Foundation.DataProtocol");
         var conformers = engine.GetConformers(protocol);
 
         Assert.Contains(conformers,
@@ -363,7 +363,7 @@ public class ConcreteSpecializationEngineTests
     public void ConcreteConformerNaming_ByteArray_HasSwiftLiteral()
     {
         var hints = ConcreteSpecializationEngine.LoadedHints;
-        var dataProtocol = hints["Swift.DataProtocol"];
+        var dataProtocol = hints["Foundation.DataProtocol"];
         var byteArrayConformer = dataProtocol.FirstOrDefault(c => c.CSharpType == "byte[]");
 
         Assert.NotNull(byteArrayConformer);

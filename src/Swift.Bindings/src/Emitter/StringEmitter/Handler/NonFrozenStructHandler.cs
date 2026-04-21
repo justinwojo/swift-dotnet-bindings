@@ -281,6 +281,16 @@ namespace BindingsGeneration
                     csWriter, swiftWriter, structDecl,
                     env.TypeDatabase, context.GetEmissionContext(), _logger);
 
+                // Generic-parent CSM: per-parent-conformer static extension classes
+                // (e.g. GenericContainer<SongItem>.Append overloads). Must live outside
+                // the parent's body so the receiver can close over the generic.
+                if (specEngine != null)
+                {
+                    ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+                        csWriter, swiftWriter, structDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+                }
+
                 // Emit P/Invoke helper class(es) after the main class.
                 // If this is a nested generic inside a generic parent, defer emission
                 // (emitting here would still be inside the outer generic type → CS7042).

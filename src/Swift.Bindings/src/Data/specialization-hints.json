@@ -2,10 +2,21 @@
   "$schema": "specialization-hints.schema.json",
   "protocols": [
     {
-      "protocol": "Swift.DataProtocol",
+      "protocol": "Foundation.DataProtocol",
       "conformers": [
         { "swiftType": "Foundation.Data", "csharpType": "Data" },
         { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" }
+      ]
+    },
+    {
+      "protocol": "CryptoKit.HashFunction",
+      "conformers": [
+        { "swiftType": "CryptoKit.SHA256", "csharpType": "SHA256", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.SHA384", "csharpType": "SHA384", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.SHA512", "csharpType": "SHA512", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.SHA3_256", "csharpType": "SHA3_256", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.SHA3_384", "csharpType": "SHA3_384", "modules": ["CryptoKit"] },
+        { "swiftType": "CryptoKit.SHA3_512", "csharpType": "SHA3_512", "modules": ["CryptoKit"] }
       ]
     },
     {

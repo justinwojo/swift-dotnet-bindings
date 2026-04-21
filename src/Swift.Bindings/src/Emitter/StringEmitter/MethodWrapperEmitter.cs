@@ -742,19 +742,18 @@ public static class MethodWrapperEmitter
             }
             else
             {
-                var (cdeclParam, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false);
+                var (cdeclParam, reconstruction, callExpr) = CdeclParamMapper.Map(arg, label, env, false);
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                 protocolParams.Add($"{paramPrefix}: {swiftType}");
                 cdeclParams.Add(cdeclParam);
 
+                // Use CdeclParamMapper's actual call expression — the local-variable suffix
+                // varies (Val vs Opt for Optional<BlittablePrimitive>), and hardcoding "Val"
+                // here drifts when the mapper uses a different name.
                 if (reconstruction != null)
-                {
-                    cdeclCallArgs.Add($"{protocolArgLabel}{label}Val");
-                }
+                    cdeclCallArgs.Add(callExpr);
                 else
-                {
                     cdeclCallArgs.Add($"{protocolArgLabel}{label}");
-                }
 
                 methodCallArgs.Add($"{methodArgLabel}{label}");
             }

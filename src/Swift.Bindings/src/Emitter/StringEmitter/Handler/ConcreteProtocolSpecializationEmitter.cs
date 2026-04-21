@@ -76,54 +76,72 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // ModuleEmissionContext claim so it agrees with the Phase-4a predicate.
         var emittedSignatures = new HashSet<string>(StringComparer.Ordinal);
 
+        // Pre-seed with signatures of existing non-specialized methods on the type.
+        // A CSM overload collides with a hand-written method when Swift has both
+        // `func f(_ x: SQL)` (non-generic) AND `func f<T: P>(_ x: T)` (generic) and
+        // SQL is a conformer of P. Without pre-seeding, the CSM emitter produces a
+        // second `F(SQL)` overload triggering CS0111.
+        var specializableMangledNames = new HashSet<string>(
+            specializableMethods.Select(s => s.Method.MangledName), StringComparer.Ordinal);
+        foreach (var existing in typeDecl.Methods)
+        {
+            if (existing.IsAccessor || existing.IsConstructor) continue;
+            if (existing.IsGeneric) continue;
+            if (specializableMangledNames.Contains(existing.MangledName)) continue;
+            var existingCsName = NameProvider.ToPascalCase(existing.Name);
+            var existingSigKey = BuildCSharpSignatureKeyForNonGeneric(existingCsName, existing, typeDatabase);
+            emittedSignatures.Add(existingSigKey);
+        }
+
         foreach (var spec in specializableMethods)
         {
             var method = spec.Method;
 
-            // Accessors and mutating methods stay gated: they use different emission
-            // paths (property accessors / inout self). Constructors likewise — Phase A
-            // only covers plain instance/static async methods.
-            if (method.IsAccessor || method.IsMutating) continue;
+            // Accessors stay gated: they use different emission paths (property accessors).
+            // Constructors likewise — Phase A only covers plain instance/static async methods.
+            // Mutating methods are now supported for struct instance methods via
+            // UnsafeMutableRawPointer self_ + pointee write-back after the call.
+            if (method.IsAccessor) continue;
 
             // Sync throws without async is also out of scope for CSM v1.
             if (!method.IsAsync && method.Throws) continue;
 
-            // Skip if parent is a generic type (double generic context is complex)
-            if (typeDecl.IsGeneric) continue;
+            // Parent-generic specs are handled by EmitConcreteSpecializationsForGenericParent,
+            // which wraps emission in a per-parent-conformer static extension class so the
+            // receiver can close over the generic (e.g. `this GenericContainer<SongItem> self`).
+            if (spec.SpecializableParams.Any(p => p.IsParentGeneric)) continue;
 
             // Verify xcframework mode
             if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) continue;
-
-            // Sync multi-param not yet supported — only async path handles cartesian product.
-            if (!method.IsAsync && spec.SpecializableParams.Count != 1) continue;
 
             if (spec.SpecializableParams.Count == 1)
             {
                 var param = spec.SpecializableParams[0];
                 foreach (var conformer in param.Conformers)
                 {
+                    var pairing = new[] { (param, conformer) };
                     if (method.IsAsync)
                     {
                         TryEmitConcreteOverloadAsync(
                             csWriter, swiftWriter, method, typeDecl,
-                            new[] { (param, conformer) },
+                            pairing,
                             moduleName, typeDatabase, emissionContext, logger);
                     }
                     else
                     {
                         TryEmitConcreteOverload(
-                            csWriter, swiftWriter, method, typeDecl, param, conformer,
+                            csWriter, swiftWriter, method, typeDecl, pairing,
                             moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, logger);
                     }
                 }
             }
-            else if (method.IsAsync)
+            else
             {
                 var pairingCount = ComputePairingCount(spec.SpecializableParams);
                 if (pairingCount > MaxCsmCartesianProductSize)
                 {
                     logger.LogDebug(
-                        "CSM-async: Skipping {Method} — cartesian product of conformer pairings ({Count}) exceeds cap ({Cap}).",
+                        "CSM: Skipping {Method} — cartesian product of conformer pairings ({Count}) exceeds cap ({Cap}).",
                         method.Name, pairingCount, MaxCsmCartesianProductSize);
                     continue;
                 }
@@ -136,15 +154,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     if (!ConformerPairingSatisfiesCoupling(pairing))
                     {
                         logger.LogDebug(
-                            "CSM-async: Skipping {Method} multi-param pairing — cross-param same-type constraint not satisfied.",
+                            "CSM: Skipping {Method} multi-param pairing — cross-param same-type constraint not satisfied.",
                             method.Name);
                         continue;
                     }
 
-                    TryEmitConcreteOverloadAsync(
-                        csWriter, swiftWriter, method, typeDecl,
-                        pairing,
-                        moduleName, typeDatabase, emissionContext, logger);
+                    if (method.IsAsync)
+                    {
+                        TryEmitConcreteOverloadAsync(
+                            csWriter, swiftWriter, method, typeDecl,
+                            pairing,
+                            moduleName, typeDatabase, emissionContext, logger);
+                    }
+                    else
+                    {
+                        TryEmitConcreteOverload(
+                            csWriter, swiftWriter, method, typeDecl, pairing,
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, logger);
+                    }
                 }
             }
         }
@@ -154,13 +181,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// Enumerates the cartesian product of conformers across each specializable param,
     /// yielding one pairing per combination.
     /// </summary>
-    private static IEnumerable<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[]>
+    private static IEnumerable<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[]>
         CartesianPairings(IReadOnlyList<ConcreteSpecializationEngine.SpecializableParam> specParams)
     {
         var indices = new int[specParams.Count];
         while (true)
         {
-            var pairing = new (ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[specParams.Count];
+            var pairing = new (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[specParams.Count];
             for (int i = 0; i < specParams.Count; i++)
             {
                 pairing[i] = (specParams[i], specParams[i].Conformers[indices[i]]);
@@ -219,113 +246,54 @@ public static partial class ConcreteProtocolSpecializationEmitter
         SwiftWriter swiftWriter,
         MethodDecl method,
         TypeDecl parentTypeDecl,
-        ConcreteSpecializationEngine.SpecializableParam specParam,
-        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         string moduleName,
         string wrapperLibPath,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         HashSet<string> emittedSignatures,
-        ILogger logger)
+        ILogger logger,
+        bool isExtension = false)
     {
         bool isConstructor = method.IsConstructor;
         bool isStatic = method.MethodType == MethodType.Static || isConstructor;
         bool isClass = parentTypeDecl is ClassDecl;
 
-        // Skip nested type conformers — their C# names may differ from Swift names
-        // (e.g., Words → WordsType to avoid property name collisions).
-        // Detected by checking if ModuleQualifiedName has >2 dot segments (Module.Parent.Nested).
-        if (conformer.SwiftType != null &&
-            conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2)
+        // Build symbol name (concatenate conformer names across the pairing).
+        var safeConformerName = string.Join(
+            "_",
+            pairing.Select(p => SanitizeTypeName(p.Conformer.SwiftQualifiedName)));
+
+        // Shared preflight — rejects any pairing the Swift/C# emitters couldn't produce valid
+        // code for. Single source of truth consulted here AND by IsCsmSyncEligibleForGenericParent,
+        // so the sync suppression predicate cannot decide to skip the open-generic emission for
+        // a method that this emitter will then silently drop.
+        if (!CanEmitConcreteOverloadForPairing(method, parentTypeDecl, pairing, typeDatabase, out var rejectReason))
         {
             logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — nested type conformer.",
-                method.Name, conformer.SwiftQualifiedName);
+                "ConcreteSpecializationEmitter: Skipping {Method} for {Pairing} — {Reason}.",
+                method.Name, safeConformerName, rejectReason);
             return false;
         }
 
-        // Skip conformers whose C# managed type is not an ISwiftObject-backed class with
-        // a SafeHandle Payload. Covers:
-        //   • NativeTypeName remaps (Foundation.Data → NSData)
-        //   • objcBridged records (Foundation.NSLocale, UIKit.UIImage, …) whose managed
-        //     counterpart is an NSObject binding without .Payload
-        //   • objcRooted Swift classes inheriting NSObject (same reason)
-        // The generic-param marshalling emits `{name}.Payload.DangerousGetHandle()`, which
-        // fails to compile for any of the above.
-        if (conformer.SwiftType != null &&
-            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var conformerRecord) &&
-            (conformerRecord.NativeTypeName != null
-                || MarshallingHelpers.IsObjCBridged(conformerRecord)
-                || MarshallingHelpers.IsObjCRooted(conformerRecord)))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — ObjC/native-bridged conformer lacks Payload accessor.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
-        // Build symbol name
-        var safeConformerName = SanitizeTypeName(conformer.SwiftQualifiedName);
         var methodName = isConstructor ? "init" : method.Name;
-        var mangledHash = EmitterUtility.DeterministicHash8(method.MangledName + conformer.SwiftQualifiedName);
+        var hashInput = method.MangledName
+            + string.Concat(pairing.Select(p => "|" + p.Conformer.SwiftQualifiedName));
+        var mangledHash = EmitterUtility.DeterministicHash8(hashInput);
         var cdeclSymbol = $"SBW_CSM_{moduleName}_{parentTypeDecl.Name}_{safeConformerName}_{methodName}_{mangledHash}";
 
         // Dedup guard
         if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
             return false;
 
-        // Classify return type
+        // Recompute return-type classification for the rest of this method — preflight proved it
+        // won't trigger a skip, but we still need these flags to drive Swift/C# emission below.
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
-        var genericParamName = specParam.GenericParam.TypeName;
         bool returnsGenericParam = !isVoidReturn &&
-            (IsGenericParamType(returnTypeSpec, genericParamName) ||
-             IsGenericParamType(returnTypeSpec, GetAlternateDepthName(genericParamName)));
+            TryMatchGenericParam(returnTypeSpec, pairing, out _, out _);
         bool isStringReturn = !isVoidReturn && !returnsGenericParam && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
-        // Skip methods returning Self — @_cdecl global functions can't return Self
-        if (!isVoidReturn && !isConstructor && IsSelfReturn(returnTypeSpec))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — returns Self.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
-        // Skip failable constructors — init?() returns Optional which we can't handle in @_cdecl
-        if (isConstructor && IsOptionalReturn(returnTypeSpec))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — failable initializer.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
-        // Skip if return type contains ANY unresolved generic param (τ_X_Y or associated types).
-        // This catches: Container<T>, Container<T.Element>, and return types using related
-        // generic params (e.g., τ_0_1 for associated types resolved by the conformance graph).
-        var altGenericName = GetAlternateDepthName(genericParamName);
-        if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
-            ContainsAnyGenericParam(returnTypeSpec))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — return type contains unresolved generic param.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
-        // Skip non-constructor methods returning Optional — the CSM emitter doesn't have
-        // proper Optional<T> type argument resolution or unwrapping logic yet.
-        if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
-            IsOptionalReturn(returnTypeSpec))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — Optional return type not yet supported.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
-        // For constructors, return type is the parent type
         if (isConstructor)
         {
             returnsGenericParam = false;
@@ -333,117 +301,91 @@ public static partial class ConcreteProtocolSpecializationEmitter
             isVoidReturn = false; // Constructor returns self
         }
 
-        // Skip methods whose indirect-result return type is not ISwiftObject.
-        // GetSwiftTypeSize<T>() requires T : ISwiftObject; emitting it for tuples, closures,
-        // frozen blittable structs, or IntPtr would produce uncompilable C#.
-        if (!isVoidReturn && !isStringReturn)
-        {
-            bool needsIndirectResult = false;
-            bool indirectReturnIsSwiftObject = true;
-
-            if (isConstructor && !isClass)
-            {
-                needsIndirectResult = true;
-                var parentTypeName = parentTypeDecl.SwiftTypeName;
-                indirectReturnIsSwiftObject = parentTypeName != null
-                    && typeDatabase.TryGetTypeRecord(parentTypeName, out var ctorRecord)
-                    && ctorRecord.Kind == TypeRecordKind.Struct
-                    && (!ctorRecord.Flags.HasFlag(TypeRecordFlags.Frozen)
-                        || ctorRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
-            }
-            else if (returnsGenericParam)
-            {
-                needsIndirectResult = true;
-                var category = ClassifyConformerForCSharp(conformer, typeDatabase);
-                indirectReturnIsSwiftObject = category is ConformerCategory.NonFrozenStruct or ConformerCategory.Class;
-            }
-            else if (!isConstructor)
-            {
-                var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
-                if (mapping.Kind == CdeclReturnKind.IndirectResult)
-                {
-                    needsIndirectResult = true;
-                    indirectReturnIsSwiftObject = returnTypeSpec is NamedTypeSpec irNamed
-                        && typeDatabase.TryGetTypeRecord(irNamed, out var irRecord)
-                        && (irRecord.Kind == TypeRecordKind.Class
-                            || (irRecord.Kind == TypeRecordKind.Struct
-                                && (!irRecord.Flags.HasFlag(TypeRecordFlags.Frozen)
-                                    || irRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement))));
-                }
-            }
-
-            if (needsIndirectResult && !indirectReturnIsSwiftObject)
-            {
-                logger.LogDebug(
-                    "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — indirect result return type is not ISwiftObject.",
-                    method.Name, conformer.SwiftQualifiedName);
-                return false;
-            }
-        }
-
-        // Verify all non-generic params are passable and don't reference the generic param
-        if (!AreNonGenericParamsCompatible(method, specParam, typeDatabase))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — incompatible non-generic params.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
-        // Skip methods where non-generic params reference the generic param in complex types
-        // (e.g., DataResponse<τ_0_0, Error>). We can't substitute these without full type rewriting.
-        if (HasNonGenericParamReferencingGeneric(method, specParam))
-        {
-            logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — non-generic param references generic type.",
-                method.Name, conformer.SwiftQualifiedName);
-            return false;
-        }
-
         // Compute C# method signature key for dedup — prevents CS0111 when multiple conformers
         // produce the same visible method signature (name + parameter types).
         var csMethodName = isConstructor
-            ? $"From{SanitizeTypeName(conformer.CSharpType)}"
+            ? $"From{string.Join("_", pairing.Select(p => SanitizeTypeName(p.Conformer.CSharpType)))}"
             : NameProvider.ToPascalCase(method.Name);
-        var sigKey = BuildCSharpSignatureKey(csMethodName, method, specParam, conformer, typeDatabase);
+        var sigKey = BuildCSharpSignatureKey(csMethodName, method, pairing, typeDatabase);
         if (!emittedSignatures.Add(sigKey))
         {
             logger.LogDebug(
-                "ConcreteSpecializationEmitter: Skipping {Method} for {Conformer} — duplicate C# signature: {Sig}.",
-                method.Name, conformer.SwiftQualifiedName, sigKey);
+                "ConcreteSpecializationEmitter: Skipping {Method} for {Pairing} — duplicate C# signature: {Sig}.",
+                method.Name, safeConformerName, sigKey);
             return false;
         }
 
-        // Merge availability (method + parent + conformer) once — both Swift and C#
+        // Merge availability (method + parent + all conformers) once — both Swift and C#
         // sides need the same floor so generated code and callers agree.
         var mergedAvailability = WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentTypeDecl);
-        if (conformer.AvailabilityAnnotations is { Count: > 0 } conformerAvailability)
+        foreach (var (_, c) in pairing)
         {
-            var combined = mergedAvailability is null
-                ? new List<AvailabilityAnnotation>()
-                : new List<AvailabilityAnnotation>(mergedAvailability);
-            combined.AddRange(conformerAvailability);
-            mergedAvailability = combined;
+            if (c.AvailabilityAnnotations is { Count: > 0 } conformerAvailability)
+            {
+                var combined = mergedAvailability is null
+                    ? new List<AvailabilityAnnotation>()
+                    : new List<AvailabilityAnnotation>(mergedAvailability);
+                combined.AddRange(conformerAvailability);
+                mergedAvailability = combined;
+            }
         }
 
         // --- Emit Swift @_cdecl wrapper ---
         EmitSwiftWrapper(
-            swiftWriter, method, parentTypeDecl, specParam, conformer,
+            swiftWriter, method, parentTypeDecl, pairing,
             cdeclSymbol, moduleName, isClass, isConstructor, typeDatabase, emissionContext,
             mergedAvailability);
 
         // --- Emit C# method ---
         EmitCSharpMethod(
-            csWriter, method, parentTypeDecl, specParam, conformer,
+            csWriter, method, parentTypeDecl, pairing,
             cdeclSymbol, wrapperLibPath, isConstructor, isStatic, isClass,
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
-            mergedAvailability);
+            mergedAvailability, isExtension);
 
         logger.LogInformation(
-            "Emitted concrete specialization: {Type}.{Method}<{Conformer}>",
-            parentTypeDecl.Name, method.Name, conformer.SwiftQualifiedName);
+            "Emitted concrete specialization: {Type}.{Method}<{Pairing}>",
+            parentTypeDecl.Name, method.Name, safeConformerName);
 
         return true;
+    }
+
+    /// <summary>
+    /// Walks the pairing and returns the first (param, conformer) whose generic-param
+    /// name matches <paramref name="typeSpec"/>. Prefers exact-name match; only falls back
+    /// to the alternate-depth twin when no exact match exists. This ordering matters when
+    /// a parent-generic + method-generic pairing contains names that are each other's
+    /// alt-depth twin (e.g. parent T=τ_0_0, method D=τ_1_0) — without the preference,
+    /// a method arg typed τ_1_0 would spuriously match the parent T via its alt-twin.
+    /// </summary>
+    private static bool TryMatchGenericParam(
+        TypeSpec typeSpec,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        out ConcreteSpecializationEngine.SpecializableParam? matchedParam,
+        out ConcreteSpecializationEngine.ConcreteConformer? matchedConformer)
+    {
+        foreach (var entry in pairing)
+        {
+            if (IsGenericParamType(typeSpec, entry.Param.GenericParam.TypeName))
+            {
+                matchedParam = entry.Param;
+                matchedConformer = entry.Conformer;
+                return true;
+            }
+        }
+        foreach (var entry in pairing)
+        {
+            var alt = GetAlternateDepthName(entry.Param.GenericParam.TypeName);
+            if (alt != entry.Param.GenericParam.TypeName && IsGenericParamType(typeSpec, alt))
+            {
+                matchedParam = entry.Param;
+                matchedConformer = entry.Conformer;
+                return true;
+            }
+        }
+        matchedParam = null;
+        matchedConformer = null;
+        return false;
     }
 
     // ─── Swift Wrapper Generation ────────────────────────────────────
@@ -452,8 +394,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         SwiftWriter swiftWriter,
         MethodDecl method,
         TypeDecl parentTypeDecl,
-        ConcreteSpecializationEngine.SpecializableParam specParam,
-        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         string cdeclSymbol,
         string moduleName,
         bool isClass,
@@ -462,15 +403,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
     {
-        var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
-        var concreteSwiftType = conformer.SwiftLiteral ?? conformer.SwiftQualifiedName;
+        var parentSwiftName = BuildConcreteParentSwiftName(parentTypeDecl, pairing);
         bool isInstance = method.MethodType == MethodType.Instance && !isConstructor;
 
         // Classify return
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple && !isConstructor;
         bool returnsGenericParam = !isVoidReturn && !isConstructor &&
-            IsGenericParamType(returnTypeSpec, specParam.GenericParam.TypeName);
+            TryMatchGenericParam(returnTypeSpec, pairing, out _, out _);
+        ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
+        if (returnsGenericParam)
+        {
+            TryMatchGenericParam(returnTypeSpec, pairing, out _, out var rc);
+            returnConformer = rc;
+        }
+        // Swift concrete return type: if return matches a generic, use that conformer.
+        string returnConcreteSwiftType = returnConformer is null
+            ? string.Empty
+            : (returnConformer.SwiftLiteral ?? returnConformer.SwiftQualifiedName);
         bool isStringReturn = !isVoidReturn && !returnsGenericParam && !isConstructor &&
             WitnessDispatchEmitter.IsStringType(returnTypeSpec);
 
@@ -517,20 +467,37 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
             var argLabel = ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
 
-            var swiftGenericName = specParam.GenericParam.TypeName;
-            var swiftAltGenericName = GetAlternateDepthName(swiftGenericName);
-            if (IsGenericParamType(arg.SwiftTypeSpec, swiftGenericName) ||
-                IsGenericParamType(arg.SwiftTypeSpec, swiftAltGenericName))
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
             {
+                var matchedConformer = matchedConformerObj!;
+                var concreteSwiftType = matchedConformer.SwiftLiteral ?? matchedConformer.SwiftQualifiedName;
                 // Generic param → receive concrete type directly
                 // For non-frozen struct conformers, receive as UnsafeRawPointer
                 // For frozen/class conformers, receive directly
-                var category = ClassifyConformerForSwiftParam(conformer, typeDatabase);
+                var category = ClassifyConformerForSwiftParam(matchedConformer, typeDatabase);
                 switch (category)
                 {
                     case ConformerCategory.Class:
                         swiftParams.Add($"_ _{label}: UnsafeMutableRawPointer");
                         callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer(_{label}), to: {concreteSwiftType}.self)");
+                        break;
+                    case ConformerCategory.RawBuffer:
+                        // byte[] / [UInt8]: receive (ptr, length), reconstruct as Foundation.Data
+                        // zero-copy. The C# side pins via fixed(byte*) for the duration of the
+                        // @_cdecl call, so .none deallocator is safe (Swift never outlives the
+                        // pin — this is a synchronous call). Swift infers D = Foundation.Data
+                        // at the call site regardless of the conformer's nominal [UInt8] identity,
+                        // which is fine: both [UInt8] and Data conform to DataProtocol.
+                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
+                        swiftParams.Add($"_ _{label}Len: Int");
+                        callArgs.Add($"{argLabel}Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: _{label}), count: _{label}Len, deallocator: .none)");
+                        break;
+                    case ConformerCategory.InlineSwiftStruct:
+                        // Foundation.Data (and future allowlisted value structs): the C# side
+                        // pins &data via fixed(Data*) and passes (IntPtr)p. Swift loads via
+                        // assumingMemoryBound+pointee, same shape as NonFrozenStruct.
+                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}_{label}.assumingMemoryBound(to: {concreteSwiftType}.self).pointee");
                         break;
                     default:
                         // Frozen and non-frozen structs: pass as pointer, load value.
@@ -569,22 +536,39 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
 
-        // Self parameter for instance methods
+        // Self parameter for instance methods. Mutating struct methods need a mutable
+        // self pointer so we can write the modified value back via pointee assignment.
+        bool needsMutatingSelf = isInstance && !isClass && method.IsMutating;
         if (isInstance)
         {
-            if (isClass)
+            if (isClass || needsMutatingSelf)
                 swiftParams.Add("_ self_: UnsafeMutableRawPointer");
             else
                 swiftParams.Add("_ self_: UnsafeRawPointer");
         }
 
-        // Build self conversion
+        // Build self conversion. Mutating methods bind `var __self` so the call can
+        // mutate it in place; the write-back below propagates the change to the
+        // payload memory the C# SafeHandle owns.
         string selfConversion = "";
+        string selfWriteBack = "";
         if (isInstance)
         {
-            selfConversion = isClass
-                ? $"let __self = unsafeBitCast(OpaquePointer(self_), to: {parentSwiftName}.self)"
-                : $"let __self = self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee";
+            if (isClass)
+            {
+                selfConversion = $"let __self = unsafeBitCast(OpaquePointer(self_), to: {parentSwiftName}.self)";
+            }
+            else if (needsMutatingSelf)
+            {
+                selfConversion = $"var __self = self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee";
+                // pointee = ... routes through the value witness table and correctly
+                // handles ARC for non-BitwiseCopyable structs (storeBytes would not).
+                selfWriteBack = $"self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee = __self";
+            }
+            else
+            {
+                selfConversion = $"let __self = self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee";
+            }
         }
 
         // Build method call
@@ -606,7 +590,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         else if (isVoidReturn || isStringReturn || needsResultPtr)
             swiftReturnType = "";
         else if (returnsGenericParam)
-            swiftReturnType = $" -> {concreteSwiftType}";
+            swiftReturnType = $" -> {returnConcreteSwiftType}";
         else
             swiftReturnType = $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}";
 
@@ -614,8 +598,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentTypeDecl, method.IsMainActorIsolated, method.IsNonisolated);
 
+        var pairingComment = string.Join(", ", pairing.Select(p => p.Conformer.SwiftLiteral ?? p.Conformer.SwiftQualifiedName));
         swiftWriter.WriteLine();
-        swiftWriter.WriteLines($"// Concrete specialization: {parentSwiftName}.{method.Name}<{concreteSwiftType}>");
+        swiftWriter.WriteLines($"// Concrete specialization: {parentSwiftName}.{method.Name}<{pairingComment}>");
 
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, cdeclSymbol, needsMainActor, mergedAvailability);
         swiftWriter.WriteLine($"public func {cdeclSymbol}(");
@@ -642,20 +627,38 @@ public static partial class ConcreteProtocolSpecializationEmitter
         else if (isVoidReturn)
         {
             swiftWriter.WriteLine($"    {callExpr}");
+            if (!string.IsNullOrEmpty(selfWriteBack))
+                swiftWriter.WriteLine($"    {selfWriteBack}");
         }
         else if (isStringReturn)
         {
-            OptionalPointerWrapperEmitter.EmitStringReturnBody(swiftWriter, callExpr, "    ");
+            // Mutating + string return: emit the write-back immediately after `let result = ...`
+            // (before the string serializes) so callers observe the mutation. Without this the
+            // mutation would live only on the local `var __self` copy.
+            OptionalPointerWrapperEmitter.EmitStringReturnBody(
+                swiftWriter, callExpr, "    ",
+                postCallStatement: string.IsNullOrEmpty(selfWriteBack) ? null : selfWriteBack);
         }
         else if (needsResultPtr)
         {
-            var returnTypeStr = returnsGenericParam ? concreteSwiftType : ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
+            var returnTypeStr = returnsGenericParam ? returnConcreteSwiftType : ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
             swiftWriter.WriteLine($"    let _result = {callExpr}");
+            if (!string.IsNullOrEmpty(selfWriteBack))
+                swiftWriter.WriteLine($"    {selfWriteBack}");
             swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: ({returnTypeStr}).self, repeating: _result, count: 1)");
         }
         else
         {
-            swiftWriter.WriteLine($"    return {callExpr}");
+            if (!string.IsNullOrEmpty(selfWriteBack))
+            {
+                swiftWriter.WriteLine($"    let _result = {callExpr}");
+                swiftWriter.WriteLine($"    {selfWriteBack}");
+                swiftWriter.WriteLine($"    return _result");
+            }
+            else
+            {
+                swiftWriter.WriteLine($"    return {callExpr}");
+            }
         }
 
         swiftWriter.WriteLine("}");
@@ -667,8 +670,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         CSharpWriter csWriter,
         MethodDecl method,
         TypeDecl parentTypeDecl,
-        ConcreteSpecializationEngine.SpecializableParam specParam,
-        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         string cdeclSymbol,
         string wrapperLibPath,
         bool isConstructor,
@@ -678,16 +680,31 @@ public static partial class ConcreteProtocolSpecializationEmitter
         bool isStringReturn,
         bool returnsGenericParam,
         ITypeDatabase typeDatabase,
-        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
+        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
+        bool isExtension = false)
     {
         var methodName = NameProvider.ToPascalCase(method.Name);
         if (isConstructor)
-            methodName = $"From{SanitizeTypeName(conformer.CSharpType)}";
+            methodName = $"From{string.Join("_", pairing.Select(p => SanitizeTypeName(p.Conformer.CSharpType)))}";
+
+        // Resolve the return-side conformer if the return is a generic param.
+        ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
+        if (returnsGenericParam)
+        {
+            var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
+            TryMatchGenericParam(returnTypeSpec, pairing, out _, out returnConformer);
+        }
 
         // Build public parameter list and P/Invoke parameter list
         var publicParams = new List<string>();
         var pinvokeParams = new List<string>();
         var callArgs = new List<string>();
+
+        // Pins: each entry is a C# fixed-statement "fixed (byte* _pfoo = foo)" that must
+        // wrap the pinvoke call. InlineSwiftStruct uses `&param` directly (unmanaged
+        // value type — no fixed needed) but still requires an `unsafe` context.
+        var fixedStatements = new List<string>();
+        bool needsUnsafe = false;
 
         bool needsResultPtr = false;
         if (isConstructor && !isClass)
@@ -718,24 +735,44 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
             var csName = NameProvider.GetCSharpParameterName(arg);
 
-            var csGenericName = specParam.GenericParam.TypeName;
-            var csAltGenericName = GetAlternateDepthName(csGenericName);
-            if (IsGenericParamType(arg.SwiftTypeSpec, csGenericName) ||
-                IsGenericParamType(arg.SwiftTypeSpec, csAltGenericName))
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
             {
+                var matchedConformer = matchedConformerObj!;
                 // Generic param → concrete type
-                var category = ClassifyConformerForCSharp(conformer, typeDatabase);
+                var category = ClassifyConformerForCSharp(matchedConformer, typeDatabase);
                 switch (category)
                 {
                     case ConformerCategory.Class:
-                        publicParams.Add($"{conformer.CSharpType} {csName}");
+                        publicParams.Add($"{matchedConformer.CSharpType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                        break;
+                    case ConformerCategory.RawBuffer:
+                        // byte[] / [UInt8]: pin via fixed(byte*), pass (ptr, length).
+                        // Swift reconstructs as Data(bytesNoCopy:...,deallocator:.none);
+                        // pin lifetime covers the entire @_cdecl call.
+                        publicParams.Add($"{matchedConformer.CSharpType} {csName}");
+                        pinvokeParams.Add($"IntPtr {csName}");
+                        pinvokeParams.Add($"nint {csName}Len");
+                        fixedStatements.Add($"fixed (byte* _p{csName} = {csName})");
+                        callArgs.Add($"(IntPtr)_p{csName}");
+                        callArgs.Add($"(nint)({csName} is null ? 0 : {csName}.Length)");
+                        needsUnsafe = true;
+                        break;
+                    case ConformerCategory.InlineSwiftStruct:
+                        // Foundation.Data (and future allowlisted value structs): unmanaged
+                        // blittable struct, so &arg is directly usable within an unsafe block —
+                        // no `fixed` required. Swift loads via pointee on the other side.
+                        var csTypeName = InlineSwiftStructAllowlist[matchedConformer.SwiftQualifiedName];
+                        publicParams.Add($"{csTypeName} {csName}");
+                        pinvokeParams.Add($"IntPtr {csName}");
+                        callArgs.Add($"(IntPtr)(&{csName})");
+                        needsUnsafe = true;
                         break;
                     default:
                         // Frozen and non-frozen structs: pass via IntPtr.
                         // Even frozen structs are C# classes with SafeHandle, not blittable structs.
-                        publicParams.Add($"{conformer.CSharpType} {csName}");
+                        publicParams.Add($"{matchedConformer.CSharpType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
                         break;
@@ -792,20 +829,37 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!isStatic)
         {
             pinvokeParams.Add("IntPtr self_");
-            var selfExpr = isClass ? "_handle.DangerousGetHandle()" : "_payload.DangerousGetHandle()";
-            callArgs.Add(selfExpr);
+            if (isExtension)
+            {
+                // Extension-method path: receiver is an explicit `this {ConcreteParent} self`
+                // first public parameter. Source the P/Invoke self-arg via the ISwiftObject
+                // cast since `SwiftHandle` is an explicit interface impl on the generated
+                // type, not a public member.
+                var concreteParentCs = BuildConcreteParentCsharpName(parentTypeDecl, pairing, typeDatabase);
+                publicParams.Insert(0, $"this {concreteParentCs} self");
+                callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+            }
+            else
+            {
+                var selfExpr = isClass ? "_handle.DangerousGetHandle()" : "_payload.DangerousGetHandle()";
+                callArgs.Add(selfExpr);
+            }
         }
 
         // Determine C# return type
         string csReturnType = "void";
         if (isConstructor)
         {
-            csReturnType = parentTypeDecl.Name;
+            // Extension-class constructors (static factory on closed generic parent)
+            // return the closed parent type, e.g. `GenericContainer<SongItem>`.
+            csReturnType = isExtension
+                ? BuildConcreteParentCsharpName(parentTypeDecl, pairing, typeDatabase)
+                : parentTypeDecl.Name;
         }
         else if (!isVoidReturn)
         {
             if (returnsGenericParam)
-                csReturnType = conformer.CSharpType;
+                csReturnType = returnConformer!.CSharpType;
             else if (isStringReturn)
                 csReturnType = "string";
             else
@@ -855,11 +909,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         // --- Emit public method ---
         csWriter.WriteLine();
-        var staticStr = isStatic ? "static " : "";
-        csWriter.WriteLine($"/// <summary>Concrete specialization for {conformer.CSharpType}.</summary>");
+        // Extension methods live in a non-generic static partial class, so they MUST be
+        // `static` regardless of whether the underlying Swift method is instance or static.
+        var staticStr = (isStatic || isExtension) ? "static " : "";
+        var unsafeStr = needsUnsafe ? "unsafe " : "";
+        var pairingDoc = string.Join(", ", pairing.Select(p => p.Conformer.CSharpType));
+        csWriter.WriteLine($"/// <summary>Concrete specialization for {pairingDoc}.</summary>");
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
-        csWriter.WriteLine($"public {staticStr}{csReturnType} {methodName}({string.Join(", ", publicParams)})");
+        csWriter.WriteLine($"public {unsafeStr}{staticStr}{csReturnType} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -885,6 +943,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 csWriter.WriteLine($"IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnType}>());");
             }
             csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
+        // Emit nested fixed statements (if any) wrapping the pinvoke call + marshalling.
+        // Holding pins across the marshal is harmless — Data(bytesNoCopy:...) was already
+        // consumed on the Swift side by the time the wrapper returns, and the marginal
+        // cost of keeping the pin a few instructions longer is not worth the complexity
+        // of splitting the call and the marshal.
+        foreach (var fixedStmt in fixedStatements)
+        {
+            csWriter.WriteLine(fixedStmt);
             csWriter.WriteLine("{");
             csWriter.Indent++;
         }
@@ -925,6 +995,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine($"return {pinvokeCall};");
         }
 
+        // Close fixed blocks (reverse nesting order)
+        for (int i = 0; i < fixedStatements.Count; i++)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
         if (needsResultPtr || isStringReturn)
         {
             csWriter.Indent--;
@@ -944,13 +1021,45 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         FrozenStruct,
         NonFrozenStruct,
-        Class
+        Class,
+        // byte[] / [UInt8] — marshalled via (IntPtr, nint) pair with fixed(byte*) pin on
+        // the C# side and Data(bytesNoCopy:count:deallocator:.none) reconstruction on the
+        // Swift side. Never an indirect-result return type.
+        RawBuffer,
+        // Hand-written ISwiftObject value structs (currently only Foundation.Data). The
+        // C# binding is a blittable struct rather than a class with SafeHandle, so the
+        // generic-param marshalling pins via fixed(T*) + passes (IntPtr)p instead of
+        // .Payload.DangerousGetHandle(). Allowlist-driven — future inline value structs
+        // need explicit registration.
+        InlineSwiftStruct
     }
+
+    // Conformers whose C# binding is a hand-written ISwiftObject value struct. These
+    // bypass the ObjC/native-bridged rejection in TryEmitConcreteOverload because their
+    // NativeTypeName (e.g. Foundation.Data → NSData) is an implementation detail of how
+    // we bridge into Foundation, not a signal that the C# side lacks a pinnable layout.
+    // Maps Swift qualified name → fully-qualified C# type used for emission (public
+    // parameter type and `fixed (T* p = &v)` binding), since the generated binding file
+    // doesn't `using Swift.Foundation`.
+    private static readonly Dictionary<string, string> InlineSwiftStructAllowlist = new(StringComparer.Ordinal)
+    {
+        ["Foundation.Data"] = "global::Swift.Foundation.Data"
+    };
 
     private static ConformerCategory ClassifyConformerForSwiftParam(
         ConcreteSpecializationEngine.ConcreteConformer conformer,
         ITypeDatabase typeDatabase)
     {
+        // byte[] / [UInt8]: hint-only conformers have SwiftType == null because
+        // SwiftTypeName.FromModuleQualifiedName can't parse generic types. Detect via the
+        // C# array suffix.
+        if (conformer.CSharpType != null &&
+            conformer.CSharpType.EndsWith("[]", StringComparison.Ordinal))
+            return ConformerCategory.RawBuffer;
+
+        if (InlineSwiftStructAllowlist.ContainsKey(conformer.SwiftQualifiedName))
+            return ConformerCategory.InlineSwiftStruct;
+
         if (conformer.SwiftType == null) return ConformerCategory.FrozenStruct; // Hint-based, assume primitive
 
         if (typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record))
@@ -970,9 +1079,171 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase) =>
         ClassifyConformerForSwiftParam(conformer, typeDatabase);
 
+    internal enum StructuralEmitReject { None, NestedType, ObjCBridged }
+
+    // Per-conformer structural gate used by TryEmitConcreteOverload's preflight AND by
+    // IsCsmSyncEligibleForGenericParent. Keeping this single source of truth means the
+    // sync suppression predicate cannot declare eligibility for a pairing the emitter
+    // will silently drop — if a new rejection is added here, both paths learn about it.
+    internal static StructuralEmitReject ClassifyConformerStructurally(
+        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        ITypeDatabase typeDatabase)
+    {
+        if (conformer.SwiftType != null &&
+            conformer.SwiftType.ModuleQualifiedName.Split('.').Length > 2)
+            return StructuralEmitReject.NestedType;
+
+        var category = ClassifyConformerForSwiftParam(conformer, typeDatabase);
+        if (category != ConformerCategory.InlineSwiftStruct &&
+            conformer.SwiftType != null &&
+            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record) &&
+            (record.NativeTypeName != null
+                || MarshallingHelpers.IsObjCBridged(record)
+                || MarshallingHelpers.IsObjCRooted(record)))
+            return StructuralEmitReject.ObjCBridged;
+
+        return StructuralEmitReject.None;
+    }
+
+    /// <summary>
+    /// Single-source-of-truth preflight: decides whether this (method × pairing) combination
+    /// can produce valid Swift @_cdecl + C# overload code. Consulted by
+    /// <see cref="TryEmitConcreteOverload"/> AND by <c>IsCsmSyncEligibleForGenericParent</c> so
+    /// the suppression predicate stays in lockstep with what the emitter actually produces —
+    /// otherwise the sync predicate could suppress the open-generic emission for a method the
+    /// emitter then silently drops, stripping the method's surface entirely.
+    /// </summary>
+    internal static bool CanEmitConcreteOverloadForPairing(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase,
+        out string? rejectReason)
+    {
+        // Per-conformer structural gate: no nested-type or ObjC-bridged conformers.
+        foreach (var (_, conformer) in pairing)
+        {
+            switch (ClassifyConformerStructurally(conformer, typeDatabase))
+            {
+                case StructuralEmitReject.NestedType:
+                    rejectReason = $"nested type conformer '{conformer.SwiftQualifiedName}'";
+                    return false;
+                case StructuralEmitReject.ObjCBridged:
+                    rejectReason = $"ObjC/native-bridged conformer '{conformer.SwiftQualifiedName}' lacks Payload accessor";
+                    return false;
+            }
+        }
+
+        bool isConstructor = method.IsConstructor;
+        bool isClass = parentTypeDecl is ClassDecl;
+
+        var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
+        bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
+        bool returnsGenericParam = !isVoidReturn &&
+            TryMatchGenericParam(returnTypeSpec, pairing, out _, out _);
+        ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
+        if (returnsGenericParam)
+            TryMatchGenericParam(returnTypeSpec, pairing, out _, out returnConformer);
+        bool isStringReturn = !isVoidReturn && !returnsGenericParam && WitnessDispatchEmitter.IsStringType(returnTypeSpec);
+
+        // Self return: @_cdecl global functions can't return Self.
+        if (!isVoidReturn && !isConstructor && IsSelfReturn(returnTypeSpec))
+        {
+            rejectReason = "returns Self";
+            return false;
+        }
+
+        // Failable initializer: init? returns Optional which we can't handle in @_cdecl.
+        if (isConstructor && IsOptionalReturn(returnTypeSpec))
+        {
+            rejectReason = "failable initializer";
+            return false;
+        }
+
+        // Unresolved generic param anywhere in the return tree (e.g. Container<T>, Container<T.Element>).
+        if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
+            ContainsAnyGenericParam(returnTypeSpec))
+        {
+            rejectReason = "return type contains unresolved generic param";
+            return false;
+        }
+
+        // Non-constructor Optional<T> return: CSM emitter lacks unwrap logic for this case.
+        if (!isVoidReturn && !returnsGenericParam && !isStringReturn && !isConstructor &&
+            IsOptionalReturn(returnTypeSpec))
+        {
+            rejectReason = "Optional return type not yet supported";
+            return false;
+        }
+
+        // Indirect-result return must be ISwiftObject — GetSwiftTypeSize<T>() is T: ISwiftObject.
+        if (!isVoidReturn && !isStringReturn)
+        {
+            bool needsIndirectResult = false;
+            bool indirectReturnIsSwiftObject = true;
+
+            if (isConstructor && !isClass)
+            {
+                needsIndirectResult = true;
+                var parentTypeName = parentTypeDecl.SwiftTypeName;
+                indirectReturnIsSwiftObject = parentTypeName != null
+                    && typeDatabase.TryGetTypeRecord(parentTypeName, out var ctorRecord)
+                    && ctorRecord.Kind == TypeRecordKind.Struct
+                    && (!ctorRecord.Flags.HasFlag(TypeRecordFlags.Frozen)
+                        || ctorRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+            }
+            else if (returnsGenericParam)
+            {
+                needsIndirectResult = true;
+                var category = ClassifyConformerForCSharp(returnConformer!, typeDatabase);
+                indirectReturnIsSwiftObject = category is
+                    ConformerCategory.NonFrozenStruct
+                    or ConformerCategory.Class
+                    or ConformerCategory.InlineSwiftStruct;
+            }
+            else if (!isConstructor)
+            {
+                var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
+                if (mapping.Kind == CdeclReturnKind.IndirectResult)
+                {
+                    needsIndirectResult = true;
+                    indirectReturnIsSwiftObject = returnTypeSpec is NamedTypeSpec irNamed
+                        && typeDatabase.TryGetTypeRecord(irNamed, out var irRecord)
+                        && (irRecord.Kind == TypeRecordKind.Class
+                            || (irRecord.Kind == TypeRecordKind.Struct
+                                && (!irRecord.Flags.HasFlag(TypeRecordFlags.Frozen)
+                                    || irRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement))));
+                }
+            }
+
+            if (needsIndirectResult && !indirectReturnIsSwiftObject)
+            {
+                rejectReason = "indirect result return type is not ISwiftObject";
+                return false;
+            }
+        }
+
+        // Non-generic params must be passable and not reference the pairing generics.
+        if (!AreNonGenericParamsCompatible(method, pairing, typeDatabase))
+        {
+            rejectReason = "incompatible non-generic params";
+            return false;
+        }
+
+        // Non-generic param referencing the pairing generic inside a complex type.
+        if (HasNonGenericParamReferencingGeneric(method, pairing))
+        {
+            rejectReason = "non-generic param references generic type";
+            return false;
+        }
+
+        rejectReason = null;
+        return true;
+    }
+
     private static bool AreNonGenericParamsCompatible(
         MethodDecl method,
-        ConcreteSpecializationEngine.SpecializableParam specParam,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         ITypeDatabase typeDatabase)
     {
         foreach (var arg in method.CSSignature.Skip(1))
@@ -980,8 +1251,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
             if (arg.HasDefaultArg) continue;
-            if (IsGenericParamType(arg.SwiftTypeSpec, specParam.GenericParam.TypeName)) continue;
-            if (IsGenericParamType(arg.SwiftTypeSpec, GetAlternateDepthName(specParam.GenericParam.TypeName))) continue;
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out _)) continue;
 
             var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
             if (category is not (MethodClosureBridge.ParamAbiCategory.Primitive
@@ -1032,34 +1302,40 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// </summary>
     private static bool HasNonGenericParamReferencingGeneric(
         MethodDecl method,
-        ConcreteSpecializationEngine.SpecializableParam specParam)
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
     {
-        var genericName = specParam.GenericParam.TypeName;
-        // Also check the depth-0 variant if the param is depth-1, and vice versa
-        var altName = genericName.StartsWith("τ_1_")
-            ? "τ_0_" + genericName.Substring(4)
-            : genericName.StartsWith("τ_0_")
-                ? "τ_1_" + genericName.Substring(4)
-                : null;
+        // Collect every generic name (and its alternate-depth twin) covered by the pairing.
+        var names = new List<string>();
+        foreach (var (p, _) in pairing)
+        {
+            names.Add(p.GenericParam.TypeName);
+            names.Add(GetAlternateDepthName(p.GenericParam.TypeName));
+        }
 
         foreach (var arg in method.CSSignature.Skip(1))
         {
             if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
             if (arg.HasDefaultArg) continue;
-            if (IsGenericParamType(arg.SwiftTypeSpec, genericName)) continue;
-            if (altName != null && IsGenericParamType(arg.SwiftTypeSpec, altName)) continue;
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out _)) continue;
 
-            // Check if this non-generic param contains the generic param anywhere
-            if (ContainsGenericParam(arg.SwiftTypeSpec, genericName)) return true;
-            if (altName != null && ContainsGenericParam(arg.SwiftTypeSpec, altName)) return true;
+            // This non-generic param must not reference any of the pairing generics.
+            foreach (var name in names)
+            {
+                if (ContainsGenericParam(arg.SwiftTypeSpec, name)) return true;
+            }
         }
 
-        // Also check return type with alternate depth
+        // Return-type pass: flag a param reference under an alternate-depth twin that wasn't
+        // picked up by returnsGenericParam (matches prior single-param behavior).
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
-        if (!returnTypeSpec.IsEmptyTuple && altName != null)
+        if (!returnTypeSpec.IsEmptyTuple)
         {
-            if (ContainsGenericParam(returnTypeSpec, altName)) return true;
+            foreach (var (p, _) in pairing)
+            {
+                var altName = GetAlternateDepthName(p.GenericParam.TypeName);
+                if (altName != p.GenericParam.TypeName && ContainsGenericParam(returnTypeSpec, altName)) return true;
+            }
         }
 
         return false;
@@ -1099,16 +1375,32 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// Builds a key representing the C# method signature (name + parameter types)
     /// to prevent emitting duplicate overloads.
     /// </summary>
-    private static string BuildCSharpSignatureKey(
+    /// Builds the same signature key format as <see cref="BuildCSharpSignatureKey"/> but
+    /// for non-generic methods already emitted by the main method pipeline. Used to pre-seed
+    /// the dedup set so CSM overloads don't collide with hand-written overloads.
+    private static string BuildCSharpSignatureKeyForNonGeneric(
         string methodName,
         MethodDecl method,
-        ConcreteSpecializationEngine.SpecializableParam specParam,
-        ConcreteSpecializationEngine.ConcreteConformer conformer,
         ITypeDatabase typeDatabase)
     {
         var parts = new List<string> { methodName };
-        var genericName = specParam.GenericParam.TypeName;
-        var altGenericName = GetAlternateDepthName(genericName);
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (arg.HasDefaultArg) continue;
+            parts.Add(ResolvePublicCSharpType(arg.SwiftTypeSpec, typeDatabase));
+        }
+        return string.Join("|", parts);
+    }
+
+    private static string BuildCSharpSignatureKey(
+        string methodName,
+        MethodDecl method,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase)
+    {
+        var parts = new List<string> { methodName };
 
         foreach (var arg in method.CSSignature.Skip(1))
         {
@@ -1116,10 +1408,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
             if (arg.HasDefaultArg) continue;
 
-            if (IsGenericParamType(arg.SwiftTypeSpec, genericName) ||
-                IsGenericParamType(arg.SwiftTypeSpec, altGenericName))
+            if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformer))
             {
-                parts.Add(conformer.CSharpType);
+                parts.Add(matchedConformer!.CSharpType);
             }
             else
             {
@@ -1174,5 +1465,182 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         return name.Replace(".", "_").Replace("<", "_").Replace(">", "")
                    .Replace(",", "_").Replace(" ", "").Replace("[", "Arr_").Replace("]", "");
+    }
+
+    // ─── Concrete parent-type name builders (generic-parent CSM path) ────
+
+    /// <summary>
+    /// Returns the Swift-side module-qualified type name of the parent, with any
+    /// IsParentGeneric entries in <paramref name="pairing"/> substituted for their
+    /// chosen conformer. Non-generic parents (or pairings without parent-generic
+    /// entries) return the unmodified module-qualified name.
+    /// </summary>
+    private static string BuildConcreteParentSwiftName(
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        var baseName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var parentEntries = pairing.Where(p => p.Param.IsParentGeneric).ToList();
+        if (parentEntries.Count == 0) return baseName;
+
+        var args = parentEntries.Select(p =>
+            p.Conformer.SwiftLiteral ?? p.Conformer.SwiftQualifiedName);
+        return $"{baseName}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>
+    /// Returns the C#-side type name of the parent closed over its IsParentGeneric
+    /// conformers (e.g. <c>GenericContainer&lt;SongItem&gt;</c>). Used both as the
+    /// extension-method receiver type and as the constructor return type.
+    /// </summary>
+    private static string BuildConcreteParentCsharpName(
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase)
+    {
+        var parentEntries = pairing.Where(p => p.Param.IsParentGeneric).ToList();
+        if (parentEntries.Count == 0) return parentTypeDecl.Name;
+
+        var args = parentEntries.Select(p => p.Conformer.CSharpType);
+        return $"{parentTypeDecl.Name}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>
+    /// Emits concrete C# overloads for specializable methods on a generic parent type
+    /// (e.g. <c>GenericContainer&lt;T: SearchableItem&gt;.append&lt;D: DataProtocol&gt;</c>).
+    ///
+    /// These can't live inside the parent's class body — the receiver must be a closed
+    /// generic (e.g. <c>GenericContainer&lt;SongItem&gt;</c>) and an in-body static method
+    /// can't name a closed form of its own surrounding generic type. Instead, each parent-
+    /// conformer tuple produces a <c>{ParentName}{ParentConformerNames}CsmExtensions</c>
+    /// static partial class that holds extension methods keyed on that closed receiver.
+    ///
+    /// Must be called AFTER the parent type's class body is closed so the extension class
+    /// sits alongside it at the namespace level.
+    /// </summary>
+    public static void EmitConcreteSpecializationsForGenericParent(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        TypeDecl typeDecl,
+        ITypeDatabase typeDatabase,
+        ModuleEmissionContext emissionContext,
+        ConcreteSpecializationEngine engine,
+        ILogger logger)
+    {
+        if (!typeDecl.IsGeneric) return;
+
+        // Nested generic types emit their C# body inside an enclosing class. Roslyn rejects
+        // nested `extension` containers (CS1109) and the extension-class-on-closed-receiver
+        // pattern can't name a nested parent with its closed generic args from outside its
+        // enclosing type. Punt on nested generic parents; the open-generic emission remains
+        // the only surface for these methods.
+        if (typeDecl.ParentDecl is TypeDecl) return;
+
+        var specializableMethods = engine.FindSpecializableMethods(typeDecl);
+        if (specializableMethods.Count == 0) return;
+
+        // Filter to specs whose parent generics resolved (ResolveParentSpecializableParams
+        // returned non-null → all-or-nothing). The engine flags these with IsParentGeneric.
+        var parentGenericSpecs = specializableMethods
+            .Where(s => s.SpecializableParams.Any(p => p.IsParentGeneric))
+            .ToList();
+        if (parentGenericSpecs.Count == 0) return;
+
+        if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return;
+
+        var moduleName = typeDecl.SwiftTypeName.Module;
+        var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
+
+        // All specs share the same parent-generic param shape (same typeDecl → same
+        // generic parameters with the same resolved conformers). Derive the parent-
+        // generic param list from the first spec so we can enumerate tuples once.
+        var parentParams = parentGenericSpecs[0].SpecializableParams
+            .TakeWhile(p => p.IsParentGeneric)
+            .ToList();
+        if (parentParams.Count == 0) return;
+
+        var parentTupleCount = ComputePairingCount(parentParams);
+        if (parentTupleCount > MaxCsmCartesianProductSize)
+        {
+            logger.LogDebug(
+                "CSM: Skipping {Type} generic-parent specializations — parent-conformer tuples ({Count}) exceed cap ({Cap}).",
+                typeDecl.Name, parentTupleCount, MaxCsmCartesianProductSize);
+            return;
+        }
+
+        foreach (var parentTuple in CartesianPairings(parentParams))
+        {
+            if (!ConformerPairingSatisfiesCoupling(parentTuple)) continue;
+
+            var parentConformerNames = string.Concat(
+                parentTuple.Select(p => SanitizeTypeName(p.Conformer.CSharpType)));
+            var extClassName = $"{typeDecl.Name}{parentConformerNames}CsmExtensions";
+
+            // Open the extension wrapper class before emitting overloads so the staged
+            // TryEmitConcreteOverload output (public static methods + P/Invokes) lands
+            // inside the class body. Empty classes are harmless if every overload is
+            // filtered out, but most real groups emit at least one overload.
+            csWriter.WriteLine();
+            csWriter.WriteLine($"public static unsafe partial class {extClassName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            var emittedSignatures = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var spec in parentGenericSpecs)
+            {
+                var method = spec.Method;
+                if (method.IsAccessor) continue;
+                if (!method.IsAsync && method.Throws) continue;
+                if (method.IsAsync) continue; // Async CSM path does not yet support generic parents.
+
+                var methodParams = spec.SpecializableParams
+                    .Where(p => !p.IsParentGeneric)
+                    .ToList();
+
+                if (methodParams.Count == 0)
+                {
+                    // No method-generic params: emit one overload per parent tuple.
+                    TryEmitConcreteOverload(
+                        csWriter, swiftWriter, method, typeDecl, parentTuple,
+                        moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                        emittedSignatures, logger, isExtension: true);
+                    continue;
+                }
+
+                var methodPairingCount = ComputePairingCount(methodParams);
+                if (methodPairingCount > MaxCsmCartesianProductSize)
+                {
+                    logger.LogDebug(
+                        "CSM: Skipping {Method} generic-parent — method-conformer tuples ({Count}) exceed cap ({Cap}).",
+                        method.Name, methodPairingCount, MaxCsmCartesianProductSize);
+                    continue;
+                }
+
+                foreach (var methodPairing in CartesianPairings(methodParams))
+                {
+                    var fullPairing = new (ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[parentTuple.Length + methodPairing.Length];
+                    Array.Copy(parentTuple, 0, fullPairing, 0, parentTuple.Length);
+                    Array.Copy(methodPairing, 0, fullPairing, parentTuple.Length, methodPairing.Length);
+
+                    if (!ConformerPairingSatisfiesCoupling(fullPairing))
+                    {
+                        logger.LogDebug(
+                            "CSM: Skipping {Method} generic-parent pairing — cross-param coupling not satisfied.",
+                            method.Name);
+                        continue;
+                    }
+
+                    TryEmitConcreteOverload(
+                        csWriter, swiftWriter, method, typeDecl, fullPairing,
+                        moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                        emittedSignatures, logger, isExtension: true);
+                }
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
     }
 }

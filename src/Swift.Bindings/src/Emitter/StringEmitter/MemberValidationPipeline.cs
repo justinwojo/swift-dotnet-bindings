@@ -199,6 +199,26 @@ public class MemberValidationPipeline
                 "Routed to concrete specialization.");
         }
 
+        // Phase 4a (sync, generic parent): CSM emits concrete overloads as extension
+        // methods on a {Type}{ParentConformer}CsmExtensions class. The open-generic
+        // instance method on the parent class would shadow those extensions during C#
+        // overload resolution (instance methods win over extensions), routing callers
+        // into the broken open-generic path. Suppress the open-generic emission so the
+        // CSM extension binds cleanly via instance-call syntax.
+        //
+        // Scoped tight: fires only for generic-parent cases. Non-generic-parent sync
+        // CSM emits concrete overloads as instance methods (no shadow) and goes through
+        // the normal emission path.
+        if (!methodDecl.IsConstructor &&
+            methodDecl.ParentDecl is TypeDecl parentTypeForSyncCsm &&
+            context?.EmissionContext.SpecializationEngine is { } specEngineForSyncCsm &&
+            ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent(
+                methodDecl, parentTypeForSyncCsm, _typeDatabase, specEngineForSyncCsm))
+        {
+            return ValidationResult.Skip(SkipReason.GenericProtocolConstraint,
+                "Routed to concrete specialization (generic parent extension).");
+        }
+
         if (!methodDecl.IsConstructor &&
             MethodValidationGates.HasUnsupportedProtocolConstraints(methodDecl, _typeDatabase))
         {

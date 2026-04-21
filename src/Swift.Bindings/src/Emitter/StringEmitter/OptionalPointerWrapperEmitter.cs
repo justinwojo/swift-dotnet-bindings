@@ -519,10 +519,16 @@ public static class OptionalPointerWrapperEmitter
     /// <summary>
     /// Emits string return body (SBW_Utf8Slice via resultPtr) at the given indent level.
     /// Shared between throwing and non-throwing @_cdecl paths.
+    /// <paramref name="postCallStatement"/> is emitted immediately after the call result
+    /// is bound but before the string is serialized — used by CSM mutating-self + string
+    /// return to propagate the mutated `var __self` back to the caller's payload memory
+    /// (otherwise the mutation lives only on a local copy).
     /// </summary>
-    internal static void EmitStringReturnBody(SwiftWriter swiftWriter, string callExpr, string indent)
+    internal static void EmitStringReturnBody(SwiftWriter swiftWriter, string callExpr, string indent, string? postCallStatement = null)
     {
         swiftWriter.WriteLine($"{indent}let result = {callExpr}");
+        if (!string.IsNullOrEmpty(postCallStatement))
+            swiftWriter.WriteLine($"{indent}{postCallStatement}");
         swiftWriter.WriteLine($"{indent}let utf8 = Array(result.utf8)");
         swiftWriter.WriteLine($"{indent}if utf8.isEmpty {{");
         swiftWriter.WriteLine($"{indent}    resultPtr.storeBytes(of: SBW_Utf8Slice(ptr: &_sbw_emptyBuffer, len: 0), as: SBW_Utf8Slice.self)");

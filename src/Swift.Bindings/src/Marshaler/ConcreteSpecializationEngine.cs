@@ -64,12 +64,20 @@ public class ConcreteSpecializationEngine
     /// <c>OtherParamName</c>." These are applied at cartesian pairing time because the
     /// other param's chosen conformer isn't known at conformer-filter time.
     /// </para>
+    /// <para>
+    /// <see cref="IsParentGeneric"/> discriminates parent-type generic params (e.g. the
+    /// <c>H</c> in <c>HMAC&lt;H&gt;.update&lt;D&gt;</c>) from method-own generic params.
+    /// Parent entries appear at the leading positions of a pairing array and drive the
+    /// concrete parent type name in Swift wrappers plus the closed-receiver type of the
+    /// emitted C# extension method.
+    /// </para>
     /// </summary>
     public record SpecializableParam(
         GenericArgumentDecl GenericParam,
         SwiftTypeName ConstraintProtocol,
         List<ConcreteConformer> Conformers,
-        IReadOnlyList<(string AssocName, string OtherParamName)>? CouplingConstraints = null);
+        IReadOnlyList<(string AssocName, string OtherParamName)>? CouplingConstraints = null,
+        bool IsParentGeneric = false);
 
     // --- JSON Model for specialization-hints.json ---
 
@@ -477,6 +485,19 @@ public class ConcreteSpecializationEngine
     {
         var result = new List<SpecializableMethod>();
 
+        // Session 2: resolve parent-generic specializable params when the parent is
+        // generic. All parent generics MUST have hint-resolved conformers — partial
+        // resolution would produce half-specialized Swift wrappers whose `self_`
+        // conversion references unresolved type parameters. When any parent generic is
+        // unresolvable, fall through to the existing path which skips CSM entirely for
+        // this type (no method-own specializable params will be emitted either, because
+        // the emitter's generic-parent gate still catches them defensively).
+        List<SpecializableParam>? parentSpecializableParams = null;
+        if (typeDecl.IsGeneric)
+        {
+            parentSpecializableParams = ResolveParentSpecializableParams(typeDecl);
+        }
+
         // Collect parent type generic parameter names
         var parentParamNames = typeDecl.IsGeneric
             ? new HashSet<string>(typeDecl.GenericParameters.Select(p => p.TypeName))
@@ -521,6 +542,17 @@ public class ConcreteSpecializationEngine
                     list.Add(entry);
             }
 
+            // Coupling targets can name either a method-own generic or a parent-generic
+            // param. Restricting to method-own names misses `D.Element == T` style
+            // constraints where T is the parent's generic — leaving that coupling
+            // unenforced and producing invalid Swift cross-paired specializations.
+            var couplingTargetNames = new HashSet<string>(ownParamNames, StringComparer.Ordinal);
+            if (parentSpecializableParams is not null)
+            {
+                foreach (var pp in parentSpecializableParams)
+                    couplingTargetNames.Add(pp.GenericParam.TypeName);
+            }
+
             foreach (var param in ownParams)
             {
                 var paramName = param.TypeName;
@@ -531,7 +563,7 @@ public class ConcreteSpecializationEngine
                     if (c.Path.Length < 2) continue;
                     var target = c.ConformanceTarget;
                     if (!string.IsNullOrEmpty(target.Module)) continue;
-                    if (!ownParamNames.Contains(target.Name)) continue;
+                    if (!couplingTargetNames.Contains(target.Name)) continue;
                     if (target.Name == paramName) continue;
                     AddCoupling(paramName, c.Path[^1], target.Name);
                 }
@@ -542,7 +574,7 @@ public class ConcreteSpecializationEngine
                     if (c.Path.Length != 1) continue;
                     var target = c.ConformanceTarget;
                     if (string.IsNullOrEmpty(target.Module)) continue;
-                    if (!ownParamNames.Contains(target.Module)) continue;
+                    if (!couplingTargetNames.Contains(target.Module)) continue;
                     if (target.Module == paramName) continue;
                     AddCoupling(target.Module, target.Name, paramName);
                 }
@@ -554,15 +586,18 @@ public class ConcreteSpecializationEngine
             {
                 // Collect same-type constraints on the param's associated types
                 // (e.g., τ_0_0.Element == Swift.String). Targets that point at another
-                // own generic param (bare name) are couplings and filtered out here —
-                // they're enforced after cartesian pairing is known.
+                // coupled generic param (own OR parent — bare name, no module) are
+                // couplings and filtered out here; they're enforced after cartesian
+                // pairing is known via CouplingConstraints. Filtering only on
+                // ownParamNames would leave `D.Element == T` (parent T) surviving as
+                // a literal "T" concrete constraint and empty usableConformers.
                 var associatedConstraints = param.AssosiatedTypeConformances
                     .Where(c => c.Kind == ConformanceKind.ConcreteType && c.Path.Length >= 2)
                     .Where(c =>
                     {
                         var t = c.ConformanceTarget;
                         if (!string.IsNullOrEmpty(t.Module)) return true;
-                        return !ownParamNames.Contains(t.Name);
+                        return !couplingTargetNames.Contains(t.Name);
                     })
                     .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
                     .ToList();
@@ -591,14 +626,132 @@ public class ConcreteSpecializationEngine
                     param, protocolConstraint, usableConformers, paramCouplings));
             }
 
-            // Only specializable if at least one param has conformers
+            // Only specializable if at least one method-own param has conformers.
+            // When the parent is generic, prepend parent-specializable params so the
+            // pairing drives both parent and method concretization in one cartesian
+            // product. When parent generics were not resolvable (parentSpecializableParams
+            // is null), skip — the emitter's gate catches this as a defensive second line
+            // but ignoring here avoids wasted cartesian expansion on hopeless pairings.
             if (specializableParams.Count > 0)
             {
-                result.Add(new SpecializableMethod(method, specializableParams));
+                if (typeDecl.IsGeneric && parentSpecializableParams is null)
+                    continue;
+
+                var combined = parentSpecializableParams is null
+                    ? specializableParams
+                    : new List<SpecializableParam>(parentSpecializableParams.Count + specializableParams.Count);
+                if (parentSpecializableParams is not null)
+                {
+                    combined.AddRange(parentSpecializableParams);
+                    combined.AddRange(specializableParams);
+                }
+
+                result.Add(new SpecializableMethod(method, combined));
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Resolves parent-type generic parameters into <see cref="SpecializableParam"/>
+    /// entries when every parent generic has at least one usable hint-resolved conformer.
+    /// Returns null if any parent generic lacks resolvable conformers — all-or-nothing
+    /// semantics prevent emitting half-specialized wrappers.
+    /// </summary>
+    private List<SpecializableParam>? ResolveParentSpecializableParams(TypeDecl typeDecl)
+    {
+        var parentParamNames = new HashSet<string>(
+            typeDecl.GenericParameters.Select(p => p.TypeName), StringComparer.Ordinal);
+
+        // Discover parent↔parent same-type couplings (e.g. `S.Element == T` where both
+        // S and T are parent generics). Same two ABI forms as the method-own path:
+        // LHS on AssosiatedTypeConformances (bare-name target), RHS on GenericConformances
+        // (module-qualified member). Enforced at cartesian pairing time by
+        // ConformerPairingSatisfiesCoupling via CouplingConstraints.
+        var parentCouplings = new Dictionary<string, List<(string AssocName, string OtherParamName)>>(
+            StringComparer.Ordinal);
+
+        void AddCoupling(string paramName, string assocName, string otherParamName)
+        {
+            if (!parentCouplings.TryGetValue(paramName, out var list))
+            {
+                list = new List<(string, string)>();
+                parentCouplings[paramName] = list;
+            }
+            var entry = (assocName, otherParamName);
+            if (!list.Contains(entry))
+                list.Add(entry);
+        }
+
+        foreach (var parentParam in typeDecl.GenericParameters)
+        {
+            var paramName = parentParam.TypeName;
+
+            foreach (var c in parentParam.AssosiatedTypeConformances)
+            {
+                if (c.Kind != ConformanceKind.ConcreteType) continue;
+                if (c.Path.Length < 2) continue;
+                var target = c.ConformanceTarget;
+                if (!string.IsNullOrEmpty(target.Module)) continue;
+                if (!parentParamNames.Contains(target.Name)) continue;
+                if (target.Name == paramName) continue;
+                AddCoupling(paramName, c.Path[^1], target.Name);
+            }
+
+            foreach (var c in parentParam.GenericConformances)
+            {
+                if (c.Kind != ConformanceKind.ConcreteType) continue;
+                if (c.Path.Length != 1) continue;
+                var target = c.ConformanceTarget;
+                if (string.IsNullOrEmpty(target.Module)) continue;
+                if (!parentParamNames.Contains(target.Module)) continue;
+                if (target.Module == paramName) continue;
+                AddCoupling(target.Module, target.Name, paramName);
+            }
+        }
+
+        var resolved = new List<SpecializableParam>();
+        foreach (var parentParam in typeDecl.GenericParameters)
+        {
+            var protocol = FindSpecializableProtocolConstraint(parentParam);
+            if (protocol is null) return null;
+
+            var conformers = GetConformers(protocol);
+            if (conformers.Count == 0) return null;
+
+            // Mirror the method-own path: same-type constraints on the parent generic's
+            // associated types (e.g. `T.Element == Swift.String`) narrow the usable
+            // conformer set. Targets that name another parent-generic param (bare name,
+            // no module) are cross-param couplings and filtered out here — they're
+            // enforced at cartesian pairing time via CouplingConstraints.
+            var associatedConstraints = parentParam.AssosiatedTypeConformances
+                .Where(c => c.Kind == ConformanceKind.ConcreteType && c.Path.Length >= 2)
+                .Where(c =>
+                {
+                    var t = c.ConformanceTarget;
+                    if (!string.IsNullOrEmpty(t.Module)) return true;
+                    return !parentParamNames.Contains(t.Name);
+                })
+                .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
+                .ToList();
+
+            var usable = conformers
+                .Where(c => c.CSharpType != null && !IsCSharpPrimitiveType(c.CSharpType))
+                .Where(c => ConformerSatisfiesAssociatedTypes(c, associatedConstraints))
+                .ToList();
+            if (usable.Count == 0) return null;
+
+            parentCouplings.TryGetValue(parentParam.TypeName, out var couplings);
+
+            resolved.Add(new SpecializableParam(
+                parentParam,
+                protocol,
+                usable,
+                CouplingConstraints: couplings,
+                IsParentGeneric: true));
+        }
+        return resolved;
     }
 
     /// <summary>
@@ -696,12 +849,6 @@ public class ConcreteSpecializationEngine
 
     private static bool IsCSharpPrimitiveType(string typeName)
     {
-        // Array conformers (e.g., byte[]) are rejected here: the specialization emitter
-        // calls `.Payload.DangerousGetHandle()` on generic-param arguments, which doesn't
-        // exist on C# arrays. Until array marshalling is wired through the bridge, treat
-        // arrays as unspecializable so the hint entry is effectively a no-op.
-        if (typeName.EndsWith("[]", StringComparison.Ordinal)) return true;
-
         return typeName switch
         {
             "int" or "uint" or "long" or "ulong" or "short" or "ushort" or

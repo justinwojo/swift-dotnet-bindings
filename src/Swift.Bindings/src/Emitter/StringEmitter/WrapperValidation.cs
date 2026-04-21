@@ -1830,12 +1830,14 @@ public static class WrapperValidation
     /// <summary>
     /// Renders a TypeSpec using sugared source names (T, Element) instead of ABI names (τ_0_0).
     /// Used inside protocol extension bodies where Swift's source-level names are in scope,
-    /// not the ABI-level mangled names.
+    /// not the ABI-level mangled names. Substitution applies recursively so bound generic
+    /// arguments like <c>AliasGenericPayload&lt;τ_0_0&gt;</c> render as <c>AliasGenericPayload&lt;T&gt;</c>.
     /// </summary>
     public static string RenderSwiftTypeSpecWithSugaredNames(TypeSpec typeSpec, Dictionary<string, string> abiToSugaredName)
     {
-        if (typeSpec is NamedTypeSpec named && abiToSugaredName.TryGetValue(named.Name, out var sugared))
-            return sugared;
-        return ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+        var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+        foreach (var (abiName, sugared) in abiToSugaredName)
+            rendered = System.Text.RegularExpressions.Regex.Replace(rendered, $@"(?<![\w_]){System.Text.RegularExpressions.Regex.Escape(abiName)}(?![\w_])", sugared);
+        return rendered;
     }
 }
