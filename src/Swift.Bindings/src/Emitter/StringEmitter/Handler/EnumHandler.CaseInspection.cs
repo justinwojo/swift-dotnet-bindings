@@ -310,10 +310,14 @@ namespace BindingsGeneration
                     return;
                 }
 
-                // Skip when the tuple element is (or contains) an ObjC-bridged remapped type.
-                // The metadata accessor emits SwiftObjectHelper<T>, which requires T : ISwiftObject;
-                // NSObject-rooted remaps (e.g. Security.SecPolicy) are not ISwiftObject and produce CS0311.
-                if (IsObjCBridgedTypeSpec(element) || ContainsRemappedObjCTypeInGenericArgs(element))
+                // Skip when the tuple element is (or contains) an ObjC-bridged remapped type
+                // AND would fall through to the SwiftObjectHelper<T> branch in the metadata
+                // accessor. That branch requires T : ISwiftObject, which NSObject-rooted remaps
+                // (e.g. Security.SecPolicy) violate. Simple enums (routed to GetTypeMetadataOrThrow
+                // with an integer metadata type) and frozen structs (routed to GetTypeMetadataOrThrow<T>)
+                // are safe even when their Swift name is ObjC-bridged.
+                if ((IsObjCBridgedTypeSpec(element) || ContainsRemappedObjCTypeInGenericArgs(element))
+                    && WouldEmitSwiftObjectHelper(element, typeDatabase))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' tuple element at index {i} is an ObjC-bridged remapped type. Skipping TryGet to avoid ISwiftObject constraint violation.");
                     return;

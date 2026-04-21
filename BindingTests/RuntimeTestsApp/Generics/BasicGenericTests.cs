@@ -527,4 +527,52 @@ public class BasicGenericTests : TestBase
     }
 
     #endregion
+
+    #region IndexedSeries<T> (Collection-with-Metadata Projection) Tests
+
+    public void TestIndexedSeriesCount()
+    {
+        using var series = Functions.MakeIndexedSeriesString();
+        AssertEqual(4, series.Count, "IndexedSeries<String>.Count");
+    }
+
+    public void TestIndexedSeriesIndexer()
+    {
+        using var series = Functions.MakeIndexedSeriesString();
+        AssertEqual("alpha", series[0].ToString(), "IndexedSeries<String>[0]");
+        AssertEqual("beta", series[1].ToString(), "IndexedSeries<String>[1]");
+        AssertEqual("gamma", series[2].ToString(), "IndexedSeries<String>[2]");
+        AssertEqual("delta", series[3].ToString(), "IndexedSeries<String>[3]");
+    }
+
+    public void TestIndexedSeriesEnumeration()
+    {
+        using var series = Functions.MakeIndexedSeriesString();
+        var seen = new List<string>();
+        foreach (var element in series)
+        {
+            seen.Add(element.ToString());
+        }
+        AssertEqual(4, seen.Count, "IndexedSeries iteration count");
+        AssertEqual("alpha", seen[0], "IndexedSeries iteration [0]");
+        AssertEqual("beta", seen[1], "IndexedSeries iteration [1]");
+        AssertEqual("gamma", seen[2], "IndexedSeries iteration [2]");
+        AssertEqual("delta", seen[3], "IndexedSeries iteration [3]");
+    }
+
+    public void TestIndexedSeriesMetadata()
+    {
+        using var series = Functions.MakeIndexedSeriesString();
+        AssertEqual("four-strings", series.Metadata, "IndexedSeries<String>.Metadata");
+    }
+
+    public void TestIndexedSeriesAsIReadOnlyList()
+    {
+        using var series = Functions.MakeIndexedSeriesString();
+        global::System.Collections.Generic.IReadOnlyList<Swift.SwiftString> asList = series;
+        AssertEqual(4, asList.Count, "IReadOnlyList<SwiftString>.Count");
+        AssertEqual("alpha", asList[0].ToString(), "IReadOnlyList<SwiftString>[0]");
+    }
+
+    #endregion
 }

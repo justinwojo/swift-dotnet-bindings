@@ -133,6 +133,13 @@ namespace BindingsGeneration
                 // so the SB1001 analyzer can distinguish them from Swift classes (Warning vs Info).
                 interfaces.Insert(1, nameof(ISwiftStruct));
 
+                // Decide up-front whether the Collection-with-metadata projection will fire,
+                // so we can add IReadOnlyList<TElement> to the interface list before the header
+                // is emitted. The actual member emission happens after property emission below.
+                string? collectionProjectionInterface = CollectionProjectionEmitter.TryPlanInterface(structDecl);
+                if (collectionProjectionInterface is not null)
+                    interfaces.Add(collectionProjectionInterface);
+
                 XmlDocCommentEmitter.EmitDocComment(csWriter, structDecl);
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, structDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(structDecl, env.TypeDatabase);
@@ -245,6 +252,9 @@ namespace BindingsGeneration
                     propertyNames.Add(NameProvider.ToPascalCase(nestedType.Name));
 
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
+
+                if (collectionProjectionInterface is not null)
+                    CollectionProjectionEmitter.EmitMembers(csWriter, structDecl, env.TypeDatabase, _logger);
 
                 var emissionCtx = context.GetEmissionContext();
                 emissionCtx?.PushTypeNesting(typeNameWithGenerics);

@@ -1,11 +1,11 @@
 {
-  "git_sha": "1d917e46",
+  "git_sha": "a56ba42b",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49202,
+        "lines": 49362,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,7 +54,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59329,
+        "lines": 59407,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -320,7 +320,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17296,
+        "lines": 17447,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -696,7 +696,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1477,
+      "pass": 1482,
       "fail": 0,
       "skip": 41,
       "crash": 0

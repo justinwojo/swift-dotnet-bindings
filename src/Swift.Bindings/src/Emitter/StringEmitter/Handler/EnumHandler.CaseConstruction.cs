@@ -1172,5 +1172,42 @@ namespace BindingsGeneration
 
             return AppleFrameworkRegistry.HasObjCClassPrefix(named.Name);
         }
+
+        /// <summary>
+        /// Mirrors the branch selection in <see cref="EmitGetTypeMetadataForElement"/>: returns
+        /// true when emission would fall through to the <c>SwiftObjectHelper&lt;T&gt;.GetTypeMetadata()</c>
+        /// branch (which requires <c>T : ISwiftObject</c>). Simple enums, primitives, known Apple value
+        /// types, and frozen structs take safe paths via <c>TypeMetadata.GetTypeMetadataOrThrow</c>
+        /// and are not affected.
+        /// </summary>
+        private bool WouldEmitSwiftObjectHelper(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.IsExistential(typeSpec))
+                return false;
+
+            var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, null);
+
+            if (IsPrimitiveTypeWithKnownMetadata(csharpType))
+                return false;
+
+            if (TryGetSimpleEnumMetadataType(typeSpec, typeDatabase, out _))
+                return false;
+
+            if (typeSpec is NamedTypeSpec appleSpec && TypeDatabaseExtensions.IsKnownAppleValueType(appleSpec))
+                return false;
+
+            if (typeSpec is NamedTypeSpec frozenSpec && frozenSpec.HasModule() &&
+                typeDatabase.TryGetTypeRecord(frozenSpec, out var frozenRecord) &&
+                frozenRecord.Kind == TypeRecordKind.Struct &&
+                MarshallingHelpers.IsTypeFrozen(frozenRecord) &&
+                !MarshallingHelpers.IsFrozenStructProjectedAsClass(frozenRecord))
+            {
+                return false;
+            }
+
+            return true;
+        }
     }
 }

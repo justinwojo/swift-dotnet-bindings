@@ -251,3 +251,32 @@ public struct FloatHolder {
         return "r=\(radius), o=\(opacity)"
     }
 }
+
+// MARK: - Generic Collection-with-Metadata (WeatherKit Forecast pattern)
+
+/// Reproduces WeatherKit's `Forecast<Element>` shape: a generic struct that
+/// conforms to `RandomAccessCollection` (via `Collection`) with an accompanying
+/// metadata property. Exercises the collection projection — the generator
+/// should emit `Count`, indexer, and `GetEnumerator` so consumers can iterate.
+public struct IndexedSeries<Element>: RandomAccessCollection {
+    public let items: [Element]
+    public let metadata: String
+
+    public init(items: [Element], metadata: String) {
+        self.items = items
+        self.metadata = metadata
+    }
+
+    public var startIndex: Int { 0 }
+    public var endIndex: Int { items.count }
+    public subscript(index: Int) -> Element { items[index] }
+}
+
+/// Factory: C# cannot construct `IndexedSeries<String>` directly (the generic
+/// metadata accessor is indeterminate), so this Swift helper hands back a
+/// concrete instance for runtime tests to exercise iteration on. String is
+/// used because `SwiftString` satisfies the default `ISwiftObject` constraint
+/// applied to C# generic type parameters.
+public func makeIndexedSeriesString() -> IndexedSeries<String> {
+    return IndexedSeries(items: ["alpha", "beta", "gamma", "delta"], metadata: "four-strings")
+}
