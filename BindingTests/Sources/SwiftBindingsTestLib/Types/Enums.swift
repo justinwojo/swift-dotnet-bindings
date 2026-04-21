@@ -122,6 +122,37 @@ public enum GenericResult<T> {
     }
 }
 
+// MARK: - Generic Enum with Multi-Value Tuple Payload (StoreKit2 VerificationResult pattern)
+
+/// Error enum used by `PaymentOutcome` (top-level to avoid nested-generic
+/// emission issues unrelated to this fixture).
+@frozen public enum PaymentError: Int32 {
+    case declined = 0
+    case insufficient = 1
+    case expired = 2
+}
+
+/// Reproduces StoreKit2.VerificationResult<SignedType> shape:
+/// one case carries a single generic-parameter payload, the other carries
+/// a tuple `(T, ErrorEnum)`. Exercises `TryGetVerified(out T)` and
+/// `TryGetUnverified(out T, out PaymentError)` emission.
+public enum PaymentOutcome<Signed> {
+    case unpaid(Signed, PaymentError)
+    case paid(Signed)
+}
+
+/// Factory helpers — generic-enum case factory P/Invokes call raw Swift-mangled
+/// symbols that aren't exported, so the C# runtime cannot construct these
+/// cases directly. These Swift-side helpers let C# tests obtain concrete
+/// `PaymentOutcome<String>` instances and exercise TryGet on them.
+public func makePaidOutcomeString(_ signed: String) -> PaymentOutcome<String> {
+    return .paid(signed)
+}
+
+public func makeUnpaidOutcomeString(_ signed: String, error: PaymentError) -> PaymentOutcome<String> {
+    return .unpaid(signed, error)
+}
+
 // MARK: - Enum Property Holder
 
 /// Class with non-simple enum stored properties for testing B18 gate lift.

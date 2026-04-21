@@ -1,11 +1,11 @@
 {
-  "git_sha": "c426e1a9",
+  "git_sha": "1d917e46",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 48646,
+        "lines": 49202,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 83493,
+        "lines": 83699,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58460,
+        "lines": 59329,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32225,
+        "lines": 32952,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -89,21 +89,21 @@
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22669,
+        "lines": 22845,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22669,
+        "lines": 22845,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22669,
+        "lines": 22845,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -138,7 +138,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17608,
+        "lines": 18304,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,7 +222,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31742,
+        "lines": 31964,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -271,7 +271,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14749,
+        "lines": 14887,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,14 +285,14 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10149,
+        "lines": 10562,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Reachability": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1199,
+        "lines": 1267,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -313,14 +313,14 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14288,
+        "lines": 14630,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17007,
+        "lines": 17296,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -376,14 +376,14 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3721,
+        "lines": 3791,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16317,
+        "lines": 16463,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,14 +649,14 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 32,
-        "lines": 27322,
+        "lines": 27458,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
         "errors": 3,
-        "lines": 8245,
+        "lines": 8314,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -696,7 +696,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1472,
+      "pass": 1477,
       "fail": 0,
       "skip": 41,
       "crash": 0

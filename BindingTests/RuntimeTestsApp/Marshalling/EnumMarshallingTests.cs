@@ -490,4 +490,54 @@ public class EnumMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region Multi-Value TryGet (Shape.Rectangle, non-generic tuple payload)
+
+    public void TestShapeRectangleTryGet()
+    {
+        using var rect = Shape.Rectangle(10.0, 20.0);
+        var got = rect.TryGetRectangle(out var width, out var height);
+        AssertTrue(got, "TryGetRectangle succeeds on Rectangle");
+        AssertEqual(10.0, width, "Extracted width");
+        AssertEqual(20.0, height, "Extracted height");
+    }
+
+    public void TestShapeRectangleTryGetWrongCaseFails()
+    {
+        using var circle = Shape.Circle(5.0);
+        var got = circle.TryGetRectangle(out var width, out var height);
+        AssertFalse(got, "TryGetRectangle returns false on non-Rectangle");
+        AssertEqual(0.0, width, "width defaulted");
+        AssertEqual(0.0, height, "height defaulted");
+    }
+
+    #endregion
+
+    #region Multi-Value TryGet on Generic Enum (PaymentOutcome<T> — VerificationResult shape)
+
+    public void TestPaymentOutcomePaidTryGet()
+    {
+        using var outcome = TestLibFunctions.MakePaidOutcomeString("abc");
+        var got = outcome.TryGetPaid(out var signed);
+        AssertTrue(got, "TryGetPaid succeeds");
+        AssertEqual("abc", signed!.ToString(), "Extracted single generic payload");
+    }
+
+    public void TestPaymentOutcomeUnpaidTryGet()
+    {
+        using var outcome = TestLibFunctions.MakeUnpaidOutcomeString("xyz", PaymentError.Declined);
+        var got = outcome.TryGetUnpaid(out var signed, out var error);
+        AssertTrue(got, "TryGetUnpaid succeeds");
+        AssertEqual("xyz", signed!.ToString(), "Extracted generic payload");
+        AssertEqual(PaymentError.Declined, error, "Extracted error enum");
+    }
+
+    public void TestPaymentOutcomeTryGetWrongCaseFails()
+    {
+        using var outcome = TestLibFunctions.MakePaidOutcomeString("a");
+        var got = outcome.TryGetUnpaid(out var signed, out var error);
+        AssertFalse(got, "TryGetUnpaid returns false on Paid case");
+    }
+
+    #endregion
 }

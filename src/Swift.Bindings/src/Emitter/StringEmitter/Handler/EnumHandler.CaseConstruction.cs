@@ -1152,5 +1152,25 @@ namespace BindingsGeneration
 
             return false;
         }
+
+        /// <summary>
+        /// Returns true when the TypeSpec itself names an NSObject-rooted ObjC-bridged type
+        /// (either an explicit remap in AppleFrameworkRegistry or an auto-bridged type matching
+        /// a known ObjC class prefix like `Sec` for Security.SecPolicy). Such types do not
+        /// implement ISwiftObject, so using them in positions that require `T : ISwiftObject`
+        /// (like tuple element metadata accessors) produces CS0311. Complements
+        /// <see cref="ContainsRemappedObjCTypeInGenericArgs"/>, which walks generic arguments
+        /// rather than the top-level type.
+        /// </summary>
+        private static bool IsObjCBridgedTypeSpec(TypeSpec typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec named)
+                return false;
+
+            if (AppleFrameworkRegistry.TryGetNetTypeName(named.Name, out _))
+                return true;
+
+            return AppleFrameworkRegistry.HasObjCClassPrefix(named.Name);
+        }
     }
 }

@@ -104,19 +104,21 @@ namespace BindingsGeneration
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
 
-            // Swift represents multi-value associated types as a single tuple type.
-            // Check if the single associated value is a tuple (multi-element extraction).
+            // Swift represents multi-value associated types as a tuple payload. The ABI parser
+            // unwraps the tuple's elements into AssociatedValues (Count > 1), so build a synthetic
+            // TupleTypeSpec and delegate to the tuple-specific TryGet emission. The tuple path
+            // uses runtime tuple metadata to compute element offsets, which is what a packed
+            // multi-value payload requires.
             if (caseDecl.AssociatedValues.Count == 1 && caseDecl.AssociatedValues[0] is TupleTypeSpec tupleSpec && tupleSpec.Elements.Count > 1)
             {
-                // Delegate to tuple-specific TryGet emission
                 EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, tupleSpec, typeDatabase, typeNameWithGenerics, caseNameMap);
                 return;
             }
 
-            // Also skip if somehow there are multiple associated values (shouldn't happen with current parsing)
             if (caseDecl.AssociatedValues.Count > 1)
             {
-                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has {caseDecl.AssociatedValues.Count} associated values. TryGet for multi-value cases not yet supported.");
+                var synthesizedTuple = new TupleTypeSpec(caseDecl.AssociatedValues);
+                EmitTryGetMethodForTuple(csWriter, enumDecl, caseDecl, synthesizedTuple, typeDatabase, typeNameWithGenerics, caseNameMap);
                 return;
             }
 
@@ -305,6 +307,15 @@ namespace BindingsGeneration
                 if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported tuple element type at index {i}. Skipping TryGet method.");
+                    return;
+                }
+
+                // Skip when the tuple element is (or contains) an ObjC-bridged remapped type.
+                // The metadata accessor emits SwiftObjectHelper<T>, which requires T : ISwiftObject;
+                // NSObject-rooted remaps (e.g. Security.SecPolicy) are not ISwiftObject and produce CS0311.
+                if (IsObjCBridgedTypeSpec(element) || ContainsRemappedObjCTypeInGenericArgs(element))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' tuple element at index {i} is an ObjC-bridged remapped type. Skipping TryGet to avoid ISwiftObject constraint violation.");
                     return;
                 }
 
