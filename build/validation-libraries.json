@@ -1,6 +1,153 @@
 {
   "libraries": [
     {
+      "name": "ActivityKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "ActivityKit"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "CryptoKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst", "tvos"],
+      "products": [
+        {
+          "framework": "CryptoKit",
+          "knownErrors": 18
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "FamilyControls",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "FamilyControls"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "LiveCommunicationKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst"],
+      "products": [
+        {
+          "framework": "LiveCommunicationKit"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "MusicKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst", "tvos"],
+      "products": [
+        {
+          "framework": "MusicKit"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "ProximityReader",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "maccatalyst"],
+      "products": [
+        {
+          "framework": "ProximityReader"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "RoomPlan",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "RoomPlan",
+          "knownErrors": 8
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "StoreKit2",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst", "tvos"],
+      "products": [
+        {
+          "framework": "StoreKit",
+          "namespacePattern": "StoreKit2"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "TipKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst", "tvos"],
+      "products": [
+        {
+          "framework": "TipKit"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "Translation",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "Translation"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "WeatherKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst", "tvos"],
+      "products": [
+        {
+          "framework": "WeatherKit"
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "WorkoutKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios", "macos", "maccatalyst"],
+      "products": [
+        {
+          "framework": "WorkoutKit"
+        }
+      ],
+      "tier": 1
+    },
+    {
       "name": "Alamofire",
       "repository": "https://github.com/Alamofire/Alamofire.git",
       "version": "5.10.2",

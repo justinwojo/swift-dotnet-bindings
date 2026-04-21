@@ -1,7 +1,231 @@
 {
-  "git_sha": "04502941",
+  "git_sha": "9b53fb16",
   "compile_gate": {
     "libraries": {
+      "ActivityKit": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 3491,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "CryptoKit": {
+        "compile": "known_errors",
+        "errors": 18,
+        "lines": 25243,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "CryptoKit@macos": {
+        "compile": "known_errors",
+        "errors": 18,
+        "lines": 25243,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "CryptoKit@maccatalyst": {
+        "compile": "known_errors",
+        "errors": 18,
+        "lines": 25243,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "CryptoKit@tvos": {
+        "compile": "known_errors",
+        "errors": 18,
+        "lines": 25117,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "FamilyControls": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 1425,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "LiveCommunicationKit": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 8335,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "LiveCommunicationKit@macos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 38,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "LiveCommunicationKit@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 8071,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "MusicKit": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 57211,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "MusicKit@macos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 51485,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "MusicKit@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 51668,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "MusicKit@tvos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 56522,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "ProximityReader": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 33034,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "ProximityReader@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 33034,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "RoomPlan": {
+        "compile": "known_errors",
+        "errors": 8,
+        "lines": 10215,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "StoreKit2": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 31387,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "StoreKit2@macos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 27760,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "StoreKit2@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 31387,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "StoreKit2@tvos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 27007,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "TipKit": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 9113,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "TipKit@macos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 8042,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "TipKit@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 9113,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "TipKit@tvos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 7288,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "Translation": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 3487,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "WeatherKit": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 19582,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "WeatherKit@macos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 19582,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "WeatherKit@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 19582,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "WeatherKit@tvos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 19582,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "WorkoutKit": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 9864,
+        "dep_compile": "none",
+        "swift_compile": "fail"
+      },
+      "WorkoutKit@macos": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 9037,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "WorkoutKit@maccatalyst": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 9864,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
@@ -670,26 +894,28 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 10719,
-    "total_skipped_members": 1873,
-    "skip_rate_pct": 14.9,
+    "total_emitted_members": 18629,
+    "total_skipped_members": 3541,
+    "skip_rate_pct": 16,
     "skip_reasons": {
-      "ModuleInternal": 701,
-      "UnsupportedSignature": 328,
-      "AnyTypeFallback": 300,
-      "SynthesizedCodable": 178,
-      "EveryProtocolConformanceSkipped": 128,
-      "UnsupportedClosure": 126,
-      "SwiftUIConstraint": 81,
-      "UnsatisfiedGenericConstraint": 74,
-      "UnsupportedType": 71,
-      "GenericProtocolConstraint": 67,
-      "SwiftUIView": 46,
-      "UnsupportedExistential": 35,
-      "StaticProtocolMember": 22,
-      "IndeterminatePwtShape": 18,
-      "GenericTypeCallback": 18,
-      "DuplicateSignature": 3,
+      "ModuleInternal": 746,
+      "SynthesizedCodable": 682,
+      "UnsupportedSignature": 579,
+      "AnyTypeFallback": 385,
+      "SwiftUIConstraint": 282,
+      "EveryProtocolConformanceSkipped": 244,
+      "GenericProtocolConstraint": 232,
+      "UnsupportedClosure": 186,
+      "UnsupportedType": 177,
+      "UnsatisfiedGenericConstraint": 110,
+      "IndeterminatePwtShape": 103,
+      "UnsupportedExistential": 88,
+      "SwiftUIView": 53,
+      "StaticProtocolMember": 46,
+      "GenericTypeCallback": 35,
+      "OwnedByAppleSupplement": 12,
+      "DuplicateSignature": 4,
+      "UnsupportedAsyncStream": 4,
       "NonBlittableCallConvSwift": 2,
       "UnderscorePrefixInternal": 2
     }

@@ -97,8 +97,12 @@ partial class Build
             }
             else
             {
-                // Check .libraries/ exists
-                if (!Directory.Exists(LibrariesDir))
+                // Check .libraries/ exists — but only if at least one filtered target
+                // needs a fetched xcframework. Apple-framework targets resolve the SDK
+                // on-demand via xcrun, so `nuke validate --filter ActivityKit` should
+                // work on a clean checkout with no .libraries/ directory.
+                var needsLibrariesDir = targets.Any(t => t.Mode != "apple-framework");
+                if (needsLibrariesDir && !Directory.Exists(LibrariesDir))
                 {
                     Log.Error(".libraries/ not found. Run first: nuke fetch");
                     Assert.Fail(".libraries/ directory not found");
@@ -114,6 +118,12 @@ partial class Build
                 if (Quick)
                 {
                     // In --quick mode, don't require xcframeworks — use cached /tmp output
+                    availableTargets.Add(target);
+                }
+                else if (target.Mode == "apple-framework")
+                {
+                    // apple-framework targets resolve the SDK on-demand at generate time
+                    // via xcrun, so the .libraries/ xcframework check does not apply.
                     availableTargets.Add(target);
                 }
                 else if (!Directory.Exists(target.XcframeworkPath))
@@ -641,6 +651,12 @@ partial class Build
     void GenerateTarget(ValidationTarget target, AbsolutePath outputBase,
         ConcurrentDictionary<string, TargetResult> results)
     {
+        if (target.Mode == "apple-framework")
+        {
+            GenerateAppleFrameworkTarget(target, outputBase, results);
+            return;
+        }
+
         var outdir = outputBase / target.Name;
         var result = GetOrCreateResult(results, target.Name);
 
@@ -719,6 +735,372 @@ partial class Build
     }
 
     // ============================================================
+    // Phase 3a (apple-framework mode): xcrun → digester → generator
+    // ============================================================
+
+    void GenerateAppleFrameworkTarget(ValidationTarget target, AbsolutePath outputBase,
+        ConcurrentDictionary<string, TargetResult> results)
+    {
+        var outdir = outputBase / target.Name;
+        var result = GetOrCreateResult(results, target.Name);
+        var genStart = DateTime.UtcNow;
+
+        if (Quick)
+        {
+            // Cached path mirrors the standard GenerateTarget fallback — trust that
+            // a prior non-quick run populated the output dir.
+            if (Directory.Exists(outdir))
+            {
+                result.Gen = "cached";
+                result.GenSeconds = 0;
+            }
+            else
+            {
+                result.Gen = "missing";
+                result.Compile = "skip";
+                result.Errors = 0;
+                result.Lines = 0;
+                result.SwiftCompile = "unknown";
+                result.GenOutput = $"  {target.Name}: no cached output";
+                return;
+            }
+            result.Lines = FindMainCsFile(outdir) is { } cached ? File.ReadLines(cached).Count() : 0;
+            result.SwiftCompile = CheckSwiftWrapper(outdir);
+            result.GenOutput = $"  {target.Name}: generated ({result.Lines} lines, {result.GenSeconds}s)";
+            return;
+        }
+
+        if (Directory.Exists(outdir))
+            outdir.DeleteDirectory();
+        Directory.CreateDirectory(outdir);
+
+        var frameworkModule = target.FrameworkModule ?? target.Name;
+        var platform = ApplePlatform.FromName(target.Platform);
+
+        try
+        {
+            // Step 1: resolve SDK root via xcrun. iOS/tvOS use simulator SDKs for
+            // validation; macOS/MacCatalyst use the shared macosx SDK.
+            var sdkPath = RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-path");
+            if (string.IsNullOrWhiteSpace(sdkPath))
+                throw new Exception($"xcrun --sdk {platform.SimulatorSdkName} --show-sdk-path returned empty. Install Xcode or run `xcode-select --switch`.");
+
+            // Step 2: locate swiftinterface + tbd. MacCatalyst prefers the iOSSupport
+            // overlay but falls back to the regular System/Library path when the
+            // overlay ships an empty stub (MusicKit, CryptoKit, etc.).
+            var (swiftinterfacePath, tbdPath, frameworkDir) = ResolveAppleFrameworkPaths(sdkPath, platform, frameworkModule);
+
+            if (!File.Exists(swiftinterfacePath))
+                throw new Exception($"{frameworkModule} swiftinterface not found at {swiftinterfacePath} (SDK {sdkPath}).");
+            if (!File.Exists(tbdPath))
+                throw new Exception($"{frameworkModule}.tbd not found at {tbdPath} (SDK {sdkPath}).");
+
+            // Step 3: dump the framework ABI. MacCatalyst needs extra framework search
+            // paths (iOSSupport overlay + regular System/Library) to resolve cross-
+            // framework references — same rule the SDK targets apply.
+            var abiJsonPath = outdir / $"{frameworkModule}.abi.json";
+            var digesterTarget = platform.SimulatorTarget;
+            var digesterArgs = new List<string>
+            {
+                "swift-api-digester",
+                "-dump-sdk",
+                "-module", frameworkModule,
+                "-target", digesterTarget,
+                "-sdk", $"\"{sdkPath}\"",
+            };
+            if (platform.Name == "maccatalyst")
+            {
+                digesterArgs.Add("-F");
+                digesterArgs.Add($"\"{sdkPath}/System/iOSSupport/System/Library/Frameworks\"");
+                digesterArgs.Add("-F");
+                digesterArgs.Add($"\"{sdkPath}/System/Library/Frameworks\"");
+            }
+            digesterArgs.Add("-o");
+            digesterArgs.Add($"\"{abiJsonPath}\"");
+
+            var digesterProc = ProcessTasks.StartProcess("xcrun", string.Join(" ", digesterArgs),
+                workingDirectory: outdir, logOutput: false);
+            digesterProc.AssertWaitForExit();
+            if (digesterProc.ExitCode != 0 || !File.Exists(abiJsonPath))
+            {
+                result.Gen = "fail";
+                if (Verbose)
+                {
+                    var tail = digesterProc.Output.Select(o => o.Text).TakeLast(5);
+                    result.GenVerbose = string.Join("\n", tail);
+                }
+                Log.Debug("  {Name}: swift-api-digester failed (exit {Exit})", target.Name, digesterProc.ExitCode);
+                FinishAppleFrameworkGenerate(target, outdir, result, genStart);
+                return;
+            }
+
+            // Step 4: invoke the generator in direct mode. No --sdk-mode (we WANT the
+            // csproj + wrapper xcframework emitted) and no --skip-wrapper-compilation
+            // (the wrapper compiles inline so Phase 3b can be a no-op for this mode).
+            var verbosity = Verbose ? "1" : "0";
+            var libraryNameArg = $@"\@rpath/{frameworkModule}.framework/{frameworkModule}";
+            var genArgs = new List<string>
+            {
+                $"\"{GeneratorDll}\"",
+                $"-a \"{abiJsonPath}\"",
+                $"-d \"{tbdPath}\"",
+                $"-t \"{tbdPath}\"",
+                $"-s \"{swiftinterfacePath}\"",
+                $"-l \"{libraryNameArg}\"",
+                $"--platform {platform.Name}",
+            };
+            if (platform.HasSimulatorPlistVariant && platform.Name != "maccatalyst")
+                genArgs.Add("--platform-target simulator");
+            if (!string.IsNullOrWhiteSpace(target.PlatformVersion))
+                genArgs.Add($"--platform-version {target.PlatformVersion}");
+            if (!string.IsNullOrWhiteSpace(target.NamespacePattern))
+                genArgs.Add($"--namespace-pattern \"{target.NamespacePattern}\"");
+            genArgs.Add($"-o \"{outdir}\"");
+            genArgs.Add($"-v {verbosity}");
+
+            var genProc = ProcessTasks.StartProcess("dotnet", string.Join(" ", genArgs),
+                workingDirectory: outdir, logOutput: false);
+            genProc.AssertWaitForExit();
+
+            var hasCs = Directory.GetFiles(outdir, "*.cs")
+                .Any(f => !f.EndsWith(".Wrappers.cs") && !f.EndsWith(".SwiftUIBridge.cs"));
+
+            if (genProc.ExitCode == 0 && hasCs)
+            {
+                result.Gen = "ok";
+            }
+            else
+            {
+                result.Gen = "fail";
+                if (Verbose)
+                {
+                    var tail = genProc.Output.Select(o => o.Text).TakeLast(5);
+                    result.GenVerbose = string.Join("\n", tail);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Gen = "fail";
+            Log.Debug("  {Name}: apple-framework generation exception: {Message}", target.Name, ex.Message);
+        }
+
+        FinishAppleFrameworkGenerate(target, outdir, result, genStart);
+    }
+
+    void FinishAppleFrameworkGenerate(ValidationTarget target, AbsolutePath outdir,
+        TargetResult result, DateTime genStart)
+    {
+        var platform = ApplePlatform.FromName(target.Platform);
+        var frameworkModule = target.FrameworkModule ?? target.Name;
+        var csFile = FindMainCsFile(outdir);
+        result.Lines = csFile != null ? File.ReadLines(csFile).Count() : 0;
+
+        // Direct mode compiles the wrapper inline, so its status is determined here
+        // rather than in Phase 3b.
+        if (result.Gen is "ok")
+        {
+            result.SwiftCompile = CheckSwiftWrapper(outdir);
+
+            // iOS/tvOS ship both simulator and device slices. The simulator pass above
+            // proves the simulator wrapper compiles; run a second pass against the
+            // device SDK to exercise the device slice (direct mode rejects
+            // --wrapper-architectures all, so we must invoke the generator twice).
+            // If either slice fails, report the aggregate as fail so packaging bugs
+            // (e.g., missing embedded Info.plist on the device slice) are caught.
+            if (platform.HasDeviceSlice && result.SwiftCompile == "ok")
+            {
+                var deviceStatus = GenerateAppleFrameworkDeviceSlice(
+                    target, outdir, platform, frameworkModule);
+                if (deviceStatus != "ok")
+                    result.SwiftCompile = "fail";
+            }
+        }
+        else
+        {
+            result.SwiftCompile = "unknown";
+        }
+
+        result.GenSeconds = (int)(DateTime.UtcNow - genStart).TotalSeconds;
+
+        if (result.GenVerbose != null)
+            result.GenOutput = $"    {result.GenVerbose}\n";
+
+        result.GenOutput = result.Gen switch
+        {
+            "ok" => $"  {target.Name}: generated ({result.Lines} lines, {result.GenSeconds}s)",
+            _ => $"  {target.Name}: gen failed ({result.GenSeconds}s)"
+                 + (result.GenVerbose != null ? $"\n    {result.GenVerbose}" : ""),
+        };
+    }
+
+    // Second-pass device-slice wrapper compile + merge for iOS/tvOS apple-framework
+    // targets. This deliberately replicates the SDK's packaging path in
+    // _CompileAppleFrameworkSecondWrapperSlice (src/Swift.Bindings.Sdk/Sdk/Sdk.targets):
+    // compile the device slice via `swiftc -emit-library` (which does NOT write an
+    // embedded Info.plist into the .framework dir), then merge with the existing
+    // simulator slice via `xcodebuild -create-xcframework`. The merged xcframework
+    // replaces the sim-only one in outdir. CheckSwiftWrapper then verifies each
+    // slice's .framework carries both binary + Info.plist — a dropped device plist
+    // surfaces as swift_compile: fail, which is the whole point of this gate.
+    //
+    // Returns "ok" / "fail" / "no_sdk" / "no_wrapper_source".
+    string GenerateAppleFrameworkDeviceSlice(ValidationTarget target, AbsolutePath outdir,
+        ApplePlatform platform, string frameworkModule)
+    {
+        try
+        {
+            var sdkPath = RunAppleCapture("xcrun",
+                $"--sdk {platform.DeviceSdkName} --show-sdk-path");
+            if (string.IsNullOrWhiteSpace(sdkPath))
+                return "no_sdk";
+
+            var wrapperModule = $"{frameworkModule}SwiftBindings";
+            var xcframework = outdir / $"{wrapperModule}.xcframework";
+            if (!Directory.Exists(xcframework))
+                return "fail";
+
+            var firstSliceFramework = outdir
+                / $"{wrapperModule}.xcframework"
+                / platform.SimulatorSliceId
+                / $"{wrapperModule}.framework";
+            if (!Directory.Exists(firstSliceFramework))
+                return "fail";
+
+            var wrapperSources = Directory
+                .EnumerateFiles(outdir, "*.Wrapper.swift", SearchOption.TopDirectoryOnly)
+                .Concat(Directory.EnumerateFiles(outdir, "*.Wrapper.Thunk.swift",
+                    SearchOption.TopDirectoryOnly))
+                .ToList();
+            if (wrapperSources.Count == 0)
+                return "no_wrapper_source";
+
+            var mergeDir = outdir / ".merge_slices";
+            if (Directory.Exists(mergeDir)) mergeDir.DeleteDirectory();
+            var secondFrameworkDir = mergeDir / "second" / $"{wrapperModule}.framework";
+            Directory.CreateDirectory(secondFrameworkDir);
+
+            // Device target triple: mirror Sdk.targets _AFW_OtherTarget, which uses
+            // %(SwiftAppleFrameworkTarget.MinDeploymentVersion) — the framework's
+            // minimum deployment floor (default from SwiftAppleFrameworkMinDeploymentVersion:
+            // 15.0 for ios/tvos/maccatalyst, 12.0 for macos). target.PlatformVersion is the
+            // Apple workload/TFM version (e.g. 26.2) and must NOT be used here; that would
+            // hide availability / wrapper-compilation failures that only surface at the
+            // SDK's real deployment floor. platform.MinOsVersion carries exactly the same
+            // defaults as the SDK's MinDeploymentVersion property.
+            var deviceTarget = $"arm64-apple-{platform.TfmSuffix}{platform.MinOsVersion}";
+
+            var sourcesArg = string.Join(" ",
+                wrapperSources.Select(s => $"\"{s}\""));
+            var binaryPath = secondFrameworkDir / wrapperModule;
+            var installName = $@"\@rpath/{wrapperModule}.framework/{wrapperModule}";
+
+            var swiftcArgs = string.Join(" ", new[]
+            {
+                $"--sdk {platform.DeviceSdkName}",
+                "swiftc",
+                "-emit-library",
+                $"-target {deviceTarget}",
+                $"-sdk \"{sdkPath}\"",
+                "-strict-concurrency=minimal",
+                $"-module-name {wrapperModule}",
+                "-Xlinker -install_name",
+                $"-Xlinker {installName}",
+                $"-o \"{binaryPath}\"",
+                sourcesArg,
+            });
+            var swiftcProc = ProcessTasks.StartProcess("xcrun", swiftcArgs,
+                workingDirectory: outdir, logOutput: false);
+            swiftcProc.AssertWaitForExit();
+            if (swiftcProc.ExitCode != 0)
+                return "fail";
+
+            var mergedXcframework = mergeDir / "merged.xcframework";
+            var mergeArgs = string.Join(" ", new[]
+            {
+                "-create-xcframework",
+                $"-framework \"{firstSliceFramework}\"",
+                $"-framework \"{secondFrameworkDir}\"",
+                $"-output \"{mergedXcframework}\"",
+            });
+            var mergeProc = ProcessTasks.StartProcess("xcodebuild", mergeArgs,
+                workingDirectory: outdir, logOutput: false);
+            mergeProc.AssertWaitForExit();
+            if (mergeProc.ExitCode != 0 || !Directory.Exists(mergedXcframework))
+                return "fail";
+
+            // Swap the sim-only xcframework for the merged one so CheckSwiftWrapper
+            // inspects both slices.
+            xcframework.DeleteDirectory();
+            Directory.Move(mergedXcframework, xcframework);
+            mergeDir.DeleteDirectory();
+
+            return CheckSwiftWrapper(outdir);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug("  {Name}: device-slice merge exception: {Message}",
+                target.Name, ex.Message);
+            return "fail";
+        }
+    }
+
+    static (AbsolutePath SwiftInterface, AbsolutePath Tbd, AbsolutePath FrameworkDir)
+        ResolveAppleFrameworkPaths(string sdkPath, ApplePlatform platform, string module)
+    {
+        var sdkRoot = (AbsolutePath)sdkPath;
+        var subpath = platform.Name == "maccatalyst"
+            ? "System/iOSSupport/System/Library/Frameworks"
+            : "System/Library/Frameworks";
+        var frameworkDir = sdkRoot / subpath / $"{module}.framework";
+        var swiftmoduleDir = frameworkDir / "Modules" / $"{module}.swiftmodule";
+
+        // MacCatalyst fallback: the iOSSupport overlay sometimes ships an empty stub
+        // framework (MusicKit, CryptoKit) with no swiftmodule. Fall back to the regular
+        // macOS SDK path, which carries both the macos and ios-macabi slices.
+        if (platform.Name == "maccatalyst" && !Directory.Exists(swiftmoduleDir))
+        {
+            frameworkDir = sdkRoot / "System/Library/Frameworks" / $"{module}.framework";
+            swiftmoduleDir = frameworkDir / "Modules" / $"{module}.swiftmodule";
+        }
+
+        // System frameworks on macOS/MacCatalyst ship with the arm64e (pointer-auth)
+        // variant rather than plain arm64. Try the exact suffix first; if missing,
+        // try arm64e.
+        var moduleSuffix = platform.SimulatorModuleSuffix;
+        var swiftinterface = swiftmoduleDir / $"{moduleSuffix}.swiftinterface";
+        if (!File.Exists(swiftinterface) && moduleSuffix.StartsWith("arm64-"))
+        {
+            var alt = swiftmoduleDir / $"arm64e-{moduleSuffix["arm64-".Length..]}.swiftinterface";
+            if (File.Exists(alt))
+                swiftinterface = alt;
+        }
+
+        var tbd = frameworkDir / $"{module}.tbd";
+        return (swiftinterface, tbd, frameworkDir);
+    }
+
+    static string RunAppleCapture(string file, string args)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = file,
+            Arguments = args,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var proc = System.Diagnostics.Process.Start(psi)
+            ?? throw new Exception($"Failed to start {file} {args}");
+        var stdout = proc.StandardOutput.ReadToEnd();
+        var stderr = proc.StandardError.ReadToEnd();
+        proc.WaitForExit();
+        if (proc.ExitCode != 0)
+            throw new Exception($"{file} {args} exited with {proc.ExitCode}. stderr: {stderr.Trim()}");
+        return stdout.Trim();
+    }
+
+    // ============================================================
     // Phase 3b: Compile Swift Wrappers
     // ============================================================
 
@@ -735,6 +1117,12 @@ partial class Build
             result.SwiftCompile = "unknown";
             return;
         }
+
+        // apple-framework direct mode compiles the wrapper inline during Phase 3a
+        // (no --skip-wrapper-compilation). The SwiftCompile status is stamped by the
+        // generator pass; nothing to do here.
+        if (target.Mode == "apple-framework")
+            return;
 
         if (!Quick)
         {
@@ -898,6 +1286,13 @@ partial class Build
 
         // Compile
         var (buildExit, csErrors, buildOutput) = RunDotnetBuild(csprojFile);
+
+        // apple-framework bindings reference types from sibling framework bindings
+        // (Swift.Foundation, CoreLocation, etc.) that aren't present in the validation
+        // sandbox. Filter those transitive CS0234 errors so real emitter bugs (e.g.,
+        // RoomPlan's simd.simd_float3<float> — CS0246/CS0305) remain visible.
+        if (target.Mode == "apple-framework")
+            csErrors = CountNonTransitiveCsErrors(buildOutput);
 
         // Detect non-CS build failures (e.g., NETSDK1004, MSB errors)
         if (buildExit != 0 && csErrors == 0)
@@ -1244,17 +1639,28 @@ $"""
 
         if (swiftFile == null) return "no_wrapper";
 
-        // Check for compiled wrapper binary.
-        // The framework name is {Library}SwiftBindings.framework/{Library}SwiftBindings,
-        // so match any path containing "SwiftBindings.framework" with a non-plist file
-        // whose name ends with "SwiftBindings" (matching bash: -path "*SwiftBindings.framework/*SwiftBindings").
-        var wrapperBinary = Directory.EnumerateFiles(outdir, "*", SearchOption.AllDirectories)
-            .Where(f => f.Contains("SwiftBindings.framework") &&
-                        !f.EndsWith(".plist") &&
-                        Path.GetFileName(f).EndsWith("SwiftBindings"))
-            .FirstOrDefault();
+        // Each *.framework dir produced by the wrapper pipeline must contain BOTH
+        // the compiled binary AND an embedded Info.plist. A missing per-slice plist
+        // is the failure documented in ship-blockers Issue 1 — the SDK's merge
+        // target builds the device slice via `swiftc -emit-library` which emits
+        // only a binary, so the merged xcframework can ship with a slice that
+        // lacks Info.plist and is uninstallable on device.
+        var frameworkDirs = Directory.EnumerateDirectories(
+                outdir, "*SwiftBindings.framework", SearchOption.AllDirectories)
+            .ToList();
 
-        return wrapperBinary != null ? "ok" : "fail";
+        if (frameworkDirs.Count == 0) return "fail";
+
+        foreach (var fwDir in frameworkDirs)
+        {
+            var moduleName = Path.GetFileNameWithoutExtension(fwDir);
+            var binary = Path.Combine(fwDir, moduleName);
+            var plist = Path.Combine(fwDir, "Info.plist");
+            if (!File.Exists(binary) || !File.Exists(plist))
+                return "fail";
+        }
+
+        return "ok";
     }
 
     // ============================================================
@@ -1325,6 +1731,21 @@ $"""
         if (total > max)
             result += $"\n    ... and {total - max} more";
         return result;
+    }
+
+    // Count CS errors excluding transitive framework-binding misses. CS0234 with
+    // message "does not exist in the namespace 'Swift'" (e.g., Swift.Foundation,
+    // Swift.CoreLocation) fires when an apple-framework binding references another
+    // framework's binding that the validation sandbox doesn't build. Those errors
+    // are not generator bugs — they're expected side-effects of compiling one
+    // framework in isolation. Real emitter bugs (CS0246/CS0305 etc.) still count.
+    static int CountNonTransitiveCsErrors(string buildOutput)
+    {
+        return buildOutput.Split('\n')
+            .Where(l => l.Contains("error CS"))
+            .Where(l => !(l.Contains("error CS0234") && l.Contains("namespace 'Swift'")))
+            .Distinct()
+            .Count();
     }
 
     // ============================================================

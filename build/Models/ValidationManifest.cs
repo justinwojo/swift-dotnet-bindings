@@ -39,8 +39,13 @@ public record ValidationManifest
             {
                 foreach (var platform in platforms)
                 {
-                    var name = platform == "ios" ? product.Framework
-                                                 : $"{product.Framework}@{platform}";
+                    // apple-framework targets index by library name so libraries like
+                    // StoreKit2 (whose SDK module is "StoreKit") still appear under the
+                    // package identifier callers expect in the baseline. Other modes
+                    // continue to key on the product framework name.
+                    var baseName = lib.Mode == "apple-framework" ? lib.Name : product.Framework;
+                    var name = platform == "ios" ? baseName
+                                                 : $"{baseName}@{platform}";
 
                     if (filter != null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase))
                         continue;
@@ -56,7 +61,10 @@ public record ValidationManifest
                         Platform: platform,
                         Tier: lib.Tier,
                         Dependencies: product.Dependencies ?? [],
-                        WrapperDeps: product.WrapperDeps ?? []));
+                        WrapperDeps: product.WrapperDeps ?? [],
+                        FrameworkModule: product.Framework,
+                        PlatformVersion: lib.PlatformVersion,
+                        NamespacePattern: product.NamespacePattern));
                 }
             }
         }
@@ -76,6 +84,7 @@ public record ValidationLibrary
     [JsonPropertyName("platforms")] public IReadOnlyList<string>? Platforms { get; init; }
     [JsonPropertyName("buildSettings")] public Dictionary<string, string>? BuildSettings { get; init; }
     [JsonPropertyName("note")] public string? Note { get; init; }
+    [JsonPropertyName("platformVersion")] public string? PlatformVersion { get; init; }
     [JsonPropertyName("products")] public IReadOnlyList<ValidationProduct> Products { get; init; } = [];
 }
 
@@ -87,9 +96,13 @@ public record ValidationProduct
     [JsonPropertyName("knownErrors")] public int KnownErrors { get; init; }
     [JsonPropertyName("dependencies")] public IReadOnlyList<string>? Dependencies { get; init; }
     [JsonPropertyName("wrapper_deps")] public IReadOnlyList<string>? WrapperDeps { get; init; }
+    [JsonPropertyName("namespacePattern")] public string? NamespacePattern { get; init; }
 }
 
 public record ValidationTarget(
     string Name, string LibraryName, AbsolutePath XcframeworkPath,
     string Mode, int KnownErrors, string Platform, int Tier,
-    IReadOnlyList<string> Dependencies, IReadOnlyList<string> WrapperDeps);
+    IReadOnlyList<string> Dependencies, IReadOnlyList<string> WrapperDeps,
+    string? FrameworkModule = null,
+    string? PlatformVersion = null,
+    string? NamespacePattern = null);
