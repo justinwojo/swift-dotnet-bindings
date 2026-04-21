@@ -225,4 +225,23 @@ public class AsyncThrowingClosureTests : TestBase
             $"Swift-side byte-sum over the 1MB payload should match C#-side sum (expected={expectedSum})");
         TestLogger.Info($"AsyncThrowingClosure.DataReturn round-tripped {size} bytes, checksum={actualSum}");
     }
+
+    /// <summary>
+    /// Session D edge case: empty Data round-trip. C# pins a zero-length byte
+    /// array (AddrOfPinnedObject returns IntPtr.Zero for empty arrays), and the
+    /// Swift bridge calls Data(bytes: bytesPtr, count: 0). Asserts the bridge
+    /// doesn't deref the null pointer when length is zero, and that the byte
+    /// sum is 0 (vacuous loop on the Swift side).
+    /// </summary>
+    public async Task TestDataReturnClosureRoundTripsEmptyData()
+    {
+        Func<Task<byte[]>> userLambda = () => Task.FromResult(Array.Empty<byte>());
+
+        var actualSum = await WithTimeout(
+            Functions.CallAsyncThrowingDataClosureAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(0L, actualSum, "Empty Data payload should sum to 0");
+        TestLogger.Info("AsyncThrowingClosure.DataReturn empty payload round-tripped without crash");
+    }
 }
