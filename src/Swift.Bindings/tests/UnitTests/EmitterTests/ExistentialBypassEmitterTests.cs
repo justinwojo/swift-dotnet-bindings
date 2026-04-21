@@ -405,6 +405,92 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
+    public void RenderSwiftTypeSpec_NestedType_AppendsInnerName()
+    {
+        // StreamOf<E>.Iterator — outer has generic params, inner is bare.
+        // Each nesting level carries only its own generics; we must not
+        // re-emit the outer's params on the inner (StreamOf<E>.Iterator,
+        // never StreamOf<E>.Iterator<E>).
+        var outer = new NamedTypeSpec("TestModule.StreamOf", new NamedTypeSpec("E"));
+        outer.InnerType = new NamedTypeSpec("Iterator");
+
+        var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(outer);
+
+        Assert.Equal("StreamOf<E>.Iterator", result);
+    }
+
+    [Fact]
+    public void RenderSwiftTypeSpec_NestedType_InnerWithOwnGenerics()
+    {
+        // Outer.Inner<T> — only inner has generics.
+        var outer = new NamedTypeSpec("TestModule.Outer");
+        outer.InnerType = new NamedTypeSpec("Inner", new NamedTypeSpec("T"));
+
+        var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(outer);
+
+        Assert.Equal("Outer.Inner<T>", result);
+    }
+
+    [Fact]
+    public void RenderSwiftTypeSpec_NestedType_ModuleQualifiedOuterOnly()
+    {
+        // Module-qualified rendering keeps the module on the outer and leaves
+        // inner segments unqualified (nested types aren't module-prefixed in Swift).
+        var outer = new NamedTypeSpec("TestModule.StreamOf", new NamedTypeSpec("Swift.Int"));
+        outer.InnerType = new NamedTypeSpec("Iterator");
+
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(outer);
+
+        Assert.Equal("TestModule.StreamOf<Swift.Int>.Iterator", result);
+    }
+
+    [Fact]
+    public void RenderSwiftTypeSpec_TripleNested_RendersAllLevels()
+    {
+        // Outer.Middle.Leaf — three levels deep.
+        var outer = new NamedTypeSpec("TestModule.Outer");
+        var middle = new NamedTypeSpec("Middle");
+        var leaf = new NamedTypeSpec("Leaf");
+        middle.InnerType = leaf;
+        outer.InnerType = middle;
+
+        var result = ExistentialBypassEmitter.RenderSwiftTypeSpec(outer);
+
+        Assert.Equal("Outer.Middle.Leaf", result);
+    }
+
+    [Fact]
+    public void RenderSwiftTypeSpec_NestedType_InnerGenericArgs_KeepModuleQualification()
+    {
+        // Outer.Inner<Swift.Int>: the inner segment's NAME is unqualified (outer has the
+        // module prefix), but its generic arguments must still carry module qualification
+        // when caller requests it, otherwise Swift.Int would flatten to Int and resolve
+        // incorrectly when multiple modules define `Int`.
+        var outer = new NamedTypeSpec("TestModule.Outer");
+        outer.InnerType = new NamedTypeSpec("Inner", new NamedTypeSpec("Swift.Int"));
+
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(outer);
+
+        Assert.Equal("TestModule.Outer.Inner<Swift.Int>", result);
+    }
+
+    [Fact]
+    public void RenderSwiftTypeSpec_TripleNested_InnerGenericArgs_KeepModuleQualification()
+    {
+        // Outer.Middle<Swift.Int>.Leaf<Swift.String>: every nested level's generic args
+        // must keep qualification when the caller requested it.
+        var outer = new NamedTypeSpec("TestModule.Outer");
+        var middle = new NamedTypeSpec("Middle", new NamedTypeSpec("Swift.Int"));
+        var leaf = new NamedTypeSpec("Leaf", new NamedTypeSpec("Swift.String"));
+        middle.InnerType = leaf;
+        outer.InnerType = middle;
+
+        var result = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(outer);
+
+        Assert.Equal("TestModule.Outer.Middle<Swift.Int>.Leaf<Swift.String>", result);
+    }
+
+    [Fact]
     public void TryEmit_BoundGenericPassthroughNeedingMarshalling_ReturnsFalse()
     {
         // Passthrough param of a bound generic type that needs marshalling (Array<Int> is

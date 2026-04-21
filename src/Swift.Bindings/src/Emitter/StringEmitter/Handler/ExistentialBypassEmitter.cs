@@ -1245,13 +1245,23 @@ public static class ExistentialBypassEmitter
                 if (moduleQualified)
                     name = AppleFrameworkRegistry.RewriteSpiModulePrefix(name);
 
-                if (namedTypeSpec.GenericParameters.Count > 0)
+                var rendered = namedTypeSpec.GenericParameters.Count > 0
+                    ? $"{name}<{string.Join(", ", namedTypeSpec.GenericParameters.Select(gp => RenderSwiftTypeSpecCore(gp, moduleQualified)))}>"
+                    : name;
+
+                // Nested types: TypeSpecParser populates InnerType for dotted names
+                // (e.g. StreamOf<E>.Iterator). Render ".{Inner}" recursively — each
+                // nesting level carries only its own generic parameters (StreamOf<E>.Iterator,
+                // never StreamOf<E>.Iterator<E>). Inner segments' own names are emitted
+                // unqualified (outer already carries the module prefix), but their generic
+                // arguments must still follow the caller's qualification preference so that
+                // e.g. Outer.Inner<Swift.Int> keeps the Swift.Int qualification when requested.
+                if (namedTypeSpec.InnerType is not null)
                 {
-                    var genericArgs = string.Join(", ", namedTypeSpec.GenericParameters.Select(
-                        gp => RenderSwiftTypeSpecCore(gp, moduleQualified)));
-                    return $"{name}<{genericArgs}>";
+                    var innerRendered = RenderInnerNamedTypeSpec(namedTypeSpec.InnerType, moduleQualified);
+                    rendered = $"{rendered}.{innerRendered}";
                 }
-                return name;
+                return rendered;
 
             case TupleTypeSpec tupleTypeSpec:
                 if (tupleTypeSpec == TupleTypeSpec.Empty)
@@ -1309,6 +1319,27 @@ public static class ExistentialBypassEmitter
             default:
                 return typeSpec.ToString();
         }
+    }
+
+    /// <summary>
+    /// Renders a nested inner segment: its name is always unqualified (outer already
+    /// carries the module prefix), but its own generic arguments and further-nested
+    /// inner segments follow the caller's <paramref name="moduleQualified"/> preference
+    /// so that e.g. Outer.Inner&lt;Swift.Int&gt; keeps Swift.Int qualification when requested.
+    /// </summary>
+    private static string RenderInnerNamedTypeSpec(TypeSpec innerSpec, bool moduleQualified)
+    {
+        if (innerSpec is NamedTypeSpec nts)
+        {
+            var name = nts.NameWithoutModule;
+            var rendered = nts.GenericParameters.Count > 0
+                ? $"{name}<{string.Join(", ", nts.GenericParameters.Select(gp => RenderSwiftTypeSpecCore(gp, moduleQualified)))}>"
+                : name;
+            if (nts.InnerType is not null)
+                rendered = $"{rendered}.{RenderInnerNamedTypeSpec(nts.InnerType, moduleQualified)}";
+            return rendered;
+        }
+        return RenderSwiftTypeSpecCore(innerSpec, moduleQualified);
     }
 
     /// <summary>

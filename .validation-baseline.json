@@ -1,11 +1,11 @@
 {
-  "git_sha": "b19ff5dd",
+  "git_sha": "04502941",
   "compile_gate": {
     "libraries": {
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49049,
+        "lines": 54755,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -40,7 +40,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 83699,
+        "lines": 99833,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -54,14 +54,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59173,
+        "lines": 59179,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32952,
+        "lines": 32958,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,14 +110,14 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12023,
+        "lines": 12069,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10476,
+        "lines": 10482,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -264,7 +264,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5481,
+        "lines": 5493,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,7 +306,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5854,
+        "lines": 5896,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2086,
+        "lines": 2091,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -383,7 +383,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16463,
+        "lines": 16493,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -649,7 +649,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 26,
-        "lines": 27344,
+        "lines": 27350,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -663,7 +663,7 @@
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 32417,
+        "lines": 32423,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
@@ -696,13 +696,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1482,
+      "pass": 1506,
       "fail": 0,
       "skip": 41,
       "crash": 0
     },
     "device": {
-      "pass": 1483,
+      "pass": 1518,
       "fail": 0,
       "skip": 29,
       "crash": 0
