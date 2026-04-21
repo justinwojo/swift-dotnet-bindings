@@ -557,6 +557,10 @@ namespace BindingsGeneration
                 "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml",
                 "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml",
                 "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml", "ManagedSettingsDatabase.xml",
+                // simd is a C module shipped by every Apple platform; the database exposes
+                // simd_float4x4 as a System.Numerics.Matrix4x4 projection so consumers of
+                // ARKit / RoomPlan transforms get a usable managed type.
+                "SimdDatabase.xml",
             };
             // UIKit: available on all platforms except macOS (Catalyst has UIKit)
             if (platform != ApplePlatform.macOS)

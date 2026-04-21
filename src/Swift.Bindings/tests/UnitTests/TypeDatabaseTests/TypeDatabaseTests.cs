@@ -691,6 +691,25 @@ public class TypeDatabaseTests
                 "IsTypeProcessed must recognise Swift.SIMD3<Swift.Float> via the bound-generic alias.");
         }
 
+        [Fact]
+        public async Task SimdDatabase_Float4x4_ProjectsAsSystemNumericsMatrix4x4()
+        {
+            // RoomPlan (CapturedRoom.Surface.transform, CapturedRoom.Object.transform) and
+            // ARKit both expose simd_float4x4. Projecting onto System.Numerics.Matrix4x4 —
+            // 16 contiguous floats in both representations — gives consumers a usable
+            // managed type without a custom marshalling helper.
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SimdDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("simd.simd_float4x4");
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                "simd.simd_float4x4 should resolve via SimdDatabase.xml.");
+            Assert.Equal("System.Numerics.Matrix4x4", record!.CSharpTypeName.FullyQualifiedName);
+            Assert.Equal("System.Numerics", record.CSharpTypeName.Namespace);
+            Assert.Equal("Matrix4x4", record.CSharpTypeName.Name);
+        }
+
         [Theory]
         // Token<Kind> is pinned to SwiftBindings.Runtime via TypeOwnerRegistry legacy canonicals,
         // so resolution falls through to the XML module database and preserves the hand-tuned
@@ -796,6 +815,21 @@ public class TypeDatabaseTests
             Assert.Contains("HealthKitDatabase.xml", databases);
             Assert.Contains("UIKitDatabase.xml", databases);
             Assert.Contains("AppKitDatabase.xml", databases);
+        }
+
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.tvOS)]
+        [InlineData(ApplePlatform.macOS)]
+        [InlineData(ApplePlatform.MacCatalyst)]
+        public void GetBuiltInDatabases_AllPlatforms_IncludeSimdDatabase(ApplePlatform platform)
+        {
+            // simd types (simd_float4x4, simd_float3) are surfaced by ARKit, RoomPlan,
+            // CoreMotion, SceneKit and other frameworks across every Apple platform.
+            // Omitting the database causes the generator to skip transform properties
+            // because simd_float4x4 has no TypeRecord at member emission time.
+            var databases = BindingsGenerator.GetBuiltInDatabases(platform);
+            Assert.Contains("SimdDatabase.xml", databases);
         }
 
         /// <summary>

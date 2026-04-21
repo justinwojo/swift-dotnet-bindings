@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="simd" modulePath="/usr/lib/swift">
     <entities>
-        <!-- simd_float4x4 — 4×4 matrix of Float (64 bytes: 4 columns × 4 floats × 4 bytes) -->
-        <entity managedNameSpace="simd" managedTypeName="simd_float4x4">
+        <!-- simd_float4x4 — 4×4 matrix of Float (64 bytes: 4 columns × 4 floats × 4 bytes).
+             Projected onto System.Numerics.Matrix4x4 for consumer ergonomics; both types
+             are 16 contiguous IEEE-754 floats, so the storage is bit-compatible at the
+             ABI boundary. Note that Swift simd_float4x4 stores matrices in column-major
+             order while System.Numerics.Matrix4x4 fields (M11..M44) are conventionally
+             read row-major — consumers that care about orientation should transpose. -->
+        <entity managedNameSpace="System.Numerics" managedTypeName="Matrix4x4">
             <typedeclaration kind="struct" name="simd_float4x4" module="simd"
                              frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="64" />
         </entity>
