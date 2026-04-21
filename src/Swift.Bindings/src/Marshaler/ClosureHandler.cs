@@ -858,9 +858,12 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Determines whether an async-throwing closure matches the Session A/B bridge
+    /// Determines whether an async-throwing closure matches the Session A/B/D bridge
     /// shape: `@escaping (A0, …) async throws -> T` where:
-    ///   - T is a bitwise-copyable primitive (Int32, Int64, Double, …),
+    ///   - T is a bitwise-copyable primitive (Int32, Int64, Double, …) OR
+    ///     <c>Foundation.Data</c> (Session D: routed through <c>DataAsyncClosureHelper</c>
+    ///     with a <c>(boxPtr, bytesPtr, length)</c> success callback; zero args only
+    ///     per the Data-return emitter guard in <c>ClosureEmitter.Async.cs</c>).
     ///   - arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
     ///   - each argument is a Session B-bridgeable type (primitive, Swift.String,
     ///     or a Swift class).
@@ -873,10 +876,21 @@ public class ClosureHandler
             return false;
         if (closureTypeSpec.ReturnType is not NamedTypeSpec namedReturn || namedReturn.ContainsGenericParameters)
             return false;
-        if (!CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name))
-            return false;
 
         var args = closureTypeSpec.EachArgument().ToList();
+        bool isDataReturn = namedReturn.Name == "Foundation.Data";
+        if (isDataReturn)
+        {
+            // DataAsyncClosureHelper currently only supports zero-arg closures
+            // (see NotSupportedException guard in ClosureEmitter.Async.cs).
+            if (args.Count > 0)
+                return false;
+        }
+        else if (!CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name))
+        {
+            return false;
+        }
+
         if (args.Count > MaxAsyncThrowingClosureArity)
             return false;
         foreach (var arg in args)

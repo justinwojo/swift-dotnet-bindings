@@ -80,6 +80,20 @@ public func callAsyncThrowingClosureOneArgForError(
     return try await closure(value)
 }
 
+/// Session D: async-throwing closure returning Foundation.Data. Routed through
+/// DataAsyncClosureHelper.RunDataAsync + a Data-shaped Swift box that resumes
+/// with Data(bytes: bytesPtr, count: length). The outer method returns a byte
+/// checksum (Int64) rather than Data itself — Data return from the *closure* is
+/// in scope for Session D, but Data return from the *outer async method* is a
+/// separate (pre-existing) gap in the async outer-method emitter and out of scope
+/// here. Checksumming proves the full byte payload round-tripped intact.
+public func callAsyncThrowingDataClosure(_ closure: @escaping () async throws -> Data) async throws -> Int64 {
+    let data = try await closure()
+    var sum: Int64 = 0
+    for b in data { sum = sum &+ Int64(b) }
+    return sum
+}
+
 // MARK: - Session C: non-throwing async closures (primitive return, 0–4 args)
 // Baseline non-throwing shape: `@escaping (Args) async -> T` where T is a
 // BitwiseCopyable primitive and the outer method is `async`. Exceptions inside

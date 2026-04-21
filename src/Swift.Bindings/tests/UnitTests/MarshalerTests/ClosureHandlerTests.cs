@@ -597,6 +597,37 @@ public class ClosureHandlerTests
     }
 
     [Fact]
+    public void IsBaselineAsyncThrowingClosure_FoundationDataReturn_ReturnsTrue()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Session D: async-throwing closures returning Foundation.Data with zero args
+        // are routed through DataAsyncClosureHelper.RunDataAsync.
+        var closureTypeSpec = new ClosureTypeSpec(null, new NamedTypeSpec("Foundation.Data"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsBaselineAsyncThrowingClosure_FoundationDataReturnWithArgs_ReturnsFalse()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // DataAsyncClosureHelper currently only supports zero-arg closures.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Foundation.Data"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.False(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
     public void IsSupportedClosure_WithThrowingClosure_ReturnsTrue()
     {
         var typeDatabase = new MockTypeDatabase();

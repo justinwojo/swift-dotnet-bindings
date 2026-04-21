@@ -14,8 +14,12 @@ namespace Swift.Foundation;
 public static class DataAsyncClosureHelper
 {
     /// <summary>
-    /// Runs an async closure that returns Swift.Foundation.Data.
-    /// Converts the result to a byte array and calls the success callback with the pinned bytes.
+    /// Runs an async closure that returns <see cref="Data"/>, converts the result to a byte
+    /// array, and calls the success callback with the pinned bytes. The GCHandle is
+    /// intentionally NOT freed — async closures share the escaping-closure leak semantics of
+    /// <see cref="Swift.Runtime.AsyncClosureHelper"/>: Swift may retain the closure context
+    /// and invoke it more than once, so freeing after a single invocation would leave Swift
+    /// with a dangling GCHandle.
     /// </summary>
     public static void RunDataAsync(
         GCHandle handle,
@@ -52,10 +56,6 @@ public static class DataAsyncClosureHelper
                 {
                     pinnedBytes.Free();
                 }
-            }
-            finally
-            {
-                handle.Free();
             }
         });
     }

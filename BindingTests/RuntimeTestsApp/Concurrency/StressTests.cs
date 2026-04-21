@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using SwiftBindingsTestLib;
@@ -510,6 +511,59 @@ public class StressTests : TestBase
             errors.Count > 0 ? $"Mixed ops errors: {string.Join("; ", errors.Take(5))}" : "No errors");
 
         TestLogger.Info("5 threads x 100 mixed operations completed without errors");
+    }
+
+    #endregion
+
+    #region Async Closure Leak Bound (Session D)
+
+    /// <summary>
+    /// Validates the leak-based lifetime model documented in
+    /// <c>AsyncClosureHelper</c> doesn't grow pathologically under realistic use.
+    /// Per-invocation the helper leaks one <c>AsyncThrowingClosureState&lt;T&gt;</c>
+    /// plus its <c>GCHandle</c> — bounded by invocation count, not time. 10K tight-
+    /// loop calls must stay well under 100MB of managed heap growth.
+    /// </summary>
+    public async Task TestAsyncClosureLeakBoundUnderTenThousandInvocations()
+    {
+        const int iterations = 10_000;
+        const long maxGrowthBytes = 100L * 1024 * 1024;
+
+        // Warm up + baseline after a full GC so we don't blame the bridge for
+        // unrelated prior-test allocations.
+        for (int i = 0; i < 16; i++)
+        {
+            await Functions.CallAsyncThrowingClosureAsync(() => Task.FromResult(i));
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long baseline = GC.GetTotalMemory(forceFullCollection: true);
+
+        var sw = Stopwatch.StartNew();
+        for (int i = 0; i < iterations; i++)
+        {
+            int local = i;
+            var result = await Functions.CallAsyncThrowingClosureAsync(
+                () => Task.FromResult(local));
+            if (result != local)
+                throw new AssertionException(
+                    $"Invocation {local} returned {result} (expected {local})");
+        }
+        sw.Stop();
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long after = GC.GetTotalMemory(forceFullCollection: true);
+        long growth = after - baseline;
+
+        TestLogger.Info(
+            $"AsyncClosure leak bound: {iterations} invocations in {sw.ElapsedMilliseconds}ms, "
+            + $"managed heap grew {growth:N0} bytes (baseline {baseline:N0} -> {after:N0})");
+
+        AssertTrue(growth < maxGrowthBytes,
+            $"Managed heap growth {growth:N0} bytes exceeds 100MB cap after {iterations} async-closure invocations");
     }
 
     #endregion

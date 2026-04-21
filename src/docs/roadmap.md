@@ -25,7 +25,7 @@ Skip rate is 15.1%. The remaining ~1,923 skips are overwhelmingly either correct
 |------|----------------:|--------|-----------------|
 | **Unsupported signatures** (associated types, bare generics) | ~341 | Very high | Swift patterns with no C# equivalent |
 | **AnyTypeFallback** (cross-library types) | ~303 | Very high | Needs full dependency graph resolution — different product scope |
-| **UnsupportedClosure** (multi-blocker methods) | ~131 | High | Reduced from 153 via setter-only closure properties. Remaining are generic params, async closures, nested closures. |
+| **UnsupportedClosure** (multi-blocker methods) | ~131 | High | Reduced via setter-only closure properties and the async-closure bridge (throwing 0–3 args with primitive returns plus zero-arg `Foundation.Data` return; non-throwing 0–3 args with primitive returns only). Remaining are generic params, nested closures, and async-closure shapes outside the supported arg/return matrix (e.g., arg-bearing `Data` returns, non-throwing `Data` returns). |
 | **UnsatisfiedGenericConstraint** (remaining) | ~92 | High | Fundamental type system constraints, not relaxable gates |
 | **Result<T,E> parameter direction** | blocked | Medium | Needs native payload synthesis for C#-created instances |
 | **Multi-protocol generic compositions** | blocked | High | Needs full existential composition in @_cdecl wrapper |

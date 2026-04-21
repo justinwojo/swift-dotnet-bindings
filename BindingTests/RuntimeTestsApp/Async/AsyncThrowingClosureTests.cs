@@ -191,4 +191,38 @@ public class AsyncThrowingClosureTests : TestBase
         AssertEqual(10 + 3 + 99, result, "ThreeArgs closure should return n + len(tag) + box.Tag");
         TestLogger.Info($"AsyncThrowingClosure.ThreeArgs = {result}");
     }
+
+    // MARK: - Session D: Foundation.Data return
+
+    /// <summary>
+    /// Session D: async-throwing closure returning Foundation.Data. A 1MB byte
+    /// buffer is produced in C#, ferried C# → Swift via the
+    /// DataAsyncClosureHelper.RunDataAsync path + AsyncBoxData Swift box, then
+    /// reduced to a byte-sum checksum on the Swift side. Both sides compute the
+    /// same sum; mismatch means bytes were lost or corrupted in the bridge.
+    /// (Outer method returns Int64, not Data, because async-method-returning-Data
+    /// is a separate pre-existing gap — see AsyncClosures.swift for rationale.)
+    /// </summary>
+    public async Task TestDataReturnClosureRoundTripsOneMegabyte()
+    {
+        const int size = 1024 * 1024;
+        var payload = new byte[size];
+        long expectedSum = 0;
+        for (int i = 0; i < size; i++)
+        {
+            byte b = (byte)(i & 0xFF);
+            payload[i] = b;
+            expectedSum += b;
+        }
+
+        Func<Task<byte[]>> userLambda = () => Task.FromResult(payload);
+
+        var actualSum = await WithTimeout(
+            Functions.CallAsyncThrowingDataClosureAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(expectedSum, actualSum,
+            $"Swift-side byte-sum over the 1MB payload should match C#-side sum (expected={expectedSum})");
+        TestLogger.Info($"AsyncThrowingClosure.DataReturn round-tripped {size} bytes, checksum={actualSum}");
+    }
 }
