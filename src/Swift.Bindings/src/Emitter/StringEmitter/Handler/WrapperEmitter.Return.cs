@@ -379,6 +379,37 @@ namespace BindingsGeneration
                 if (_env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnArg))
                     _emissionContext.RecordBoundGenericSwiftObjectType(_wrapperSignature.ReturnType);
 
+                // Bare generic parameter return (e.g. T): buffer ownership semantics are
+                // resolved at runtime.
+                //   - ISwiftStruct T (non-frozen struct, frozen-with-refs, complex enum):
+                //     SafeHandle wraps the buffer itself as its handle. Pass the buffer
+                //     pointer through MarshalFromSwift<T> unchanged.
+                //   - Genuine Swift class T (C# reference type, ISwiftObject, not
+                //     ISwiftStruct): Swift writes the class instance pointer into the
+                //     buffer. Dereference to get the real class handle before calling
+                //     MarshalFromSwift<T> (otherwise it wraps the buffer address as if it
+                //     were the class pointer, mis-binding the instance).
+                //   - Frozen-blittable T (C# struct projected as value type but still
+                //     ISwiftObject, e.g. SummableInt32), primitive T, tuple T:
+                //     MarshalFromSwift<T> reads the value out of the buffer, so the
+                //     buffer pointer is correct. Value types are excluded from the
+                //     dereference branch via typeof(T).IsValueType.
+                if (returnArg.SwiftTypeSpec is NamedTypeSpec gpRetNts
+                    && TypeSpecHelpers.IsGenericTypeParameter(gpRetNts.Name))
+                {
+                    var tName = _wrapperSignature.ReturnType;
+                    csWriter.WriteLines($$"""
+                        if (!typeof({{tName}}).IsValueType && typeof(Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({{tName}})) && !typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({{tName}})))
+                        {
+                            IntPtr _classHandle;
+                            unsafe { _classHandle = *(IntPtr*){{resultExpr}}; }
+                            return SwiftMarshal.MarshalFromSwift<{{tName}}>(_classHandle);
+                        }
+                        return SwiftMarshal.MarshalFromSwift<{{tName}}>({{resultExpr}});
+                        """);
+                    return;
+                }
+
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({resultExpr});");
                 return;
             }

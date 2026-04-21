@@ -176,6 +176,14 @@ namespace BindingsGeneration
                     moduleDecl.Name,
                     env.TypeDatabase,
                     conformanceValidator);
+
+                // Complex enums are projected as C# classes backed by SwiftSafeHandle — same
+                // buffer-ownership model as non-frozen structs (value bytes in the buffer,
+                // handle == buffer address). Mark with ISwiftStruct so runtime code that
+                // distinguishes struct-like (SafeHandle wraps buffer) from class-like
+                // (handle is the instance pointer) treats complex enums as buffer-backed.
+                interfaces.Insert(1, nameof(ISwiftStruct));
+
                 XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(enumDecl, env.TypeDatabase);

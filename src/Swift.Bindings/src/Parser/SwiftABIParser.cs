@@ -2544,6 +2544,16 @@ namespace BindingsGeneration
                         throw new Exception($"Error parsing generic type param from \"{node.PrintedName}\"");
                     }
                     return genericSpec;
+                case "TypeNameAlias":
+                    // swift-api-digester wraps typealias uses in a TypeNameAlias node whose
+                    // single child is the underlying TypeNominal (e.g. SHA256.Digest → SHA256Digest).
+                    // Unwrap to the underlying type — the alias itself is purely a naming shim
+                    // and the downstream pipeline wants the real nominal type.
+                    if (!node.Children.Any())
+                    {
+                        throw new Exception($"TypeNameAlias node \"{node.PrintedName}\" has no children to unwrap.");
+                    }
+                    return CreateTypeSpec(node.Children.First());
                 default:
                     throw new NotImplementedException($"Can't handle node type {node.Kind} yet.");
             }

@@ -597,6 +597,18 @@ internal class MethodMarshalPlanBuilder
                             cleanupCode = null;
                     }
                 }
+                // Bare generic parameter return (e.g. T, U, τ_0_0): the concrete type is not known
+                // at emit time. MarshalFromSwift<T> transfers ownership to SwiftSafeHandle for
+                // ISwiftStruct types (non-frozen structs, frozen-with-refs), but copies out for
+                // primitives/frozen structs/tuples. Emit a runtime check so cleanup only runs
+                // when ownership was NOT transferred.
+                if (cleanupCode != null
+                    && returnArg.SwiftTypeSpec is NamedTypeSpec gpNts
+                    && TypeSpecHelpers.IsGenericTypeParameter(gpNts.Name)
+                    && _genericContext.TryResolve(gpNts.Name, out var csGenericParamName))
+                {
+                    cleanupCode = $"if (!typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({csGenericParamName}))) NativeMemory.Free(_cdeclBuf);";
+                }
 
                 return new IndirectResultSetup
                 {
@@ -625,6 +637,14 @@ internal class MethodMarshalPlanBuilder
                     if (isNonFrozenStruct2 || isComplexEnum2)
                         swiftIndirectCleanup = null;
                 }
+            }
+            // Bare generic parameter return (same runtime check as @_cdecl path above).
+            if (swiftIndirectCleanup != null
+                && returnArg2.SwiftTypeSpec is NamedTypeSpec gpNts2
+                && TypeSpecHelpers.IsGenericTypeParameter(gpNts2.Name)
+                && _genericContext.TryResolve(gpNts2.Name, out var csGenericParamName2))
+            {
+                swiftIndirectCleanup = $"if (!typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({csGenericParamName2}))) NativeMemory.Free(_cdeclBuf);";
             }
 
             return new IndirectResultSetup
