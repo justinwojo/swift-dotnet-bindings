@@ -36,11 +36,24 @@ internal static class CdeclMarshallingHelper
     /// </summary>
     internal static bool NeedsCdeclPointerOverride(ITypeProjection projection)
     {
+        // ObjC-bridge container projections build their own {name}Buffer line in their
+        // parameter plan (IntPtr {name}Buffer = {name}NSArray.Handle) and do NOT create a
+        // {name}Swift variable. Skipping the override here avoids a duplicate {name}Buffer
+        // definition (CS0128) and a reference to an undefined {name}Swift (CS0103) when
+        // EnumHandler bound-generic factories or other callers route an ObjC-bridged array
+        // through RenderWithHandleOverride.
+        if (projection.UsesObjCContainerBridge)
+            return false;
+
         // Collections always need pointer override
         if (projection is ArrayProjection or DictionaryProjection or SetProjection)
             return true;
 
         if (projection is not OptionalProjection optProj)
+            return false;
+
+        // Optional<ObjC-bridged collection> — same rationale as above
+        if (optProj.InnerProjection.UsesObjCContainerBridge)
             return false;
 
         // Optional<Collection> needs override

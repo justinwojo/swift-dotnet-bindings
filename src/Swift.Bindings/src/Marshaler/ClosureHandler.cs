@@ -1390,6 +1390,14 @@ public class ClosureHandler
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
     {
+        // Bound-generic SIMD aliases (Swift.SIMD3<Swift.Float> → System.Numerics.Vector3) resolve
+        // to a non-generic managed type. Short-circuit before the generic-wrap path so we don't
+        // emit invalid syntax like `System.Numerics.Vector3<float>` on a non-generic typealias.
+        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedType, out var aliasRecord))
+        {
+            return aliasRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
         var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
         if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
         {

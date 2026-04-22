@@ -1,5 +1,5 @@
 {
-  "git_sha": "9b53fb16",
+  "git_sha": "71523beb",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -108,9 +108,9 @@
         "swift_compile": "fail"
       },
       "RoomPlan": {
-        "compile": "known_errors",
-        "errors": 8,
-        "lines": 10215,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 10258,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -229,7 +229,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 54755,
+        "lines": 55068,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,14 +278,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59179,
+        "lines": 59526,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32958,
+        "lines": 33050,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -495,7 +495,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14795,
+        "lines": 14887,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -537,7 +537,7 @@
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14630,
+        "lines": 14693,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -872,15 +872,15 @@
       },
       "RichTextKit": {
         "compile": "known_errors",
-        "errors": 26,
-        "lines": 27350,
+        "errors": 28,
+        "lines": 27467,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
         "errors": 3,
-        "lines": 8226,
+        "lines": 8314,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -894,14 +894,14 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 18629,
-    "total_skipped_members": 3541,
+    "total_emitted_members": 18630,
+    "total_skipped_members": 3540,
     "skip_rate_pct": 16,
     "skip_reasons": {
       "ModuleInternal": 746,
       "SynthesizedCodable": 682,
       "UnsupportedSignature": 579,
-      "AnyTypeFallback": 385,
+      "AnyTypeFallback": 384,
       "SwiftUIConstraint": 282,
       "EveryProtocolConformanceSkipped": 244,
       "GenericProtocolConstraint": 232,
@@ -922,8 +922,8 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1506,
-      "fail": 0,
+      "pass": 1520,
+      "fail": 12,
       "skip": 41,
       "crash": 0
     },

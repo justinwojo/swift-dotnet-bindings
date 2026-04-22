@@ -95,7 +95,20 @@ public class BoundGenericsHandler
 
         var namedTypeSpec = (NamedTypeSpec)argumentDecl.SwiftTypeSpec;
         var swiftTypeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
-        return !s_structGenerics.Contains(swiftTypeName);
+        if (s_structGenerics.Contains(swiftTypeName))
+            return false;
+
+        // Bound-generic SIMD aliases (Swift.SIMD2/3/4<Swift.Float>) resolve to non-generic
+        // concrete managed projections (System.Numerics.Vector2/3/4) that are bit-compatible
+        // with Swift's simd_floatN by-value ABI. Opt them out of the buffer-marshalling path
+        // so the PInvoke signature + call-site emit the managed type directly instead of
+        // IntPtr + `.Payload.DangerousGetHandle()` (which would fail CS1061 — Vector4 has no
+        // Payload member, and the Swift @_cdecl wrapper expects the 16-byte value by value,
+        // not an 8-byte pointer).
+        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedTypeSpec, out _))
+            return false;
+
+        return true;
     }
 
     /// <summary>
@@ -625,6 +638,15 @@ public class BoundGenericsHandler
             genericContext.TryResolve(namedTypeSpec.Name, out var resolvedName))
         {
             return resolvedName;
+        }
+
+        // Bound-generic SIMD aliases collapse to a non-generic managed type
+        // (e.g. Swift.SIMD3<Swift.Float> → System.Numerics.Vector3). The resolved record IS the
+        // final C# type — don't append the bound-generic's type arguments, which would produce
+        // invalid syntax like `System.Numerics.Vector3<float>` on a non-generic typealias.
+        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedTypeSpec, out var aliasRecord))
+        {
+            return aliasRecord.CSharpTypeName.FullyQualifiedName;
         }
 
         var typeReference = _typeDatabase.GetTypeRecordOrAnyType(namedTypeSpec);

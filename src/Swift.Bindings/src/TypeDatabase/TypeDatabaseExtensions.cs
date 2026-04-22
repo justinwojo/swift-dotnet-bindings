@@ -379,6 +379,13 @@ public static class TypeDatabaseExtensions
             return AnyType;
         }
 
+        // Bound-generic SIMD aliases: Swift.SIMD2/3/4<Swift.Float> → simd.simd_floatN.
+        // Without this short-circuit, the bare name "Swift.SIMD2" is not in the TypeDatabase
+        // (SIMD is a Swift stdlib generic with no direct TypeRecord) and GetTypeRecordOrThrow
+        // would throw. Mirrors the same guard in GetTypeRecordOrAnyType / TryGetTypeRecord.
+        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
+            return aliasRecord;
+
         // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         return typeDatabase.GetTypeRecordOrThrow(typeName);
@@ -824,14 +831,26 @@ public static class TypeDatabaseExtensions
 
     /// <summary>
     /// Maps bound-generic Swift stdlib SIMD types to their C simd module aliases.
-    /// E.g., Swift.SIMD3&lt;Swift.Float&gt; → simd.simd_float3 (which has a TypeRecord in SimdDatabase.xml).
+    /// E.g. <c>Swift.SIMD3&lt;Swift.Float&gt;</c> → <c>simd.simd_float3</c>, which is in turn
+    /// projected onto <c>System.Numerics.Vector3</c> by <c>SimdDatabase.xml</c>. These aliases
+    /// resolve to non-generic managed types — callers that reach for the FQN should NOT append
+    /// the bound-generic's type arguments to the resolved record.
     /// </summary>
     private static readonly Dictionary<(string BaseName, string ElementType), string> BoundGenericSimdAliases = new()
     {
+        { ("Swift.SIMD2", "Swift.Float"), "simd.simd_float2" },
         { ("Swift.SIMD3", "Swift.Float"), "simd.simd_float3" },
+        { ("Swift.SIMD4", "Swift.Float"), "simd.simd_float4" },
     };
 
-    private static bool TryResolveBoundGenericAlias(
+    /// <summary>
+    /// Attempts to resolve a bound-generic TypeSpec (e.g. <c>Swift.SIMD3&lt;Swift.Float&gt;</c>)
+    /// through the <see cref="BoundGenericSimdAliases"/> table. Exposed as <c>internal</c> so
+    /// callers that format C# type names (e.g. <c>TupleHandler.TranslateBoundGenericToCSharp</c>)
+    /// can short-circuit to the non-generic alias record instead of appending generic arguments
+    /// to a typealias that doesn't accept them.
+    /// </summary>
+    internal static bool TryResolveBoundGenericAlias(
         ITypeDatabase typeDatabase, NamedTypeSpec typeSpec,
         [NotNullWhen(true)] out TypeRecord? record)
     {

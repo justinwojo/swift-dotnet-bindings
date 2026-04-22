@@ -364,6 +364,16 @@ public class TupleHandler
     /// </summary>
     private string TranslateBoundGenericToCSharp(NamedTypeSpec namedType)
     {
+        // Bound-generic SIMD aliases collapse to a non-generic managed type
+        // (e.g. Swift.SIMD3<Swift.Float> → System.Numerics.Vector3). The resolved alias record
+        // IS the final C# type — appending the bound-generic's type arguments to a typealias
+        // produces invalid syntax like `simd.simd_float3<float>` (a Swift typealias is not a
+        // C# generic). Short-circuit here so the <...> wrap below is never reached.
+        if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(_typeDatabase, namedType, out var aliasRecord))
+        {
+            return aliasRecord.CSharpTypeName.FullyQualifiedName;
+        }
+
         var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
         if (!_typeDatabase.TryGetTypeRecord(baseTypeName, out var typeRecord))
         {

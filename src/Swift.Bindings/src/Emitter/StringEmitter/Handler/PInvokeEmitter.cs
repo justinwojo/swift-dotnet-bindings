@@ -57,6 +57,16 @@ namespace BindingsGeneration
                     // fall through to IndirectResult path. Swift wrapper writes to resultPtr
                     // via initializeMemory(as:). Optional and ObjC-bridgeable containers have their own paths.
                 }
+                else if (_env.MethodDecl.UsesCdeclWrapper &&
+                    returnType.SwiftTypeSpec is NamedTypeSpec simdRetNts &&
+                    TypeDatabaseExtensions.TryResolveBoundGenericAlias(_env.TypeDatabase, simdRetNts, out _))
+                {
+                    // Bound-generic SIMD alias return (e.g., SIMD2<Float> → Vector2): the Swift @_cdecl
+                    // wrapper uses indirect result (resultPtr + void return). Fall through so the
+                    // IndirectResult path emits the matching C# PInvoke — resultPtr IntPtr arg, void return.
+                    // Do NOT take the by-value `SetReturnType(TranslateBoundGenericTypeToCSharp(...))` path
+                    // below, which would silently drop the resultPtr and mismatch the Swift wrapper ABI.
+                }
                 else
                 {
                     // Large Optional returns use out-buffer pattern — PInvoke returns void

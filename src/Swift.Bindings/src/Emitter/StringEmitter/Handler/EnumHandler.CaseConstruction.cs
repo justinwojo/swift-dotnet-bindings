@@ -1130,9 +1130,18 @@ namespace BindingsGeneration
         /// Walks a TypeSpec and returns true if any generic argument (at any nesting level)
         /// names an ObjC-bridged type — either an explicit remap in AppleFrameworkRegistry
         /// (e.g. Foundation.UnitTemperature → Foundation.NSUnitTemperature) or an auto-bridged
-        /// type matching a known ObjC class prefix (e.g. Security.SecPolicy). Such types are
-        /// NSObject-rooted and do not implement ISwiftObject, so using them as a generic
-        /// argument where the outer type has `where T : ISwiftObject` produces CS0311.
+        /// type matching a known ObjC class prefix (e.g. Security.SecPolicy) — AND the
+        /// immediate container enforces a <c>where T : ISwiftObject</c> constraint that the
+        /// ObjC-bridged arg would violate.
+        ///
+        /// Generator-emitted generic types always emit <c>where T : ISwiftObject</c>
+        /// (<see cref="GenericTypeEmitter"/>). Stdlib containers hand-rolled in Swift.Runtime
+        /// (<c>SwiftOptional&lt;T&gt;</c>, <c>SwiftArray&lt;Element&gt;</c>,
+        /// <c>SwiftDictionary&lt;TKey,TValue&gt;</c>, <c>SwiftSet&lt;Element&gt;</c>,
+        /// <c>SwiftResult&lt;TSuccess,TFailure&gt;</c>) intentionally omit it so that ObjC-bridged
+        /// element types (<c>UIImage?</c>, <c>[NSURL]</c>) bind cleanly — the container marshals
+        /// elements via IntPtr, no ISwiftObject conformance is required.
+        ///
         /// Kept in sync with <see cref="IsObjCBridgedTypeSpec"/>.
         /// </summary>
         private static bool ContainsRemappedObjCTypeInGenericArgs(TypeSpec typeSpec)
@@ -1140,22 +1149,39 @@ namespace BindingsGeneration
             if (typeSpec is not NamedTypeSpec named)
                 return false;
 
+            // The direct check fires only when this container actually imposes
+            // `where T : ISwiftObject` on its type parameters. For hand-rolled stdlib
+            // containers (Optional, Array, Dictionary, Set, Result) we still recurse into
+            // nested generic args — an inner generic that IS constrained (e.g.
+            // Optional<Trend<UIImage>>) must still be caught.
+            bool directCheckFires = !IsStdlibContainerWithoutISwiftObjectConstraint(named.Name);
+
             foreach (var genericArg in named.GenericParameters)
             {
-                if (genericArg is NamedTypeSpec argNamed)
+                if (directCheckFires && genericArg is NamedTypeSpec argNamed)
                 {
                     if (AppleFrameworkRegistry.TryGetNetTypeName(argNamed.Name, out _))
                         return true;
                     if (AppleFrameworkRegistry.HasObjCClassPrefix(argNamed.Name))
                         return true;
                 }
-                // Recurse into nested generics.
+                // Recurse into nested generics — an inner container re-evaluates its own
+                // constraint signal on its own args.
                 if (ContainsRemappedObjCTypeInGenericArgs(genericArg))
                     return true;
             }
 
             return false;
         }
+
+        /// <summary>
+        /// Returns true for Swift stdlib container types whose hand-rolled counterparts in
+        /// Swift.Runtime do NOT declare <c>where T : ISwiftObject</c>. ObjC-bridged element
+        /// types used as generic args of these containers do not produce CS0311.
+        /// </summary>
+        private static bool IsStdlibContainerWithoutISwiftObjectConstraint(string typeName) =>
+            typeName is "Swift.Optional" or "Swift.Array" or "Swift.Dictionary"
+                      or "Swift.Set" or "Swift.Result";
 
         /// <summary>
         /// Returns true when the TypeSpec itself names an NSObject-rooted ObjC-bridged type

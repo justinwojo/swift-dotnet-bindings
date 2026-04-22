@@ -317,6 +317,16 @@ All five compile clean and appear in consumer-surface type graphs, but their bod
 
 For each tombstone, decide between: emit a real projection, emit caller-side SB0001, or document as a permanent limitation. Do not leave them as silent empty types, since they're still reachable from the public surface.
 
+### Session 1 disposition — TipKit.MiniTipViewStyle: **document as permanent limitation**
+
+`TipKit.MiniTipViewStyle` is a `TipViewStyle` conformer — a Self-requiring PAT whose existential (`any TipKit.TipViewStyle`) the generator already lowers to `object` across the TipKit surface (see `TipKitSmokeTests.TestTipUICollectionReusableViewViewStylePropertyIsObject`). The public API of `MiniTipViewStyle` is effectively the zero-argument `init()` plus protocol-extension-driven callers (`.miniTip`) — a real projection would need custom witness-table dispatch on a type whose only interesting surface is the protocol conformance itself.
+
+Because consumers already interact with TipKit view styles through the `object`-typed PAT fallback (the same mechanism that lets `TipUICollectionReusableView.ViewStyle` round-trip), the empty body on `MiniTipViewStyle` does not block any reachable consumer usage beyond the generic-`object` surface that is already pinned by smoke tests. Keep tombstoned for now, documented here as a permanent limitation of the PAT-existential projection. Emitting a concrete public constructor on the tombstone is a candidate follow-up once the generator grows first-class PAT-conformer emission.
+
+### Session 1 disposition — other four tombstones: **clears tracked in Session 1 Issue 5 fix**
+
+Kingfisher `CacheStoreResult`, StripePaymentSheet `CustomerPaymentOption`, BlinkIDUX `CaptureService` / `SampleBuffer` all matched the Issue 5 payload-case-suppression pattern (ObjC-bridged generic arg triggered the widened `ContainsRemappedObjCTypeInGenericArgs`). With the narrowing in this session (`IsStdlibContainerWithoutISwiftObjectConstraint` whitelist in `EnumHandler.CaseConstruction.cs`), validation is expected to re-emit payload-case factories and drop these four from `silentTombstones` — confirm on the next `nuke validate` run. See BindingTests regression fixture `UpdatingStrategy` in `MultiAssociatedValues.swift` + `EnumObjCBridgedPayloadTests.cs`.
+
 ---
 
 ## Reproduction: full validation sequence
@@ -472,7 +482,7 @@ Both live in the same `@_cdecl` wrapper specializer pass; fixing them together a
 - **BindingTests additions**: generic method with multiple concrete specializations, one of which requires a newer OS; generic container with multiple init overloads where only some are valid per concrete arg. Assert Swift wrapper compiles on all target TFMs.
 - **Gates**: `nuke test` + `nuke binding-tests`. If Session 3 has landed first, `nuke validate` now trips CryptoKit/MusicKit and clears them on this session.
 
-### Session 3 — Apple-framework validation tier (new infra)
+### Session 3 — Apple-framework validation tier (new infra) — ✅ landed at `71523beb` (amended)
 
 Establishes a self-contained compile gate for Apple system frameworks. Does not depend on `swift-dotnet-packages`. Once landed, prevents the class of regression that made this entire drop.
 
@@ -481,6 +491,8 @@ Establishes a self-contained compile gate for Apple system frameworks. Does not 
 - Baseline: add per-framework per-TFM entries to `.validation-baseline.json`, initially reflecting known failing frameworks (CryptoKit/MusicKit/RoomPlan fail, others pass). Sessions 1 and 2 then drop failure entries as fixes land.
 - **Gates**: this session adds a gate; doesn't need to pass existing gates unscoped.
 - Runtime/device remains out of scope — that stays in `swift-dotnet-packages`.
+
+> Post-landing amend (`71523beb`): Codex flagged that the second-slice compile used `target.PlatformVersion` (Apple TFM/SDK version, 26.2) instead of the framework's min-deployment floor. Fixed to use `platform.MinOsVersion` (15.0 ios/tvos/maccatalyst, 12.0 macos), mirroring `%(SwiftAppleFrameworkTarget.MinDeploymentVersion)` in `_AFW_OtherTarget`. Baseline unchanged (`nuke validate`: 127/127 pass, 0 regressions).
 
 ### Session 4 — Multi-TFM packaging (Issue 1 + pack gate)
 

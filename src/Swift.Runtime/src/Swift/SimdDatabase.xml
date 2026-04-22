@@ -1,6 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <swifttypedatabase version="1.0" moduleName="simd" modulePath="/usr/lib/swift">
     <entities>
+        <!-- simd_float2 — 2-element vector of Float (8 bytes: 2 contiguous IEEE-754 floats).
+             Projected onto System.Numerics.Vector2 — bit-compatible ABI layout (X,Y). -->
+        <entity managedNameSpace="System.Numerics" managedTypeName="Vector2">
+            <typedeclaration kind="struct" name="simd_float2" module="simd"
+                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="8" />
+        </entity>
+        <!-- simd_float3 — 3-element vector of Float. Swift's simd_float3 stores 4 floats
+             (16 bytes, 4th lane is padding to preserve 16-byte alignment); System.Numerics.Vector3
+             is 3 contiguous floats (12 bytes). The 3 active lanes are ABI-compatible; consumers
+             that round-trip Vector3 through Swift will lose the padding word, which matches
+             Swift's documented contract (the 4th lane is undefined). -->
+        <entity managedNameSpace="System.Numerics" managedTypeName="Vector3">
+            <typedeclaration kind="struct" name="simd_float3" module="simd"
+                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="16" />
+        </entity>
+        <!-- simd_float4 — 4-element vector of Float (16 bytes: 4 contiguous IEEE-754 floats).
+             Bit-compatible with System.Numerics.Vector4 (X,Y,Z,W). -->
+        <entity managedNameSpace="System.Numerics" managedTypeName="Vector4">
+            <typedeclaration kind="struct" name="simd_float4" module="simd"
+                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="16" />
+        </entity>
         <!-- simd_float4x4 — 4×4 matrix of Float (64 bytes: 4 columns × 4 floats × 4 bytes).
              Projected onto System.Numerics.Matrix4x4 for consumer ergonomics; both types
              are 16 contiguous IEEE-754 floats, so the storage is bit-compatible at the
@@ -11,10 +32,10 @@
             <typedeclaration kind="struct" name="simd_float4x4" module="simd"
                              frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="64" />
         </entity>
-        <!-- simd_float3 — 3-element vector of Float (16 bytes with 4-byte alignment padding) -->
-        <entity managedNameSpace="simd" managedTypeName="simd_float3">
-            <typedeclaration kind="struct" name="simd_float3" module="simd"
-                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="16" />
-        </entity>
+        <!-- simd_float3x3 intentionally omitted. Swift simd_float3x3 is 48 bytes (3 columns of
+             simd_float3, each padded to 16 bytes) and has no managed-type equivalent in
+             System.Numerics — Matrix3x2 is 3×2 (24 bytes) and would misrepresent the storage.
+             Members exposing simd_float3x3 fall through to the [OpaqueSwiftType] + SB0001
+             path so consumers see a diagnostic instead of broken syntax. -->
     </entities>
 </swifttypedatabase>

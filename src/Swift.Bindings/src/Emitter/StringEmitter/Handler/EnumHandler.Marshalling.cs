@@ -354,6 +354,43 @@ namespace BindingsGeneration
                     });
                     if (projection != null)
                     {
+                        // ObjC-bridged container payloads (e.g., [URL]): Swift stores an NSArray
+                        // pointer in the enum payload, NOT a SwiftArray<T> structure. Reading the
+                        // pointer directly matches the ObjCBridgeable branch below and feeds into
+                        // GetReturnContainerConversion, which calls NSArray.ArrayFromHandle<T>.
+                        if (projection.UsesObjCContainerBridge)
+                        {
+                            var objcContainerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
+                            if (objcContainerConv != null)
+                            {
+                                csWriter.WriteLine($"IntPtr _{varName}_raw = *(IntPtr*){sourcePtr};");
+                                csWriter.WriteLine($"{varName} = {objcContainerConv};");
+                                return;
+                            }
+                        }
+
+                        // Optional<ObjCContainer> enum payload (e.g., [URL]?, [String: URL]?, Set<URL>?):
+                        // Swift nil-pointer-optimizes this to a single IntPtr — IntPtr.Zero = nil,
+                        // non-zero = ObjC collection handle. Without this branch, the fallback tries
+                        // MarshalFromSwift<SwiftOptional<SwiftArray<IntPtr>>>, which reads the wrong
+                        // ABI. Mirrors OptionalProjection.GetReturnPlan for IndirectResult (see
+                        // OptionalProjection.cs:274-293). Gated on concrete container projections
+                        // so bare Optional<ObjCBridgeable> (e.g. URL?) still flows through the
+                        // existing ObjCBridgeable enum-payload path below.
+                        if (projection is OptionalProjection optProj
+                            && optProj.InnerProjection is ArrayProjection or DictionaryProjection or SetProjection
+                            && optProj.InnerProjection.UsesObjCContainerBridge)
+                        {
+                            var innerContainerConv = optProj.InnerProjection.GetReturnContainerConversion($"_{varName}_raw");
+                            if (innerContainerConv != null)
+                            {
+                                var innerPublicType = optProj.InnerProjection.PublicType;
+                                csWriter.WriteLine($"IntPtr _{varName}_raw = *(IntPtr*){sourcePtr};");
+                                csWriter.WriteLine($"{varName} = _{varName}_raw == IntPtr.Zero ? ({innerPublicType}?)null : {innerContainerConv};");
+                                return;
+                            }
+                        }
+
                         var containerType = projection.ContainerTypeName;
                         csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
                         var containerConv = projection.GetReturnContainerConversion($"_{varName}_raw");
