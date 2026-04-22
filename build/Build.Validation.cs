@@ -41,6 +41,7 @@ partial class Build
 
     Target Validate => _ => _
         .After(Clean, Fetch, BindingTests)
+        .Triggers(PackGate)
         .Executes(async () =>
         {
             // --- Fetch if requested ---
@@ -1014,6 +1015,22 @@ partial class Build
             swiftcProc.AssertWaitForExit();
             if (swiftcProc.ExitCode != 0)
                 return "fail";
+
+            // Mirror Sdk.targets _CompileAppleFrameworkSecondWrapperSlice: write the
+            // device slice's embedded Info.plist before merging so xcodebuild's
+            // -create-xcframework preserves a complete framework bundle. Without this
+            // the gate path would diverge from the shipped SDK path and the
+            // CheckSwiftWrapper plist assertion would still stay red after the fix.
+            if (platform.DevicePlistPlatform is string devicePlistPlatform)
+            {
+                PlistGenerator.WriteFrameworkPlist(
+                    secondFrameworkDir / "Info.plist",
+                    bundleId: $"com.swiftbindings.{wrapperModule}",
+                    bundleName: wrapperModule,
+                    executableName: wrapperModule,
+                    minOs: platform.MinOsVersion,
+                    plistPlatform: devicePlistPlatform);
+            }
 
             var mergedXcframework = mergeDir / "merged.xcframework";
             var mergeArgs = string.Join(" ", new[]

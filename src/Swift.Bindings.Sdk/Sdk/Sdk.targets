@@ -521,6 +521,55 @@ done; true"
           Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
+    <!-- Write the second slice's embedded .framework/Info.plist before xcodebuild
+         -create-xcframework merges it. `swiftc -emit-library` above only produces
+         a Mach-O binary; the first slice carries an Info.plist written by
+         SwiftWrapperCompiler.WriteFrameworkPlist in the generator, so without this
+         step the merged xcframework's device slice ships without one and iOS
+         rejects the app at install time with
+         MICreateCFBundleEnforcingInfoPlistSize (com.apple.dt.CoreDeviceError 3002).
+         Template mirrors SwiftWrapperCompiler.WriteFrameworkPlist; the only slice-
+         specific field is CFBundleSupportedPlatforms. -->
+    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">iPhoneOS</_AFW_OtherPlatformName>
+      <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">iPhoneSimulator</_AFW_OtherPlatformName>
+      <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">AppleTVOS</_AFW_OtherPlatformName>
+      <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">AppleTVSimulator</_AFW_OtherPlatformName>
+      <_AFW_OtherMinOsVersion>%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_AFW_OtherMinOsVersion>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <_AFW_SecondSlicePlistLines Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;" />
+      <_AFW_SecondSlicePlistLines Include="&lt;!DOCTYPE plist PUBLIC &quot;-//Apple//DTD PLIST 1.0//EN&quot; &quot;http://www.apple.com/DTDs/PropertyList-1.0.dtd&quot;&gt;" />
+      <_AFW_SecondSlicePlistLines Include="&lt;plist version=&quot;1.0&quot;&gt;" />
+      <_AFW_SecondSlicePlistLines Include="&lt;dict&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleIdentifier&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;com.swiftbindings.$(_AFW_WrapperModule)&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleName&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;$(_AFW_WrapperModule)&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleExecutable&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;$(_AFW_WrapperModule)&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundlePackageType&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;FMWK&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleVersion&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;1.0&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleShortVersionString&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;1.0&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;MinimumOSVersion&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;string&gt;$(_AFW_OtherMinOsVersion)&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;key&gt;CFBundleSupportedPlatforms&lt;/key&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;array&gt;" />
+      <_AFW_SecondSlicePlistLines Include="        &lt;string&gt;$(_AFW_OtherPlatformName)&lt;/string&gt;" />
+      <_AFW_SecondSlicePlistLines Include="    &lt;/array&gt;" />
+      <_AFW_SecondSlicePlistLines Include="&lt;/dict&gt;" />
+      <_AFW_SecondSlicePlistLines Include="&lt;/plist&gt;" />
+    </ItemGroup>
+
+    <WriteLinesToFile Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+                      File="$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/Info.plist"
+                      Lines="@(_AFW_SecondSlicePlistLines)"
+                      Overwrite="true" />
+
     <!-- Merge both slices into a NEW staging xcframework (original still intact) -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
           Command="xcodebuild -create-xcframework -framework &quot;$(_AFW_FirstSliceFramework)&quot; -framework &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/merged.xcframework&quot;"

@@ -35,6 +35,7 @@
         "CompileCheckBindings",
         "Fetch",
         "Pack",
+        "PackGate",
         "RegenerateAppleSnapshot",
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
