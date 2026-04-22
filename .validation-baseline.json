@@ -1,5 +1,5 @@
 {
-  "git_sha": "e79a623f",
+  "git_sha": "323c30a8",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -243,7 +243,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13750,
+        "lines": 13770,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -278,14 +278,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59526,
+        "lines": 59566,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33050,
+        "lines": 33060,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -334,7 +334,7 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12069,
+        "lines": 12099,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -894,14 +894,14 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 18630,
-    "total_skipped_members": 3540,
+    "total_emitted_members": 18631,
+    "total_skipped_members": 3539,
     "skip_rate_pct": 16,
     "skip_reasons": {
       "ModuleInternal": 746,
       "SynthesizedCodable": 682,
       "UnsupportedSignature": 588,
-      "AnyTypeFallback": 408,
+      "AnyTypeFallback": 409,
       "SwiftUIConstraint": 282,
       "EveryProtocolConformanceSkipped": 244,
       "GenericProtocolConstraint": 232,
@@ -909,7 +909,7 @@
       "UnsupportedType": 177,
       "IndeterminatePwtShape": 103,
       "UnsupportedExistential": 88,
-      "UnsatisfiedGenericConstraint": 78,
+      "UnsatisfiedGenericConstraint": 76,
       "SwiftUIView": 53,
       "StaticProtocolMember": 46,
       "GenericTypeCallback": 35,
@@ -922,13 +922,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1531,
+      "pass": 1546,
       "fail": 0,
       "skip": 53,
       "crash": 0
     },
     "device": {
-      "pass": 1543,
+      "pass": 1558,
       "fail": 0,
       "skip": 41,
       "crash": 0

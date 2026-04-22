@@ -382,20 +382,42 @@ public class ThirdPartyValidationFixTestsV3
     }
 
     [Fact]
-    public void IsBaselineAsyncThrowingClosure_StringReturn_ReturnsFalse()
+    public void IsBaselineAsyncThrowingClosure_StringReturn_ReturnsTrue()
     {
         var typeDatabase = CreateTypeDatabaseWithString();
         var handler = new ClosureHandler(typeDatabase);
 
-        // Return type must still be a blittable primitive; String/class returns are not
-        // part of the baseline bridge.
+        // Session F: Swift.String return is routed through StringAsyncClosureHelper
+        // (UTF-8 bytesPtr+length success ABI) — accepted by the baseline bridge.
         var closureTypeSpec = new ClosureTypeSpec(
             TupleTypeSpec.Empty,
             new NamedTypeSpec("Swift.String"));
         closureTypeSpec.IsAsync = true;
         closureTypeSpec.Throws = true;
 
-        Assert.False(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+        Assert.True(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
+    }
+
+    [Fact]
+    public void IsBaselineAsyncThrowingClosure_StringReturnWithArgs_ReturnsTrue()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // Session F: (Int32, String) async throws -> String — full arity is supported
+        // for String returns (unlike Foundation.Data, which is zero-arg only).
+        var args = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int32"),
+            new NamedTypeSpec("Swift.String"),
+        });
+        var closureTypeSpec = new ClosureTypeSpec(
+            args,
+            new NamedTypeSpec("Swift.String"));
+        closureTypeSpec.IsAsync = true;
+        closureTypeSpec.Throws = true;
+
+        Assert.True(handler.IsBaselineAsyncThrowingClosure(closureTypeSpec));
     }
 
     [Fact]

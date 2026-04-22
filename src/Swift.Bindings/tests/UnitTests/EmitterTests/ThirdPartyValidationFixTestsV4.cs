@@ -170,6 +170,43 @@ public class ThirdPartyValidationFixTestsV4
         Assert.False(handler.HasNonSwiftObjectGenericArg(arrayTypeSpec));
     }
 
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_SwiftResultOfVoid_ReturnsFalse()
+    {
+        // Issue D.1 (Kingfisher CacheStoreResult): Swift.Result<(), MyError>.
+        // SwiftResult<TSuccess, TFailure> has no ISwiftObject constraint on its type
+        // parameters, so a ValueTuple (empty or otherwise) success arg is safe; the
+        // projection handles marshalling. Without the bypass, the tuple blocker
+        // at BoundGenericsHandler.HasNonSwiftObjectGenericArg returned true and
+        // CacheStoreResult properties were silently tombstoned.
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+
+        var resultTypeSpec = new NamedTypeSpec("Swift.Result");
+        resultTypeSpec.GenericParameters.Add(new TupleTypeSpec());
+        resultTypeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyError"));
+
+        Assert.False(handler.HasNonSwiftObjectGenericArg(resultTypeSpec));
+    }
+
+    [Fact]
+    public void HasNonSwiftObjectGenericArg_SwiftResultOfNonEmptyTuple_ReturnsFalse()
+    {
+        // Result<(Int, String), E> — non-empty tuple as Success. SwiftResult has no
+        // constraint, so even a non-void tuple is valid as a generic arg.
+        var typeDatabase = CreateTypeDatabase();
+        var handler = new BoundGenericsHandler(typeDatabase);
+
+        var resultTypeSpec = new NamedTypeSpec("Swift.Result");
+        var successTuple = new TupleTypeSpec();
+        successTuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        successTuple.Elements.Add(new NamedTypeSpec("Swift.Int"));
+        resultTypeSpec.GenericParameters.Add(successTuple);
+        resultTypeSpec.GenericParameters.Add(new NamedTypeSpec("TestModule.MyError"));
+
+        Assert.False(handler.HasNonSwiftObjectGenericArg(resultTypeSpec));
+    }
+
     #endregion
 
     #region C4 — ObjC-bridged type excluded from async copy buffer (StripeCryptoOnramp)

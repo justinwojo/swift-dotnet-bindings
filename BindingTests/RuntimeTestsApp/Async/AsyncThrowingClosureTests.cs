@@ -244,4 +244,142 @@ public class AsyncThrowingClosureTests : TestBase
         AssertEqual(0L, actualSum, "Empty Data payload should sum to 0");
         TestLogger.Info("AsyncThrowingClosure.DataReturn empty payload round-tripped without crash");
     }
+
+    // MARK: - Session F: Swift.String return
+
+    /// <summary>
+    /// Session F: async-throwing closure returning Swift.String. C# delegate returns
+    /// a UTF-8 managed string, StringAsyncClosureHelper pins the UTF-8 bytes, Swift
+    /// resumes the continuation with a decoded String. The outer method returns the
+    /// round-tripped string so the test asserts full byte-level parity.
+    /// </summary>
+    public async Task TestStringReturnClosureRoundTripsSimpleString()
+    {
+        Func<Task<string>> userLambda = () => Task.FromResult("hello-session-F");
+
+        var actual = await WithTimeout(
+            Functions.CallAsyncThrowingStringClosureAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual("hello-session-F", actual, "String-return async-throwing closure should round-trip ASCII payload");
+        TestLogger.Info($"AsyncThrowingClosure.StringReturn = '{actual}'");
+    }
+
+    /// <summary>
+    /// Session F edge case: empty String round-trip. Zero-length byte[] has
+    /// <c>AddrOfPinnedObject == IntPtr.Zero</c>; Swift must not deref on length=0.
+    /// </summary>
+    public async Task TestStringReturnClosureRoundTripsEmptyString()
+    {
+        Func<Task<string>> userLambda = () => Task.FromResult(string.Empty);
+
+        var actual = await WithTimeout(
+            Functions.CallAsyncThrowingStringClosureAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(string.Empty, actual, "Empty string payload should round-trip unchanged");
+        TestLogger.Info("AsyncThrowingClosure.StringReturn empty payload round-tripped without crash");
+    }
+
+    /// <summary>
+    /// Session F: multi-byte UTF-8 round-trip (emoji + non-ASCII). Proves the
+    /// Swift-side <c>String(decoding: buffer, as: UTF8.self)</c> reconstructs
+    /// code points identical to the managed input.
+    /// </summary>
+    public async Task TestStringReturnClosureRoundTripsUtf8Payload()
+    {
+        const string payload = "🚀 héllo ☃ wörld";
+        Func<Task<string>> userLambda = () => Task.FromResult(payload);
+
+        var actual = await WithTimeout(
+            Functions.CallAsyncThrowingStringClosureAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual(payload, actual, "UTF-8 payload should survive the String bridge intact");
+        TestLogger.Info($"AsyncThrowingClosure.StringReturn UTF-8 round-trip ok ({payload.Length} code units)");
+    }
+
+    /// <summary>
+    /// Session F: C# lambda throws; Swift error channel should surface it as a
+    /// <c>SwiftException</c> with the original message preserved.
+    /// </summary>
+    public async Task TestStringReturnClosurePropagatesError()
+    {
+        Func<Task<string>> userLambda = async () =>
+        {
+            await Task.Yield();
+            throw new InvalidOperationException("session-F-boom");
+        };
+
+        try
+        {
+            await WithTimeout(
+                Functions.CallAsyncThrowingStringClosureAsync(userLambda),
+                DefaultAsyncTimeout);
+            throw new AssertionException("Expected SwiftException but no exception was thrown");
+        }
+        catch (SwiftException ex)
+        {
+            if (!ex.Message.Contains("session-F-boom"))
+                throw new AssertionException($"Expected 'session-F-boom' in message, got: {ex.Message}");
+            TestLogger.Info($"AsyncThrowingClosure.StringReturn error path threw SwiftException: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Session F: same closure invoked twice inside one outer call. Verifies a
+    /// fresh CheckedContinuation + box is built per invocation — if the adapter
+    /// reused state, the second await would hit a resumed continuation.
+    /// </summary>
+    public async Task TestStringReturnClosureInvokedTwice()
+    {
+        int callCount = 0;
+        Func<Task<string>> userLambda = () =>
+        {
+            var n = Interlocked.Increment(ref callCount);
+            return Task.FromResult($"call-{n}");
+        };
+
+        var joined = await WithTimeout(
+            Functions.CallAsyncThrowingStringClosureTwiceAsync(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual("call-1|call-2", joined, "Twice variant should concatenate two independent invocations");
+        AssertEqual(2, callCount, "User lambda should have been invoked exactly twice");
+        TestLogger.Info($"AsyncThrowingClosure.StringReturn twice = '{joined}'");
+    }
+
+    /// <summary>
+    /// Session F arity-1: closure receives Int32 arg, returns a String formed
+    /// from it. Exercises the arg-bearing Start thunk path (String-return was
+    /// previously Data-like zero-arg only).
+    /// </summary>
+    public async Task TestStringReturnClosureArity1()
+    {
+        Func<int, Task<string>> userLambda = x => Task.FromResult($"arg={x}");
+
+        var actual = await WithTimeout(
+            Functions.CallAsyncThrowingStringClosureArity1Async(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual("arg=42", actual, "Arity-1 String-return closure should receive 42 from Swift");
+        TestLogger.Info($"AsyncThrowingClosure.StringReturn arity-1 = '{actual}'");
+    }
+
+    /// <summary>
+    /// Session F arity-2: closure receives (Int32, String), returns a String.
+    /// Shape matches PaymentSheet.IntentConfiguration confirm handlers — the
+    /// exact pattern that needed to unblock for StripePaymentSheet.
+    /// </summary>
+    public async Task TestStringReturnClosureArity2()
+    {
+        Func<int, string, Task<string>> userLambda = (n, s) => Task.FromResult($"{s}:{n}");
+
+        var actual = await WithTimeout(
+            Functions.CallAsyncThrowingStringClosureArity2Async(userLambda),
+            DefaultAsyncTimeout);
+
+        AssertEqual("hello:7", actual, "Arity-2 String-return closure should round-trip (Int32, String) args");
+        TestLogger.Info($"AsyncThrowingClosure.StringReturn arity-2 = '{actual}'");
+    }
 }

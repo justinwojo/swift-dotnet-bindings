@@ -74,18 +74,20 @@ public static partial class ClosureEmitter
         var sanitizedModule = SanitizeModuleName(moduleName);
         var hash = EmitterUtility.DeterministicHash8(swiftReturnType);
         var isDataReturn = IsDataReturnType(swiftReturnType);
-        // Dedup key keys on (module, hash, throwing, data-shape). The success-callback
-        // ABI for Data differs from the primitive/T shape — keying on the shape lets
-        // a module have both a Data-return box and a primitive box with the same hash
-        // coexist without symbol collision.
+        var isStringReturn = IsStringReturnType(swiftReturnType);
+        // Dedup key keys on (module, hash, throwing, shape). Shape suffixes:
+        //   D — Foundation.Data (bytesPtr+length success ABI)
+        //   S — Swift.String (UTF-8 bytesPtr+length success ABI via StringAsyncClosureHelper)
+        //   P — primitive / generic T (resultPtr success ABI)
+        // Separate shapes avoid success-callback symbol collision when hashes overlap.
         var throwingSuffix = isThrowing ? "T" : "NT";
-        var shapeSuffix = isDataReturn ? "D" : "P";
+        var shapeSuffix = isDataReturn ? "D" : isStringReturn ? "S" : "P";
         var dedupKey = $"{sanitizedModule}|{hash}|{throwingSuffix}|{shapeSuffix}";
         if (!ctx.TryAddAsyncClosureSwiftWrapperKey(dedupKey))
             return false;
 
-        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing, isDataReturn);
-        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing, isDataReturn);
+        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing, isDataReturn, isStringReturn);
+        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing, isDataReturn, isStringReturn);
 
         if (isDataReturn)
         {
@@ -110,6 +112,44 @@ public static partial class ClosureEmitter
                 ) {
                     let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
                     let value = Foundation.Data(bytes: bytesPtr, count: length)
+                    box.cont.resume(returning: value)
+                }
+
+                @_cdecl("{{symbolRoot}}_error")
+                internal func {{symbolRoot}}_error(
+                    _ boxPtr: UnsafeMutableRawPointer,
+                    _ msgPtr: UnsafePointer<CChar>
+                ) {
+                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    box.cont.resume(throwing: SwiftBindingsBridgeError(String(cString: msgPtr)))
+                }
+
+                """);
+        }
+        else if (isStringReturn)
+        {
+            // Swift.String uses a (boxPtr, bytesPtr, length) success ABI backed by
+            // StringAsyncClosureHelper — C# pins UTF-8 bytes; Swift decodes them into
+            // a native String before resuming. Swift.String is not BitwiseCopyable so
+            // the primitive-box `resultPtr.load(as: T.self)` path is unusable here.
+            swiftWriter.WriteLines($$"""
+                // Continuation box for async-throwing closures returning Swift.String.
+                // The C# helper pins a UTF-8 byte array and invokes the success callback
+                // with (boxPtr, bytesPtr, length); Swift decodes to String before resuming.
+                private final class {{boxClassName}} {
+                    let cont: CheckedContinuation<Swift.String, Error>
+                    init(_ cont: CheckedContinuation<Swift.String, Error>) { self.cont = cont }
+                }
+
+                @_cdecl("{{symbolRoot}}_success")
+                internal func {{symbolRoot}}_success(
+                    _ boxPtr: UnsafeMutableRawPointer,
+                    _ bytesPtr: UnsafePointer<UInt8>,
+                    _ length: Int
+                ) {
+                    let box = Unmanaged<{{boxClassName}}>.fromOpaque(boxPtr).takeRetainedValue()
+                    let buffer = UnsafeBufferPointer(start: bytesPtr, count: length)
+                    let value = Swift.String(decoding: buffer, as: UTF8.self)
                     box.cont.resume(returning: value)
                 }
 
@@ -256,8 +296,9 @@ public static partial class ClosureEmitter
         var sanitizedModule = SanitizeModuleName(moduleName);
         var hash = EmitterUtility.DeterministicHash8(swiftReturnType);
         var isDataReturn = IsDataReturnType(swiftReturnType);
-        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing, isDataReturn);
-        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing, isDataReturn);
+        var isStringReturn = IsStringReturnType(swiftReturnType);
+        var boxClassName = GetAsyncClosureBoxClassName(sanitizedModule, hash, isThrowing, isDataReturn, isStringReturn);
+        var symbolRoot = GetAsyncClosureSymbolRoot(sanitizedModule, hash, isThrowing, isDataReturn, isStringReturn);
         var handoffVar = GetAsyncClosureHandoffVarName(paramName);
         var adaptedVar = GetAdaptedClosureVarName(paramName);
 
@@ -337,10 +378,11 @@ public static partial class ClosureEmitter
             innerBlock = sb.ToString().TrimEnd('\r', '\n');
         }
 
-        // Data return uses a (boxPtr, bytesPtr, length) success ABI; primitive/String/class
-        // returns use (boxPtr, resultPtr). The typedStart ABI keeps successFP erased as
+        // Data and Swift.String returns use a (boxPtr, bytesPtr, length) success ABI
+        // (UTF-8 bytes for String, raw bytes for Data). Primitive/class returns use
+        // (boxPtr, resultPtr). The typedStart ABI keeps successFP erased as
         // UnsafeMutableRawPointer — only the `as @convention(c) (...)` cast differs.
-        var successCastType = isDataReturn
+        var successCastType = (isDataReturn || isStringReturn)
             ? "@convention(c) (UnsafeMutableRawPointer, UnsafePointer<UInt8>, Int) -> Void"
             : "@convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void";
 
@@ -404,19 +446,23 @@ public static partial class ClosureEmitter
 
     private static string GetAsyncClosureHandoffVarName(string paramName) => $"_SBWHandoff_{paramName}";
 
-    private static string GetAsyncClosureBoxClassName(string sanitizedModule, string hash, bool isThrowing, bool isDataReturn)
+    private static string GetAsyncClosureBoxClassName(string sanitizedModule, string hash, bool isThrowing, bool isDataReturn, bool isStringReturn)
     {
         if (isDataReturn)
             return $"_SBW_{sanitizedModule}_AsyncBoxData_{hash}";
+        if (isStringReturn)
+            return $"_SBW_{sanitizedModule}_AsyncBoxString_{hash}";
         return isThrowing
             ? $"_SBW_{sanitizedModule}_AsyncBox_{hash}"
             : $"_SBW_{sanitizedModule}_AsyncBoxNT_{hash}";
     }
 
-    private static string GetAsyncClosureSymbolRoot(string sanitizedModule, string hash, bool isThrowing, bool isDataReturn)
+    private static string GetAsyncClosureSymbolRoot(string sanitizedModule, string hash, bool isThrowing, bool isDataReturn, bool isStringReturn)
     {
         if (isDataReturn)
             return $"_SBW_{sanitizedModule}_asyncBoxData_{hash}";
+        if (isStringReturn)
+            return $"_SBW_{sanitizedModule}_asyncBoxString_{hash}";
         return isThrowing
             ? $"_SBW_{sanitizedModule}_asyncBox_{hash}"
             : $"_SBW_{sanitizedModule}_asyncBoxNT_{hash}";
@@ -424,6 +470,9 @@ public static partial class ClosureEmitter
 
     private static bool IsDataReturnType(string swiftReturnType)
         => swiftReturnType == "Foundation.Data" || swiftReturnType == "Swift.Foundation.Data";
+
+    private static bool IsStringReturnType(string swiftReturnType)
+        => swiftReturnType == "Swift.String" || swiftReturnType == "String";
 
     private static string SanitizeModuleName(string moduleName)
         => moduleName.Replace('.', '_').Replace('-', '_').Replace(' ', '_');

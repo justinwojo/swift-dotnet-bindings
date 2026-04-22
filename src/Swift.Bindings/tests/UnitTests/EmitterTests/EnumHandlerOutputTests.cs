@@ -782,6 +782,43 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_GenericEnum_TryGetBareTypeParameterPayload_EmitsClassVsStructDispatch()
+    {
+        // E.1 regression: TryGet<Case> on a generic enum whose payload is a bare type
+        // parameter must runtime-dispatch between class T and struct/ISwiftStruct T.
+        // For a true Swift class (metadata Kind == Class, !IsValueType, !ISwiftStruct),
+        // the stackalloc payload bytes ARE a class pointer and NewFromPayload expects
+        // the class reference itself — we must dereference *(IntPtr*)enumCopy.
+        // For value types and ISwiftStruct (e.g. SwiftString), NewFromPayload reads
+        // the bytes from the source address, so we pass the buffer pointer directly.
+        // Without the class branch, Holder<IntBox>.TryGetWrapped wraps the stackalloc
+        // pointer in a SwiftClassHandle → Arc.Release on a stack address → SIGSEGV.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+
+        var wrappedCase = CreateCase("wrapped");
+        wrappedCase.AssociatedValues.Add(new NamedTypeSpec("τ_0_0"));
+        enumDecl.Cases.Add(wrappedCase);
+        enumDecl.Cases.Add(CreateCase("empty"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("public bool TryGetWrapped", csOutput);
+        Assert.Contains("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);", csOutput);
+        // Class-T branch: metadata kind check + pointer dereference.
+        Assert.Contains("global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>().Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(*(IntPtr*)(enumCopy))", csOutput);
+        // Struct/ISwiftStruct fallback: pass the buffer pointer directly.
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(new IntPtr(enumCopy))", csOutput);
+    }
+
+    [Fact]
     public void Emit_NamespaceEnum_EmitsStaticClass()
     {
         // E12: Zero-case enums used as namespaces should emit as static classes

@@ -131,9 +131,18 @@ public class MemberGateEvaluator
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Method signature contains unresolvable associated type reference.");
 
         // M5: Non-ISwiftObject bound generic args
-        bool hasNonSwiftObjectArg = method.CSSignature.Any(arg =>
-            boundGenericsHandler.IsBoundGeneric(arg) &&
-            boundGenericsHandler.HasNonSwiftObjectGenericArg(arg.SwiftTypeSpec));
+        bool hasNonSwiftObjectArg = false;
+        for (int i = 0; i < method.CSSignature.Count; i++)
+        {
+            var arg = method.CSSignature[i];
+            bool isParameterPosition = i != 0;
+            if (boundGenericsHandler.IsBoundGeneric(arg) &&
+                boundGenericsHandler.HasNonSwiftObjectGenericArg(arg.SwiftTypeSpec, isParameterPosition))
+            {
+                hasNonSwiftObjectArg = true;
+                break;
+            }
+        }
         if (hasNonSwiftObjectArg)
             return GateResult.Skipped(SkipReason.UnsatisfiedGenericConstraint, "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
 
@@ -239,8 +248,11 @@ public class MemberGateEvaluator
         if (method.CSSignature.Any(arg => MemberEmissionValidator.ContainsAssociatedTypeReference(arg.SwiftTypeSpec)))
             return GateResult.Skipped(SkipReason.UnsupportedSignature, "Method signature contains unresolvable associated type reference.");
 
-        foreach (var argument in method.CSSignature)
+        for (int i = 0; i < method.CSSignature.Count; i++)
         {
+            var argument = method.CSSignature[i];
+            bool isParameterPosition = i != 0;
+
             // Bare generic usage
             if (boundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, method.ModuleDecl ?? moduleDecl))
                 return GateResult.Skipped(SkipReason.UnsupportedSignature,
@@ -248,7 +260,7 @@ public class MemberGateEvaluator
 
             // Non-ISwiftObject bound generic (only check actual bound generics)
             if (boundGenericsHandler.IsBoundGeneric(argument) &&
-                boundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
+                boundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec, isParameterPosition))
                 return GateResult.Skipped(SkipReason.UnsatisfiedGenericConstraint,
                     "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");
         }

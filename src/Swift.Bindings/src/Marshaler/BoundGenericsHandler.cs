@@ -527,6 +527,17 @@ public class BoundGenericsHandler
     /// so the entire type becomes [UnsupportedSwiftType] object (compiles fine).
     /// </summary>
     public bool HasNonSwiftObjectGenericArg(TypeSpec typeSpec)
+        => HasNonSwiftObjectGenericArg(typeSpec, isParameterPosition: false);
+
+    /// <summary>
+    /// Position-aware variant of <see cref="HasNonSwiftObjectGenericArg(TypeSpec)"/>.
+    /// When <paramref name="isParameterPosition"/> is true, <c>Swift.Result</c> is NOT
+    /// granted the ISwiftObject bypass — outbound Result marshalling is unsupported
+    /// (<see cref="ResultProjection.GetParameterPlan"/> throws), and
+    /// <c>SwiftResult.FromSuccess</c>/<c>FromFailure</c> produce C#-only instances whose
+    /// <c>Payload</c> access throws. Return/property contexts retain the bypass.
+    /// </summary>
+    public bool HasNonSwiftObjectGenericArg(TypeSpec typeSpec, bool isParameterPosition)
     {
         if (typeSpec is not NamedTypeSpec namedTypeSpec || !namedTypeSpec.ContainsGenericParameters)
             return false;
@@ -560,23 +571,33 @@ public class BoundGenericsHandler
         if (namedTypeSpec.Name == "ManagedSettings.Token")
             return false;
 
-        // Swift.Optional (SwiftOptional<T>) has no ISwiftObject constraint on T,
-        // so tuples are valid generic args. All other emitted generics have
-        // 'where T : ISwiftObject', making ValueTuple args a CS0311 error.
+        // Swift.Optional (SwiftOptional<T>) and Swift.Result (SwiftResult<TSuccess, TFailure>)
+        // have no ISwiftObject constraint on their type parameters, so tuples (incl. empty tuple
+        // = Void) and ObjC-bridged types are valid generic args; their projections
+        // (OptionalProjection / ResultProjection) handle marshalling. All other emitted generics
+        // have 'where T : ISwiftObject', making ValueTuple args a CS0311 error.
+        //
+        // Result bypass is return/property-only: ResultProjection.GetParameterPlan throws,
+        // and SwiftResult.FromSuccess/FromFailure yields a C#-only instance whose Payload
+        // access throws. Accepting Result in parameter position would emit constructors /
+        // methods that crash as soon as a C# caller supplies a Result argument.
         bool outerIsOptional = namedTypeSpec.Name == "Swift.Optional";
+        bool outerIsResult = namedTypeSpec.Name == "Swift.Result";
+        bool resultBypassApplies = outerIsResult && !isParameterPosition;
+        bool outerBypassesISwiftObject = outerIsOptional || resultBypassApplies;
 
         foreach (var genericParam in namedTypeSpec.GenericParameters)
         {
             // Swift.Void (named) maps to SwiftVoid, which doesn't implement ISwiftObject
-            if (!outerIsOptional && genericParam is NamedTypeSpec { Name: "Swift.Void" })
+            if (!outerBypassesISwiftObject && genericParam is NamedTypeSpec { Name: "Swift.Void" })
                 return true;
 
             // All tuples (including empty tuple = Void) don't implement ISwiftObject
-            if (!outerIsOptional && genericParam is TupleTypeSpec)
+            if (!outerBypassesISwiftObject && genericParam is TupleTypeSpec)
                 return true;
 
-            // B5: Optional tuple with existential element — check tuple elements for unresolvable existentials
-            if (outerIsOptional && genericParam is TupleTypeSpec optTuple && !optTuple.IsEmptyTuple)
+            // B5: Optional/Result tuple with existential element — check tuple elements for unresolvable existentials
+            if (outerBypassesISwiftObject && genericParam is TupleTypeSpec optTuple && !optTuple.IsEmptyTuple)
             {
                 foreach (var element in optTuple.Elements)
                 {
@@ -593,12 +614,13 @@ public class BoundGenericsHandler
             }
 
             // ObjC-bridged (UIImage) and native-remapped (Foundation.URL → NSUrl) types don't implement
-            // ISwiftObject — blocked in constrained generics. But SwiftOptional<T> has no constraint,
-            // so Optional<URL> and Optional<UIImage> are valid (projection factory handles marshalling).
-            if (!outerIsOptional && genericParam is NamedTypeSpec namedArg && (IsObjCBridgedType(namedArg) || IsNonSwiftObjectMappedType(namedArg)))
+            // ISwiftObject — blocked in constrained generics. But SwiftOptional<T> and SwiftResult<.,.>
+            // have no constraint, so Optional<URL>, Optional<UIImage>, Result<UIImage, E> etc.
+            // are valid (projection factory handles marshalling).
+            if (!outerBypassesISwiftObject && genericParam is NamedTypeSpec namedArg && (IsObjCBridgedType(namedArg) || IsNonSwiftObjectMappedType(namedArg)))
                 return true;
 
-            if (HasNonSwiftObjectGenericArg(genericParam))
+            if (HasNonSwiftObjectGenericArg(genericParam, isParameterPosition))
                 return true;
         }
 

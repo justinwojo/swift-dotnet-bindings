@@ -233,8 +233,13 @@ public class MemberValidationPipeline
         if (!methodDecl.IsAccessor)
         {
             var boundGenericsHandler = new BoundGenericsHandler(_typeDatabase);
-            foreach (var argument in methodDecl.CSSignature)
+            // CSSignature[0] is the return slot; the rest are parameters. Parameter-direction
+            // generics have stricter gates (e.g., Swift.Result is unsupported outbound).
+            for (int i = 0; i < methodDecl.CSSignature.Count; i++)
             {
+                var argument = methodDecl.CSSignature[i];
+                bool isParameterPosition = i != 0;
+
                 // Bare generic usage (generic declaration used without type arguments)
                 if (boundGenericsHandler.HasBareGenericUsage(argument.SwiftTypeSpec, methodDecl.ModuleDecl))
                 {
@@ -246,7 +251,7 @@ public class MemberValidationPipeline
                     continue;
 
                 // Non-ISwiftObject bound generic type argument
-                if (boundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec))
+                if (boundGenericsHandler.HasNonSwiftObjectGenericArg(argument.SwiftTypeSpec, isParameterPosition))
                 {
                     return ValidationResult.Skip(SkipReason.UnsatisfiedGenericConstraint,
                         "Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.");

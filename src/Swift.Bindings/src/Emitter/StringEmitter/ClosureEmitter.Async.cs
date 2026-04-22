@@ -32,11 +32,19 @@ public static partial class ClosureEmitter
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName) + "_Start";
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
 
+        // String-return async throwing closures route through StringAsyncClosureHelper
+        // and must keep the ABI type as "string" (not SwiftString). Projection override
+        // is skipped for this case so the generated AsyncThrowingClosureState binds to
+        // the user's Task<string> without a ContinueWith shim.
+        var isStringReturn = hasReturn &&
+            closureTypeSpec.ReturnType is NamedTypeSpec namedReturnForStringCheck &&
+            namedReturnForStringCheck.Name == "Swift.String";
+
         // Return ABI type — projected when different from public (e.g., Data → byte[]).
         var returnAbiType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
-        if (hasReturn)
+        if (hasReturn && !isStringReturn)
         {
             var projection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
                 new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });
@@ -157,6 +165,26 @@ public static partial class ClosureEmitter
                 }
                 """);
         }
+        else if (isStringReturn)
+        {
+            // String return type — UTF-8 (bytesPtr, length) success callback, matching the
+            // Data shape. Unlike Data, String supports full arity (0–MaxAsyncThrowingClosureArity).
+            csWriter.WriteLines($$"""
+                    var successAction = new Action<IntPtr, IntPtr, nint>((box, bytesPtr, len) =>
+                    {
+                        var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, nint, void>)successFuncPtr;
+                        fp(box, bytesPtr, len);
+                    });
+                    var errorAction = new Action<IntPtr, IntPtr>((box, errPtr) =>
+                    {
+                        var fp = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)errorFuncPtr;
+                        fp(box, errPtr);
+                    });
+
+                    Swift.Runtime.StringAsyncClosureHelper.RunStringAsync(handle, state, continuationBoxPtr{{argValList}}, successAction, errorAction);
+                }
+                """);
+        }
         else if (hasReturn && !isThrowing)
         {
             // Session C non-throwing: success-only helper, no error channel.
@@ -248,13 +276,21 @@ public static partial class ClosureEmitter
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
 
+        // String-return async-throwing closures keep the ABI type as "string" so the
+        // emitted AsyncThrowingClosureState<string> binds to the caller's Task<string>
+        // directly — StringAsyncClosureHelper handles UTF-8 marshalling on the success
+        // path, so no ContinueWith wrapper is needed.
+        var isStringReturnSetup = hasReturn &&
+            closureTypeSpec.ReturnType is NamedTypeSpec namedReturnForStringCheckSetup &&
+            namedReturnForStringCheckSetup.Name == "Swift.String";
+
         // Return ABI type (projected if different from public — e.g. Data → byte[]).
         var returnPublicType = hasReturn
             ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
             : null;
         var returnAbiType = returnPublicType;
         ITypeProjection? returnProjection = null;
-        if (hasReturn)
+        if (hasReturn && !isStringReturnSetup)
         {
             returnProjection = new TypeProjectionFactory().Project(closureTypeSpec.ReturnType,
                 new ProjectionContext { TypeDatabase = closureHandler.TypeDatabase, IsParameter = true });

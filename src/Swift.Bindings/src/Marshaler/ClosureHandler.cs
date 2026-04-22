@@ -858,12 +858,16 @@ public class ClosureHandler
     }
 
     /// <summary>
-    /// Determines whether an async-throwing closure matches the Session A/B/D bridge
+    /// Determines whether an async-throwing closure matches the Session A/B/D/F bridge
     /// shape: `@escaping (A0, …) async throws -> T` where:
     ///   - T is a bitwise-copyable primitive (Int32, Int64, Double, …) OR
     ///     <c>Foundation.Data</c> (Session D: routed through <c>DataAsyncClosureHelper</c>
     ///     with a <c>(boxPtr, bytesPtr, length)</c> success callback; zero args only
-    ///     per the Data-return emitter guard in <c>ClosureEmitter.Async.cs</c>).
+    ///     per the Data-return emitter guard in <c>ClosureEmitter.Async.cs</c>) OR
+    ///     <c>Swift.String</c> (Session F: routed through <c>StringAsyncClosureHelper</c>
+    ///     with a <c>(boxPtr, bytesPtr, length)</c> UTF-8 success callback; full
+    ///     0–<see cref="MaxAsyncThrowingClosureArity"/> arity supported since it
+    ///     unblocks <c>STPConfirmationToken</c>-shaped handlers).
     ///   - arity is 0–<see cref="MaxAsyncThrowingClosureArity"/>,
     ///   - each argument is a Session B-bridgeable type (primitive, Swift.String,
     ///     or a Swift class).
@@ -879,12 +883,17 @@ public class ClosureHandler
 
         var args = closureTypeSpec.EachArgument().ToList();
         bool isDataReturn = namedReturn.Name == "Foundation.Data";
+        bool isStringReturn = namedReturn.Name == "Swift.String";
         if (isDataReturn)
         {
             // DataAsyncClosureHelper currently only supports zero-arg closures
             // (see NotSupportedException guard in ClosureEmitter.Async.cs).
             if (args.Count > 0)
                 return false;
+        }
+        else if (isStringReturn)
+        {
+            // StringAsyncClosureHelper supports the full arity range.
         }
         else if (!CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name))
         {

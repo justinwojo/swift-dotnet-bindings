@@ -472,6 +472,24 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         // (registered during module initialization). No fallback to underlying type metadata —
         // that produces wrong Optional<T> layout (tag-byte vs extra-inhabitant encoding).
 
+        // SwiftVoid stands in for Swift's () empty tuple in generic contexts
+        // (e.g., SwiftResult<SwiftVoid, E> for Result<(), E>). Resolve it to the
+        // empty-tuple metadata via swift_getTupleTypeMetadata(0 elements).
+        if (type == typeof(SwiftVoid))
+        {
+            unsafe
+            {
+                var emptyTupleMetadata = swift_getTupleTypeMetadata(
+                    TypeMetadataRequest.Complete, 0, null, IntPtr.Zero, IntPtr.Zero);
+                if (emptyTupleMetadata.IsValid)
+                {
+                    cache.GetOrAdd(type, _ => emptyTupleMetadata);
+                    result = emptyTupleMetadata;
+                    return true;
+                }
+            }
+        }
+
         result = null;
         return false;
     }

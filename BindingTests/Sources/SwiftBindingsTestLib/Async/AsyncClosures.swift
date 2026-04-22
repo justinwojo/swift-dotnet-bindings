@@ -94,6 +94,40 @@ public func callAsyncThrowingDataClosure(_ closure: @escaping () async throws ->
     return sum
 }
 
+// MARK: - Session F: async-throwing closures returning Swift.String
+// Routed through StringAsyncClosureHelper.RunStringAsync + a String-shaped Swift
+// box that resumes with String(decoding: UnsafeBufferPointer(...), as: UTF8.self).
+// Unlocks StripeConnect's only public ctor and PaymentSheet.IntentConfiguration
+// handlers. Unlike Data, String supports full 0–4 arity.
+
+/// Session F: no-arg async-throwing closure returning Swift.String.
+public func callAsyncThrowingStringClosure(_ closure: @escaping () async throws -> String) async throws -> String {
+    return try await closure()
+}
+
+/// Session F: invokes the same String-returning async-throwing closure twice.
+/// Validates per-invocation continuation box / adapter lifetime.
+public func callAsyncThrowingStringClosureTwice(_ closure: @escaping () async throws -> String) async throws -> String {
+    let a = try await closure()
+    let b = try await closure()
+    return a + "|" + b
+}
+
+/// Session F: arity-1 primitive arg, String return.
+public func callAsyncThrowingStringClosureArity1(
+    _ closure: @escaping (Int32) async throws -> String
+) async throws -> String {
+    return try await closure(42)
+}
+
+/// Session F: arity-2 mixed (Int32, String) arg, String return. Shape matches
+/// PaymentSheet.IntentConfiguration.ConfirmHandler.
+public func callAsyncThrowingStringClosureArity2(
+    _ closure: @escaping (Int32, String) async throws -> String
+) async throws -> String {
+    return try await closure(7, "hello")
+}
+
 // MARK: - Session C: non-throwing async closures (primitive return, 0–4 args)
 // Baseline non-throwing shape: `@escaping (Args) async -> T` where T is a
 // BitwiseCopyable primitive and the outer method is `async`. Exceptions inside

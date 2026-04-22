@@ -196,6 +196,20 @@ namespace BindingsGeneration
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
+            // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
+            // the C# type parameter name. Mirrors the factory direction (CaseConstruction.cs)
+            // which stackallocs by TypeMetadata<T>.Size + MarshalToSwift<T>. Class T needs a
+            // dereference: the payload bytes ARE a class pointer, but NewFromPayload for a true
+            // Swift class expects the class reference directly (not a pointer to memory holding it).
+            if (typeSpec is NamedTypeSpec genericParamOffset
+                && TypeSpecHelpers.IsGenericTypeParameter(genericParamOffset.Name)
+                && TryGetGenericTypeParameterName(genericParamOffset.Name, out var csParamNameOffset, genericParams))
+            {
+                EmitGenericTypeParameterPayloadExtraction(csWriter, csParamNameOffset, varName,
+                    sourcePtrExpr: $"{sourcePtr} + (int){offsetVar}", declareVar: false);
+                return;
+            }
+
             // Get the C# type name
             var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
 
@@ -308,6 +322,20 @@ namespace BindingsGeneration
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+            // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
+            // the C# type parameter name. Mirrors the factory direction (CaseConstruction.cs)
+            // which stackallocs by TypeMetadata<T>.Size + MarshalToSwift<T>. Class T needs a
+            // dereference: the payload bytes ARE a class pointer, but NewFromPayload for a true
+            // Swift class expects the class reference directly (not a pointer to memory holding it).
+            if (typeSpec is NamedTypeSpec genericParamMarshal
+                && TypeSpecHelpers.IsGenericTypeParameter(genericParamMarshal.Name)
+                && TryGetGenericTypeParameterName(genericParamMarshal.Name, out var csParamNameMarshal, genericParams))
+            {
+                EmitGenericTypeParameterPayloadExtraction(csWriter, csParamNameMarshal, varName,
+                    sourcePtrExpr: sourcePtr, declareVar: false);
+                return;
+            }
 
             // Handle existential types
             if (existentialHandler.IsExistential(typeSpec))
@@ -456,6 +484,20 @@ namespace BindingsGeneration
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
+            // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
+            // the C# type parameter name. Mirrors the factory direction (CaseConstruction.cs)
+            // which stackallocs by TypeMetadata<T>.Size + MarshalToSwift<T>. Class T needs a
+            // dereference: the payload bytes ARE a class pointer, but NewFromPayload for a true
+            // Swift class expects the class reference directly (not a pointer to memory holding it).
+            if (typeSpec is NamedTypeSpec genericParamDecl
+                && TypeSpecHelpers.IsGenericTypeParameter(genericParamDecl.Name)
+                && TryGetGenericTypeParameterName(genericParamDecl.Name, out var csParamNameDecl, genericParams))
+            {
+                EmitGenericTypeParameterPayloadExtraction(csWriter, csParamNameDecl, varName,
+                    sourcePtrExpr: sourcePtr, declareVar: true);
+                return;
+            }
+
             // Get the C# type name for this typeSpec
             string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
 
@@ -578,6 +620,37 @@ namespace BindingsGeneration
                 8 => $"(*(long*){sourcePtr})",
                 _ => $"(*{sourcePtr})" // Fallback to 1 byte for unusual sizes
             };
+        }
+
+        /// <summary>
+        /// Emits the runtime dispatch for extracting a bare-generic-type-parameter payload from
+        /// a stackalloc enum buffer. True Swift classes (metadata Kind == Class, !IsValueType,
+        /// !ISwiftStruct) store a class reference in the payload bytes and need a dereference
+        /// before handoff to NewFromPayload. Everything else — value types, frozen structs via
+        /// ISwiftStruct (e.g. SwiftString) — takes the buffer-pointer path whose NewFromPayload
+        /// reads bytes from the source address.
+        /// </summary>
+        private static void EmitGenericTypeParameterPayloadExtraction(CSharpWriter csWriter, string typeParamName, string varName, string sourcePtrExpr, bool declareVar)
+        {
+            if (declareVar)
+            {
+                csWriter.WriteLine($"{typeParamName} {varName};");
+            }
+            csWriter.WriteLine($"if (typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName}))");
+            csWriter.WriteLine($"    && !typeof({typeParamName}).IsValueType");
+            csWriter.WriteLine($"    && !typeof(global::Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({typeParamName}))");
+            csWriter.WriteLine($"    && global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{typeParamName}>().Kind == global::Swift.Runtime.TypeMetadataKind.Class)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(*(IntPtr*)({sourcePtrExpr}));");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("else");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr({sourcePtrExpr}));");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         /// <summary>
