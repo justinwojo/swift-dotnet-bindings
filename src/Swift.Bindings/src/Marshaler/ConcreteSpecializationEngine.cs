@@ -343,6 +343,32 @@ public class ConcreteSpecializationEngine
 
         if (abiList is not null)
         {
+            // Availability augmentation: hints do not carry @available floors (hints are
+            // authored by hand in specialization-hints.json with no platform data). When
+            // the same conformer is indexed from the current module's ABI, copy its
+            // availability annotations onto the hint result so CSM wrappers emit the
+            // correct @available floor. Without this, hint-declared conformers like
+            // CryptoKit.SHA3_256 (iOS 26 / macOS 15) get specialized with the containing
+            // HMAC type's iOS 13 floor, producing Swift compiler "only available in iOS
+            // 26" errors at wrapper compile time.
+            for (int i = 0; i < result.Count; i++)
+            {
+                if (result[i].AvailabilityAnnotations is { Count: > 0 }) continue;
+                ConcreteConformer? match = null;
+                foreach (var a in abiList)
+                {
+                    if (string.Equals(a.SwiftQualifiedName, result[i].SwiftQualifiedName, StringComparison.Ordinal))
+                    {
+                        match = a;
+                        break;
+                    }
+                }
+                if (match?.AvailabilityAnnotations is { Count: > 0 } matchAvail)
+                {
+                    result[i] = result[i] with { AvailabilityAnnotations = matchAvail };
+                }
+            }
+
             // Dedup: don't add ABI conformers that are already in hints
             var existingTypes = new HashSet<string>(result.Select(c => c.SwiftQualifiedName));
             foreach (var conformer in abiList)

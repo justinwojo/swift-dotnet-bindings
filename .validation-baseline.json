@@ -1,5 +1,5 @@
 {
-  "git_sha": "71523beb",
+  "git_sha": "057c5ad4",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -12,28 +12,28 @@
       "CryptoKit": {
         "compile": "known_errors",
         "errors": 18,
-        "lines": 25243,
+        "lines": 25627,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "CryptoKit@macos": {
         "compile": "known_errors",
         "errors": 18,
-        "lines": 25243,
+        "lines": 25627,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "CryptoKit@maccatalyst": {
         "compile": "known_errors",
         "errors": 18,
-        "lines": 25243,
+        "lines": 25627,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "CryptoKit@tvos": {
         "compile": "known_errors",
         "errors": 18,
-        "lines": 25117,
+        "lines": 25501,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57211,
+        "lines": 57275,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51485,
+        "lines": 51509,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51668,
+        "lines": 51692,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56522,
+        "lines": 56586,
         "dep_compile": "none",
         "swift_compile": "fail"
       },

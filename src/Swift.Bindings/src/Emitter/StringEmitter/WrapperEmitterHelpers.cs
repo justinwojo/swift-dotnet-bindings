@@ -38,22 +38,66 @@ public static class WrapperEmitterHelpers
     /// Emits Swift @available annotations for a @_cdecl wrapper function.
     /// Without these, the wrapper calls an API that requires a newer OS version
     /// and fails to compile on device SDKs with stricter availability checking.
+    ///
+    /// For each platform, emits only the MAX (strictest) introduced version across
+    /// all annotations. CSM wrappers stack annotations from containing-type + method +
+    /// per-conformer sources, and any platform with conflicting floors (e.g., HMAC =
+    /// iOS 13 plus SHA3_256 = iOS 26) must pick up the stricter iOS 26 floor so the
+    /// generated Swift call-site passes availability-checking on device SDKs.
     /// </summary>
     internal static void EmitSwiftAvailability(SwiftWriter swiftWriter, IReadOnlyList<AvailabilityAnnotation>? annotations)
     {
-        if (annotations == null || annotations.Count == 0)
-            return;
+        foreach (var key in CollectStrictestAvailabilityKeys(annotations))
+            swiftWriter.WriteLine($"@available({key}, *)");
+    }
 
-        var emitted = new HashSet<string>();
+    /// <summary>
+    /// Computes the strictest (max) introduced version per platform across
+    /// <paramref name="annotations"/>, returning one <c>"Platform Version"</c>
+    /// entry per platform. Used by both <see cref="EmitSwiftAvailability"/> and
+    /// <see cref="BuildAvailabilityHeredocPrefix"/> so multi-source availability
+    /// (parent + method + conformer) collapses consistently.
+    /// </summary>
+    internal static IReadOnlyList<string> CollectStrictestAvailabilityKeys(IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations == null || annotations.Count == 0)
+            return Array.Empty<string>();
+
+        var perPlatformMax = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var annotation in annotations)
         {
-            if (annotation.Platform != null && annotation.IntroducedVersion != null)
+            if (annotation.Platform == null || annotation.IntroducedVersion == null)
+                continue;
+            if (!perPlatformMax.TryGetValue(annotation.Platform, out var existing)
+                || CompareOsVersions(annotation.IntroducedVersion, existing) > 0)
             {
-                var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
-                if (emitted.Add(key))
-                    swiftWriter.WriteLine($"@available({key}, *)");
+                perPlatformMax[annotation.Platform] = annotation.IntroducedVersion;
             }
         }
+
+        var result = new List<string>(perPlatformMax.Count);
+        foreach (var kvp in perPlatformMax)
+            result.Add($"{kvp.Key} {kvp.Value}");
+        return result;
+    }
+
+    /// <summary>
+    /// Compares two dot-separated OS version strings numerically (e.g., "13.0" &lt; "26.0").
+    /// Returns 1 when <paramref name="left"/> &gt; <paramref name="right"/>, -1 when smaller,
+    /// 0 when equal. Missing components are treated as 0 so "13" == "13.0".
+    /// </summary>
+    private static int CompareOsVersions(string left, string right)
+    {
+        var leftParts = left.Split('.');
+        var rightParts = right.Split('.');
+        int len = Math.Max(leftParts.Length, rightParts.Length);
+        for (int i = 0; i < len; i++)
+        {
+            int l = i < leftParts.Length && int.TryParse(leftParts[i], out var lv) ? lv : 0;
+            int r = i < rightParts.Length && int.TryParse(rightParts[i], out var rv) ? rv : 0;
+            if (l != r) return l < r ? -1 : 1;
+        }
+        return 0;
     }
 
     /// <summary>
@@ -70,18 +114,17 @@ public static class WrapperEmitterHelpers
         if (annotations == null || annotations.Count == 0)
             return string.Empty;
 
-        var emitted = new HashSet<string>();
-        var parts = new List<string>();
-        foreach (var annotation in annotations)
-        {
-            if (annotation.Platform == null || annotation.IntroducedVersion == null)
-                continue;
-            var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
-            if (emitted.Add(key))
-                parts.Add($"@available({key}, *)");
-        }
-        if (parts.Count == 0)
+        // Use the strictest (max) introduced version per platform so stacked annotations
+        // (parent + method + per-conformer) collapse to one line per platform with the
+        // tightest floor. Matches EmitSwiftAvailability so multi-source availability
+        // dedupes consistently across both call sites.
+        var keys = CollectStrictestAvailabilityKeys(annotations);
+        if (keys.Count == 0)
             return string.Empty;
+
+        var parts = new List<string>(keys.Count);
+        foreach (var key in keys)
+            parts.Add($"@available({key}, *)");
         return string.Join("\n" + heredocIndent, parts) + "\n" + heredocIndent;
     }
 

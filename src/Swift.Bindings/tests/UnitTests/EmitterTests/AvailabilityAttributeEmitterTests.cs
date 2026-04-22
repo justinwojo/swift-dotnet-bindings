@@ -446,4 +446,80 @@ public class AvailabilityAttributeEmitterTests
         // No @available emitted for deprecation-only annotations (no platform/version)
         Assert.DoesNotContain("@available", output);
     }
+
+    // --- Strictest-version collapse for stacked annotations (CSM wrappers) ---
+
+    [Fact]
+    public void EmitCdeclAnnotation_SamePlatformTwoVersions_EmitsStrictest()
+    {
+        // CSM wrappers stack parent + method + per-conformer annotations, which can produce
+        // e.g. iOS 13 (HMAC) + iOS 26 (SHA3_256) on the same @_cdecl. The Swift compiler must
+        // see the stricter floor so the wrapped call passes availability checking on device SDKs.
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "13.0", null, null, false, false, null, null),
+            new("iOS", "26.0", null, null, false, false, null, null),
+        };
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", false, annotations);
+
+        var output = sw.ToString();
+        Assert.Contains("@available(iOS 26.0, *)", output);
+        Assert.DoesNotContain("@available(iOS 13.0, *)", output);
+    }
+
+    [Fact]
+    public void EmitCdeclAnnotation_MultiPlatformStackedAnnotations_EmitsStrictestPerPlatform()
+    {
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "13.0", null, null, false, false, null, null),
+            new("iOS", "26.0", null, null, false, false, null, null),
+            new("macOS", "10.15", null, null, false, false, null, null),
+            new("macOS", "15.0", null, null, false, false, null, null),
+        };
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, "SBW_Test_Symbol", false, annotations);
+
+        var output = sw.ToString();
+        Assert.Contains("@available(iOS 26.0, *)", output);
+        Assert.Contains("@available(macOS 15.0, *)", output);
+        Assert.DoesNotContain("iOS 13.0", output);
+        Assert.DoesNotContain("macOS 10.15", output);
+    }
+
+    [Fact]
+    public void CollectStrictestAvailabilityKeys_NumericVersionCompare_NotLexicographic()
+    {
+        // "26.0" > "13.0" numerically but lexicographically "13.0" > "26.0" is false —
+        // still, lexicographic compare of single-digit vs two-digit tens can flip (e.g.,
+        // "9.0" vs "10.0" — lexicographic says "9.0" > "10.0"). Assert the helper uses
+        // component-wise numeric compare so both decade boundaries are respected.
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "9.0", null, null, false, false, null, null),
+            new("iOS", "10.0", null, null, false, false, null, null),
+        };
+        var keys = WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(annotations);
+        Assert.Single(keys);
+        Assert.Equal("iOS 10.0", keys[0]);
+    }
+
+    [Fact]
+    public void CollectStrictestAvailabilityKeys_SkipsEntriesMissingPlatformOrVersion()
+    {
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new(null, "16.0", null, null, false, false, null, null),
+            new("iOS", null, null, null, false, false, null, null),
+            new("iOS", "16.0", null, null, false, false, null, null),
+        };
+        var keys = WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(annotations);
+        Assert.Single(keys);
+        Assert.Equal("iOS 16.0", keys[0]);
+    }
 }

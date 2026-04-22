@@ -4,8 +4,8 @@
     {
       "protocol": "Foundation.DataProtocol",
       "conformers": [
-        { "swiftType": "Foundation.Data", "csharpType": "Data" },
-        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" }
+        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8" } }
       ]
     },
     {
@@ -22,15 +22,15 @@
     {
       "protocol": "Foundation.ContiguousBytes",
       "conformers": [
-        { "swiftType": "Foundation.Data", "csharpType": "Data" },
-        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" }
+        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8" } }
       ]
     },
     {
       "protocol": "Swift.Sequence",
       "conformers": [
-        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]" },
-        { "swiftType": "Foundation.Data", "csharpType": "Data" },
+        { "swiftType": "Swift.Array<Swift.UInt8>", "csharpType": "byte[]", "swiftLiteral": "[UInt8]", "associatedTypes": { "Element": "Swift.UInt8" } },
+        { "swiftType": "Foundation.Data", "csharpType": "Data", "associatedTypes": { "Element": "Swift.UInt8" } },
         { "swiftType": "Swift.Array<MusicKit.Album>", "csharpType": "Swift.SwiftArray<MusicKit.Album>", "swiftLiteral": "[MusicKit.Album]", "associatedTypes": { "Element": "MusicKit.Album" }, "modules": ["MusicKit"] },
         { "swiftType": "Swift.Array<MusicKit.MusicVideo>", "csharpType": "Swift.SwiftArray<MusicKit.MusicVideo>", "swiftLiteral": "[MusicKit.MusicVideo]", "associatedTypes": { "Element": "MusicKit.MusicVideo" }, "modules": ["MusicKit"] },
         { "swiftType": "Swift.Array<MusicKit.Playlist>", "csharpType": "Swift.SwiftArray<MusicKit.Playlist>", "swiftLiteral": "[MusicKit.Playlist]", "associatedTypes": { "Element": "MusicKit.Playlist" }, "modules": ["MusicKit"] },

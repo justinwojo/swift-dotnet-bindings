@@ -388,6 +388,34 @@ public static partial class ConcreteProtocolSpecializationEmitter
         return false;
     }
 
+    /// <summary>
+    /// Applies <see cref="SubstituteTypeSpec"/> over every entry in <paramref name="pairing"/>
+    /// so that nested method-level generic param references inside a composite return type
+    /// (e.g. <c>HashedAuthenticationCode&lt;H&gt;</c>) resolve to the conformer's concrete type.
+    /// Mirrors the async path's substitution in <c>TryBuildEmissionPlan</c>; used at Swift-side
+    /// render time for <c>initializeMemory(as:)</c>. If substitution reports an unresolved
+    /// associated-type reference, returns the original TypeSpec so the caller can still render
+    /// (no regression vs. the prior "render as-is" behavior).
+    /// </summary>
+    internal static TypeSpec SubstitutePairingGenericsInTypeSpec(
+        TypeSpec typeSpec,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        var current = typeSpec;
+        foreach (var (param, conformer) in pairing)
+        {
+            if (!TryBuildConformerTypeSpec(conformer, out var conformerSpec))
+                continue;
+            var genericName = param.GenericParam.TypeName;
+            var altGenericName = GetAlternateDepthName(genericName);
+            bool ok = true;
+            current = SubstituteTypeSpec(current, genericName, altGenericName, conformerSpec, conformer, ref ok);
+            if (!ok)
+                return typeSpec; // Leave original; outer caller logs/renders as today.
+        }
+        return current;
+    }
+
     // ─── Swift Wrapper Generation ────────────────────────────────────
 
     private static void EmitSwiftWrapper(
@@ -641,7 +669,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         else if (needsResultPtr)
         {
-            var returnTypeStr = returnsGenericParam ? returnConcreteSwiftType : ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);
+            string returnTypeStr;
+            if (returnsGenericParam)
+            {
+                returnTypeStr = returnConcreteSwiftType;
+            }
+            else
+            {
+                // Return type may CONTAIN pairing generics (e.g. `HashedAuthenticationCode<H>`).
+                // Substitute each pairing's method-level and parent-level generic param with its
+                // concrete conformer so the rendered type doesn't leak an unresolved `H` into
+                // `initializeMemory(as:)`. Falls back to the unsubstituted render on failure
+                // (matches previous behavior — no regression for shapes we couldn't handle before).
+                var substitutedReturn = SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing);
+                returnTypeStr = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(substitutedReturn);
+            }
             swiftWriter.WriteLine($"    let _result = {callExpr}");
             if (!string.IsNullOrEmpty(selfWriteBack))
                 swiftWriter.WriteLine($"    {selfWriteBack}");
@@ -1237,7 +1279,69 @@ public static partial class ConcreteProtocolSpecializationEmitter
             return false;
         }
 
+        // Bilateral associated-type filter (defense in depth over ConformerPairingSatisfiesCoupling).
+        // The coupling engine only sees same-type constraints that made it onto
+        // SpecializableParam.CouplingConstraints. Constraints encoded on the parent type's
+        // generics (e.g. `MusicItemCollection<MusicItem>.init<S: Sequence>() where S.Element == MusicItem`)
+        // or directly on the method param's AssosiatedTypeConformances with Kind=ConcreteType
+        // can bypass CouplingConstraints depending on how the ABI parser captured them.
+        // Recheck here so pathological pairings like `[UInt8]` against `S.Element == Album`
+        // are rejected before we emit an uncompilable Swift wrapper.
+        if (!DoesPairingSatisfyAssociatedTypeConstraints(method, parentTypeDecl, pairing))
+        {
+            rejectReason = "associated-type constraint not satisfied by conformer";
+            return false;
+        }
+
         rejectReason = null;
+        return true;
+    }
+
+    /// <summary>
+    /// For every generic parameter in the union of the method's and parent type's generics,
+    /// verify that every <see cref="ConformanceKind.ConcreteType"/> entry on its
+    /// <see cref="GenericArgumentDecl.AssosiatedTypeConformances"/> is satisfied by the chosen
+    /// conformer's <see cref="ConcreteSpecializationEngine.ConcreteConformer.AssociatedTypes"/>.
+    /// This catches constraints the engine's <c>CouplingConstraints</c> didn't capture — typically
+    /// parent-declared same-type floors like <c>S.Element == Album</c> that the pairing machinery
+    /// would otherwise enumerate (e.g. <c>S = [UInt8]</c>) and emit an uncompilable wrapper for.
+    /// </summary>
+    internal static bool DoesPairingSatisfyAssociatedTypeConstraints(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        foreach (var (param, conformer) in pairing)
+        {
+            var assocList = param.GenericParam?.AssosiatedTypeConformances;
+            if (assocList == null || assocList.Count == 0)
+                continue;
+
+            foreach (var assoc in assocList)
+            {
+                if (assoc.Kind != ConformanceKind.ConcreteType)
+                    continue;
+                if (assoc.Path == null || assoc.Path.Length < 2)
+                    continue;
+
+                // Path[0] is the owning generic param's name; Path[1..] is the associated-type chain.
+                // Single-hop (e.g. `S.Element`) resolves directly against the conformer's flat
+                // AssociatedTypes map. For deeper chains (e.g. `S.SubSequence.Element`), we fall
+                // back to leaf-name verification: stdlib Collection/Sequence conformers expose
+                // the same `Element` through every SubSequence/Slice alias, so the leaf still has
+                // to match. Fail-closed when the leaf is missing — better to drop a specialization
+                // we can't verify than to emit an uncompilable wrapper.
+                var assocName = assoc.Path.Length == 2 ? assoc.Path[1] : assoc.Path[assoc.Path.Length - 1];
+                var expected = assoc.ConformanceTarget.ModuleQualifiedName;
+
+                if (conformer.AssociatedTypes is null)
+                    return false;
+                if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
+                    return false;
+                if (!string.Equals(declared, expected, StringComparison.Ordinal))
+                    return false;
+            }
+        }
         return true;
     }
 

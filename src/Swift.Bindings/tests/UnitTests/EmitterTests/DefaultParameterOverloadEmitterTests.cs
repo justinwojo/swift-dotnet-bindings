@@ -810,8 +810,10 @@ public class DefaultParameterOverloadEmitterTests
     [Fact]
     public void TryEmitOverloads_MemberLevelAvailability_OverridesParentInherit()
     {
-        // If the method itself has a stricter availability annotation, it must be
-        // emitted too (parent + member are merged; dedupe handles duplicates).
+        // If the method itself has a stricter availability annotation, the strictest
+        // floor per platform wins — the looser parent annotation is redundant and gets
+        // collapsed. Previously we emitted both lines; that was confusing and masked
+        // availability bugs in stacked CSM wrappers (SHA3 conformers losing iOS 26).
         var (moduleDecl, typeDb) = CreateTestEnvironment("Lightweight");
 
         var parentDecl = new StructDecl
@@ -864,9 +866,10 @@ public class DefaultParameterOverloadEmitterTests
         var (_, swiftOutput) = EmitOverloads(method, typeDb);
 
         Assert.NotEmpty(swiftOutput);
-        // Both parent (iOS 15) and member (iOS 18) availability must be present.
-        Assert.Contains("@available(iOS 15.0, *)", swiftOutput);
+        // Strictest wins: iOS 18.0 (member) is emitted; iOS 15.0 (parent) is redundant and
+        // deliberately dropped so stacked annotations don't under-guard the call site.
         Assert.Contains("@available(iOS 18.0, *)", swiftOutput);
+        Assert.DoesNotContain("@available(iOS 15.0, *)", swiftOutput);
     }
 
     #endregion

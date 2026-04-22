@@ -1182,4 +1182,312 @@ public class ConcreteSpecializationEngineTests
         method.ParentDecl = classDecl;
         return classDecl;
     }
+
+    // ==================== SubstitutePairingGenericsInTypeSpec ====================
+
+    [Fact]
+    public void SubstitutePairingGenerics_SimpleTopLevel_ReplacesH()
+    {
+        // Top-level `H` should be rewritten to the conformer's qualified name.
+        // This is the degenerate case — the sync path's existing matcher already
+        // handles top-level-only, but the helper must not regress it.
+        var returnSpec = new NamedTypeSpec("H");
+        var pairing = MakeCryptoHashPairing("CryptoKit.SHA256");
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("CryptoKit.SHA256", named.Name);
+        Assert.Empty(named.GenericParameters);
+    }
+
+    [Fact]
+    public void SubstitutePairingGenerics_NestedInBoundGeneric_ReplacesH()
+    {
+        // `HashedAuthenticationCode<H>` is where the pre-fix bug lived: the sync-path
+        // matcher only checked the top-level NamedTypeSpec name, so `H` survived
+        // into `initializeMemory(as: HashedAuthenticationCode<H>.self, ...)`
+        // and the @_cdecl wrapper failed to compile for CryptoKit.
+        var returnSpec = new NamedTypeSpec("CryptoKit.HashedAuthenticationCode", new NamedTypeSpec("H"));
+        var pairing = MakeCryptoHashPairing("CryptoKit.SHA256");
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("CryptoKit.HashedAuthenticationCode", named.Name);
+        Assert.Single(named.GenericParameters);
+        var inner = Assert.IsType<NamedTypeSpec>(named.GenericParameters[0]);
+        Assert.Equal("CryptoKit.SHA256", inner.Name);
+    }
+
+    [Fact]
+    public void SubstitutePairingGenerics_UnmatchedName_PassesThrough()
+    {
+        // A type that doesn't reference any pairing generic should be returned
+        // unchanged (no mutation of unrelated names).
+        var returnSpec = new NamedTypeSpec("Swift.String");
+        var pairing = MakeCryptoHashPairing("CryptoKit.SHA256");
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstitutePairingGenericsInTypeSpec(returnSpec, pairing);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("Swift.String", named.Name);
+    }
+
+    // ==================== DoesPairingSatisfyAssociatedTypeConstraints ====================
+
+    [Fact]
+    public void AssociatedTypeConstraints_MatchingElementType_Accepts()
+    {
+        // `MusicItemCollection<MusicItem>.init<S: Sequence>() where S.Element == MusicItem`
+        // paired with conformer whose AssociatedTypes reports `Element → MusicItem`
+        // should pass the filter.
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairing(
+            conformerSwiftName: "MusicKit.Album",
+            elementAssocType: "MusicKit.MusicItem",
+            expectedElement: "MusicKit.MusicItem");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_MismatchedElementType_Rejects()
+    {
+        // The MusicKit.init<[UInt8]>() pathology: `Array<UInt8>.Element == UInt8`,
+        // but the method's constraint is `S.Element == MusicItem`. The filter must
+        // reject or the planner emits an uncompilable `init<[UInt8]>` wrapper.
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairing(
+            conformerSwiftName: "Swift.Array<Swift.UInt8>",
+            elementAssocType: "Swift.UInt8",
+            expectedElement: "MusicKit.MusicItem");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_NoConstraintOnParam_Accepts()
+    {
+        // A pairing with no ConcreteType associated-type floor (e.g. HMAC's H: HashFunction
+        // — protocol-only conformance, no S.Element == anything) must not be rejected.
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HMAC", "authenticationCode", "CryptoKit.HashFunction").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeHashFunctionPairing("CryptoKit.SHA256");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ConformerMissingAssociatedTypesMap_Rejects()
+    {
+        // When the method declares S.Element == T but the conformer's AssociatedTypes
+        // dictionary is null, we must reject — we can't verify the constraint is satisfied
+        // so the safe bet (no false-positive wrappers) is to skip.
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairing(
+            conformerSwiftName: "MusicKit.Album",
+            elementAssocType: null,
+            expectedElement: "MusicKit.MusicItem");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_MultiHopPath_LeafMatches_Accepts()
+    {
+        // Deep chain `S.SubSequence.Element == MusicItem`: for stdlib Collection
+        // conformers (Array, Set, Dictionary.Values) the SubSequence alias exposes
+        // the same Element. Leaf-name verification against the conformer's flat
+        // AssociatedTypes map must still accept when the leaf matches.
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingMultiHop(
+            pathSegments: new[] { "T", "SubSequence", "Element" },
+            conformerSwiftName: "MusicKit.Album",
+            elementAssocType: "MusicKit.MusicItem",
+            expectedElement: "MusicKit.MusicItem");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_MultiHopPath_LeafMismatches_Rejects()
+    {
+        // Same deep chain, but the conformer's Element is UInt8 while the constraint
+        // demands MusicItem. Before the multi-hop fix we silently accepted any chain
+        // longer than two segments; now we fail-closed on leaf mismatch.
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "MusicItemCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingMultiHop(
+            pathSegments: new[] { "T", "SubSequence", "Element" },
+            conformerSwiftName: "Swift.Array<Swift.UInt8>",
+            elementAssocType: "Swift.UInt8",
+            expectedElement: "MusicKit.MusicItem");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
+    }
+
+    // ==================== Test helpers for the new filters ====================
+
+    /// <summary>
+    /// Builds a pairing shaped like CryptoKit's HMAC.authenticationCode:
+    /// single param `H: HashFunction` (protocol-only conformance, no concrete
+    /// associated-type floor) with the given conformer's SwiftType.
+    /// </summary>
+    private static (ConcreteSpecializationEngine.SpecializableParam Param,
+                    ConcreteSpecializationEngine.ConcreteConformer Conformer)[]
+        MakeCryptoHashPairing(string conformerQualifiedName)
+    {
+        var hashFuncName = SwiftTypeName.FromModuleQualifiedName("CryptoKit.HashFunction");
+        var conformance = new GenericParameterConformance(
+            new[] { "H" }, hashFuncName, ConformanceKind.Protocol);
+
+        var genericParam = new GenericArgumentDecl(
+            TypeName: "H",
+            SugaredTypeName: "H",
+            GenericConformances: new List<GenericParameterConformance> { conformance },
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: genericParam,
+            ConstraintProtocol: hashFuncName,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerQualifiedName,
+            CSharpType: conformerQualifiedName.Split('.')[^1]);
+
+        return new[] { (param, conformer) };
+    }
+
+    /// <summary>
+    /// Builds a pairing for `init&lt;S: Sequence&gt;() where S.Element == MusicItem`.
+    /// The associated-type constraint lives on the param's AssosiatedTypeConformances
+    /// as a <see cref="ConformanceKind.ConcreteType"/> entry for Path=["T","Element"].
+    /// </summary>
+    private static (ConcreteSpecializationEngine.SpecializableParam Param,
+                    ConcreteSpecializationEngine.ConcreteConformer Conformer)[]
+        MakeSequencePairing(string conformerSwiftName, string? elementAssocType, string expectedElement)
+    {
+        var sequenceName = SwiftTypeName.FromModuleQualifiedName("Swift.Sequence");
+        var expectedElementName = SwiftTypeName.FromModuleQualifiedName(expectedElement);
+
+        var protocolConformance = new GenericParameterConformance(
+            new[] { "T" }, sequenceName, ConformanceKind.Protocol);
+        // The key constraint: S.Element must be a specific concrete type.
+        var elementConstraint = new GenericParameterConformance(
+            new[] { "T", "Element" }, expectedElementName, ConformanceKind.ConcreteType);
+
+        var genericParam = new GenericArgumentDecl(
+            TypeName: "T",
+            SugaredTypeName: "S",
+            GenericConformances: new List<GenericParameterConformance> { protocolConformance },
+            AssosiatedTypeConformances: new List<GenericParameterConformance> { elementConstraint });
+
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: genericParam,
+            ConstraintProtocol: sequenceName,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
+
+        IReadOnlyDictionary<string, string>? assocTypes = elementAssocType is null
+            ? null
+            : new Dictionary<string, string> { ["Element"] = elementAssocType };
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerSwiftName,
+            CSharpType: conformerSwiftName.Contains('<') ? "Array" : conformerSwiftName.Split('.')[^1],
+            AssociatedTypes: assocTypes);
+
+        return new[] { (param, conformer) };
+    }
+
+    /// <summary>
+    /// Variant of <see cref="MakeSequencePairing"/> that lets the test specify the
+    /// full associated-type Path (e.g. <c>["T", "SubSequence", "Element"]</c>).
+    /// The conformer still reports its associated types by leaf name only.
+    /// </summary>
+    private static (ConcreteSpecializationEngine.SpecializableParam Param,
+                    ConcreteSpecializationEngine.ConcreteConformer Conformer)[]
+        MakeSequencePairingMultiHop(
+            string[] pathSegments, string conformerSwiftName,
+            string? elementAssocType, string expectedElement)
+    {
+        var sequenceName = SwiftTypeName.FromModuleQualifiedName("Swift.Sequence");
+        var expectedElementName = SwiftTypeName.FromModuleQualifiedName(expectedElement);
+
+        var protocolConformance = new GenericParameterConformance(
+            new[] { "T" }, sequenceName, ConformanceKind.Protocol);
+        var deepConstraint = new GenericParameterConformance(
+            pathSegments, expectedElementName, ConformanceKind.ConcreteType);
+
+        var genericParam = new GenericArgumentDecl(
+            TypeName: "T",
+            SugaredTypeName: "S",
+            GenericConformances: new List<GenericParameterConformance> { protocolConformance },
+            AssosiatedTypeConformances: new List<GenericParameterConformance> { deepConstraint });
+
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: genericParam,
+            ConstraintProtocol: sequenceName,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
+
+        var leafName = pathSegments[^1];
+        IReadOnlyDictionary<string, string>? assocTypes = elementAssocType is null
+            ? null
+            : new Dictionary<string, string> { [leafName] = elementAssocType };
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerSwiftName,
+            CSharpType: conformerSwiftName.Contains('<') ? "Array" : conformerSwiftName.Split('.')[^1],
+            AssociatedTypes: assocTypes);
+
+        return new[] { (param, conformer) };
+    }
+
+    /// <summary>
+    /// Builds a pairing for `H: HashFunction` with no associated-type floor —
+    /// models HMAC's unconstrained hash-function specialization so the filter has
+    /// nothing to enforce and must accept every conformer.
+    /// </summary>
+    private static (ConcreteSpecializationEngine.SpecializableParam Param,
+                    ConcreteSpecializationEngine.ConcreteConformer Conformer)[]
+        MakeHashFunctionPairing(string conformerQualifiedName)
+    {
+        var hashFuncName = SwiftTypeName.FromModuleQualifiedName("CryptoKit.HashFunction");
+        var protocolConformance = new GenericParameterConformance(
+            new[] { "T" }, hashFuncName, ConformanceKind.Protocol);
+
+        var genericParam = new GenericArgumentDecl(
+            TypeName: "T",
+            SugaredTypeName: "H",
+            GenericConformances: new List<GenericParameterConformance> { protocolConformance },
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: genericParam,
+            ConstraintProtocol: hashFuncName,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerQualifiedName,
+            CSharpType: conformerQualifiedName.Split('.')[^1]);
+
+        return new[] { (param, conformer) };
+    }
 }
