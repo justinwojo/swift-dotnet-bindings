@@ -20,7 +20,7 @@ partial class Build
     // ============================================================
 
     Target Fetch => _ => _
-        .After(Clean, Test)
+        .After(Clean, Test, ValidateAppleTypesManifest)
         .Executes(() => RunFetch());
 
     void RunFetch()

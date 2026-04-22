@@ -897,6 +897,62 @@ public class PInvokeHelperEmitterTests
     }
 
     [Fact]
+    public void FlattenConformances_StdlibProtocolsIncrementallyRegistered_UnresolvedCountDecrementsToZero()
+    {
+        // Regression scaffold for WeatherKit Forecast<TElement>: TElement carried
+        // conformances to Swift.Equatable (Self-requirement, descriptor $sSQMp) and
+        // Swift.Decodable / Swift.Encodable (associated-type) that historically were
+        // absent from SwiftDatabase.xml. Each missing entry produced an
+        // UnresolvedPwtConstraint and tombstoned Forecast<T>. Registering the three
+        // protocols must walk the unresolved count down 3 → 2 → 1 → 0 without any
+        // other surface changes.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var constraints = new[]
+        {
+            ("Swift", "Equatable"),
+            ("Swift", "Decodable"),
+            ("Swift", "Encodable"),
+        };
+
+        var emptyDb = new ConstrainedGenericMockTypeDatabase();
+        var ctx0 = PInvokeHelperContext.CreateIfGeneric(
+            CreateConstrainedGenericFrozenStruct(moduleDecl, "Forecast", constraints),
+            emptyDb)!;
+        Assert.Equal(3, ctx0.UnresolvedPwtConstraints.Count);
+        Assert.True(ctx0.HasIndeterminatePwtShape);
+
+        var dbEq = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("Swift", "Equatable", "$sSQMp", TypeRecordFlags.HasSelfRequirement);
+        var ctx1 = PInvokeHelperContext.CreateIfGeneric(
+            CreateConstrainedGenericFrozenStruct(moduleDecl, "Forecast", constraints),
+            dbEq)!;
+        Assert.Equal(2, ctx1.UnresolvedPwtConstraints.Count);
+        Assert.DoesNotContain(
+            ctx1.UnresolvedPwtConstraints,
+            u => u.ProtocolName == "Equatable");
+
+        var dbEqDec = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("Swift", "Equatable", "$sSQMp", TypeRecordFlags.HasSelfRequirement)
+            .WithProtocol("Swift", "Decodable", "$ss9DecodableMp", TypeRecordFlags.HasAssociatedTypes);
+        var ctx2 = PInvokeHelperContext.CreateIfGeneric(
+            CreateConstrainedGenericFrozenStruct(moduleDecl, "Forecast", constraints),
+            dbEqDec)!;
+        Assert.Single(ctx2.UnresolvedPwtConstraints);
+        Assert.Equal("Encodable", ctx2.UnresolvedPwtConstraints[0].ProtocolName);
+
+        var dbAll = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("Swift", "Equatable", "$sSQMp", TypeRecordFlags.HasSelfRequirement)
+            .WithProtocol("Swift", "Decodable", "$ss9DecodableMp", TypeRecordFlags.HasAssociatedTypes)
+            .WithProtocol("Swift", "Encodable", "$ss9EncodableMp", TypeRecordFlags.HasAssociatedTypes);
+        var ctx3 = PInvokeHelperContext.CreateIfGeneric(
+            CreateConstrainedGenericFrozenStruct(moduleDecl, "Forecast", constraints),
+            dbAll)!;
+        Assert.Empty(ctx3.UnresolvedPwtConstraints);
+        Assert.False(ctx3.HasIndeterminatePwtShape);
+        Assert.Equal(3, ctx3.PwtEntries.Count);
+    }
+
+    [Fact]
     public void AddMetadataAccessorDeclaration_ThinMode_EmitsStandardPInvoke()
     {
         // <= 3 metadata/PWT args: route to the existing thin-mode PInvokeDeclaration

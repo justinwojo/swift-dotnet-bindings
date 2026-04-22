@@ -377,7 +377,7 @@ partial class Build
     }
 
     Target RegenerateAppleSnapshot => _ => _
-        .After(SmokeTest, RuntimeTestsCatalyst)
+        .After(SmokeTest, RuntimeTestsCatalyst, PackGate)
         .Description("Regenerate an in-tree Apple framework snapshot under BindingTests/obj/<Framework>Snapshot/. Requires --framework <name>.")
         .Executes(() =>
         {
@@ -401,7 +401,7 @@ partial class Build
     /// <c>--enable-storekit-smoke</c> runs.
     /// </summary>
     Target RegenerateStoreKitSnapshot => _ => _
-        .After(RegenerateAppleSnapshot, RuntimeTestsCatalyst)
+        .After(RegenerateAppleSnapshot, RuntimeTestsCatalyst, PackGate)
         .Description("Regenerate the in-tree StoreKit 2 snapshot (BindingTests/obj/StoreKit2Snapshot/) from the active Xcode SDK.")
         .Executes(() => RegenerateStoreKit2Snapshot(force: true));
 
@@ -798,7 +798,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsSimulator => _ => _
-        .After(Clean, BindingTestsStrict)
+        .After(Clean, BindingTestsStrict, PackGate)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -951,7 +951,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsDevice => _ => _
-        .After(Clean, RuntimeTestsSimulator)
+        .After(Clean, RuntimeTestsSimulator, PackGate)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -1026,7 +1026,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsMacOS => _ => _
-        .After(Clean, RuntimeTestsDevice, BindingTestsStrict)
+        .After(Clean, RuntimeTestsDevice, BindingTestsStrict, PackGate)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -1139,7 +1139,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsCatalyst => _ => _
-        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict, SmokeTest)
+        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict, SmokeTest, PackGate)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -1225,7 +1225,7 @@ partial class Build
     // ============================================================
 
     Target RuntimeTestsTvOSSimulator => _ => _
-        .After(Clean, RuntimeTestsMacOS, RuntimeTestsCatalyst, BindingTestsStrict, RegenerateStoreKitSnapshot)
+        .After(Clean, RuntimeTestsMacOS, RuntimeTestsCatalyst, BindingTestsStrict, RegenerateStoreKitSnapshot, PackGate)
         .Executes(() =>
         {
             Log.Information("=========================================");
@@ -2153,13 +2153,15 @@ partial class Build
             Log.Warning("IMPROVEMENT: {Platform} pass count increased by {Delta} (baseline={Baseline}, current={Current})",
                 platform, delta, baselinePass, currentPass);
 
-            // Auto-update baseline on unfiltered, no-crash successful runs
-            if (string.IsNullOrEmpty(ClassFilter) && jsonlResults.CrashCount == 0)
+            // Auto-update baseline only on unfiltered, fully-green runs. Otherwise a
+            // partially-failing run with a net pass-count increase would persist
+            // `fail > 0` into the committed baseline, silently masking a regression.
+            if (string.IsNullOrEmpty(ClassFilter) && jsonlResults.CrashCount == 0 && jsonlResults.FailCount == 0)
             {
                 var newCounts = new ValidationBaseline.RuntimeTestsPlatformCounts
                 {
                     Pass = currentPass,
-                    Fail = jsonlResults.FailCount,
+                    Fail = 0,
                     Skip = jsonlResults.SkipCount,
                     Crash = 0
                 };

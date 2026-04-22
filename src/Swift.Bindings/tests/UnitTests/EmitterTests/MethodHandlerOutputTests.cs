@@ -38,6 +38,47 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_ActorAsyncMethod_ReturnsTaskWithAsyncSuffix()
+    {
+        // Shell-stub projection for Swift `actor` types: async instance methods
+        // emit as `Task<T> XxxAsync(...)` via the same async-wrapper pipeline as
+        // plain classes. Executor routing / unownedExecutor hop is a post-ship
+        // follow-up — this test pins the surface shape so the stub stays stable.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("WorkItem", moduleDecl);
+        parentDecl.IsActor = true;
+
+        var runMethod = CreateMethodDecl(
+            name: "run",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"),
+            isAsync: true,
+            throws: true,
+            methodType: MethodType.Instance);
+
+        var stopMethod = CreateMethodDecl(
+            name: "stop",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: TupleTypeSpec.Empty,
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (runCs, _) = EmitMethod(runMethod, typeDatabase);
+        var (stopCs, _) = EmitMethod(stopMethod, typeDatabase);
+
+        Assert.Contains("public virtual Task<long> RunAsync(", runCs);
+        Assert.Contains("return _tcs.Task;", runCs);
+
+        Assert.Contains("public virtual Task StopAsync(", stopCs);
+    }
+
+    [Fact]
     public void Emit_CompletionHandlerOverload_SkippedWhenNativeAsyncCollides()
     {
         // Scenario: A native async method `collect(amount: Int) async -> String` has already

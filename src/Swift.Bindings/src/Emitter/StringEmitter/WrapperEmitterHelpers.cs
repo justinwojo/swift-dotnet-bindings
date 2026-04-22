@@ -178,6 +178,46 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
+    /// Builds a Swift where clause of same-type constraints on the parent type's generic
+    /// parameters (e.g. <c>" where DonationInfo == TipKit.Tips.EmptyDonation"</c>), parsed
+    /// from <see cref="MethodDecl.RawGenericSig"/>. Emitted on the wrapper's
+    /// <c>extension ... { }</c> line so that the body call resolves to the correct
+    /// specialization. Without this, a specialized wrapper (e.g. Tips.Event.donate()
+    /// requiring <c>DonationInfo == EmptyDonation</c>) emitted in a generic extension
+    /// fails Swift type-checking because the constraint is never re-established.
+    /// Returns an empty string when no parent same-type constraint applies.
+    /// </summary>
+    public static string BuildParentSameTypeExtensionWhere(MethodDecl methodDecl, TypeDecl? parentType)
+    {
+        if (parentType?.GenericParameters == null || parentType.GenericParameters.Count == 0)
+            return string.Empty;
+        var sig = methodDecl.RawGenericSig;
+        if (string.IsNullOrEmpty(sig))
+            return string.Empty;
+
+        var whereStart = sig.IndexOf(" where ", StringComparison.Ordinal);
+        if (whereStart < 0)
+            return string.Empty;
+        var afterWhere = sig.Substring(whereStart + " where ".Length).TrimEnd('>');
+
+        var parentParamNames = parentType.GenericParameters
+            .Select(p => p.SugaredTypeName)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var clauses = new List<string>();
+        foreach (var rawClause in afterWhere.Split(','))
+        {
+            var clause = rawClause.Trim();
+            var match = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*==\s*(.+)$");
+            if (!match.Success) continue;
+            var paramName = match.Groups[1].Value;
+            if (!parentParamNames.Contains(paramName)) continue;
+            clauses.Add($"{paramName} == {match.Groups[2].Value.Trim()}");
+        }
+        return clauses.Count == 0 ? string.Empty : " where " + string.Join(", ", clauses);
+    }
+
+    /// <summary>
     /// Builds a Swift where clause from generic parameter constraints.
     /// Returns an empty string if no constraints exist, or " where T : Proto, U : Proto2" etc.
     /// </summary>

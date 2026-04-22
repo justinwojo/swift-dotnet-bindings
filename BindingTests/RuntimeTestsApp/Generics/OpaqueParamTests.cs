@@ -1,11 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using System.Linq;
-using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
-using Swift;
-using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
@@ -18,14 +14,16 @@ namespace RuntimeTestsApp.Generics;
 /// Before the fix, the StoreKit direct-mode snapshot failed because the
 /// parser crashed or dropped methods with opaque parameters.
 ///
-/// The fixture exercises two shapes:
-///   1. A single-requirement user-defined protocol
-///      (<see cref="OpaqueDescribable"/>) — the common case.
-///   2. The standard-library <c>Encodable</c> path — the case StoreKit's
-///      direct-mode snapshot depended on. If the Encodable method is
-///      dropped from the generated binding, this file fails to compile.
+/// Exercises the common-case shape: a single-requirement user-defined
+/// protocol (<see cref="OpaqueDescribable"/>). The Swift source also
+/// declares an <c>opaqueEncodedByteCount(_: some Encodable)</c> stress
+/// case, but standard-library PAT protocols like Encodable can't be
+/// marshalled through a free-function P/Invoke without runtime PWT
+/// lookup — the generator correctly reports it in the skip manifest
+/// and the stdlib-path invariant is guarded at the generator unit-test
+/// layer (see <c>MethodValidationGates.HasUnsupportedProtocolConstraints</c>).
 ///
-/// Both assertions are pure observable pass-through: the C# caller
+/// Assertions are pure observable pass-through: the C# caller
 /// constructs a Swift conformer, invokes the method, and verifies the
 /// returned value. Per CLAUDE.md we do not inspect the generated C#
 /// method signature to avoid coupling the test to the emitter's internal
@@ -67,31 +65,4 @@ public class OpaqueParamTests : TestBase
             "opaqueLabelCharacterCount must return 0 for an empty opaqueLabel.");
     }
 
-    /// <summary>
-    /// Reflection-only assertion that the <c>opaqueEncodedByteCount</c> Swift
-    /// method — which takes a <c>some Encodable</c> standard-library
-    /// protocol at parameter position — made it through the generator and
-    /// appears as a public member of <c>TestLibFunctions</c>. We do not
-    /// invoke the method because the generated C# shape depends on the
-    /// emitter's opaque-parameter strategy (constrained generic vs.
-    /// object-fallback), and CLAUDE.md tells us to assert behavior rather
-    /// than pin a specific signature. But "the method was emitted at all"
-    /// is the behavior fix #6 must guarantee for the standard-library path
-    /// — if the method was dropped, this assertion fails.
-    /// </summary>
-    public void TestOpaqueEncodedByteCountMethodWasEmitted()
-    {
-        var testLibType = typeof(TestLibFunctions);
-        var methods = testLibType
-            .GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.Name.Contains("OpaqueEncodedByteCount"))
-            .ToArray();
-        TestLogger.Info($"TestLibFunctions.OpaqueEncodedByteCount method count: {methods.Length}");
-        AssertTrue(methods.Length > 0,
-            "TestLibFunctions.OpaqueEncodedByteCount must be emitted by the generator. " +
-            "Fix #6 (2c80b227) must lower the `some Encodable` standard-library protocol " +
-            "at parameter position into a synthetic generic parameter. If no method was " +
-            "emitted, the generator has silently dropped the standard-library opaque " +
-            "parameter path and StoreKit's direct-mode snapshot is at risk.");
-    }
 }

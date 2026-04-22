@@ -2265,8 +2265,10 @@ namespace BindingsGeneration
                 var ancestorAvailability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                     null, _env.ParentDecl);
                 var extensionAvailabilityLines = BuildAvailabilityLines(ancestorAvailability, "");
+                var extensionWhereClause = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
+                    _env.MethodDecl, _env.ParentDecl as TypeDecl);
                 return $$"""
-            {{extensionAvailabilityLines}}extension {{parentTypeName!.ModuleQualifiedName}} {
+            {{extensionAvailabilityLines}}extension {{parentTypeName!.ModuleQualifiedName}}{{extensionWhereClause}} {
             {{funcBody}}
             }
             """;

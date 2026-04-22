@@ -40,7 +40,7 @@ partial class Build
     // ============================================================
 
     Target Validate => _ => _
-        .After(Clean, Fetch, BindingTests)
+        .After(Clean, Fetch, BindingTests, ValidateBlastRadius)
         .Triggers(PackGate)
         .Executes(async () =>
         {

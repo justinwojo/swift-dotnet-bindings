@@ -17,6 +17,7 @@ partial class Build
 
     Target UnitTests => _ => _
         .DependsOn(Compile)
+        .After(ValidateAppleTypesManifest)
         .Executes(() =>
         {
             DotNetTest(s => s
@@ -59,6 +60,7 @@ partial class Build
 
     Target Test => _ => _
         .DependsOn(UnitTests, RuntimeUnitTests, AnalyzerTests)
+        .After(ValidateAppleTypesManifest)
         .ProceedAfterFailure()
         .Executes(() =>
         {

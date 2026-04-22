@@ -19,6 +19,34 @@ namespace Swift;
 public interface ISwiftHashable { }
 
 /// <summary>
+/// Marker interface for Swift's <c>Equatable</c> protocol. The protocol has a <c>Self</c>
+/// requirement so it cannot be satisfied by a concrete C# interface; the generator emits
+/// the PWT via the descriptor-symbol path and drops the constraint from C# where clauses.
+/// This marker exists so the XML database entry has a valid managed type to point at.
+/// </summary>
+public interface ISwiftEquatable { }
+
+/// <summary>
+/// Marker interface for Swift's <c>Comparable</c> protocol. Same rationale as
+/// <see cref="ISwiftEquatable"/> — present for the XML managedTypeName reference; not used
+/// as a real C# generic constraint.
+/// </summary>
+public interface ISwiftComparable { }
+
+/// <summary>
+/// Marker interface for Swift's <c>Decodable</c> protocol. PAT-like (associated decoder
+/// context); not projected as a usable C# interface, present only as a managed type
+/// reference for the XML database entry.
+/// </summary>
+public interface ISwiftDecodable { }
+
+/// <summary>
+/// Marker interface for Swift's <c>Encodable</c> protocol. Same rationale as
+/// <see cref="ISwiftDecodable"/>.
+/// </summary>
+public interface ISwiftEncodable { }
+
+/// <summary>
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>

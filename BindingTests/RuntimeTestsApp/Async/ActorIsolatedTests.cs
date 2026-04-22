@@ -195,4 +195,40 @@ public class ActorIsolatedTests : TestBase
     }
 
     #endregion
+
+    #region WorkItem (async-throws at Swift source level — shell-stub)
+    // BlinkIDUX.CaptureService shape. See Actors.swift scope note: executor isolation
+    // is deferred; the wrapper dispatches through `Task { await self.method() }`.
+
+    public async Task TestWorkItem_RunIncrementsAcrossAwaits()
+    {
+        var item = Functions.CreateWorkItem();
+        var first = await WithTimeout(item.RunAsync(), DefaultAsyncTimeout);
+        AssertEqual(1, first, "First run should observe the 0→1 increment");
+
+        var second = await WithTimeout(item.RunAsync(), DefaultAsyncTimeout);
+        AssertEqual(2, second, "Second run should observe the 1→2 increment");
+
+        var observed = await WithTimeout(item.RunCountAsync(), DefaultAsyncTimeout);
+        AssertEqual(2, observed, "runCount() should see both mutations");
+        item.Dispose();
+    }
+
+    public async Task TestWorkItem_StopCausesSubsequentRunToThrow()
+    {
+        var item = Functions.CreateWorkItem();
+        await WithTimeout(item.StopAsync(), DefaultAsyncTimeout);
+        try
+        {
+            await WithTimeout(item.RunAsync(), DefaultAsyncTimeout);
+            throw new AssertionException("Expected SwiftException after stop()");
+        }
+        catch (SwiftException ex)
+        {
+            TestLogger.Info($"WorkItem.RunAsync after StopAsync threw SwiftException: {ex.Message}");
+        }
+        item.Dispose();
+    }
+
+    #endregion
 }

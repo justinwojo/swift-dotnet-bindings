@@ -1956,5 +1956,25 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal("Int", record.RawValueTypeName);
     }
 
+    // --- CoreMedia.CMSampleBuffer (CFTypeRef-backed class, mirrors CTFont) ---
+    // Regression scaffold: without this entry, BlinkIDUX SampleBuffer and any
+    // property typed `CMSampleBuffer` silently tombstones the enclosing type.
+
+    [Fact]
+    public async Task LoadCoreMediaDatabase_CMSampleBuffer_ResolvesAsObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("CoreMediaDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("CoreMedia.CMSampleBuffer");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("CoreMedia", record!.CSharpTypeName.Namespace);
+        Assert.Equal("CMSampleBuffer", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.Equal("$sSo17CMSampleBufferRefa", record.MetadataAccessor);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+    }
+
     #endregion
 }

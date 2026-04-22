@@ -103,6 +103,13 @@ public static class GenericTypeEmitter
                     if (typeDatabase != null && HasMethodSelfTypeParams(typeDatabase, conformance.ConformanceTarget))
                         continue;
 
+                    // Skip protocols whose Self is a required associated type (Equatable,
+                    // Hashable, Comparable, …). These cannot be expressed as a non-generic
+                    // C# interface constraint; the PWT arg still flows via descriptor symbol
+                    // through PInvokeHelperEmitter's runtime-descriptor path.
+                    if (typeDatabase != null && HasSelfRequirement(typeDatabase, conformance.ConformanceTarget))
+                        continue;
+
                     // Skip cross-module protocol constraints not registered in TypeDatabase.
                     // Same-module protocols are always registered during module processing.
                     if (typeDatabase != null
@@ -199,6 +206,22 @@ public static class GenericTypeEmitter
         {
             return record.Kind == TypeRecordKind.Protocol &&
                    record.Flags.HasFlag(TypeRecordFlags.HasMethodSelfTypeParams);
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether a protocol has <c>Self</c> as a required associated type. The Swift
+    /// metadata accessor still expects a witness-table argument for these, but they cannot
+    /// be projected as a usable C# interface constraint — routed through the descriptor
+    /// symbol path in <see cref="PInvokeHelperEmitter"/> instead.
+    /// </summary>
+    private static bool HasSelfRequirement(ITypeDatabase typeDatabase, SwiftTypeName protocolTypeName)
+    {
+        if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+        {
+            return record.Kind == TypeRecordKind.Protocol &&
+                   record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
         }
         return false;
     }

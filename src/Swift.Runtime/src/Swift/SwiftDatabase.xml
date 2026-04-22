@@ -88,5 +88,45 @@
         <entity managedNameSpace="Swift" managedTypeName="AnyHashable">
             <typedeclaration kind="struct" name="AnyHashable" module="Swift" mangledName="$ss11AnyHashableV" frozen="false" requiresMemoryManagement="true" />
         </entity>
+        <!--
+            Stdlib protocols registered so FlattenConformances can emit a runtime PWT arg
+            for generic params constrained on these protocols (instead of skipping the
+            type with IndeterminatePwtShape). None project as a C# interface constraint —
+            Equatable/Hashable/Comparable have HasSelfRequirement (Self appears in requirements,
+            unsatisfiable by a concrete C# interface); Decodable/Encodable have
+            HasAssociatedTypes (decoder/encoder contexts). GenericTypeEmitter.GetWhereClause
+            filters both sets, so the constraint is dropped from the C# where clause but the
+            witness-table arg still flows through the descriptor-symbol path.
+        -->
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftEquatable">
+            <typedeclaration kind="protocol" name="Equatable" module="Swift" mangledName="$sSQ"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasSelfRequirement="true"
+                             protocolDescriptorSymbol="$sSQMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftHashable">
+            <typedeclaration kind="protocol" name="Hashable" module="Swift" mangledName="$sSH"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasSelfRequirement="true"
+                             protocolDescriptorSymbol="$sSHMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftComparable">
+            <typedeclaration kind="protocol" name="Comparable" module="Swift" mangledName="$sSL"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasSelfRequirement="true"
+                             protocolDescriptorSymbol="$sSLMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftDecodable">
+            <typedeclaration kind="protocol" name="Decodable" module="Swift" mangledName="$sSe"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasAssociatedTypes="true"
+                             protocolDescriptorSymbol="$sSeMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftEncodable">
+            <typedeclaration kind="protocol" name="Encodable" module="Swift" mangledName="$sSE"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasAssociatedTypes="true"
+                             protocolDescriptorSymbol="$sSEMp" />
+        </entity>
     </entities>
 </swifttypedatabase>

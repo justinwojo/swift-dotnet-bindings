@@ -6,5 +6,23 @@
             <typedeclaration kind="struct" name="CMTime" module="CoreMedia"
                              frozen="true" requiresMemoryManagement="false" />
         </entity>
+        <!--
+            CMSampleBuffer — Swift reference-type wrapper for the CoreMedia CMSampleBufferRef
+            CFTypeRef. Projected as the existing .NET MAUI CoreMedia.CMSampleBuffer INativeObject,
+            analogous to CoreText.CTFont's entry. Without this, properties typed CMSampleBuffer
+            (e.g. BlinkIDUX.SampleBuffer.buffer) fall into the MemberEmissionValidator unresolved
+            branch and the enclosing type silently tombstones.
+        -->
+        <entity managedNameSpace="CoreMedia" managedTypeName="CMSampleBuffer" objcBridged="true">
+            <!--
+                Swift imports the CoreMedia CFTypeRef as `CMSampleBufferRef` (length 17) and
+                exposes `CMSampleBuffer` as a typealias. The binary's metadata symbols use the
+                canonical `CMSampleBufferRef` form (verified via `xcrun swift-demangle` and the
+                emitted IR: `@"$sSo17CMSampleBufferRefaMa"`).
+            -->
+            <typedeclaration kind="class" name="CMSampleBuffer" module="CoreMedia"
+                             mangledName="$sSo17CMSampleBufferRefa" frozen="false"
+                             requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
     </entities>
 </swifttypedatabase>

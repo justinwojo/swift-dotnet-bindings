@@ -162,3 +162,46 @@ public func createAsyncProcessor() -> AsyncProcessor {
 public func createActorVault() -> ActorVault {
     return ActorVault()
 }
+
+// MARK: - Actor with Already-Async Throwing Methods
+// BlinkIDUX.CaptureService shape: actor methods declared `async throws` at the Swift source
+// level (not sync-normalized by the parser). Exercises the async-throwing wrapper path on
+// an actor receiver.
+//
+// Scope note: this fixture is a shell-stub to surface the API shape. Executor semantics
+// (unownedExecutor / actor-isolation hop on entry) are deferred to a post-release follow-up
+// — the @_cdecl wrapper today dispatches through a plain `Task { await self.method() }`
+// instead of hopping to the actor's serial executor. Do not treat this as a full actor
+// isolation implementation.
+
+public enum WorkItemError: Error {
+    case cancelled
+}
+
+public actor WorkItem {
+    private var runs: Int32 = 0
+    private var stopped: Bool = false
+
+    public init() {}
+
+    /// Already-async throwing isolated method — matches CaptureService.start().
+    public func run() async throws -> Int32 {
+        if stopped { throw WorkItemError.cancelled }
+        runs += 1
+        return runs
+    }
+
+    /// Already-async non-throwing isolated method — matches CaptureService.stop().
+    public func stop() async {
+        stopped = true
+    }
+
+    /// Isolated getter for the current run count.
+    public func runCount() -> Int32 {
+        return runs
+    }
+}
+
+public func createWorkItem() -> WorkItem {
+    return WorkItem()
+}

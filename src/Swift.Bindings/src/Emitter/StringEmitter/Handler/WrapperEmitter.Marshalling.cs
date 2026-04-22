@@ -96,6 +96,8 @@ namespace BindingsGeneration
             var extensionAvailabilityPrefix = extensionAvailabilityLines.Length > 0
                 ? extensionAvailabilityLines + "\n            "
                 : string.Empty;
+            var extensionWhereClause = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
+                _env.MethodDecl, _env.ParentDecl as TypeDecl);
 
             if (parentTypeName != null)
             {
@@ -107,7 +109,7 @@ namespace BindingsGeneration
                     else if (propertyName.EndsWith("_Set")) propertyName = propertyName.Substring(0, propertyName.Length - 4);
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     swiftWriter.WriteLine($$"""
-            {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}} {
+            {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}}{{extensionWhereClause}} {
                 {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}var _sb_{{propertyName}}: {{anyReturnType}} {
                     return {{(!isInstanceMethod ? parentTypeName.ModuleQualifiedName + "." : "self.")}}{{propertyName}}
@@ -121,7 +123,7 @@ namespace BindingsGeneration
                     var staticModifier = !isInstanceMethod ? "static " : "";
                     var callPrefix = !isInstanceMethod ? $"{parentTypeName.ModuleQualifiedName}." : "self.";
                     swiftWriter.WriteLine($$"""
-            {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}} {
+            {{extensionAvailabilityPrefix}}extension {{parentTypeName.ModuleQualifiedName}}{{extensionWhereClause}} {
                 {{mainActorAttr}}@_silgen_name("{{NameProvider.GetMangledName(_env.MethodDecl)}}")
                 public {{staticModifier}}func {{NameProvider.GetPInvokeName(_env.MethodDecl)}}{{genericParams}}({{parameters}}) -> {{anyReturnType}}{{whereClause}} {
                     {{extDerefCode}}return {{callPrefix}}{{_env.MethodDecl.Name}}({{methodCallArgs}})

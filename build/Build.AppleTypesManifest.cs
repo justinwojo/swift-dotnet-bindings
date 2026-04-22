@@ -23,6 +23,7 @@ partial class Build
         RootDirectory / "src" / "Swift.Bindings.Sdk" / "tools" / "apple-types-manifest" / "manifest.json";
 
     Target ValidateAppleTypesManifest => _ => _
+        .DependsOn(Compile)
         .Description("Probe the live Apple SDK for every Apple-types manifest entry; detect VWT drift.")
         .Executes(() =>
         {

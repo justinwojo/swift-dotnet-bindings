@@ -40,6 +40,7 @@ partial class Build
 
     Target PackGate => _ => _
         .DependsOn(Compile)
+        .After(ValidateBlastRadius)
         .Executes(() =>
         {
             var scratch = PackGateScratch;

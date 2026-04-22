@@ -34,7 +34,7 @@ partial class Build
     // ============================================================
 
     Target BuildXcframework => _ => _
-        .After(Clean, Fetch)
+        .After(Clean, Fetch, ValidateAppleTypesManifest)
         .Executes(() => RunBuildXcframework());
 
     void RunBuildXcframework(ApplePlatform? platformOverride = null, bool? includeDeviceOverride = null)
@@ -757,7 +757,7 @@ partial class Build
         });
 
     Target BindingTestsStrict => _ => _
-        .After(Clean, BindingTests, Validate)
+        .After(Clean, BindingTests, Validate, PackGate)
         .Executes(() =>
         {
             ForceStrict = true;
@@ -779,6 +779,7 @@ partial class Build
     // HEAD so the gate has no side effects; on failure the freshly-generated measurement
     // files are left in place for inspection.
     Target ValidateBlastRadius => _ => _
+        .After(BindingTests)
         .Executes(() =>
         {
             var measurementsDir = BindingTestsDir / "BlastRadius.Baseline" / "measurements";
