@@ -114,4 +114,52 @@ public class CsmGenericParentTests : TestBase
         AssertEqual(3, (int)container.CountSeen(probe),
             "countSeen(byte[]) after 3 appends must witness the mutating-self write-back");
     }
+
+    // --- ElementBoundContainer: cross-level same-type constraint `T == S.Element` filter.
+    // `appendAll<S: Sequence>(_: S) where S.Element == T` is the Issue 3 regression guard.
+    // Without the cross-level coupling fix in ConcreteSpecializationEngine, the cartesian
+    // emits all 3 (parent T: SongItem/AlbumItem/ArtistItem) × 5 (Sequence hint conformers)
+    // = 15 pairings, including invalid ones like `appendAll<Data>` on `ElementBoundContainer
+    // <SongItem>` (Data.Element is UInt8, not SongItem) that Swift then rejects. The fix
+    // records the coupling on S so pairing narrows to exactly one Sequence conformer per T
+    // — [SongItem] for T=SongItem, [AlbumItem] for T=AlbumItem, etc. That's what's being
+    // witnessed here: the test calls are only callable if the correctly-filtered AppendAll
+    // extension was emitted. countSeen has no same-type constraint and must still emit the
+    // full DataProtocol cartesian (Data + byte[] per parent).
+
+    public void TestElementBoundContainerSongItem_AppendAllAndCountSeen()
+    {
+        var container = new ElementBoundContainer<SongItem>();
+        using var items = new Swift.SwiftArray<SongItem>(new[] { new SongItem(), new SongItem() });
+        container.AppendAll(items);
+        var probe = global::Swift.Foundation.Data.FromByteArray(new byte[] { 0 });
+        AssertEqual(2, (int)container.CountSeen(probe),
+            "countSeen after AppendAll of 2 items must observe the mutating-self write-back");
+    }
+
+    public void TestElementBoundContainerAlbumItem_CountSeenBothConformers()
+    {
+        var container = new ElementBoundContainer<AlbumItem>();
+        using var items = new Swift.SwiftArray<AlbumItem>(new[] { new AlbumItem(), new AlbumItem(), new AlbumItem() });
+        container.AppendAll(items);
+
+        // Both countSeen overloads (Data and byte[]) must have been emitted — no
+        // same-type constraint on D, so both pair for every parent conformer.
+        var dataProbe = global::Swift.Foundation.Data.FromByteArray(new byte[] { 7 });
+        AssertEqual(3, (int)container.CountSeen(dataProbe),
+            "countSeen(Data) must be emitted for ElementBoundContainer<AlbumItem>");
+        byte[] byteProbe = { 9 };
+        AssertEqual(3, (int)container.CountSeen(byteProbe),
+            "countSeen(byte[]) must be emitted for ElementBoundContainer<AlbumItem>");
+    }
+
+    public void TestElementBoundContainerArtistItem_AppendAll()
+    {
+        var container = new ElementBoundContainer<ArtistItem>();
+        using var items = new Swift.SwiftArray<ArtistItem>(new[] { new ArtistItem() });
+        container.AppendAll(items);
+        byte[] probe = { 0 };
+        AssertEqual(1, (int)container.CountSeen(probe),
+            "countSeen after AppendAll of 1 ArtistItem must return 1");
+    }
 }

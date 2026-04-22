@@ -169,3 +169,33 @@ public struct GenericContainer<T: SearchableItem> {
         return _count
     }
 }
+
+// MARK: - CSM Pairing Filter (Issue 3 regression guard)
+// Exercises the bilateral pairing filter that rejects method-generic conformers whose
+// associated types don't satisfy a same-type constraint against the parent generic.
+// Without the filter, the planner enumerates the full cartesian — 3 parents (SongItem,
+// AlbumItem, ArtistItem) × 6 Sequence conformers = 18 pairings — and emits wrappers
+// like `ElementBoundContainer<SongItem>.appendAll<[UInt8]>` whose `where S.Element == T`
+// constraint is unsatisfiable. The emitted Swift `@_cdecl` body calls through to the
+// constrained method and the Swift compiler rejects it: "cannot convert value of type
+// 'UInt8' to expected element type 'SongItem'". Filter keeps only the 3 matching pairs
+// ([SongItem]×SongItem, [AlbumItem]×AlbumItem, [ArtistItem]×ArtistItem).
+public struct ElementBoundContainer<T: SearchableItem> {
+    private var _count: Int = 0
+
+    public init() {}
+
+    /// Same-type constraint `S.Element == T` forces the pairing filter: only Sequence
+    /// conformers whose `Element` matches the concrete parent T can survive.
+    public mutating func appendAll<S: Sequence>(_ items: S) where S.Element == T {
+        for _ in items { _count += 1 }
+    }
+
+    /// Generic witness for _count. Non-generic methods on a generic struct crash Mono
+    /// JIT (see GenericContainer.count()), so expose the state through a method-generic
+    /// read that also routes through the CSM extension pipeline.
+    public func countSeen<D: DataProtocol>(_ probe: D) -> Int {
+        _ = probe.count
+        return _count
+    }
+}

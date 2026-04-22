@@ -473,7 +473,10 @@ All three are emitter-surface fixes in nearby handlers with small, independent d
 - **BindingTests additions**: (a) payload enum with `UIImage?` payload — assert `.Replace(UIImage?)` static factory exists; (b) fixtures for each SIMD projection, assert C# compiles and values round-trip.
 - **Gates**: `nuke test` + `nuke binding-tests` + `nuke validate`. Kingfisher baseline clears.
 
-### Session 2 — Specializer correctness (Issues 3, 4)
+### Session 2 — Specializer correctness (Issues 3, 4) — ✅ landed at `717fc8dd` + `7e0b778a`
+
+> **Outcome:** macOS + MacCatalyst flipped clean for both CryptoKit and MusicKit. iOS + tvOS `swift_compile: fail` status remains, but diagnosis confirmed the wrapper itself compiles — the failure is `CheckSwiftWrapper` rejecting the device slice for lack of an Info.plist. That's Issue 1 (Session 4), not Session 2. Session 2 also shipped a bonus fix: cross-level same-type-constraint filter in the CSM cartesian (caught `S.Element == T` couplings that were emitting uncompilable Swift).
+
 
 Both live in the same `@_cdecl` wrapper specializer pass; fixing them together avoids re-reading the same code twice.
 

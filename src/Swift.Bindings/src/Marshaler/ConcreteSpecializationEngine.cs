@@ -606,6 +606,35 @@ public class ConcreteSpecializationEngine
                 }
             }
 
+            // Cross-level coupling: `τ_0_0 == τ_1_0.Element` (parent T constrained to S's
+            // associated type) lives on the METHOD-LEVEL GenericArgumentDecl for τ_0_0
+            // (not the struct's τ_0_0, whose generic signature only carries the struct's
+            // own where-clause). It's stored on GenericConformances with Path=["τ_0_0"]
+            // and ConformanceTarget="τ_1_0.Element" (Module="τ_1_0", Name="Element").
+            // Neither ResolveParentSpecializableParams (sees only struct-level conformances)
+            // nor the method-own loops above (iterate ownParams only) pick it up, so
+            // without this block the coupling goes unrecorded and the cartesian emits
+            // invalid pairings (e.g. T=SongItem with S=Data whose Element is UInt8, not
+            // SongItem) that Swift then rejects with "requires the types 'SongItem' and
+            // 'Data.Element' (aka 'UInt8') be equivalent". Record the coupling on the
+            // method-own param (S) so ConformerPairingSatisfiesCoupling can enforce it.
+            foreach (var methodLevelParam in method.GenericParameters)
+            {
+                var methodLevelName = methodLevelParam.TypeName;
+                if (!parentParamNames.Contains(methodLevelName)) continue;
+
+                foreach (var c in methodLevelParam.GenericConformances)
+                {
+                    if (c.Kind != ConformanceKind.ConcreteType) continue;
+                    if (c.Path.Length != 1) continue;
+                    var target = c.ConformanceTarget;
+                    if (string.IsNullOrEmpty(target.Module)) continue;
+                    if (!ownParamNames.Contains(target.Module)) continue;
+                    if (target.Module == methodLevelName) continue;
+                    AddCoupling(target.Module, target.Name, methodLevelName);
+                }
+            }
+
             var specializableParams = new List<SpecializableParam>();
 
             foreach (var param in ownParams)

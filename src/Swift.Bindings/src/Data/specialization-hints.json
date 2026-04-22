@@ -35,7 +35,10 @@
         { "swiftType": "Swift.Array<MusicKit.MusicVideo>", "csharpType": "Swift.SwiftArray<MusicKit.MusicVideo>", "swiftLiteral": "[MusicKit.MusicVideo]", "associatedTypes": { "Element": "MusicKit.MusicVideo" }, "modules": ["MusicKit"] },
         { "swiftType": "Swift.Array<MusicKit.Playlist>", "csharpType": "Swift.SwiftArray<MusicKit.Playlist>", "swiftLiteral": "[MusicKit.Playlist]", "associatedTypes": { "Element": "MusicKit.Playlist" }, "modules": ["MusicKit"] },
         { "swiftType": "Swift.Array<MusicKit.Song>", "csharpType": "Swift.SwiftArray<MusicKit.Song>", "swiftLiteral": "[MusicKit.Song]", "associatedTypes": { "Element": "MusicKit.Song" }, "modules": ["MusicKit"] },
-        { "swiftType": "Swift.Array<MusicKit.Track>", "csharpType": "Swift.SwiftArray<MusicKit.Track>", "swiftLiteral": "[MusicKit.Track]", "associatedTypes": { "Element": "MusicKit.Track" }, "modules": ["MusicKit"] }
+        { "swiftType": "Swift.Array<MusicKit.Track>", "csharpType": "Swift.SwiftArray<MusicKit.Track>", "swiftLiteral": "[MusicKit.Track]", "associatedTypes": { "Element": "MusicKit.Track" }, "modules": ["MusicKit"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.SongItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.SongItem>", "swiftLiteral": "[SongItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.SongItem" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.AlbumItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.AlbumItem>", "swiftLiteral": "[AlbumItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.AlbumItem" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.ArtistItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.ArtistItem>", "swiftLiteral": "[ArtistItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.ArtistItem" }, "modules": ["SwiftBindingsTestLib"] }
       ]
     },
     {

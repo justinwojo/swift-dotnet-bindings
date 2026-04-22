@@ -1,5 +1,5 @@
 {
-  "git_sha": "057c5ad4",
+  "git_sha": "9a34d469",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57275,
+        "lines": 55636,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51509,
+        "lines": 49870,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51692,
+        "lines": 50053,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56586,
+        "lines": 54947,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
@@ -922,9 +922,9 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1520,
-      "fail": 12,
-      "skip": 41,
+      "pass": 1527,
+      "fail": 0,
+      "skip": 53,
       "crash": 0
     },
     "device": {
