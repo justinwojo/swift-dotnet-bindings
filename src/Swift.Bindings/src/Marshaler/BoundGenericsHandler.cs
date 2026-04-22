@@ -1068,9 +1068,13 @@ public class BoundGenericsHandler
         IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
         IReadOnlyList<GenericArgumentDecl>? methodGenericParams = null)
     {
-        if (TypeSpecHelpers.IsGenericTypeParameter(typeArgument))
+        if (TypeSpecHelpers.IsGenericTypeParameter(typeArgument)
+            || IsDeclaredGenericParam(typeArgument, parentTypeGenericParams)
+            || IsDeclaredGenericParam(typeArgument, methodGenericParams))
         {
-            // A generic type parameter (e.g., τ_0_0 / T0) satisfies a constraint if:
+            // A generic type parameter (e.g., τ_0_0 / T0 or a sugared multi-char name like
+            // 'MusicItemType' that matches a parent/method generic parameter declaration)
+            // satisfies a constraint if:
             // 1. The parent type's generic declaration includes that constraint, OR
             // 2. The method's generic parameters include a conditional extension constraint
             //    for that protocol (and the protocol is emittable — no associated types or Self).
@@ -1114,6 +1118,35 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// Checks whether a TypeSpec references a generic parameter declared by the supplied list.
+    /// Matches by <see cref="NamedTypeSpec.Name"/> against <see cref="GenericArgumentDecl.TypeName"/>.
+    /// This catches multi-character sugared names (e.g. Swift-source names like 'MusicItemType')
+    /// that <see cref="TypeSpecHelpers.IsGenericTypeParameter(string)"/> cannot detect by shape alone.
+    /// </summary>
+    private static bool IsDeclaredGenericParam(TypeSpec typeArgument, IReadOnlyList<GenericArgumentDecl>? declaredParams)
+    {
+        if (declaredParams == null || declaredParams.Count == 0)
+            return false;
+
+        if (typeArgument is not NamedTypeSpec named)
+            return false;
+
+        if (named.GenericParameters.Count != 0 || named.InnerType != null)
+            return false;
+
+        var name = named.Name;
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        foreach (var param in declaredParams)
+        {
+            if (param.TypeName == name || param.SugaredTypeName == name)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Checks whether a generic type parameter satisfies a protocol constraint based on
     /// the parent type's generic declarations. When no parent type generic parameters are
     /// available (e.g., free functions), the check is permissive and returns true.
@@ -1137,8 +1170,12 @@ public class BoundGenericsHandler
 
         var paramName = typeArgument is NamedTypeSpec namedArg ? namedArg.Name : typeArgument.ToString();
 
-        // Find the matching generic parameter in the parent type's declarations
-        var matchingParam = parentTypeGenericParams.FirstOrDefault(p => p.TypeName == paramName);
+        // Find the matching generic parameter in the parent type's declarations.
+        // Match on both TypeName (ABI internal, e.g. τ_0_0) and SugaredTypeName
+        // (source-level name, e.g. 'MusicItemType') since a type-argument reference in a
+        // parsed TypeSpec may use either form depending on the ABI capture.
+        var matchingParam = parentTypeGenericParams.FirstOrDefault(
+            p => p.TypeName == paramName || p.SugaredTypeName == paramName);
         if (matchingParam == null)
         {
             // The type parameter doesn't belong to the parent type (e.g., a method-level

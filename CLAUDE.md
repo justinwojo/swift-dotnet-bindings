@@ -1,136 +1,87 @@
 # Claude Code Guide for Swift Bindings
 
-## Project Overview
-
-Experimental Swift/.NET interop project. Generates C# bindings from compiled Swift libraries (.dylib + ABI JSON) for .NET 10.0 on Apple platforms. Originally Microsoft, now maintained by Justin Wojciechowski. MIT License.
+Swift/.NET interop: generates C# bindings from compiled Swift libraries (`.dylib` + ABI JSON) for .NET 10.0 on Apple platforms. MIT licensed, maintained by Justin Wojciechowski.
 
 ## Repository Structure
 
-- `build/` — Nuke Build targets (C#): compile, test, validate, pack, runtime tests
+- `build/` — Nuke Build targets (C#) + `validation-libraries.json` + `scripts/` (e.g. `coverage-report.py`)
 - `src/Swift.Bindings/src/` — Generator: Parser → TypeDatabase → Marshaler → Emitter
-- `src/Swift.Bindings.Sdk/` — MSBuild SDK package (`SwiftBindings.Sdk`): `Sdk.props`, `Sdk.targets`
-- `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` project template
-- `src/Swift.Runtime/src/Swift/` — Runtime: SwiftString, SwiftArray, SafeHandle, ARC (NuGet: `SwiftBindings.Runtime`)
-- `BindingTests/` — Comprehensive test library + runtime tests (Simulator + Device/NativeAOT)
-- `build/validation-libraries.json` — Library validation manifest (90 targets across 46 libraries)
-- `build/scripts/` — `coverage-report.py` (coverage matrix), `ci/` (CI orchestrator scripts)
-- `src/docs/` — Internal design docs, status, known issues
-- Public-facing documentation lives in the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) (separate repo)
+- `src/Swift.Bindings.Sdk/` — MSBuild SDK (`SwiftBindings.Sdk`): `Sdk.props`, `Sdk.targets`
+- `src/Swift.Bindings.Templates/` — `dotnet new swift-binding` template
+- `src/Swift.Runtime/src/Swift/` — Runtime library (NuGet: `SwiftBindings.Runtime`)
+- `BindingTests/` — End-to-end test library + runtime tests (Simulator + Device/NativeAOT)
+- `src/docs/` — Internal design docs, roadmap, known issues
+- Public docs: [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) (separate repo)
 
 ## Building & Testing
 
-**Always use `nuke <target>`, not raw commands.**
+**Always use `nuke <target>`, not raw commands.** For slow targets, pipe to a temp file (`2>&1 | tee /tmp/<name>.txt`) and Read it — never re-run a slow command just to see a different slice of output.
 
-**IMPORTANT: Slow commands (`nuke test` ~2 min, `nuke binding-tests` ~5 min, `nuke runtime-tests-simulator` ~3 min, `nuke runtime-tests-device` ~5 min, `nuke validate` ~1 min) — ALWAYS pipe to a temp file with `2>&1 | tee /tmp/<name>-results.txt`. Then use the Read tool on the temp file to inspect results. This avoids re-running slow commands just to see different slices of output. NEVER run a slow command twice.**
+| Target | Time | Purpose |
+|---|---|---|
+| `nuke compile` | fast | Build the project |
+| `nuke test` | ~2 min | Unit + integration tests |
+| `nuke validate` | ~2 min | Compile gate across real-world libs. Flags: `--tier N`, `--filter X` |
+| `nuke fetch` | — | Download xcframeworks (first time only) |
+| `nuke binding-tests` | ~2 min | Full pipeline: rebuild xcframework + regenerate bindings + Simulator (Mono JIT). `--strict` to fail on non-zero generator exit |
+| `nuke runtime-tests-simulator` | ~2 min | Simulator only (Mono JIT). `--skip-regen` (~17s), `--skip-build` (~5s), `--class-filter NAME` |
+| `nuke runtime-tests-device` | ~2 min | Physical iOS device (NativeAOT) |
+| `nuke pack --version X.Y.Z` | fast | Build all 3 NuGet packages → `/tmp/swift-nuget/` |
 
-```bash
-nuke compile                          # Build the project
-nuke test                             # Run all unit + integration tests
-
-# BindingTests (after generator changes):
-nuke binding-tests                    # Full: xcframework + bindings + bridge
-nuke binding-tests --strict           # Strict mode (fail on non-zero generator exit)
-nuke runtime-tests-simulator          # Runtime on iOS Sim (Mono JIT)
-nuke runtime-tests-device             # Runtime on iOS device (NativeAOT)
-
-# Runtime test iteration flags:
-#   --skip-regen     Skip binding regeneration (incremental build, ~17s)
-#   --skip-build     Skip all builds, just install + run (~5s, use after --skip-regen)
-#   --class-filter NAME   Run only one test class
-
-# Real-world library validation:
-nuke fetch                            # Fetch xcframeworks (first time)
-nuke validate                         # Compile gate (all tiers, 90 targets)
-nuke validate --tier 1                # Tier 1 only (34 targets)
-nuke validate --tier 2                # Tier 2 only (54 targets)
-nuke validate --filter Nuke           # Validate one library
-
-# NuGet packaging:
-nuke pack --version 0.1.0             # Build all 3 NuGet packages
-```
-
-## Generator CLI Usage
+## Generator CLI
 
 ```bash
-# Recommended: --xcframework mode (auto-resolves ABI JSON, dylib, TBD, swiftinterface)
-dotnet run --project src/Swift.Bindings/src -- \
-  --xcframework /path/to/Library.xcframework \
-  -o /path/to/output/
-
-# Verify generated bindings compile. The CLI-generated csproj already sets
-# EnableDefaultCompileItems=false locally — DO NOT pass -p:EnableDefaultCompileItems=false
-# on the command line, that propagates as a global property and breaks Swift.Runtime
-# (which relies on default Compile items).
+dotnet run --project src/Swift.Bindings/src -- --xcframework /path/to/Library.xcframework -o /path/to/output/
 cd /path/to/output && dotnet build {Module}.Swift.iOS.csproj
 ```
 
-All CLI options (including manual mode, ObjC framework detection): `dotnet run --project src/Swift.Bindings/src -- --help`
+Do **NOT** pass `-p:EnableDefaultCompileItems=false` on the command line — it propagates as a global property and breaks `Swift.Runtime` (which relies on default Compile items). The generated csproj already sets it locally.
 
-## Validating Third-Party Libraries
+All options: `dotnet run --project src/Swift.Bindings/src -- --help`. Validation libraries declared in `build/validation-libraries.json`; for SPM-only libs use [`spm-to-xcframework`](https://github.com/justinwojo/spm-to-xcframework) — don't write custom build scripts.
 
-All validation libraries are declared in `build/validation-libraries.json`. For SPM-only libraries, use [`spm-to-xcframework`](https://github.com/justinwojo/spm-to-xcframework) to build xcframeworks — do NOT write custom build scripts.
+## NuGet & SDK
 
-## MSBuild SDK & NuGet Packages
-
-- SDK source: `src/Swift.Bindings.Sdk/Sdk/` (`Sdk.props`, `Sdk.targets`). Automates generate → compile → pack into `dotnet build`.
-- **NuGet package prefix is `SwiftBindings.*`** (not `Swift.*` — that's reserved by Microsoft). Assembly/namespace remains `Swift.Runtime`.
-- `nuke pack --version 0.1.1` builds all 3 packages. Output: `/tmp/swift-nuget/`.
-- SDK inter-framework deps use `<SwiftFrameworkDependency>` (requires `PackageId` + `PackageVersion` metadata).
+- **Package prefix is `SwiftBindings.*`** (not `Swift.*` — reserved by Microsoft). Assembly/namespace stays `Swift.Runtime`.
+- SDK source: `src/Swift.Bindings.Sdk/Sdk/`. Automates generate → compile → pack into `dotnet build`.
+- SDK inter-framework deps use `<SwiftFrameworkDependency>` with `PackageId` + `PackageVersion`.
 
 ## Working Guidelines
 
-### Testing layers (all three matter)
+- **No shortcuts.** Prefer the correct long-term solution over a patch that papers over the real issue — root-cause fixes, not symptom suppression, not "skip the failing test", not weakening an assertion to make it green. If you're unsure whether a fix addresses the root cause or whether a short-term workaround is acceptable, ask the user before proceeding.
+- Do NOT commit unless the user explicitly asks. Commit messages: subject + 1–3 sentences on the *why*. No numbered sub-changes, no "Session N handoff", no "Gates passing" footers. Don't reference session/phase numbers from docs.
+- **Never `git stash`** — linter hooks detect reverted files; `stash pop` discards changes silently.
+- When fixing a bug pattern, grep the whole codebase for ALL instances before finishing.
+- After generator changes, verify generated output compiles — don't assume.
+- Test files are organized by domain (closures, generics, …), not by milestone/session/SDK version.
+- **Assert behavior, not implementation.** Prefer semantic checks (`output contains CallConvCdecl`, round-trip value preserved) over exact string matches of generated code. Use `[Theory]`/`[InlineData]` for input-only variations.
+- **Bug-first testing**: when writing tests for untested code, read it first and look for bugs — don't assume existing behavior is correct. Flag suspected bugs explicitly.
+- **New work ships with tests.** Every new feature, bug fix, and behavioral change needs coverage at the right layer — unit tests for generator/emitter/parser logic, runtime tests for marshalling and P/Invoke behavior, BindingTests for end-to-end ABI validation. Match the layer to what actually exercises the change (see *BindingTests are the real end-to-end gate* below). "It's covered by an existing test" is only true if you can point at the assertion.
+- **Keep the main context clean**: offload exploration that needs >3 searches or spans multiple files to the `Explore` subagent.
 
-1. **Unit tests** (`nuke test`, ~2 min) — fast iteration on internal logic. Use per sub-task during development.
-2. **BindingTests** — **the true end-to-end validation.** Takes real Swift source, generates C# bindings, compiles the Swift wrapper, and runs the result on a real runtime. This catches ABI mismatches, calling convention bugs, and marshalling crashes that unit tests CANNOT detect. Unit tests alone are not sufficient.
-   - `nuke runtime-tests-simulator` — **default**: runs on iOS Simulator via Mono JIT. Use for most changes.
-   - `nuke runtime-tests-device` — runs on physical iOS device via NativeAOT. Use when changes touch calling conventions, struct marshalling, P/Invoke signatures, or anything where Mono and NativeAOT may behave differently (they have different bugs — see Known Issues). Also run after fixing any NativeAOT-skipped test.
-   - `nuke binding-tests` — full pipeline: rebuilds xcframework + regenerates bindings + runs simulator tests. Use when generator/emitter output changed.
-3. **Library validation** (`nuke validate`, ~1 min) — compile gate across ~90 real-world library targets. Catches C# and Swift wrapper compilation regressions across diverse API surfaces.
+### BindingTests are the real end-to-end gate
 
-**BindingTests are REQUIRED for generator, emitter, or runtime changes.** If your change affects how bindings are generated or how the runtime marshals data, you MUST add or verify BindingTests coverage. Don't rely on unit tests alone — a unit test can pass while the generated code crashes on a real device. Add Swift source to `BindingTests/Sources/SwiftBindingsTestLib/` and C# runtime tests to `BindingTests/RuntimeTestsApp/`, in the appropriate domain file. When fixing a bug from `nuke validate`, always reproduce the underlying Swift pattern in BindingTests so it's permanently covered.
+Unit tests catch logic bugs. **BindingTests** catch ABI mismatches, calling-convention bugs, and marshalling crashes that unit tests CANNOT. Required for generator, emitter, or runtime changes. Add Swift source to `BindingTests/Sources/SwiftBindingsTestLib/` and C# tests to the matching domain file in `BindingTests/RuntimeTestsApp/`. When fixing a `nuke validate` bug, reproduce the Swift pattern in BindingTests so it's permanently covered.
 
-- When fixing a bug pattern, grep the entire codebase for ALL instances before finishing.
-- After code gen changes, verify generated output compiles — don't assume correctness.
-- Do NOT commit unless the user explicitly asks.
-- **Keep commit messages short.** Subject line + 1-3 sentences on the *why*. The diff already shows the *what*. No numbered breakdowns of every sub-change, no "Session N handoff" sections, no "Gates: ... passing" footers, no per-file change logs. Only expand past a short paragraph when the change is genuinely sprawling and a future reader truly cannot reconstruct the intent from the diff.
-- **Mid-session iteration**: Use `nuke test` per sub-task for fast feedback. Save `nuke validate` and `nuke binding-tests` for end-of-session gates — running 5+ minute commands repeatedly destroys productivity.
-- NEVER use `git stash` — linter hooks detect reverted files and stash pop discards changes silently.
-- Test files are organized by domain, not by milestone/session/SDK version. Place tests in their respective domain test files (e.g., closure tests go in closure test files, not in a "phase-15" file).
-- **Test quality**: Assert behavior, not implementation details. Prefer assertions on semantic correctness (e.g., "output contains CallConvCdecl", "method compiles", "round-trip marshalling preserves value") over exact string matching of generated code. This prevents tests from breaking when emitter internals change (e.g., extracting helper methods) while the behavior remains correct. Use `[Theory]`/`[InlineData]` when multiple tests differ only in input values.
-- **Bug-first testing**: When writing tests for untested code, read and understand the code BEFORE writing tests. Don't assume existing behavior is correct — look for bugs first. Flag suspected bugs explicitly so they can be triaged.
-- **Keep the main context window clean**: Offload heavy searching, exploration, and multi-file investigation to subagents (`Explore` for codebase questions, general-purpose `Agent` for broader research). The main agent should stay focused on the goal, not get buried in raw file dumps and grep output. Reach for `Explore` whenever a task needs more than ~3 searches or spans multiple files — fewer compactions, sharper focus.
+`runtime-tests-simulator` is the default. Also run `runtime-tests-device` when changes touch calling conventions, struct marshalling, or P/Invoke signatures (Mono and NativeAOT have different bugs), and after fixing any NativeAOT-skipped test.
 
-### Final Validation Gates (only when code changes warrant it)
+### Final validation gates (run only what the change warrants)
 
-These gates are for sessions that make **code changes to the generator, runtime, emitter, or test infrastructure**. Skip them entirely for research-only sessions, documentation updates, investigation tasks, or work on external projects (e.g., repro projects).
-
-**When to run each gate:**
-
-| What changed | `nuke test` | `nuke validate` | `nuke binding-tests` / `nuke runtime-tests-simulator` |
+| What changed | `nuke test` | `nuke validate` | `binding-tests` / `runtime-tests-simulator` |
 |---|---|---|---|
-| Generator/emitter/parser | Yes | Yes | Yes (`nuke binding-tests`). Also `runtime-tests-device` if calling conventions or marshalling changed. |
-| Runtime (`Swift.Runtime`) | Yes | No (unless marshalling changed) | Yes (`nuke runtime-tests-simulator --skip-regen`). Also `runtime-tests-device` if marshalling changed. |
-| Test infrastructure only | No | No | Yes (the specific target) |
-| Documentation / research | No | No | No |
-| Repro project / external | No | No | No |
+| Generator / emitter / parser | Yes | Yes | Yes (`binding-tests`). Also device if calling conventions or marshalling changed. |
+| Runtime (`Swift.Runtime`) | Yes | Only if marshalling changed | Yes (`runtime-tests-simulator --skip-regen`). Device if marshalling changed. |
+| Test infrastructure only | No | No | Just the target touched |
+| Docs / research / external repos | No | No | No |
 
-If a gate fails, fix the regressions before signing off. Do not run gates that aren't relevant to the changes made.
-
-**Zero-regression policy**: Validation baselines must never regress. The `.validation-baseline.json` pass counts (both `cs_compile` and `swift_compile`), BindingTests runtime pass count, and unit test pass count must all be equal to or better than the baseline BEFORE committing. If a change causes any of these numbers to drop, the regression must be fixed before the commit goes in — no exceptions, no "will fix later." This applies to all commits, not just end-of-session gates.
+**Zero-regression policy**: `.validation-baseline.json` (`cs_compile` + `swift_compile`), BindingTests pass count, and unit test pass count must all be ≥ baseline before committing. No "will fix later" — applies to every commit.
 
 ## Known Issues
 
-### Runtime
-- **ALL runtime crashes are OUR BUGS until proven otherwise.** 102/102 tests previously labeled `[MonoJitCrash]` were proven to be generator/runtime bugs. Before labeling any crash "upstream", verify the generated C# P/Invoke matches the Swift @_cdecl wrapper: calling convention (`CallConvCdecl` vs `CallConvSwift`), parameter count, parameter types, library name, entry point symbol. See memory file `feedback_mono_jit_blame.md` for the exhaustive list of 6 confirmed upstream .NET bugs — anything not on that list is our bug.
-- SafeHandle in async P/Invoke not preserved — upstream Mono issue (workaround: singleton + IntPtr)
-- DllImportResolver conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. RuntimeTestsApp wraps in try-catch.
-- See [wiki Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations) for full consumer-facing details
-
-### Generator (open bugs)
-- ExistentialContainer0 in tuple element (blocked by `HasClosureUnsafeTupleElements` gate)
-- Optional<any Protocol> in closures: deferred (`MarshalFromSwift` limitation)
+- **ALL runtime crashes are OUR BUGS until proven otherwise.** 102/102 tests once labeled `[MonoJitCrash]` turned out to be generator/runtime bugs in our code. The authoritative list of confirmed upstream .NET bugs lives in memory at `feedback_mono_jit_blame.md` — anything not on that list is ours. Before blaming the runtime, verify the generated C# P/Invoke matches the Swift `@_cdecl` wrapper: calling convention (`CallConvCdecl` vs `CallConvSwift`), parameter count, parameter types, library name, entry point symbol.
+- `DllImportResolver` conflict: `[ModuleInitializer]` + consuming app both call `SetDllImportResolver` → `InvalidOperationException`. `Swift.Runtime/.../SwiftFrameworkResolver.cs` wraps in try-catch.
+- Generator open bugs and blocked items: see `src/docs/roadmap.md`.
+- Consumer-facing limitations: [wiki Known Limitations](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations).
 
 ## Key References
 
-- `src/docs/roadmap.md` — Single consolidated roadmap (remaining work to ship + post-ship improvements)
+- `src/docs/roadmap.md` — remaining work to ship + post-ship improvements (single source of truth)

@@ -121,6 +121,49 @@ public class ModuleProcessorCycleTests
         Assert.True(recordA!.Flags.HasFlag(TypeRecordFlags.InheritsCodable));
     }
 
+    [Fact]
+    public void FinalizeTypeProcessing_FrozenGenericStructWithGenericParamField_DoesNotThrow()
+    {
+        // Regression: a frozen generic struct whose stored property is typed as its own
+        // type parameter (e.g. `@frozen struct Pair<T> { let first: T }`) used to crash
+        // ModuleProcessor.CacluateFlags. The property's TypeSpec is a bare `τ_0_0`
+        // NamedTypeSpec with no module qualifier; SwiftTypeName.FromTypeSpec throws
+        // ArgumentException("Invalid module-qualified name: τ_0_0") on the single-segment name.
+        // TryGetTypeRecord now short-circuits when !HasModule() and the struct is treated
+        // as non-frozen + RequiresMemoryManagement.
+        var typeSpecPair = new NamedTypeSpec("TestModule.Pair");
+
+        var bareGenericParam = new NamedTypeSpec("τ_0_0");
+        var structPair = CreateStructDecl("Pair", typeSpecPair,
+            ("first", bareGenericParam),
+            ("second", bareGenericParam));
+
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            { typeSpecPair, structPair },
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var processor = new ModuleProcessor(
+            "TestModule",
+            "/tmp/TestModule.dylib",
+            "TestModule",
+            typeDecls,
+            typeDatabase,
+            NullLogger.Instance);
+
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        // The struct was processed (no throw) and a record exists. Because the property
+        // type could not be resolved, the Frozen flag was cleared and RequiresMemoryManagement
+        // was set — the conservative fallback for unknown field layout.
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Pair"), out var record));
+        Assert.False(record!.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+    }
+
     private static ProtocolDecl CreateProtocolDecl(string name, NamedTypeSpec typeSpec,
         NamedTypeSpec[]? inherited = null)
     {

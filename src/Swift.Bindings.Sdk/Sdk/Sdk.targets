@@ -516,9 +516,43 @@ done; true"
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_FirstSliceFramework" />
     </Exec>
 
+    <!-- Compile NativeThunk .arm64.s files for the second slice.
+         The generator's first-slice compile wrote .arm64.o objects for its own
+         target (e.g. simulator); reusing them in the device link would embed
+         simulator-platform LC_BUILD_VERSION and the symbols would still be
+         missing at device runtime. Rebuild each .arm64.s against the second
+         slice's target triple + SDK, writing to a dedicated subdir so the
+         first-slice .arm64.o files are preserved. Mirrors
+         NativeThunkCompiler.CompileThunkObjects.
+
+         Remove the staging dir before rebuilding so leftovers from a prior
+         failed run (which never reached the _merge_slices cleanup below) or
+         thunks whose source .arm64.s has since been removed cannot be picked
+         up by the trailing `find '*.o'` and silently linked into this slice. -->
+    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <_AFW_SecondSliceThunkDir>$(_SwiftBindingIntermediateDir)_merge_slices/second/thunks</_AFW_SecondSliceThunkDir>
+    </PropertyGroup>
+    <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+               Directories="$(_AFW_SecondSliceThunkDir)" />
+    <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+             Directories="$(_AFW_SecondSliceThunkDir)" />
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="set -e; for f in `find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.arm64.s'`; do xcrun --sdk $(_AFW_OtherSdk) clang -c &quot;$f&quot; -target $(_AFW_OtherTarget) -isysroot &quot;$(_AFW_OtherSdkPath)&quot; -o &quot;$(_AFW_SecondSliceThunkDir)/`basename &quot;$f&quot; .s`.o&quot;; done; find &quot;$(_AFW_SecondSliceThunkDir)&quot; -maxdepth 1 -name '*.o' | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="high">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceThunkObjects" />
+    </Exec>
+
+    <!-- When thunk .o files exist the linker needs -framework <OriginalModule>
+         so that `bl` targets inside the thunk assembly (Tj dispatch thunks,
+         type metadata accessors) resolve. Mirrors the thunkLinkerFlags branch
+         in SwiftWrapperCompiler.InvokeSwiftCompiler. -->
+    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <_AFW_SecondSliceThunkFrameworkFlag Condition="'$(_AFW_SecondSliceThunkObjects.Trim())' != ''">-Xlinker -framework -Xlinker $(_SwiftAppleFrameworkModule) </_AFW_SecondSliceThunkFrameworkFlag>
+    </PropertyGroup>
+
     <!-- Compile wrapper for the second slice -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceThunkObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
     <!-- Write the second slice's embedded .framework/Info.plist before xcodebuild

@@ -1490,4 +1490,50 @@ public class ConcreteSpecializationEngineTests
 
         return new[] { (param, conformer) };
     }
+
+    // === Issue A (2026-04-22) — CryptoKit emitter: only canonicalize bare SCREAMING_CASE
+    // identifiers (e.g. SHA3_256 → Sha3256). Non-identifier C# type expressions such as
+    // Byte[], Foundation.Data, Swift.Array<Byte> must pass through verbatim; a previous,
+    // too-eager canonicalisation mangled them to invalid identifiers like Byte__.
+
+    [Theory]
+    [InlineData("SHA3_256")]
+    [InlineData("SHA_384")]
+    [InlineData("BYTE_BUFFER_42")]
+    public void IsBareScreamingCaseIdentifier_BareIdentifier_ReturnsTrue(string input)
+    {
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsBareScreamingCaseIdentifier(input));
+    }
+
+    [Theory]
+    [InlineData("byte[]")]                 // array suffix
+    [InlineData("Foundation.Data")]        // dotted namespace-qualified
+    [InlineData("Swift.Array<Byte>")]      // generic angle brackets
+    [InlineData("Byte")]                   // no underscore — nothing to canonicalize
+    [InlineData("SomePascal")]             // no underscore
+    [InlineData("")]                       // empty
+    [InlineData(" SHA3_256")]              // leading whitespace
+    public void IsBareScreamingCaseIdentifier_NonBare_ReturnsFalse(string input)
+    {
+        Assert.False(ConcreteProtocolSpecializationEmitter.IsBareScreamingCaseIdentifier(input));
+    }
+
+    [Theory]
+    [InlineData("SHA3_256", "Sha3256")]
+    [InlineData("SHA_384", "Sha384")]
+    public void CanonicalizeConformerCSharpType_BareScreamingCase_PascalCases(string input, string expected)
+    {
+        Assert.Equal(expected, ConcreteProtocolSpecializationEmitter.CanonicalizeConformerCSharpType(input));
+    }
+
+    [Theory]
+    [InlineData("byte[]")]
+    [InlineData("Foundation.Data")]
+    [InlineData("Swift.Array<Byte>")]
+    [InlineData("Byte")]
+    [InlineData("")]
+    public void CanonicalizeConformerCSharpType_NonBare_ReturnsVerbatim(string input)
+    {
+        Assert.Equal(input, ConcreteProtocolSpecializationEmitter.CanonicalizeConformerCSharpType(input));
+    }
 }

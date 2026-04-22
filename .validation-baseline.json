@@ -1,5 +1,5 @@
 {
-  "git_sha": "58d6f274",
+  "git_sha": "9279e990",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -10,29 +10,29 @@
         "swift_compile": "ok"
       },
       "CryptoKit": {
-        "compile": "known_errors",
-        "errors": 18,
+        "compile": "ok",
+        "errors": 0,
         "lines": 25627,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@macos": {
-        "compile": "known_errors",
-        "errors": 18,
+        "compile": "ok",
+        "errors": 0,
         "lines": 25627,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@maccatalyst": {
-        "compile": "known_errors",
-        "errors": 18,
+        "compile": "ok",
+        "errors": 0,
         "lines": 25627,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@tvos": {
-        "compile": "known_errors",
-        "errors": 18,
+        "compile": "ok",
+        "errors": 0,
         "lines": 25501,
         "dep_compile": "none",
         "swift_compile": "ok"
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55636,
+        "lines": 55638,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 49870,
+        "lines": 49872,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50053,
+        "lines": 50055,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 54947,
+        "lines": 54949,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -341,7 +341,7 @@
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7200,
+        "lines": 10482,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -446,7 +446,7 @@
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31748,
+        "lines": 31965,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -509,7 +509,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10298,
+        "lines": 10562,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -523,7 +523,7 @@
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6873,
+        "lines": 7589,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -579,7 +579,7 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3987,
+        "lines": 4003,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -607,7 +607,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12863,
+        "lines": 16493,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -900,37 +900,37 @@
     "skip_reasons": {
       "ModuleInternal": 746,
       "SynthesizedCodable": 682,
-      "UnsupportedSignature": 579,
-      "AnyTypeFallback": 384,
+      "UnsupportedSignature": 583,
+      "AnyTypeFallback": 408,
       "SwiftUIConstraint": 282,
       "EveryProtocolConformanceSkipped": 244,
       "GenericProtocolConstraint": 232,
       "UnsupportedClosure": 186,
       "UnsupportedType": 177,
-      "UnsatisfiedGenericConstraint": 110,
       "IndeterminatePwtShape": 103,
       "UnsupportedExistential": 88,
+      "UnsatisfiedGenericConstraint": 78,
       "SwiftUIView": 53,
       "StaticProtocolMember": 46,
       "GenericTypeCallback": 35,
       "OwnedByAppleSupplement": 12,
+      "NonBlittableCallConvSwift": 6,
       "DuplicateSignature": 4,
       "UnsupportedAsyncStream": 4,
-      "NonBlittableCallConvSwift": 2,
       "UnderscorePrefixInternal": 2
     }
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1527,
+      "pass": 1529,
       "fail": 0,
       "skip": 53,
       "crash": 0
     },
     "device": {
-      "pass": 1518,
+      "pass": 1541,
       "fail": 0,
-      "skip": 29,
+      "skip": 41,
       "crash": 0
     }
   }

@@ -991,10 +991,59 @@ partial class Build
             // defaults as the SDK's MinDeploymentVersion property.
             var deviceTarget = $"arm64-apple-{platform.TfmSuffix}{platform.MinOsVersion}";
 
+            // Recompile NativeThunk .arm64.s files for the device slice — mirrors
+            // Sdk.targets _CompileAppleFrameworkSecondWrapperSlice. The generator's
+            // first-slice .arm64.o objects were built against the simulator target
+            // and would carry the wrong LC_BUILD_VERSION if reused; without this step
+            // the validator path silently drops thunk symbols from the device binary,
+            // which is the exact shape of Issue B.
+            var thunkSources = Directory
+                .EnumerateFiles(outdir, "*.arm64.s", SearchOption.TopDirectoryOnly)
+                .ToList();
+            var thunkObjects = new List<string>();
+            if (thunkSources.Count > 0)
+            {
+                var thunkStagingDir = mergeDir / "second" / "thunks";
+                Directory.CreateDirectory(thunkStagingDir);
+                foreach (var asm in thunkSources)
+                {
+                    var objPath = thunkStagingDir / (Path.GetFileNameWithoutExtension(asm) + ".o");
+                    // clang takes -isysroot (not -sdk, which is a swiftc/xcrun flag).
+                    // Mirror NativeThunkCompiler.CompileAssemblyFile exactly so the
+                    // validator exercises the same compile command the SDK ships.
+                    var clangArgs = string.Join(" ", new[]
+                    {
+                        $"--sdk {platform.DeviceSdkName}",
+                        "clang",
+                        "-c", $"\"{asm}\"",
+                        $"-o \"{objPath}\"",
+                        $"-target {deviceTarget}",
+                        $"-isysroot \"{sdkPath}\"",
+                    });
+                    var clangProc = ProcessTasks.StartProcess("xcrun", clangArgs,
+                        workingDirectory: outdir, logOutput: false);
+                    clangProc.AssertWaitForExit();
+                    if (clangProc.ExitCode != 0)
+                        return "fail";
+                    thunkObjects.Add(objPath);
+                }
+            }
+
             var sourcesArg = string.Join(" ",
                 wrapperSources.Select(s => $"\"{s}\""));
+            var thunkObjectsArg = thunkObjects.Count > 0
+                ? " " + string.Join(" ", thunkObjects.Select(o => $"\"{o}\""))
+                : "";
             var binaryPath = secondFrameworkDir / wrapperModule;
             var installName = $@"\@rpath/{wrapperModule}.framework/{wrapperModule}";
+
+            // When thunk objects are linked, the linker needs -framework <OriginalModule>
+            // so `bl` targets inside the thunk assembly (Tj dispatch thunks, type
+            // metadata accessors) can resolve. Mirrors the thunkLinkerFlags branch in
+            // SwiftWrapperCompiler.InvokeSwiftCompiler.
+            var thunkFrameworkFlag = thunkObjects.Count > 0
+                ? $"-Xlinker -framework -Xlinker {frameworkModule} "
+                : "";
 
             var swiftcArgs = string.Join(" ", new[]
             {
@@ -1005,10 +1054,11 @@ partial class Build
                 $"-sdk \"{sdkPath}\"",
                 "-strict-concurrency=minimal",
                 $"-module-name {wrapperModule}",
+                thunkFrameworkFlag.TrimEnd(),
                 "-Xlinker -install_name",
                 $"-Xlinker {installName}",
                 $"-o \"{binaryPath}\"",
-                sourcesArg,
+                sourcesArg + thunkObjectsArg,
             });
             var swiftcProc = ProcessTasks.StartProcess("xcrun", swiftcArgs,
                 workingDirectory: outdir, logOutput: false);
@@ -1677,7 +1727,82 @@ $"""
                 return "fail";
         }
 
+        // NativeThunk regression guard (Issue B). Every `_thunk_*` symbol declared
+        // in the generator's *.arm64.s output must be defined in every shipped
+        // wrapper slice. The shape of Issue B was: first-slice path linked thunks,
+        // second-slice (device) path did not, so device binaries shipped with the
+        // symbols missing and crashed at dispatch. Asserting both slices contain
+        // every thunk symbol makes that regression surface as swift_compile: fail.
+        var expectedThunks = CollectExpectedThunkSymbols(outdir);
+        if (expectedThunks.Count > 0)
+        {
+            foreach (var fwDir in frameworkDirs)
+            {
+                var moduleName = Path.GetFileNameWithoutExtension(fwDir);
+                var binary = Path.Combine(fwDir, moduleName);
+                var definedSymbols = ReadDefinedSymbols(binary);
+                foreach (var thunk in expectedThunks)
+                {
+                    if (!definedSymbols.Contains(thunk))
+                        return "fail";
+                }
+            }
+        }
+
         return "ok";
+    }
+
+    // Collect `_thunk_*` symbols declared in the generator's *.arm64.s files.
+    // NativeThunkEmitter writes each thunk as `.globl _thunk_<module>_<hash>`.
+    static HashSet<string> CollectExpectedThunkSymbols(AbsolutePath outdir)
+    {
+        var symbols = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var asm in Directory.EnumerateFiles(outdir, "*.arm64.s",
+                     SearchOption.TopDirectoryOnly))
+        {
+            foreach (var line in File.ReadLines(asm))
+            {
+                var trimmed = line.TrimStart();
+                const string prefix = ".globl ";
+                if (!trimmed.StartsWith(prefix, StringComparison.Ordinal))
+                    continue;
+                var sym = trimmed.Substring(prefix.Length).Trim();
+                if (sym.StartsWith("_thunk_", StringComparison.Ordinal))
+                    symbols.Add(sym);
+            }
+        }
+        return symbols;
+    }
+
+    // Read the set of defined (text or data) symbols from a Mach-O binary via
+    // `nm -j -U`. `-U` omits undefined symbols; `-j` emits just the name so we
+    // match exactly the `_thunk_*` names from the assembly source.
+    static HashSet<string> ReadDefinedSymbols(string binaryPath)
+    {
+        var defined = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "nm",
+                Arguments = $"-j -U \"{binaryPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return defined;
+            while (!proc.StandardOutput.EndOfStream)
+            {
+                var line = proc.StandardOutput.ReadLine();
+                if (!string.IsNullOrWhiteSpace(line))
+                    defined.Add(line.Trim());
+            }
+            proc.WaitForExit();
+        }
+        catch { /* guard is best-effort — swallow to avoid masking the real validation result */ }
+        return defined;
     }
 
     // ============================================================

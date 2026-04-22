@@ -170,3 +170,48 @@ public class ConstrainedBox<T: Describable> {
         return item.describe()
     }
 }
+
+// MARK: - Issue C — Parent-generic sugared type parameter in bound generic
+
+/// Protocol constraint for CollectibleBag.
+public protocol CollectibleItem {
+    var collectibleId: String { get }
+}
+
+@frozen
+public struct CollectibleCoin: CollectibleItem {
+    public let collectibleId: String
+    public init(collectibleId: String) { self.collectibleId = collectibleId }
+}
+
+/// MusicKit.MusicItemCollection shape: member signatures reference the parent's
+/// own sugared generic name as a bound-generic argument.
+public struct CollectibleBag<Item: CollectibleItem> {
+    public let items: [Item]
+    public init(items: [Item]) { self.items = items }
+
+    public func paired() -> CollectiblePair<Item> {
+        return CollectiblePair(first: items.first!, second: items.last!)
+    }
+}
+
+@frozen
+public struct CollectiblePair<Element: CollectibleItem> {
+    public let first: Element
+    public let second: Element
+    public init(first: Element, second: Element) {
+        self.first = first
+        self.second = second
+    }
+}
+
+/// Factory helper returning a concrete `CollectibleBag<CollectibleCoin>`.
+/// `CollectibleBag.init(items:)` is skipped in bindings (NonBlittableCallConvSwift on
+/// generic-container params), so C# consumers need a concrete entry point to build one.
+/// The return type itself also exercises the Issue C bound-generic specialization.
+public func makeCoinBag(firstId: String, secondId: String) -> CollectibleBag<CollectibleCoin> {
+    return CollectibleBag(items: [
+        CollectibleCoin(collectibleId: firstId),
+        CollectibleCoin(collectibleId: secondId),
+    ])
+}

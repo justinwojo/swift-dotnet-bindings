@@ -780,12 +780,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformerObj))
             {
                 var matchedConformer = matchedConformerObj!;
+                var conformerCsType = CanonicalizeConformerCSharpType(matchedConformer.CSharpType);
                 // Generic param → concrete type
                 var category = ClassifyConformerForCSharp(matchedConformer, typeDatabase);
                 switch (category)
                 {
                     case ConformerCategory.Class:
-                        publicParams.Add($"{matchedConformer.CSharpType} {csName}");
+                        publicParams.Add($"{conformerCsType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
                         break;
@@ -793,7 +794,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // byte[] / [UInt8]: pin via fixed(byte*), pass (ptr, length).
                         // Swift reconstructs as Data(bytesNoCopy:...,deallocator:.none);
                         // pin lifetime covers the entire @_cdecl call.
-                        publicParams.Add($"{matchedConformer.CSharpType} {csName}");
+                        publicParams.Add($"{conformerCsType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         pinvokeParams.Add($"nint {csName}Len");
                         fixedStatements.Add($"fixed (byte* _p{csName} = {csName})");
@@ -814,7 +815,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     default:
                         // Frozen and non-frozen structs: pass via IntPtr.
                         // Even frozen structs are C# classes with SafeHandle, not blittable structs.
-                        publicParams.Add($"{matchedConformer.CSharpType} {csName}");
+                        publicParams.Add($"{conformerCsType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
                         break;
@@ -901,13 +902,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
         else if (!isVoidReturn)
         {
             if (returnsGenericParam)
-                csReturnType = returnConformer!.CSharpType;
+                csReturnType = CanonicalizeConformerCSharpType(returnConformer!.CSharpType);
             else if (isStringReturn)
                 csReturnType = "string";
             else
             {
+                // Composite return types that carry pairing generics (e.g.
+                // `HashedAuthenticationCode<H>` on `HMAC<H>.authenticationCode`) must have
+                // those generics substituted with the chosen conformer before the C# type
+                // is resolved — otherwise an unresolved `H` leaks into the public signature
+                // and Roslyn reports CS0246. Mirrors the Swift-side substitution used for
+                // `initializeMemory(as:)` at the result-pointer path.
                 var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
-                csReturnType = ResolvePublicCSharpType(returnTypeSpec, typeDatabase);
+                var substitutedReturn = SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing);
+                csReturnType = ResolvePublicCSharpType(substitutedReturn, typeDatabase);
             }
         }
 
@@ -1334,6 +1342,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 var assocName = assoc.Path.Length == 2 ? assoc.Path[1] : assoc.Path[assoc.Path.Length - 1];
                 var expected = assoc.ConformanceTarget.ModuleQualifiedName;
 
+                // Parent-generic-param target: a constraint like `S.Element == TMusicItemType`
+                // where `TMusicItemType` is the parent type's own generic parameter (e.g.
+                // `MusicItemCollection<TMusicItemType>`). The parent-generic isn't a concrete
+                // type here — it's an open placeholder the specialization engine binds
+                // separately. Any conformer whose `Element` is admitted by the engine's
+                // cross-param coupling is acceptable for this site, so skip the concrete-name
+                // equality check rather than fail-close. Concrete-target mismatches
+                // (e.g. `S.Element == Album` vs `[UInt8]`) still reject because `expected`
+                // in that case is a fully qualified type name, not a bare generic-param name.
+                if (IsParentGenericParamName(expected, parentTypeDecl))
+                    continue;
+
                 if (conformer.AssociatedTypes is null)
                     return false;
                 if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
@@ -1343,6 +1363,28 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="name"/> names one of
+    /// <paramref name="parentTypeDecl"/>'s generic parameters (either the raw
+    /// <c>τ_0_*</c> form or the sugared form). Used by
+    /// <see cref="DoesPairingSatisfyAssociatedTypeConstraints"/> to recognize constraints
+    /// whose target is the parent type's open generic slot rather than a concrete type.
+    /// </summary>
+    private static bool IsParentGenericParamName(string name, TypeDecl parentTypeDecl)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+        foreach (var parentGeneric in parentTypeDecl.GenericParameters)
+        {
+            if (string.Equals(parentGeneric.TypeName, name, StringComparison.Ordinal))
+                return true;
+            if (!string.IsNullOrEmpty(parentGeneric.SugaredTypeName) &&
+                string.Equals(parentGeneric.SugaredTypeName, name, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
     }
 
     private static bool AreNonGenericParamsCompatible(
@@ -1514,7 +1556,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
             if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out var matchedConformer))
             {
-                parts.Add(matchedConformer!.CSharpType);
+                // Key off the emitted form so two pairings that produce identical C#
+                // signatures (after SCREAMING_CASE canonicalization) collide here and
+                // one of them is suppressed. Using the raw hint string would let a
+                // shadow specialization slip through for SHA3_*-style conformers.
+                parts.Add(CanonicalizeConformerCSharpType(matchedConformer!.CSharpType));
             }
             else
             {
@@ -1553,14 +1599,30 @@ public static partial class ConcreteProtocolSpecializationEmitter
     {
         if (typeSpec is NamedTypeSpec named)
         {
+            string baseName;
             try
             {
                 var typeName = SwiftTypeName.FromModuleQualifiedName(named.Name);
-                if (typeDatabase.TryGetTypeRecord(typeName, out var record))
-                    return record.CSharpTypeName.FullyQualifiedName;
+                baseName = typeDatabase.TryGetTypeRecord(typeName, out var record)
+                    ? record.CSharpTypeName.FullyQualifiedName
+                    : named.Name.Split('.').Last();
             }
-            catch (ArgumentException) { }
-            return named.Name.Split('.').Last();
+            catch (ArgumentException)
+            {
+                baseName = named.Name.Split('.').Last();
+            }
+
+            // Bound-generic return/param types (e.g. `HashedAuthenticationCode<SHA256>`)
+            // must carry their type arguments through to the emitted C# signature or
+            // Roslyn reports CS0305 "requires N type arguments" on the resolved open
+            // generic. Recurse into GenericParameters; non-generic args fall out with
+            // the existing NamedTypeSpec path.
+            if (named.GenericParameters.Count == 0)
+                return baseName;
+
+            var args = named.GenericParameters
+                .Select(g => ResolvePublicCSharpType(g, typeDatabase));
+            return $"{baseName}<{string.Join(", ", args)}>";
         }
         return "IntPtr";
     }
@@ -1605,8 +1667,49 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var parentEntries = pairing.Where(p => p.Param.IsParentGeneric).ToList();
         if (parentEntries.Count == 0) return parentTypeDecl.Name;
 
-        var args = parentEntries.Select(p => p.Conformer.CSharpType);
+        var args = parentEntries.Select(p => CanonicalizeConformerCSharpType(p.Conformer.CSharpType));
         return $"{parentTypeDecl.Name}<{string.Join(", ", args)}>";
+    }
+
+    /// <summary>
+    /// Normalizes a conformer's CSharpType (sourced verbatim from specialization-hints.json)
+    /// to the identifier the generator actually emits. Swift SCREAMING_CASE types like
+    /// <c>SHA3_256</c> flow through <see cref="NameProvider.ToPascalCaseForTypeName"/> to
+    /// become <c>Sha3256</c>; using the raw hint value as a receiver-type argument produces
+    /// references to types that don't exist (CS0246 / missing receiver). Dotted names are
+    /// split and only the leaf is canonicalized so namespace-qualified hints survive.
+    /// </summary>
+    /// <summary>
+    /// Canonicalizes a conformer's C# type as stored in specialization-hints.json
+    /// (or derived from a Swift ABI name) into the identifier form actually emitted
+    /// by the generator. Only applies to bare SCREAMING_CASE identifiers
+    /// (e.g. <c>SHA3_256</c> → <c>Sha3256</c>); anything with namespace qualification,
+    /// generic args, array brackets, pointers, or other non-identifier characters
+    /// passes through unchanged so <c>byte[]</c>, <c>Foundation.Data</c>,
+    /// <c>CryptoKit.SymmetricKey</c>, and generic specializations like
+    /// <c>Array&lt;Byte&gt;</c> are preserved verbatim.
+    /// </summary>
+    internal static string CanonicalizeConformerCSharpType(string csharpType)
+    {
+        if (string.IsNullOrEmpty(csharpType))
+            return csharpType;
+        if (!IsBareScreamingCaseIdentifier(csharpType))
+            return csharpType;
+        return NameProvider.ToPascalCaseForTypeName(csharpType);
+    }
+
+    internal static bool IsBareScreamingCaseIdentifier(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+            return false;
+        if (s.IndexOf('_') < 0)
+            return false;
+        foreach (var ch in s)
+        {
+            if (!(char.IsLetterOrDigit(ch) || ch == '_'))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

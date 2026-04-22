@@ -70,6 +70,16 @@ namespace BindingsGeneration
         /// <returns><c>true</c> if the type was found; otherwise, <c>false</c>.</returns>
         private bool TryGetTypeRecord(NamedTypeSpec swiftTypeSpec, [NotNullWhen(true)] out TypeRecord? record)
         {
+            // Bare generic parameters (e.g. τ_0_0 from a frozen generic struct field typed as
+            // its own type parameter) are not module-qualified and have no entry in the type
+            // database. SwiftTypeName.FromTypeSpec would throw on the single-segment name,
+            // so short-circuit to a negative lookup.
+            if (!swiftTypeSpec.HasModule())
+            {
+                record = null;
+                return false;
+            }
+
             var swiftTypeName = SwiftTypeName.FromTypeSpec(swiftTypeSpec);
 
             // First, check if this module is the one being processed.

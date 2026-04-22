@@ -668,6 +668,128 @@ public class BoundGenericsHandlerTests
         Assert.Contains("does not satisfy constraint", details);
     }
 
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ParentSugaredGenericParam_ReturnsFalse()
+    {
+        // Issue C (2026-04-22): MusicKit-shape bug — a method on a generic parent type
+        // references the parent's own generic param as a bound-generic argument:
+        //   extension MusicItemCollection where MusicItemType: MusicItem {
+        //       func index(before: Int) -> MusicItemCollection<MusicItemType>.Index
+        //   }
+        // The type argument 'MusicItemType' arrives at SatisfiesConstraint as a
+        // NamedTypeSpec with a multi-character sugared name. TypeSpecHelpers.IsGenericTypeParameter
+        // only recognises short names and τ_-prefixed ABI names, so without the parent/method
+        // declared-param lookup, SatisfiesConstraint falls through to concrete-type resolution
+        // and reports the constraint as unsatisfied — even though the parent explicitly
+        // declares `MusicItemType : MusicItem`.
+        var moduleDecl = CreateModuleDecl("MusicKit");
+        var outerDecl = CreateGenericStructDecl("MusicItemCollection", moduleDecl, "MusicItemType", "MusicKit.MusicItem");
+
+        // Bound-generic reference to MusicItemCollection<MusicItemType> with the parent's
+        // own generic parameter (multi-character sugared name) as the argument.
+        var boundGeneric = new NamedTypeSpec("MusicKit.MusicItemCollection",
+            new NamedTypeSpec("MusicItemType"));
+        var contextDecl = new PropertyDecl
+        {
+            Name = "index",
+            SwiftTypeSpec = boundGeneric,
+            ParentDecl = outerDecl,
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ParentSugaredGenericParam_UnrelatedProtocol_ReturnsTrue()
+    {
+        // Negative case: even when the type argument references a sugared parent generic
+        // param by name, the constraint must still fail if the parent's declared
+        // constraints on that parameter don't include (or inherit from) the required
+        // protocol. Protects against the fix becoming too permissive.
+        var moduleDecl = CreateModuleDecl("MusicKit");
+        var outerDecl = CreateGenericStructDecl("MusicItemCollection", moduleDecl, "MusicItemType", "MusicKit.UnrelatedProtocol");
+        CreateGenericStructDecl("Slice", moduleDecl, "Element", "MusicKit.MusicItem");
+
+        var boundGeneric = new NamedTypeSpec("MusicKit.Slice",
+            new NamedTypeSpec("MusicItemType"));
+        var contextDecl = new PropertyDecl
+        {
+            Name = "slice",
+            SwiftTypeSpec = boundGeneric,
+            ParentDecl = outerDecl,
+            ModuleDecl = moduleDecl,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = Array.Empty<AccessorDecl>()
+        };
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_MethodSugaredGenericParam_ReturnsFalse()
+    {
+        // Issue C companion: a method-level generic parameter uses a multi-character
+        // sugared name (e.g. 'SectionType') as a bound-generic argument. Analogous to
+        // the parent-generic MusicKit case, but the generic is declared on the method
+        // itself rather than the enclosing type:
+        //   struct ItemProcessor {
+        //       func processBatch<SectionType: Describable>(...) -> Container<SectionType>
+        //   }
+        // Without the method-level `IsDeclaredGenericParam` check in SatisfiesConstraint,
+        // the sugared name falls through to concrete-type resolution (TypeSpecHelpers only
+        // recognises τ_-prefixed and short names), FindTypeDecl returns null, and the
+        // constraint is falsely reported as unsatisfied.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var processorDecl = CreateStructDecl("ItemProcessor", moduleDecl);
+        CreateGenericStructDecl("Container", moduleDecl, "T", "TestModule.Describable");
+
+        var method = new MethodDecl
+        {
+            Name = "processBatch",
+            ParentDecl = processorDecl,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new(
+                    TypeName: "τ_0_0",
+                    SugaredTypeName: "SectionType",
+                    GenericConformances: new List<GenericParameterConformance>
+                    {
+                        new(
+                            Path: new[] { "τ_0_0" },
+                            ConformanceTarget: SwiftTypeName.FromModuleQualifiedName("TestModule.Describable"),
+                            Kind: ConformanceKind.Protocol)
+                    },
+                    AssosiatedTypeConformances: new List<GenericParameterConformance>())
+            },
+            Visibility = Visibility.Public
+        };
+
+        var boundGeneric = new NamedTypeSpec("TestModule.Container", new NamedTypeSpec("SectionType"));
+
+        var found = _handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
     #endregion
 
     #region Mixed Generic Parameter Tests
