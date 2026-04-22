@@ -1,5 +1,5 @@
 {
-  "git_sha": "9279e990",
+  "git_sha": "e79a623f",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -900,7 +900,7 @@
     "skip_reasons": {
       "ModuleInternal": 746,
       "SynthesizedCodable": 682,
-      "UnsupportedSignature": 583,
+      "UnsupportedSignature": 588,
       "AnyTypeFallback": 408,
       "SwiftUIConstraint": 282,
       "EveryProtocolConformanceSkipped": 244,
@@ -914,21 +914,21 @@
       "StaticProtocolMember": 46,
       "GenericTypeCallback": 35,
       "OwnedByAppleSupplement": 12,
-      "NonBlittableCallConvSwift": 6,
       "DuplicateSignature": 4,
       "UnsupportedAsyncStream": 4,
-      "UnderscorePrefixInternal": 2
+      "UnderscorePrefixInternal": 2,
+      "NonBlittableCallConvSwift": 1
     }
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1529,
+      "pass": 1531,
       "fail": 0,
       "skip": 53,
       "crash": 0
     },
     "device": {
-      "pass": 1541,
+      "pass": 1543,
       "fail": 0,
       "skip": 41,
       "crash": 0

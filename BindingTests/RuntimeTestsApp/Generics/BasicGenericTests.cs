@@ -574,5 +574,21 @@ public class BasicGenericTests : TestBase
         AssertEqual("alpha", asList[0].ToString(), "IReadOnlyList<SwiftString>[0]");
     }
 
+    public void TestIndexedSeries_DirectCtor_RoundTripsItemsAndMetadata()
+    {
+        using var a = new Swift.SwiftString("first");
+        using var b = new Swift.SwiftString("second");
+        using var c = new Swift.SwiftString("third");
+        using var series = new IndexedSeries<Swift.SwiftString>(
+            items: new[] { a, b, c },
+            metadata: "direct-ctor");
+
+        AssertEqual(3, series.Count, "direct ctor: Count");
+        AssertEqual("first", series[0].ToString(), "direct ctor: [0]");
+        AssertEqual("second", series[1].ToString(), "direct ctor: [1]");
+        AssertEqual("third", series[2].ToString(), "direct ctor: [2]");
+        AssertEqual("direct-ctor", series.Metadata, "direct ctor: Metadata");
+    }
+
     #endregion
 }

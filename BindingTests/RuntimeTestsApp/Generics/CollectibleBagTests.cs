@@ -35,4 +35,16 @@ public class CollectibleBagTests : TestBase
         AssertEqual("copper-1", pair.First.CollectibleId, "first id round-trip");
         AssertEqual("gold-99", pair.Second.CollectibleId, "second id round-trip");
     }
+
+    public void TestCollectibleBag_DirectCtor_Paired_RoundTripsBothIds()
+    {
+        using var first = new CollectibleCoin(collectibleId: "silver-7");
+        using var second = new CollectibleCoin(collectibleId: "platinum-42");
+        using var bag = new CollectibleBag<CollectibleCoin>(new[] { first, second });
+
+        var pair = bag.GetPaired();
+
+        AssertEqual("silver-7", pair.First.CollectibleId, "direct ctor: first id");
+        AssertEqual("platinum-42", pair.Second.CollectibleId, "direct ctor: second id");
+    }
 }

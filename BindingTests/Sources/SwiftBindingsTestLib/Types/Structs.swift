@@ -272,11 +272,11 @@ public struct IndexedSeries<Element>: RandomAccessCollection {
     public subscript(index: Int) -> Element { items[index] }
 }
 
-/// Factory: C# cannot construct `IndexedSeries<String>` directly (the generic
-/// metadata accessor is indeterminate), so this Swift helper hands back a
-/// concrete instance for runtime tests to exercise iteration on. String is
-/// used because `SwiftString` satisfies the default `ISwiftObject` constraint
-/// applied to C# generic type parameters.
+/// Factory returning a concrete `IndexedSeries<String>`. The direct C# ctor is
+/// now emittable via the static-factory dispatch path (Array<T> where T is a
+/// parent generic is accepted by `GenericDispatchEmitter.CanEmitStaticDispatch`),
+/// and is covered directly by `IndexedSeriesTests`. This factory is kept as a
+/// coverage point for the collection+metadata return-type projection.
 public func makeIndexedSeriesString() -> IndexedSeries<String> {
     return IndexedSeries(items: ["alpha", "beta", "gamma", "delta"], metadata: "four-strings")
 }

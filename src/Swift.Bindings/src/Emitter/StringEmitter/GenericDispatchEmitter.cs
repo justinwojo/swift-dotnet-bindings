@@ -322,10 +322,20 @@ internal static class GenericDispatchEmitter
                             return false;
                     }
 
-                    // T-typed params must be simple (direct generic param)
+                    // T-typed params must be a shape the static factory can render:
+                    //  - bare parent generic (e.g. `T`)
+                    //  - Array<T> whose element is itself a bare parent generic. The factory
+                    //    emits this as UnsafeRawPointer + `assumingMemoryBound(to: Array<T>.self).pointee`,
+                    //    mirroring what the method static-dispatch path does today.
+                    //
+                    // Dictionary<K,T>/Set<T> render the same way, but end-to-end runtime
+                    // round-trip for them hasn't been validated — keep the gate narrowed to
+                    // the Array-only shape proven by BindingTests (CollectibleBag + IndexedSeries).
                     if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
                     {
                         if (arg.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
+                            continue;
+                        if (IsArrayOfParentGeneric(arg.SwiftTypeSpec, genericParamNames))
                             continue;
                         return false;
                     }
@@ -398,6 +408,25 @@ internal static class GenericDispatchEmitter
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="spec"/> is <c>Array&lt;T&gt;</c> whose element is
+    /// a bare parent generic param. This is the single collection shape whose static-factory
+    /// round-trip is proven end-to-end by BindingTests (CollectibleBag + IndexedSeries).
+    /// Dictionary/Set render the same way but aren't validated, so they stay behind the gate.
+    /// Nested bound generics (e.g. <c>Array&lt;Optional&lt;T&gt;&gt;</c>) are rejected.
+    /// </summary>
+    private static bool IsArrayOfParentGeneric(TypeSpec spec, HashSet<string> genericParamNames)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+        if (named.Name is not ("Swift.Array" or "Array"))
+            return false;
+        if (named.GenericParameters.Count != 1)
+            return false;
+        var gp = named.GenericParameters[0];
+        return gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name);
     }
 
     /// <summary>

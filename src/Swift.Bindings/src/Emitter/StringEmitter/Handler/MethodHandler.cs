@@ -269,6 +269,27 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.HasClosureParams = true;
             }
 
+            // Variadic constructors cannot be wrapped by @_cdecl: Swift represents T...
+            // as Array<T> in ABI JSON, but the Swift call site `Type(values: arr)` is
+            // rejected because an Array can't be passed where a variadic is expected.
+            // Without this guard, the HasCollectionContainerParams branch below would
+            // misclassify the skip as NonBlittableCallConvSwift.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                methodEnv.MethodDecl.HasVariadicParameter)
+            {
+                _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: variadic parameter cannot be wrapped (Swift rejects Array argument for T... call site).");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.UnsupportedSignature,
+                    "Constructor has a variadic parameter (T...) that cannot be wrapped: Swift rejects passing an Array where a variadic is expected.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    BindingItemKind.Method, SkipReason.UnsupportedSignature,
+                    "variadic parameter cannot be wrapped (Swift rejects Array for T...)");
+                return;
+            }
+
             // Constructors with generic container params (Array, Dictionary, Set) need
             // a @_cdecl wrapper — direct CallConvSwift causes NSArray/Swift.Array ABI mismatch.
             // If no wrapper was assigned (e.g., because optional closures blocked ShouldEmitWrapper),

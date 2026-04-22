@@ -205,10 +205,11 @@ public struct CollectiblePair<Element: CollectibleItem> {
     }
 }
 
-/// Factory helper returning a concrete `CollectibleBag<CollectibleCoin>`.
-/// `CollectibleBag.init(items:)` is skipped in bindings (NonBlittableCallConvSwift on
-/// generic-container params), so C# consumers need a concrete entry point to build one.
-/// The return type itself also exercises the Issue C bound-generic specialization.
+/// Factory helper returning a concrete `CollectibleBag<CollectibleCoin>`. The generic
+/// constructor is now emittable via the static-factory dispatch path (Array&lt;T&gt; where T
+/// is a parent generic is accepted by `GenericDispatchEmitter.CanEmitStaticDispatch`), but
+/// this free function is kept as the precedent for users who still hit a wrapper-blocked
+/// ctor on a generic type. The return type also exercises Issue C bound-generic specialization.
 public func makeCoinBag(firstId: String, secondId: String) -> CollectibleBag<CollectibleCoin> {
     return CollectibleBag(items: [
         CollectibleCoin(collectibleId: firstId),
