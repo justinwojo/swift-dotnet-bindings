@@ -87,3 +87,11 @@ public func makeVerifiedAppleIntBox(_ value: Int32) -> AppleHolder<IntBox> {
 public func makeInvalidAppleIntBox() -> AppleHolder<IntBox> {
     return .invalid
 }
+
+// Nested-type-on-generic-outer reproduction fixture is DEFERRED — it must not
+// land on main until the CS0305/CS0693 generator bug it triggers is fixed,
+// otherwise `nuke binding-tests --strict` breaks the main gate. Design doc and
+// exact fixture Swift code live in:
+//   src/docs/Future/nested-type-on-generic-outer.md
+// Re-add the `VerificationOutcome<SignedType>` enum + `makeVerifiedOutcomeString`
+// + `makeUnverifiedOutcomeString` from that doc in the same commit as the fix.

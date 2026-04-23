@@ -17,13 +17,19 @@ namespace BindingsGeneration;
 ///
 /// <para><b>Collection-witness backing.</b> The struct has NO public array-typed
 /// backing property but does publish <c>startIndex: Int</c>, <c>endIndex: Int</c>, and
-/// <c>subscript(Int) -&gt; Element</c>. This is the shape Apple's
+/// <c>subscript(Int) -&gt; Element</c> on its ABI. This is the shape Apple's
 /// <c>WeatherKit.Forecast&lt;Element&gt;</c> exposes — opaque private storage with
-/// only the Collection protocol requirements visible. The projection delegates
-/// <c>Count</c> to <c>EndIndex - StartIndex</c>, <c>this[int]</c> to a freshly-emitted
-/// <c>@_cdecl</c> subscript wrapper (generic static dispatch, mirroring the
-/// Session 2 property-wrapper pattern), and <c>GetEnumerator()</c> iterates via
-/// the projected indexer.</para>
+/// only the Collection protocol requirements visible.
+/// The projection emits two <c>@_cdecl</c> wrappers (<c>count</c> and <c>subscript</c>)
+/// on top of a private Swift protocol whose conformance extension performs the
+/// <c>Self</c>-typed value load and witness dispatch. Parent type metadata is passed
+/// **directly from C#** (via <c>SwiftObjectHelper&lt;Type&gt;.GetTypeMetadata()</c>),
+/// which means: no dlsym'd metadata-accessor helper, no per-Element PWT plumbing on
+/// the Swift side, and the gate on the register-argument threshold / resolvable-PWT
+/// shape drops away. The pattern works regardless of whether the parent's metadata
+/// accessor ABI is thin or buffer mode, and regardless of whether Element's
+/// protocol constraints (<c>Decodable</c>, <c>Encodable</c>, <c>Equatable</c>, …)
+/// have static C# interfaces or runtime-only descriptor lookup.</para>
 ///
 /// Emitted surface: <c>Count</c>, <c>this[int index]</c>, <c>GetEnumerator()</c>,
 /// and the non-generic <c>IEnumerable.GetEnumerator()</c>.
@@ -45,7 +51,7 @@ internal static class CollectionProjectionEmitter
     {
         /// <summary>Delegate through a public <c>[Element]</c> property (original shape).</summary>
         ArrayProperty,
-        /// <summary>Delegate through <c>StartIndex</c>/<c>EndIndex</c>/<c>subscript</c> witnesses.</summary>
+        /// <summary>Dispatch through freshly-emitted <c>count</c>/<c>subscript</c> witness wrappers.</summary>
         CollectionWitness,
     }
 
@@ -62,44 +68,18 @@ internal static class CollectionProjectionEmitter
     /// does not apply. Must be called before the class header is written so the
     /// interface can be inserted.
     ///
-    /// <para>For the Collection-witness backing path the planner must apply the
-    /// same gates as <see cref="EmitWitnessBackedMembers"/> so that a "yes" plan
-    /// is always followed by actual member emission — adding
-    /// <c>IReadOnlyList&lt;T&gt;</c> to the class header while the witness-backed
-    /// body silently bails on an indeterminate PWT would leave CS0535 holes
-    /// (Apple surfaces with
-    /// <c>Sendable &amp; Decodable &amp; Encodable</c>-heavy Element
-    /// constraints are the canary).</para>
+    /// <para>The witness-backed path uses parent-metadata-direct-pass (fetched on
+    /// the C# side via <c>SwiftObjectHelper&lt;Type&gt;.GetTypeMetadata()</c>), so
+    /// unlike the pre-2026-04-23 design it is independent of the parent type's
+    /// metadata-accessor ABI variant and its per-Element PWT resolvability.</para>
     /// </summary>
     public static string? TryPlanInterface(
         StructDecl structDecl,
-        ITypeDatabase typeDatabase,
-        PInvokeHelperContext? pinvokeHelperContext = null)
+        ITypeDatabase typeDatabase)
     {
         var backing = TryFindBacking(structDecl, typeDatabase);
         if (backing is null)
             return null;
-
-        // Array-backed path delegates to a concrete C# property — no PWT plumbing,
-        // so no shape guards apply. Emit the interface unconditionally.
-        if (backing.Kind == BackingKind.ArrayProperty)
-            return $"global::System.Collections.Generic.IReadOnlyList<{backing.ElementCsName}>";
-
-        // Collection-witness path needs a PWT-resolvable dispatch shape AND the
-        // emission context that EmitMembers receives later. Mirror every early
-        // return in EmitWitnessBackedMembers / EmitWitnessIndexerBody so the two
-        // stay in lockstep.
-        if (pinvokeHelperContext is null)
-            return null;
-        if (pinvokeHelperContext.HasIndeterminatePwtShape)
-            return null;
-        if (pinvokeHelperContext.ExceedsRegisterArgumentThreshold)
-            return null;
-        foreach (var entry in pinvokeHelperContext.PwtEntries)
-        {
-            if (!entry.IsResolvable || string.IsNullOrEmpty(entry.ResolvableInterfaceName))
-                return null;
-        }
 
         return $"global::System.Collections.Generic.IReadOnlyList<{backing.ElementCsName}>";
     }
@@ -107,14 +87,16 @@ internal static class CollectionProjectionEmitter
     /// <summary>
     /// Emits the projection member bodies. Call only after <see cref="TryPlanInterface"/>
     /// has returned non-null for this struct. For Collection-witness backings the caller
-    /// must also pass <paramref name="swiftWriter"/>, <paramref name="moduleCtx"/>, and
-    /// <paramref name="pinvokeHelperContext"/> so the projection can emit its own
-    /// <c>@_cdecl</c> subscript wrapper + P/Invoke declaration. For array backings
-    /// those parameters are ignored.
+    /// must pass <paramref name="swiftWriter"/>, <paramref name="moduleCtx"/>, and the
+    /// C# <paramref name="typeNameWithGenerics"/> (e.g. <c>"Forecast&lt;TElement&gt;"</c>)
+    /// so the projection can emit its own <c>@_cdecl</c> wrappers + P/Invoke declarations
+    /// and reference the parent type via <c>SwiftObjectHelper&lt;…&gt;.GetTypeMetadata()</c>.
+    /// For array backings those parameters are unused and may be null.
     /// </summary>
     public static void EmitMembers(
         CSharpWriter csWriter,
         StructDecl structDecl,
+        string typeNameWithGenerics,
         ITypeDatabase typeDatabase,
         IReadOnlyDictionary<string, string>? propertyRenames,
         ILogger logger,
@@ -143,7 +125,7 @@ internal static class CollectionProjectionEmitter
 
         EmitWitnessBackedMembers(
             csWriter, swiftWriter, moduleCtx, pinvokeHelperContext,
-            structDecl, backing, typeDatabase, logger);
+            structDecl, typeNameWithGenerics, backing, typeDatabase, logger);
     }
 
     private static void EmitArrayBackedMembers(
@@ -181,73 +163,93 @@ internal static class CollectionProjectionEmitter
         ModuleEmissionContext moduleCtx,
         PInvokeHelperContext pinvokeHelperContext,
         StructDecl structDecl,
+        string typeNameWithGenerics,
         BackingInfo backing,
         ITypeDatabase typeDatabase,
         ILogger logger)
     {
-        // Guard against generator states that would produce wrong Swift metadata-accessor
-        // shape. NonFrozenStructHandler's TypeMetadataAccessorSkipGate normally filters
-        // these types out before we reach emission, but re-check defensively.
-        if (pinvokeHelperContext.HasIndeterminatePwtShape ||
-            pinvokeHelperContext.ExceedsRegisterArgumentThreshold)
-        {
-            logger.LogInformation(
-                "Skipping Collection-witness projection on '{TypeName}' — indeterminate PWT / over-threshold metadata accessor.",
-                structDecl.Name);
-            return;
-        }
-
         var elementCsName = backing.ElementCsName;
 
         // Symbol naming — deterministic hash on the full type identity so a rebuild with
         // no source change produces the same symbol. The moduleQualifiedName includes
         // the module, so two modules with same short type name get distinct symbols.
         var moduleQualifiedName = structDecl.SwiftTypeName.ModuleQualifiedName;
-        var symbolSource = $"{moduleQualifiedName}:CollProj:subscript";
+        var symbolSource = $"{moduleQualifiedName}:CollProj:witness";
         var hash = EmitterUtility.DeterministicHash8(symbolSource);
-        var cdeclSymbolName = $"SBW_CollProj_subscript_{hash}";
-        var pinvokeMethodName = $"PInvoke_collSubscript_{hash}";
+        var subscriptSymbol = $"SBW_CollProj_subscript_{hash}";
+        var countSymbol = $"SBW_CollProj_count_{hash}";
+        var pinvokeSubscriptName = $"PInvoke_collSubscript_{hash}";
+        var pinvokeCountName = $"PInvoke_collCount_{hash}";
 
-        // Emit the Swift @_cdecl wrapper + the C# P/Invoke declaration in the existing
-        // {TypeName}_PInvoke helper class. This runs exactly once per struct because
-        // EmitMembers runs once per struct emission.
-        EmitSubscriptSwiftWrapper(
-            swiftWriter, moduleCtx, structDecl, typeDatabase, pinvokeHelperContext,
-            backing.ElementSubscript!, hash, cdeclSymbolName);
+        EmitCollectionSwiftWrappers(
+            swiftWriter, structDecl, backing.ElementSubscript!, hash,
+            subscriptSymbol, countSymbol);
 
         var moduleName = structDecl.SwiftTypeName.Module;
         var libraryPath = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleName);
 
-        // Build the C# P/Invoke parameter list — matches the @_cdecl signature emitted
-        // below (resultPtr, position, metadata..., pwt..., self_).
-        var pinvokeParams = new List<string> { "IntPtr resultPtr", "nint position" };
-        for (int i = 0; i < structDecl.GenericParameters.Count; i++)
-            pinvokeParams.Add($"IntPtr _metadata{i}");
-        for (int i = 0; i < pinvokeHelperContext.PwtEntries.Count; i++)
-            pinvokeParams.Add($"IntPtr _pwt{i}");
-        pinvokeParams.Add("IntPtr _self");
-
+        // C# P/Invoke declarations — the Swift wrappers take only parent-metadata +
+        // self (plus resultPtr/position for subscript), no Element metadata and no
+        // PWT args. That is what lets this path fire on Apple-shape types whose
+        // Element carries constraints (Decodable/Encodable/Equatable/…) that the
+        // static-interface projection can't materialize at the C# layer.
         pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
         {
             LibraryPath = libraryPath,
-            EntryPoint = cdeclSymbolName,
-            MethodName = pinvokeMethodName,
+            EntryPoint = subscriptSymbol,
+            MethodName = pinvokeSubscriptName,
             ReturnType = "void",
-            ParametersString = string.Join(", ", pinvokeParams),
+            ParametersString = "IntPtr resultPtr, nint position, IntPtr parentMeta, IntPtr self_",
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+        });
+        pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+        {
+            LibraryPath = libraryPath,
+            EntryPoint = countSymbol,
+            MethodName = pinvokeCountName,
+            ReturnType = "nint",
+            ParametersString = "IntPtr parentMeta, IntPtr self_",
             CallingConvention = PInvokeCallingConvention.Cdecl,
         });
 
-        // C# body — Count via StartIndex/EndIndex (emitted as int properties by the
-        // PropertyWrapperEmitter Collection-family path), subscript via our new P/Invoke,
-        // enumerator iterates via the projected indexer.
+        // C# body — Count dispatches to the count wrapper, subscript to the subscript
+        // wrapper, enumerator iterates through the projected indexer.
         csWriter.WriteLine();
-        csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c> computed as <c>endIndex - startIndex</c>.</summary>");
-        csWriter.WriteLine("public int Count => checked(EndIndex - StartIndex);");
+        csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c>.</summary>");
+        csWriter.WriteLine("public int Count");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("get");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"var __parentMeta = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
+        csWriter.WriteLine("var __success = false;");
+        csWriter.WriteLine("_payload.DangerousAddRef(ref __success);");
+        csWriter.WriteLine("try");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine($"var __count = {pinvokeHelperContext.HelperClassName}.{pinvokeCountName}(__parentMeta.Handle, _payload.DangerousGetHandle());");
+        csWriter.WriteLine("return checked((int)__count);");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("finally");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("if (__success)");
+        csWriter.Indent++;
+        csWriter.WriteLine("_payload.DangerousRelease();");
+        csWriter.Indent--;
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
         csWriter.WriteLine();
 
         EmitWitnessIndexerBody(
-            csWriter, structDecl, elementCsName,
-            pinvokeHelperContext, pinvokeMethodName);
+            csWriter, structDecl, typeNameWithGenerics, elementCsName,
+            pinvokeHelperContext, pinvokeSubscriptName);
 
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>Iterates the collection in index order via the projected indexer.</summary>");
@@ -265,27 +267,38 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine();
 
         logger.LogInformation(
-            "Emitted Collection projection (witness-backed) on '{TypeName}' via subscript symbol '{Symbol}'.",
-            structDecl.Name, cdeclSymbolName);
+            "Emitted Collection projection (witness-backed, parent-meta-direct) on '{TypeName}' via subscript symbol '{Symbol}'.",
+            structDecl.Name, subscriptSymbol);
     }
 
     /// <summary>
-    /// Emits the Swift-side <c>@_cdecl</c> subscript wrapper using generic static dispatch,
-    /// mirroring <see cref="PropertyWrapperEmitter"/>'s getter wrapper shape but specialized
-    /// for <c>subscript(Int) -&gt; Element</c>.
+    /// Emits the Swift-side plumbing for the witness-backed Collection projection:
+    /// a private protocol carrying static <c>_sbw_coll_count</c> and
+    /// <c>_sbw_coll_sub</c> requirements, an extension conforming the target struct
+    /// to that protocol (where the <c>Self</c>-typed load / <c>count</c> and
+    /// <c>subscript</c> witness calls actually live), and the pair of
+    /// <c>@_cdecl</c> wrappers C# calls into.
+    ///
+    /// <para>The wrappers take parent type metadata as an <c>UnsafeRawPointer</c>
+    /// passed from C# — no Element metadata, no PWT args, no dlsym'd metadata
+    /// accessor helper. The metatype is reconstructed via
+    /// <c>unsafeBitCast(parentMeta, to: Any.Type.self) as! any Protocol.Type</c>,
+    /// which dispatches through Swift's existential-metatype mechanism rather than
+    /// the generic-specialization ABI — sidestepping the register-argument threshold
+    /// and the resolvable-interface gate that the earlier design inherited from
+    /// <see cref="MetatypeHelperEmitter"/>.</para>
     /// </summary>
-    private static void EmitSubscriptSwiftWrapper(
+    private static void EmitCollectionSwiftWrappers(
         SwiftWriter swiftWriter,
-        ModuleEmissionContext moduleCtx,
         StructDecl structDecl,
-        ITypeDatabase typeDatabase,
-        PInvokeHelperContext pinvokeHelperContext,
         SubscriptDecl subscriptDecl,
         string hash,
-        string cdeclSymbolName)
+        string subscriptSymbol,
+        string countSymbol)
     {
-        var protocolName = $"_SBW_GSS_{hash}";
-        var dispatchMethodName = $"_sbw_coll_sub_{hash}";
+        var protocolName = $"_SBW_Coll_{hash}";
+        var subDispatchName = $"_sbw_coll_sub_{hash}";
+        var countDispatchName = $"_sbw_coll_count_{hash}";
         var moduleQualifiedName = structDecl.SwiftTypeName.ModuleQualifiedName;
 
         // Element as it appears in the sugared Swift source — maps τ_0_0 → Element
@@ -294,19 +307,42 @@ internal static class CollectionProjectionEmitter
         var elementSwiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(
             subscriptDecl.ReturnTypeSpec, abiToSugaredName);
 
-        // Emit the protocol + conformance extension that encapsulates the subscript body.
-        // We do a value-type read (Self is a struct) and write the result into resultPtr via
-        // initializeMemory — the ARC-safe path for non-trivial element types.
+        // Merge availability early: the conformance extension targets a type that may
+        // carry platform-version floors (e.g., WeatherKit.HourlyWeatherStatistics is
+        // iOS 18+). Without matching @available on the extension itself, swiftc rejects
+        // the extension body ("type is only available in iOS 18.0 or newer").
+        //
+        // Include the subscript decl's own availability annotations — the witness-backed
+        // projection dispatches through `Self[position]` (the exact decl in hand), so a
+        // stricter subscript-level floor must flow onto the conformance extension and
+        // both @_cdecl wrappers. Parent-chain annotations are still merged via
+        // MergeAvailability's ancestor walk.
+        var availability = WrapperEmitterHelpers.MergeAvailability(
+            subscriptDecl.AvailabilityAnnotations, structDecl);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             private protocol {{protocolName}} {
-                static func {{dispatchMethodName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer)
+                static func {{countDispatchName}}(selfPtr: UnsafeRawPointer) -> Int
+                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer)
             }
             """);
 
+        // Conformance extension — Self is the generic struct with its parameter bound
+        // by the caller's metadata, so obj.count / obj[position] dispatch through the
+        // normal Swift protocol-witness path. The subscript result write uses
+        // initializeMemory to preserve ARC semantics for non-trivial element types
+        // (classes, nested structs with reference fields). Loading obj by value
+        // copies Self — for non-move-only structs the compiler handles the reference
+        // fields' retain, so this is safe.
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         swiftWriter.WriteLines($$"""
             extension {{moduleQualifiedName}}: {{protocolName}} {
-                static func {{dispatchMethodName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) {
+                static func {{countDispatchName}}(selfPtr: UnsafeRawPointer) -> Int {
+                    let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
+                    return obj.count
+                }
+                static func {{subDispatchName}}(resultPtr: UnsafeMutableRawPointer, position: Int, selfPtr: UnsafeRawPointer) {
                     let obj = selfPtr.assumingMemoryBound(to: Self.self).pointee
                     let result: {{elementSwiftType}} = obj[position]
                     resultPtr.initializeMemory(as: {{elementSwiftType}}.self, repeating: result, count: 1)
@@ -314,46 +350,36 @@ internal static class CollectionProjectionEmitter
             }
             """);
 
-        // Metadata accessor helper — dedupes across this type's property/method/subscript
-        // wrappers so only one copy exists per (type, pwtCount) pair.
-        int pwtCount = pinvokeHelperContext.PwtEntries.Count;
-        var metaHelperName = MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(
-            swiftWriter, structDecl, moduleCtx, pwtCount: pwtCount);
-
-        // Build @_cdecl param list — mirror CdeclSignatureContract for methods:
-        // [ResultPtr] [Arguments] [Metadata] [PWT] [Self]
-        var cdeclParams = new List<string>
-        {
-            "_ resultPtr: UnsafeMutableRawPointer",
-            "_ position: Int",
-        };
-        for (int i = 0; i < structDecl.GenericParameters.Count; i++)
-            cdeclParams.Add($"_ _metadata{i}: UnsafeRawPointer");
-        for (int i = 0; i < pwtCount; i++)
-            cdeclParams.Add($"_ _pwt{i}: UnsafeRawPointer");
-        cdeclParams.Add("_ self_: UnsafeRawPointer");
-
-        var swiftFuncName = $"_sbw_coll_subscript_{hash}";
-        var metaArgs = string.Join(", ",
-            Enumerable.Range(0, structDecl.GenericParameters.Count).Select(i => $"_metadata{i}")
-                .Concat(Enumerable.Range(0, pwtCount).Select(i => $"_pwt{i}")));
-
+        // Count wrapper.
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
-            // Collection subscript @_cdecl wrapper for {{moduleQualifiedName}}.subscript(_:) -> {{elementSwiftType}}
-            // Routes through generic static dispatch so CallConvCdecl callers can read Element
-            // witnesses without tripping the Mono CallConvSwift pathology on 2+ metadata args.
+            // Collection count @_cdecl wrapper for {{moduleQualifiedName}} — returns Self.count.
+            // Parent type metadata is supplied by the C# caller so we avoid the dlsym'd
+            // metadata-accessor helper (which requires thin-mode ABI and resolvable PWTs).
             """);
-
         WrapperEmitterHelpers.EmitCdeclAnnotation(
-            swiftWriter, cdeclSymbolName, needsMainActor: false,
-            availabilityAnnotations: WrapperEmitterHelpers.MergeAvailability(null, structDecl));
-
-        swiftWriter.WriteLine($"public func {swiftFuncName}({string.Join(", ", cdeclParams)}) {{");
+            swiftWriter, countSymbol, needsMainActor: false,
+            availabilityAnnotations: availability);
+        swiftWriter.WriteLine($"public func _sbw_coll_count_cdecl_{hash}(_ parentMetaPtr: UnsafeRawPointer, _ self_: UnsafeRawPointer) -> Int {{");
         swiftWriter.Indent++;
-        swiftWriter.WriteLine($"let parentMeta = {metaHelperName}({metaArgs})");
-        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
-        swiftWriter.WriteLine($"metatype.{dispatchMethodName}(resultPtr: resultPtr, position: position, selfPtr: self_)");
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"return metatype.{countDispatchName}(selfPtr: self_)");
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
+
+        // Subscript wrapper.
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Collection subscript @_cdecl wrapper for {{moduleQualifiedName}}.subscript(_:) -> {{elementSwiftType}}.
+            // Parent type metadata is supplied by the C# caller (see count wrapper above).
+            """);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(
+            swiftWriter, subscriptSymbol, needsMainActor: false,
+            availabilityAnnotations: availability);
+        swiftWriter.WriteLine($"public func _sbw_coll_subscript_cdecl_{hash}(_ resultPtr: UnsafeMutableRawPointer, _ position: Int, _ parentMetaPtr: UnsafeRawPointer, _ self_: UnsafeRawPointer) {{");
+        swiftWriter.Indent++;
+        swiftWriter.WriteLine($"let metatype = unsafeBitCast(parentMetaPtr, to: Any.Type.self) as! any {protocolName}.Type");
+        swiftWriter.WriteLine($"metatype.{subDispatchName}(resultPtr: resultPtr, position: position, selfPtr: self_)");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
     }
@@ -361,40 +387,24 @@ internal static class CollectionProjectionEmitter
     private static void EmitWitnessIndexerBody(
         CSharpWriter csWriter,
         StructDecl structDecl,
+        string typeNameWithGenerics,
         string elementCsName,
         PInvokeHelperContext pinvokeHelperContext,
         string pinvokeMethodName)
     {
-        // Mirror PropertyHandler's element-returning getter: stackalloc an Element-sized
-        // buffer, hand it to the @_cdecl wrapper, then MarshalFromSwift to build the
-        // C# value. Single-generic-param structs only (TryFindBacking enforces that).
+        // NativeMemory.Alloc the buffer (not stackalloc) because some Element
+        // types adopt the handle in their NewFromPayload constructor (non-frozen
+        // struct pattern — stores the provided pointer directly in the Payload
+        // SafeHandle). A stack buffer would die when the indexer returns, leaving
+        // the new TElement with a dangling pointer. NativeMemory.Alloc lets the
+        // adopting TElement take ownership. If TElement uses copy semantics
+        // instead (frozen-struct-as-class: allocates its own buffer and copies
+        // via VWT.InitializeWithCopy), we detect that by comparing the returned
+        // object's Payload handle against our allocation and free it ourselves
+        // to avoid a leak. Single-generic-param structs only (TryFindBacking
+        // enforces that).
         var tparam = structDecl.GenericParameters[0];
         var csGenericName = NameProvider.GetCSharpGenericParameterName(tparam, 0);
-
-        // Resolvable PWTs — PInvokeHelperContext.PwtEntries is already filtered to PAT/Self-free
-        // protocols and sorted in the order Swift's metadata accessor expects.
-        var pwtLocals = new List<string>();
-        var pinvokeArgs = new List<string>
-        {
-            "(IntPtr)__resultPtr",
-            "(nint)index",
-            $"{csGenericName}Metadata.Handle",
-        };
-
-        for (int i = 0; i < pinvokeHelperContext.PwtEntries.Count; i++)
-        {
-            var entry = pinvokeHelperContext.PwtEntries[i];
-            if (!entry.IsResolvable || string.IsNullOrEmpty(entry.ResolvableInterfaceName))
-            {
-                // Defensive — HasIndeterminatePwtShape should have tripped already.
-                return;
-            }
-            var localName = $"__pwt{i}";
-            pwtLocals.Add(
-                $"var {localName} = ProtocolWitnessTable.GetOrThrow<{entry.GenericParamCsName}, {entry.ResolvableInterfaceName}>();");
-            pinvokeArgs.Add($"{localName}.Handle");
-        }
-        pinvokeArgs.Add("_payload.DangerousGetHandle()");
 
         csWriter.WriteLine("/// <summary>Element access — projection of Swift <c>subscript(_:)</c> via Collection witness.</summary>");
         csWriter.WriteLine($"public {elementCsName} this[int index]");
@@ -404,27 +414,35 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine($"var {csGenericName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csGenericName}>();");
-        foreach (var local in pwtLocals)
-            csWriter.WriteLine(local);
+        csWriter.WriteLine($"var __parentMeta = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
         csWriter.WriteLine("var __success = false;");
         csWriter.WriteLine("_payload.DangerousAddRef(ref __success);");
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"var __size = checked((int){csGenericName}Metadata.Size);");
+        csWriter.WriteLine($"var __size = checked((nuint){csGenericName}Metadata.Size);");
         csWriter.WriteLine("unsafe");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("global::System.Span<byte> __buf = __size <= 256");
-        csWriter.Indent++;
-        csWriter.WriteLine("? stackalloc byte[__size]");
-        csWriter.WriteLine(": new byte[__size];");
-        csWriter.Indent--;
-        csWriter.WriteLine("fixed (byte* __resultPtr = __buf)");
+        csWriter.WriteLine("void* __cdeclBuf = NativeMemory.Alloc(__size);");
+        csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeMethodName}({string.Join(", ", pinvokeArgs)});");
-        csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{elementCsName}>(new IntPtr(__resultPtr));");
+        csWriter.WriteLine($"{pinvokeHelperContext.HelperClassName}.{pinvokeMethodName}((IntPtr)__cdeclBuf, (nint)index, __parentMeta.Handle, _payload.DangerousGetHandle());");
+        csWriter.WriteLine($"var __element = SwiftMarshal.MarshalFromSwift<{elementCsName}>(new IntPtr(__cdeclBuf));");
+        csWriter.WriteLine("if (__element is ISwiftObject __so && __so.SwiftHandle == (IntPtr)__cdeclBuf)");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("__cdeclBuf = null;");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("return __element;");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("finally");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("if (__cdeclBuf != null) NativeMemory.Free(__cdeclBuf);");
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.Indent--;
@@ -512,9 +530,13 @@ internal static class CollectionProjectionEmitter
         string unsugaredElementName,
         string sugaredElementName)
     {
-        // Require public `startIndex: Int` and `endIndex: Int` on the raw ABI — these are the
-        // properties PropertyWrapperEmitter's Collection-family relaxation emits as C# `int`
-        // getters (StartIndex / EndIndex). We reference those names directly in Count.
+        // Require public `startIndex: Int` and `endIndex: Int` on the raw ABI — these are
+        // the shape guarantees that let us safely dispatch through `Self.count` /
+        // `Self[position]` defaults inside the @_cdecl wrappers. We do NOT require these
+        // to be emittable as C# properties (PropertyHandler's `HasUnsupportedProtocolConstraints`
+        // gate skips them when Element carries Self-requirement conformances like Decodable,
+        // which is exactly the Apple-shape case this path exists for). We only need the
+        // ABI-level presence as a sanity check that Collection conformance is formed.
         if (!HasPublicIntProperty(structDecl, "startIndex") ||
             !HasPublicIntProperty(structDecl, "endIndex"))
             return null;

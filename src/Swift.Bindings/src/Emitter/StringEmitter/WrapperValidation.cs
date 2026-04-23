@@ -821,11 +821,20 @@ public static class WrapperValidation
             if (!GenericDispatchEmitter.CanEmitGenericDispatch(env, parentTypeDecl, GenericDispatchKind.Method))
                 return false;
         }
-        // Guard 5c: inout parameters on generic parent types — the generic dispatch protocol
-        // pattern can't express inout write-back through the protocol method boundary.
-        // Non-generic parents handle inout via UnsafeMutableRawPointer in the direct @_cdecl wrapper.
-        if (parentTypeDecl?.IsGeneric == true && env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
-            return false;
+        // Guard 5c: inout parameters on generic parent types — concrete (non-T-referencing)
+        // inout params are threaded through the protocol boundary as UnsafeMutableRawPointer,
+        // with load/call/write-back inside the extension body (mirroring the direct @_cdecl
+        // pattern). T-referencing inout params are still rejected because a typed pointer
+        // can't bind to an opaque generic parameter at the protocol signature level.
+        if (parentTypeDecl?.IsGeneric == true)
+        {
+            var parentGenericParamNames = parentTypeDecl.GenericParameters
+                .Select(p => p.TypeName)
+                .ToHashSet();
+            if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut &&
+                TypeSpecReferencesGenericParam(a.SwiftTypeSpec, parentGenericParamNames)))
+                return false;
+        }
         // Guard 5d: inout params with types that have C# ABI mismatch.
         // MapInout produces a single UnsafeMutableRawPointer. Types with multi-word
         // C# representation (String → 2 nint words), non-pointer C# representation

@@ -137,7 +137,7 @@ namespace BindingsGeneration
                 // so we can add IReadOnlyList<TElement> to the interface list before the header
                 // is emitted. The actual member emission happens after property emission below.
                 string? collectionProjectionInterface = CollectionProjectionEmitter.TryPlanInterface(
-                    structDecl, env.TypeDatabase, pinvokeHelperContext);
+                    structDecl, env.TypeDatabase);
                 if (collectionProjectionInterface is not null)
                     interfaces.Add(collectionProjectionInterface);
 
@@ -255,7 +255,7 @@ namespace BindingsGeneration
                 SubscriptHandler.EmitSubscripts(csWriter, swiftWriter, structDecl, env.TypeDatabase, conductor, childContext, _logger);
 
                 if (collectionProjectionInterface is not null)
-                    CollectionProjectionEmitter.EmitMembers(csWriter, structDecl, env.TypeDatabase, propertyRenames, _logger,
+                    CollectionProjectionEmitter.EmitMembers(csWriter, structDecl, typeNameWithGenerics, env.TypeDatabase, propertyRenames, _logger,
                         swiftWriter: swiftWriter,
                         moduleCtx: context.GetEmissionContext(),
                         pinvokeHelperContext: pinvokeHelperContext);

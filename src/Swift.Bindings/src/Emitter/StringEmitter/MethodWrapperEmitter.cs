@@ -59,9 +59,18 @@ public static class MethodWrapperEmitter
         {
             if (!CanEmitGenericWrapper(env, parentTypeDecl))
                 return false;
-            // Inout on generic parent: protocol dispatch can't express write-back through
-            // the protocol method boundary. Fall back to CallConvSwift.
-            if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut))
+            // Inout on generic parent: the protocol static-dispatch path handles concrete
+            // (non-T-referencing) inout params by threading UnsafeMutableRawPointer through
+            // the protocol boundary and doing the load/call/write-back inside the extension
+            // body. Inout params whose type references a parent generic parameter can't
+            // bind a concrete typed pointer, so those fall back to CallConvSwift.
+            // HasInoutWithAbiMismatch (step 11b below) still rejects String/class/non-frozen
+            // inout types that don't map cleanly onto UnsafeMutableRawPointer.
+            var parentGenericParamNames = parentTypeDecl.GenericParameters
+                .Select(p => p.TypeName)
+                .ToHashSet();
+            if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsInOut &&
+                WrapperValidation.TypeSpecReferencesGenericParam(a.SwiftTypeSpec, parentGenericParamNames)))
                 return false;
         }
 
@@ -740,6 +749,28 @@ public static class MethodWrapperEmitter
                 extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
                 methodCallArgs.Add($"{methodArgLabel}{label}Val");
             }
+            else if (arg.IsInOut)
+            {
+                // Concrete-typed inout on a generic parent: thread the raw pointer through
+                // the protocol boundary, then load/call/write-back inside the extension.
+                // T-referencing inout is rejected earlier in ShouldEmitWrapper, so we know
+                // the type is concrete and can bind a typed pointee.
+                //
+                // Writeback is emitted as `defer` so it runs on ALL scope exits — throws,
+                // early returns (e.g. the empty-string return branch for String returns),
+                // and normal completion. Late-appending the writeback would skip it on
+                // the throwing path (the `try obj.method()` unwinds past it) and on
+                // string early-returns (the `return` in the empty-utf8 branch is not the
+                // last line of the body).
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
+                protocolParams.Add($"{paramPrefix}: UnsafeMutableRawPointer");
+                cdeclParams.Add($"_ {label}: UnsafeMutableRawPointer");
+                cdeclCallArgs.Add($"{protocolArgLabel}{label}");
+
+                extensionBodyLines.Add($"var {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                extensionBodyLines.Add($"defer {{ {label}.assumingMemoryBound(to: {swiftType}.self).pointee = {label}Val }}");
+                methodCallArgs.Add($"{methodArgLabel}&{label}Val");
+            }
             else
             {
                 var (cdeclParam, reconstruction, callExpr) = CdeclParamMapper.Map(arg, label, env, false);
@@ -904,6 +935,10 @@ public static class MethodWrapperEmitter
                     break;
             }
         }
+
+        // Inout writebacks for concrete-typed inout params on generic parents are emitted
+        // inline as `defer` statements in the param loop above, which runs on ALL scope
+        // exits (throws, early-return in string branch, normal completion).
 
         // For mutating struct methods, write back BEFORE any return statement.
         // Skip if already handled in the string branch (which inserts write-back before early return).

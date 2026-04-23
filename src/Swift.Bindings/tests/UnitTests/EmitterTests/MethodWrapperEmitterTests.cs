@@ -1124,10 +1124,12 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void HasCdeclCompatibleFunctionShape_InoutOnGenericParent_ReturnsFalse()
+    public void HasCdeclCompatibleFunctionShape_ConcreteInoutOnGenericParent_ReturnsTrue()
     {
-        // Guard 5c: inout params on generic parent types can't use the protocol dispatch
-        // pattern for write-back, so they must fall back to CallConvSwift.
+        // Guard 5c (relaxed): concrete-typed inout on a generic parent is now allowed —
+        // the raw pointer is threaded through the protocol boundary as
+        // UnsafeMutableRawPointer, with load/call/writeback inside the extension body.
+        // Only T-referencing inout is still rejected (see companion test below).
         var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1162,6 +1164,63 @@ public class MethodWrapperEmitterTests
                     PrivateName = "value",
                     IsInOut = true,
                     IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.HasCdeclCompatibleFunctionShape(env));
+    }
+
+    [Fact]
+    public void HasCdeclCompatibleFunctionShape_TReferencingInoutOnGenericParent_ReturnsFalse()
+    {
+        // Guard 5c (kept): inout whose type references a parent generic parameter still
+        // can't use the protocol static-dispatch path — the typed pointer inside the
+        // extension body has no concrete type to bind against at the protocol signature
+        // level. Falls back to CallConvSwift.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Container");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "swap",
+            MangledName = "$s10TestModule_swap",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("τ_0_0"),
+                    Name = "value",
+                    PrivateName = "value",
+                    IsInOut = true,
+                    IsGeneric = true,
                     ParentDecl = null,
                     ModuleDecl = moduleDecl
                 }

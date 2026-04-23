@@ -259,6 +259,17 @@ public struct MusicItemBag<Item: CollectibleItem>: Collection {
     public func distance(from start: Int, to end: Int) -> Int {
         return end - start
     }
+
+    // Round 6: `formIndex(_:offsetBy:)` with an `inout` nint parameter on a generic
+    // struct parent. Matches MusicKit's `MusicItemCollection<TMusicItemType>.formIndex(nint)`
+    // ABI shape — inout non-T-referencing type on a generic non-frozen struct. Before the
+    // relaxation in `MethodWrapperEmitter.ShouldEmitWrapper` (and the matching shared guard
+    // in `WrapperValidation.HasCdeclCompatibleFunctionShape`) the hard gate on "any inout
+    // param on generic parent" forced SB0001 + raw CallConvSwift fallback. Declared
+    // `mutating` to match the MusicKit ABI exactly, even though the body only reads self.
+    public mutating func formIndex(_ i: inout Int, offsetBy distance: Int) {
+        i = index(i, offsetBy: distance)
+    }
 }
 
 /// Factory returning a concrete `MusicItemBag<CollectibleCoin>`. The direct C#
@@ -311,5 +322,62 @@ public func makeForecastSeries(firstId: String, secondId: String, thirdId: Strin
         CollectibleCoin(collectibleId: firstId),
         CollectibleCoin(collectibleId: secondId),
         CollectibleCoin(collectibleId: thirdId),
+    ])
+}
+
+// MARK: - WeatherKit.Forecast<Element> Apple-shape — parent over 3-PWT threshold
+//
+// Round 5 Session 3 actual-cause fixture. `ForecastSeries<Element>` above uses
+// `CollectibleItem` (no Self requirement, no associated types) so its metadata
+// accessor stays thin-mode and its PWTs are all resolvable as static C#
+// interfaces. Apple's `WeatherKit.Forecast<Element>` constrains Element by
+// `Decodable & Encodable & Equatable & Sendable` — three non-marker PWTs that
+// all carry Self requirements AND push (1 metadata + 3 PWTs) > 3 register slots,
+// flipping the parent type's metadata accessor to buffer-mode ABI.
+//
+// The pre-2026-04-23 Collection-witness emitter bailed in that state for two
+// reasons: (1) its Swift-side metadata helper was a thin-mode dlsym call that
+// PAC-traps when asked for buffer-mode metadata, and (2) the PwtEntries gate
+// rejected non-resolvable (descriptor-only) conformances. The fix passes parent
+// type metadata directly from C# and drops both gates — so iteration works
+// regardless of PWT shape. This fixture reproduces the exact Apple failure mode
+// inside source-compiled BindingTests so the regression guard is durable.
+//
+// `IdentifiableCoin` is `Decodable & Encodable & Equatable` — the same three
+// non-marker Self-requirement PWTs the WeatherKit surface declares, matching
+// the constraint density and PWT-resolvability profile that pushes the parent
+// type's metadata accessor into buffer-mode ABI.
+public struct IdentifiableCoin: Decodable, Encodable, Equatable {
+    public let identifier: String
+    public init(identifier: String) { self.identifier = identifier }
+}
+
+/// Generic Collection whose Element carries the exact PWT shape of Apple's
+/// `WeatherKit.Forecast<Element>`. Private storage so the witness-backed
+/// projection path must fire (no public array backing to delegate to). All
+/// Collection requirements are declared directly on the struct, not on a
+/// conditional extension, so the ABI surfaces them.
+public struct AppleShapedForecast<Element: Decodable & Encodable & Equatable>: Collection {
+    private let storage: [Element]
+
+    public init(_ storage: [Element]) {
+        self.storage = storage
+    }
+
+    public var startIndex: Int { 0 }
+    public var endIndex: Int { storage.count }
+    public subscript(position: Int) -> Element { storage[position] }
+    public func index(after i: Int) -> Int { i + 1 }
+}
+
+/// Factory returning a concrete `AppleShapedForecast<IdentifiableCoin>` for the
+/// runtime tests — bypasses the generic constructor wrapper path.
+public func makeAppleShapedForecast(
+    firstId: String, secondId: String, thirdId: String
+) -> AppleShapedForecast<IdentifiableCoin> {
+    return AppleShapedForecast([
+        IdentifiableCoin(identifier: firstId),
+        IdentifiableCoin(identifier: secondId),
+        IdentifiableCoin(identifier: thirdId),
     ])
 }

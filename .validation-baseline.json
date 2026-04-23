@@ -1,5 +1,5 @@
 {
-  "git_sha": "2569ac21",
+  "git_sha": "75214e01",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56850,
+        "lines": 56876,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51094,
+        "lines": 51120,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51277,
+        "lines": 51303,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56171,
+        "lines": 56197,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -180,28 +180,28 @@
       "WeatherKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21408,
+        "lines": 21798,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WeatherKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21408,
+        "lines": 21798,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WeatherKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21408,
+        "lines": 21798,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WeatherKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21408,
+        "lines": 21798,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -922,13 +922,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1593,
+      "pass": 1598,
       "fail": 0,
       "skip": 53,
       "crash": 0
     },
     "device": {
-      "pass": 1591,
+      "pass": 1609,
       "fail": 0,
       "skip": 41,
       "crash": 0

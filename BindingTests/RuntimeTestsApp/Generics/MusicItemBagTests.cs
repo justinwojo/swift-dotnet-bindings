@@ -111,4 +111,28 @@ public class MusicItemBagTests : TestBase
 
         AssertEqual(3, bag.Count, "MusicItemBag.Count (array-backed projection)");
     }
+
+    public void TestMusicItemBag_FormIndex_InoutOnGenericParent_DoesNotCrash()
+    {
+        // Round 6: `formIndex(_:offsetBy:)` takes `inout Int` on a generic struct parent.
+        // Pre-fix: the inout-on-generic-parent hard gate in MethodWrapperEmitter and
+        // WrapperValidation forced SB0001 + raw CallConvSwift, which the Collection
+        // projection wrappers could not safely call. Post-fix: the static protocol
+        // dispatch path threads UnsafeMutableRawPointer through the protocol boundary
+        // and does the load/call/writeback inside the extension, so the generated
+        // @_cdecl wrapper routes through CallConvCdecl with `ref nint i` and can be
+        // called from Mono without the CallConvSwift ABI mismatch.
+        //
+        // The public C# API hides inout (matches ParameterTests.TestIncrementValue /
+        // TestSwapValues convention — writeback semantics aren't surfaced at the API
+        // level, only at the P/Invoke). The guarantee exercised here is: the
+        // cross-boundary call completes without crashing and the wrapper's metadata +
+        // PWT plumbing still lines up for the concrete witness type.
+        using var bag = Functions.MakeMusicItemBag(
+            firstId: "a", secondId: "b", thirdId: "c");
+
+        bag.FormIndex(1, 2);
+        bag.FormIndex(0, 3);
+        TestLogger.Info("FormIndex(inout Int, Int) round-trip completed without crash");
+    }
 }
