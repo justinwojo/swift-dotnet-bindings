@@ -229,3 +229,155 @@ public enum BytesNamespace {
         return 0
     }
 }
+
+/// Error thrown by the sync-throws CSM fixture when a validation precondition fails.
+/// Kept distinct from ParseError so the description assertion can pin the exact case.
+public enum BytesValidationError: Error, CustomStringConvertible {
+    case empty
+    case tooLarge(Int)
+
+    public var description: String {
+        switch self {
+        case .empty: return "BytesValidationError.empty"
+        case .tooLarge(let n): return "BytesValidationError.tooLarge(\(n))"
+        }
+    }
+}
+
+// MARK: - Sync-throws namespace-enum CSM fixture
+// Mirrors CryptoKit's AEAD `Seal<Plaintext: DataProtocol>(...) throws` shape:
+// caseless namespace enum + static method with a DataProtocol method-level generic
+// + `throws`. Each method exercises a different cdecl-return shape so the do/catch
+// Swift wrapper and the `out IntPtr errorPtr` C# thread are stressed across the
+// paths CryptoKit consumers hit (direct Int return, Bool return, Void, and indirect
+// struct result).
+public enum ThrowingBytesNamespace {
+    /// Direct Int return. Throws when the input is empty.
+    public static func countBytesOrThrow<D: DataProtocol>(_ bytes: D) throws -> Int {
+        if bytes.count == 0 { throw BytesValidationError.empty }
+        return bytes.count
+    }
+
+    /// Direct Bool return (Bool → Int8 cdecl sentinel). Throws when larger than `limit`.
+    public static func fitsWithin<D: DataProtocol>(_ bytes: D, limit: Int) throws -> Bool {
+        if bytes.count > 0x1000 { throw BytesValidationError.tooLarge(bytes.count) }
+        return bytes.count <= limit
+    }
+
+    /// Void return. Throws when empty; otherwise no observable effect beyond the round-trip.
+    public static func assertNonEmpty<D: DataProtocol>(_ bytes: D) throws {
+        if bytes.count == 0 { throw BytesValidationError.empty }
+    }
+
+    /// Indirect struct result. Mirrors CryptoKit `Seal(...) throws -> SealedBox` where the
+    /// return is a non-frozen struct landing through resultPtr.initializeMemory.
+    public static func makeBytesSummary<D: DataProtocol>(_ bytes: D) throws -> BytesSummary {
+        if bytes.count == 0 { throw BytesValidationError.empty }
+        var xor: UInt8 = 0
+        for region in bytes.regions {
+            for byte in region { xor ^= byte }
+        }
+        return BytesSummary(count: bytes.count, xor: xor)
+    }
+}
+
+/// Non-frozen struct used as the indirect return from `makeBytesSummary`.
+public struct BytesSummary {
+    public let count: Int
+    public let xor: UInt8
+    public init(count: Int, xor: UInt8) { self.count = count; self.xor = xor }
+}
+
+// MARK: - Additional sync-throws CSM direct-return shapes
+// These fixtures round out the throwing-CSM matrix that CountBytesOrThrow / FitsWithin
+// cover for Int / Bool. They exercise the two direct-return shapes that were previously
+// only validated on the non-CSM path: SimpleEnum → raw scalar and Class → pointer.
+// Without a mapping conversion on the C# side, the generated public method would try
+// to return a raw IntPtr/underlying scalar through a projected enum/class return type
+// and fail compilation.
+
+/// SimpleEnum (Int8 raw) used as the direct-return shape for a sync-throws CSM method.
+public enum BytesKind: Int8 {
+    case empty = 0
+    case small = 1
+    case large = 2
+}
+
+/// Class used as the direct ClassPointer return shape for a sync-throws CSM method.
+public class BytesReport {
+    public let byteCount: Int
+    public let firstByte: UInt8
+    public init(byteCount: Int, firstByte: UInt8) {
+        self.byteCount = byteCount
+        self.firstByte = firstByte
+    }
+}
+
+extension BytesNamespace {
+    /// Non-throwing direct SimpleEnum return. Pre-unification the @_cdecl header would
+    /// read `-> BytesKind` (Swift enum), which swiftc silently strips with
+    /// "result type cannot be represented in Objective-C" — the P/Invoke then blows up
+    /// at runtime with "entry point not found". Exercises the lifted mapping gate.
+    public static func classifyBytesNoThrow<D: DataProtocol>(_ bytes: D) -> BytesKind {
+        if bytes.count == 0 { return .empty }
+        return bytes.count < 8 ? .small : .large
+    }
+
+    /// Non-throwing direct ClassPointer return. Same ABI constraint as the SimpleEnum
+    /// case: @_cdecl returning `BytesReport` directly strips the symbol. The fix
+    /// routes through `Unmanaged.passRetained(_result as AnyObject).toOpaque()` and
+    /// the C# side wraps the IntPtr in a SwiftHandle.
+    public static func describeBytesNoThrow<D: DataProtocol>(_ bytes: D) -> BytesReport {
+        var first: UInt8 = 0
+        for region in bytes.regions {
+            if let b = region.first { first = b; break }
+        }
+        return BytesReport(byteCount: bytes.count, firstByte: first)
+    }
+}
+
+extension ThrowingBytesNamespace {
+    /// Direct SimpleEnum return (BytesKind → Int8 @_cdecl). Throws on overflow.
+    public static func classifyBytes<D: DataProtocol>(_ bytes: D) throws -> BytesKind {
+        if bytes.count > 0x1000 { throw BytesValidationError.tooLarge(bytes.count) }
+        if bytes.count == 0 { return .empty }
+        return bytes.count < 8 ? .small : .large
+    }
+
+    /// Direct ClassPointer return (BytesReport → UnsafeMutableRawPointer @_cdecl).
+    /// Throws when the input is empty so the error path can leak-check the
+    /// caller-freed SwiftHandle buffer.
+    public static func describeBytes<D: DataProtocol>(_ bytes: D) throws -> BytesReport {
+        if bytes.count == 0 { throw BytesValidationError.empty }
+        var first: UInt8 = 0
+        for region in bytes.regions {
+            for byte in region { first = byte; break }
+            if first != 0 || bytes.count > 0 { break }
+        }
+        return BytesReport(byteCount: bytes.count, firstByte: first)
+    }
+}
+
+/// Mutating + throwing + Bool-return CSM method on a non-generic struct. Covers the
+/// Swift-side `selfWriteBack + throws + directReturnMapping` shape: the @_cdecl header
+/// declares Int8 (via the Bool mapping) and the body must route `_result` through the
+/// Bool→Int8 conversion *after* the self write-back. Without the conversion the raw
+/// Bool `_result` fails Swift type-check and the @_cdecl is silently stripped.
+public struct ThrowingByteCollector {
+    private var _bytesSeen: Int = 0
+    private var _accepted: Bool = false
+
+    public init() {}
+
+    /// Mutates internal counters regardless of the throw, so the write-back path is
+    /// always exercised. Returns true when the input is non-empty; false otherwise.
+    public mutating func acceptIfSmall<D: DataProtocol>(_ bytes: D, cap: Int) throws -> Bool {
+        _bytesSeen += bytes.count
+        if bytes.count > cap { throw BytesValidationError.tooLarge(bytes.count) }
+        _accepted = bytes.count > 0
+        return _accepted
+    }
+
+    public var bytesSeen: Int { _bytesSeen }
+    public var accepted: Bool { _accepted }
+}

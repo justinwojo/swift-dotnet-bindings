@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
@@ -197,5 +198,219 @@ public class CsmDataProtocolTests : TestBase
         var empty = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
         AssertEqual(0, (int)BytesNamespace.FirstByteOrZero(empty),
             "BytesNamespace.FirstByteOrZero(empty Data) should return the sentinel 0");
+    }
+
+    // --- Non-throwing direct SimpleEnum / ClassPointer namespace-enum CSM ---
+    // Pre-unification, the `throws &&` gate on the directReturnMapping logic meant a
+    // non-throwing CSM method returning BytesKind (SimpleEnum) or BytesReport (Class)
+    // emitted the raw Swift return type (`-> BytesKind` / `-> BytesReport`). @_cdecl
+    // rejects both ("result type cannot be represented in Objective-C") and swiftc
+    // silently strips the wrapper, so the P/Invoke call fails with "entry point not
+    // found" at runtime. These tests lock in the lifted gate — if they fail with
+    // EntryPointNotFoundException, the Swift wrapper for the non-throws direct-enum
+    // or direct-class path regressed.
+
+    public void TestBytesNamespace_ClassifyBytesNoThrow_Empty()
+    {
+        AssertEqual((int)BytesKind.Empty, (int)BytesNamespace.ClassifyBytesNoThrow(System.Array.Empty<byte>()),
+            "ClassifyBytesNoThrow(empty) should return BytesKind.Empty — SimpleEnum direct-return, no throws");
+    }
+
+    public void TestBytesNamespace_ClassifyBytesNoThrow_Small_Data()
+    {
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 1, 2, 3 });
+        AssertEqual((int)BytesKind.Small, (int)BytesNamespace.ClassifyBytesNoThrow(data),
+            "ClassifyBytesNoThrow(3 bytes via Data) should return BytesKind.Small");
+    }
+
+    public void TestBytesNamespace_ClassifyBytesNoThrow_Large()
+    {
+        byte[] bytes = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+        AssertEqual((int)BytesKind.Large, (int)BytesNamespace.ClassifyBytesNoThrow(bytes),
+            "ClassifyBytesNoThrow(10 bytes) should return BytesKind.Large");
+    }
+
+    public void TestBytesNamespace_DescribeBytesNoThrow_ByteArray()
+    {
+        byte[] bytes = { 0x7F, 0x2A, 0x03 };
+        using var report = BytesNamespace.DescribeBytesNoThrow(bytes);
+        AssertEqual(3, (int)report.ByteCount, "DescribeBytesNoThrow(byte[]).ByteCount");
+        AssertEqual(0x7F, (int)report.FirstByte, "DescribeBytesNoThrow(byte[]).FirstByte");
+    }
+
+    public void TestBytesNamespace_DescribeBytesNoThrow_Empty()
+    {
+        using var report = BytesNamespace.DescribeBytesNoThrow(System.Array.Empty<byte>());
+        AssertEqual(0, (int)report.ByteCount, "DescribeBytesNoThrow(empty).ByteCount");
+        AssertEqual(0, (int)report.FirstByte, "DescribeBytesNoThrow(empty).FirstByte");
+    }
+
+    // --- Sync-throws namespace-enum CSM ---
+    // Mirrors CryptoKit AEAD (AES.GCM / ChaChaPoly) Seal/Open shape: caseless namespace
+    // enum + static method with a DataProtocol generic + `throws`. The emitter must
+    // produce a Swift do/catch @_cdecl wrapper with an `errorOut` parameter and a
+    // matching C# P/Invoke with `out IntPtr errorPtr` + SwiftMarshal.ThrowSwiftError.
+    // Each test stresses one of the four cdecl-return shapes the CSM path handles:
+    // direct Int, direct Bool, void, and indirect struct result.
+
+    public void TestThrowingBytes_CountBytesOrThrow_Success_ByteArray()
+    {
+        byte[] bytes = { 1, 2, 3 };
+        AssertEqual(3, (int)ThrowingBytesNamespace.CountBytesOrThrow(bytes),
+            "CountBytesOrThrow(byte[]) should return the byte count");
+    }
+
+    public void TestThrowingBytes_CountBytesOrThrow_Success_Data()
+    {
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 1, 2, 3, 4 });
+        AssertEqual(4, (int)ThrowingBytesNamespace.CountBytesOrThrow(data),
+            "CountBytesOrThrow(Data) should return the byte count");
+    }
+
+    public void TestThrowingBytes_CountBytesOrThrow_Throws_EmptyByteArray()
+    {
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.CountBytesOrThrow(System.Array.Empty<byte>()),
+            "CountBytesOrThrow(empty byte[]) should surface the Swift error as SwiftException");
+    }
+
+    public void TestThrowingBytes_CountBytesOrThrow_Throws_EmptyData()
+    {
+        var empty = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.CountBytesOrThrow(empty),
+            "CountBytesOrThrow(empty Data) should surface the Swift error as SwiftException");
+    }
+
+    public void TestThrowingBytes_FitsWithin_Success()
+    {
+        byte[] bytes = { 1, 2, 3 };
+        var fits = ThrowingBytesNamespace.FitsWithin(bytes, 10);
+        if (!fits) throw new AssertionException("FitsWithin(3 bytes, limit 10) should be true");
+    }
+
+    public void TestThrowingBytes_FitsWithin_FalseNoThrow()
+    {
+        byte[] bytes = { 1, 2, 3, 4, 5 };
+        var fits = ThrowingBytesNamespace.FitsWithin(bytes, 2);
+        if (fits) throw new AssertionException("FitsWithin(5 bytes, limit 2) should be false");
+    }
+
+    public void TestThrowingBytes_AssertNonEmpty_Success()
+    {
+        byte[] bytes = { 42 };
+        ThrowingBytesNamespace.AssertNonEmpty(bytes); // no throw expected
+    }
+
+    public void TestThrowingBytes_AssertNonEmpty_Throws()
+    {
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.AssertNonEmpty(System.Array.Empty<byte>()),
+            "AssertNonEmpty(empty) should throw — void-return + throws path");
+    }
+
+    public void TestThrowingBytes_MakeBytesSummary_Success()
+    {
+        // Indirect-result return path: non-frozen BytesSummary struct lands through
+        // resultPtr.initializeMemory on the Swift side, MarshalFromSwift on the C# side.
+        byte[] bytes = { 0x01, 0x02, 0x04 };
+        using var summary = ThrowingBytesNamespace.MakeBytesSummary(bytes);
+        AssertEqual(3, (int)summary.Count, "MakeBytesSummary(byte[]).Count");
+        AssertEqual(0x07, (int)summary.Xor, "MakeBytesSummary(byte[]).Xor (1^2^4 = 7)");
+    }
+
+    public void TestThrowingBytes_MakeBytesSummary_Throws()
+    {
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.MakeBytesSummary(System.Array.Empty<byte>()),
+            "MakeBytesSummary(empty) should throw — indirect-result + throws path");
+    }
+
+    // --- Sync-throws CSM: remaining direct-return shapes (SimpleEnum, ClassPointer) ---
+    // Without these, the generated public method tries to return a raw underlying scalar
+    // or IntPtr through the projected MyEnum / MyClass return type and fails to compile.
+
+    public void TestThrowingBytes_ClassifyBytes_Empty()
+    {
+        AssertEqual((int)BytesKind.Empty, (int)ThrowingBytesNamespace.ClassifyBytes(System.Array.Empty<byte>()),
+            "ClassifyBytes(empty) should return BytesKind.Empty — SimpleEnum direct-return on throws path");
+    }
+
+    public void TestThrowingBytes_ClassifyBytes_Small()
+    {
+        byte[] bytes = { 1, 2, 3 };
+        AssertEqual((int)BytesKind.Small, (int)ThrowingBytesNamespace.ClassifyBytes(bytes),
+            "ClassifyBytes(3 bytes) should return BytesKind.Small");
+    }
+
+    public void TestThrowingBytes_ClassifyBytes_Large_Data()
+    {
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 });
+        AssertEqual((int)BytesKind.Large, (int)ThrowingBytesNamespace.ClassifyBytes(data),
+            "ClassifyBytes(9 bytes via Data) should return BytesKind.Large");
+    }
+
+    public void TestThrowingBytes_ClassifyBytes_Throws()
+    {
+        // 0x1001 bytes trips the too-large branch; error should surface as SwiftException.
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.ClassifyBytes(new byte[0x1001]),
+            "ClassifyBytes(overflow) should throw — SimpleEnum direct-return + throws error path");
+    }
+
+    public void TestThrowingBytes_DescribeBytes_Success()
+    {
+        byte[] bytes = { 0x2A, 0x55, 0x77 };
+        using var report = ThrowingBytesNamespace.DescribeBytes(bytes);
+        AssertEqual(3, (int)report.ByteCount, "DescribeBytes(byte[]).ByteCount");
+        AssertEqual(0x2A, (int)report.FirstByte, "DescribeBytes(byte[]).FirstByte");
+    }
+
+    public void TestThrowingBytes_DescribeBytes_Throws()
+    {
+        // The error path must free the would-be SwiftHandle buffer before throwing —
+        // prior to the ownership-transfer leak fix, this test would leak resultPtr.
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.DescribeBytes(System.Array.Empty<byte>()),
+            "DescribeBytes(empty) should throw — ClassPointer direct-return + throws error path");
+    }
+
+    // --- Sync-throws CSM: mutating-self + Bool return (selfWriteBack ∪ directReturnMapping) ---
+    // Without the Swift-side Bool→Int8 conversion after the write-back, the @_cdecl
+    // declares Int8 but the body returns Bool — Swift silently strips the symbol,
+    // and the P/Invoke call blows up at runtime with "entry point not found".
+
+    public void TestThrowingByteCollector_AcceptIfSmall_True()
+    {
+        var collector = new ThrowingByteCollector();
+        byte[] bytes = { 1, 2, 3 };
+        var accepted = collector.AcceptIfSmall(bytes, 10);
+        if (!accepted) throw new AssertionException("AcceptIfSmall(3 bytes, cap 10) should return true");
+        AssertEqual(3, (int)collector.BytesSeen, "AcceptIfSmall should mutate _bytesSeen");
+        if (!collector.Accepted) throw new AssertionException("AcceptIfSmall should mutate _accepted");
+    }
+
+    public void TestThrowingByteCollector_AcceptIfSmall_False()
+    {
+        var collector = new ThrowingByteCollector();
+        var empty = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
+        var accepted = collector.AcceptIfSmall(empty, 10);
+        if (accepted) throw new AssertionException("AcceptIfSmall(empty) should return false");
+        AssertEqual(0, (int)collector.BytesSeen, "AcceptIfSmall(empty) bytesSeen");
+    }
+
+    public void TestThrowingByteCollector_AcceptIfSmall_Throws()
+    {
+        // The entry-point call must reach Swift and surface the thrown error. Prior to
+        // the Swift-side Bool→Int8 conversion fix, the @_cdecl header (Int8) would not
+        // match the raw `return _result` (Bool) body and swiftc would strip the symbol,
+        // failing the P/Invoke with "entry point not found" — not SwiftException.
+        // Swift rolls back mutations on throw (exclusive-access semantics), so we don't
+        // assert on BytesSeen here; landing SwiftException proves the wrapper exists.
+        var collector = new ThrowingByteCollector();
+        byte[] bytes = { 1, 2, 3, 4, 5 };
+        AssertThrows<SwiftException>(
+            () => collector.AcceptIfSmall(bytes, 2),
+            "AcceptIfSmall(5 bytes, cap 2) should throw — mutating + throws + Bool direct-return path");
     }
 }

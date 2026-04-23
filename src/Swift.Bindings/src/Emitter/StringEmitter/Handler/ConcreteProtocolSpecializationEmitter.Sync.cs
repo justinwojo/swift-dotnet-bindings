@@ -40,7 +40,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (method.IsAsync) return false;
         if (method.IsAccessor) return false;
         if (method.IsConstructor) return false;
-        if (method.Throws) return false;
 
         // Static methods: the CSM emitter only routes instance methods through the
         // generic-parent extension path. Suppressing the open-generic emission for a

@@ -184,7 +184,7 @@ Root-cause analysis (2026-04-23) found the Round 4 retrospective mis-identified 
 
 **Outcome (2026-04-23, commit `268dc708`).** Fix landed at `GenericDispatchEmitter.CanEmitStaticDispatch`: `signatureReferencesT` hard-gate relaxed when the struct parent conforms to Sequence / Collection / BidirectionalCollection / RandomAccessCollection; routes through existing `@_cdecl` static-dispatch wrappers (off Mono-Issue-1 CallConvSwift+2-metadata path). Parallel relaxation in `PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper` + direct-return parity fix in `EmitGenericStaticGetterWrapper` (Bool → `? 1 : 0`, SimpleEnum-with-rawValue, tag-only enum zero-init + `copyMemory`, Class/Optional<Class> → `Unmanaged.passRetained`). `CollectionProjectionEmitter.HasCollectionConformance(StructDecl)` promoted to `internal` so both emitters share the detector. BindingTests fixture `MusicItemBag<Item: CollectibleItem>: Collection` in `Generics/Constraints.swift` + 4 new runtime tests (StartIndex/EndIndex, Index(_:offsetBy:), Distance(from:to:), Index(after:)). Gates: `nuke test` 10,565/0/2, `nuke validate` MusicKit swift:fail → swift:ok × 4 TFMs (SB0001 4 → **1**; remaining `FormIndex(nint)` is a distinct inout-parameter issue, out of Issue C scope), runtime-tests-simulator 1557/0/53/0 (+4 vs baseline). Zero regressions.
 
-### Session 3 — Issue E.2 (WeatherKit `Forecast<T>` Collection projection)
+### Session 3 — Issue E.2 (WeatherKit `Forecast<T>` Collection projection) [landed 2026-04-23 · `ad6e65d9`]
 
 **Actual root cause.** `CollectionProjectionEmitter.TryFindBacking:107–130` only projects when a public `var x: [Element]` property exists on the type, to delegate `GetEnumerator`/indexer calls to. `Forecast<T>` has no such property — the Apple storage is opaque. The Session 3 PWT fix cleared the tombstone but the projection never fires. The BindingTests fixture (`IndexedSeries<Element>` with `public let items: [Element]`) hides the gap because it has the visible backing array the emitter requires.
 
@@ -194,7 +194,7 @@ Root-cause analysis (2026-04-23) found the Round 4 retrospective mis-identified 
 
 **Gate.** `grep -nE "IEnumerable|GetEnumerator" WeatherKit.cs` hits `Forecast<TElement>`; consumer test iterates hourly forecast without casting.
 
-### Session 4 — CryptoKit method-level generics
+### Session 4 — CryptoKit method-level generics [partial, 2026-04-23 · `2569ac21`]
 
 **Actual root cause.** Two separate gates:
 - `Seal<TPlaintext>` AEAD methods reach the `method_level_generics` gate at `WrapperValidation.cs:1086` via `HasMethodOwnGenericParameters`. The existing `ConcreteProtocolSpecializationEmitter` + `specialization-hints.json` (from `8fc00b51`) handles instance methods on generic types; AEAD `Seal` is a **static** method, and `CanEmitStaticDispatch:260` explicitly returns `false` for `MethodType.Static`.
@@ -205,6 +205,21 @@ Root-cause analysis (2026-04-23) found the Round 4 retrospective mis-identified 
 **Tests.** BindingTests fixture: static method with `<T: DataProtocol>` constraint + signature-verification shape exercised on Mono + NativeAOT.
 
 **Gate.** `grep -nE 'public .*Seal\s*\(' CryptoKit.cs | grep -v Obsolete` returns non-obsolete overloads for AES.GCM + ChaChaPoly. `IsValidSignature(Signature, Data)` emits on P256/P384/P521/Curve25519.
+
+**Outcome (2026-04-23, commit `2569ac21`, partial).** Two pieces shipped, one deferred.
+
+*Shipped:*
+- `EnumHandler.EmitNamespaceEnum` now invokes `ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations`. Caseless Swift enums (AES, ChaChaPoly, HPKE, …) are projected as C# static partial classes but never ran CSM — they do now. This is the hook that unblocks AEAD `Seal<TPlaintext>` / `Open<TAuthenticatedData>` **once sync-throws CSM lands**.
+- Latent ABI-width fix in CSM: `EmitCSharpMethod`'s `pinvokeReturn` was hardcoded to `IntPtr` for every non-bool direct return, producing CS0266 for any method returning `byte`/`short`/… and silently mis-sizing smaller-than-pointer returns even when the cast coincidentally worked. Now routes through `MethodClosureBridge.GetPInvokePrimitiveType`.
+- BindingTests fixture `BytesNamespace` (caseless enum, two static `<D: DataProtocol>` methods — `countBytes → Int`, `firstByteOrZero → UInt8`). 7 runtime tests covering `byte[]` + `Foundation.Data` conformers and empty-input sentinels. Sim + NativeAOT device both green.
+
+*Deferred (follow-up session required):* **sync-throws CSM.** The actual CryptoKit `Seal`/`Open` methods all throw. CSM currently rejects `!isAsync && Throws` at `ConcreteProtocolSpecializationEmitter.cs:107` and `:1801`. Lifting this requires (a) Swift-side `UnsafeMutablePointer<UnsafeMutableRawPointer?>` errorOut param + `do`/`catch` wrap + sentinel returns across 5 return-shape branches; (b) C#-side `out IntPtr errorPtr` P/Invoke param + `SwiftMarshal.ThrowSwiftError` after call + `ErrorDescriptionEmitter` helper wiring; (c) mirror at `:1801` in `EmitConcreteSpecializationsForGenericParent`. Natural next session.
+
+*Design-doc revision:* the `isValidSignature<D: DataProtocol>` gate (Fix 2) was reported as **already passing pre-commit** — `IsValidSignature(Signature, Data)` overloads were already emitting on P256/P384/P521/Curve25519. Round 4 audit may have misclassified the symptom.
+
+*Gates (zero regression):* `nuke compile` ok · `nuke test` 598/1/0 · `nuke validate` clean (no compile-status movement) · `nuke binding-tests --strict` ok · `runtime-tests-simulator` 1562 → **1569** (+7) · `runtime-tests-device` 1565 → **1580** (+15). `.validation-baseline.json` updated in commit.
+
+*Gate status at end of Session 4:* `grep 'public .*Seal\s*\(' CryptoKit.cs | grep -v Obsolete` still empty (tombstoned until sync-throws CSM lands). `IsValidSignature(Signature, Data)` ✓.
 
 ### Sequencing
 

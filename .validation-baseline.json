@@ -1,5 +1,5 @@
 {
-  "git_sha": "ad6e65d9",
+  "git_sha": "2569ac21",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -12,28 +12,28 @@
       "CryptoKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 25574,
+        "lines": 26597,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 25574,
+        "lines": 26597,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 25574,
+        "lines": 26597,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 25448,
+        "lines": 26471,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -264,7 +264,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 99713,
+        "lines": 97395,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -922,13 +922,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1569,
+      "pass": 1593,
       "fail": 0,
       "skip": 53,
       "crash": 0
     },
     "device": {
-      "pass": 1580,
+      "pass": 1591,
       "fail": 0,
       "skip": 41,
       "crash": 0

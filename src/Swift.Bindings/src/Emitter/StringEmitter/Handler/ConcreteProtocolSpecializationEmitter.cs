@@ -103,8 +103,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // UnsafeMutableRawPointer self_ + pointee write-back after the call.
             if (method.IsAccessor) continue;
 
-            // Sync throws without async is also out of scope for CSM v1.
-            if (!method.IsAsync && method.Throws) continue;
+            // Throwing constructors: a CSM init for a generic-parameter conformer can
+            // reach an `internal` initializer on the concrete type (e.g. GRDB's
+            // `PersistenceContainer(Database, Record)`), which fails the Swift wrapper
+            // compile with an accessibility error. Throwing methods remain supported.
+            if (method.IsConstructor && method.Throws) continue;
 
             // Parent-generic specs are handled by EmitConcreteSpecializationsForGenericParent,
             // which wraps emission in a per-parent-conformer static extension class so the
@@ -339,9 +342,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // --- Emit C# method ---
         EmitCSharpMethod(
             csWriter, method, parentTypeDecl, pairing,
-            cdeclSymbol, wrapperLibPath, isConstructor, isStatic, isClass,
+            cdeclSymbol, moduleName, wrapperLibPath, isConstructor, isStatic, isClass,
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
-            mergedAvailability, isExtension);
+            emissionContext, mergedAvailability, isExtension);
 
         logger.LogInformation(
             "Emitted concrete specialization: {Type}.{Method}<{Pairing}>",
@@ -463,8 +466,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var swiftParams = new List<string>();
         var callArgs = new List<string>();
 
-        // Result pointer for indirect returns
+        // Result pointer for indirect returns. Cache the mapping so the sentinel-return
+        // path for throws can consult it without re-classifying.
         bool needsResultPtr = false;
+        CdeclReturnMapping? directReturnMapping = null;
         if (!isVoidReturn && !isStringReturn && !isConstructor)
         {
             if (returnsGenericParam)
@@ -476,6 +481,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
+                directReturnMapping = mapping;
             }
         }
 
@@ -575,6 +581,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 swiftParams.Add("_ self_: UnsafeRawPointer");
         }
 
+        // errorOut parameter for throwing methods. Goes last, after self_, matching the
+        // non-CSM @_cdecl wrapper layout in OptionalPointerWrapperEmitter.EmitCdeclWrapper.
+        if (method.Throws)
+        {
+            swiftParams.Add("_ errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
+            // Ensure SBW_GetErrorDescription / SBW_ReleaseError are emitted once per module.
+            ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, moduleName, emissionContext);
+        }
+
         // Build self conversion. Mutating methods bind `var __self` so the call can
         // mutate it in place; the write-back below propagates the change to the
         // payload memory the C# SafeHandle owns.
@@ -611,7 +626,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
             callExpr = $"{callTarget}.{NameProvider.ParserNameToSwift(method)}({string.Join(", ", callArgs)})";
         }
 
-        // Return type
+        // Return type. For any direct-return shape with a cdecl projection
+        // (Bool→Int8, SimpleEnum→rawValueType, Class→UnsafeMutableRawPointer,
+        // Optional<Class>→UnsafeMutableRawPointer?, Direct primitive→Swift primitive),
+        // always use mapping.CdeclReturnType so the header matches what
+        // EmitCdeclDirectReturn writes. The gate is NOT `throws` — a non-throwing CSM
+        // method returning a SimpleEnum/Class/Optional<Class> has the same ABI
+        // constraint: @_cdecl can't return Swift enums/classes. Without the mapping the
+        // Swift compiler silently strips the wrapper and the P/Invoke entry point
+        // disappears at runtime. For Direct primitives CdeclReturnType equals
+        // RenderSwiftTypeSpec(typeSpec), so this is a no-op widening of the existing
+        // behavior.
+        bool throws = method.Throws;
         string swiftReturnType;
         if (isConstructor)
             swiftReturnType = isClass ? " -> UnsafeMutableRawPointer" : "";
@@ -619,6 +645,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
             swiftReturnType = "";
         else if (returnsGenericParam)
             swiftReturnType = $" -> {returnConcreteSwiftType}";
+        else if (directReturnMapping is not null)
+            swiftReturnType = $" -> {directReturnMapping.CdeclReturnType}";
         else
             swiftReturnType = $" -> {ExistentialBypassEmitter.RenderSwiftTypeSpec(returnTypeSpec)}";
 
@@ -638,25 +666,37 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!string.IsNullOrEmpty(selfConversion))
             swiftWriter.WriteLine($"    {selfConversion}");
 
+        // Throwing methods wrap the entire body in `do { ... } catch { ... }` with an
+        // errorOut write on the catch path. Per-return-shape sentinel returns mirror
+        // OptionalPointerWrapperEmitter.EmitCdeclSentinelReturn so the generated C#
+        // side's `out IntPtr errorPtr` check can discriminate success vs. failure
+        // without aliasing against a legitimate success value.
+        string bodyIndent = throws ? "        " : "    ";
+        string tryPrefix = throws ? "try " : "";
+        string callExprWithTry = $"{tryPrefix}{callExpr}";
+
+        if (throws)
+            swiftWriter.WriteLine("    do {");
+
         if (isConstructor)
         {
             if (isClass)
             {
-                swiftWriter.WriteLine($"    let _result = {callExpr}");
-                swiftWriter.WriteLine($"    return Unmanaged.passRetained(_result as AnyObject).toOpaque()");
+                swiftWriter.WriteLine($"{bodyIndent}let _result = {callExprWithTry}");
+                swiftWriter.WriteLine($"{bodyIndent}return Unmanaged.passRetained(_result as AnyObject).toOpaque()");
             }
             else
             {
                 // Struct constructor: return via initializeMemory through result pointer
-                swiftWriter.WriteLine($"    let _result = {callExpr}");
-                swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: ({parentSwiftName}).self, repeating: _result, count: 1)");
+                swiftWriter.WriteLine($"{bodyIndent}let _result = {callExprWithTry}");
+                swiftWriter.WriteLine($"{bodyIndent}resultPtr.initializeMemory(as: ({parentSwiftName}).self, repeating: _result, count: 1)");
             }
         }
         else if (isVoidReturn)
         {
-            swiftWriter.WriteLine($"    {callExpr}");
+            swiftWriter.WriteLine($"{bodyIndent}{callExprWithTry}");
             if (!string.IsNullOrEmpty(selfWriteBack))
-                swiftWriter.WriteLine($"    {selfWriteBack}");
+                swiftWriter.WriteLine($"{bodyIndent}{selfWriteBack}");
         }
         else if (isStringReturn)
         {
@@ -664,7 +704,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // (before the string serializes) so callers observe the mutation. Without this the
             // mutation would live only on the local `var __self` copy.
             OptionalPointerWrapperEmitter.EmitStringReturnBody(
-                swiftWriter, callExpr, "    ",
+                swiftWriter, callExprWithTry, bodyIndent,
                 postCallStatement: string.IsNullOrEmpty(selfWriteBack) ? null : selfWriteBack);
         }
         else if (needsResultPtr)
@@ -684,23 +724,86 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 var substitutedReturn = SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing);
                 returnTypeStr = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(substitutedReturn);
             }
-            swiftWriter.WriteLine($"    let _result = {callExpr}");
+            // Explicit type annotation on _result — needed when the callee is a generic
+            // method whose return type can only be inferred from the binding site (e.g.
+            // `Row.decode<T>(atIndex:)` in GRDB). Without this, Swift emits
+            // "type of expression is ambiguous" and strips the wrapper.
+            swiftWriter.WriteLine($"{bodyIndent}let _result: ({returnTypeStr}) = {callExprWithTry}");
             if (!string.IsNullOrEmpty(selfWriteBack))
-                swiftWriter.WriteLine($"    {selfWriteBack}");
-            swiftWriter.WriteLine($"    resultPtr.initializeMemory(as: ({returnTypeStr}).self, repeating: _result, count: 1)");
+                swiftWriter.WriteLine($"{bodyIndent}{selfWriteBack}");
+            swiftWriter.WriteLine($"{bodyIndent}resultPtr.initializeMemory(as: ({returnTypeStr}).self, repeating: _result, count: 1)");
         }
         else
         {
             if (!string.IsNullOrEmpty(selfWriteBack))
             {
-                swiftWriter.WriteLine($"    let _result = {callExpr}");
-                swiftWriter.WriteLine($"    {selfWriteBack}");
-                swiftWriter.WriteLine($"    return _result");
+                swiftWriter.WriteLine($"{bodyIndent}let _result = {callExprWithTry}");
+                swiftWriter.WriteLine($"{bodyIndent}{selfWriteBack}");
+                // Mutating + directReturnMapping: the @_cdecl header declares the mapped
+                // return type (Int8 for Bool, rawValueType for SimpleEnum,
+                // UnsafeMutableRawPointer for ClassPointer). Returning raw `_result`
+                // would fail Swift type-check and silently strip the @_cdecl symbol.
+                // Route `_result` through the same helper the non-writeback branch uses
+                // regardless of `throws` — the ABI constraint applies either way.
+                if (directReturnMapping is not null)
+                {
+                    OptionalPointerWrapperEmitter.EmitCdeclDirectReturn(
+                        swiftWriter, "_result", returnTypeSpec, typeDatabase,
+                        directReturnMapping, bodyIndent);
+                }
+                else
+                {
+                    swiftWriter.WriteLine($"{bodyIndent}return _result");
+                }
             }
             else
             {
-                swiftWriter.WriteLine($"    return {callExpr}");
+                // Direct @_cdecl return: route through the shared helper so Bool → Int8,
+                // SimpleEnum → rawValue, and Class → Unmanaged.passRetained projections
+                // stay in lockstep with the non-CSM path. directReturnMapping is non-null
+                // here (we populated it earlier for the non-generic-param, non-string,
+                // non-void, non-constructor direct-return branch). Applied unconditionally:
+                // for CdeclReturnKind.Direct the helper emits a plain `return callExpr`,
+                // matching the previous non-throws behavior for primitives.
+                if (directReturnMapping is not null)
+                {
+                    OptionalPointerWrapperEmitter.EmitCdeclDirectReturn(
+                        swiftWriter, callExprWithTry, returnTypeSpec, typeDatabase,
+                        directReturnMapping, bodyIndent);
+                }
+                else
+                {
+                    swiftWriter.WriteLine($"{bodyIndent}return {callExprWithTry}");
+                }
             }
+        }
+
+        if (throws)
+        {
+            swiftWriter.WriteLine("    } catch {");
+            swiftWriter.WriteLine("        errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()");
+
+            // Sentinel return on the error path, sized to the declared @_cdecl return type.
+            // Indirect-result / string / void shapes return `Void`, so no sentinel is needed.
+            bool needsSentinel =
+                (isConstructor && isClass)
+                || (!isConstructor && !isVoidReturn && !isStringReturn && !needsResultPtr);
+            if (needsSentinel)
+            {
+                if (isConstructor && isClass)
+                {
+                    // Constructor returns UnsafeMutableRawPointer (ClassPointer). Mirror
+                    // EmitCdeclSentinelReturn's ClassPointer branch.
+                    swiftWriter.WriteLine("        return UnsafeMutableRawPointer(bitPattern: 1)!");
+                }
+                else
+                {
+                    OptionalPointerWrapperEmitter.EmitCdeclSentinelReturn(
+                        swiftWriter, directReturnMapping, "        ");
+                }
+            }
+
+            swiftWriter.WriteLine("    }");
         }
 
         swiftWriter.WriteLine("}");
@@ -714,6 +817,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         TypeDecl parentTypeDecl,
         (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
         string cdeclSymbol,
+        string moduleName,
         string wrapperLibPath,
         bool isConstructor,
         bool isStatic,
@@ -722,6 +826,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         bool isStringReturn,
         bool returnsGenericParam,
         ITypeDatabase typeDatabase,
+        ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
         bool isExtension = false)
     {
@@ -749,6 +854,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         bool needsUnsafe = false;
 
         bool needsResultPtr = false;
+        // Captured so the direct-return branch can convert the raw _cdecl value (IntPtr
+        // for ClassPointer, raw scalar for SimpleEnum, nullable IntPtr for
+        // OptionalClassPointer) back into the projected C# type. Stays null for
+        // constructors/void/string/generic-param/indirect-result paths.
+        CdeclReturnMapping? directReturnMapping = null;
         if (isConstructor && !isClass)
         {
             // Struct constructors always return via result pointer
@@ -763,6 +873,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 var (mapping, _) = CdeclReturnMapping.Classify(returnTypeSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
+                directReturnMapping = mapping;
             }
         }
 
@@ -889,6 +1000,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
 
+        // Throwing method: append the `out IntPtr errorPtr` parameter last so the P/Invoke
+        // matches the Swift wrapper's errorOut position.
+        bool throws = method.Throws;
+        if (throws)
+        {
+            pinvokeParams.Add("out IntPtr errorPtr");
+            callArgs.Add("out var errorPtr");
+        }
+
         // Determine C# return type
         string csReturnType = "void";
         if (isConstructor)
@@ -953,10 +1073,48 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 pinvokeReturn = MethodClosureBridge.GetPInvokePrimitiveType(returnTypeSpec);
             }
+            else if (directReturnMapping is not null &&
+                directReturnMapping.Kind == CdeclReturnKind.SimpleEnum)
+            {
+                // SimpleEnum @_cdecl returns the raw value type (Int8/UInt8/.../Int).
+                // The P/Invoke signature must match so C# doesn't read past the ABI
+                // return slot. Falls back to `int` when the TypeRecord is unavailable.
+                pinvokeReturn = typeDatabase.TryGetTypeRecord(returnTypeSpec, out var enumRecord)
+                    ? EnumHandler.GetCSharpEnumUnderlyingType(enumRecord.RawValueTypeName)
+                    : "int";
+            }
             else
             {
                 pinvokeReturn = "IntPtr";
             }
+        }
+
+        // --- Emit error-helper P/Invokes (SBW_GetErrorDescription / SBW_ReleaseError) ---
+        // Emitted once per enclosing C# class. Match the typeKey that
+        // WrapperEmitter.Marshalling uses (SwiftTypeName.ModuleQualifiedName) so when an
+        // existing generic-throwing fallback already emitted the helpers into the same
+        // class body, CSM's second pass treats them as already-emitted and does not
+        // produce a duplicate partial that tanks the `LibraryImportGenerator` analyzer.
+        // Extension CSM lives in its own per-parent-conformer partial class, so its key
+        // must be distinct from the parent type's key.
+        if (throws)
+        {
+            string csTypeKey;
+            if (isExtension)
+            {
+                var parentTupleNames = pairing
+                    .Where(p => p.Param.IsParentGeneric)
+                    .Select(p => SanitizeTypeName(p.Conformer.CSharpType));
+                csTypeKey = $"{parentTypeDecl.Name}{string.Concat(parentTupleNames)}CsmExtensions";
+            }
+            else
+            {
+                csTypeKey = parentTypeDecl.SwiftTypeName?.ModuleQualifiedName ?? parentTypeDecl.Name;
+            }
+
+            ErrorDescriptionEmitter.EmitCSharpBaseErrorPInvokesIfNeeded(
+                csWriter, csTypeKey, moduleName, wrapperLibPath,
+                pInvokeHelperContext: null, emissionContext);
         }
 
         // --- Emit P/Invoke ---
@@ -998,6 +1156,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         string pinvokeCall = $"{cdeclSymbol}({string.Join(", ", pinvokeCallArgs)})";
 
+        // Transfer ownership of resultPtr's buffer to the returned SwiftSafeHandle when the
+        // return is a non-frozen-struct/ClassWithOpaquePayload ISwiftObject: NewFromPayload
+        // wraps the pointer without copying, and SwiftSafeHandle.ReleaseHandle calls
+        // NativeMemory.Free — so the caller must NOT free resultPtr (doing so races the
+        // returned object's first read and also double-frees when it disposes). String and
+        // struct-constructor returns don't take ownership and keep the old alloc+free shape.
+        bool needsResultPtrOwnershipTransfer = needsResultPtr && !isConstructor;
         if (needsResultPtr || isStringReturn)
         {
             if (isStringReturn)
@@ -1005,15 +1170,27 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // SBW_Utf8Slice is exactly 2 machine words
                 csWriter.WriteLine("IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(nint.Size * 2);");
             }
+            else if (needsResultPtrOwnershipTransfer)
+            {
+                // NativeMemory.Alloc matches the allocator that SwiftSafeHandle.ReleaseHandle
+                // frees with (NativeMemory.Free). Don't wrap in try/finally — the returned
+                // SafeHandle owns the buffer. The (IntPtr)(void*) cast requires an unsafe
+                // context; methods taking only handle/blittable args aren't marked unsafe,
+                // so wrap the alloc in a local unsafe block.
+                csWriter.WriteLine("IntPtr resultPtr;");
+                csWriter.WriteLine($"unsafe {{ resultPtr = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc((nuint)SwiftMarshal.GetSwiftTypeSize<{csReturnType}>()); }}");
+            }
             else
             {
-                // Non-ISwiftObject indirect results are filtered out by the skip guard in
-                // EmitSpecializedMethod, so csReturnType is always an ISwiftObject class here.
+                // Struct constructor or other alloc+free case.
                 csWriter.WriteLine($"IntPtr resultPtr = System.Runtime.InteropServices.Marshal.AllocHGlobal(SwiftMarshal.GetSwiftTypeSize<{csReturnType}>());");
             }
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
+            if (!needsResultPtrOwnershipTransfer)
+            {
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+            }
         }
 
         // Emit nested fixed statements (if any) wrapping the pinvoke call + marshalling.
@@ -1028,40 +1205,105 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.Indent++;
         }
 
+        // For throws, all direct-return shapes must capture the P/Invoke result into a local
+        // so the errorPtr check can run *after* the call but *before* we use the result.
+        // The result of `ThrowSwiftError` is unreachable — the call throws — so using it
+        // inline as the return expression is unsafe.
+        //
+        // Ownership-transfer returns (needsResultPtrOwnershipTransfer) have no try/finally
+        // guarding the NativeMemory.Alloc — the returned SafeHandle takes ownership on
+        // success. On the error path, however, ThrowSwiftError aborts before MarshalFromSwift
+        // runs, so the buffer would leak. Free it explicitly on that path.
+        string errorCheck;
+        if (!throws)
+        {
+            errorCheck = string.Empty;
+        }
+        else if (needsResultPtrOwnershipTransfer)
+        {
+            errorCheck = "if (errorPtr != IntPtr.Zero) { unsafe { System.Runtime.InteropServices.NativeMemory.Free((void*)resultPtr); } SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError); }";
+        }
+        else
+        {
+            errorCheck = "if (errorPtr != IntPtr.Zero) SwiftMarshal.ThrowSwiftError(errorPtr, SBW_GetErrorDescription(errorPtr), SBW_ReleaseError);";
+        }
+
         if (isConstructor)
         {
             if (isClass)
             {
-                csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({pinvokeCall}));");
+                if (throws)
+                {
+                    csWriter.WriteLine($"var _result = {pinvokeCall};");
+                    csWriter.WriteLine(errorCheck);
+                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle(_result));");
+                }
+                else
+                {
+                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({pinvokeCall}));");
+                }
             }
             else
             {
                 // Struct constructor: call writes into resultPtr, then marshal back
                 csWriter.WriteLine($"{pinvokeCall};");
+                if (throws) csWriter.WriteLine(errorCheck);
                 csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
             }
         }
         else if (isVoidReturn)
         {
             csWriter.WriteLine($"{pinvokeCall};");
+            if (throws) csWriter.WriteLine(errorCheck);
         }
         else if (isStringReturn)
         {
             csWriter.WriteLine($"{pinvokeCall};");
+            if (throws) csWriter.WriteLine(errorCheck);
             csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
         }
         else if (needsResultPtr)
         {
             csWriter.WriteLine($"{pinvokeCall};");
+            if (throws) csWriter.WriteLine(errorCheck);
             csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
         }
         else if (returnsGenericParam)
         {
+            // Unreachable in practice: returnsGenericParam forces needsResultPtr above.
+            // Kept for parity with the pre-throws shape table.
             csWriter.WriteLine($"return {pinvokeCall};");
         }
         else
         {
-            csWriter.WriteLine($"return {pinvokeCall};");
+            // Direct @_cdecl return. Capture into a local so:
+            //   1. the errorPtr check can run before using _result (throws path)
+            //   2. the directReturnMapping-based projection converts the raw ABI value
+            //      (raw scalar for SimpleEnum, IntPtr for ClassPointer, nullable IntPtr
+            //      for OptionalClassPointer) back to the public C# type.
+            // Mirrors the Swift side's unconditional EmitCdeclDirectReturn — non-Direct
+            // kinds need the conversion whether or not the method throws, because the
+            // Swift @_cdecl ABI is identical across both paths. For CdeclReturnKind.Direct
+            // the switch falls through to `return _result;`, equivalent to the prior
+            // inline `return pinvokeCall;`.
+            csWriter.WriteLine($"var _result = {pinvokeCall};");
+            if (throws) csWriter.WriteLine(errorCheck);
+            switch (directReturnMapping?.Kind)
+            {
+                case CdeclReturnKind.SimpleEnum:
+                    csWriter.WriteLine($"return ({csReturnType})_result;");
+                    break;
+                case CdeclReturnKind.ClassPointer:
+                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle(_result));");
+                    break;
+                case CdeclReturnKind.OptionalClassPointer:
+                    // csReturnType is `MyClass?` — strip the `?` for the constructor call.
+                    csWriter.WriteLine($"return _result == IntPtr.Zero ? null : new {csReturnType.TrimEnd('?')}(new Swift.Runtime.SwiftHandle(_result));");
+                    break;
+                default:
+                    csWriter.WriteLine("return _result;");
+                    break;
+            }
         }
 
         // Close fixed blocks (reverse nesting order)
@@ -1071,7 +1313,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter.WriteLine("}");
         }
 
-        if (needsResultPtr || isStringReturn)
+        if ((needsResultPtr || isStringReturn) && !needsResultPtrOwnershipTransfer)
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1817,8 +2059,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 var method = spec.Method;
                 if (method.IsAccessor) continue;
-                if (!method.IsAsync && method.Throws) continue;
                 if (method.IsAsync) continue; // Async CSM path does not yet support generic parents.
+                // See top-level CSM path: throwing constructors can reach non-public inits.
+                if (method.IsConstructor && method.Throws) continue;
 
                 var methodParams = spec.SpecializableParams
                     .Where(p => !p.IsParentGeneric)
