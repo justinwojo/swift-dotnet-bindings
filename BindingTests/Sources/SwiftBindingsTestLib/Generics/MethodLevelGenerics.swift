@@ -199,3 +199,33 @@ public struct ElementBoundContainer<T: SearchableItem> {
         return _count
     }
 }
+
+// MARK: - Namespace Enum CSM (Session 4)
+// Swift's "namespace enum" pattern — caseless enums used solely as static member
+// containers (e.g., CryptoKit's `enum AES { enum GCM { ... } }` and `enum ChaChaPoly`).
+// The C# emitter projects these as `public static partial class` types. Before Session
+// 4, ConcreteProtocolSpecializationEmitter was never invoked for EnumHandler's
+// namespace-enum path, so static methods with method-level protocol generics
+// (DataProtocol / ContiguousBytes) never got concrete overloads — the only surface
+// was a tombstoned generic signature. This fixture is the direct reproducer:
+// `BytesNamespace.countBytes<D: DataProtocol>` is non-throwing and takes a single
+// DataProtocol parameter. With the EnumHandler CSM call in place, the emitter
+// produces two static C# overloads — CountBytes(byte[]) and CountBytes(Data) —
+// and skips them entirely without it.
+public enum BytesNamespace {
+    /// Static method with a method-level DataProtocol generic on a caseless (namespace)
+    /// enum. Non-throwing so it lands purely through the sync CSM path. Returns the
+    /// byte count so the test can round-trip a value through each conformer pairing.
+    public static func countBytes<D: DataProtocol>(_ bytes: D) -> Int {
+        return bytes.count
+    }
+
+    /// Second CSM-eligible static on the same namespace enum to ensure the per-type
+    /// emission loop covers multiple methods — not just the first one.
+    public static func firstByteOrZero<D: DataProtocol>(_ bytes: D) -> UInt8 {
+        for region in bytes.regions {
+            for byte in region { return byte }
+        }
+        return 0
+    }
+}

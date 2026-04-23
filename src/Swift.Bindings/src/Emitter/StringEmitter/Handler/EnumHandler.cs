@@ -498,6 +498,25 @@ namespace BindingsGeneration
                     NameProvider.GetPropertyName(p.Name, enumDecl.Name), propertyRenames)));
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static).ToList(), conductor, typeDatabase, childContext, propertyNames);
 
+            // Emit concrete protocol specializations (e.g., func seal<T: DataProtocol>(_ message: T, ...))
+            // Namespace enums (caseless enums used as Swift "enum namespaces") host static methods
+            // with method-level generic parameters just like structs do — AES.GCM, ChaChaPoly,
+            // HPKE, etc. in CryptoKit are the canonical examples. Without this call, CSM never
+            // runs for their Seal/Open/Unwrap APIs and consumers can't call the DataProtocol
+            // overloads.
+            // Null-check emissionCtx to match the PushTypeNesting/PopTypeNesting pattern above
+            // (this handler's own surrounding code already treats GetEmissionContext() as
+            // nullable); a null SpecializationEngine simply means CSM isn't wired, not an
+            // invariant violation.
+            var specEmissionCtx = context.GetEmissionContext();
+            var specEngine = specEmissionCtx?.SpecializationEngine;
+            if (specEngine != null)
+            {
+                ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializations(
+                    csWriter, swiftWriter, enumDecl,
+                    typeDatabase, specEmissionCtx!, specEngine, _logger);
+            }
+
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();

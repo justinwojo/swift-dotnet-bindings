@@ -933,11 +933,30 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         else
         {
-            // bool returns need a dedicated P/Invoke signature so PInvokeEmitHelper
-            // emits `[return: MarshalAs(UnmanagedType.U1)]` and the public method's
-            // `return` statement doesn't have to coerce an IntPtr to bool.
+            // Direct primitive return: match the Swift primitive's C# projection (byte,
+            // short, int, float, …) so (a) Roslyn accepts the bare `return pinvokeCall`
+            // statement without an explicit cast and (b) the P/Invoke honors the actual
+            // ABI size rather than always reading an 8-byte IntPtr. Non-primitive direct
+            // returns (ObjC handles, payload handles) stay on IntPtr.
+            // `Swift.Int` projects to `nint`, which is the same storage as IntPtr — both
+            // paths are byte-compatible, but routing through GetPInvokePrimitiveType keeps
+            // the signature honest and avoids surprise on 32-bit platforms. Bool keeps its
+            // dedicated branch because PInvokeEmitHelper emits `[MarshalAs(U1)]` for bool
+            // and the primitive helper would return "bool" without the marshalling hint.
             var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
-            pinvokeReturn = MarshallingHelpers.IsBoolType(returnTypeSpec) ? "bool" : "IntPtr";
+            if (MarshallingHelpers.IsBoolType(returnTypeSpec))
+            {
+                pinvokeReturn = "bool";
+            }
+            else if (returnTypeSpec is NamedTypeSpec rn &&
+                MarshallingHelpers.IsSwiftPrimitive(rn.Name))
+            {
+                pinvokeReturn = MethodClosureBridge.GetPInvokePrimitiveType(returnTypeSpec);
+            }
+            else
+            {
+                pinvokeReturn = "IntPtr";
+            }
         }
 
         // --- Emit P/Invoke ---

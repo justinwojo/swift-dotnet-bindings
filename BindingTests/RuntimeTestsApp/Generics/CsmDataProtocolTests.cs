@@ -139,4 +139,63 @@ public class CsmDataProtocolTests : TestBase
         byte[] b = { 2, 3 };
         AssertEqual(3, (int)combiner.CombinedCount(a, b), "CombinedCount(byte[], byte[])");
     }
+
+    // --- Namespace Enum CSM (Session 4) ---
+    // BytesNamespace is a caseless Swift enum projected as `public static partial class`.
+    // Before Session 4's EnumHandler CSM hook, static methods with method-level
+    // DataProtocol generics on namespace enums never received concrete overloads —
+    // only a tombstoned open-generic signature survived. These tests verify both the
+    // byte[] (RawBuffer) and Foundation.Data (InlineSwiftStruct) conformer pairings
+    // now emit, compile, and round-trip a value correctly through the @_cdecl wrapper.
+
+    public void TestBytesNamespace_CountBytes_ByteArray()
+    {
+        byte[] bytes = { 1, 2, 3, 4, 5 };
+        AssertEqual(5, (int)BytesNamespace.CountBytes(bytes),
+            "BytesNamespace.CountBytes(byte[]) should return the array length");
+    }
+
+    public void TestBytesNamespace_CountBytes_Data()
+    {
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 10, 20, 30 });
+        AssertEqual(3, (int)BytesNamespace.CountBytes(data),
+            "BytesNamespace.CountBytes(Data) should return the byte count");
+    }
+
+    public void TestBytesNamespace_CountBytes_EmptyByteArray()
+    {
+        AssertEqual(0, (int)BytesNamespace.CountBytes(System.Array.Empty<byte>()),
+            "BytesNamespace.CountBytes(empty byte[]) should return 0");
+    }
+
+    public void TestBytesNamespace_FirstByteOrZero_ByteArray()
+    {
+        byte[] bytes = { 0xAB, 0xCD };
+        AssertEqual(0xAB, (int)BytesNamespace.FirstByteOrZero(bytes),
+            "BytesNamespace.FirstByteOrZero(byte[]) should return the leading byte");
+    }
+
+    public void TestBytesNamespace_FirstByteOrZero_Data()
+    {
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 0x7F, 0x01 });
+        AssertEqual(0x7F, (int)BytesNamespace.FirstByteOrZero(data),
+            "BytesNamespace.FirstByteOrZero(Data) should return the leading byte");
+    }
+
+    public void TestBytesNamespace_FirstByteOrZero_EmptyByteArray()
+    {
+        AssertEqual(0, (int)BytesNamespace.FirstByteOrZero(System.Array.Empty<byte>()),
+            "BytesNamespace.FirstByteOrZero(empty byte[]) should return the sentinel 0");
+    }
+
+    public void TestBytesNamespace_FirstByteOrZero_EmptyData()
+    {
+        // Parallel sentinel-path coverage for the InlineSwiftStruct conformer. The byte[]
+        // path exercises the fixed(byte*) + Data(bytesNoCopy: …) reconstruction; this one
+        // exercises &data + pointee load. Keeping both empty-input assertions ensures a
+        // future regression in either conformer's sentinel path is caught directly.
+        var empty = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
+        AssertEqual(0, (int)BytesNamespace.FirstByteOrZero(empty),
+            "BytesNamespace.FirstByteOrZero(empty Data) should return the sentinel 0");
+    }
 }
