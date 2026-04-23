@@ -271,3 +271,45 @@ public func makeMusicItemBag(firstId: String, secondId: String, thirdId: String)
         CollectibleCoin(collectibleId: thirdId),
     ])
 }
+
+// MARK: - WeatherKit.Forecast<Element> shape — Collection with PRIVATE backing
+//
+// Session 3 Issue E.2 regression fixture. Generic struct conforming to
+// `Collection` where the backing array is PRIVATE — only `startIndex`,
+// `endIndex`, `subscript(Int) -> Element`, and `index(after:)` are public.
+// The existing `MusicItemBag` fixture has a *public* `items: [Item]` property
+// that the pre-fix `CollectionProjectionEmitter.TryFindBacking` used as the
+// delegation target for `Count` / `this[int]` / `GetEnumerator`. Apple's
+// WeatherKit `Forecast<Element>` has no such public backing — storage is
+// opaque — so that path never fires and consumers can't iterate a forecast.
+//
+// This fixture forces the witness-dispatch fallback in
+// `CollectionProjectionEmitter`: the projection must emit `Count` via
+// `StartIndex` / `EndIndex`, and `this[int]` / `GetEnumerator` via the
+// type's `subscript(Int) -> Element` witness — without any visible `[Element]`
+// property to delegate to. Element type is `CollectibleCoin` to reuse the
+// Session 2 `CollectibleItem` witness table plumbing.
+public struct ForecastSeries<Element: CollectibleItem>: Collection {
+    private let storage: [Element]
+
+    public init(_ storage: [Element]) {
+        self.storage = storage
+    }
+
+    // Collection requirements — Index = Int via typealias inference.
+    public var startIndex: Int { 0 }
+    public var endIndex: Int { storage.count }
+    public subscript(position: Int) -> Element { storage[position] }
+    public func index(after i: Int) -> Int { i + 1 }
+}
+
+/// Factory returning a concrete `ForecastSeries<CollectibleCoin>`. Mirrors the
+/// `makeMusicItemBag` pattern so the runtime test can construct the value
+/// without depending on the generic constructor wrapper path.
+public func makeForecastSeries(firstId: String, secondId: String, thirdId: String) -> ForecastSeries<CollectibleCoin> {
+    return ForecastSeries([
+        CollectibleCoin(collectibleId: firstId),
+        CollectibleCoin(collectibleId: secondId),
+        CollectibleCoin(collectibleId: thirdId),
+    ])
+}

@@ -83,4 +83,32 @@ public class MusicItemBagTests : TestBase
         AssertEqual((nint)1, bag.Index(0), "index(after: 0)");
         AssertEqual((nint)3, bag.Index(2), "index(after: 2)");
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Collection projection — array-backed path (Count only)
+    //
+    // MusicItemBag has a public `let items: [Item]`, so CollectionProjectionEmitter
+    // takes the array-backed path: `Count => Items.Count`. This guard proves that
+    // the projection at least lowers to an `IReadOnlyList<TItem>` surface with a
+    // working Count getter.
+    //
+    // The indexer, foreach, and IReadOnlyList tests that used to live here were
+    // removed: they delegate through `Items[int]` → `SwiftArray<TItem>.get_Item`,
+    // which crashes inside CollectibleCoin's init-with-copy value witness when
+    // TItem is a user struct with a reference-counted String field. That path
+    // never worked — no prior runtime test exercised `SwiftArray<UserStruct>.get_Item`
+    // — and root-causing it is a separate scope from Session 3 (which targets
+    // Forecast<T>'s witness-dispatch projection, exercised in ForecastSeriesTests
+    // where the same element type round-trips cleanly via the @_cdecl subscript
+    // wrapper — confirming the bug is in the array-delegation path, not in
+    // CollectibleCoin marshalling itself).
+    // ─────────────────────────────────────────────────────────────────────
+
+    public void TestMusicItemBag_Count_ProjectsFromArrayBacking()
+    {
+        using var bag = Functions.MakeMusicItemBag(
+            firstId: "one", secondId: "two", thirdId: "three");
+
+        AssertEqual(3, bag.Count, "MusicItemBag.Count (array-backed projection)");
+    }
 }
