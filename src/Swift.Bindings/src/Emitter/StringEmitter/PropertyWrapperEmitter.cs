@@ -771,11 +771,29 @@ public static class PropertyWrapperEmitter
             return false; // Complex generic composition, deferred
         }
 
-        // Generic struct with concrete property type — deferred.
-        // These may come from constrained extensions; unconditional protocol conformance
-        // can't access conditionally-available members. Fall back to CallConvSwift.
+        // Generic struct with concrete property type — normally deferred because the property
+        // may come from a constrained extension (unconditional protocol conformance can't
+        // access conditionally-available members). Fall back to CallConvSwift.
+        //
+        // EXCEPTION — Collection-family conformers. When the generic struct conforms to
+        // Swift.Collection / Sequence / BidirectionalCollection / RandomAccessCollection,
+        // the stored/computed properties of the Collection protocol witnesses (startIndex,
+        // endIndex, items, etc.) are declared directly on the type — not inside a
+        // constrained extension. Falling through to direct CallConvSwift leaves these
+        // getters unreachable on Mono JIT (Issue 1 — jit-info.c:918 `!ji->async` assertion
+        // trips when the Swift runtime's metadata / value-witness calls flow through a
+        // direct CallConvSwift P/Invoke with 2+ type-metadata args). Routing them through
+        // the @_cdecl static-dispatch wrapper avoids the Mono pathology and mirrors the
+        // relaxation applied to Collection-family methods in
+        // GenericDispatchEmitter.CanEmitStaticDispatch. Matches the MusicKit
+        // MusicItemCollection<TMusicItemType> shape that Session 2 targets.
         if (parentTypeDecl is not ClassDecl)
+        {
+            if (parentTypeDecl is StructDecl structDecl
+                && CollectionProjectionEmitter.HasCollectionConformance(structDecl))
+                return true;
             return false;
+        }
 
         // Generic class with concrete property type — use existing instance dispatch
         return true;
@@ -903,8 +921,47 @@ public static class PropertyWrapperEmitter
         }
         else
         {
-            // Direct return — use the same logic as non-generic direct return
-            bodyLines.Add($"return {propAccess}");
+            // Direct return — mirror EmitDirectGetterReturn's per-kind conversions so the
+            // protocol-method body returns a value compatible with the declared
+            // CdeclReturnType. Bool is the critical case: Swift's `Bool` is not
+            // interchangeable with `Int8`, so a naked `return obj.hasNextBatch` fails
+            // `swiftc` as "cannot convert Bool to Int8". SimpleEnum / ClassPointer
+            // mirror the non-generic path for completeness so any Collection-family
+            // conformer's enum- or class-returning nint-only property compiles cleanly.
+            switch (returnMapping.Kind)
+            {
+                case CdeclReturnKind.Bool:
+                    bodyLines.Add($"return {propAccess} ? 1 : 0");
+                    break;
+                case CdeclReturnKind.SimpleEnum:
+                    if (env.TypeDatabase.TryGetTypeRecord(propertyDecl.SwiftTypeSpec, out var enumRecord)
+                        && !string.IsNullOrEmpty(enumRecord.RawValueTypeName))
+                    {
+                        bodyLines.Add($"return {returnMapping.CdeclReturnType}({propAccess}.rawValue)");
+                    }
+                    else
+                    {
+                        // Tag-only enum: zero-init + copyMemory(byteCount: enum size) avoids
+                        // reading past the enum's 1-byte allocation into the wider cdecl
+                        // return type (Int/Int8 etc.). Mirrors the non-generic path's
+                        // EmitTagOnlyEnumReturn; both paths must agree or tag-only enum
+                        // properties on Collection-family conformers produce mismatched
+                        // ABI or invalid Swift.
+                        bodyLines.AddRange(WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(
+                            propAccess, returnMapping.CdeclReturnType));
+                    }
+                    break;
+                case CdeclReturnKind.ClassPointer:
+                    bodyLines.Add($"return Unmanaged.passRetained({propAccess} as AnyObject).toOpaque()");
+                    break;
+                case CdeclReturnKind.OptionalClassPointer:
+                    bodyLines.Add($"return ({propAccess}).map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
+                    break;
+                case CdeclReturnKind.Direct:
+                default:
+                    bodyLines.Add($"return {propAccess}");
+                    break;
+            }
         }
 
         // Emit protocol

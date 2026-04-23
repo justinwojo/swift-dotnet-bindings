@@ -216,3 +216,58 @@ public func makeCoinBag(firstId: String, secondId: String) -> CollectibleBag<Col
         CollectibleCoin(collectibleId: secondId),
     ])
 }
+
+// MARK: - MusicKit.MusicItemCollection shape with nint-arithmetic Collection methods
+//
+// Session 2 Issue C regression fixture. Generic struct conforming to `Collection`
+// where methods like `index(_:offsetBy:) -> Int`, `distance(from:to:) -> Int`, and
+// `index(after:) -> Int` are pure Int arithmetic — their ABI signatures never
+// reference the parent's generic parameter `Item`. Before the relaxation in
+// `GenericDispatchEmitter.CanEmitStaticDispatch` the `signatureReferencesT`
+// hard-gate rejected them on generic struct parents, matching the MusicKit
+// `MusicItemCollection<TMusicItemType>` skip reason of `generic_parent`.
+//
+// Collection-family stored/computed properties (`startIndex`, `endIndex`, `items`)
+// are also declared directly on this type — a separate fix in
+// `PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper` routes them
+// through `@_cdecl` static-dispatch wrappers instead of direct `CallConvSwift`
+// (which trips Mono Issue 1 `!ji->async` with 2+ type-metadata args). Together
+// these cover the full MusicKit parent-generic-param surface.
+
+public struct MusicItemBag<Item: CollectibleItem>: Collection {
+    public let items: [Item]
+
+    public init(items: [Item]) {
+        self.items = items
+    }
+
+    // Collection requirements — Index = Int via typealias inference.
+    public var startIndex: Int { 0 }
+    public var endIndex: Int { items.count }
+    public subscript(position: Int) -> Item { items[position] }
+    public func index(after i: Int) -> Int { i + 1 }
+
+    // Explicit overrides of Collection protocol extensions. These are the
+    // nint-only methods whose wrappers the pre-fix generator skipped. Keep
+    // them as overrides (rather than relying on the default synthesis) so
+    // they surface as declared methods on the struct in ABI JSON, which is
+    // the shape MusicKit's ABI exports.
+    public func index(_ i: Int, offsetBy distance: Int) -> Int {
+        return i + distance
+    }
+
+    public func distance(from start: Int, to end: Int) -> Int {
+        return end - start
+    }
+}
+
+/// Factory returning a concrete `MusicItemBag<CollectibleCoin>`. The direct C#
+/// ctor is independently exercised by the runtime test; this factory keeps a
+/// wrapper-free path in case future gate changes regress one or the other.
+public func makeMusicItemBag(firstId: String, secondId: String, thirdId: String) -> MusicItemBag<CollectibleCoin> {
+    return MusicItemBag(items: [
+        CollectibleCoin(collectibleId: firstId),
+        CollectibleCoin(collectibleId: secondId),
+        CollectibleCoin(collectibleId: thirdId),
+    ])
+}

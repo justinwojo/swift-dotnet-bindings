@@ -130,7 +130,14 @@ internal static class CollectionProjectionEmitter
         return match is null ? null : (match, csParamName);
     }
 
-    private static bool HasCollectionConformance(StructDecl structDecl)
+    /// <summary>
+    /// Returns true when the struct conforms to Swift.Collection, Sequence,
+    /// BidirectionalCollection, or RandomAccessCollection. Shared with
+    /// <see cref="GenericDispatchEmitter.CanEmitStaticDispatch"/> and
+    /// <c>PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper</c> to relax the
+    /// generic-parent-param gates for Collection-family conformers.
+    /// </summary>
+    internal static bool HasCollectionConformance(StructDecl structDecl)
     {
         foreach (var c in structDecl.Conformances)
         {

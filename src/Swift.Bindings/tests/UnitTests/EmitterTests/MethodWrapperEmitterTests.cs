@@ -207,6 +207,94 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformance_NintOnlyMethod_ReturnsTrue()
+    {
+        // Session 2 Issue C regression: generic struct conforming to Swift.Collection with
+        // pure nint-arithmetic methods (e.g. `index(_:offsetBy:) -> Int`) whose signatures
+        // never reference the parent generic. Pre-fix: rejected at the signatureReferencesT
+        // hard-gate with skip reason generic_parent — matching the shape that left MusicKit's
+        // MusicItemCollection<TMusicItemType> with four SB0001s. Post-fix: the Collection-
+        // family relaxation in GenericDispatchEmitter.CanEmitStaticDispatch accepts.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemCollection");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MusicItemCollection", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "TMusicItemType", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parentDecl.Conformances.Add(new TypeConformance(
+            ConformingType: parentDecl.SwiftTypeName!,
+            Protocol: SwiftTypeName.FromModuleQualifiedName("Swift.Collection"),
+            ProtocolConformanceDescriptor: "$sTestMusicItemCollectionVSKAAMc"));
+
+        // index(_ i: Int, offsetBy distance: Int) -> Int  — return + two Int params
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        var method = new MethodDecl
+        {
+            Name = "index",
+            MangledName = "$s10TestModule19MusicItemCollectionV5index_8offsetByS2i_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "i", PrivateName = "i", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "offsetBy", PrivateName = "distance", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_NoCollectionConformance_NintOnlyMethod_ReturnsFalse()
+    {
+        // Negative control for the Collection-family relaxation above: same shape
+        // (generic struct, nint-arithmetic method, no T in signature) but NO Collection
+        // conformance. Must still be rejected to preserve the constrained-extension guard.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("PlainBox");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("PlainBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        var method = new MethodDecl
+        {
+            Name = "index",
+            MangledName = "$s10TestModule8PlainBoxV5index_8offsetByS2i_SitF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "i", PrivateName = "i", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "offsetBy", PrivateName = "distance", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_GenericClassParent_MethodReferencingT_ReturnsTrue()
     {
         // Method return type references parent's generic param — now supported via static dispatch

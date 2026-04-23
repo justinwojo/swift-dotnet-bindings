@@ -260,11 +260,21 @@ internal static class GenericDispatchEmitter
 
                 // For non-class parents (structs), only allow methods that reference T in their
                 // signature. Methods with concrete-only signatures may come from constrained extensions.
+                //
+                // EXCEPTION — Collection-family conformers. Generic structs conforming to
+                // Swift.Collection / Sequence / BidirectionalCollection / RandomAccessCollection
+                // often declare nint-arithmetic methods (e.g. `index(_:offsetBy:) -> Int`,
+                // `distance(from:to:) -> Int`) whose signatures never mention the parent's
+                // generic parameter. Pre-fix these were rejected with skip reason
+                // `generic_parent`, leaving MusicKit's `MusicItemCollection<TMusicItemType>`
+                // with four SB0001s. Because Collection conformance is unconditional on the
+                // type's own generic signature, these methods are guaranteed witness-callable
+                // on every instantiation — the constrained-extension concern doesn't apply.
                 if (parentTypeDecl is not ClassDecl)
                 {
                     bool signatureReferencesT = env.MethodDecl.CSSignature
                         .Any(arg => WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
-                    if (!signatureReferencesT)
+                    if (!signatureReferencesT && !ParentHasCollectionFamilyConformance(parentTypeDecl))
                         return false;
                 }
 
@@ -445,5 +455,18 @@ internal static class GenericDispatchEmitter
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="parentTypeDecl"/> is a struct that conforms to
+    /// Swift.Collection / Sequence / BidirectionalCollection / RandomAccessCollection.
+    /// Used by <see cref="CanEmitStaticDispatch"/> to relax the <c>signatureReferencesT</c>
+    /// hard-gate for nint-arithmetic Collection methods on generic structs (matches
+    /// MusicKit's <c>MusicItemCollection&lt;TMusicItemType&gt;</c> shape).
+    /// </summary>
+    private static bool ParentHasCollectionFamilyConformance(TypeDecl parentTypeDecl)
+    {
+        return parentTypeDecl is StructDecl structDecl
+            && CollectionProjectionEmitter.HasCollectionConformance(structDecl);
     }
 }
