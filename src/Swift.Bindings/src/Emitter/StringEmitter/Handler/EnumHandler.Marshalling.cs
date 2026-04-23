@@ -79,6 +79,19 @@ namespace BindingsGeneration
             // For types that implement ISwiftObject, use their static metadata accessor
             var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
 
+            // Apple framework ABI JSON encodes generic-parameter tuple elements with the
+            // SUGARED declarator name (e.g. "SignedType"). GetCSharpTypeNameForEnumCase
+            // gates its generic-param resolution on TypeSpecHelpers.IsGenericTypeParameter
+            // and falls through to AnyType for the sugared form. Resolve here so the
+            // SwiftObjectHelper<T> fallback below emits SwiftObjectHelper<TSignedType>
+            // instead of SwiftObjectHelper<global::Swift.AnyType>.
+            if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName
+                && typeSpec is NamedTypeSpec sugaredMetadataParam
+                && TryGetGenericTypeParameterName(sugaredMetadataParam.Name, out var resolvedMetadataName, genericParams))
+            {
+                csharpType = resolvedMetadataName;
+            }
+
             // Check if it's a primitive type with known metadata
             if (IsPrimitiveTypeWithKnownMetadata(csharpType))
             {
@@ -201,8 +214,10 @@ namespace BindingsGeneration
             // which stackallocs by TypeMetadata<T>.Size + MarshalToSwift<T>. Class T needs a
             // dereference: the payload bytes ARE a class pointer, but NewFromPayload for a true
             // Swift class expects the class reference directly (not a pointer to memory holding it).
+            // TryGetGenericTypeParameterName resolves both source-compiled forms (τ_X_Y, T) and
+            // the Apple ABI sugared form ("SignedType") via its genericParams lookup, so it is
+            // the precise decider — no redundant IsGenericTypeParameter pre-gate.
             if (typeSpec is NamedTypeSpec genericParamOffset
-                && TypeSpecHelpers.IsGenericTypeParameter(genericParamOffset.Name)
                 && TryGetGenericTypeParameterName(genericParamOffset.Name, out var csParamNameOffset, genericParams))
             {
                 EmitGenericTypeParameterPayloadExtraction(csWriter, csParamNameOffset, varName,
@@ -324,12 +339,9 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
-            // the C# type parameter name. Mirrors the factory direction (CaseConstruction.cs)
-            // which stackallocs by TypeMetadata<T>.Size + MarshalToSwift<T>. Class T needs a
-            // dereference: the payload bytes ARE a class pointer, but NewFromPayload for a true
-            // Swift class expects the class reference directly (not a pointer to memory holding it).
+            // the C# type parameter name. See EmitPayloadMarshalWithOffset for the dispatch
+            // rationale and the rationale for relying solely on TryGetGenericTypeParameterName.
             if (typeSpec is NamedTypeSpec genericParamMarshal
-                && TypeSpecHelpers.IsGenericTypeParameter(genericParamMarshal.Name)
                 && TryGetGenericTypeParameterName(genericParamMarshal.Name, out var csParamNameMarshal, genericParams))
             {
                 EmitGenericTypeParameterPayloadExtraction(csWriter, csParamNameMarshal, varName,
@@ -485,12 +497,9 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
             // Bare generic type parameter (e.g. VerificationResult<T>.verified(T)): marshal via
-            // the C# type parameter name. Mirrors the factory direction (CaseConstruction.cs)
-            // which stackallocs by TypeMetadata<T>.Size + MarshalToSwift<T>. Class T needs a
-            // dereference: the payload bytes ARE a class pointer, but NewFromPayload for a true
-            // Swift class expects the class reference directly (not a pointer to memory holding it).
+            // the C# type parameter name. See EmitPayloadMarshalWithOffset for the dispatch
+            // rationale and the rationale for relying solely on TryGetGenericTypeParameterName.
             if (typeSpec is NamedTypeSpec genericParamDecl
-                && TypeSpecHelpers.IsGenericTypeParameter(genericParamDecl.Name)
                 && TryGetGenericTypeParameterName(genericParamDecl.Name, out var csParamNameDecl, genericParams))
             {
                 EmitGenericTypeParameterPayloadExtraction(csWriter, csParamNameDecl, varName,

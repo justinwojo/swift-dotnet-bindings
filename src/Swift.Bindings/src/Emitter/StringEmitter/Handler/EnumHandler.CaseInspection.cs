@@ -135,8 +135,13 @@ namespace BindingsGeneration
                 var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
                 var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
-                // Check if type is unsupported
-                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                // Check if type is unsupported.
+                // Substring match (not strict equality) catches BOTH the direct AnyType
+                // fallback ("Swift.AnyType") AND nested-type emissions where AnyType leaks
+                // into a generic-arg position (e.g. "VerificationResult.VerificationError<Swift.AnyType>"
+                // — outer-generic-args mis-placed onto inner nested type, a separate
+                // pre-existing emitter bug). Either way, the resolved name will not compile.
+                if (csharpType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping TryGet method.");
                     return;
@@ -304,7 +309,9 @@ namespace BindingsGeneration
                 var csharpType = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2);
 
                 // Check if type is unsupported
-                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                // Substring match (not strict equality) catches embedded AnyType in
+                // generic args — see EmitTryGetMethod's bail comment for the full rationale.
+                if (csharpType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported tuple element type at index {i}. Skipping TryGet method.");
                     return;

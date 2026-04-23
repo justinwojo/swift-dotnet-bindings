@@ -30,8 +30,16 @@ namespace BindingsGeneration
                 var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
                 var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
 
-                // Check if type is unsupported
-                if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
+                // Check if type is unsupported.
+                // Direct AnyType fallback (whole payload resolves to AnyType) — bail for the
+                // single-payload case, and for any tuple element that is itself a generic-bound
+                // NamedTypeSpec whose resolved name has AnyType embedded in its generic args
+                // (the StoreKit2 nested-type bug: "VerificationResult.VerificationError<Swift.AnyType>" —
+                // outer-generic-args mis-placed onto inner nested type, a pre-existing emitter bug).
+                // Plain tuple elements that resolve directly to AnyType (Lottie's "(Int, UnknownType)"
+                // pattern) are still emittable: the per-element factory body uses
+                // value0.ItemN.Payload.DangerousGetHandle(), which compiles since Swift.AnyType has a Payload.
+                if (HasUnsupportedAnyTypeInPayload(typeSpec, csharpType, typeDatabase, boundGenericsHandler, enumGenericParams))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping case.");
                     return false;
@@ -439,12 +447,17 @@ namespace BindingsGeneration
                 argList.Add("indirectResult");
             }
 
+            var enumGenericParamsForArgs = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, _, name, typeSpec) = parameters[i];
                 var bareName = NameProvider.StripVerbatimPrefix(name);
+                // Recognize generic-T params via the same helper used by GetCSharpTypeNameForEnumCase
+                // so Apple-shape sugared names ("SignedType") take this path. Otherwise the
+                // factory body falls through to GetPInvokeArgument and produces
+                // ".Payload.DangerousGetHandle()" on a bare TSignedType, which doesn't compile.
                 if (typeSpec is NamedTypeSpec genericParamType &&
-                    TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
+                    TryGetGenericTypeParameterName(genericParamType.Name, out _, enumGenericParamsForArgs))
                 {
                     csWriter.WriteLine($"var {bareName}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{type}>();");
                     csWriter.WriteLine($"byte* {bareName}SwiftBuffer = stackalloc byte[(int){bareName}Metadata.Size];");
@@ -610,7 +623,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
+                        var pInvokeType = GetPInvokeType(typeSpec, typeDatabase, enumGenericParamsForArgs);
                         var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
                         pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
                     }
@@ -657,7 +670,7 @@ namespace BindingsGeneration
                 for (int i = 0; i < parameters.Count; i++)
                 {
                     var (_, _, name, typeSpec) = parameters[i];
-                    var pInvokeType = GetPInvokeType(typeSpec, typeDatabase);
+                    var pInvokeType = GetPInvokeType(typeSpec, typeDatabase, enumGenericParamsForArgs);
                     var marshalPrefix = MarshallingHelpers.IsBoolType(pInvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
                     pInvokeParams.Add($"{marshalPrefix}{pInvokeType} {name}");
                 }
@@ -697,8 +710,14 @@ namespace BindingsGeneration
         private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
             IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
+            // TryGetGenericTypeParameterName handles τ_X_Y, T+digit, AND multi-character
+            // sugared declarator names (e.g. "SignedType" for VerificationResult<SignedType>
+            // from Apple framework ABI JSON). It returns false for non-generic-param names,
+            // so calling it unconditionally is safe — non-matches fall through to the typedb
+            // lookup below. Pre-gating with IsGenericTypeParameter (single-letter shortlist)
+            // would re-introduce the regression that hides Apple-shape sugared names from
+            // both TryGet emission AND case-factory emission.
             if (typeSpec is NamedTypeSpec genericParamType &&
-                TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name) &&
                 TryGetGenericTypeParameterName(genericParamType.Name, out var typeParameterName, genericParams))
             {
                 return typeParameterName;
@@ -964,10 +983,13 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the P/Invoke parameter type for an associated value.
         /// </summary>
-        private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        private static string GetPInvokeType(TypeSpec typeSpec, ITypeDatabase typeDatabase,
+            IReadOnlyList<GenericArgumentDecl>? genericParams = null)
         {
+            // Recognize generic-T params via TryGetGenericTypeParameterName so Apple-shape
+            // sugared names ("SignedType") project to IntPtr like τ_X_Y / T+digit.
             if (typeSpec is NamedTypeSpec genericParamType &&
-                TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
+                TryGetGenericTypeParameterName(genericParamType.Name, out _, genericParams))
             {
                 return "IntPtr";
             }
@@ -989,7 +1011,7 @@ namespace BindingsGeneration
                 var tupleHandler = new TupleHandler(typeDatabase);
                 // Use recursive type translation for P/Invoke tuple elements
                 return tupleHandler.GetPInvokeTupleType(tupleType, elementTypeSpec =>
-                    GetPInvokeType(elementTypeSpec, typeDatabase));
+                    GetPInvokeType(elementTypeSpec, typeDatabase, genericParams));
             }
 
             var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
@@ -1030,6 +1052,39 @@ namespace BindingsGeneration
 
             // Fallback — IntPtr is safe for any unknown type (Protocol/AnyType, etc.)
             return "IntPtr";
+        }
+
+        /// <summary>
+        /// Determines whether the case's payload type would emit AnyType in a position
+        /// that does not compile. Two patterns count as unsupported:
+        /// (1) the whole payload resolves to AnyType (single-payload bail), and
+        /// (2) a tuple element is itself a generic-bound NamedTypeSpec whose resolved name
+        ///     has AnyType embedded in its generic args (the StoreKit2 nested-type emission
+        ///     bug — VerificationResult.VerificationError&lt;Swift.AnyType&gt;).
+        /// Plain tuple elements that resolve directly to AnyType (e.g. Lottie's
+        /// (Int, UnknownType)) stay emittable — Swift.AnyType has a .Payload property and the
+        /// per-element factory body compiles.
+        /// </summary>
+        private static bool HasUnsupportedAnyTypeInPayload(TypeSpec typeSpec, string csharpType,
+            ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
+            IReadOnlyList<GenericArgumentDecl>? enumGenericParams)
+        {
+            var anyTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            if (typeSpec is TupleTypeSpec tuple)
+            {
+                foreach (var element in tuple.Elements)
+                {
+                    if (element is NamedTypeSpec elNamed && elNamed.ContainsGenericParameters)
+                    {
+                        var elName = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams);
+                        if (elName.Contains(anyTypeName))
+                            return true;
+                    }
+                }
+                return false;
+            }
+
+            return csharpType.Contains(anyTypeName);
         }
 
         /// <summary>
@@ -1090,6 +1145,29 @@ namespace BindingsGeneration
             {
                 typeParameterName = swiftTypeName;
                 return true;
+            }
+
+            // Apple framework ABI JSON encodes generic-parameter payloads as the SUGARED
+            // declarator name (e.g. "SignedType" for VerificationResult<SignedType>),
+            // not the τ_X_Y form swift-api-digester emits for source-compiled libraries.
+            // The branches above catch the τ_ form and the synthetic "T0/T1" form;
+            // this lookup matches the Apple shape against the enum's own generic
+            // parameter list (both sugared and raw) and resolves to the C# parameter
+            // name. Without it, GetCSharpTypeNameForEnumCase returns AnyType for
+            // payload typespecs like NamedTypeSpec("SignedType") and TryGet emission
+            // bails — leaving generic enums imported from Apple frameworks
+            // (StoreKit2.VerificationResult<T>) without payload extractors.
+            if (genericParams != null)
+            {
+                for (int i = 0; i < genericParams.Count; i++)
+                {
+                    var p = genericParams[i];
+                    if (swiftTypeName == p.SugaredTypeName || swiftTypeName == p.TypeName)
+                    {
+                        typeParameterName = NameProvider.GetCSharpGenericParameterName(p, i);
+                        return true;
+                    }
+                }
             }
 
             return false;

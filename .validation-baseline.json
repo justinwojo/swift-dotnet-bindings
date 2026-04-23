@@ -1,5 +1,5 @@
 {
-  "git_sha": "b6308240",
+  "git_sha": "4fc38a1d",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -117,28 +117,28 @@
       "StoreKit2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31162,
+        "lines": 31234,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27552,
+        "lines": 27624,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31162,
+        "lines": 31234,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26801,
+        "lines": 26873,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -229,7 +229,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55528,
+        "lines": 55487,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -285,7 +285,7 @@
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32963,
+        "lines": 32901,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -362,7 +362,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18304,
+        "lines": 18247,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -495,7 +495,7 @@
       "PhoneNumberKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 14854,
+        "lines": 14752,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -922,13 +922,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1549,
+      "pass": 1553,
       "fail": 0,
       "skip": 53,
       "crash": 0
     },
     "device": {
-      "pass": 1561,
+      "pass": 1565,
       "fail": 0,
       "skip": 41,
       "crash": 0

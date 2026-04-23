@@ -819,6 +819,98 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_GenericEnum_TryGetSugaredTypeParameterPayload_ResolvesAppleShape()
+    {
+        // E.1 Apple-framework regression: the τ_0_0 case above only exercises the
+        // source-compiled ABI shape that swift-api-digester emits for our BindingTests
+        // fixtures. Apple framework ABI JSON (e.g. StoreKit2.VerificationResult<SignedType>)
+        // encodes generic-parameter payloads with the SUGARED declarator name —
+        // NamedTypeSpec("SignedType"), not NamedTypeSpec("τ_0_0"). That sugared shape
+        // bypasses TypeSpecHelpers.IsGenericTypeParameter (length-≤3 simple-letter
+        // shortlist) so GetCSharpTypeNameForEnumCase fell through to AnyType and
+        // EmitTryGetMethod silently skipped — leaving VerificationResult<T> with
+        // CaseTag + DebugDescription only and no payload extractor.
+        //
+        // The fix detects the Apple shape via the enum's own genericParams list
+        // (matching SugaredTypeName / TypeName), so this test mirrors the τ_0_0
+        // fixture but feeds the bare sugared name through the case payload.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("VerificationResult", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "SignedType",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+
+        var verifiedCase = CreateCase("verified");
+        verifiedCase.AssociatedValues.Add(new NamedTypeSpec("SignedType"));
+        enumDecl.Cases.Add(verifiedCase);
+        enumDecl.Cases.Add(CreateCase("invalid"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The TryGet method MUST emit and MUST use the resolved C# generic parameter
+        // name (TSignedType) — not the AnyType fallback and not the raw "SignedType".
+        Assert.Contains("public bool TryGetVerified([MaybeNullWhen(false)] out TSignedType value)", csOutput);
+        // The bare-generic-parameter marshalling branch in EnumHandler.Marshalling.cs
+        // must fire: class-T metadata-kind dispatch + dereference, struct/ISwiftStruct
+        // fallback. Without the marshalling-side gate change (dropping the redundant
+        // IsGenericTypeParameter pre-check), the body would silently fall through to
+        // the AnyType branch and emit MarshalFromSwift<global::Swift.AnyType>.
+        Assert.Contains("global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<TSignedType>().Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(*(IntPtr*)(enumCopy))", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(new IntPtr(enumCopy))", csOutput);
+        // AnyType must never leak into the TryGet signature for a generic-param payload —
+        // that was the silent-skip symptom this fix eliminates.
+        Assert.DoesNotContain("out global::Swift.AnyType value", csOutput);
+    }
+
+    [Fact]
+    public void Emit_GenericEnum_CaseFactorySugaredTypeParameter_ResolvesAppleShape()
+    {
+        // Codex feedback: the original sugared-name fix resolved the TryGet path via a
+        // local AnyType bypass but left GetCSharpTypeNameForEnumCase still pre-gated on
+        // TypeSpecHelpers.IsGenericTypeParameter (length-≤3 simple-letter shortlist).
+        // EmitEnumCaseWithAssociatedValues (the static case factory) shares that helper,
+        // so for Apple-shape sugared payloads it kept seeing AnyType and bailed at the
+        // factory's own AnyType gate — emitting the read-only `Verified` accessor only,
+        // never the constructable factory.
+        //
+        // The actual fix drops the IsGenericTypeParameter pre-gate inside
+        // GetCSharpTypeNameForEnumCase. The extended TryGetGenericTypeParameterName
+        // already handles τ_X_Y, T+digit, AND multi-character sugared names; non-matches
+        // fall through to the typedb lookup unchanged. This test guards the factory
+        // side: for VerificationResult<SignedType>.verified(SignedType), the static
+        // factory must emit with the resolved TSignedType parameter, not AnyType.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("VerificationResult", moduleDecl, isFrozen: true);
+        enumDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "SignedType",
+            new List<GenericParameterConformance>(),
+            new List<GenericParameterConformance>()));
+
+        var verifiedCase = CreateCase("verified");
+        verifiedCase.AssociatedValues.Add(new NamedTypeSpec("SignedType"));
+        enumDecl.Cases.Add(verifiedCase);
+        enumDecl.Cases.Add(CreateCase("invalid"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // The static case factory MUST emit with TSignedType in its parameter list —
+        // the constructable surface (Verified(T payload)) is what consumers call to
+        // round-trip a payload through the C# → Swift boundary.
+        Assert.Contains("Verified(TSignedType", csOutput);
+        // The factory must return the bound generic enum instance, not AnyType.
+        Assert.Contains("VerificationResult<TSignedType> Verified", csOutput);
+        // AnyType must never leak into the factory parameter list — that was the
+        // case-factory-skip symptom Codex identified.
+        Assert.DoesNotContain("Verified(global::Swift.AnyType", csOutput);
+    }
+
+    [Fact]
     public void Emit_NamespaceEnum_EmitsStaticClass()
     {
         // E12: Zero-case enums used as namespaces should emit as static classes

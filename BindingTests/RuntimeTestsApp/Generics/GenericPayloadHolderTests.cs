@@ -66,4 +66,52 @@ public class GenericPayloadHolderTests : TestBase
         AssertFalse(holder.TryGetWrapped(out var payload), "TryGetWrapped returns false on Empty");
         payload?.Dispose();
     }
+
+    // AppleHolder<SignedType> mirrors VerificationResult<SignedType> from StoreKit2:
+    // a multi-character SUGARED generic-parameter name that is NOT in the simple-letter
+    // shortlist used by IsGenericTypeParameter. Without the sugared-name resolution in
+    // TryGetGenericTypeParameterName, GetCSharpTypeNameForEnumCase falls through to
+    // AnyType and EmitTryGetMethod silently skips — leaving the enum read-only.
+
+    public void TestAppleHolderOfString_Verified_ExtractsPayload()
+    {
+        using var holder = TestLibFunctions.MakeVerifiedAppleString("hello");
+        AssertEqual(AppleHolder<SwiftString>.CaseTag.Verified, holder.Tag, "Tag == Verified");
+
+        AssertTrue(holder.TryGetVerified(out var payload), "TryGetVerified returns true");
+        using (payload)
+        {
+            AssertEqual("hello", payload!.ToString(), "Extracted payload round-trips");
+        }
+    }
+
+    public void TestAppleHolderOfString_Invalid_TryGetFails()
+    {
+        using var holder = TestLibFunctions.MakeInvalidAppleString();
+        AssertEqual(AppleHolder<SwiftString>.CaseTag.Invalid, holder.Tag, "Tag == Invalid");
+
+        AssertFalse(holder.TryGetVerified(out var payload), "TryGetVerified returns false on Invalid");
+        payload?.Dispose();
+    }
+
+    public void TestAppleHolderOfIntBox_Verified_ExtractsPayload()
+    {
+        using var holder = TestLibFunctions.MakeVerifiedAppleIntBox(42);
+        AssertEqual(AppleHolder<IntBox>.CaseTag.Verified, holder.Tag, "Tag == Verified");
+
+        AssertTrue(holder.TryGetVerified(out var payload), "TryGetVerified returns true");
+        using (payload)
+        {
+            AssertEqual(42, payload!.Value, "Extracted IntBox.value round-trips");
+        }
+    }
+
+    public void TestAppleHolderOfIntBox_Invalid_TryGetFails()
+    {
+        using var holder = TestLibFunctions.MakeInvalidAppleIntBox();
+        AssertEqual(AppleHolder<IntBox>.CaseTag.Invalid, holder.Tag, "Tag == Invalid");
+
+        AssertFalse(holder.TryGetVerified(out var payload), "TryGetVerified returns false on Invalid");
+        payload?.Dispose();
+    }
 }

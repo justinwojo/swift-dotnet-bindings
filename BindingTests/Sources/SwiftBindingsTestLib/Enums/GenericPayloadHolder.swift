@@ -51,3 +51,39 @@ public func makeWrappedIntBox(_ value: Int32) -> Holder<IntBox> {
 public func makeEmptyIntBox() -> Holder<IntBox> {
     return .empty
 }
+
+// Apple-framework-shape sibling fixture. The ABI typespec name for the payload
+// in `verified(SignedType)` resolves to NamedTypeSpec("SignedType") — a
+// multi-character generic parameter name that is NOT in the simple-letter
+// shortlist used by TypeSpecHelpers.IsGenericTypeParameter (`T`, `U`, `K`, …).
+// `Holder<T>` above hides this regression because the single letter `T` does
+// match the shortlist; with `T` renamed to `SignedType`, the same pattern
+// reproduces the StoreKit2.VerificationResult<SignedType> shape end-to-end.
+//
+// Extraction (TryGetWrapped) goes through the same value-witness-table copy +
+// runtime class-vs-struct dispatch as `Holder<T>` — Mono JIT and NativeAOT
+// have historically diverged on generic-enum payload marshalling, so we
+// re-exercise both runtimes with the Apple-shape resolution path.
+
+/// Generic enum whose generic parameter has a multi-character SUGARED name,
+/// matching the Apple framework ABI shape (e.g. VerificationResult<SignedType>).
+public enum AppleHolder<SignedType> {
+    case verified(SignedType)
+    case invalid
+}
+
+public func makeVerifiedAppleString(_ value: String) -> AppleHolder<String> {
+    return .verified(value)
+}
+
+public func makeInvalidAppleString() -> AppleHolder<String> {
+    return .invalid
+}
+
+public func makeVerifiedAppleIntBox(_ value: Int32) -> AppleHolder<IntBox> {
+    return .verified(IntBox(value: value))
+}
+
+public func makeInvalidAppleIntBox() -> AppleHolder<IntBox> {
+    return .invalid
+}
