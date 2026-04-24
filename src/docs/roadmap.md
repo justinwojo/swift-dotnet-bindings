@@ -93,7 +93,6 @@ Remaining items tracked in [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md).
 | **Property wrappers / KeyPaths** | Low frequency in public API surfaces |
 | **Static protocol constructors** | Init witness dispatch needs allocation infrastructure |
 | **Weak/unowned references** | 4 test skips. Requires ownership tracking infrastructure |
-| **Remap `Swift.CIContext` to `CoreImage.CIContext`** | Last hand-rolled `Swift.*` ObjC wrapper. Cleanup: delete `CIContext.cs`, remove registration, update `CoreImageDatabase.xml`. |
 | **Constrained-generic PWT plumbing for non-accessor P/Invokes** | `EnumHandler.RawRepresentable.cs:146,254` and `OperatorHandler.cs:453,481` still pass bare `GetMetadataArgumentList()`. Not triggered by any current validation library — leave alone until a repro surfaces. See `constrained-generic-metadata-witness-tables.md`. |
 | **Wrapper-helper path dynamic PWT resolution** | Swift wrapper side still fail-closed for Self-requirement / associated-type protocols. Not triggered by any current validation library. |
 | **Self-requirement existential boxing untested** | `GetPublicExistentialType()` lowers `HasSelfRequirement` protocols to `object` at call sites, but no runtime test exercises an `any SelfReqProto`-typed parameter end-to-end. Same-module conformers have `typeof(IFoo<TSelf>)` keyed dictionary entries — whether this round-trips correctly through `GetOrCreate<object>` is unverified. Separate from the PAT fix. |
