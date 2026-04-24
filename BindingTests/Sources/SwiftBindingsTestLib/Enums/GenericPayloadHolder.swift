@@ -88,10 +88,37 @@ public func makeInvalidAppleIntBox() -> AppleHolder<IntBox> {
     return .invalid
 }
 
-// Nested-type-on-generic-outer reproduction fixture is DEFERRED — it must not
-// land on main until the CS0305/CS0693 generator bug it triggers is fixed,
-// otherwise `nuke binding-tests --strict` breaks the main gate. Design doc and
-// exact fixture Swift code live in:
-//   src/docs/Future/nested-type-on-generic-outer.md
-// Re-add the `VerificationOutcome<SignedType>` enum + `makeVerifiedOutcomeString`
-// + `makeUnverifiedOutcomeString` from that doc in the same commit as the fix.
+// Nested-type-on-generic-outer fixture. Mirrors the StoreKit 2
+// `VerificationResult<SignedType>` shape: a generic outer enum with a
+// nested simple enum whose values carry the outer's generic signature in
+// the ABI JSON, and a payload case whose tuple references the nested type.
+// This is a permanent regression canary for the generator's nested-type
+// reference placement (CS0305) and nested-type declaration redundant
+// generic (CS0693) fixes.
+
+/// Nested-type-on-generic-outer fixture: `Failure` is a nested enum inside
+/// the generic enum `VerificationOutcome<SignedType>`. The `.unverified` case
+/// carries a tuple payload whose second element references `Failure` —
+/// which the ABI JSON emits with the outer's generic signature carried in.
+public enum VerificationOutcome<SignedType> {
+    public enum Failure {
+        case expired
+        case malformed
+        case notAuthorized
+    }
+    case verified(SignedType)
+    case unverified((SignedType, VerificationOutcome<SignedType>.Failure))
+}
+
+/// String-specialized factory for `.verified` — exercises the working
+/// single-payload path (bare generic-parameter resolution).
+public func makeVerifiedOutcomeString(_ value: String) -> VerificationOutcome<String> {
+    return .verified(value)
+}
+
+/// String-specialized factory for `.unverified` — the tuple payload forces
+/// the emitter down the nested-type-with-outer-generic-args path that
+/// currently mis-binds args onto the nested segment.
+public func makeUnverifiedOutcomeString(_ value: String, reason: VerificationOutcome<String>.Failure) -> VerificationOutcome<String> {
+    return .unverified((value, reason))
+}

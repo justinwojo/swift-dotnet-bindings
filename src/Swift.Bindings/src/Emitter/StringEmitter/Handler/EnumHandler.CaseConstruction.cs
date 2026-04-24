@@ -28,7 +28,7 @@ namespace BindingsGeneration
             {
                 var typeSpec = caseDecl.AssociatedValues[i];
                 var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl);
 
                 // Check if type is unsupported.
                 // Direct AnyType fallback (whole payload resolves to AnyType) — bail for the
@@ -39,13 +39,13 @@ namespace BindingsGeneration
                 // Plain tuple elements that resolve directly to AnyType (Lottie's "(Int, UnknownType)"
                 // pattern) are still emittable: the per-element factory body uses
                 // value0.ItemN.Payload.DangerousGetHandle(), which compiles since Swift.AnyType has a Payload.
-                if (HasUnsupportedAnyTypeInPayload(typeSpec, csharpType, typeDatabase, boundGenericsHandler, enumGenericParams))
+                if (HasUnsupportedAnyTypeInPayload(typeSpec, csharpType, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping case.");
                     return false;
                 }
 
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl);
 
                 // Use type label if available, otherwise derive from type
                 var paramName = typeSpec.TypeLabel;
@@ -708,7 +708,7 @@ namespace BindingsGeneration
         /// Gets the C# type name for an enum case associated value type.
         /// </summary>
         private static string GetCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
-            IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+            IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             // TryGetGenericTypeParameterName handles τ_X_Y, T+digit, AND multi-character
             // sugared declarator names (e.g. "SignedType" for VerificationResult<SignedType>
@@ -746,7 +746,10 @@ namespace BindingsGeneration
             // public types (IReadOnlyList<string>) which don't have .Payload for P/Invoke access.
             if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.ContainsGenericParameters)
             {
-                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
+                var genericContext = genericParams != null
+                    ? BuildGenericContextFromEnumParams(genericParams)
+                    : GenericContext.Empty;
+                return boundGenericsHandler.TranslateBoundGenericTypeToCSharp(typeSpec, genericContext, moduleDecl);
             }
 
             // Handle tuple types
@@ -755,7 +758,7 @@ namespace BindingsGeneration
                 var tupleHandler = new TupleHandler(typeDatabase);
                 // Use a recursive translator that handles bound generics for each element
                 return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
-                    GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams));
+                    GetCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl));
             }
 
             // For non-generic types, use the standard lookup
@@ -770,7 +773,7 @@ namespace BindingsGeneration
         /// For everything else, delegates to GetCSharpTypeNameForEnumCase.
         /// </summary>
         private static string GetPublicCSharpTypeNameForEnumCase(TypeSpec typeSpec, ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
-            IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+            IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var typeConversionHandler = new TypeConversionHandler(typeDatabase);
@@ -800,7 +803,7 @@ namespace BindingsGeneration
             {
                 var tupleHandler = new TupleHandler(typeDatabase);
                 return tupleHandler.GetCSharpTupleType(tupleType, elementTypeSpec =>
-                    GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams));
+                    GetPublicCSharpTypeNameForEnumCase(elementTypeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl));
             }
 
             // Handle SwiftString → string for public API
@@ -847,7 +850,7 @@ namespace BindingsGeneration
             }
 
             // Everything else: delegate to the internal type
-            return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+            return GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
         }
 
         /// <summary>
@@ -1057,17 +1060,17 @@ namespace BindingsGeneration
         /// <summary>
         /// Determines whether the case's payload type would emit AnyType in a position
         /// that does not compile. Two patterns count as unsupported:
-        /// (1) the whole payload resolves to AnyType (single-payload bail), and
-        /// (2) a tuple element is itself a generic-bound NamedTypeSpec whose resolved name
-        ///     has AnyType embedded in its generic args (the StoreKit2 nested-type emission
-        ///     bug — VerificationResult.VerificationError&lt;Swift.AnyType&gt;).
+        /// (1) the whole single payload resolves directly to <c>Swift.AnyType</c>
+        ///     (opaque value has no marshallable factory shape), and
+        /// (2) a tuple element is a bound generic whose resolved name has AnyType
+        ///     embedded in a generic-arg position.
         /// Plain tuple elements that resolve directly to AnyType (e.g. Lottie's
-        /// (Int, UnknownType)) stay emittable — Swift.AnyType has a .Payload property and the
-        /// per-element factory body compiles.
+        /// <c>(Int, UnknownType)</c>) stay emittable — <c>Swift.AnyType</c> has a
+        /// <c>.Payload</c> property and the per-element factory body compiles.
         /// </summary>
         private static bool HasUnsupportedAnyTypeInPayload(TypeSpec typeSpec, string csharpType,
             ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler,
-            IReadOnlyList<GenericArgumentDecl>? enumGenericParams)
+            IReadOnlyList<GenericArgumentDecl>? enumGenericParams, ModuleDecl? moduleDecl = null)
         {
             var anyTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
             if (typeSpec is TupleTypeSpec tuple)
@@ -1076,15 +1079,15 @@ namespace BindingsGeneration
                 {
                     if (element is NamedTypeSpec elNamed && elNamed.ContainsGenericParameters)
                     {
-                        var elName = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams);
-                        if (elName.Contains(anyTypeName))
+                        var elName = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl);
+                        if (elName != anyTypeName && elName.Contains(anyTypeName))
                             return true;
                     }
                 }
                 return false;
             }
 
-            return csharpType.Contains(anyTypeName);
+            return csharpType == anyTypeName;
         }
 
         /// <summary>

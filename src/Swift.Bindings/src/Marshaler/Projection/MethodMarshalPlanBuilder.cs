@@ -310,13 +310,19 @@ internal class MethodMarshalPlanBuilder
 
         if (isConstructor)
         {
-            // Include generic type parameters in SwiftSafeHandle<> for generic types
+            // Include generic type parameters in SwiftSafeHandle<> for generic types.
+            // Nested-on-generic-outer types drop the redundant outer generics (Option A parity
+            // with GenericTypeEmitter.GetTypeDeclOwnGenericParams).
             var typeName = GetResolvedTypeName();
             if (_env.ParentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
             {
-                var genericParams = string.Join(", ", typeDecl.GenericParameters.Select(p =>
-                    _env.GenericTypeMapping.TryGetValue(p.TypeName, out var mapped) ? mapped.TypeParameter : p.TypeName));
-                typeName = $"{typeName}<{genericParams}>";
+                var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(typeDecl);
+                if (ownParams.Count > 0)
+                {
+                    var genericParams = string.Join(", ", ownParams.Select(p =>
+                        _env.GenericTypeMapping.TryGetValue(p.TypeName, out var mapped) ? mapped.TypeParameter : p.TypeName));
+                    typeName = $"{typeName}<{genericParams}>";
+                }
             }
 
             // For derived classes, SwiftSafeHandle<T> must use the root base type

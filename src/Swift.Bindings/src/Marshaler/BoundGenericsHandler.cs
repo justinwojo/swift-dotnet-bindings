@@ -166,11 +166,21 @@ public class BoundGenericsHandler
     /// Used by protocol/proxy emission paths that have a TypeSpec but no parent declaration.
     /// </summary>
     public string TranslateBoundGenericTypeToCSharp(TypeSpec typeSpec, GenericContext genericContext)
+        => TranslateBoundGenericTypeToCSharp(typeSpec, genericContext, moduleDecl: null);
+
+    /// <summary>
+    /// Translates a bound generic TypeSpec into a C# type name, with module context for
+    /// nested-generic-owner resolution. When <paramref name="moduleDecl"/> is non-null,
+    /// <c>QualifyNestedGenericOwners</c> can walk the TypeDecl chain to place outer generic
+    /// arguments on the correct segment (e.g., <c>Outer&lt;T&gt;.Inner</c> vs
+    /// <c>Outer.Inner&lt;T&gt;</c>).
+    /// </summary>
+    public string TranslateBoundGenericTypeToCSharp(TypeSpec typeSpec, GenericContext genericContext, ModuleDecl? moduleDecl)
     {
         if (typeSpec is not NamedTypeSpec namedTypeSpec || !namedTypeSpec.ContainsGenericParameters)
             throw new NotSupportedException(
                 $"Attempted to translate non-bound-generic TypeSpec: {typeSpec}");
-        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl: null);
+        return TranslateBoundGenericTypeToCSharp(namedTypeSpec, genericContext, moduleDecl);
     }
 
     /// <summary>
@@ -716,7 +726,19 @@ public class BoundGenericsHandler
             translatedGenericParameters.Add(TranslateTypeSpecToCSharp(genericParameter, genericContext, moduleDecl, parentTypeDecl));
         }
 
-        var typeName = QualifyNestedGenericOwners(typeReference.CSharpTypeName.FullyQualifiedName, namedTypeSpec, genericContext, moduleDecl);
+        var (typeName, outerArgsPlaced) = QualifyNestedGenericOwners(
+            typeReference.CSharpTypeName.FullyQualifiedName, namedTypeSpec, genericContext, moduleDecl,
+            translatedGenericParameters);
+
+        // For nested-type references encoded via InnerType chain (e.g., the parser's output
+        // for `VerificationOutcome<String>.Failure`: outer NamedTypeSpec carries the generic
+        // args, InnerType points at the non-generic leaf), the outer args belong to the outer
+        // segment of the dotted FQN. QualifyNestedGenericOwners places them there; appending
+        // them again at the end would mis-place them on the leaf (producing
+        // "Outer.Inner<T>" instead of "Outer<T>.Inner").
+        if (namedTypeSpec.InnerType != null && outerArgsPlaced)
+            return typeName;
+
         return typeName +
                (translatedGenericParameters.Count > 0
                     ? $"<{string.Join(", ", translatedGenericParameters)}>"
@@ -873,42 +895,75 @@ public class BoundGenericsHandler
         _ => Array.Empty<TypeConformance>(),
     };
 
-    private string QualifyNestedGenericOwners(
+    private (string name, bool outerArgsPlaced) QualifyNestedGenericOwners(
         string fullyQualifiedTypeName,
         NamedTypeSpec namedTypeSpec,
         GenericContext genericContext,
-        ModuleDecl? moduleDecl)
+        ModuleDecl? moduleDecl,
+        List<string> translatedOwnArgs)
     {
-        if (moduleDecl == null || !namedTypeSpec.HasModule() || genericContext.IsEmpty)
-            return fullyQualifiedTypeName;
+        if (moduleDecl == null || !namedTypeSpec.HasModule())
+            return (fullyQualifiedTypeName, false);
 
         var typeDecl = FindTypeDecl(moduleDecl, SwiftTypeName.FromTypeSpec(namedTypeSpec));
         if (typeDecl == null)
-            return fullyQualifiedTypeName;
+            return (fullyQualifiedTypeName, false);
 
         var typeChain = GetTypeDeclChain(typeDecl);
         if (typeChain.Count <= 1)
-            return fullyQualifiedTypeName;
+            return (fullyQualifiedTypeName, false);
 
         var segments = fullyQualifiedTypeName.Split('.');
         if (segments.Length < typeChain.Count)
-            return fullyQualifiedTypeName;
+            return (fullyQualifiedTypeName, false);
 
         var firstTypeSegment = segments.Length - typeChain.Count;
-        for (var i = 0; i < typeChain.Count - 1; i++)
+
+        // Step 1: when the typespec carries its own translated args (e.g., the outer segment of
+        // "VerificationOutcome<T>.Failure"), place them on the OUTERMOST generic ancestor whose
+        // declared param count matches. This is the fix for the nested-type-on-generic-outer
+        // reference shape — ABI parser encodes outer args on the OUTER NamedTypeSpec with an
+        // InnerType chain for the leaf, so the args must land on an outer segment not the leaf.
+        var outerArgsPlaced = false;
+        if (namedTypeSpec.InnerType != null && translatedOwnArgs.Count > 0)
         {
-            var ownerType = typeChain[i];
-            if (!ownerType.IsGeneric)
-                continue;
+            for (var i = 0; i < typeChain.Count - 1; i++)
+            {
+                var ownerType = typeChain[i];
+                if (!ownerType.IsGeneric)
+                    continue;
+                if (ownerType.GenericParameters.Count != translatedOwnArgs.Count)
+                    continue;
 
-            var ownerArgs = ResolveTypeDeclGenericArguments(ownerType, genericContext);
-            if (ownerArgs.Count != ownerType.GenericParameters.Count || ownerArgs.Count == 0)
-                continue;
-
-            segments[firstTypeSegment + i] = $"{segments[firstTypeSegment + i]}<{string.Join(", ", ownerArgs)}>";
+                segments[firstTypeSegment + i] = $"{segments[firstTypeSegment + i]}<{string.Join(", ", translatedOwnArgs)}>";
+                outerArgsPlaced = true;
+                break;
+            }
         }
 
-        return string.Join(".", segments);
+        // Step 2: for remaining generic ancestors without args yet, fall back to context-based
+        // resolution. Preserves the flat-name path (typespec FQN has all segments in one Name,
+        // no InnerType) where the args come from the caller's GenericContext.
+        if (!genericContext.IsEmpty)
+        {
+            for (var i = 0; i < typeChain.Count - 1; i++)
+            {
+                var ownerType = typeChain[i];
+                if (!ownerType.IsGeneric)
+                    continue;
+                // Skip segments already qualified by Step 1 (avoid double-placement).
+                if (segments[firstTypeSegment + i].EndsWith('>'))
+                    continue;
+
+                var ownerArgs = ResolveTypeDeclGenericArguments(ownerType, genericContext);
+                if (ownerArgs.Count != ownerType.GenericParameters.Count || ownerArgs.Count == 0)
+                    continue;
+
+                segments[firstTypeSegment + i] = $"{segments[firstTypeSegment + i]}<{string.Join(", ", ownerArgs)}>";
+            }
+        }
+
+        return (string.Join(".", segments), outerArgsPlaced);
     }
 
     private static List<TypeDecl> GetTypeDeclChain(TypeDecl typeDecl)

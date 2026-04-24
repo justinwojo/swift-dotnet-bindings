@@ -79,7 +79,7 @@ public class EnumCaseAssociatedValueTests
             BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
 
-        return (string)method!.Invoke(null, new object?[] { typeSpec, typeDatabase, boundGenericsHandler, null })!;
+        return (string)method!.Invoke(null, new object?[] { typeSpec, typeDatabase, boundGenericsHandler, null, null })!;
     }
 
     private static TypeDatabase CreateTypeDatabase()

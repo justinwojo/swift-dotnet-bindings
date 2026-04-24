@@ -1078,6 +1078,60 @@ public class BoundGenericsHandlerTests
         Assert.Equal("TestModule.Outer.Inner<T, U>.Leaf<T, U>", result);
     }
 
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_InnerTypeChainOnGenericOuter_PlacesArgsOnOuterSegment()
+    {
+        // Regression for the nested-type-on-generic-outer reference shape
+        // (StoreKit2.VerificationResult<SignedType>.VerificationError).
+        //
+        // ABI parser produces: NamedTypeSpec("TestModule.Outer") with
+        // GenericParameters=[Swift.String] and InnerType=NamedTypeSpec("Nested"), representing
+        // "Outer<String>.Nested" at the reference site. The outer's generic args belong to
+        // the OUTER segment of the dotted C# name, not the leaf. Before the fix, the emitter
+        // appended <Swift.SwiftString> at the END, producing the invalid "Outer.Nested<Swift.SwiftString>".
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var outerDecl = CreateGenericStructDecl("Outer", moduleDecl, "T", "Swift.Equatable");
+        _ = CreateNestedStructDecl("Nested", moduleDecl, outerDecl);
+
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Swift.String"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift.Runtime", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["TestModule.Outer"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["TestModule.Outer.Nested"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer.Nested"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Nested"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var typeSpec = new NamedTypeSpec("TestModule.Outer");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        typeSpec.InnerType = new NamedTypeSpec("Nested");
+
+        var result = handler.TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty, moduleDecl);
+
+        Assert.Equal("TestModule.Outer<Swift.Runtime.SwiftString>.Nested", result);
+    }
+
     #endregion
 
     #region BG4 — Optional Tuple with Existential Element
@@ -1722,6 +1776,32 @@ public class BoundGenericsHandlerTests
         };
         moduleDecl.Types.Add(enumDecl);
         return enumDecl;
+    }
+
+    private static StructDecl CreateNestedStructDecl(
+        string structName,
+        ModuleDecl moduleDecl,
+        TypeDecl parentDecl)
+    {
+        var structDecl = new StructDecl
+        {
+            Name = structName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{parentDecl.SwiftTypeName.ModuleQualifiedName}.{structName}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{structName.Length}{structName}VMa"
+        };
+        parentDecl.Types.Add(structDecl);
+        return structDecl;
     }
 
     private static StructDecl CreateNestedGenericStructDecl(

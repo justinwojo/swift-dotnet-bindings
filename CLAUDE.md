@@ -23,12 +23,12 @@ Swift/.NET interop: generates C# bindings from compiled Swift libraries (`.dylib
 | `nuke test` | ~2 min | Unit + integration tests |
 | `nuke validate` | ~2 min | Compile gate across real-world libs. Flags: `--tier N`, `--filter X` |
 | `nuke fetch` | — | Download xcframeworks (first time only) |
-| `nuke binding-tests` | ~2 min | Full pipeline: rebuild xcframework + regenerate bindings + Simulator (Mono JIT). `--strict` to fail on non-zero generator exit |
-| `nuke runtime-tests-simulator` | ~2 min | Simulator only (Mono JIT). Subset of `binding-tests`. `--skip-regen` (~17s), `--skip-build` (~5s), `--class-filter NAME` |
-| `nuke runtime-tests-device` | ~2 min | Physical iOS device (NativeAOT) |
+| `nuke binding-tests` | ~2 min | **Compile gate**: rebuild xcframework + regenerate bindings + compile-check generated C#. Does NOT run tests. `--strict` to fail on non-zero generator exit |
+| `nuke runtime-tests-simulator` | ~2 min | **Runtime gate (Mono JIT)**: build test app + run on iOS Simulator. `--skip-regen` (~17s), `--skip-build` (~5s), `--class-filter NAME` |
+| `nuke runtime-tests-device` | ~2 min | **Runtime gate (NativeAOT)**: build + run on physical iOS device |
 | `nuke pack --version X.Y.Z` | fast | Build all 3 NuGet packages → `/tmp/swift-nuget/` |
 
-**Pick ONE of `binding-tests` / `runtime-tests-simulator`, never both back-to-back.** `binding-tests` already runs the Simulator suite — following it with `runtime-tests-simulator` just re-executes the same tests. Use `binding-tests` when Swift sources or the generator changed; use `runtime-tests-simulator --skip-regen` when only C# runtime code changed.
+`binding-tests` and `runtime-tests-simulator` are **complementary**, not redundant: the first asks "does it compile?", the second asks "does it pass?". Generator/emitter changes generally want both. For a runtime-only C# change, `runtime-tests-simulator --skip-regen` alone is enough.
 
 ## Generator CLI
 

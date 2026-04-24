@@ -9,10 +9,54 @@ namespace BindingsGeneration
     public partial class EnumHandler
     {
         /// <summary>
+        /// Returns true when the payload type is backed by an ISwiftObject wrapper whose
+        /// NewFromPayload consumes a VALUE BUFFER (SwiftSafeHandle&lt;T&gt;) — non-frozen structs,
+        /// non-simple enums, ClassWithBufferStruct. For these, the enum-payload extraction path
+        /// must heap-allocate + InitializeWithCopy before handing the pointer to NewFromPayload
+        /// (SafeHandle Free()s on dispose; a stackalloc address would corrupt the heap).
+        /// Excludes:
+        /// - Blittable primitives (MarshalFromSwift uses Unsafe.Read, no ownership transfer)
+        /// - ObjC bridged/bridgeable types (handle is managed externally via Arc)
+        /// - Pure C# struct projections like Swift.CGSize / known Apple value types
+        ///   (Frozen + !RequiresMemoryManagement → not ISwiftObject)
+        /// - Swift.AnyType (GetTypeMetadata throws; opaque payload uses direct-pointer path)
+        /// - Concrete Swift classes (TypeRecordKind.Class): the payload bytes ARE a class
+        ///   pointer, not a value buffer. Handled separately by EmitClassPayloadDerefWithOffset
+        ///   / EmitClassPayloadDeref before reaching this predicate (SwiftClassHandle wants the
+        ///   class pointer directly; wrapping the buffer address would ARC-release a bogus ptr).
+        /// </summary>
+        private static bool IsSwiftObjectBackedPayload(TypeSpec typeSpec, TypeRecord record, string csharpType)
+        {
+            if (MarshallingHelpers.IsObjCBridgeable(record)) return false;
+            if (MarshallingHelpers.IsObjCBridged(record)) return false;
+            if (WitnessDispatchEmitter.IsBlittablePrimitive(csharpType)) return false;
+            if (typeSpec is NamedTypeSpec named && TypeDatabaseExtensions.IsKnownAppleValueType(named)) return false;
+            if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName) return false;
+            if (record.Kind == TypeRecordKind.Class) return false;
+            // Pure C# struct projection (frozen layout, no SafeHandle wrapper).
+            if (MarshallingHelpers.IsTypeFrozen(record) && !MarshallingHelpers.RequiresMemoryManagement(record)
+                && record.Kind == TypeRecordKind.Struct) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns true when the payload type is a concrete Swift class whose NewFromPayload
+        /// expects a raw class pointer (not a value buffer). Native ObjC classes take the same
+        /// class-pointer shape but are handled by the IsObjCBridged branch above.
+        /// </summary>
+        private static bool IsSwiftClassPayload(TypeRecord record)
+        {
+            if (record.Kind != TypeRecordKind.Class) return false;
+            if (MarshallingHelpers.IsObjCBridgeable(record)) return false;
+            if (MarshallingHelpers.IsObjCBridged(record)) return false;
+            return true;
+        }
+
+        /// <summary>
         /// Emits a cached tuple metadata accessor for a specific enum case.
         /// This generates the tuple type metadata once and caches it for efficiency.
         /// </summary>
-        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string publicType, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+        private void EmitTupleMetadataAccessor(CSharpWriter csWriter, string capitalizedCaseName, List<(string type, string publicType, string name, TypeSpec typeSpec)> parameters, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -38,7 +82,7 @@ namespace BindingsGeneration
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (_, _, _, typeSpec) = parameters[i];
-                EmitGetTypeMetadataForElement(csWriter, typeSpec, i, typeDatabase, genericParams);
+                EmitGetTypeMetadataForElement(csWriter, typeSpec, i, typeDatabase, genericParams, moduleDecl);
             }
             csWriter.WriteLine();
 
@@ -59,7 +103,7 @@ namespace BindingsGeneration
         /// Emits code to get the TypeMetadata for a tuple element type.
         /// Stores the result in elementMetadataArray[index].
         /// </summary>
-        private void EmitGetTypeMetadataForElement(CSharpWriter csWriter, TypeSpec typeSpec, int index, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+        private void EmitGetTypeMetadataForElement(CSharpWriter csWriter, TypeSpec typeSpec, int index, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -77,7 +121,7 @@ namespace BindingsGeneration
             }
 
             // For types that implement ISwiftObject, use their static metadata accessor
-            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
 
             // Apple framework ABI JSON encodes generic-parameter tuple elements with the
             // SUGARED declarator name (e.g. "SignedType"). GetCSharpTypeNameForEnumCase
@@ -204,7 +248,7 @@ namespace BindingsGeneration
         /// Emits code to marshal a payload value from Swift memory at a specific offset.
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+        private void EmitPayloadMarshalWithOffset(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, string offsetVar, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -226,7 +270,7 @@ namespace BindingsGeneration
             }
 
             // Get the C# type name
-            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
 
             // Handle existential types
             if (existentialHandler.IsExistential(typeSpec))
@@ -277,7 +321,7 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec namedOffset && namedOffset.ContainsGenericParameters
                 && !ContainsClosureTypeSpec(namedOffset))
             {
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
                 if (publicType != csharpType)
                 {
                     var genericContext = genericParams != null
@@ -326,14 +370,47 @@ namespace BindingsGeneration
                 return;
             }
 
-            csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+            // Concrete Swift classes: payload bytes ARE a class pointer, not a value buffer.
+            // Deref and Arc.Retain for +1 C# ownership; the enumCopy's own retain dissolves with
+            // the stack frame (mirrors SwiftResult.ExtractPayloadValue). Wrapping the buffer
+            // address via SwiftClassHandle would ARC-release a bogus pointer on dispose.
+            var fallbackRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+            if (IsSwiftClassPayload(fallbackRecord))
+            {
+                var bareNameClassOffset = NameProvider.StripVerbatimPrefix(varName);
+                csWriter.WriteLine($"var _{bareNameClassOffset}_classPtr = *(IntPtr*)({sourcePtr} + (int){offsetVar});");
+                csWriter.WriteLine($"Swift.Runtime.Arc.Retain(_{bareNameClassOffset}_classPtr);");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareNameClassOffset}_classPtr);");
+                return;
+            }
+
+            // Generated ISwiftObject wrappers (nested enums, non-frozen structs) take ownership of
+            // the pointer passed to NewFromPayload — the SafeHandle would Free() the stackalloc
+            // enumCopy address on dispose. Heap-alloc + InitializeWithCopy first (mirrors
+            // SwiftResult.ExtractPayloadValue). AnyType fallback catches nested-on-generic-outer
+            // types whose TypeRecord isn't in the database but which we generate as ISwiftObject
+            // wrappers. Blittable primitives and ObjC-bridged classes keep the source-pointer
+            // path (MarshalFromSwift uses Unsafe.Read or ObjC fast paths with no ownership
+            // transfer; SwiftObjectHelper<T> also rejects non-ISwiftObject types at compile time).
+            if (IsSwiftObjectBackedPayload(typeSpec, fallbackRecord, csharpType))
+            {
+                var bareNameOffset = NameProvider.StripVerbatimPrefix(varName);
+                csWriter.WriteLine($"var _{bareNameOffset}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var _{bareNameOffset}_heap = (byte*)NativeMemory.Alloc(_{bareNameOffset}_meta.Size);");
+                csWriter.WriteLine($"_{bareNameOffset}_meta.ValueWitnessTable->InitializeWithCopy(_{bareNameOffset}_heap, {sourcePtr} + (int){offsetVar}, _{bareNameOffset}_meta);");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareNameOffset}_heap));");
+            }
+            else
+            {
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+            }
         }
 
         /// <summary>
         /// Emits code to marshal a payload value from Swift memory to a C# variable (with assignment).
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+        private void EmitPayloadMarshal(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -381,8 +458,8 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec namedMarshal && namedMarshal.ContainsGenericParameters
                 && !ContainsClosureTypeSpec(namedMarshal))
             {
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
-                var internalType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
+                var internalType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
                 if (publicType != internalType)
                 {
                     var genericContext = genericParams != null
@@ -468,7 +545,7 @@ namespace BindingsGeneration
             }
 
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
-            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+            var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
 
             // Simple enum associated values: SwiftMarshal.MarshalFromSwift<T> can't handle
             // simple C# enums (enum Foo : int) because they don't have TypeMetadata registered.
@@ -484,14 +561,35 @@ namespace BindingsGeneration
                 return;
             }
 
-            csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
+            // See EmitPayloadMarshalWithOffset for rationale.
+            var marshalRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+            if (IsSwiftClassPayload(marshalRecord))
+            {
+                var bareNameClassMarshal = NameProvider.StripVerbatimPrefix(varName);
+                csWriter.WriteLine($"var _{bareNameClassMarshal}_classPtr = *(IntPtr*)({sourcePtr});");
+                csWriter.WriteLine($"Swift.Runtime.Arc.Retain(_{bareNameClassMarshal}_classPtr);");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(_{bareNameClassMarshal}_classPtr);");
+                return;
+            }
+            if (IsSwiftObjectBackedPayload(typeSpec, marshalRecord, csharpType))
+            {
+                var bareNameMarshal = NameProvider.StripVerbatimPrefix(varName);
+                csWriter.WriteLine($"var _{bareNameMarshal}_meta = SwiftObjectHelper<{csharpType}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var _{bareNameMarshal}_heap = (byte*)NativeMemory.Alloc(_{bareNameMarshal}_meta.Size);");
+                csWriter.WriteLine($"_{bareNameMarshal}_meta.ValueWitnessTable->InitializeWithCopy(_{bareNameMarshal}_heap, {sourcePtr}, _{bareNameMarshal}_meta);");
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr(_{bareNameMarshal}_heap));");
+            }
+            else
+            {
+                csWriter.WriteLine($"{varName} = SwiftMarshal.MarshalFromSwift<{csharpType}>(new IntPtr({sourcePtr}));");
+            }
         }
 
         /// <summary>
         /// Emits code to marshal a payload value from Swift memory with a variable declaration.
         /// For existentials with known proxies, marshals to a temp container then wraps in the proxy class.
         /// </summary>
-        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null)
+        private void EmitPayloadMarshalWithDeclaration(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string sourcePtr, ITypeDatabase typeDatabase, IReadOnlyList<GenericArgumentDecl>? genericParams = null, ModuleDecl? moduleDecl = null)
         {
             var existentialHandler = new ExistentialHandler(typeDatabase);
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
@@ -508,13 +606,13 @@ namespace BindingsGeneration
             }
 
             // Get the C# type name for this typeSpec
-            string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+            string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
 
             // For bound generics, check if public type differs (needs conversion after marshal)
             if (typeSpec is NamedTypeSpec namedDecl && namedDecl.ContainsGenericParameters
                 && !ContainsClosureTypeSpec(namedDecl))
             {
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
                 if (publicType != csharpType)
                 {
                     var genericContext = genericParams != null

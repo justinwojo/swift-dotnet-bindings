@@ -155,15 +155,31 @@ public class PInvokeHelperContext
     /// <returns>A new context for generic types, null otherwise.</returns>
     public static PInvokeHelperContext? CreateIfGeneric(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
-        if (!typeDecl.IsGeneric)
+        // Two-axis signature:
+        //   - ownParams: what the C# class declares (after subtracting ancestor-inherited
+        //     params — see GenericTypeEmitter.GetTypeDeclOwnGenericParams). Drives the
+        //     declaration-site header.
+        //   - abiParams: what Swift's metadata accessor expects at the ABI boundary. Swift
+        //     ships a dedicated Ma symbol for every nested type inside a generic outer;
+        //     that symbol takes the outer's generic args (metadata + PWTs), so the ABI
+        //     list is the FULL typeDecl.GenericParameters — inherited included.
+        // A nested type on a generic outer has ownParams.Count == 0 but still needs its
+        // own helper class so GetTypeMetadata() can call the nested Ma symbol with the
+        // inherited type arg(s). Returning null here would fall back to the outer's
+        // helper (wrong Ma symbol → VWT destroy walks the wrong layout → SIGSEGV).
+        var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(typeDecl);
+        var abiParams = (ownParams.Count > 0 || !typeDecl.IsGeneric)
+            ? ownParams
+            : typeDecl.GenericParameters.ToList();
+        if (abiParams.Count == 0)
             return null;
 
-        var typeParams = typeDecl.GenericParameters
+        var typeParams = abiParams
             .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
         var (entries, exceedsThreshold, unresolved) =
-            FlattenConformances(typeDecl, typeParams, typeDatabase);
+            FlattenConformances(typeDecl, abiParams, typeParams, typeDatabase);
 
         // Use qualified name (e.g., "Outer_Inner") to avoid helper class name collisions
         // when deferred helpers from different parent types share the same simple name.
@@ -182,10 +198,14 @@ public class PInvokeHelperContext
     /// </summary>
     public static PInvokeHelperContext? CreateIfGeneric(TypeDecl typeDecl)
     {
-        if (!typeDecl.IsGeneric)
+        var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(typeDecl);
+        var abiParams = (ownParams.Count > 0 || !typeDecl.IsGeneric)
+            ? ownParams
+            : typeDecl.GenericParameters.ToList();
+        if (abiParams.Count == 0)
             return null;
 
-        var typeParams = typeDecl.GenericParameters
+        var typeParams = abiParams
             .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
@@ -199,14 +219,15 @@ public class PInvokeHelperContext
     /// </summary>
     private static (IReadOnlyList<HelperPwtEntry> entries, bool exceedsThreshold,
             IReadOnlyList<UnresolvedPwtConstraint> unresolved)
-        FlattenConformances(TypeDecl typeDecl, IReadOnlyList<string> typeParams, ITypeDatabase typeDatabase)
+        FlattenConformances(TypeDecl typeDecl, IReadOnlyList<GenericArgumentDecl> ownParams,
+            IReadOnlyList<string> typeParams, ITypeDatabase typeDatabase)
     {
         var entries = new List<HelperPwtEntry>();
         var unresolved = new List<UnresolvedPwtConstraint>();
 
-        for (int i = 0; i < typeDecl.GenericParameters.Count; i++)
+        for (int i = 0; i < ownParams.Count; i++)
         {
-            var gp = typeDecl.GenericParameters[i];
+            var gp = ownParams[i];
             var csName = typeParams[i];
 
             // Sort lexicographically by module-qualified protocol name per the doc.

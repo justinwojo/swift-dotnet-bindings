@@ -12,17 +12,59 @@ public static class GenericTypeEmitter
 {
 
     /// <summary>
+    /// Returns only the type's own generic parameters, excluding those inherited from
+    /// generic ancestors. Swift's ABI JSON copies an outer generic signature into every
+    /// nested type's signature, so a non-generic <c>Failure</c> nested inside
+    /// <c>VerificationOutcome&lt;SignedType&gt;</c> still arrives with one parameter
+    /// (<c>τ_0_0</c>). Re-declaring it on the nested C# type produces CS0693
+    /// (parameter shadows outer) and forces every reference to add a redundant
+    /// type argument (CS0305). Mirrors
+    /// <c>WrapperEmitter.GetMethodOwnGenericParams</c> for methods.
+    /// </summary>
+    public static List<GenericArgumentDecl> GetTypeDeclOwnGenericParams(TypeDecl typeDecl)
+    {
+        if (!typeDecl.IsGeneric)
+            return new List<GenericArgumentDecl>();
+
+        // Collect names declared by every generic ancestor on the parent chain. The
+        // parser stamps the outer signature onto the nested decl by *name*, so a
+        // name-set match is the right discriminator (depth/index aren't carried on
+        // GenericArgumentDecl).
+        HashSet<string>? inheritedNames = null;
+        BaseDecl? current = typeDecl.ParentDecl;
+        while (current is TypeDecl td)
+        {
+            if (td.IsGeneric)
+            {
+                inheritedNames ??= new HashSet<string>();
+                foreach (var p in td.GenericParameters)
+                    inheritedNames.Add(p.TypeName);
+            }
+            current = td.ParentDecl;
+        }
+
+        if (inheritedNames == null || inheritedNames.Count == 0)
+            return typeDecl.GenericParameters;
+
+        return typeDecl.GenericParameters
+            .Where(p => !inheritedNames.Contains(p.TypeName))
+            .ToList();
+    }
+
+    /// <summary>
     /// Gets the generic type parameter list for a type declaration.
     /// For example, if a type has parameters T and U, returns "&lt;T0, T1&gt;".
+    /// Inherited parent generics are dropped; see <see cref="GetTypeDeclOwnGenericParams"/>.
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
     /// <returns>The generic parameter list, or empty string if not generic.</returns>
     public static string GetGenericParameterList(TypeDecl typeDecl)
     {
-        if (!typeDecl.IsGeneric)
+        var ownParams = GetTypeDeclOwnGenericParams(typeDecl);
+        if (ownParams.Count == 0)
             return string.Empty;
 
-        var typeParams = typeDecl.GenericParameters
+        var typeParams = ownParams
             .Select((p, i) => NameProvider.GetCSharpGenericParameterName(p, i))
             .ToList();
 
@@ -66,14 +108,15 @@ public static class GenericTypeEmitter
     /// <returns>The where clause, or empty string if no constraints.</returns>
     public static string GetWhereClause(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
     {
-        if (!typeDecl.IsGeneric)
+        var ownParams = GetTypeDeclOwnGenericParams(typeDecl);
+        if (ownParams.Count == 0)
             return string.Empty;
 
         var constraints = new List<string>();
 
-        for (int i = 0; i < typeDecl.GenericParameters.Count; i++)
+        for (int i = 0; i < ownParams.Count; i++)
         {
-            var param = typeDecl.GenericParameters[i];
+            var param = ownParams[i];
             var typeParamName = NameProvider.GetCSharpGenericParameterName(param, i);
 
             // Build list of constraints for this parameter
@@ -252,10 +295,11 @@ public static class GenericTypeEmitter
     /// <returns>The GetTypeMetadata method body.</returns>
     public static string GetGenericMetadataAccessor(TypeDecl typeDecl)
     {
-        if (!typeDecl.IsGeneric)
+        var ownParams = GetTypeDeclOwnGenericParams(typeDecl);
+        if (ownParams.Count == 0)
             return string.Empty;
 
-        var typeParams = typeDecl.GenericParameters
+        var typeParams = ownParams
             .Select((p, i) => $"TypeMetadata.GetTypeMetadataOrThrow<{NameProvider.GetCSharpGenericParameterName(p, i)}>()")
             .ToList();
 

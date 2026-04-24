@@ -133,15 +133,15 @@ namespace BindingsGeneration
             {
                 var typeSpec = caseDecl.AssociatedValues[i];
                 var enumGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
+                var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, enumDecl.ModuleDecl);
 
-                // Check if type is unsupported.
-                // Substring match (not strict equality) catches BOTH the direct AnyType
-                // fallback ("Swift.AnyType") AND nested-type emissions where AnyType leaks
-                // into a generic-arg position (e.g. "VerificationResult.VerificationError<Swift.AnyType>"
-                // — outer-generic-args mis-placed onto inner nested type, a separate
-                // pre-existing emitter bug). Either way, the resolved name will not compile.
-                if (csharpType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
+                // Skip when the resolved payload type contains AnyType in any position —
+                // direct AnyType cannot round-trip (AnyType.GetTypeMetadata and MarshalToSwift
+                // both throw; SwiftSafeHandle<AnyType> would NativeMemory.Free stack memory on
+                // dispose). Embedded AnyType in a generic arg position means the outer cannot
+                // be constructed as a closed type that satisfies ISwiftObject constraints.
+                var anyTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                if (csharpType.Contains(anyTypeName))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping TryGet method.");
                     return;
@@ -157,7 +157,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, enumDecl.ModuleDecl);
 
                 // Use type label if available, otherwise generate a name
                 var paramName = typeSpec.TypeLabel ?? $"value{i}";
@@ -242,17 +242,17 @@ namespace BindingsGeneration
                 var (type, publicType, name, typeSpec) = parameters[0];
                 if (typeConversionHandler.IsSwiftString(typeSpec))
                 {
-                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams);
+                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl);
                     csWriter.WriteLine("value = __value_raw.ToString();");
                 }
                 else if (typeSpec is NamedTypeSpec dataSpec && dataSpec.Name == "Foundation.Data")
                 {
-                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams);
+                    EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl);
                     csWriter.WriteLine("value = __value_raw.ToByteArray();");
                 }
                 else
                 {
-                    EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase, marshalGenericParams);
+                    EmitPayloadMarshal(csWriter, typeSpec, "value", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl);
                 }
             }
             else
@@ -306,12 +306,15 @@ namespace BindingsGeneration
                 }
 
                 var enumGenericParams2 = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-                var csharpType = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2);
+                var csharpType = GetCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2, enumDecl.ModuleDecl);
 
-                // Check if type is unsupported
-                // Substring match (not strict equality) catches embedded AnyType in
-                // generic args — see EmitTryGetMethod's bail comment for the full rationale.
-                if (csharpType.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
+                // Skip when the tuple element's resolved type contains AnyType in any position.
+                // Direct AnyType elements cannot round-trip: NewFromPayload wraps the source
+                // pointer in SwiftSafeHandle<AnyType>, and the dispose path NativeMemory.Free's
+                // that pointer — which is stack memory (enumCopy), producing an invalid free.
+                // Embedded AnyType in a bound generic arg similarly can't be constructed closed.
+                var anyTypeName = TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+                if (csharpType.Contains(anyTypeName))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported tuple element type at index {i}. Skipping TryGet method.");
                     return;
@@ -330,7 +333,7 @@ namespace BindingsGeneration
                     return;
                 }
 
-                var publicType = GetPublicCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2);
+                var publicType = GetPublicCSharpTypeNameForEnumCase(element, typeDatabase, boundGenericsHandler, enumGenericParams2, enumDecl.ModuleDecl);
 
                 // Use element label if available, otherwise generate a name
                 var paramName = element.TypeLabel ?? $"value{i}";
@@ -413,7 +416,7 @@ namespace BindingsGeneration
                 var (_, _, name, typeSpec) = parameters[i];
                 csWriter.WriteLine($"var offset{i} = tupleMetadata->GetElementOffset({i});");
                 var tupleGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-                EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase, tupleGenericParams);
+                EmitPayloadMarshalWithOffset(csWriter, typeSpec, name, "enumCopy", $"offset{i}", typeDatabase, tupleGenericParams, enumDecl.ModuleDecl);
             }
             csWriter.WriteLine();
 
@@ -426,7 +429,7 @@ namespace BindingsGeneration
 
             // Emit the tuple metadata accessor helper
             var metadataGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
-            EmitTupleMetadataAccessor(csWriter, capitalizedName, parameters, typeDatabase, metadataGenericParams);
+            EmitTupleMetadataAccessor(csWriter, capitalizedName, parameters, typeDatabase, metadataGenericParams, enumDecl.ModuleDecl);
         }
     }
 }

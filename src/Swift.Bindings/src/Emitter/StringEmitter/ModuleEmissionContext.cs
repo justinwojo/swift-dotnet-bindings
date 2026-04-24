@@ -220,11 +220,32 @@ public sealed class ModuleEmissionContext
     public void PopTypeNesting() => _typeNestingStack.Pop();
 
     /// <summary>
+    /// Returns true when any ancestor on the nesting stack is an open generic
+    /// (e.g. <c>VerificationOutcome&lt;TSignedType&gt;</c>). Module-initializer
+    /// registrations for nested types in that position would reference an outer
+    /// type parameter that isn't in scope in the static init context — they must
+    /// fall back to lazy resolution at first use.
+    /// </summary>
+    private bool HasOpenGenericAncestor()
+    {
+        foreach (var ancestor in _typeNestingStack)
+        {
+            if (ancestor.Contains('<'))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Records a non-generic ISwiftObject type for NativeAOT factory registration.
     /// Uses the nesting stack to build qualified names for nested types.
+    /// Skipped for nested types inside an open generic outer — see
+    /// <see cref="HasOpenGenericAncestor"/>.
     /// </summary>
     public void RecordSwiftObjectType(string csharpTypeName)
     {
+        if (HasOpenGenericAncestor())
+            return;
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         _emittedSwiftObjectTypes.Add(qualifiedName);
     }
@@ -348,6 +369,8 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public void RecordConformance(string csharpTypeName, string protocolInterfaceName)
     {
+        if (HasOpenGenericAncestor())
+            return;
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         var qualifiedProtocol = protocolInterfaceName;
         if (_typeNestingStack.Count > 0 && qualifiedProtocol.Contains($"<{csharpTypeName}>"))
@@ -384,6 +407,8 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public void RecordSimpleEnumMetadata(string csharpTypeName, string metadataSymbol, string wrapperLibName)
     {
+        if (HasOpenGenericAncestor())
+            return;
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         _simpleEnumMetadataRegistrations.Add((qualifiedName, metadataSymbol, wrapperLibName));
     }
