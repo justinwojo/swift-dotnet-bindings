@@ -2185,6 +2185,66 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_EnumCaseWithDirectAnyTypePayload_SkipsTryGetMethod()
+    {
+        // Single associated value that resolves to AnyType (Kind=Protocol) — extraction
+        // cannot round-trip: AnyType.GetTypeMetadata and MarshalToSwift both throw, and
+        // SwiftSafeHandle<AnyType> would NativeMemory.Free the stackalloc'd enumCopy
+        // address on dispose. EnumHandler.CaseInspection.cs:138 must skip TryGet emission.
+        var typeDatabase = CreateTypeDatabase();
+        var lottieModule = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
+        typeDatabase.AddModuleDatabase(lottieModule);
+
+        var moduleDecl = CreateModuleDecl("Lottie");
+        var enumDecl = CreateEnumDecl("AnimationResult", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        // Single payload: UnknownType resolves to AnyType (module exists, type unregistered)
+        dataCase.AssociatedValues.Add(new NamedTypeSpec("Lottie.UnknownType"));
+        enumDecl.Cases.Add(dataCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // TryGet for the AnyType payload case must NOT be emitted
+        Assert.DoesNotContain("TryGetData(", csOutput);
+        // The unsafe out parameter that would otherwise crash must not appear
+        Assert.DoesNotContain("out Swift.AnyType value", csOutput);
+        // Sanity: case still participates in tag enumeration
+        Assert.Contains("Data = 0", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithTupleContainingAnyType_SkipsTryGetMethod()
+    {
+        // Companion to Emit_EnumCaseWithTupleContainingAnyType_UsesIntPtrAndPayloadExtractForUnknownElement:
+        // the construction (factory) path emits, but the extraction (TryGet) path must skip.
+        // EnumHandler.CaseInspection.cs:312 catches direct AnyType inside any tuple element —
+        // NewFromPayload would wrap the source pointer in SwiftSafeHandle<AnyType>, and the
+        // dispose path would NativeMemory.Free that pointer (stackalloc'd enumCopy → invalid free).
+        var typeDatabase = CreateTypeDatabase();
+        var lottieModule = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
+        typeDatabase.AddModuleDatabase(lottieModule);
+
+        var moduleDecl = CreateModuleDecl("Lottie");
+        var enumDecl = CreateEnumDecl("AnimationResult", moduleDecl, isFrozen: false);
+        var dataCase = CreateCase("data");
+        dataCase.AssociatedValues.Add(new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Lottie.UnknownType")
+        }));
+        enumDecl.Cases.Add(dataCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // TryGet must NOT be emitted for the tuple-with-AnyType case
+        Assert.DoesNotContain("TryGetData(", csOutput);
+        // The dangerous extraction signature must not appear
+        Assert.DoesNotContain("out Swift.AnyType", csOutput);
+    }
+
+    [Fact]
     public void Emit_MultiProtocolCompositionWithUnregistered_KeepsExistentialContainer()
     {
         // 2-protocol composition but only one protocol is registered
