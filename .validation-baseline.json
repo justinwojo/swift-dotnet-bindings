@@ -1,39 +1,39 @@
 {
-  "git_sha": "3dea93ce",
+  "git_sha": "b3095498",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3635,
+        "lines": 3681,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26597,
+        "lines": 26626,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26597,
+        "lines": 26626,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26597,
+        "lines": 26626,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26471,
+        "lines": 26500,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56957,
+        "lines": 57077,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51198,
+        "lines": 51318,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51381,
+        "lines": 51501,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56275,
+        "lines": 56395,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -117,28 +117,28 @@
       "StoreKit2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31262,
+        "lines": 31343,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27652,
+        "lines": 27733,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31262,
+        "lines": 31343,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 26901,
+        "lines": 26982,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -894,15 +894,15 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 18771,
-    "total_skipped_members": 3741,
-    "skip_rate_pct": 16.6,
+    "total_emitted_members": 18792,
+    "total_skipped_members": 3720,
+    "skip_rate_pct": 16.5,
     "skip_reasons": {
       "ModuleInternal": 750,
       "SynthesizedCodable": 730,
-      "UnsupportedSignature": 634,
-      "AnyTypeFallback": 452,
-      "GenericProtocolConstraint": 430,
+      "UnsupportedSignature": 613,
+      "GenericProtocolConstraint": 453,
+      "AnyTypeFallback": 429,
       "EveryProtocolConformanceSkipped": 244,
       "UnsupportedClosure": 188,
       "UnsupportedType": 177,

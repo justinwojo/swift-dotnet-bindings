@@ -178,7 +178,7 @@
              -p:SwiftBindingsRepoRoot=/path/to/swift-bindings
 
        Or more commonly via nuke (which plumbs SwiftBindingsRepoRoot automatically):
-         nuke binding-tests --enable-storekit-smoke
+         nuke binding-tests with the enable-storekit-smoke flag
 
        Simulator-only for now; the snapshot's wrapper xcframework currently ships a
        single simulator slice (wrapper-architectures=simulator in the regen step). -->
@@ -277,8 +277,8 @@
        RegenerateAppleFrameworkSnapshot helper instead of StoreKit's legacy
        StoreKit2Snapshot/ name.
 
-       Opt in via `nuke binding-tests --enable-cryptokit-smoke`, which
-       regenerates BindingTests/obj/CryptoKitSnapshot/ (gitignored) before the build.
+       Opt in via `nuke binding-tests` with the enable-cryptokit-smoke flag,
+       which regenerates BindingTests/obj/CryptoKitSnapshot/ (gitignored) before the build.
        Simulator-only today; the snapshot ships a single ios-arm64-simulator wrapper slice. -->
   <PropertyGroup>
     <CryptoKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/CryptoKitSnapshot/</CryptoKitSnapshotDir>
@@ -320,8 +320,8 @@
        block: no extern alias (WeatherKit is pure Swift, no Microsoft.iOS namespace
        collision), canonical <Framework>Snapshot/ path, simulator-only slice.
 
-       Opt in via `nuke binding-tests --enable-weatherkit-smoke`, which
-       regenerates BindingTests/obj/WeatherKitSnapshot/ (gitignored) before the build.
+       Opt in via `nuke binding-tests` with the enable-weatherkit-smoke flag,
+       which regenerates BindingTests/obj/WeatherKitSnapshot/ (gitignored) before the build.
        The smoke test deliberately avoids any API that would hit the WeatherKit.entitlement
        or the network — it exercises WeatherError metadata + reflection-based
        availability propagation only. See WeatherKitSmokeTests.cs. -->

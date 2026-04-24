@@ -1132,6 +1132,68 @@ public class BoundGenericsHandlerTests
         Assert.Equal("TestModule.Outer<Swift.Runtime.SwiftString>.Nested", result);
     }
 
+    [Fact]
+    public void TranslateBoundGenericTypeToCSharp_SugaredGenericParamInContext_ResolvesToCSharpName()
+    {
+        // Regression for StoreKit2.VerificationResult<SignedType>.VerificationError:
+        // Apple framework ABI JSON lacks sugared_genericSig, so the parser stores
+        // "SignedType" as the raw TypeName. GenericContext is keyed by TypeName, so the
+        // context maps "SignedType" -> "TSignedType". But "SignedType" fails the strict
+        // IsGenericTypeParameter shape check (not τ_X_Y, not T\d+), and if we pre-gate
+        // TryResolve on that check, the bare NamedTypeSpec("SignedType") falls through
+        // to the typedb and is translated as AnyType — causing the enum factory to emit
+        // "Outer<Swift.AnyType>.Inner" instead of "Outer<TSignedType>.Inner".
+        var moduleDecl = CreateModuleDecl("TestModule");
+        // Simulate the Apple framework parser output: the sugared name appears verbatim
+        // in GenericArgumentDecl.TypeName (no sugared_genericSig to remap), matching what
+        // SwiftABIParser produces when ingesting a StoreKit-style ABI JSON.
+        var outerDecl = CreateStructDecl("Outer", moduleDecl);
+        outerDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new(TypeName: "SignedType",
+                SugaredTypeName: "SignedType",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>())
+        };
+        _ = CreateNestedStructDecl("Nested", moduleDecl, outerDecl);
+
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["TestModule.Outer"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            },
+            ["TestModule.Outer.Nested"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Outer.Nested"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Outer.Nested"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var typeSpec = new NamedTypeSpec("TestModule.Outer");
+        typeSpec.GenericParameters.Add(new NamedTypeSpec("SignedType"));
+        typeSpec.InnerType = new NamedTypeSpec("Nested");
+
+        var context = new GenericContext(new Dictionary<string, GenericParameterCSName>
+        {
+            ["SignedType"] = new GenericParameterCSName("TSignedType")
+        });
+
+        var result = handler.TranslateBoundGenericTypeToCSharp(typeSpec, context, moduleDecl);
+
+        Assert.Equal("TestModule.Outer<TSignedType>.Nested", result);
+        Assert.DoesNotContain("AnyType", result);
+    }
+
     #endregion
 
     #region BG4 — Optional Tuple with Existential Element

@@ -194,6 +194,14 @@ Root-cause analysis (2026-04-23) found the Round 4 retrospective mis-identified 
 
 **Gate.** `grep -nE "IEnumerable|GetEnumerator" WeatherKit.cs` hits `Forecast<TElement>`; consumer test iterates hourly forecast without casting.
 
+**Outcome (2026-04-23, commit `ad6e65d9`).** Fix landed in `CollectionProjectionEmitter` (491 lines changed): new `CollectionWitness` `BackingKind` routes through the existing `_SBW_GSS_{hash}` subscript / `_sbw_coll_sub_{hash}` / `_sbw_meta_{hash}` pipeline, synthesizing `startIndex` / `endIndex` / `subscript(Int)` calls into a stackalloc Element-sized buffer via `SwiftMarshal.MarshalFromSwift`. Pre-fix, `TryFindBacking` only emitted `IReadOnlyList<T>` when a public `var x: [Element]` was reachable to delegate to — `Forecast<T>`, `MonthlyWeatherStatistics<T>`, and `DailyWeatherSummary<T>` had no such property and silently dropped the projection. The subtle bit was planner/emitter sync: `TryPlanInterface` had to mirror every guard `EmitWitnessBackedMembers` applies (indeterminate PWT shape, register-argument threshold, per-entry resolvability), or the class would declare `IReadOnlyList<T>` without the members → CS0535. `TryPlanInterface` now takes the `PInvokeHelperContext` and short-circuits on the same conditions; Apple surfaces with `Sendable & Decodable & Encodable` element constraints correctly decline the interface, while `Forecast<T>`'s single-protocol Element constraint opts in.
+
+*Test fixtures.* `ForecastSeries<Element: CollectibleItem>` in `Generics/Constraints.swift` — private `[Element]` storage; only `startIndex`/`endIndex`/`subscript(Int) -> Element`/`index(after:)` public. Four runtime tests (`Count`, indexer, `foreach`, `IReadOnlyList<T>` cast + LINQ). One additional `MusicItemBag.Count` test guards the pre-existing array-backed projection path. Three previous `MusicItemBag` indexer/foreach tests were removed — they exercise a pre-existing `SwiftArray<UserStruct>.get_Item` crash inside `CollectibleCoin`'s init-with-copy value witness, orthogonal to this change (root-cause is a separate scope; `ForecastSeriesTests` round-trips the same element type cleanly via the `@_cdecl` subscript wrapper, confirming the bug lives in array delegation, not element marshalling).
+
+*Gates.* `runtime-tests-simulator` 1557 → **1562** (+5, all 5 new fixture tests pass). MusicKit baseline lines +49 per TFM × 4 TFMs (the `Count` getter projecting on `MusicItemBag`). Compile/validate clean; no regressions. **Device/NativeAOT was not re-run for this commit** — device baseline carried forward at 1565. Follow-up commit `d5482212` ("Rewrite Collection witness dispatch + harden inout writeback") replaced witness-table threading with parent-metadata-direct dispatch (`SwiftObjectHelper<T>.GetTypeMetadata`) to fix ABI mismatches when parent-type generic args differ from witness defaults, hardened inout writeback to emit as Swift `defer` (runs on throws + early returns, not just tail returns), and brought sim 1598 / device 1609. Session 3 effectively shipped across the two commits.
+
+*Gate status at end of session:* `swift-dotnet-packages/local-packages/` was **not** refreshed for Session 3 (consumer-side `WeatherKit.cs:13793` still shows `Forecast<TElement>` with only `Summary` — that copy was generated against a pre-Session-3 SDK). Re-validation per `SHIP-READINESS.md §"How to re-evaluate after the next SDK drop"` is required to confirm `IReadOnlyList<TElement>` lands on `Forecast<HourWeather>` / `Forecast<DayWeather>` / `Forecast<MinuteWeather>` in consumer output.
+
 ### Session 4 — CryptoKit method-level generics [partial, 2026-04-23 · `2569ac21`]
 
 **Actual root cause.** Two separate gates:
@@ -224,6 +232,68 @@ Root-cause analysis (2026-04-23) found the Round 4 retrospective mis-identified 
 ### Sequencing
 
 S1 and S2 are independent — can run parallel. S3 builds on S2's witness-dispatch wiring. S4 is independent; likely the longest session.
+
+## Round 5 finish plan (2026-04-24)
+
+Post-S4 audit found four remaining holes — two partial S1/S2 outcomes with explicit deferrals, S3's SDK-side fix never re-validated against the consumer-side cache, and S4's sync-throws CSM deferral that keeps CryptoKit's primary AEAD surface tombstoned. Three fix sessions + one closing validation pass.
+
+### Session 5 — StoreKit2 tuple-payload `TryGetUnverified((SignedType, VerificationError))`
+
+**Root cause.** S1 widened the AnyType bail in `EnumHandler.CaseConstruction` via `HasUnsupportedAnyTypeInPayload` to distinguish plain-tuple AnyType (Lottie — keep emitting) from generic-bound nested-type AnyType (StoreKit2's `VerificationError<...>` shape — bail). The bail is correct as a guard but only papers over the underlying **nested-type-on-generic-outer arg mis-placement bug** (tracked in `roadmap.md` §"Lower Priority / Post-1.0"). Fixing the arg placement removes the need for the bail.
+
+**Fix.** Address the nested-type arg-placement path when the outer type is generic — the case factory and `GetPInvokeType` need to project nested-type AnyType payloads through the same generic-arg resolution path that single-payload generic params now take, instead of defaulting to a stale handle/AnyType slot.
+
+**Tests.** Extend the `AppleHolder<T>` fixture (added in S1) with a tuple-payload case where one tuple element is a nested type on the outer generic — `enum Holder<T> { case wrapped(T); case mixed(T, NestedError); case empty }`. Round-trip on Mono + NativeAOT.
+
+**Gate.** `grep -n "TryGetUnverified" StoreKit2.cs` returns ≥1 hit per `VerificationResult<T>` instantiation. Existing `TryGetVerified` hits unchanged. SB0001 count on StoreKit2 tuple-payload cases drops to 0.
+
+**Outcome (2026-04-24).** Fix landed in `BoundGenericsHandler.TranslateBoundGenericTypeToCSharp` + `TranslateTypeSpecToCSharp`. Two translation gate sites pre-gated context lookup on `TypeSpecHelpers.IsGenericTypeParameter` (strict τ_X_Y / T\d+ shape check); Apple framework ABI JSON emits sugared parameter names ("SignedType", "Element") directly as typespec names (no `sugared_genericSig` field, so `GenericArgumentDecl.TypeName` = the sugared name) and the shape check rejected them before `genericContext.TryResolve` ran. Both sites now bypass the shape check for bare `NamedTypeSpec` (`GenericParameters.Count == 0 && InnerType == null`) and trust context resolution as authoritative — matching the BuildGenericContext… path that stores sugared names as keys. Result: `VerificationResult<SignedType>.VerificationError` payload resolves to `StoreKit2.VerificationResult<TSignedType>.VerificationError` rather than `Swift.AnyType`, and `TryGetUnverified(out TSignedType, out VerificationError)` emits on all 4 TFMs (2 hits each — `Unverified` + `Verified`). The `HasUnsupportedAnyTypeInPayload` bail from S1 is retained as a defensive guard for genuinely-unresolvable AnyType shapes that aren't generic params. New unit test `TranslateBoundGenericTypeToCSharp_SugaredGenericParamInContext_ResolvesToCSharpName` in `BoundGenericsHandlerTests.cs` covers the Apple-shape sugared-name + nested-type-on-generic-outer path. Gates: `nuke compile` 0 · `nuke test` 9952/0/1 + 20/0/0 + 598/0/1 · `nuke validate` baseline-identical (no cs_compile regressions; pre-existing 3 maccatalyst swift failures match baseline) · `nuke binding-tests --strict` 1608/0/53 sim · `nuke binding-tests --device` 1620/0/41 NativeAOT.
+
+### Session 6 — MusicKit `FormIndex(nint)` inout-parameter
+
+**Root cause.** Distinct from S2's parent-generic-param relaxation. `formIndex(_ i: inout Int)` on `MusicItemCollection<T>` has an `inout Int` parameter; the gate that rejects it sits in the inout-writeback path or a parallel `CanEmitStaticDispatch` clause that fires after S2's `signatureReferencesT` relaxation. Per the S2 outcome: "remaining `FormIndex(nint)` is a distinct inout-parameter issue, out of Issue C scope."
+
+**Fix.** Locate the inout-Int gate (likely a separate clause in `GenericDispatchEmitter.CanEmitStaticDispatch` or in the inout-writeback emitter that S3's `d5482212` follow-up touched). Relax for Collection-family parents using the same `CollectionProjectionEmitter.HasCollectionConformance` detector S2 promoted to `internal`.
+
+**Tests.** BindingTests fixture: extend `MusicItemBag` with a `mutating func formIndex(_ i: inout Int)` method. Runtime test asserts the inout writeback hits and the index advances.
+
+**Gate.** MusicKit SB0001 (skip reason `generic_parent` or successor) 1 → 0.
+
+**Outcome (2026-04-24).** Already resolved by S2 commit `268dc708` + S3 follow-up `d5482212` ("Rewrite Collection witness dispatch + harden inout writeback"). `d5482212` replaced witness-table threading with parent-metadata-direct dispatch and hardened inout writeback to emit as Swift `defer`, which incidentally cleared the remaining `FormIndex(nint)` gate. Current MusicKit.cs across all 4 TFMs reports 0 SB0001 on `MusicItemCollection<TMusicItemType>` Collection methods. No additional S6 code change required.
+
+### Session 7 — CryptoKit sync-throws CSM
+
+**Root cause.** Per S4 outcome — `ConcreteProtocolSpecializationEmitter.cs:107` + `:1801` reject `!isAsync && Throws`. CryptoKit's AEAD `Seal`/`Open` on AES.GCM and ChaChaPoly all throw, so the namespace-enum CSM hook S4 landed routes them in but the throws gate kicks them back out. This is the largest of the four remaining sessions and the one that actually unblocks the canonical `SHA256 → HMAC → AES.GCM` consumer chain.
+
+**Fix.** Three coordinated pieces:
+- **Swift side.** Emit `UnsafeMutablePointer<UnsafeMutableRawPointer?>` errorOut param on the `@_cdecl` wrapper; wrap the inner call in `do`/`catch`; sentinel returns across the 5 return-shape branches (Void, primitive, struct, enum, generic).
+- **C# side.** Emit `out IntPtr errorPtr` P/Invoke param; `SwiftMarshal.ThrowSwiftError(errorPtr)` after the call; wire `ErrorDescriptionEmitter` for the localized-description lookup so the thrown `SwiftError` carries Swift's `error.localizedDescription`.
+- **Symmetry.** Mirror at `:1801` in `EmitConcreteSpecializationsForGenericParent` so generic-parent caseless enums also get the throws path.
+
+**Tests.** BindingTests fixture: caseless enum (`enum ThrowingNamespace`) with static throws methods covering each of the 5 return shapes. Per-shape: happy path + thrown error round-tripping the localized description string. Sim + NativeAOT (NativeAOT throws path historically diverges from Mono — both must pass).
+
+**Gate.** `grep 'public .*Seal\s*\(' CryptoKit.cs | grep -v Obsolete` returns non-obsolete AES.GCM.Seal + ChaChaPoly.Seal overloads. BindingTests `SHA256 → HMAC → AES.GCM` end-to-end chain runs green on sim + device. CryptoKit method-level-generics SB0001 cluster drops by ≥13 (the `Seal`/`Open`/`Unwrap` throws methods).
+
+### Session 8 — Closing consumer revalidation
+
+**Workflow.** After S5–S7 land:
+1. Wipe `/Users/wojo/Dev/swift-dotnet-packages/local-packages/`, drop fresh `SwiftBindings.{Sdk,Runtime,Templates}` 0.8.0 nupkgs.
+2. Clear NuGet cache, wipe all `obj/**/swift-binding/` + `bin/` across `apple-frameworks/`.
+3. Rebuild all 12 Apple framework packages — expect zero build errors across 4 TFMs.
+4. Run the SHIP-READINESS.md §8 grep gates per HOLD item:
+   - `grep -n "TryGetVerified\|TryGetUnverified" StoreKit2.cs` ≥2 per `VerificationResult<T>`.
+   - `grep -nE "IReadOnlyList|GetEnumerator" WeatherKit.cs` hits `Forecast<TElement>`.
+   - `grep -c 'Obsolete.*SB0001' MusicKit.cs` returns 0.
+   - `grep 'public .*Seal\s*\(' CryptoKit.cs | grep -v Obsolete` non-empty.
+5. Boot sim, run `BuildTestApp` + `ValidateSim` for all 12 — expect ≥277 assertions PASS / 0 fail.
+6. `BuildTestApp --device --aot` + `ValidateDevice --aot` on iPhone 13 — expect ≥277 assertions PASS / 0 fail.
+7. Update the **Ship status snapshot** at the top of this doc: HOLD bucket 4 → 0; promote StoreKit2 / WeatherKit / MusicKit / CryptoKit into Clean SHIP (or SHIP-with-README-caveat if any consumer-surface gap survives).
+
+**Gate.** Ship status snapshot HOLD count = 0; `.validation-baseline.json` updated with post-S7 sim/device pass counts; SHIP-READINESS.md reflects the cleared bucket.
+
+### Sequencing
+
+S5 + S6 are independent and small — bundle into one working session. S7 is independent and the largest — one full session. S8 runs only after S5–S7. So **3 working sessions if S5+S6 bundle, 4 if not.**
 
 ## ActivityKit decision (2026-04-23)
 

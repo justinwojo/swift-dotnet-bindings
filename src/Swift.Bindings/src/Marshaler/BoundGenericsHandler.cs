@@ -665,8 +665,13 @@ public class BoundGenericsHandler
         if (namedTypeSpec.Name == "Swift.Void")
             return "Swift.SwiftVoid";
 
-        // Check if this named type is itself a generic type parameter (e.g., τ_0_0)
-        if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeSpec.Name) &&
+        // Check if this named type is itself a generic type parameter.
+        // Trust the context resolution over the IsGenericTypeParameter shape check:
+        // Apple framework ABI JSON emits sugared parameter names ("SignedType", "Element")
+        // directly as typespec names instead of the τ_0_0 form. When BuildGenericContextFrom…
+        // has stored the sugared name as a context key, TryResolve is the authoritative
+        // signal that the typespec is a generic parameter in the current scope.
+        if (namedTypeSpec.GenericParameters.Count == 0 && namedTypeSpec.InnerType == null &&
             genericContext.TryResolve(namedTypeSpec.Name, out var resolvedName))
         {
             return resolvedName;
@@ -781,9 +786,11 @@ public class BoundGenericsHandler
             return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
         }
 
-        // Check if the type is a generic type parameter before other dispatch
+        // Check if the type is a generic type parameter before other dispatch.
+        // Trust the context as the authoritative signal (see TranslateBoundGenericTypeToCSharp
+        // for why the IsGenericTypeParameter shape check is insufficient for Apple-framework ABIs).
         if (typeSpec is NamedTypeSpec namedSpec &&
-            TypeSpecHelpers.IsGenericTypeParameter(namedSpec.Name) &&
+            namedSpec.GenericParameters.Count == 0 && namedSpec.InnerType == null &&
             genericContext.TryResolve(namedSpec.Name, out var csName))
         {
             return csName;
