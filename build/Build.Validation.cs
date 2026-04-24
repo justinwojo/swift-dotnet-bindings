@@ -500,7 +500,7 @@ partial class Build
             var prevBaseline = ValidationBaseline.Load(BaselinePath);
 
             // Update baseline only on full unfiltered runs. Preserve the existing runtime_tests
-            // baseline (populated by a separate nuke runtime-tests-simulator run) so a validate
+            // baseline (populated by a separate nuke binding-tests --sim run) so a validate
             // pass doesn't stomp it back to null on write-out.
             if (isFullRun)
             {

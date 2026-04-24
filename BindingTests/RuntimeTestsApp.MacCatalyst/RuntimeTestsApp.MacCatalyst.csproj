@@ -88,7 +88,7 @@
   </ItemGroup>
 
   <!-- Main test library and dependency xcframeworks. These are rebuilt by
-       the Nuke runtime-tests-catalyst target before each run. Additional native
+       the Nuke binding-tests --catalyst target before each run. Additional native
        artifacts (async wrapper, runtime dylib) are injected by the Nuke target
        into the output directory. -->
   <ItemGroup>

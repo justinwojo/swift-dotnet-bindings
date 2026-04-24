@@ -23,12 +23,28 @@ Swift/.NET interop: generates C# bindings from compiled Swift libraries (`.dylib
 | `nuke test` | ~2 min | Unit + integration tests |
 | `nuke validate` | ~2 min | Compile gate across real-world libs. Flags: `--tier N`, `--filter X` |
 | `nuke fetch` | — | Download xcframeworks (first time only) |
-| `nuke binding-tests` | ~2 min | **Compile gate**: rebuild xcframework + regenerate bindings + compile-check generated C#. Does NOT run tests. `--strict` to fail on non-zero generator exit |
-| `nuke runtime-tests-simulator` | ~2 min | **Runtime gate (Mono JIT)**: build test app + run on iOS Simulator. `--skip-regen` (~17s), `--skip-build` (~5s), `--class-filter NAME` |
-| `nuke runtime-tests-device` | ~2 min | **Runtime gate (NativeAOT)**: build + run on physical iOS device |
+| `nuke binding-tests [flags]` | varies | End-to-end BindingTests gate — see flag table below |
 | `nuke pack --version X.Y.Z` | fast | Build all 3 NuGet packages → `/tmp/swift-nuget/` |
 
-`binding-tests` and `runtime-tests-simulator` are **complementary**, not redundant: the first asks "does it compile?", the second asks "does it pass?". Generator/emitter changes generally want both. For a runtime-only C# change, `runtime-tests-simulator --skip-regen` alone is enough.
+### `nuke binding-tests` flags
+
+One target covers the compile gate and every runtime gate. Platform flags compose — `--sim --device` runs both pipelines back to back.
+
+| Flag | What it does |
+|---|---|
+| *(no platform flag)* | Default: compile + run iOS Simulator (Mono JIT) — the common inner loop |
+| `--compile-only` | Compile gate only: regenerate + compile-check. No app build, no tests. Used by CI. |
+| `--sim` | Explicit iOS Simulator (Mono JIT) |
+| `--device` | Physical iOS device (NativeAOT) |
+| `--macos` | macOS |
+| `--catalyst` | Mac Catalyst |
+| `--tvos` | tvOS Simulator |
+| `--strict` | Fail on non-zero generator exit |
+| `--skip-regen` (~17s) | Skip binding regeneration; assumes bindings are current |
+| `--skip-build` (~5s) | Skip app build; just install + run |
+| `--class-filter NAME` | Run only one test class (Simulator path) |
+
+The compile gate (`--compile-only`) and the runtime gates are complementary: the first asks "does it compile?", the second asks "does it pass?". Generator/emitter changes want both — run `nuke binding-tests --compile-only --strict` then `nuke binding-tests --skip-regen`. For runtime-only C# changes, `nuke binding-tests --skip-regen` alone is enough.
 
 ## Generator CLI
 
@@ -64,14 +80,14 @@ All options: `dotnet run --project src/Swift.Bindings/src -- --help`. Validation
 
 Unit tests catch logic bugs. **BindingTests** catch ABI mismatches, calling-convention bugs, and marshalling crashes that unit tests CANNOT. Required for generator, emitter, or runtime changes. Add Swift source to `BindingTests/Sources/SwiftBindingsTestLib/` and C# tests to the matching domain file in `BindingTests/RuntimeTestsApp/`. When fixing a `nuke validate` bug, reproduce the Swift pattern in BindingTests so it's permanently covered.
 
-`runtime-tests-simulator` is the default. Also run `runtime-tests-device` when changes touch calling conventions, struct marshalling, or P/Invoke signatures (Mono and NativeAOT have different bugs), and after fixing any NativeAOT-skipped test.
+`nuke binding-tests` (default sim) is the everyday runtime gate. Also run `nuke binding-tests --device` when changes touch calling conventions, struct marshalling, or P/Invoke signatures (Mono and NativeAOT have different bugs), and after fixing any NativeAOT-skipped test.
 
 ### Final validation gates (run only what the change warrants)
 
-| What changed | `nuke test` | `nuke validate` | `binding-tests` / `runtime-tests-simulator` |
+| What changed | `nuke test` | `nuke validate` | `nuke binding-tests` |
 |---|---|---|---|
-| Generator / emitter / parser | Yes | Yes | Yes (`binding-tests`). Also device if calling conventions or marshalling changed. |
-| Runtime (`Swift.Runtime`) | Yes | Only if marshalling changed | Yes (`runtime-tests-simulator --skip-regen`). Device if marshalling changed. |
+| Generator / emitter / parser | Yes | Yes | Yes (default sim run). Add `--device` if calling conventions or marshalling changed. |
+| Runtime (`Swift.Runtime`) | Yes | Only if marshalling changed | Yes (`--skip-regen`). Add `--device` if marshalling changed. |
 | Test infrastructure only | No | No | Just the target touched |
 | Docs / research / external repos | No | No | No |
 

@@ -19,8 +19,7 @@ partial class Build
     const string WrapperModule = "SwiftBindings";
     const string BridgeModule = "SwiftBindingsTestLibBridge";
 
-    [Parameter("Fail on non-zero generator exit (standalone use)")] readonly bool Strict;
-    bool ForceStrict; // Set by BindingTestsStrict target
+    [Parameter("Fail on non-zero generator exit")] readonly bool Strict;
 
     // --- Computed BindingTests paths ---
     AbsolutePath BtBuildDir => BindingTestsDir / ".build";
@@ -312,7 +311,7 @@ partial class Build
 
     Target RegenerateBindings => _ => _
         .DependsOn(BuildXcframework)
-        .Executes(() => RunRegenerateBindings(Strict || ForceStrict));
+        .Executes(() => RunRegenerateBindings(Strict));
 
     void RunRegenerateBindings(bool strict, ApplePlatform? platformOverride = null)
     {
@@ -748,25 +747,42 @@ partial class Build
     // Aggregate targets
     // ============================================================
 
+    // Single entry point for the BindingTests pipeline. Flags pick between the compile
+    // gate and one-or-more runtime gates; platforms compose. The .After() list on the
+    // pipeline Targets orders them under Nuke --strict's global topo-sort; we call them
+    // imperatively, so without these edges they'd be orphan sinks and --strict would
+    // reject the plan.
     Target BindingTests => _ => _
-        .DependsOn(CompileCheckBindings, BuildAsyncWrapper, BuildBridge)
-        .After(Test)
+        .After(Clean, Test, BuildBridge, BuildAsyncWrapper, CompileCheckBindings)
         .Executes(() =>
         {
-            ReportBindingTestResults();
-        });
+            RejectSkipBuildWithActiveSmokeFlags();
 
-    Target BindingTestsStrict => _ => _
-        .After(Clean, BindingTests, Validate, PackGate)
-        .Executes(() =>
-        {
-            ForceStrict = true;
-            RunBuildXcframework();
-            RunRegenerateBindings(strict: true);
-            RunCompileCheck();
-            RunBuildAsyncWrapper();
-            RunBuildBridge();
-            ReportBindingTestResults();
+            // --compile-only: run the binding pipeline + compile-check only (no app build,
+            // no test execution). This is the CI gate — "does the generator emit valid C#?"
+            if (CompileOnly)
+            {
+                if (Sim || Device || Macos || Catalyst || Tvos)
+                    Log.Warning("Platform flags are ignored when --compile-only is set");
+
+                RunBuildXcframework();
+                RunRegenerateBindings(strict: Strict);
+                RunCompileCheck();
+                RunBuildAsyncWrapper();
+                RunBuildBridge();
+                ReportBindingTestResults();
+                return;
+            }
+
+            // Runtime gate: default to --sim when no platform flag is set.
+            var anyPlatform = Sim || Device || Macos || Catalyst || Tvos;
+            var runSim = Sim || !anyPlatform;
+
+            if (runSim)   RunSimulatorPlatform();
+            if (Device)   RunDevicePlatform();
+            if (Macos)    RunMacOSPlatform();
+            if (Catalyst) RunCatalystPlatform();
+            if (Tvos)     RunTvOSSimulatorPlatform();
         });
 
     // ValidateBlastRadius runs the blast-radius smoke script and fails the build if any of

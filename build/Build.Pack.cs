@@ -21,7 +21,7 @@ partial class Build
 {
     Target Pack => _ => _
         .DependsOn(Compile)
-        .After(RuntimeTestsMacOS, PackGate)
+        .After(BindingTests, PackGate)
         .Requires(() => Version)
         .Requires(() => AppleVersion)
         .Executes(() =>

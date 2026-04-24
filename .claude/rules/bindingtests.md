@@ -10,11 +10,15 @@ paths:
 |--------|---------|
 | `nuke build-xcframework` | Build Swift test library as xcframework |
 | `nuke regenerate-bindings` | Generate C# bindings from xcframework |
-| `nuke binding-tests` | Full pipeline: xcframework + bindings + bridge |
-| `nuke binding-tests --strict` | Strict mode (fail on non-zero generator exit) |
-| `nuke runtime-tests-simulator` | Build + run runtime tests on iOS Simulator |
-| `nuke runtime-tests-device` | Build + run runtime tests on physical device |
-| `nuke runtime-tests-macos` | Build + run runtime tests on macOS |
+| `nuke binding-tests` | Default: compile + run iOS Simulator (Mono JIT) |
+| `nuke binding-tests --compile-only` | Compile gate only — no app build, no tests |
+| `nuke binding-tests --strict` | Fail on non-zero generator exit (compose with any mode) |
+| `nuke binding-tests --device` | Compile + run on physical iPhone (NativeAOT) |
+| `nuke binding-tests --macos` | Compile + run on macOS |
+| `nuke binding-tests --catalyst` | Compile + run on Mac Catalyst |
+| `nuke binding-tests --tvos` | Compile + run on tvOS Simulator |
+
+Platform flags compose (`--sim --device` runs both). Inner-loop shortcuts: `--skip-regen` (~17s) skips bindings regen; `--skip-build` (~5s) skips app build; `--class-filter NAME` runs one test class.
 
 ## Output Files
 - `output/SwiftBindingsTestLib.cs` — Generated C# bindings

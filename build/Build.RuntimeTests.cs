@@ -1,25 +1,25 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Build.RuntimeTests.cs — simulator/device/macOS test execution
+// Build.RuntimeTests.cs — per-platform runtime test execution (sim/device/macOS/catalyst/tvOS).
 //
 // DESIGN DECISION: Skip modes vs target dependencies
 //
 // Problem: --skip-regen means "don't rebuild bindings, just build app + run" (~17s).
 // --skip-build means "don't even rebuild the .NET app, just install + run" (~5s).
-// If RuntimeTestsSimulator unconditionally DependsOn(BindingTests), Nuke runs
-// the full pipeline before the target body even executes — the skip flags can't work.
+// If the runtime test path unconditionally depended on the binding pipeline via
+// Nuke's DependsOn, Nuke would always run the full pipeline before the body
+// executes — the skip flags could never take effect.
 //
-// Solution: The runtime test targets do NOT depend on BindingTests. Instead:
-//   - Default behavior (no skip flags): the target body calls the binding pipeline
-//     methods directly, then builds the app, then runs tests.
+// Solution: The consolidated BindingTests target (Build.BindingTests.cs) dispatches
+// to per-platform helpers (RunSimulatorPlatform, RunDevicePlatform, RunMacOSPlatform,
+// RunCatalystPlatform, RunTvOSSimulatorPlatform) which manage the pipeline imperatively:
+//   - Default (no skip flags): helper calls the binding pipeline methods directly,
+//     then builds the app, then runs tests.
 //   - --skip-regen: skips binding pipeline, just builds app + runs tests.
 //   - --skip-build: skips everything, just installs + runs.
 //   - Staleness detection: if --skip-regen but Swift sources are newer than bindings,
 //     refuse to run (prevents confusing stale-binding failures).
-//
-// This matches run-runtime-tests.sh which is a self-contained script that
-// conditionally calls build-and-test.sh, not a dependency chain.
 
 using System;
 using System.Collections.Concurrent;
@@ -42,6 +42,23 @@ partial class Build
 {
     [Parameter("Skip all builds, just install + run")] readonly bool SkipBuild;
     [Parameter("Pre-booted simulator or device UDID")] readonly string? DeviceUdid;
+
+    // Platform selection for the consolidated `binding-tests` target. When none of these
+    // flags are passed and --compile-only is not set, the target defaults to running the
+    // iOS Simulator suite (the common developer inner loop). Multiple flags compose, so
+    // `--sim --device` runs both pipelines back to back.
+    [Parameter("Compile-check generated bindings only; skip app build and test execution")]
+    readonly bool CompileOnly;
+    [Parameter("Run in iOS Simulator (Mono JIT) — default when no platform flag is set")]
+    readonly bool Sim;
+    [Parameter("Run on physical iOS device (NativeAOT)")]
+    readonly bool Device;
+    [Parameter("Run on macOS")]
+    readonly bool Macos;
+    [Parameter("Run on Mac Catalyst")]
+    readonly bool Catalyst;
+    [Parameter("Run on tvOS Simulator")]
+    readonly bool Tvos;
 
     // Opt-in to the StoreKit 2 Apple-framework smoke tests. Off by default so
     // the Apple-framework path never runs silently — the smoke test exercises
@@ -203,9 +220,9 @@ partial class Build
 
     // Sibling of .smoke-flags — stamps the generator --platform used for the
     // last regen, so AssertBindingsNotStale can reject --skip-regen across
-    // platform boundaries (e.g. running `nuke runtime-tests-tvos-simulator
-    // --skip-regen` after a previous iOS regen would otherwise silently reuse
-    // iOS-flavored bindings).
+    // platform boundaries (e.g. running `nuke binding-tests --tvos --skip-regen`
+    // after a previous iOS regen would otherwise silently reuse iOS-flavored
+    // bindings).
     const string TargetPlatformSidecarName = ".target-platform";
 
     static string FormatSmokeFlagsForSidecar(IReadOnlyList<SmokeFlag> flags)
@@ -257,7 +274,7 @@ partial class Build
     // via the top-level `[Oo]bj/` rule, so nothing gets committed. Regenerated
     // by the `RegenerateStoreKit2Snapshot()` helper below (exposed as the
     // `nuke regenerate-storekit-snapshot` target, and called automatically
-    // as a prerequisite of `runtime-tests-simulator --enable-storekit-smoke`).
+    // as a prerequisite of `binding-tests --enable-storekit-smoke`).
     //
     // Why in-tree: the previous out-of-repo path consumed the snapshot DLL via
     // a raw `<Reference HintPath=...>` pointing at /tmp/storekit2-session4,
@@ -377,7 +394,7 @@ partial class Build
     }
 
     Target RegenerateAppleSnapshot => _ => _
-        .After(SmokeTest, RuntimeTestsCatalyst, PackGate)
+        .After(SmokeTest, BindingTests, PackGate)
         .Description("Regenerate an in-tree Apple framework snapshot under BindingTests/obj/<Framework>Snapshot/. Requires --framework <name>.")
         .Executes(() =>
         {
@@ -400,8 +417,10 @@ partial class Build
     /// <see cref="RegenerateStoreKit2Snapshot"/> directly during
     /// <c>--enable-storekit-smoke</c> runs.
     /// </summary>
+    // .After(Validate) is a pure ordering edge: without it, this target and Validate are
+    // both final sinks in the declared-target graph and Nuke --strict rejects the plan.
     Target RegenerateStoreKitSnapshot => _ => _
-        .After(RegenerateAppleSnapshot, RuntimeTestsCatalyst, PackGate)
+        .After(RegenerateAppleSnapshot, BindingTests, PackGate, Validate)
         .Description("Regenerate the in-tree StoreKit 2 snapshot (BindingTests/obj/StoreKit2Snapshot/) from the active Xcode SDK.")
         .Executes(() => RegenerateStoreKit2Snapshot(force: true));
 
@@ -794,13 +813,13 @@ partial class Build
     }
 
     // ============================================================
-    // RuntimeTestsSimulator — NO DependsOn, manages pipeline internally
+    // iOS Simulator runtime gate (Mono JIT).
+    // Invoked by the consolidated BindingTests target when --sim is set or
+    // no platform flag is provided (default).
     // ============================================================
 
-    Target RuntimeTestsSimulator => _ => _
-        .After(Clean, BindingTestsStrict, PackGate)
-        .Executes(() =>
-        {
+    void RunSimulatorPlatform()
+    {
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (Simulator)");
             Log.Information("=========================================");
@@ -812,13 +831,11 @@ partial class Build
             if (FlakeDetect)
                 Log.Information("Flake detection: enabled");
 
-            RejectSkipBuildWithActiveSmokeFlags();
-
             // Step 1: Conditionally run binding pipeline
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework();
-                RunRegenerateBindings(strict: false);
+                RunRegenerateBindings(strict: Strict);
                 RunCompileCheck();
                 RunBuildAsyncWrapper();
                 RunBuildBridge();
@@ -943,22 +960,19 @@ partial class Build
 
             // Step 3: Install + run on simulator
             RunOnSimulator();
-        });
+    }
 
     // ============================================================
-    // RuntimeTestsDevice — NO DependsOn, manages pipeline internally
+    // Physical iOS device runtime gate (NativeAOT).
     // Device path has its OWN wrapper build step, separate from simulator.
+    // Invoked by the consolidated BindingTests target when --device is set.
     // ============================================================
 
-    Target RuntimeTestsDevice => _ => _
-        .After(Clean, RuntimeTestsSimulator, PackGate)
-        .Executes(() =>
-        {
+    void RunDevicePlatform()
+    {
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (Device)");
             Log.Information("=========================================");
-
-            RejectSkipBuildWithActiveSmokeFlags();
 
             // Step 0: Find connected device
             PhysicalDeviceInfo device;
@@ -980,7 +994,7 @@ partial class Build
             {
                 // Device path: build xcframework with device slice
                 RunBuildXcframework(includeDeviceOverride: true);
-                RunRegenerateBindings(strict: false);
+                RunRegenerateBindings(strict: Strict);
                 // Build device-specific wrappers
                 RunBuildDeviceWrappers();
                 RunBuildBridge(target: "device");
@@ -1015,25 +1029,22 @@ partial class Build
 
             // Install + run on device
             RunOnDevice(device, appPath);
-        });
+    }
 
     // Simple record to avoid depending on DeviceCtl.PhysicalDevice in the target body
     record PhysicalDeviceInfo(string Udid, string Name);
 
     // ============================================================
-    // RuntimeTestsMacOS — NO DependsOn
+    // macOS runtime gate.
     // macOS has its own xcframework build and generates macOS-specific bindings.
+    // Invoked by the consolidated BindingTests target when --macos is set.
     // ============================================================
 
-    Target RuntimeTestsMacOS => _ => _
-        .After(Clean, RuntimeTestsDevice, BindingTestsStrict, PackGate)
-        .Executes(() =>
-        {
+    void RunMacOSPlatform()
+    {
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (macOS)");
             Log.Information("=========================================");
-
-            RejectSkipBuildWithActiveSmokeFlags();
 
             // macOS only supports CryptoKit and WeatherKit smokes — reject everything else.
             var unsupported = GetActiveSmokeFlags()
@@ -1043,9 +1054,9 @@ partial class Build
             {
                 var names = string.Join(", ", unsupported.Select(f => f.FlagName));
                 throw new Exception(
-                    $"{names}: smoke flags are not supported by runtime-tests-macos. " +
+                    $"{names}: smoke flags are not supported by --macos. " +
                     "Only --enable-cryptokit-smoke and --enable-weatherkit-smoke are wired for macOS. " +
-                    "Drop the flag and rerun, or use runtime-tests-simulator.");
+                    "Drop the flag and rerun, or use --sim instead.");
             }
 
             var platform = ApplePlatform.MacOS;
@@ -1053,7 +1064,7 @@ partial class Build
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework(platformOverride: platform);
-                RunRegenerateMacOSBindings();
+                RunRegenerateMacOSBindings(strict: Strict);
                 RunBuildAsyncWrapper(platformOverride: platform);
             }
             else
@@ -1064,7 +1075,7 @@ partial class Build
             if (!SkipBuild)
             {
                 // Regenerate Apple-framework macOS snapshots before building.
-                // Same pattern as iOS (RuntimeTestsSimulator) — the regen is
+                // Same pattern as iOS (RunSimulatorPlatform) — the regen is
                 // gated on the same Enable*Smoke CLI parameters and uses the
                 // macOS-specific snapshot directories that coexist alongside
                 // the iOS snapshots under BindingTests/obj/.
@@ -1124,24 +1135,23 @@ partial class Build
 
             // Run natively on macOS via the .app bundle's native executable
             RunOnMacOS();
-        });
+    }
 
     // ============================================================
-    // RuntimeTestsCatalyst — Mac Catalyst runner
+    // Mac Catalyst runtime gate.
     //
-    // Mirror of RuntimeTestsMacOS but targets net10.0-maccatalyst. Catalyst
+    // Mirror of RunMacOSPlatform but targets net10.0-maccatalyst. Catalyst
     // apps produce macOS .app bundles and run directly on the host — same
     // deployment mechanism as macOS. The xcframework uses the
     // ios-arm64-maccatalyst slice (macOS SDK, -macabi target triple).
     //
     // No smoke wiring: Catalyst shares the same test matrix as macOS and
     // the primary goal is verifying the Catalyst binding/runtime path works.
+    // Invoked by the consolidated BindingTests target when --catalyst is set.
     // ============================================================
 
-    Target RuntimeTestsCatalyst => _ => _
-        .After(Clean, RuntimeTestsMacOS, BindingTestsStrict, SmokeTest, PackGate)
-        .Executes(() =>
-        {
+    void RunCatalystPlatform()
+    {
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (Mac Catalyst)");
             Log.Information("=========================================");
@@ -1152,18 +1162,17 @@ partial class Build
             {
                 var names = string.Join(", ", activeSmoke.Select(f => f.FlagName));
                 throw new Exception(
-                    $"{names}: smoke flags are not supported by runtime-tests-catalyst. " +
+                    $"{names}: smoke flags are not supported by --catalyst. " +
                     "Per-framework smoke wiring is not implemented for Catalyst. " +
-                    "Drop the flag and rerun, or use runtime-tests-simulator.");
+                    "Drop the flag and rerun, or use --sim instead.");
             }
-            RejectSkipBuildWithActiveSmokeFlags();
 
             var platform = ApplePlatform.MacCatalyst;
 
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework(platformOverride: platform);
-                RunRegenerateMacOSBindings(platformOverride: platform);
+                RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
                 RunBuildAsyncWrapper(platformOverride: platform);
             }
             else
@@ -1206,12 +1215,12 @@ partial class Build
 
             // Run natively on macOS via the .app bundle's native executable
             RunOnCatalyst();
-        });
+    }
 
     // ============================================================
-    // RuntimeTestsTvOSSimulator — NO DependsOn, manages pipeline internally
+    // tvOS Simulator runtime gate.
     //
-    // Mirror of RuntimeTestsSimulator but targets the tvOS simulator. Shares
+    // Mirror of RunSimulatorPlatform but targets the tvOS simulator. Shares
     // the same binding output directory, xcframework, and runtime-test sources
     // as the iOS target; the iOS and tvOS regen paths clobber each other's
     // xcframeworks in BindingTests/.build/ by design — each target rebuilds
@@ -1222,12 +1231,12 @@ partial class Build
     // Per the design doc: no tvOS device runner (NativeAOT), no per-framework
     // smoke gating. The tvOS csproj excludes SmokeTests/ at the Compile-item
     // level for the same reason.
+    //
+    // Invoked by the consolidated BindingTests target when --tvos is set.
     // ============================================================
 
-    Target RuntimeTestsTvOSSimulator => _ => _
-        .After(Clean, RuntimeTestsMacOS, RuntimeTestsCatalyst, BindingTestsStrict, RegenerateStoreKitSnapshot, PackGate)
-        .Executes(() =>
-        {
+    void RunTvOSSimulatorPlatform()
+    {
             Log.Information("=========================================");
             Log.Information(" BindingTests Runtime Tests (tvOS Simulator)");
             Log.Information("=========================================");
@@ -1246,11 +1255,10 @@ partial class Build
             {
                 var names = string.Join(", ", activeSmoke.Select(f => f.FlagName));
                 throw new Exception(
-                    $"{names}: smoke flags are not supported by runtime-tests-tvos-simulator. " +
+                    $"{names}: smoke flags are not supported by --tvos. " +
                     "Per-framework smoke wiring lives on the iOS simulator runner only. " +
-                    "Drop the flag and rerun, or use runtime-tests-simulator.");
+                    "Drop the flag and rerun, or use --sim instead.");
             }
-            RejectSkipBuildWithActiveSmokeFlags();
 
             var platform = ApplePlatform.TvOS;
 
@@ -1267,7 +1275,7 @@ partial class Build
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework(platformOverride: platform);
-                RunRegenerateBindings(strict: false, platformOverride: platform);
+                RunRegenerateBindings(strict: Strict, platformOverride: platform);
                 RunBuildAsyncWrapper(platformOverride: platform);
                 RunBuildBridge(platformOverride: platform);
             }
@@ -1307,7 +1315,7 @@ partial class Build
 
             // Step 3: Install + run on tvOS simulator
             RunOnTvOSSimulator();
-        });
+    }
 
     // ============================================================
     // Shared Helpers: Simulator Execution
@@ -1522,7 +1530,7 @@ partial class Build
             {
                 throw new Exception(
                     $"--device-udid {DeviceUdid} is not a tvOS simulator. " +
-                    $"runtime-tests-tvos-simulator only accepts tvOS devices; " +
+                    $"`binding-tests --tvos` only accepts tvOS devices; " +
                     $"drop the flag or pass a tvOS UDID from `xcrun simctl list devices tvOS`.");
             }
             device = new SimCtl.SimDevice(DeviceUdid, "pre-booted", "Booted", true, "");
@@ -2394,7 +2402,7 @@ partial class Build
     /// inline Swift wrapper files by RunBuildAsyncWrapper.
     /// Also generates dependency module bindings (unlike the original version).
     /// </summary>
-    void RunRegenerateMacOSBindings(ApplePlatform? platformOverride = null)
+    void RunRegenerateMacOSBindings(bool strict = false, ApplePlatform? platformOverride = null)
     {
         var platform = platformOverride ?? ApplePlatform.MacOS;
         Log.Information("=== Generating {Platform} bindings for {Module} ===", platform.Name, ModuleName);
@@ -2439,7 +2447,12 @@ partial class Build
         File.WriteAllText(BtOutputDir / "generator-exit-code", exitCode.ToString());
 
         if (exitCode != 0)
-            Log.Warning("{Platform} binding generation exited with code {ExitCode} (non-fatal)", platform.Name, exitCode);
+        {
+            Log.Warning("{Platform} binding generation exited with code {ExitCode}", platform.Name, exitCode);
+            if (strict)
+                throw new Exception($"{platform.Name} generator exited with code {exitCode} (strict mode)");
+            Log.Information("This is expected if the test library includes features beyond current generator support.");
+        }
 
         // Fix wrapper library name: without --async-library, the generator
         // defaults to "{Module}SwiftBindings" but RunBuildAsyncWrapper compiles

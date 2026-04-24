@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 //
 // Build.Test.cs — Unit, analyzer, and runtime library tests.
-// BindingTests and simulator runtime tests are handled by dedicated targets
-// (BindingTests, BindingTestsStrict, RuntimeTestsSimulator).
+// End-to-end BindingTests compile + runtime gates are handled by the
+// consolidated BindingTests target (see Build.BindingTests.cs).
 
 using Nuke.Common;
 using Nuke.Common.Tooling;
@@ -65,9 +65,9 @@ partial class Build
         .Executes(() =>
         {
             // Unit tests, analyzer tests, and runtime unit tests are run via DependsOn.
-            // BindingTests regression and simulator runtime tests are handled by the
-            // dedicated BindingTests/BindingTestsStrict/RuntimeTestsSimulator targets
-            // (and by the separate CI job). No need to duplicate that work here.
+            // BindingTests regression + simulator/device/macOS/catalyst/tvOS runtime
+            // gates are handled by the consolidated BindingTests target (and by the
+            // separate CI job). No need to duplicate that work here.
             Log.Information("All test suites complete.");
         });
 

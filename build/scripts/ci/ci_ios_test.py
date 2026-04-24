@@ -122,7 +122,7 @@ def run_tests(
     max_test_retries: int = 1,
     deadline: Optional[float] = None,
 ) -> int:
-    """Run runtime tests using dotnet nuke runtime-tests-simulator.
+    """Run runtime tests using dotnet nuke binding-tests --sim.
 
     Retries once on timeout/infrastructure failure (app hang, launch failure),
     but only if enough time remains before the deadline.
@@ -133,10 +133,11 @@ def run_tests(
                   timeouts on later attempts.
 
     Returns:
-        Exit code from dotnet nuke runtime-tests-simulator
+        Exit code from dotnet nuke binding-tests --sim
     """
     cmd = [
-        "dotnet", "nuke", "runtime-tests-simulator",
+        "dotnet", "nuke", "binding-tests",
+        "--sim",
         "--timeout", str(timeout),
         "--device-udid", device_udid,
     ]
@@ -432,7 +433,7 @@ def run_pipeline(
                 return 0
 
             # Test failed — but is it infra or real?
-            # For now, test failures from Nuke runtime-tests-simulator are considered real
+            # For now, test failures from Nuke binding-tests --sim are considered real
             # (Nuke already handles crash diagnostics and result classification internally)
             return exit_code
 

@@ -92,7 +92,7 @@ jobs:
           echo "Boot started in background"
 
       - name: Build and test bindings (strict + coverage + baselines)
-        run: dotnet nuke binding-tests --strict
+        run: dotnet nuke binding-tests --strict --compile-only
 
       - name: Generate coverage report
         working-directory: BindingTests

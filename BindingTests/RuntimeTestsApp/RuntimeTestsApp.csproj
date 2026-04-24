@@ -30,7 +30,7 @@
   </PropertyGroup>
 
   <!-- Device (NativeAOT): PublishAot + code signing.
-       Activated when publishing with -r ios-arm64 (Build.RuntimeTests.cs RuntimeTestsDevice target). -->
+       Activated when publishing with -r ios-arm64 (Build.RuntimeTests.cs RunDevicePlatform path). -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
     <PublishAot>true</PublishAot>
     <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
@@ -161,7 +161,7 @@
        The snapshot lives in-tree at BindingTests/obj/StoreKit2Snapshot/ (gitignored
        via the top-level obj/ rule) and is regenerated either on-demand via
        `nuke regenerate-storekit-snapshot` or automatically as a conditional
-       prerequisite of the runtime-tests-simulator target when the
+       prerequisite of the binding-tests target when the
        enable-storekit-smoke flag is passed. See Build.RuntimeTests.cs
        RegenerateStoreKit2Snapshot() for the pipeline.
 
@@ -178,7 +178,7 @@
              -p:SwiftBindingsRepoRoot=/path/to/swift-bindings
 
        Or more commonly via nuke (which plumbs SwiftBindingsRepoRoot automatically):
-         nuke runtime-tests-simulator enable-storekit-smoke
+         nuke binding-tests --enable-storekit-smoke
 
        Simulator-only for now; the snapshot's wrapper xcframework currently ships a
        single simulator slice (wrapper-architectures=simulator in the regen step). -->
@@ -208,7 +208,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableStoreKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(StoreKitSnapshotCsproj)')"
-           Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotCsproj) does not exist. Run `nuke regenerate-storekit-snapshot` (or `nuke runtime-tests-simulator --enable-storekit-smoke` which regenerates automatically)." />
+           Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotCsproj) does not exist. Run `nuke regenerate-storekit-snapshot` (or `nuke binding-tests --enable-storekit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(StoreKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableStoreKitSmoke=true but $(StoreKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-storekit-snapshot` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(StoreKitSnapshotProjectRefTargets)')"
@@ -277,7 +277,7 @@
        RegenerateAppleFrameworkSnapshot helper instead of StoreKit's legacy
        StoreKit2Snapshot/ name.
 
-       Opt in via `nuke runtime-tests-simulator enable-cryptokit-smoke`, which
+       Opt in via `nuke binding-tests --enable-cryptokit-smoke`, which
        regenerates BindingTests/obj/CryptoKitSnapshot/ (gitignored) before the build.
        Simulator-only today; the snapshot ships a single ios-arm64-simulator wrapper slice. -->
   <PropertyGroup>
@@ -292,7 +292,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableCryptoKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(CryptoKitSnapshotCsproj)')"
-           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework CryptoKit` (or `nuke runtime-tests-simulator --enable-cryptokit-smoke` which regenerates automatically)." />
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework CryptoKit` (or `nuke binding-tests --enable-cryptokit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(CryptoKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework CryptoKit` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(CryptoKitSnapshotProjectRefTargets)')"
@@ -320,7 +320,7 @@
        block: no extern alias (WeatherKit is pure Swift, no Microsoft.iOS namespace
        collision), canonical <Framework>Snapshot/ path, simulator-only slice.
 
-       Opt in via `nuke runtime-tests-simulator enable-weatherkit-smoke`, which
+       Opt in via `nuke binding-tests --enable-weatherkit-smoke`, which
        regenerates BindingTests/obj/WeatherKitSnapshot/ (gitignored) before the build.
        The smoke test deliberately avoids any API that would hit the WeatherKit.entitlement
        or the network — it exercises WeatherError metadata + reflection-based
@@ -337,7 +337,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableWeatherKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(WeatherKitSnapshotCsproj)')"
-           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WeatherKit` (or `nuke runtime-tests-simulator --enable-weatherkit-smoke` which regenerates automatically)." />
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WeatherKit` (or `nuke binding-tests --enable-weatherkit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(WeatherKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework WeatherKit` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(WeatherKitSnapshotProjectRefTargets)')"
@@ -362,7 +362,7 @@
        ships no TipKit namespace — verified by grepping Microsoft.iOS.dll for "TipKit"),
        canonical <Framework>Snapshot/ path, simulator-only slice.
 
-       Opt in via `nuke runtime-tests-simulator` with the enable-tipkit-smoke
+       Opt in via `nuke binding-tests` with the enable-tipkit-smoke
        flag, which regenerates BindingTests/obj/TipKitSnapshot/ before the build
        AND rebuilds SwiftBindingsTestLib with `-D TIPKIT_SMOKE` so the
        TipKitSmokeTip.swift fixture's concrete `TipKitSmokeMinimalTip: Tip`
@@ -386,7 +386,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableTipKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(TipKitSnapshotCsproj)')"
-           Text="EnableTipKitSmoke=true but $(TipKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework TipKit` (or `nuke runtime-tests-simulator --enable-tipkit-smoke` which regenerates automatically)." />
+           Text="EnableTipKitSmoke=true but $(TipKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework TipKit` (or `nuke binding-tests --enable-tipkit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(TipKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableTipKitSmoke=true but $(TipKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework TipKit` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(TipKitSnapshotProjectRefTargets)')"
@@ -412,7 +412,7 @@
        verified by grepping Microsoft.iOS.dll for "MusicKit"), canonical
        <Framework>Snapshot/ path, simulator-only slice.
 
-       Opt in via `nuke runtime-tests-simulator` with the enable-musickit-smoke
+       Opt in via `nuke binding-tests` with the enable-musickit-smoke
        flag, which regenerates BindingTests/obj/MusicKitSnapshot/ (gitignored)
        before the build. The smoke test deliberately avoids anything that would
        hit MusicAuthorization or the MusicCatalog network — it exercises MusicKit
@@ -431,7 +431,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableMusicKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(MusicKitSnapshotCsproj)')"
-           Text="EnableMusicKitSmoke=true but $(MusicKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework MusicKit` (or `nuke runtime-tests-simulator --enable-musickit-smoke` which regenerates automatically)." />
+           Text="EnableMusicKitSmoke=true but $(MusicKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework MusicKit` (or `nuke binding-tests --enable-musickit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(MusicKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableMusicKitSmoke=true but $(MusicKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework MusicKit` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(MusicKitSnapshotProjectRefTargets)')"
@@ -467,7 +467,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableWorkoutKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(WorkoutKitSnapshotCsproj)')"
-           Text="EnableWorkoutKitSmoke=true but $(WorkoutKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WorkoutKit` (or `nuke runtime-tests-simulator --enable-workoutkit-smoke` which regenerates automatically)." />
+           Text="EnableWorkoutKitSmoke=true but $(WorkoutKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WorkoutKit` (or `nuke binding-tests --enable-workoutkit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(WorkoutKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableWorkoutKitSmoke=true but $(WorkoutKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework WorkoutKit`." />
     <Error Condition="!Exists('$(WorkoutKitSnapshotProjectRefTargets)')"
@@ -501,7 +501,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableRoomPlanSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(RoomPlanSnapshotCsproj)')"
-           Text="EnableRoomPlanSmoke=true but $(RoomPlanSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework RoomPlan` (or `nuke runtime-tests-simulator --enable-roomplan-smoke` which regenerates automatically)." />
+           Text="EnableRoomPlanSmoke=true but $(RoomPlanSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework RoomPlan` (or `nuke binding-tests --enable-roomplan-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(RoomPlanSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableRoomPlanSmoke=true but $(RoomPlanSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework RoomPlan`." />
     <Error Condition="!Exists('$(RoomPlanSnapshotProjectRefTargets)')"
@@ -536,7 +536,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableProximityReaderSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(ProximityReaderSnapshotCsproj)')"
-           Text="EnableProximityReaderSmoke=true but $(ProximityReaderSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework ProximityReader` (or `nuke runtime-tests-simulator --enable-proximityreader-smoke` which regenerates automatically)." />
+           Text="EnableProximityReaderSmoke=true but $(ProximityReaderSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework ProximityReader` (or `nuke binding-tests --enable-proximityreader-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(ProximityReaderSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableProximityReaderSmoke=true but $(ProximityReaderSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework ProximityReader`." />
     <Error Condition="!Exists('$(ProximityReaderSnapshotProjectRefTargets)')"
@@ -571,7 +571,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'iossimulator-arm64'"
            Text="EnableLiveCommunicationKitSmoke=true requires RuntimeIdentifier=iossimulator-arm64 (got '$(RuntimeIdentifier)'). The snapshot's wrapper xcframework only ships a simulator slice today." />
     <Error Condition="!Exists('$(LiveCommunicationKitSnapshotCsproj)')"
-           Text="EnableLiveCommunicationKitSmoke=true but $(LiveCommunicationKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework LiveCommunicationKit` (or `nuke runtime-tests-simulator --enable-livecommunicationkit-smoke` which regenerates automatically)." />
+           Text="EnableLiveCommunicationKitSmoke=true but $(LiveCommunicationKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework LiveCommunicationKit` (or `nuke binding-tests --enable-livecommunicationkit-smoke` which regenerates automatically)." />
     <Error Condition="!Exists('$(LiveCommunicationKitSnapshotXcframework)/ios-arm64-simulator')"
            Text="EnableLiveCommunicationKitSmoke=true but $(LiveCommunicationKitSnapshotXcframework)/ios-arm64-simulator is missing. Rerun `nuke regenerate-apple-snapshot --framework LiveCommunicationKit`." />
     <Error Condition="!Exists('$(LiveCommunicationKitSnapshotProjectRefTargets)')"

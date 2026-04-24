@@ -101,7 +101,7 @@ partial class Build : NukeBuild
         });
 
     Target SmokeTest => _ => _
-        .After(Clean, Compile, Pack, RuntimeTestsMacOS, PackGate)
+        .After(Clean, Compile, Pack, BindingTests, PackGate)
         .Executes(() =>
         {
             var platform = ResolvedPlatform;

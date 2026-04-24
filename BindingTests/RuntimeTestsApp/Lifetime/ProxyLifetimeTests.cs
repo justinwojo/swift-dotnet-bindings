@@ -255,7 +255,7 @@ public class ProxyLifetimeTests : TestBase
     /// tolerances for this path — the test must pass on both.
     ///
     /// <para>
-    /// This is the one test that <b>must</b> run on <c>nuke runtime-tests-device</c>
+    /// This is the one test that <b>must</b> run on <c>nuke binding-tests --device</c>
     /// to exercise the NativeAOT reverse-P/Invoke path. The simulator run
     /// validates it doesn't crash on Mono.
     /// </para>

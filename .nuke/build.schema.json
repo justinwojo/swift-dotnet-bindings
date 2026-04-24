@@ -26,7 +26,6 @@
       "enum": [
         "AnalyzerTests",
         "BindingTests",
-        "BindingTestsStrict",
         "BuildAsyncWrapper",
         "BuildBridge",
         "BuildXcframework",
@@ -39,11 +38,6 @@
         "RegenerateAppleSnapshot",
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
-        "RuntimeTestsCatalyst",
-        "RuntimeTestsDevice",
-        "RuntimeTestsMacOS",
-        "RuntimeTestsSimulator",
-        "RuntimeTestsTvOSSimulator",
         "RuntimeUnitTests",
         "SmokeTest",
         "Test",
@@ -128,9 +122,21 @@
           "type": "string",
           "description": "Package version for SwiftBindings.Apple (defaults to --version when unset)"
         },
+        "Catalyst": {
+          "type": "boolean",
+          "description": "Run on Mac Catalyst"
+        },
         "ClassFilter": {
           "type": "string",
           "description": "Run only one test class"
+        },
+        "CompileOnly": {
+          "type": "boolean",
+          "description": "Compile-check generated bindings only; skip app build and test execution"
+        },
+        "Device": {
+          "type": "boolean",
+          "description": "Run on physical iOS device (NativeAOT)"
         },
         "DeviceUdid": {
           "type": "string",
@@ -205,6 +211,10 @@
           "type": "boolean",
           "description": "Show library status without building"
         },
+        "Macos": {
+          "type": "boolean",
+          "description": "Run on macOS"
+        },
         "NuGetApiKey": {
           "type": "string",
           "default": "Secrets must be entered via 'nuke :secrets [profile]'"
@@ -225,6 +235,10 @@
           "type": "boolean",
           "description": "Run sequentially (no parallelism)"
         },
+        "Sim": {
+          "type": "boolean",
+          "description": "Run in iOS Simulator (Mono JIT) — default when no platform flag is set"
+        },
         "SkipBuild": {
           "type": "boolean",
           "description": "Skip all builds, just install + run"
@@ -239,7 +253,7 @@
         },
         "Strict": {
           "type": "boolean",
-          "description": "Fail on non-zero generator exit (standalone use)"
+          "description": "Fail on non-zero generator exit"
         },
         "Tier": {
           "type": "integer",
@@ -250,6 +264,10 @@
           "type": "integer",
           "description": "Test timeout in seconds",
           "format": "int32"
+        },
+        "Tvos": {
+          "type": "boolean",
+          "description": "Run on tvOS Simulator"
         },
         "Verbose": {
           "type": "boolean",

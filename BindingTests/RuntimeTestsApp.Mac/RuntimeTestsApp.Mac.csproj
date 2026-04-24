@@ -86,7 +86,7 @@
   </ItemGroup>
 
   <!-- Main test library and dependency xcframeworks. These are rebuilt by
-       the Nuke runtime-tests-macos target before each run. Additional native
+       the Nuke binding-tests --macos target before each run. Additional native
        artifacts (async wrapper, runtime dylib) are injected by the Nuke target
        into the output directory. -->
   <ItemGroup>
@@ -120,7 +120,7 @@
        gates both iOS and macOS; the RID condition ensures only the matching block
        activates in each project.
 
-       Opt in via: nuke runtime-tests-macos enable-cryptokit-smoke -->
+       Opt in via: nuke binding-tests --macos --enable-cryptokit-smoke -->
   <PropertyGroup>
     <CryptoKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/CryptoKitSnapshot-macOS/</CryptoKitSnapshotDir>
     <CryptoKitSnapshotCsproj>$(CryptoKitSnapshotDir)CryptoKit.Swift.macOS.csproj</CryptoKitSnapshotCsproj>
@@ -133,7 +133,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'osx-arm64'"
            Text="EnableCryptoKitSmoke=true requires RuntimeIdentifier=osx-arm64 (got '$(RuntimeIdentifier)'). The macOS snapshot's wrapper xcframework only ships a macos-arm64 slice." />
     <Error Condition="!Exists('$(CryptoKitSnapshotCsproj)')"
-           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework CryptoKit` or `nuke runtime-tests-macos --enable-cryptokit-smoke` which regenerates automatically." />
+           Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework CryptoKit` or `nuke binding-tests --macos --enable-cryptokit-smoke` which regenerates automatically." />
     <Error Condition="!Exists('$(CryptoKitSnapshotXcframework)/macos-arm64')"
            Text="EnableCryptoKitSmoke=true but $(CryptoKitSnapshotXcframework)/macos-arm64 is missing. Rerun `nuke regenerate-apple-snapshot --framework CryptoKit` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(CryptoKitSnapshotProjectRefTargets)')"
@@ -156,7 +156,7 @@
        but targets the macOS snapshot (WeatherKitSnapshot-macOS/) with the macos-arm64
        xcframework slice and osx-arm64 RID.
 
-       Opt in via: nuke runtime-tests-macos enable-weatherkit-smoke -->
+       Opt in via: nuke binding-tests --macos --enable-weatherkit-smoke -->
   <PropertyGroup>
     <WeatherKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/WeatherKitSnapshot-macOS/</WeatherKitSnapshotDir>
     <WeatherKitSnapshotCsproj>$(WeatherKitSnapshotDir)WeatherKit.Swift.macOS.csproj</WeatherKitSnapshotCsproj>
@@ -169,7 +169,7 @@
     <Error Condition="'$(RuntimeIdentifier)' != 'osx-arm64'"
            Text="EnableWeatherKitSmoke=true requires RuntimeIdentifier=osx-arm64 (got '$(RuntimeIdentifier)'). The macOS snapshot's wrapper xcframework only ships a macos-arm64 slice." />
     <Error Condition="!Exists('$(WeatherKitSnapshotCsproj)')"
-           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WeatherKit` or `nuke runtime-tests-macos --enable-weatherkit-smoke` which regenerates automatically." />
+           Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotCsproj) does not exist. Run `nuke regenerate-apple-snapshot --framework WeatherKit` or `nuke binding-tests --macos --enable-weatherkit-smoke` which regenerates automatically." />
     <Error Condition="!Exists('$(WeatherKitSnapshotXcframework)/macos-arm64')"
            Text="EnableWeatherKitSmoke=true but $(WeatherKitSnapshotXcframework)/macos-arm64 is missing. Rerun `nuke regenerate-apple-snapshot --framework WeatherKit` — the snapshot may have been partially regenerated." />
     <Error Condition="!Exists('$(WeatherKitSnapshotProjectRefTargets)')"
