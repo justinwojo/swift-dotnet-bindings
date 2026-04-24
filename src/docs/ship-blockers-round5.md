@@ -24,11 +24,13 @@ Consumer-side outputs per finding live under `/Users/wojo/Dev/swift-dotnet-packa
 
 ## Ship status snapshot
 
+*Refreshed 2026-04-24 after Session 8 closing consumer revalidation (fresh 0.8.0 nupkgs + 26.2.0 Apple supplement, 12 Apple framework packages rebuilt across 4 TFMs, all four §8 grep gates green, sim 277/0 + device/NativeAOT 277/0).*
+
 | Bucket | Count | Packages |
 |---|---|---|
-| **Clean SHIP** | 5 Apple + 11 Stripe + 6 third-party = **22** | Apple: LiveCommunicationKit, ProximityReader, RoomPlan, FamilyControls, Translation. Stripe: all 11 public products. Third-party: Nuke, Lottie, Kingfisher, BlinkID, BlinkIDUX, Mappedin. |
-| **SHIP with README caveat** | 3 Apple | ActivityKit (permanent — user ActivityAttributes), TipKit (permanent — `@_alwaysEmitIntoClient` DSL), WorkoutKit (HealthKit writes deferred). |
-| **HOLD — Round 5 SDK fixes required** | 4 Apple | StoreKit2, WeatherKit, MusicKit, CryptoKit. |
+| **Clean SHIP** | 8 Apple + 11 Stripe + 6 third-party = **25** | Apple: LiveCommunicationKit, ProximityReader, RoomPlan, FamilyControls, Translation, StoreKit2, WeatherKit, MusicKit. Stripe: all 11 public products. Third-party: Nuke, Lottie, Kingfisher, BlinkID, BlinkIDUX, Mappedin. |
+| **SHIP with README caveat** | 4 Apple | ActivityKit (permanent — user ActivityAttributes), TipKit (permanent — `@_alwaysEmitIntoClient` DSL), WorkoutKit (HealthKit writes deferred), CryptoKit (primary AEAD flow green — 12 non-obsolete Seal + 2 non-obsolete Open overloads; 38 SB0001 residual on method-level-generics cluster: HMAC ctor, Signature generation, Unwrap / Decapsulate / ExportSecret, Open<TAD> with authenticated-data tuple, 3-arg IsValidSignature). |
+| **HOLD — Round 5 SDK fixes required** | 0 | — (all four Round 5 blockers cleared by S5–S7; StoreKit2 / WeatherKit / MusicKit promoted to Clean SHIP; CryptoKit promoted to SHIP-with-caveat because AEAD primary flow is usable end-to-end, method-level-generics ancillary methods deferred to roadmap). |
 
 ## Sessions 1–4 retrospective
 
@@ -261,7 +263,7 @@ Post-S4 audit found four remaining holes — two partial S1/S2 outcomes with exp
 
 **Outcome (2026-04-24).** Already resolved by S2 commit `268dc708` + S3 follow-up `d5482212` ("Rewrite Collection witness dispatch + harden inout writeback"). `d5482212` replaced witness-table threading with parent-metadata-direct dispatch and hardened inout writeback to emit as Swift `defer`, which incidentally cleared the remaining `FormIndex(nint)` gate. Current MusicKit.cs across all 4 TFMs reports 0 SB0001 on `MusicItemCollection<TMusicItemType>` Collection methods. No additional S6 code change required.
 
-### Session 7 — CryptoKit sync-throws CSM
+### Session 7 — CryptoKit sync-throws CSM [landed 2026-04-24 · `3d539fc7` + `61c7968f`]
 
 **Root cause.** Per S4 outcome — `ConcreteProtocolSpecializationEmitter.cs:107` + `:1801` reject `!isAsync && Throws`. CryptoKit's AEAD `Seal`/`Open` on AES.GCM and ChaChaPoly all throw, so the namespace-enum CSM hook S4 landed routes them in but the throws gate kicks them back out. This is the largest of the four remaining sessions and the one that actually unblocks the canonical `SHA256 → HMAC → AES.GCM` consumer chain.
 
@@ -273,6 +275,8 @@ Post-S4 audit found four remaining holes — two partial S1/S2 outcomes with exp
 **Tests.** BindingTests fixture: caseless enum (`enum ThrowingNamespace`) with static throws methods covering each of the 5 return shapes. Per-shape: happy path + thrown error round-tripping the localized description string. Sim + NativeAOT (NativeAOT throws path historically diverges from Mono — both must pass).
 
 **Gate.** `grep 'public .*Seal\s*\(' CryptoKit.cs | grep -v Obsolete` returns non-obsolete AES.GCM.Seal + ChaChaPoly.Seal overloads. BindingTests `SHA256 → HMAC → AES.GCM` end-to-end chain runs green on sim + device. CryptoKit method-level-generics SB0001 cluster drops by ≥13 (the `Seal`/`Open`/`Unwrap` throws methods).
+
+**Outcome (2026-04-24, commits `3d539fc7` + `61c7968f`).** Generator-side sync-throws CSM shipped in `3d539fc7` ("Fix CSM direct-return ABI mismatch and resultPtr leak"): Swift `@_cdecl` wrapper emits `UnsafeMutablePointer<UnsafeMutableRawPointer?>` errorOut param + `do`/`catch` + per-shape sentinel returns; C# P/Invoke lowers `out IntPtr errorPtr` + post-call `SwiftMarshal.ThrowSwiftError`; `ErrorDescriptionEmitter` wires `SBW_GetErrorDescription` (Swift `String(describing:)` via `CustomStringConvertible`) to `Marshal.PtrToStringUTF8` for the localized message; symmetry mirrored at `ConcreteProtocolSpecializationEmitter.cs:2064` (`EmitConcreteSpecializationsForGenericParent`). Throws gate at `:107`/`:2064` narrowed to constructor-only (`if (method.IsConstructor && method.Throws) continue;`) — non-constructor throws methods route through the full 5-shape matrix. `61c7968f` closed the BindingTests coverage gaps: missing red-path for the primitive Bool direct-return shape (`FitsWithin`), localized-description round-trip across all 6 existing shapes (Void/Int/Bool/struct/SimpleEnum/class), and a new `ThrowingItemNamespace` caseless enum with `validateAndReturn<T: SearchableItem>` exercising the **generic-T indirect-result shape** (`returnsGenericParam → needsResultPtr`) under throws across three conformers × happy/throws paths. *Gates (zero regression):* `nuke validate` clean (CryptoKit cs/swift compile ok × 4 TFMs) · `nuke binding-tests --skip-regen` sim **1621/0/53/0** (+1) · `nuke binding-tests --device --skip-regen` NativeAOT **1633/0/41/0** (+1). `.validation-baseline.json` updated. SB0001 cluster drop and consumer `grep 'public .*Seal\s*\(' | grep -v Obsolete` assertion deferred to S8 consumer revalidation.
 
 ### Session 8 — Closing consumer revalidation
 
