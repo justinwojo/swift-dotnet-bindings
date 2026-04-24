@@ -105,6 +105,33 @@ public struct ArtistItem: SearchableItem {
     public init() {}
 }
 
+/// Narrower protocol used solely by the payload-oracle fixture. Kept distinct from
+/// SearchableItem so adding the payload-bearing conformer does NOT ripple into the
+/// GenericContainer<T: SearchableItem> and ElementBoundContainer<T: SearchableItem>
+/// CSM matrices. Each registered protocol drives its own conformer-pairing emission
+/// in CSM, so the only specialization ValidatableItem produces is on the dedicated
+/// ThrowingItemNamespace.validateAndReturnTagged method below. Named distinctly from
+/// the existing `TaggedItem` struct in Protocols/Conformance.swift to avoid collision.
+public protocol ValidatableItem {
+    static var itemKind: String { get }
+}
+
+/// Payload-bearing ValidatableItem conformer used as the value-oracle for the
+/// generic-parameter return shape under throws. SongItem/AlbumItem/ArtistItem are
+/// empty marker structs — a success test on validateAndReturn<T: SearchableItem>
+/// that uses only them can only assert the runtime type survives, not that the
+/// `resultPtr` actually carried the input payload across the @_cdecl boundary.
+/// A struct with a stored `id` field lets the test pin payload round-trip,
+/// catching a hypothetical wrapper bug where the catch arm clears the buffer or
+/// the success arm returns a fresh `TaggedSearchItem()` rather than the input.
+public struct TaggedSearchItem: ValidatableItem {
+    public static var itemKind: String { return "tagged" }
+    public let id: UInt32
+    public init(id: UInt32) {
+        self.id = id
+    }
+}
+
 /// Takes `[any SearchableItem.Type]` and returns the joined itemKind of each type.
 /// Tests existential-metatype array parameter marshalling (Fix 5).
 public func joinSearchableKinds(_ types: [any SearchableItem.Type]) -> String {

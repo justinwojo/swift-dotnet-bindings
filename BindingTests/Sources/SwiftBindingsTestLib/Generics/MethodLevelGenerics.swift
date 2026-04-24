@@ -336,6 +336,36 @@ extension BytesNamespace {
     }
 }
 
+/// Caseless namespace enum hosting the generic-return-shape sync-throws CSM fixture.
+/// Distinct from ThrowingBytesNamespace because the method-level generic constraint is
+/// SearchableItem (not DataProtocol) — each protocol gets its own conformer-pairing
+/// run. Validates the @_cdecl wrapper's `returnsGenericParam=true → needsResultPtr=true`
+/// path under throws: the catch arm sets errorOut.pointee and returns Void; the C#
+/// side allocates a NativeMemory buffer and frees it on the error branch before
+/// SwiftMarshal.ThrowSwiftError fires. SongItem/AlbumItem/ArtistItem are empty marker
+/// structs so the assertion is "round-trip survives" rather than payload equality.
+public enum ThrowingItemNamespace {
+    /// Generic return shape: returns the input directly so the conformer type T appears
+    /// as both the parameter and the declared return type — exactly the @_cdecl path
+    /// that throws methods returning a generic parameter (e.g. CryptoKit's
+    /// `combine<T: AdditiveArithmetic>(_:_:) throws -> T`-shape) would hit.
+    public static func validateAndReturn<T: SearchableItem>(_ item: T, allowEmpty: Bool) throws -> T {
+        if !allowEmpty { throw BytesValidationError.empty }
+        return item
+    }
+
+    /// Same generic-return @_cdecl shape as validateAndReturn above, but constrained to
+    /// ValidatableItem — a narrower protocol whose sole conformer is the payload-bearing
+    /// TaggedSearchItem. Separated so the payload oracle test can assert `id` round-trip
+    /// without TaggedSearchItem having to conform to SearchableItem (which would add it
+    /// to the GenericContainer / ElementBoundContainer CSM matrices that exist for
+    /// unrelated coverage goals).
+    public static func validateAndReturnTagged<T: ValidatableItem>(_ item: T, allowEmpty: Bool) throws -> T {
+        if !allowEmpty { throw BytesValidationError.empty }
+        return item
+    }
+}
+
 extension ThrowingBytesNamespace {
     /// Direct SimpleEnum return (BytesKind → Int8 @_cdecl). Throws on overflow.
     public static func classifyBytes<D: DataProtocol>(_ bytes: D) throws -> BytesKind {

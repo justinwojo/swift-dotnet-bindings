@@ -413,4 +413,267 @@ public class CsmDataProtocolTests : TestBase
             () => collector.AcceptIfSmall(bytes, 2),
             "AcceptIfSmall(5 bytes, cap 2) should throw — mutating + throws + Bool direct-return path");
     }
+
+    // --- Sync-throws CSM: missing throw test for FitsWithin (primitive Bool direct-return) ---
+    // FitsWithin returned only happy-path coverage above. The error branch (>0x1000 bytes
+    // → BytesValidationError.tooLarge) is the same Bool→Int8 sentinel + errorOut path that
+    // ClassifyBytes/MakeBytesSummary cover for other shapes; explicitly testing it locks
+    // the primitive-direct-return throws sentinel return into the regression set.
+    public void TestThrowingBytes_FitsWithin_Throws()
+    {
+        AssertThrows<SwiftException>(
+            () => ThrowingBytesNamespace.FitsWithin(new byte[0x1001], 0x10000),
+            "FitsWithin(>0x1000 bytes) should throw — primitive Bool direct-return + throws error path");
+    }
+
+    // --- Sync-throws CSM: localized-description round-trip across all return shapes ---
+    // SBW_GetErrorDescription emits String(describing: error) for Swift Error conformers.
+    // BytesValidationError implements CustomStringConvertible so String(describing:) returns
+    // the `description` property — "BytesValidationError.empty" or "BytesValidationError.tooLarge(N)".
+    // These tests pin the message round-trip so a regression in either the Swift-side
+    // String(describing:) extraction or the C# Marshal.PtrToStringUTF8 path is caught.
+    // Coverage spans all 4 working return-shape branches (Void, primitive, struct, enum)
+    // so a per-shape regression in the catch path's Unmanaged.passRetained → C# error
+    // marshalling can't slip through.
+
+    private static SwiftException CaptureSwiftException(System.Action action, string label)
+    {
+        try
+        {
+            action();
+        }
+        catch (SwiftException e)
+        {
+            return e;
+        }
+        throw new AssertionException($"{label}: expected SwiftException but no exception was thrown");
+    }
+
+    private void AssertContains(string expected, string actual, string label)
+    {
+        if (actual is null || !actual.Contains(expected, System.StringComparison.Ordinal))
+            throw new AssertionException($"{label}: expected message to contain '{expected}', got '{actual ?? "<null>"}'");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_Void()
+    {
+        // Void return: catch path emits errorOut.pointee then returns Void with no sentinel.
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.AssertNonEmpty(System.Array.Empty<byte>()),
+            "AssertNonEmpty(empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "AssertNonEmpty(empty) — Void return shape should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_PrimitiveInt()
+    {
+        // Primitive Int direct-return: catch path returns the Int8/Int sentinel and the
+        // C# side discards _result after the errorPtr check.
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.CountBytesOrThrow(System.Array.Empty<byte>()),
+            "CountBytesOrThrow(empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "CountBytesOrThrow(empty) — direct primitive return shape should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_PrimitiveBool_TooLarge()
+    {
+        // Primitive Bool direct-return + .tooLarge case: locks in payload-bearing case
+        // round-tripping through CustomStringConvertible.description.
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.FitsWithin(new byte[0x1001], 0x10000),
+            "FitsWithin(>0x1000)");
+        AssertContains("BytesValidationError.tooLarge(4097)", e.Message,
+            "FitsWithin(>0x1000) — direct Bool return should round-trip the .tooLarge(N) payload-bearing description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_Struct()
+    {
+        // Indirect-result (needsResultPtr) shape: catch path emits errorOut.pointee with
+        // no sentinel and the C# side frees the would-be ownership-transfer buffer before
+        // ThrowSwiftError. Same generic-return code path as a hypothetical `func transform<D>(_: D) throws -> D`.
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.MakeBytesSummary(System.Array.Empty<byte>()),
+            "MakeBytesSummary(empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "MakeBytesSummary(empty) — indirect-result struct return shape should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_Enum()
+    {
+        // SimpleEnum direct-return shape: BytesKind has a raw Int8 ABI; catch path returns
+        // the rawValue sentinel and the C# side casts _result to (BytesKind) only after
+        // the errorPtr check skips that branch.
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.ClassifyBytes(new byte[0x1001]),
+            "ClassifyBytes(>0x1000)");
+        AssertContains("BytesValidationError.tooLarge(4097)", e.Message,
+            "ClassifyBytes(>0x1000) — SimpleEnum direct-return should round-trip the .tooLarge(N) payload-bearing description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_Class()
+    {
+        // ClassPointer direct-return shape: catch path returns the pointer sentinel and
+        // the C# side discards the _result IntPtr without wrapping in a SwiftHandle.
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.DescribeBytes(System.Array.Empty<byte>()),
+            "DescribeBytes(empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "DescribeBytes(empty) — ClassPointer direct-return should round-trip BytesValidationError.empty description");
+    }
+
+    // --- Sync-throws CSM: generic-parameter return shape (T) ---
+    // ThrowingItemNamespace.ValidateAndReturn<T: SearchableItem>(_:_:) throws -> T
+    // exercises the @_cdecl `returnsGenericParam=true → needsResultPtr=true` path.
+    // SongItem/AlbumItem/ArtistItem (frozen-struct conformers from spec hints) round-trip
+    // through resultPtr.initializeMemory(as: T.self, ...) on the Swift side and
+    // SwiftMarshal.MarshalFromSwift<T>(resultPtr) on the C# side. Catch path emits
+    // errorOut.pointee with no sentinel return (indirect-result shape returns Void).
+
+    public void TestThrowingItem_ValidateAndReturn_SongItem_Success()
+    {
+        var item = new SongItem();
+        var roundTripped = ThrowingItemNamespace.ValidateAndReturn(item, true);
+        AssertNotNull(roundTripped,
+            "ValidateAndReturn(SongItem, true) — generic-return shape should round-trip the conformer");
+        AssertEqual(typeof(SongItem), roundTripped.GetType(),
+            "ValidateAndReturn(SongItem, true) — returned runtime type must match the SongItem specialization");
+    }
+
+    public void TestThrowingItem_ValidateAndReturn_AlbumItem_Success()
+    {
+        var item = new AlbumItem();
+        var roundTripped = ThrowingItemNamespace.ValidateAndReturn(item, true);
+        AssertNotNull(roundTripped,
+            "ValidateAndReturn(AlbumItem, true) — generic-return shape should round-trip the conformer");
+        AssertEqual(typeof(AlbumItem), roundTripped.GetType(),
+            "ValidateAndReturn(AlbumItem, true) — returned runtime type must match the AlbumItem specialization");
+    }
+
+    public void TestThrowingItem_ValidateAndReturn_ArtistItem_Success()
+    {
+        var item = new ArtistItem();
+        var roundTripped = ThrowingItemNamespace.ValidateAndReturn(item, true);
+        AssertNotNull(roundTripped,
+            "ValidateAndReturn(ArtistItem, true) — generic-return shape should round-trip the conformer");
+        AssertEqual(typeof(ArtistItem), roundTripped.GetType(),
+            "ValidateAndReturn(ArtistItem, true) — returned runtime type must match the ArtistItem specialization");
+    }
+
+    public void TestThrowingItem_ValidateAndReturn_SongItem_Throws()
+    {
+        // Generic-return shape catch path: errorOut.pointee = Unmanaged.passRetained(...)
+        // and the @_cdecl returns Void. Indirect-result shapes (resultPtr or generic-return)
+        // need no sentinel return, unlike direct-return shapes which do.
+        var e = CaptureSwiftException(
+            () => ThrowingItemNamespace.ValidateAndReturn(new SongItem(), false),
+            "ValidateAndReturn(SongItem, false)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "ValidateAndReturn(SongItem, false) — generic-return shape should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingItem_ValidateAndReturn_AlbumItem_Throws()
+    {
+        // Middle conformer of the three specializations — keeps red-path coverage
+        // symmetric with the success path so a regression in any one specialization's
+        // catch arm is caught.
+        var e = CaptureSwiftException(
+            () => ThrowingItemNamespace.ValidateAndReturn(new AlbumItem(), false),
+            "ValidateAndReturn(AlbumItem, false)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "ValidateAndReturn(AlbumItem, false) — generic-return shape should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingItem_ValidateAndReturn_ArtistItem_Throws()
+    {
+        // Same generic-return throws path on a different conformer to lock in that all
+        // three specialization wrappers carry the errorOut catch arm consistently.
+        var e = CaptureSwiftException(
+            () => ThrowingItemNamespace.ValidateAndReturn(new ArtistItem(), false),
+            "ValidateAndReturn(ArtistItem, false)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "ValidateAndReturn(ArtistItem, false) — generic-return shape should round-trip BytesValidationError.empty description");
+    }
+
+    // --- Sync-throws CSM: localized-description round-trip through the Foundation.Data overload ---
+    // CSM emits a separate @_cdecl wrapper per (constraint, conformer) pairing. The byte[]-side
+    // tests above only pin the raw-buffer specialization's catch arm; a regression localized to
+    // the Foundation.Data specialization (InlineSwiftStruct pinning via &arg instead of fixed
+    // (byte*)) would pass them. Cover one direct-return and two indirect-shape branches through
+    // the Data overload so the Data specialization's catch arm is also in the regression set.
+
+    public void TestThrowingBytes_LocalizedDescription_Data_Void()
+    {
+        // Data overload of the Void return shape — same catch-arm logic as the byte[] side
+        // but a different emitted specialization symbol.
+        using var data = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.AssertNonEmpty(data),
+            "AssertNonEmpty(Data empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "AssertNonEmpty(Data empty) — Void return shape on the Data specialization should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_Data_PrimitiveInt()
+    {
+        // Data overload of the primitive-Int direct-return shape. Pins the Data
+        // specialization's sentinel-return catch arm alongside the byte[] side.
+        using var data = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.CountBytesOrThrow(data),
+            "CountBytesOrThrow(Data empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "CountBytesOrThrow(Data empty) — primitive-Int direct-return on the Data specialization should round-trip BytesValidationError.empty description");
+    }
+
+    public void TestThrowingBytes_LocalizedDescription_Data_Struct()
+    {
+        // Data overload of the struct indirect-result shape (needsResultPtr). Catch
+        // arm frees the would-be ownership-transfer buffer and returns Void; this
+        // test proves that happens under the Data specialization too.
+        using var data = global::Swift.Foundation.Data.FromByteArray(System.Array.Empty<byte>());
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.MakeBytesSummary(data),
+            "MakeBytesSummary(Data empty)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "MakeBytesSummary(Data empty) — struct indirect-result shape on the Data specialization should round-trip BytesValidationError.empty description");
+    }
+
+    // --- Sync-throws CSM: generic-parameter return shape payload oracle ---
+    // The three SongItem/AlbumItem/ArtistItem success tests above only assert the
+    // managed wrapper type survives; because those conformers are empty marker
+    // structs there is no payload to witness. TaggedSearchItem carries an `id: UInt32`
+    // stored field, so a round-trip through ValidateAndReturnTagged(_, true) proves the
+    // `resultPtr` actually carried the input value across the @_cdecl boundary
+    // rather than e.g. default-initializing a fresh TaggedSearchItem on the Swift side.
+    // TaggedSearchItem conforms to ValidatableItem (not SearchableItem) so the oracle
+    // fixture stays isolated from the GenericContainer / ElementBoundContainer CSM
+    // matrices — adding a payload-bearing conformer there would quietly broaden their
+    // emitted surface without matching test coverage.
+
+    public void TestThrowingItem_ValidateAndReturnTagged_TaggedSearchItem_Success_RoundTripsPayload()
+    {
+        using var item = new TaggedSearchItem(1234u);
+        using var roundTripped = ThrowingItemNamespace.ValidateAndReturnTagged(item, true);
+        AssertNotNull(roundTripped,
+            "ValidateAndReturnTagged(TaggedSearchItem(1234), true) — generic-return shape should round-trip the conformer");
+        AssertEqual(typeof(TaggedSearchItem), roundTripped.GetType(),
+            "ValidateAndReturnTagged(TaggedSearchItem(1234), true) — returned runtime type must match the TaggedSearchItem specialization");
+        AssertEqual(1234u, roundTripped.Id,
+            "ValidateAndReturnTagged(TaggedSearchItem(1234), true) — payload Id must round-trip through resultPtr, proving the Swift side copied the input into the indirect result buffer");
+    }
+
+    public void TestThrowingItem_ValidateAndReturnTagged_TaggedSearchItem_Throws()
+    {
+        // Throw path on the payload-bearing conformer — exercises the generic-return
+        // catch arm on a specialization whose type has a non-trivial stored property
+        // (vs. the empty marker structs). Proves the errorOut.pointee assignment and
+        // resultPtr buffer free happen regardless of T's layout.
+        using var item = new TaggedSearchItem(1234u);
+        var e = CaptureSwiftException(
+            () => ThrowingItemNamespace.ValidateAndReturnTagged(item, false),
+            "ValidateAndReturnTagged(TaggedSearchItem(1234), false)");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "ValidateAndReturnTagged(TaggedSearchItem(1234), false) — generic-return throws on a payload-bearing conformer should still round-trip BytesValidationError.empty description");
+    }
 }

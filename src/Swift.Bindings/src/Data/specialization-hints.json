@@ -65,6 +65,12 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.ValidatableItem",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.TaggedSearchItem", "csharpType": "TaggedSearchItem" }
+      ]
+    },
+    {
       "protocol": "RoomPlan.CapturedRoomAttribute",
       "conformers": [
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.ChairType", "csharpType": "RoomPlan.ChairType" },
