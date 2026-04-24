@@ -103,6 +103,128 @@ public class ParameterTests : TestBase
 
     #endregion
 
+    #region Default-argument Optional non-primitive value-type params (Issue #31)
+
+    public void TestOptParamModel_AllDefaults()
+    {
+        using var model = new OptParamModel("m1");
+        AssertEqual("m1", model.Name.ToString(), "Name");
+        AssertEqual(-1, model.SmallCode, "SmallCode defaulted");
+        AssertEqual("<default>", model.SmallLabel.ToString(), "SmallLabel defaulted");
+        AssertEqual(-1L, model.LargeA, "LargeA defaulted");
+        AssertEqual("<default>", model.LargeD.ToString(), "LargeD defaulted");
+    }
+
+    public void TestOptParamModel_ExplicitNil()
+    {
+        using var model = new OptParamModel("m2", small: null, large: null);
+        AssertEqual("m2", model.Name.ToString(), "Name");
+        AssertEqual(-1, model.SmallCode, "SmallCode explicit nil");
+        AssertEqual(-1L, model.LargeA, "LargeA explicit nil");
+    }
+
+    public void TestOptParamModel_ExplicitSmall()
+    {
+        using var small = new OptParamSmallConfig(code: 42, label: "small!");
+        using var model = new OptParamModel("m3", small: small);
+        AssertEqual("m3", model.Name.ToString(), "Name");
+        AssertEqual(42, model.SmallCode, "SmallCode explicit");
+        AssertEqual("small!", model.SmallLabel.ToString(), "SmallLabel explicit");
+        AssertEqual(-1L, model.LargeA, "LargeA defaulted");
+    }
+
+    public void TestOptParamModel_ExplicitLarge()
+    {
+        using var large = new OptParamLargeConfig(a: 7, b: 8, c: 9, d: "dee", e: "ee");
+        using var model = new OptParamModel("m4", small: null, large: large);
+        AssertEqual("m4", model.Name.ToString(), "Name");
+        AssertEqual(-1, model.SmallCode, "SmallCode defaulted");
+        AssertEqual(7L, model.LargeA, "LargeA explicit");
+        AssertEqual("dee", model.LargeD.ToString(), "LargeD explicit");
+    }
+
+    public void TestOptParamModel_BothExplicit()
+    {
+        using var small = new OptParamSmallConfig(code: 11, label: "both");
+        using var large = new OptParamLargeConfig(a: 101, b: 102, c: 103, d: "D", e: "E");
+        using var model = new OptParamModel("m5", small: small, large: large);
+        AssertEqual(11, model.SmallCode, "SmallCode");
+        AssertEqual("both", model.SmallLabel.ToString(), "SmallLabel");
+        AssertEqual(101L, model.LargeA, "LargeA");
+        AssertEqual("D", model.LargeD.ToString(), "LargeD");
+    }
+
+    public void TestBuildOptParamSummary_AllDefaults()
+    {
+        string s = TestLibFunctions.BuildOptParamSummary("t0");
+        AssertEqual("t0|small=nil|large=nil|flag=q", s, "Free function all defaults");
+    }
+
+    public void TestBuildOptParamSummary_SmallOnly()
+    {
+        using var small = new OptParamSmallConfig(code: 1, label: "x");
+        string s = TestLibFunctions.BuildOptParamSummary("t1", small: small);
+        AssertEqual("t1|small=(1,x)|large=nil|flag=q", s, "Free function small only");
+    }
+
+    public void TestBuildOptParamSummary_LargeOnly()
+    {
+        using var large = new OptParamLargeConfig(a: 9, b: 0, c: 0, d: "dd", e: "");
+        string s = TestLibFunctions.BuildOptParamSummary("t2", small: null, large: large);
+        AssertEqual("t2|small=nil|large=(9,dd)|flag=q", s, "Free function large only");
+    }
+
+    // Full-wrapper path (no default args) — regression gate for a second manifestation
+    // of the #31 layout mismatch. The full OptionalPointerWrapper used to emit
+    // `assumingMemoryBound(to: Optional<T>.self).pointee` against a C# SwiftOptional<IntPtr>
+    // buffer. For non-frozen inner types those layouts disagree. Fix routes the full-wrapper
+    // deref through the same opaque-aware helper the DBW path already uses.
+
+    public void TestDescribeSmall_FullWrapper_Some()
+    {
+        using var holder = new OptParamHolder(code: 11);
+        using var small = new OptParamSmallConfig(code: 1, label: "x");
+        string s = holder.DescribeSmall(small);
+        AssertEqual("holder=11|small=(1,x)", s, "Full-wrapper instance method with Optional<NonFrozenStruct> = Some");
+    }
+
+    public void TestDescribeSmall_FullWrapper_Nil()
+    {
+        using var holder = new OptParamHolder(code: 12);
+        string s = holder.DescribeSmall(null);
+        AssertEqual("holder=12|small=nil", s, "Full-wrapper instance method with Optional<NonFrozenStruct> = nil");
+    }
+
+    public void TestDescribeLarge_FullWrapper_Some()
+    {
+        using var holder = new OptParamHolder(code: 21);
+        using var large = new OptParamLargeConfig(a: 42, b: 0, c: 0, d: "big", e: "");
+        string s = holder.DescribeLarge(large);
+        AssertEqual("holder=21|large=(42,big)", s, "Full-wrapper instance method with Optional<LargeNonFrozenStruct> = Some");
+    }
+
+    public void TestDescribeLarge_FullWrapper_Nil()
+    {
+        using var holder = new OptParamHolder(code: 22);
+        string s = holder.DescribeLarge(null);
+        AssertEqual("holder=22|large=nil", s, "Full-wrapper instance method with Optional<LargeNonFrozenStruct> = nil");
+    }
+
+    public void TestSummarizeOptHolder_FullWrapper_Some()
+    {
+        using var small = new OptParamSmallConfig(code: 7, label: "yo");
+        string s = TestLibFunctions.SummarizeOptHolder(small);
+        AssertEqual("free=(7,yo)", s, "Full-wrapper free function with Optional<NonFrozenStruct> = Some");
+    }
+
+    public void TestSummarizeOptHolder_FullWrapper_Nil()
+    {
+        string s = TestLibFunctions.SummarizeOptHolder(null);
+        AssertEqual("free=nil", s, "Full-wrapper free function with Optional<NonFrozenStruct> = nil");
+    }
+
+    #endregion
+
     #region Variadic Parameters
 
 #pragma warning disable SB0001 // No @_cdecl wrapper — CallConvSwift direct call

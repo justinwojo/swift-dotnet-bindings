@@ -125,10 +125,13 @@ public static class DefaultParameterOverloadEmitter
             if (!overloadDecl.IsConstructor && methodDecl.UsesCdeclMethodWrapper)
             {
                 var parentType_ = overloadDecl.ParentDecl as TypeDecl;
+                var parentModule_ = overloadDecl.ParentDecl as ModuleDecl;
+                string moduleName_ = parentType_?.SwiftTypeName.Module ?? parentModule_?.Name ?? "";
+                string typeName_ = parentType_?.Name ?? "Free";
                 silgenSymbolForMethodCdecl = overloadDecl.MangledName;
                 var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
-                    parentType_!.SwiftTypeName.Module,
-                    parentType_.Name,
+                    moduleName_,
+                    typeName_,
                     overloadDecl.Name,
                     overloadDecl.MangledName);
                 cdeclSymbolForMethodRestore = cdeclSymbol;
@@ -154,10 +157,13 @@ public static class DefaultParameterOverloadEmitter
                 if (wrapperRequired)
                 {
                     var parentType_ = overloadDecl.ParentDecl as TypeDecl;
+                    var parentModule_ = overloadDecl.ParentDecl as ModuleDecl;
+                    string moduleName_ = parentType_?.SwiftTypeName.Module ?? parentModule_?.Name ?? "";
+                    string typeName_ = parentType_?.Name ?? "Free";
                     silgenSymbolForMethodCdecl = overloadDecl.MangledName;
                     var cdeclSymbol = MethodWrapperEmitter.GetMethodSymbolName(
-                        parentType_!.SwiftTypeName.Module,
-                        parentType_.Name,
+                        moduleName_,
+                        typeName_,
                         overloadDecl.Name,
                         overloadDecl.MangledName);
                     cdeclSymbolForMethodRestore = cdeclSymbol;
@@ -382,7 +388,7 @@ public static class DefaultParameterOverloadEmitter
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
                 swiftParams.Add($"_ {label}: UnsafeRawPointer");
-                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label));
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, env.TypeDatabase));
             }
             else
             {
@@ -722,7 +728,7 @@ public static class DefaultParameterOverloadEmitter
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
                 swiftParams.Add($"_ {label}: UnsafeRawPointer");
-                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label));
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, env.TypeDatabase));
             }
             else
             {

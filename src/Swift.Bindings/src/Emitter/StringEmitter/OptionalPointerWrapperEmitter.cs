@@ -122,11 +122,14 @@ public static class OptionalPointerWrapperEmitter
 
             if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
             {
-                // Large Optional: accept UnsafeRawPointer, dereference in body
+                // Large Optional: accept UnsafeRawPointer, dereference in body. Route through
+                // GetDerefCode so Optional<NonFrozenStruct> / Optional<ComplexEnum> (projected
+                // as C# SwiftOptional<IntPtr>) gets the opaque-aware decoding — matches the DBW
+                // path's treatment. Regression: without this, a non-DBW full wrapper for
+                // Optional<NonFrozenStruct> read the native Optional<T> layout while C# passed
+                // an 8-byte pointer buffer, causing layout mismatch.
                 swiftParams.Add($"_ {swiftName}: UnsafeRawPointer");
-
-                var swiftType = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(arg.SwiftTypeSpec);
-                derefCode.Add($"let {csName}Val = {swiftName}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                derefCode.Add(GetDerefCode(arg, csName, swiftName, env.TypeDatabase));
 
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{csName}Val");
@@ -442,11 +445,53 @@ public static class OptionalPointerWrapperEmitter
 
     /// <summary>
     /// Returns the Swift code to dereference an UnsafeRawPointer parameter to its original Optional type.
+    /// For Optional&lt;OpaqueType&gt; (non-frozen struct or complex enum projected as class-with-opaque-payload),
+    /// C# passes a SwiftOptional&lt;IntPtr&gt; buffer which uses Swift's extra-inhabitant Optional&lt;UnsafePointer&gt;
+    /// layout (8 bytes, 0x0 = nil). Reading as Optional&lt;T&gt; directly would misinterpret the layout and
+    /// read past the 8-byte buffer. Mirrors the pattern in CdeclParamMapper for the full @_cdecl path.
     /// </summary>
-    public static string GetDerefCode(ArgumentDecl arg, string csName, string swiftName)
+    public static string GetDerefCode(ArgumentDecl arg, string csName, string swiftName, ITypeDatabase? typeDatabase = null)
     {
+        if (typeDatabase != null && TryGetOptionalOpaqueInnerType(arg.SwiftTypeSpec, typeDatabase, out var innerSpec))
+        {
+            var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerSpec!);
+            return $"let {csName}Val: {innerSwiftType}? = {swiftName}.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee.map {{ $0.assumingMemoryBound(to: {innerSwiftType}.self).pointee }}";
+        }
         var swiftType = SwiftTypeNameHelper.GetSwiftTypeNameForMetatype(arg.SwiftTypeSpec);
         return $"let {csName}Val = {swiftName}.assumingMemoryBound(to: {swiftType}.self).pointee";
+    }
+
+    /// <summary>
+    /// Returns true when the given TypeSpec is Optional&lt;T&gt; where T is projected as an
+    /// opaque (class-with-opaque-payload) type in C# — i.e., a non-frozen struct or a
+    /// non-simple enum. These use SwiftOptional&lt;IntPtr&gt; on the C# side and require
+    /// UnsafeMutableRawPointer? decoding in Swift wrappers.
+    /// </summary>
+    private static bool TryGetOptionalOpaqueInnerType(TypeSpec spec, ITypeDatabase typeDatabase, out TypeSpec? innerSpec)
+    {
+        innerSpec = null;
+        if (spec is not NamedTypeSpec optSpec ||
+            optSpec.Name != "Swift.Optional" ||
+            optSpec.GenericParameters.Count != 1)
+            return false;
+
+        var inner = optSpec.GenericParameters[0];
+        if (inner is not NamedTypeSpec innerNamed)
+            return false;
+
+        if (!typeDatabase.TryGetTypeRecord(innerNamed, out var innerRecord))
+            return false;
+
+        // NativeRemapped types (URL, Data, etc.) use their own marshalling, not SwiftOptional<IntPtr>.
+        if (innerRecord.NativeTypeName != null)
+            return false;
+
+        bool isOpaque = (innerRecord.Kind == TypeRecordKind.Enum && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+                     || (innerRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(innerRecord));
+
+        if (!isOpaque) return false;
+        innerSpec = inner;
+        return true;
     }
 
     /// <summary>

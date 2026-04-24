@@ -483,7 +483,7 @@ public static class ArraySliceNormalizationEmitter
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
             {
                 swiftParams.Add($"_ {label}: UnsafeRawPointer");
-                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label));
+                derefLines.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, label, label, env.TypeDatabase));
             }
             else if (useCdecl)
             {

@@ -57,7 +57,24 @@ public async Task<UIImage> image(ImageRequest _for)
 private static extern void PInvoke_image(..., IntPtr _for, ...);  // IntPtr, not SafeHandle
 ```
 
-## Known Limitation: Value Copy Semantics
+## Return-Value Ownership (Resolved)
+
+The return-value side of the same problem — async methods that *return* a non-frozen struct
+— was resolved by keeping ownership on both sides explicit. The Swift wrapper places a
+properly-initialized value in the carrier via `initializeMemory(as: T.self, repeating: _result, count: 1)`,
+which runs the type's copy witness (retains internal references) — matching the constraint
+that non-trivial Swift value types must not be carried as raw bit copies. The C# callback
+allocates a managed buffer via `NativeMemory.Alloc`, calls `ValueWitnessTable->InitializeWithCopy`
+into it, then calls `ValueWitnessTable->Destroy` on the Swift carrier before `SBW_Free`
+reclaims the raw allocation. The managed wrapper's `SwiftSafeHandle.ReleaseHandle` later
+runs `PerformVwtDestroy` + `NativeMemory.Free` against the allocator-matched buffer.
+
+This mirrors the synchronous frozen-as-class pattern in `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`
+and applies to non-frozen structs and complex (non-simple) enums returned from async
+methods. Covered end-to-end by `AsyncComplexTypeTests.TestAsyncGetReport_*` and
+`TestAsyncGetUsageMetadata_NestedNonFrozen` / `TestAsyncGetStatus*` in `BindingTests`.
+
+## Known Limitation: Value Copy Semantics (Parameter Side)
 
 ### The Problem
 

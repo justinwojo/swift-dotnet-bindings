@@ -19,6 +19,32 @@ public struct AsyncResult {
     }
 }
 
+/// A non-frozen struct for async return testing (Issue #32 regression).
+/// Non-frozen structs are projected as C# classes backed by SwiftSafeHandle;
+/// the async return path must VWT-copy the Swift-allocated carrier into a
+/// C#-owned NativeMemory buffer so that ReleaseHandle's matched-allocator
+/// free works and reads survive after the callback returns.
+public struct AsyncReport {
+    public let title: String
+    public let tokenCount: Int32
+
+    public init(title: String, tokenCount: Int32) {
+        self.title = title
+        self.tokenCount = tokenCount
+    }
+}
+
+/// A non-frozen struct whose sole property is itself a non-frozen struct.
+/// Mirrors the FirebaseAILogic `CountTokensResponse.usageMetadata` shape
+/// that exposed the original #32 crash.
+public struct AsyncUsageMetadata {
+    public let report: AsyncReport
+
+    public init(report: AsyncReport) {
+        self.report = report
+    }
+}
+
 /// An enum for async return testing.
 /// Note: Avoid using 'result' as an associated value name as it collides with
 /// SwiftIndirectResult parameter in P/Invoke declarations.
@@ -167,6 +193,22 @@ public struct AsyncComplexWorker {
     public func asyncGetTask() async -> AsyncTask {
         try? await Task.sleep(nanoseconds: 1_000_000)
         return AsyncTask(taskId: workerId, status: "completed async")
+    }
+
+    /// Async method returning a non-frozen struct (Issue #32 regression).
+    /// Before the fix, the Swift-allocated carrier was stored raw in the
+    /// C# SafeHandle, causing use-after-free reads and allocator-mismatch
+    /// on dispose. The fix VWT-copies into a NativeMemory-owned buffer.
+    public func asyncGetReport() async -> AsyncReport {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return AsyncReport(title: "Report for \(workerId)", tokenCount: 1234)
+    }
+
+    /// Async method returning a non-frozen struct that wraps another
+    /// non-frozen struct — the CountTokens-style nested shape.
+    public func asyncGetUsageMetadata() async -> AsyncUsageMetadata {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return AsyncUsageMetadata(report: AsyncReport(title: "Usage for \(workerId)", tokenCount: 7777))
     }
 
     /// Async method returning optional struct (some).

@@ -43,6 +43,98 @@ public class AsyncComplexTypeTests : TestBase
         TestLogger.Info($"AsyncComplexWorker.GetStaticResultAsync() = id={result.Id}");
     }
 
+    public async Task TestAsyncGetResult_RepeatedCalls_NoCarrierLeak()
+    {
+        // Frozen-with-memory async returns: AsyncResult is @frozen with a String field
+        // (ClassWithBufferStruct), so the Swift-side `initializeMemory` gives the carrier
+        // a +1 on the embedded String. NewFromPayload runs its own InitializeWithCopy into
+        // a managed buffer and gives the C# object an independent +1 — the carrier's +1
+        // must be released via VWT Destroy before SBW_Free, otherwise every call adds a
+        // permanent reference on the String. This loop reads Message each iteration so a
+        // stale/freed pointer would surface as corruption, and exercises the path enough
+        // times that a broken destroy would amplify into visible memory growth under
+        // allocator debug checks (NSZombie, MallocStackLogging).
+        var worker = new AsyncComplexWorker("repeat-worker");
+        for (int i = 0; i < 50; i++)
+        {
+            var result = await WithTimeout(worker.GetResultAsync(), DefaultAsyncTimeout);
+            AssertNotNull(result, $"Iteration {i}: result not null");
+            AssertEqual(42, result.Id, $"Iteration {i}: AsyncResult.Id");
+            AssertEqual("Completed by repeat-worker", result.Message.ToString(), $"Iteration {i}: AsyncResult.Message");
+            AssertEqual(true, result.Success, $"Iteration {i}: AsyncResult.Success");
+        }
+        TestLogger.Info("AsyncComplexWorker.GetResultAsync() × 50 — no corruption across repeated calls");
+    }
+
+    #endregion
+
+    #region AsyncReport (Non-Frozen Struct) Tests — Issue #32 regression
+
+    // Non-frozen struct async returns previously stored the raw Swift-allocated
+    // carrier inside SwiftSafeHandle. Two bugs: (a) reading a property after the
+    // callback returned could hit freed memory, (b) ReleaseHandle called
+    // NativeMemory.Free on a Swift-allocated pointer (allocator mismatch). The
+    // fix VWT-copies into a NativeMemory-owned buffer and frees the Swift
+    // carrier via SBW_Free. These tests cover property read, dispose, and
+    // concurrent calls (no cross-buffer aliasing).
+
+    public async Task TestAsyncGetReport_ReadsProperty()
+    {
+        var worker = new AsyncComplexWorker("report-worker");
+        var report = await WithTimeout(worker.GetReportAsync(), DefaultAsyncTimeout);
+        AssertNotNull(report, "AsyncGetReport not null");
+        AssertEqual("Report for report-worker", report.Title.ToString(), "AsyncReport.Title");
+        AssertEqual(1234, report.TokenCount, "AsyncReport.TokenCount");
+        TestLogger.Info($"AsyncComplexWorker.GetReportAsync() = {report.Title}/{report.TokenCount}");
+    }
+
+    public async Task TestAsyncGetReport_DisposeDoesNotCrash()
+    {
+        var worker = new AsyncComplexWorker("dispose-worker");
+        var report = await WithTimeout(worker.GetReportAsync(), DefaultAsyncTimeout);
+        AssertNotNull(report, "AsyncGetReport not null before dispose");
+        // Must not crash: allocator-matched Free only works when the carrier was
+        // allocated with NativeMemory.Alloc on the C# side.
+        report.Dispose();
+        TestLogger.Info("AsyncComplexWorker.GetReportAsync() disposed cleanly");
+    }
+
+    public async Task TestAsyncGetReport_ConcurrentCallsNoAliasing()
+    {
+        var worker = new AsyncComplexWorker("concurrent-worker");
+        // Kick off several overlapping async calls; each must land on its own
+        // VWT-copied buffer. Cross-buffer aliasing would show up as two reports
+        // reading identical field values from the last-completed carrier.
+        var tasks = new Task<AsyncReport>[8];
+        for (int i = 0; i < tasks.Length; i++)
+        {
+            tasks[i] = worker.GetReportAsync();
+        }
+        var reports = await WithTimeout(Task.WhenAll(tasks), DefaultAsyncTimeout);
+        AssertEqual(8, reports.Length, "All concurrent reports returned");
+        for (int i = 0; i < reports.Length; i++)
+        {
+            AssertNotNull(reports[i], $"Report {i} not null");
+            AssertEqual("Report for concurrent-worker", reports[i].Title.ToString(), $"Report {i} title preserved");
+            AssertEqual(1234, reports[i].TokenCount, $"Report {i} tokenCount preserved");
+        }
+        TestLogger.Info($"AsyncComplexWorker.GetReportAsync() × {reports.Length} concurrent calls — no aliasing");
+    }
+
+    public async Task TestAsyncGetUsageMetadata_NestedNonFrozen()
+    {
+        // CountTokens-style nested shape: the outer non-frozen struct wraps
+        // another non-frozen struct whose property is then read. The original
+        // FirebaseAILogic crash surfaced exactly on this access pattern.
+        var worker = new AsyncComplexWorker("usage-worker");
+        var usage = await WithTimeout(worker.GetUsageMetadataAsync(), DefaultAsyncTimeout);
+        AssertNotNull(usage, "AsyncGetUsageMetadata not null");
+        AssertNotNull(usage.Report, "AsyncUsageMetadata.Report not null");
+        AssertEqual("Usage for usage-worker", usage.Report.Title.ToString(), "Nested AsyncReport.Title");
+        AssertEqual(7777, usage.Report.TokenCount, "Nested AsyncReport.TokenCount");
+        TestLogger.Info($"AsyncComplexWorker.GetUsageMetadataAsync() = {usage.Report.Title}/{usage.Report.TokenCount}");
+    }
+
     #endregion
 
     #region AsyncStatus (Enum) Tests
@@ -115,6 +207,32 @@ public class AsyncComplexTypeTests : TestBase
         // Swift returns nil
         AssertNull(result, "AsyncGetNilResult should return null");
         TestLogger.Info("AsyncComplexWorker.AsyncGetNilResult() = null");
+    }
+
+    public async Task TestAsyncGetOptionalResult_RepeatedCalls_NoCarrierLeak()
+    {
+        // Optional<@frozen struct with String field> async returns: Swift wraps the carrier
+        // via `initializeMemory(as: Optional<AsyncResult>.self, repeating: ...)`, so `.some`
+        // holds its own +1 on the embedded String. C# marshals via SwiftOptional<T>.ToNullable()
+        // which NewFromPayload-copies into a managed buffer (independent +1). Before the fix,
+        // the carrier's +1 leaked every call — SBW_Free reclaims the bytes without running the
+        // Optional<T> value-witness Destroy. This loop hammers the Some path so a broken
+        // destroy shows up as corruption on a reused address or as growing heap under
+        // allocator debug checks. Also interleaves Nil to make sure the Optional<T> destroy
+        // on a .none carrier remains a no-op for ARC (no over-release, no crash).
+        var worker = new AsyncComplexWorker("optional-repeat-worker");
+        for (int i = 0; i < 50; i++)
+        {
+            var some = await WithTimeout(worker.GetOptionalResultAsync(), DefaultAsyncTimeout);
+            AssertNotNull(some, $"Iteration {i}: Some not null");
+            AssertEqual(100, some!.Id, $"Iteration {i}: Optional AsyncResult.Id");
+            AssertEqual("Optional result", some.Message.ToString(), $"Iteration {i}: Optional AsyncResult.Message");
+            AssertEqual(true, some.Success, $"Iteration {i}: Optional AsyncResult.Success");
+
+            var none = await WithTimeout(worker.GetNilResultAsync(), DefaultAsyncTimeout);
+            AssertNull(none, $"Iteration {i}: None must remain null");
+        }
+        TestLogger.Info("AsyncComplexWorker.GetOptionalResultAsync()/GetNilResultAsync() × 50 — no corruption across repeated Some/Nil calls");
     }
 
     #endregion

@@ -370,6 +370,54 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             ? propertyDecl.Accessors.Where(a => a is SetAccessorDecl).ToList()
             : propertyDecl.Accessors.ToList();
 
+        // Issue #33: Determine wrapper strategy (thunk / @_cdecl / ObjC override) BEFORE the preflight.
+        // The preflight's `ContainsPlaceholder` check builds the accessor signature by calling
+        // `SignatureHandler.GetWrapperSignature()`, which routes through
+        // `MethodSignature.HandleReturnType()`. When the accessor will be emitted through the
+        // @_cdecl property-wrapper path, HandleReturnType's String-Utf8Slice branch (line ~433)
+        // and decomposed-optional branch (line ~443) both gate on `UsesCdeclPropertyWrapper`.
+        // Previously that flag was only set inside the real emission loop (~579), so preflight
+        // silently took the factory-projection path, passed, then real emission went down a
+        // different branch that could resolve the return type to AnyType — emitting an orphaned
+        // accessor P/Invoke with no matching public property body. Compute wrapper eligibility
+        // here and propagate `UsesCdeclPropertyWrapper` to the MethodDecl before preflight so
+        // both phases see the same `HandleReturnType` branch.
+        // AccessorDecl is a record — structural equality/hashing includes Method, whose
+        // UsesCdeclPropertyWrapper flag we mutate below. Keying the dictionary on the record
+        // would invalidate the hash as soon as we set that flag. Use reference equality so the
+        // emission loop can still locate entries by the original accessor instance.
+        var accessorThunkFlags = new Dictionary<AccessorDecl, bool>(ReferenceEqualityComparer.Instance);
+        var accessorCdeclFlags = new Dictionary<AccessorDecl, bool>(ReferenceEqualityComparer.Instance);
+        bool needsObjCOverrideWrapper = false;
+        foreach (var accessor in accessorsToEmit)
+        {
+            bool thunkEligible = false;
+            bool cdeclEligible = false;
+            accessor.Method.IsAccessor = true;
+            if (conductor.TryGetMethodHandler(accessor.Method, out var preflightCheckHandler))
+            {
+                var preflightCheckEnv = (MethodEnvironment)preflightCheckHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
+                // Try native ARM64 thunk first (preferred over @_cdecl)
+                thunkEligible = NativeThunkEmitter.ShouldEmitThunk(preflightCheckEnv);
+                if (!thunkEligible)
+                {
+                    cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, preflightCheckEnv) == WrapperDecision.WrapperRequired;
+                    // Only check ObjC override if no accessor got @_cdecl or thunk
+                    if (!cdeclEligible && !needsObjCOverrideWrapper)
+                        needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, preflightCheckEnv);
+                }
+            }
+            accessorThunkFlags[accessor] = thunkEligible;
+            accessorCdeclFlags[accessor] = cdeclEligible;
+
+            // Propagate @_cdecl flag to MethodDecl so the preflight's Marshal() sees the same
+            // branch selection as real emission. The flag is persistent on the decl — real
+            // emission re-sets it to the same value at line 579 (idempotent). If the property
+            // is ultimately skipped, the flag is harmless because no accessor emission runs.
+            if (cdeclEligible)
+                accessor.Method.UsesCdeclPropertyWrapper = true;
+        }
+
         // Check if all accessor methods can be emitted before actually emitting them.
         // If any accessor would be skipped (due to unsupported types like AnyType),
         // skip the entire property to avoid generating a property that references non-existent methods.
@@ -440,35 +488,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
         }
 
-        // Check wrapper strategy per-accessor BEFORE emitting accessor methods.
-        // Native thunk takes priority over @_cdecl wrapper;
-        // PropertyWrapperEmitter is fallback; ObjCOverridePropertyWrapperEmitter is last resort.
-        // Each accessor is evaluated independently because getter/setter may have different
-        // thunk eligibility (e.g., getter returns a large struct but setter takes simple params).
-        var accessorThunkFlags = new Dictionary<AccessorDecl, bool>();
-        var accessorCdeclFlags = new Dictionary<AccessorDecl, bool>();
-        bool needsObjCOverrideWrapper = false;
-        foreach (var accessor in accessorsToEmit)
-        {
-            bool thunkEligible = false;
-            bool cdeclEligible = false;
-            accessor.Method.IsAccessor = true;
-            if (conductor.TryGetMethodHandler(accessor.Method, out var checkHandler))
-            {
-                var checkEnv = (MethodEnvironment)checkHandler.Marshal(accessor.Method, propertyEnv.TypeDatabase);
-                // Try native ARM64 thunk first (preferred over @_cdecl)
-                thunkEligible = NativeThunkEmitter.ShouldEmitThunk(checkEnv);
-                if (!thunkEligible)
-                {
-                    cdeclEligible = WrapperValidation.DeterminePropertyWrapperDecision(propertyDecl, checkEnv) == WrapperDecision.WrapperRequired;
-                    // Only check ObjC override if no accessor got @_cdecl or thunk
-                    if (!cdeclEligible && !needsObjCOverrideWrapper)
-                        needsObjCOverrideWrapper = ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, checkEnv);
-                }
-            }
-            accessorThunkFlags[accessor] = thunkEligible;
-            accessorCdeclFlags[accessor] = cdeclEligible;
-        }
+        // Wrapper-strategy eligibility (thunk / @_cdecl / ObjC override) was computed before the
+        // preflight above (#33). Each accessor's flags live in accessorThunkFlags/accessorCdeclFlags;
+        // `needsObjCOverrideWrapper` holds the shared ObjC-override decision.
 
         // Track property wrapper strategy and skip reasons for emission report (per accessor).
         if (WrapperValidation.IsXCFrameworkMode(propertyEnv.TypeDatabase))

@@ -84,73 +84,207 @@ public class AsyncSwiftWrapperTests
     }
 
     [Fact]
-    public void AsyncWrapper_StructReturnType_UsesCopyMemoryInsteadOfStoreBytes()
+    public void AsyncWrapper_StructReturnType_UsesInitializeMemory()
     {
-        // Non-primitive struct types may not be BitwiseCopyable (e.g., structs with String fields).
-        // The wrapper must use withUnsafePointer + copyMemory for a raw bitwise copy without the
-        // BitwiseCopyable constraint. This avoids both the storeBytes crash AND the initializeMemory
-        // leak (initializeMemory adds copy semantics that SBW_Free's raw deallocation can't undo).
+        // Non-primitive struct types may not be BitwiseCopyable (e.g., structs with String fields),
+        // which rules out `storeBytes(of:as:)`. `copyMemory` is also unsafe — it produces raw bits
+        // aliased to the source, which breaks under non-trivial value witnesses. The correct
+        // pattern (per the repo's BitwiseCopyable constraint) is `initializeMemory(as:repeating:)`,
+        // which runs the type's copy witness so the carrier holds its own +1 on internal refs.
+        // The C# side then VWT-copies into a managed buffer and Destroys the carrier's +1 before
+        // reclaiming the raw memory via SBW_Free.
         var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
             returnTypeName: "TestModule.DataResult",
             returnKind: TypeRecordKind.Struct);
 
-        // Should use withUnsafePointer + copyMemory pattern
-        Assert.Contains("withUnsafePointer(to:", swiftOutput);
-        Assert.Contains("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
+        Assert.Contains("initializeMemory(as: TestModule.DataResult.self, repeating:", swiftOutput);
 
-        // Should NOT use storeBytes with the struct type (BitwiseCopyable may fail)
+        // Should NOT use storeBytes (BitwiseCopyable required) or copyMemory (unsafe for nontrivial
+        // value witnesses) or Unmanaged.passRetained (that's for class types).
         Assert.DoesNotContain("storeBytes(of:", swiftOutput);
-
-        // Should NOT use initializeMemory (leaks internal references when SBW_Free deallocates)
-        Assert.DoesNotContain("initializeMemory", swiftOutput);
-
-        // Should NOT use Unmanaged.passRetained (that's for class types)
+        Assert.DoesNotContain("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
         Assert.DoesNotContain("Unmanaged.passRetained", swiftOutput);
     }
 
     [Fact]
-    public void AsyncWrapper_EnumReturnType_UsesCopyMemoryInsteadOfStoreBytes()
+    public void AsyncWrapper_EnumReturnType_UsesInitializeMemory()
     {
-        // Non-primitive enum types may not be BitwiseCopyable.
-        // The wrapper must use copyMemory instead of storeBytes or initializeMemory.
+        // Non-primitive enum types may not be BitwiseCopyable; same reasoning as the struct case
+        // above. `initializeMemory` is the approved pattern.
         var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
             returnTypeName: "TestModule.StatusCode",
             returnKind: TypeRecordKind.Enum);
 
-        // Should use withUnsafePointer + copyMemory pattern
-        Assert.Contains("withUnsafePointer(to:", swiftOutput);
-        Assert.Contains("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
+        Assert.Contains("initializeMemory(as: TestModule.StatusCode.self, repeating:", swiftOutput);
 
-        // Should NOT use storeBytes with the enum type
         Assert.DoesNotContain("storeBytes(of:", swiftOutput);
-
-        // Should NOT use initializeMemory (leaks)
-        Assert.DoesNotContain("initializeMemory", swiftOutput);
-
-        // Should NOT use Unmanaged.passRetained (that's for class types)
+        Assert.DoesNotContain("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
         Assert.DoesNotContain("Unmanaged.passRetained", swiftOutput);
     }
 
     [Fact]
-    public void AsyncWrapper_NonFrozenEnumReturnType_UsesInitializeMemory()
+    public void AsyncWrapper_NonFrozenEnumReturnType_VwtCopiesIntoManagedBuffer()
     {
         // Enums with associated values (RequiresMemoryManagement) are projected as C# classes
-        // with SwiftSafeHandle. NewFromPayload takes ownership of the buffer, so the Swift side
-        // must use initializeMemory (not copyMemory) to properly retain internal references.
-        // SwiftSafeHandle.Destroy will release them on finalization.
+        // with SwiftSafeHandle. Per the BitwiseCopyable constraint, non-trivial Swift value
+        // types must be carried via `initializeMemory(as:repeating:)` (runs the value's copy
+        // witness) — not raw byte moves. The C# callback then `InitializeWithCopy`s into a
+        // NativeMemory-owned buffer, `Destroy`s the Swift carrier's +1, and `SBW_Free`s the
+        // raw allocation. The managed wrapper later runs VWT Destroy + NativeMemory.Free
+        // against the allocator-matched buffer on dispose.
         var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
             returnTypeName: "TestModule.StatusCode",
             returnKind: TypeRecordKind.Enum,
             returnFlags: TypeRecordFlags.RequiresMemoryManagement);
 
-        // Swift side: should use initializeMemory (properly retains internal refs)
-        Assert.Contains("initializeMemory(as: TestModule.StatusCode.self", swiftOutput);
-        Assert.DoesNotContain("copyMemory", swiftOutput);
+        // Swift side: initializeMemory — the carrier holds a properly-initialized Swift value
+        // with its own +1 on internal references (via the type's copy witness).
+        Assert.Contains("initializeMemory(as: TestModule.StatusCode.self, repeating:", swiftOutput);
+        Assert.DoesNotContain("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
         Assert.DoesNotContain("storeBytes(of:", swiftOutput);
         Assert.DoesNotContain("Unmanaged.passRetained", swiftOutput);
 
-        // C# side: should NOT call SBW_Free (NewFromPayload takes ownership)
-        Assert.DoesNotContain("SBW_Free(resultPtr)", csOutput);
+        // C# side: VWT-copy dance into a managed-owned buffer
+        Assert.Contains("SwiftObjectHelper<TestModule.StatusCode>.GetTypeMetadata()", csOutput);
+        Assert.Contains("NativeMemory.Alloc(_vwtMetadata.Size)", csOutput);
+        Assert.Contains("InitializeWithCopy((void*)_vwtBuf, (void*)resultPtr", csOutput);
+        Assert.Contains("MarshalFromSwift<TestModule.StatusCode>(_vwtBuf)", csOutput);
+
+        // Swift carrier has its own +1 from initializeMemory — we must VWT-Destroy it here to
+        // release that retain before SBW_Free reclaims the raw allocation. Managed wrapper's
+        // retain lives on via _vwtBuf.
+        Assert.Contains("Destroy((void*)resultPtr", csOutput);
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_NonFrozenStructReturnType_VwtCopiesIntoManagedBuffer()
+    {
+        // Non-frozen structs (RequiresMemoryManagement, not FrozenAsClass) are projected as
+        // C# classes with SwiftSafeHandle. Regression gate for the FirebaseAILogic-style crash:
+        // calling an async method that returns a non-frozen struct used to hand the raw
+        // Swift-allocated pointer to NewFromPayload, leaving the SafeHandle aliasing
+        // Swift-owned memory. Subsequent property reads or Dispose() then hit freed memory,
+        // and the final NativeMemory.Free on the Swift pointer mismatches allocators.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.DataResult",
+            returnKind: TypeRecordKind.Struct,
+            returnFlags: TypeRecordFlags.RequiresMemoryManagement);
+
+        // Swift side: initializeMemory (runs copy witness). Raw copyMemory would alias internal
+        // refs and is unsafe for non-trivial value witnesses (weak/unowned, resilient fields).
+        Assert.Contains("initializeMemory(as: TestModule.DataResult.self, repeating:", swiftOutput);
+        Assert.DoesNotContain("copyMemory(from: UnsafeRawPointer(_srcPtr)", swiftOutput);
+
+        // C# side: VWT-copy into a managed-owned buffer, then Destroy the Swift carrier's +1
+        // and free its raw memory.
+        Assert.Contains("SwiftObjectHelper<TestModule.DataResult>.GetTypeMetadata()", csOutput);
+        Assert.Contains("NativeMemory.Alloc(_vwtMetadata.Size)", csOutput);
+        Assert.Contains("InitializeWithCopy((void*)_vwtBuf, (void*)resultPtr", csOutput);
+        Assert.Contains("MarshalFromSwift<TestModule.DataResult>(_vwtBuf)", csOutput);
+        Assert.Contains("Destroy((void*)resultPtr", csOutput);
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_FrozenStructReturnType_DoesNotVwtCopyOnCSharpSide()
+    {
+        // Frozen structs without RequiresMemoryManagement are POD and projected as C# structs.
+        // MarshalFromSwift<T>(resultPtr) reads the struct bitwise; no VWT copy is needed on
+        // the C# side, and the carrier has a trivial value witness so Destroy is unnecessary.
+        // The Swift side still uses initializeMemory (safe for POD, consistent with the
+        // non-frozen path). This test guards against accidentally widening VWT Destroy to
+        // POD frozen structs (which would be a no-op but wasted work on a hot path).
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.DataResult",
+            returnKind: TypeRecordKind.Struct);
+
+        Assert.DoesNotContain("SwiftObjectHelper<TestModule.DataResult>.GetTypeMetadata()", csOutput);
+        Assert.DoesNotContain("NativeMemory.Alloc(_vwtMetadata.Size)", csOutput);
+        Assert.DoesNotContain("InitializeWithCopy((void*)_vwtBuf", csOutput);
+        Assert.DoesNotContain("Destroy((void*)resultPtr", csOutput);
+
+        // Carrier is still freed
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_OptionalFrozenWithMemoryReturnType_VwtDestroysCarrier()
+    {
+        // Optional<@frozen struct with String field>: Swift wrapper calls
+        // initializeMemory(as: Optional<DataResult>.self, repeating: result, count: 1), so for
+        // .some the carrier holds its own +1 on the embedded String. The C# side marshals via
+        // `SwiftOptional<DataResult>.ToNullable()` which NewFromPayload-copies into a managed
+        // buffer (independent +1). Without VWT Destroy on the carrier via Optional<T>'s
+        // metadata before SBW_Free, the carrier's +1 leaks each call.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.DataResult",
+            returnKind: TypeRecordKind.Struct,
+            returnFlags: TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+            wrapInOptional: true);
+
+        // Swift side: initializeMemory on Optional<T>.self — the Optional's copy witness runs
+        // T's copy witness on .some, leaving +1 on internal refs.
+        Assert.Contains("initializeMemory(as: Swift.Optional<TestModule.DataResult>.self, repeating:", swiftOutput);
+
+        // C# side: plain ToNullable marshal, followed by VWT Destroy on the carrier using
+        // SwiftOptional<T>'s metadata (matches the Optional<T> layout on Swift side).
+        Assert.Contains("MarshalFromSwift<SwiftOptional<TestModule.DataResult>>(resultPtr).ToNullable()", csOutput);
+        Assert.Contains("SwiftObjectHelper<SwiftOptional<TestModule.DataResult>>.GetTypeMetadata()", csOutput);
+        Assert.Contains("Destroy((void*)resultPtr", csOutput);
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_OptionalPodFrozenReturnType_DoesNotDestroyCarrier()
+    {
+        // Optional<POD frozen struct> (e.g. Optional<Int32>, Optional<CGPoint>): Swift
+        // initializeMemory runs Optional<T>'s trivial copy witness, so the carrier has
+        // no retained refs to release. VWT Destroy would be a no-op — skip it to avoid
+        // wasted metadata lookup + witness call on the hot path.
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.DataResult",
+            returnKind: TypeRecordKind.Struct,
+            wrapInOptional: true);
+
+        Assert.Contains("MarshalFromSwift<SwiftOptional<TestModule.DataResult>>(resultPtr).ToNullable()", csOutput);
+        Assert.DoesNotContain("Destroy((void*)resultPtr", csOutput);
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_FrozenWithMemoryStructReturnType_VwtDestroysCarrier()
+    {
+        // Frozen structs WITH RequiresMemoryManagement (ClassWithBufferStruct — e.g. an
+        // @frozen struct containing a String field) are projected as C# classes whose
+        // NewFromPayload runs its own InitializeWithCopy into a managed buffer. That copy
+        // gives the C# object an independent +1 on internal refs; the Swift carrier still
+        // holds its own +1 from `initializeMemory(as:repeating:)`. Without a VWT Destroy
+        // on the carrier, SBW_Free just reclaims raw bytes and the carrier's +1 (e.g. on
+        // the embedded String) leaks. This test pins the carrier-destroy emission for
+        // frozen-with-memory async returns. Unlike the non-frozen path, we should NOT
+        // pre-copy into _vwtBuf — NewFromPayload already does its own copy.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "TestModule.DataResult",
+            returnKind: TypeRecordKind.Struct,
+            returnFlags: TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+
+        // Swift side: still initializeMemory — the carrier needs a proper copy witness run so
+        // embedded refs have a +1 ready for the managed wrapper's InitializeWithCopy to pick up.
+        Assert.Contains("initializeMemory(as: TestModule.DataResult.self, repeating:", swiftOutput);
+
+        // C# side: MarshalFromSwift reads from the Swift carrier directly (NewFromPayload does
+        // its own copy for frozen-with-memory), then VWT Destroy releases the carrier's +1,
+        // then SBW_Free reclaims the raw allocation.
+        Assert.Contains("MarshalFromSwift<TestModule.DataResult>(resultPtr)", csOutput);
+        Assert.Contains("SwiftObjectHelper<TestModule.DataResult>.GetTypeMetadata()", csOutput);
+        Assert.Contains("Destroy((void*)resultPtr", csOutput);
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+
+        // The pre-copy into _vwtBuf is the non-frozen path — frozen-with-memory must skip it
+        // (NewFromPayload does its own InitializeWithCopy, so pre-copying would over-retain).
+        Assert.DoesNotContain("InitializeWithCopy((void*)_vwtBuf", csOutput);
+        Assert.DoesNotContain("MarshalFromSwift<TestModule.DataResult>(_vwtBuf)", csOutput);
     }
 
     [Fact]
@@ -973,7 +1107,8 @@ public class AsyncSwiftWrapperTests
         string returnTypeName,
         TypeRecordKind returnKind,
         bool isObjCBridged = false,
-        TypeRecordFlags? returnFlags = null)
+        TypeRecordFlags? returnFlags = null,
+        bool wrapInOptional = false)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1016,12 +1151,15 @@ public class AsyncSwiftWrapperTests
         });
         moduleDecl.Types.Add(parentDecl);
 
-        // Build CSSignature with complex return type
+        // Build CSSignature with complex return type (optionally wrapped in Swift.Optional)
+        TypeSpec returnSpec = wrapInOptional
+            ? new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(returnTypeName))
+            : new NamedTypeSpec(returnTypeName);
         var csSignature = new List<ArgumentDecl>
         {
             new ArgumentDecl
             {
-                SwiftTypeSpec = new NamedTypeSpec(returnTypeName),
+                SwiftTypeSpec = returnSpec,
                 Name = string.Empty,
                 PrivateName = string.Empty,
                 IsInOut = false,

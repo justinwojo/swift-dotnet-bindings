@@ -1249,6 +1249,37 @@ public class PropertyHandlerTests
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
     }
 
+    [Fact]
+    public void Emit_GetterOnlyOptionalString_EmitsBothPublicPropertyAndCdeclWrapper()
+    {
+        // Regression for GH issue #33 — orphaned getter wrappers. Before the fix, the
+        // accessor preflight ran with UsesCdeclPropertyWrapper=false (Utf8Slice branch
+        // in MethodSignature.HandleReturnType was gated on it), then real emission
+        // flipped the flag on and took a different branch — silently dropping the public
+        // property body while still emitting the accessor P/Invoke + @_cdecl wrapper.
+        //
+        // The fix hoists wrapper-eligibility computation above the preflight and propagates
+        // UsesCdeclPropertyWrapper to the MethodDecl so both phases walk the same branch.
+        // This test locks in that the public property body AND the @_cdecl getter wrapper
+        // both appear for a getter-only Optional<String> in xcframework mode — no orphan.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // xcframework mode
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Response", moduleDecl);
+        var optionalStringType = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String"));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "text", optionalStringType, hasGetter: true, hasSetter: false);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        // Public property body must be present (regression target).
+        Assert.Contains("public virtual string? Text", csOutput);
+        // @_cdecl getter wrapper must be emitted for the same property.
+        Assert.Contains("SBW_Get_TestModule_Response_text", swiftOutput);
+        // P/Invoke wired through CallConvCdecl, not CallConvSwift.
+        Assert.Contains("CallConvCdecl", csOutput);
+    }
+
     #endregion
 
     #region G1 — Generic Type Params in Properties Tests

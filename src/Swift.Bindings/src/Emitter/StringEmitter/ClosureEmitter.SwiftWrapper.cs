@@ -813,7 +813,7 @@ public static partial class ClosureEmitter
             {
                 // Large Optional param: accept UnsafeRawPointer, dereference in body
                 swiftParams.Add($"_ {swiftName}: UnsafeRawPointer");
-                adapterCode.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, csName, swiftName));
+                adapterCode.Add(OptionalPointerWrapperEmitter.GetDerefCode(arg, csName, swiftName, env.TypeDatabase));
                 var label = GetSwiftArgLabel(arg);
                 callArgs.Add($"{label}{csName}Val");
             }

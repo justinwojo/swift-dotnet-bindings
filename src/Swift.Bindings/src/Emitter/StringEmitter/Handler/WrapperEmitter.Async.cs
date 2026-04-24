@@ -661,54 +661,19 @@ namespace BindingsGeneration
                     bool isOptionalObjCContainer = !isClassType && !isOptionalClassType &&
                         IsOptionalObjCBridgeContainerReturn(returnTypeSpec);
 
-                    // Determine whether C#'s NewFromPayload takes ownership of the buffer
-                    // (non-frozen structs/enums projected as C# classes with SwiftSafeHandle).
-                    // When NewFromPayload takes ownership, we must use initializeMemory to properly
-                    // retain internal references — SwiftSafeHandle.Destroy will release them.
-                    // When NewFromPayload copies, we use copyMemory (the C# constructor uses
-                    // InitializeWithCopy which handles retain, and C# calls SBW_Free on the carrier).
-                    // Types that take ownership: non-frozen structs and enums that are projected as
-                    // C# classes (i.e., they have RequiresMemoryManagement and are not frozen structs
-                    // projected as class with Buffer). This excludes frozen value types, frozen-as-class
-                    // types, collections (no type record), and Swift class types.
-                    bool newFromPayloadTakesOwnership = false;
-                    if (!isClassType && complexReturnTypeRecord != null)
-                    {
-                        bool isFrozen = MarshallingHelpers.IsTypeFrozen(complexReturnTypeRecord);
-                        bool requiresMemMgmt = MarshallingHelpers.RequiresMemoryManagement(complexReturnTypeRecord);
-                        bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexReturnTypeRecord);
-                        // Non-frozen enums and non-frozen structs with memory management → takes ownership
-                        // Also non-simple enums (which have RequiresMemoryManagement)
-                        newFromPayloadTakesOwnership = requiresMemMgmt && !isFrozenAsClass;
-                    }
-
-                    // Allocate memory, copy result value, pass pointer through callback.
-                    // Note: storeBytes(of:as:) requires BitwiseCopyable (Swift 6+), so we use
-                    // alternative patterns that work with all types including classes like UIImage.
-                    string structEnumCopyCode;
-                    if (newFromPayloadTakesOwnership)
-                    {
-                        // Non-frozen structs/enums: initializeMemory properly retains internal refs.
-                        // C#'s NewFromPayload takes ownership; SwiftSafeHandle.Destroy releases them.
-                        structEnumCopyCode =
-                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                              $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
-                              $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
-                              $"                            _rawPtr.initializeMemory(as: {swiftReturnType}.self, repeating: {resultVar}, count: 1)\n";
-                    }
-                    else
-                    {
-                        // Frozen-as-class / collections / unknown: copyMemory is safe because C#'s
-                        // NewFromPayload allocates its own buffer with InitializeWithCopy (properly retains).
-                        // C# calls SBW_Free to deallocate this carrier buffer (no retain to release).
-                        structEnumCopyCode =
-                              $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
-                              $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
-                              $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
-                              $"                            withUnsafePointer(to: {resultVar}) {{ _srcPtr in\n" +
-                              $"                                _rawPtr.copyMemory(from: UnsafeRawPointer(_srcPtr), byteCount: MemoryLayout<{swiftReturnType}>.size)\n" +
-                              $"                            }}\n";
-                    }
+                    // Allocate memory and place a properly-initialized Swift value in it.
+                    // `storeBytes(of:as:)` requires BitwiseCopyable (Swift 6+). `copyMemory`
+                    // produces raw bits aliased to the source, which is unsafe for non-trivial
+                    // value witnesses (weak/unowned storage, resilient fields). `initializeMemory`
+                    // is the documented pattern for structs/enums — it runs the value's copy
+                    // witness, so the carrier holds its own +1 on internal references.
+                    // The C# callback then VWT-InitializeWithCopies into a NativeMemory-owned
+                    // buffer and runs VWT Destroy on this carrier before SBW_Free.
+                    string structEnumCopyCode =
+                          $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
+                          $"                                byteCount: MemoryLayout<{swiftReturnType}>.size,\n" +
+                          $"                                alignment: MemoryLayout<{swiftReturnType}>.alignment)\n" +
+                          $"                            _rawPtr.initializeMemory(as: {swiftReturnType}.self, repeating: {resultVar}, count: 1)\n";
 
                     stringMarshalCode =
                         $"// Marshal complex type to pointer for C# callback\n" +
@@ -928,7 +893,7 @@ namespace BindingsGeneration
             if (largeOptionalParams.Count > 0)
             {
                 var optDeref = string.Join("\n        ", largeOptionalParams.Select(p =>
-                    OptionalPointerWrapperEmitter.GetDerefCode(p, p.Name, p.Name)));
+                    OptionalPointerWrapperEmitter.GetDerefCode(p, p.Name, p.Name, _env.TypeDatabase)));
                 readCode = readCode.Length > 0
                     ? readCode + "\n        " + optDeref
                     : optDeref;
@@ -1277,19 +1242,54 @@ namespace BindingsGeneration
                 // (retained pointer or zero for nil) but needs null check on C# side.
                 bool isOptionalClassType = !isClassType &&
                     CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, _env.TypeDatabase);
+                // Optional<Container<ObjCBridgeable>>: Swift wrapper stores +1 retained NS-collection
+                // pointer or 0 for nil via `as AnyObject` — pointer-bit carrier, no initializeMemory,
+                // so no VWT Destroy needed. Mirrors the Swift-side branch selection in EmitAsync.
+                bool isOptionalObjCContainer = !isClassType && !isOptionalClassType &&
+                    IsOptionalObjCBridgeContainerReturn(returnType.SwiftTypeSpec);
                 // ObjCBridged requires class type — the GetNSObject path reads _retainedObjPtr
                 // which is only declared when isClassType is true
                 bool isComplexObjCBridged = isClassType && complexTypeRecord != null && MarshallingHelpers.IsObjCBridged(complexTypeRecord);
                 // Non-frozen structs/enums with memory management: NewFromPayload takes ownership → no SBW_Free.
                 // All other types (frozen, classes, collections): NewFromPayload copies → SBW_Free needed.
+                // `carrierNeedsDestroy` is the broader set: Swift initializes the carrier with +1 on
+                // internal refs via `initializeMemory(as:repeating:)`, so any type with non-trivial
+                // value witnesses (non-frozen struct, complex enum, frozen-with-memory, or Optional
+                // wrapping any of those) must VWT-Destroy the carrier before SBW_Free reclaims the raw
+                // allocation — otherwise internal refs leak.
                 bool cbTakesOwnership = false;
-                if (!isClassType && !isOptionalClassType && complexTypeRecord != null)
+                bool carrierNeedsDestroy = false;
+                if (!isClassType && !isOptionalClassType && !isOptionalObjCContainer && complexTypeRecord != null)
                 {
                     bool requiresMemMgmt = MarshallingHelpers.RequiresMemoryManagement(complexTypeRecord);
                     bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexTypeRecord);
+                    bool isNonFrozenStruct = complexTypeRecord.Kind == TypeRecordKind.Struct
+                        && !MarshallingHelpers.IsTypeFrozen(complexTypeRecord);
+                    bool isComplexEnum = complexTypeRecord.Kind == TypeRecordKind.Enum
+                        && !complexTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
                     cbTakesOwnership = requiresMemMgmt && !isFrozenAsClass;
+                    carrierNeedsDestroy = isNonFrozenStruct || isComplexEnum || isFrozenAsClass;
                 }
-                EmitAsyncWrapperForComplexType(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType);
+                // Optional<value-type> plain path (SwiftOptional<T>.ToNullable): Swift-side
+                // initializeMemory runs Optional<T>'s copy witness, so for .some the embedded
+                // non-trivial payload holds its own +1. Widen carrierNeedsDestroy when the inner
+                // type's VWT is non-trivial — SwiftOptional<T>'s NewFromPayload performs its own
+                // InitializeWithCopy into a managed buffer, so the carrier's +1 must be released.
+                if (!carrierNeedsDestroy && !isClassType && !isOptionalClassType && !isOptionalObjCContainer
+                    && WrapperValidation.IsOptionalType(returnType.SwiftTypeSpec))
+                {
+                    var innerSpec = MarshallingHelpers.UnwrapOptionalTypeSpec(returnType.SwiftTypeSpec);
+                    if (innerSpec != null && _env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerRecord))
+                    {
+                        bool innerIsFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(innerRecord);
+                        bool innerIsNonFrozenStruct = innerRecord.Kind == TypeRecordKind.Struct
+                            && !MarshallingHelpers.IsTypeFrozen(innerRecord);
+                        bool innerIsComplexEnum = innerRecord.Kind == TypeRecordKind.Enum
+                            && !innerRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                        carrierNeedsDestroy = innerIsFrozenAsClass || innerIsNonFrozenStruct || innerIsComplexEnum;
+                    }
+                }
+                EmitAsyncWrapperForComplexType(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType, carrierNeedsDestroy);
                 FlushAsyncHelperWriter();
                 return;
             }
@@ -1628,7 +1628,7 @@ namespace BindingsGeneration
         /// allocates memory, stores the result, and passes an OpaquePointer.
         /// C# receives IntPtr, reads the value, and frees the memory.
         /// </summary>
-        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false, bool isOptionalClass = false)
+        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false, bool isOptionalClass = false, bool carrierNeedsDestroy = false)
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
@@ -1692,19 +1692,59 @@ namespace BindingsGeneration
                 }
                 else if (objcBridgeConversion != null)
                     marshalResultCode = $"var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n                                var result = _rawResult.Case == SwiftOptionalCases.Some ? {objcBridgeConversion} : null;";
+                else if (carrierNeedsDestroy)
+                {
+                    // Optional<value-type-with-non-trivial-VWT> (e.g. Optional<@frozen struct with
+                    // String>, Optional<non-frozen struct>, Optional<complex enum>). Swift
+                    // initialized the carrier via `initializeMemory(as: Optional<T>.self, ...)`
+                    // so .some holds its own +1 on internal refs. SwiftOptional<T>'s NewFromPayload
+                    // performs its own InitializeWithCopy into a managed buffer, so we must
+                    // VWT-Destroy the carrier (using Optional<T>'s metadata) before SBW_Free —
+                    // otherwise the carrier's +1 leaks each call.
+                    marshalResultCode =
+                        $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();\n" +
+                        $"                                var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
+                        $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+                }
                 else
                     marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();";
+            }
+            else if (newFromPayloadTakesOwnership)
+            {
+                // Non-frozen struct/enum return projected as a C# class with SwiftSafeHandle.
+                // The Swift carrier was initialized via `initializeMemory(as:repeating:)`,
+                // so it holds its own +1 on internal references. InitializeWithCopy into a
+                // NativeMemory-allocated buffer performs an additional +1 retain for the
+                // managed wrapper, which then owns its own memory (SwiftSafeHandle.ReleaseHandle
+                // runs VWT Destroy + NativeMemory.Free on dispose). We must VWT-Destroy the
+                // carrier here to release its +1 before SBW_Free reclaims the raw allocation.
+                marshalResultCode =
+                    $"var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
+                    $"                                IntPtr _vwtBuf = (IntPtr)NativeMemory.Alloc(_vwtMetadata.Size);\n" +
+                    $"                                _vwtMetadata.ValueWitnessTable->InitializeWithCopy((void*)_vwtBuf, (void*)resultPtr, _vwtMetadata);\n" +
+                    $"                                var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_vwtBuf);\n" +
+                    $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+            }
+            else if (carrierNeedsDestroy)
+            {
+                // Frozen-with-memory struct (ClassWithBufferStruct, e.g. @frozen with String field).
+                // NewFromPayload runs its own InitializeWithCopy into a managed buffer — the returned
+                // C# object holds its own +1 independent of the carrier. We only need to release the
+                // carrier's +1 (from the Swift-side initializeMemory) before SBW_Free.
+                marshalResultCode =
+                    $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);\n" +
+                    $"                                var _vwtMetadata = SwiftObjectHelper<{_wrapperSignature.ReturnType}>.GetTypeMetadata();\n" +
+                    $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
             }
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 
-            // Determine whether to free the Swift-allocated buffer:
-            // When NewFromPayload takes ownership (non-frozen structs/enums), don't free — the SafeHandle owns it.
-            // All other cases (classes, frozen structs, collections): free the carrier buffer.
-            bool shouldFreeSbwBuffer = !newFromPayloadTakesOwnership;
-            var freeCode = shouldFreeSbwBuffer
-                ? "\n                                // Free Swift-allocated memory\n                                SBW_Free(resultPtr);"
-                : "";
+            // Always free the Swift-allocated carrier. Types with non-trivial value witnesses
+            // (non-frozen struct, complex enum, frozen-with-memory) have already had their +1
+            // released above via VWT Destroy; SBW_Free then reclaims the raw allocation. POD
+            // frozen structs and classes have trivial / pointer-bit carriers, so a raw free is
+            // sufficient.
+            var freeCode = "\n                                // Free Swift-allocated memory\n                                SBW_Free(resultPtr);";
 
             var text = $$"""
                         {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};

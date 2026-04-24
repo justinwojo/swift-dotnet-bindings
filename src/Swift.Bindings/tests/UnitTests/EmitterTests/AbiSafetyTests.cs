@@ -2680,5 +2680,71 @@ public class AbiSafetyTests
         Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(checkEnv, propertyDecl));
     }
 
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_SyncMethodWithExistentialArrayParam_ReturnsTrue()
+    {
+        // Sync method taking `[any Proto]` — existential-array param is a generic container
+        // that can't be spelled in a @convention(c) signature. Must be flagged as non-blittable
+        // so SB0001 (JIT-risk warning) fires.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        typeDb.UpdateTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+
+        var parentDecl = CreateClassDecl("GenerateContentClient", moduleDecl, isFinal: true);
+        var existentialElement = new NamedTypeSpec("TestModule.PartsRepresentable") { IsAny = true };
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(existentialElement);
+
+        var method = CreateMethodWithParam("generateContentStream", arrayOfExistential, "parts", parentDecl, moduleDecl);
+        method.IsAsync = false;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
+    [Fact]
+    public void HasNonBlittablePInvokeTypes_AsyncMethodWithExistentialArrayParam_ReturnsFalse()
+    {
+        // Async method taking `[any Proto]` — SB0001 narrowing gate. Even though the param type
+        // is the same existential array, the async wrapper path produces a uniformly blittable
+        // P/Invoke surface (cdecl callback + taskId + IntPtr parts buffer), so
+        // HasNonBlittablePInvokeTypes must early-return false and SB0001 must NOT fire.
+        // This is the scenario reported in GitHub Issue #34 against FirebaseAILogic 12.6.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        typeDb.UpdateTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+
+        var parentDecl = CreateClassDecl("GenerateContentClient", moduleDecl, isFinal: true);
+        var existentialElement = new NamedTypeSpec("TestModule.PartsRepresentable") { IsAny = true };
+        var arrayOfExistential = new NamedTypeSpec("Swift.Array");
+        arrayOfExistential.GenericParameters.Add(existentialElement);
+
+        var method = CreateMethodWithParam("generateContentAsync", arrayOfExistential, "parts", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.HasNonBlittablePInvokeTypes(env));
+    }
+
     #endregion
 }
