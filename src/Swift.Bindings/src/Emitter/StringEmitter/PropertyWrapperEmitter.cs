@@ -768,6 +768,21 @@ public static class PropertyWrapperEmitter
         {
             if (propertyDecl.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
                 return true; // Direct T property, can use static dispatch
+
+            // Collection-family exception — narrowly accept `Array<T>` (bare T is already
+            // handled above). Matches the same shape the method-side relaxation in
+            // GenericDispatchEmitter.CanEmitStaticDispatch validates end-to-end via
+            // BindingTests (MusicItemBag<Item>.items, IndexedSeries<Element>.items). Routes
+            // the getter through the @_cdecl static-dispatch wrapper instead of direct
+            // CallConvSwift, avoiding both Mono Issue 1 (`!ji->async` with 2+ type-metadata
+            // args) and NativeAOT's multi-type-parameter generic SIGSEGV. Other simply-
+            // parameterized shapes (Optional<T>, Dictionary<K,T>, user-defined Pair<T>)
+            // render correctly but aren't proven end-to-end, so they stay behind the gate.
+            if (parentTypeDecl is StructDecl structDecl
+                && CollectionProjectionEmitter.HasCollectionConformance(structDecl)
+                && GenericDispatchEmitter.IsArrayOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames))
+                return true;
+
             return false; // Complex generic composition, deferred
         }
 

@@ -594,12 +594,15 @@ internal static class CollectionProjectionEmitter
     /// </summary>
     internal static bool HasCollectionConformance(StructDecl structDecl)
     {
+        // Match only the module-qualified Swift.* protocols. An earlier defensive
+        // unqualified-Name fallback ("Collection", "Sequence", …) false-positived on
+        // any third-party protocol with the same simple name (e.g. user-defined
+        // `Other.Collection`). SwiftTypeName.FromModuleQualifiedName always populates
+        // a module component, so the unqualified path was dead anyway for parsed ABI
+        // data — only constructed conformances with a non-Swift module would have hit it.
         foreach (var c in structDecl.Conformances)
         {
             if (s_collectionProtocols.Contains(c.Protocol.ModuleQualifiedName))
-                return true;
-            if (c.Protocol.Name is "Collection" or "RandomAccessCollection"
-                or "BidirectionalCollection" or "Sequence")
                 return true;
         }
         return false;

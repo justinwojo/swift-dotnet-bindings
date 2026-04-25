@@ -62,6 +62,166 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_ArrayOfT_ReturnsTrue()
+    {
+        // Generic struct parent that conforms to Swift.Collection, with a property typed
+        // `Array<T>` (MusicKit `MusicItemCollection<TMusicItemType>.items` shape). The
+        // Collection-family widening in CanEmitGenericClassPropertyWrapper routes this
+        // getter through the @_cdecl static-dispatch wrapper instead of direct
+        // CallConvSwift — the latter trips Mono Issue 1 (`!ji->async`) on 2+ type-metadata
+        // args and SIGSEGVs on NativeAOT's multi-type-parameter generic P/Invoke path.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MusicItemBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.MusicItemBag"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Collection"),
+                "$s10TestModule12MusicItemBagVyxGSTAAMc")
+        };
+        var arrayOfT = new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("τ_0_0") });
+        var (propertyDecl, env) = CreatePropertyAndEnv("items", arrayOfT, parentDecl, moduleDecl, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_NonCollectionConformer_ArrayOfT_ReturnsFalse()
+    {
+        // Same shape as the test above, but the parent struct does NOT conform to any
+        // Collection-family protocol. Baseline — the Collection-family widening must stay
+        // restricted: T-referencing getters on non-Collection generic structs still fall
+        // through to the complex-composition rejection (CollectibleBag.items shape).
+        var (moduleDecl, typeDb) = CreateTestEnvironment("CollectibleBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("CollectibleBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var arrayOfT = new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("τ_0_0") });
+        var (propertyDecl, env) = CreatePropertyAndEnv("items", arrayOfT, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_OptionalOfT_ReturnsFalse()
+    {
+        // Collection-family conformer + `Optional<T>` getter. The wrapper would render
+        // correctly via initializeMemory, but the runtime allocator path through
+        // `TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<TItem>>()` isn't validated
+        // end-to-end by BindingTests. Stay behind the gate until the round-trip is proven.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MusicItemBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.MusicItemBag"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Collection"),
+                "$s10TestModule12MusicItemBagVyxGSTAAMc")
+        };
+        var optionalOfT = new NamedTypeSpec("Swift.Optional", new[] { new NamedTypeSpec("τ_0_0") });
+        var (propertyDecl, env) = CreatePropertyAndEnv("first", optionalOfT, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_DictionaryOfStringT_ReturnsFalse()
+    {
+        // Collection-family conformer + `Dictionary<String, T>` getter. Same reasoning as
+        // the Optional<T> case — gate stays narrow until proven end-to-end.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MusicItemBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.MusicItemBag"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Collection"),
+                "$s10TestModule12MusicItemBagVyxGSTAAMc")
+        };
+        var dictStringT = new NamedTypeSpec("Swift.Dictionary",
+            new TypeSpec[] { new NamedTypeSpec("Swift.String"), new NamedTypeSpec("τ_0_0") });
+        var (propertyDecl, env) = CreatePropertyAndEnv("byId", dictStringT, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_UserPairOfT_ReturnsFalse()
+    {
+        // Collection-family conformer + user-defined `Pair<T>` getter. The original wider
+        // gate (IsBareOrSimplyParameterizedNamedTypeSpec) accepted this; the narrowed gate
+        // (IsArrayOfParentGeneric) does not. Pair<T>'s metadata accessor sits in the
+        // bindings library — the C# allocator can't currently look it up across modules —
+        // so it stays gated until the cross-module path is wired and tested.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MusicItemBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.MusicItemBag"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Collection"),
+                "$s10TestModule12MusicItemBagVyxGSTAAMc")
+        };
+        var pairOfT = new NamedTypeSpec("TestModule.Pair", new[] { new NamedTypeSpec("τ_0_0") });
+        var (propertyDecl, env) = CreatePropertyAndEnv("paired", pairOfT, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericStructParent_UserCollectionProtocol_ArrayOfT_ReturnsFalse()
+    {
+        // Parent struct conforms to `Other.Collection` — a user-defined protocol from a
+        // non-Swift module that happens to share a simple name with the stdlib protocol.
+        // HasCollectionConformance must NOT match on unqualified Name alone, otherwise any
+        // third-party protocol called "Collection" / "Sequence" / etc. would falsely route
+        // generic struct getters through the static-dispatch wrapper and bypass the
+        // constrained-extension fallback.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateStructDecl("MusicItemBag", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Item", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parentDecl.Conformances = new List<TypeConformance>
+        {
+            new(SwiftTypeName.FromModuleQualifiedName("TestModule.MusicItemBag"),
+                SwiftTypeName.FromModuleQualifiedName("Other.Collection"),
+                "$s5Other10CollectionMp")
+        };
+        var arrayOfT = new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("τ_0_0") });
+        var (propertyDecl, env) = CreatePropertyAndEnv("items", arrayOfT, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_GenericClassParent_GenericProperty_ReturnsTrue()
     {
         // Property type references parent's generic param τ_0_0 — now supported via static dispatch

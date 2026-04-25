@@ -427,7 +427,7 @@ internal static class GenericDispatchEmitter
     /// Dictionary/Set render the same way but aren't validated, so they stay behind the gate.
     /// Nested bound generics (e.g. <c>Array&lt;Optional&lt;T&gt;&gt;</c>) are rejected.
     /// </summary>
-    private static bool IsArrayOfParentGeneric(TypeSpec spec, HashSet<string> genericParamNames)
+    internal static bool IsArrayOfParentGeneric(TypeSpec spec, HashSet<string> genericParamNames)
     {
         if (spec is not NamedTypeSpec named)
             return false;

@@ -7,32 +7,31 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Generics;
 
 /// <summary>
-/// Session 2 Issue C regression: generic struct conforming to <c>Collection</c>
-/// where protocol-family methods like <c>index(_:offsetBy:)</c> and
-/// <c>distance(from:to:)</c> have pure <c>nint</c>-arithmetic signatures that
-/// never reference the parent's generic parameter. Before the fix in
-/// <c>GenericDispatchEmitter.CanEmitStaticDispatch</c>, these methods were
-/// rejected at the <c>signatureReferencesT</c> hard-gate and skipped with
-/// reason <c>generic_parent</c> — matching the shape that left MusicKit's
-/// <c>MusicItemCollection&lt;TMusicItemType&gt;</c> with four SB0001s.
+/// Generic struct conforming to <c>Collection</c> where protocol-family
+/// methods like <c>index(_:offsetBy:)</c> and <c>distance(from:to:)</c> have
+/// pure <c>nint</c>-arithmetic signatures that never reference the parent's
+/// generic parameter. The <c>signatureReferencesT</c> hard-gate in
+/// <c>GenericDispatchEmitter.CanEmitStaticDispatch</c> is relaxed for
+/// Collection-family conformers so these method wrappers emit at all — the
+/// pre-fix shape left MusicKit's <c>MusicItemCollection&lt;TMusicItemType&gt;</c>
+/// with four SB0001s.
 ///
 /// Nint-only stored/computed properties (<c>startIndex</c>, <c>endIndex</c>)
-/// are wrapped by a parallel relaxation in
+/// and the T-returning array-backed projection property (<c>items: [Item]</c>)
+/// are wrapped by the parallel relaxation in
 /// <c>PropertyWrapperEmitter.CanEmitGenericClassPropertyWrapper</c> —
-/// Collection conformers' concrete-return getters are now routed through
+/// Collection conformers' concrete- AND simply-parameterized-T-returning
+/// getters (bare <c>T</c>, <c>Array&lt;T&gt;</c>) are routed through
 /// <c>@_cdecl</c> static dispatch wrappers rather than direct
 /// <c>CallConvSwift</c> (which trips Mono Issue 1 <c>!ji->async</c> with 2+
-/// type-metadata args). The <c>items</c>-backed collection-projection members
-/// (<c>Count</c>, indexer, <c>GetEnumerator</c>) route through the
-/// <c>Items</c> getter — a separate T-returning path that is still emitted
-/// as raw <c>CallConvSwift</c> and trips upstream issue #4. The Count test
-/// below carries a <c>[Skip]</c> with that reason; the cdecl routing for
-/// T-returning generic property getters is Session 3 (WeatherKit
-/// <c>Forecast&lt;Element&gt;</c>) generator work.
+/// type-metadata args AND SIGSEGVs on NativeAOT's multi-type-parameter
+/// generic P/Invoke path). The <c>items</c>-backed collection-projection
+/// members (<c>Count</c>, indexer, <c>GetEnumerator</c>) now round-trip on
+/// both runtimes.
 ///
 /// These tests prove the generated wrappers are (a) emitted at all, and
-/// (b) round-trip integer arithmetic through the witness-table-backed
-/// dispatch path correctly.
+/// (b) round-trip integer arithmetic and array-backed projection through the
+/// witness-table-backed dispatch path correctly.
 /// </summary>
 public class MusicItemBagTests : TestBase
 {
@@ -90,25 +89,47 @@ public class MusicItemBagTests : TestBase
     // Collection projection — array-backed path
     //
     // `Count`, indexer, and `GetEnumerator` route through the `Items` getter,
-    // which is currently emitted as raw `CallConvSwift` to the Swift mangled
-    // symbol with two generic-metadata args (TItemMetadata + TItemCollectibleItemPWT).
-    // That trips upstream issue #4 — same pattern as
-    // `BasicGenericTests.TestGetPairSameType`. The destroy witness then
-    // SIGSEGVs on dispose because the bag's payload is left in a torn state.
-    //
-    // Routing T-returning generic struct property getters through `@_cdecl`
-    // wrappers is Session 3 (WeatherKit `Forecast<Element>`) generator work
-    // and out of scope here. Skipped on both runtimes to match the bug's
-    // documented blast radius.
+    // which is now emitted as a `@_cdecl` static dispatch wrapper
+    // (`SBW_Get_SwiftBindingsTestLib_MusicItemBag_items`) rather than direct
+    // `CallConvSwift` to the Swift mangled symbol. The wrapper renders the
+    // `[Item]` return as `Swift.Array<Item>` inside the protocol extension
+    // body and writes it through a `resultPtr`, avoiding both Mono Issue 1
+    // (`!ji->async` on 2+ type-metadata args) and NativeAOT's
+    // multi-type-parameter generic SIGSEGV.
     // ─────────────────────────────────────────────────────────────────────
 
-    [Skip("Upstream issue #4: multi-type-parameter generic SIGSEGV. The MusicItemBag.items getter is emitted as direct CallConvSwift with 2 type metadata params (TItem + TItem:CollectibleItem PWT), which crashes on both Mono and NativeAOT. Long-term fix: PropertyWrapperEmitter needs to route T-returning generic struct property getters through @_cdecl wrappers.")]
     public void TestMusicItemBag_Count_ProjectsFromArrayBacking()
     {
         using var bag = Functions.MakeMusicItemBag(
             firstId: "one", secondId: "two", thirdId: "three");
 
         AssertEqual(3, bag.Count, "MusicItemBag.Count (array-backed projection)");
+    }
+
+    public void TestMusicItemBag_Indexer_ReturnsItemsByPosition()
+    {
+        using var bag = Functions.MakeMusicItemBag(
+            firstId: "alpha", secondId: "beta", thirdId: "gamma");
+
+        AssertEqual("alpha", bag[0].CollectibleId, "MusicItemBag[0].collectibleId");
+        AssertEqual("beta", bag[1].CollectibleId, "MusicItemBag[1].collectibleId");
+        AssertEqual("gamma", bag[2].CollectibleId, "MusicItemBag[2].collectibleId");
+    }
+
+    public void TestMusicItemBag_GetEnumerator_RoundTripsItems()
+    {
+        using var bag = Functions.MakeMusicItemBag(
+            firstId: "one", secondId: "two", thirdId: "three");
+
+        var seen = new List<string>();
+        foreach (var item in bag)
+        {
+            seen.Add(item.CollectibleId);
+        }
+        AssertEqual(3, seen.Count, "MusicItemBag iteration count");
+        AssertEqual("one", seen[0], "MusicItemBag iteration [0]");
+        AssertEqual("two", seen[1], "MusicItemBag iteration [1]");
+        AssertEqual("three", seen[2], "MusicItemBag iteration [2]");
     }
 
     public void TestMusicItemBag_FormIndex_InoutOnGenericParent_DoesNotCrash()
