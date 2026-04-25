@@ -194,4 +194,47 @@ public class ObjCInteropTests : TestBase
     }
 
     #endregion
+
+    #region Singleton patterns on @objc NSObject classes
+
+    public void TestStoredSingletonOnObjCClass()
+    {
+        // `static let shared` on an @objcMembers NSObject subclass.
+        using var instance = StoredSingleton.Shared;
+        AssertNotNull(instance, "StoredSingleton.Shared is non-null");
+        AssertEqual("stored", instance.Label.ToString(), "StoredSingleton label round-trips");
+    }
+
+    public void TestComputedSingletonOnObjCClass()
+    {
+        // `static var { get }` on an @objcMembers NSObject subclass.
+        using var instance = ComputedSingleton.Shared;
+        AssertNotNull(instance, "ComputedSingleton.Shared is non-null");
+        AssertEqual("computed", instance.Label.ToString(), "ComputedSingleton label round-trips");
+    }
+
+    public void TestPlainSwiftSingletonControl()
+    {
+        // Same shape on a plain Swift class — control case to isolate ObjC-specific bugs.
+        using var instance = PlainSwiftSingleton.Shared;
+        AssertNotNull(instance, "PlainSwiftSingleton.Shared is non-null");
+        AssertEqual("plain", instance.Label.ToString(), "PlainSwiftSingleton label round-trips");
+    }
+
+    public void TestExplicitObjcSingletonStaticLet()
+    {
+        // First call triggers swift_once-driven init of a stored static let
+        // on an `@objc public class` (per-member @objc, not @objcMembers).
+        using var instance = ExplicitObjcSingleton.Shared;
+        AssertNotNull(instance, "ExplicitObjcSingleton.Shared is non-null");
+    }
+
+    public void TestExplicitObjcSingletonErrorDomainStaticLet()
+    {
+        // Sibling `@objc public static let` of a different type on the same class.
+        var s = ExplicitObjcSingleton.ErrorDomain.ToString();
+        AssertTrue(s.Contains("errordomain"), "errorDomain round-trips");
+    }
+
+    #endregion
 }
