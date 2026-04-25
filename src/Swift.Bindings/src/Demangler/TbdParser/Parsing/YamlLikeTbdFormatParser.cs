@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
@@ -135,6 +136,10 @@ namespace TbdParsing.Parsing
 
                     default:
                         _logger.LogWarning($"Unknown top-level key: {kvp.Key}");
+                        // If the unknown key's value opens a multi-line array, consume the
+                        // continuation lines so the next iteration doesn't try to parse them
+                        // as new key-value pairs. The result is intentionally discarded.
+                        ConsumeIfMultiLineArray(lines, ref lineIndex, kvp.Value);
                         break;
                 }
             }
@@ -328,11 +333,39 @@ namespace TbdParsing.Parsing
                         break;
                     default:
                         _logger.LogWarning($"Unknown export property at line {lineIndex}: {kvp.Key}");
+                        // Real-world TBDs (e.g. Stripe products that import ObjC exception
+                        // types from Stripe3DS2) include export properties such as
+                        // `objc-eh-types: [ ... ]` that span multiple lines. The parser
+                        // doesn't need the values, but it MUST consume the continuation
+                        // lines — otherwise the next iteration tries to parse the array
+                        // tail (e.g. "STDSRuntimeException ]") as a key-value pair and
+                        // throws. The result is intentionally discarded.
+                        ConsumeIfMultiLineArray(lines, ref lineIndex, kvp.Value);
                         break;
                 }
             }
 
             return exports;
+        }
+
+        /// <summary>
+        /// If the given value opens a multi-line YAML-like array (`[ ...` without a closing
+        /// `]` on the same line), consume continuation lines through the closing bracket and
+        /// discard the result. Used by the `default` arms of the top-level and exports
+        /// switches so that unknown properties whose values span multiple lines don't break
+        /// parsing on the continuation tail.
+        /// </summary>
+        private void ConsumeIfMultiLineArray(string[] lines, ref int lineIndex, string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return;
+            }
+
+            if (value.StartsWith('[') && !value.EndsWith(']'))
+            {
+                _ = ParseMultiLineArray(lines, ref lineIndex, value);
+            }
         }
 
         /// <summary>

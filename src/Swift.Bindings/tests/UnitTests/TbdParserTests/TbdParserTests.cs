@@ -147,6 +147,88 @@ exports:
             }
 
             [Fact]
+            public static void TestUnknownMultiLineExportProperty_ObjcEhTypes()
+            {
+                // Mirrors the real Stripe TBD shape (e.g. StripePayments.tbd) where
+                // `objc-eh-types: [ ... ]` spans multiple lines and is not in the parser's
+                // recognized export-property switch. The parser must consume the
+                // continuation lines so the tail (e.g. "STDSRuntimeException ]") is not
+                // re-fed as a key-value pair, AND so a known property that comes after
+                // (objc-ivars here) still parses correctly.
+                string mockPath = Path.GetTempFileName();
+                File.WriteAllText(mockPath, @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+install-name:    '/path/to/StripePayments.framework/StripePayments'
+swift-abi-version: 7
+exports:
+  - targets:         [ x86_64-ios-simulator, arm64-ios-simulator ]
+    symbols:         [ '_$s14StripePayments5ClassCMa', '_$s14StripePayments5ClassCMn' ]
+    objc-classes:    [ STPClass1, STPClass2 ]
+    objc-eh-types:   [ STDSAlreadyInitializedException, STDSException, STDSInvalidInputException,
+                       STDSNotInitializedException, STDSRuntimeException ]
+    objc-ivars:      [ STPClass1._property ]
+");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(mockPath);
+
+                    Assert.NotNull(tbdFile);
+                    Assert.Single(tbdFile.Exports);
+                    var export = tbdFile.Exports[0];
+
+                    // Symbols and objc-classes (parsed before objc-eh-types) must be intact.
+                    Assert.Equal(2, export.Symbols.Count);
+                    Assert.Equal(2, export.ObjcClasses.Count);
+                    Assert.Contains("STPClass1", export.ObjcClasses);
+                    Assert.Contains("STPClass2", export.ObjcClasses);
+
+                    // Critical: parsing did NOT bail on the multi-line unknown property.
+                    // The objc-ivars line that follows the multi-line `objc-eh-types`
+                    // array must still be picked up.
+                    Assert.Single(export.ObjcIvars);
+                    Assert.Contains("STPClass1._property", export.ObjcIvars);
+                }
+                finally
+                {
+                    File.Delete(mockPath);
+                }
+            }
+
+            [Fact]
+            public static void TestUnknownSingleLineExportProperty_DoesNotConsumeNextLine()
+            {
+                // A single-line unknown export property must NOT cause the parser to
+                // consume the next line — only multi-line arrays trigger consumption.
+                string mockPath = Path.GetTempFileName();
+                File.WriteAllText(mockPath, @"--- !tapi-tbd
+tbd-version:     4
+targets:         [ arm64-ios-simulator ]
+install-name:    '/path/to/Test'
+exports:
+  - targets:         [ arm64-ios-simulator ]
+    symbols:         [ '_$s4Test5HelloCMa' ]
+    objc-eh-types:   [ STDSException ]
+    objc-classes:    [ STPClass1 ]
+");
+
+                try
+                {
+                    TbdFile tbdFile = _tbdParser.ParseFile(mockPath);
+                    Assert.Single(tbdFile.Exports);
+                    var export = tbdFile.Exports[0];
+                    Assert.Single(export.Symbols);
+                    Assert.Single(export.ObjcClasses);
+                    Assert.Contains("STPClass1", export.ObjcClasses);
+                }
+                finally
+                {
+                    File.Delete(mockPath);
+                }
+            }
+
+            [Fact]
             public static void TestFileNotFound()
             {
                 var nonExistentFile = "/path/to/nonexistent.tbd";

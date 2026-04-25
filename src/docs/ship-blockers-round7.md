@@ -28,7 +28,15 @@ Both deviations match the design-doc framing ("F3 fix lands; primary AEAD reacha
 
 ## Net-new finding (Round 7, blocks fresh-build Stripe pipeline)
 
-### F4. `YamlLikeTbdFormatParser` does not consume multi-line `objc-eh-types` continuation lines
+### F4. `YamlLikeTbdFormatParser` does not consume multi-line `objc-eh-types` continuation lines — RESOLVED (Session 5)
+
+**Status:** ✅ RESOLVED in `swift-bindings` Session 5 — parser change is generalized (Option 1 below) and verified against all 12 Stripe products. Generator step now succeeds on the 5 previously-blocked products (StripePayments, StripePaymentsUI, StripePaymentSheet, StripeIssuing, Stripe umbrella). Stripe test app now builds and links cleanly. A new Stripe sim *runtime* crash surfaced on the first execution (post-F4 unblock) — see "Round 8 candidate" note at the end of this section; it is independent of F4 and out of scope for Session 5.
+
+**Verification (Session 5, against rebuilt SDK 0.8.0 + Apple 26.2.0):**
+- `nuke test` — Bindings 9994/0/1, Analyzers 20/0/0, Runtime 598/0/1 (≥ baseline; 2 new TBD-parser unit tests included).
+- `nuke binding-tests --strict` (sim, full regen) — 1664 PASS / 0 FAIL / 53 SKIP — exact baseline match.
+- All 12 Stripe products `dotnet build` — 0 errors each (5 previously-F4-blocked products now compile).
+- Stripe sim test app `dotnet build` — 0 errors (links umbrella `SwiftBindings.Stripe` successfully; was the gate that was previously failing on F4).
 
 **Where it surfaces:** Generator binding step on Stripe products that import or vend ObjC exception types (Stripe3DS2 transitive consumers). Reproduces on both `--platform-target simulator` (sim build) and `--platform-target device` (NativeAOT build) — same parser, same input.
 
@@ -66,16 +74,35 @@ fail: BindingsGeneration.BindingsGenerator[0]
 1. **Default arm in `ParseExports`'s switch:** when the value contains an unclosed `[` (multi-line array opener), call `ParseMultiLineArray()` to consume continuation lines (and discard the result). One-line change at `YamlLikeTbdFormatParser.cs:329-332`.
 2. Add an explicit `case "objc-eh-types":` that calls `ParseMultiLineArray` and discards (matching `weak-symbols` shape). Less general but more discoverable.
 
-Option 1 is the right long-term fix — any future TBD-format addition would otherwise re-trigger the same failure. Per CLAUDE.md "when fixing a bug pattern, grep the whole codebase for ALL instances": there are no other `default → bare warning` switch arms over multi-line YAML-like values that I found (only this one parser, only this one switch).
+Option 1 is the right long-term fix — any future TBD-format addition would otherwise re-trigger the same failure. Per CLAUDE.md "when fixing a bug pattern, grep the whole codebase for ALL instances": Session 5 grep confirmed two `default → bare warning` switch arms in this file — both in `YamlLikeTbdFormatParser` (`Parse` top-level and `ParseExports`). Session 5 applied the generalized Option 1 fix (extracted into a `ConsumeIfMultiLineArray(...)` helper) to **both** default arms, even though only `ParseExports` is the active failure path — `Parse`'s top-level loop is already wrapped in try/catch so it tolerates the malformed continuation, but the same pattern bug exists there and the helper makes parsing cleaner across the file.
 
 **How to verify the fix.** From `swift-dotnet-packages`:
 ```bash
 rm -rf libraries/Stripe/StripePayments/obj libraries/Stripe/StripePayments/bin
 dotnet build libraries/Stripe/StripePayments/SwiftBindings.Stripe.Payments.csproj -v q
 # Expected: rc=0, no "Invalid key-value pair format" error.
-dotnet nuke RunCiSimTest --library Stripe --reuse-sim --timeout 90
-# Expected: TEST SUCCESS (must reach the Stripe test app, which previously aborted at generator step).
+dotnet nuke RunCiSimTest --library Stripe --reuse-sim --timeout 180
+# Expected: generator step + sim build succeed (umbrella links cleanly). Sim runtime now reaches
+# the test runner — see Round 8 candidate note below for the post-F4 runtime finding.
 ```
+
+**Round 8 candidate (NEW finding emerged from F4 resolution; not part of F4 itself).** With F4's generator-step blocker removed, the Stripe sim test app now reaches the runtime test runner and crashes on the first `STPPaymentHandler.SharedHandler` access:
+
+```
+* Assertion at /Users/runner/work/1/s/src/runtime/src/mono/mono/metadata/jit-info.c:918,
+  condition `!ji->async' not met
+Managed Stacktrace:
+  at StripePayments.STPPaymentHandler:PInvoke_sharedHandler_Get_4C910585 <0x00007>
+  at StripePayments.STPPaymentHandler:SharedHandler_Get
+  at StripeSimTests.MainViewController:RunStripePaymentsTests
+```
+
+The generated P/Invoke is `[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]` against the `@_cdecl` thunk `thunk_StripePayments_6d7d9617`. Per `feedback_mono_jit_blame.md` rule 3 ("If CallConvCdecl — it's NEVER upstream"), this is OUR bug, not Mono Issue 1 (which is for synchronous `CallConvSwift` direct P/Invoke into Swift runtime functions). Most likely candidates: the `@_cdecl` thunk body raises a Swift error / accesses an ObjC class that Mono can't unwind, or there's a stack-frame ABI mismatch around the CSM @_cdecl wrapper for static class properties on ObjC-derived classes (`STPPaymentHandler` extends `NSObject`). Round 8 should:
+1. Dump the Swift `@_cdecl` wrapper body for `thunk_StripePayments_6d7d9617` (search Session 2's regenerated `StripePayments.swift` wrapper sources).
+2. Verify the wrapper handles `STPPaymentHandler.shared` ObjC singleton dispatch correctly (likely the wrapper just calls `STPPaymentHandler.shared` and casts to `IntPtr` via `Unmanaged.passRetained(...).toOpaque()` — confirm the retain).
+3. If the SIL/ABI looks correct, this is the first non-CallConvSwift CSM @_cdecl crash in the program; investigate whether `MarshalFromSwift<NSObject-subclass>` correctly handles the returned pointer.
+
+Round 7 reported Stripe 300/0 sim against pre-Session-2 cached xcframeworks (Round 6 §F2 workaround). Those older xcframeworks may have had different `@_cdecl` wrapper symbols (Session 2 regenerated all xcframeworks via `spm-to-xcframework`); the symbol/ABI changes may have introduced the runtime crash. Either way, the runtime crash is **distinct** from F4 (which was strictly a TBD parser gap on the generator side), and resolving it is its own session.
 
 ---
 

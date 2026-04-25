@@ -229,7 +229,7 @@ Multi-repo layout — workers must `cd` to the right repo for each session:
 
 **Out-of-scope:** Do not address the residual 38 SB0001 on the ancillary method-level-generics cluster (HMAC ctor, `Signature<D>`, `Unwrap`/`Decapsulate`/`ExportSecret`, `Open<TAuthenticatedData>` with the AD tuple, 3-arg `IsValidSignature<D>`). Those are post-ship per `roadmap.md`.
 
-### Session 4 — Round 7 closing revalidation
+### Session 4 — Round 7 closing revalidation (✅ swift-bindings `8b992e7c`; swift-dotnet-packages `a46062c` unpushed; surfaced F4 → Session 5 dynamic)
 
 **Repos:** `swift-bindings` (SDK rebuild), `swift-dotnet-packages` (full consumer regression).
 **Scope:** Rebuild SDK 0.8.0 in place (per `feedback_sdk_version_stable.md` — do NOT bump patch), redeploy, run the full regression-validation flow, document Round 7 outcomes.
