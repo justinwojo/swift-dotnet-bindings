@@ -9,7 +9,7 @@ Authoritative metadata for Apple Swift-only types bound into the
 2. The `SwiftBindings.Apple` source-generation pipeline — which emits the
    managed types whose ABI the generator just bound against.
 
-See `src/docs/apple-swift-types-architecture.md` for the design contract,
+See `src/docs/Design/apple-swift-types-architecture.md` for the design contract,
 especially §"Resolved questions" Q7 and §"Implementation specifics" item 5.
 
 ## Location

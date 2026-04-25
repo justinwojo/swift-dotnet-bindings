@@ -1,13 +1,6 @@
 # Apple Swift-Only Types: Architecture Reference
 
-> **Status (2026-04-17): Phase 2 complete.** Shipped across 9 commits on
-> `apple-nuget-rework` (`41d00b1e` → `4f2ae4ae`). All 7 target
-> frameworks (Translation, ProximityReader, LiveCommunicationKit,
-> FamilyControls, WeatherKit, TipKit, CryptoKit) are at their
-> permanent-skip floor with Swift-only-type references routed to
-> `SwiftBindings.Apple`. This doc remains the authoritative design
-> reference for the supplement package; see
-> [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md) for remaining ship work.
+Authoritative design reference for the `SwiftBindings.Apple` supplement package.
 
 ## Why the supplement exists
 
@@ -228,7 +221,7 @@ post-Phase-2 cleanup.
   emitted as alias/projection metadata, NOT duplicate type identity.
 - **Q: Legal/licensing for shipping generated metadata derived from
   Apple SDKs?** Risk low; ADPLA §7.5 library carve-out applies. See
-  [`src/legal/RATIONALE.md`](../legal/RATIONALE.md) for the full
+  [`src/legal/RATIONALE.md`](../../legal/RATIONALE.md) for the full
   rationale and pre-publish checks.
 - **Q: Why does `@cdecl` support the opaque-transport model?** Swift
   formally rejects structs/protocol existentials from C-compatible

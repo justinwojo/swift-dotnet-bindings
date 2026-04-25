@@ -1,19 +1,14 @@
 # Roadmap to 1.0
 
-**Updated**: April 21, 2026
-
-**Current baseline**: 95/95 CS compile, 61/61 Swift compile. All targets passing.
-**Skip metrics**: 10,719 emitted members, 1,873 skipped (14.9% skip rate) across 95 validation targets.
+This doc covers longer-term themes, blocked items, and post-1.0 ideas. Live baseline counts live in `.validation-baseline.json`; per-library status lives with each package.
 
 > **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 5 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
-
-**Active release work is in [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md).** This doc covers longer-term themes, blocked items, and post-1.0 ideas.
 
 ---
 
 ## 1.0 Goal
 
-**Bridge .NET MAUI to Apple's Swift-first platform APIs, plus select third-party Swift SDKs that fill real gaps.** Measured by what shipping packages exist and where they run, not by skip percentages. See [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md) for the full thesis.
+**Bridge .NET MAUI to Apple's Swift-first platform APIs, plus select third-party Swift SDKs that fill real gaps.** Measured by what shipping packages exist and where they run, not by skip percentages.
 
 ---
 
@@ -75,9 +70,7 @@ Drafts: [`Future/upstream-bug-reports-draft.md`](Future/upstream-bug-reports-dra
 
 ## Theme E: Multi-Platform Hardening *(architecture validated)*
 
-macOS validation audit completed. Generator, SDK, runtime, and build infrastructure all properly support iOS, macOS, Mac Catalyst, and tvOS. Multi-TFM NuGet packaging validated end-to-end with StoreKit2 (4 TFMs in one nupkg).
-
-Remaining items tracked in [`0.8.0-ship-plan.md`](0.8.0-ship-plan.md).
+Generator, SDK, runtime, and build infrastructure all properly support iOS, macOS, Mac Catalyst, and tvOS. Multi-TFM NuGet packaging validated end-to-end with StoreKit2 (4 TFMs in one nupkg). The `nuke binding-tests` target runs each platform via composable flags (`--sim --device --macos --catalyst --tvos`).
 
 ---
 
