@@ -841,6 +841,15 @@ partial class Build
 
             if (regressions.Count > 0)
             {
+                foreach (var name in regressions)
+                {
+                    var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[name]));
+                    var fresh = NormalizeDiffOutput(File.ReadAllText(measurementsDir / name));
+                    Log.Error("=== {Name}: committed (HEAD) ===", name);
+                    Log.Error("{Content}", snapshot);
+                    Log.Error("=== {Name}: fresh (working tree) ===", name);
+                    Log.Error("{Content}", fresh);
+                }
                 var message = "Blast-radius regression detected. The following committed goldens diverged:\n  - "
                     + string.Join("\n  - ", regressions)
                     + "\nInspect the working-tree copies under BindingTests/BlastRadius.Baseline/measurements/."
