@@ -12,10 +12,106 @@ permissions:
   contents: write
 
 jobs:
+  # --- Branch shape gate ---
+  # Cheap upfront parse so a malformed release branch fails in seconds,
+  # before consuming the macOS validation runners.
+
+  validate-branch:
+    name: Validate release branch
+    runs-on: ubuntu-latest
+    outputs:
+      lane: ${{ steps.parse.outputs.lane }}
+      sdk_version: ${{ steps.parse.outputs.sdk_version }}
+      apple_version: ${{ steps.parse.outputs.apple_version }}
+      is_dryrun: ${{ steps.parse.outputs.is_dryrun }}
+      is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
+    steps:
+      - name: Parse release intent from branch name
+        id: parse
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/release/}"
+
+          # Dry-run suffix is `-dryrun.N` where N is one or more digits.
+          # Anything else containing `-dryrun` is a typo we must reject —
+          # silently treating `release/sdk-0.8.1-dryrun.` as a real release
+          # would publish to NuGet without the maintainer realising.
+          IS_DRYRUN=false
+          BRANCH_CLEAN="$BRANCH"
+          if echo "$BRANCH" | grep -q -- '-dryrun'; then
+            if ! echo "$BRANCH" | grep -qE -- '-dryrun\.[0-9]+$'; then
+              echo "ERROR: branch '$BRANCH' has a malformed dry-run suffix."
+              echo "Use -dryrun.N where N is one or more digits"
+              echo "  (e.g., release/sdk-0.8.0-dryrun.1)."
+              exit 1
+            fi
+            IS_DRYRUN=true
+            BRANCH_CLEAN=$(echo "$BRANCH" | sed -E 's/-dryrun\.[0-9]+$//')
+          fi
+
+          # Branch encodes the release lane:
+          #   release/sdk-X.Y.Z+apple-A.B.C  → combined  (both lanes ship)
+          #   release/sdk-X.Y.Z              → sdk-only
+          #   release/apple-A.B.C            → apple-only
+          LANE=""
+          SDK_VERSION=""
+          APPLE_VERSION=""
+          case "$BRANCH_CLEAN" in
+            sdk-*+apple-*)
+              LANE=combined
+              SDK_VERSION="${BRANCH_CLEAN#sdk-}"
+              SDK_VERSION="${SDK_VERSION%%+apple-*}"
+              APPLE_VERSION="${BRANCH_CLEAN##*+apple-}"
+              ;;
+            sdk-*)
+              LANE=sdk
+              SDK_VERSION="${BRANCH_CLEAN#sdk-}"
+              ;;
+            apple-*)
+              LANE=apple
+              APPLE_VERSION="${BRANCH_CLEAN#apple-}"
+              ;;
+            *)
+              echo "ERROR: branch '$BRANCH_CLEAN' is not a recognised release branch."
+              echo "Valid forms (optionally suffixed with -dryrun.N):"
+              echo "  release/sdk-X.Y.Z+apple-A.B.C  (ship SDK + Apple together)"
+              echo "  release/sdk-X.Y.Z              (ship SDK lane only)"
+              echo "  release/apple-A.B.C            (ship Apple lane only)"
+              exit 1
+              ;;
+          esac
+
+          SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'
+          if [ -n "$SDK_VERSION" ] && ! echo "$SDK_VERSION" | grep -qE "$SEMVER_RE"; then
+            echo "ERROR: SDK version '$SDK_VERSION' is not valid semver"; exit 1
+          fi
+          if [ -n "$APPLE_VERSION" ] && ! echo "$APPLE_VERSION" | grep -qE "$SEMVER_RE"; then
+            echo "ERROR: Apple version '$APPLE_VERSION' is not valid semver"; exit 1
+          fi
+
+          # Prerelease flag tracks the lane that's actually advancing in this run.
+          PRIMARY_VERSION="$SDK_VERSION"
+          [ "$LANE" = "apple" ] && PRIMARY_VERSION="$APPLE_VERSION"
+          IS_PRERELEASE=false
+          if echo "$PRIMARY_VERSION" | grep -qE '\-(preview|alpha|beta|rc)'; then
+            IS_PRERELEASE=true
+          fi
+
+          echo "lane=$LANE" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "apple_version=$APPLE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_dryrun=$IS_DRYRUN" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Lane:           $LANE"
+          echo "SDK version:    ${SDK_VERSION:-<from latest sdk-v* tag>}"
+          echo "Apple version:  ${APPLE_VERSION:-<from latest apple-v* tag>}"
+          echo "Dry run:        $IS_DRYRUN"
+          echo "Prerelease:     $IS_PRERELEASE"
+
   # --- Validation (same structure as ci.yml) ---
 
   build-and-test:
     name: Build & Test
+    needs: [validate-branch]
     runs-on: macos-26
     steps:
       - name: Checkout
@@ -56,6 +152,7 @@ jobs:
 
   bindingtests:
     name: BindingTests
+    needs: [validate-branch]
     runs-on: macos-26
     steps:
       - name: Checkout
@@ -131,7 +228,7 @@ jobs:
   release:
     name: Release
     runs-on: macos-26
-    needs: [build-and-test, bindingtests]
+    needs: [validate-branch, build-and-test, bindingtests]
     environment: nuget-publish
     steps:
       - name: Checkout
@@ -153,45 +250,108 @@ jobs:
       - name: Restore Nuke tool
         run: dotnet tool restore
 
-      - name: Extract version from branch
+      - name: Resolve versions
         id: version
+        env:
+          LANE: ${{ needs.validate-branch.outputs.lane }}
+          SDK_VERSION_IN: ${{ needs.validate-branch.outputs.sdk_version }}
+          APPLE_VERSION_IN: ${{ needs.validate-branch.outputs.apple_version }}
+          IS_DRYRUN: ${{ needs.validate-branch.outputs.is_dryrun }}
+          IS_PRERELEASE: ${{ needs.validate-branch.outputs.is_prerelease }}
         run: |
-          BRANCH="${GITHUB_REF#refs/heads/release/}"
-          # Strip -dryrun.N suffix if present
-          VERSION=$(echo "$BRANCH" | sed 's/-dryrun\.[0-9]*$//')
-          # Validate semver pattern (with optional prerelease)
-          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-            echo "ERROR: '$VERSION' does not match semver pattern"
-            exit 1
+          SDK_VERSION="$SDK_VERSION_IN"
+          APPLE_VERSION="$APPLE_VERSION_IN"
+
+          # Reads bare semver strings on stdin and prints the highest by SemVer §11
+          # ordering (stable > prerelease, numeric < alphanumeric within prerelease).
+          # Used instead of `sort -V` because the release runner is macOS, and BSD
+          # `sort` has no -V flag.
+          latest_semver() {
+            python3 -c '
+          import re, sys
+          def pre_key(pre):
+              if pre is None: return (1,)
+              parts = []
+              for p in pre.split("."):
+                  if p.isdigit(): parts.append((0, int(p), ""))
+                  else:           parts.append((1, 0, p))
+              return (0, parts)
+          def semver_key(v):
+              m = re.match(r"(\d+)\.(\d+)\.(\d+)(?:-(.+))?", v)
+              if not m: return (0, 0, 0, (0, []))
+              return (int(m[1]), int(m[2]), int(m[3]), pre_key(m[4]))
+          tags = [t.strip() for t in sys.stdin if t.strip()]
+          if tags:
+              tags.sort(key=semver_key)
+              print(tags[-1])
+          '
+          }
+
+          # `nuke pack` requires both --version and --apple-version even when
+          # only one lane is being published. Backfill the lane that's not
+          # advancing from the latest lane tag — that nupkg is produced but
+          # not pushed. Legacy v* tags are intentionally NOT a fallback here:
+          # an Apple-only release that anchored on v0.7.0 would stamp a
+          # `[0.7.0,0.8.0)` Runtime range on the supplement nupkg, which is
+          # incompatible with the runtime the supplement was built against.
+          if [ -z "$SDK_VERSION" ]; then
+            SDK_VERSION=$(git tag -l 'sdk-v*' | sed 's/^sdk-v//' | latest_semver)
+            if [ -z "$SDK_VERSION" ]; then
+              echo "ERROR: no prior sdk-v* tag found. Apple-only releases require a published"
+              echo "       SDK lane to anchor the supplement's Runtime range. Push a combined"
+              echo "       release (release/sdk-X.Y.Z+apple-A.B.C) first to seed both lanes."
+              exit 1
+            fi
+            echo "Apple-only release; SDK version pinned to latest sdk-v*: $SDK_VERSION"
           fi
-          IS_DRYRUN=false
-          if echo "$BRANCH" | grep -qE '\-dryrun\.[0-9]+$'; then
-            IS_DRYRUN=true
+          if [ -z "$APPLE_VERSION" ]; then
+            APPLE_VERSION=$(git tag -l 'apple-v*' | sed 's/^apple-v//' | latest_semver)
+            if [ -z "$APPLE_VERSION" ]; then
+              echo "ERROR: no prior apple-v* tag found. SDK-only releases require a published"
+              echo "       Apple lane so pack can stamp the supplement nupkg with a real version."
+              echo "       Push a combined release (release/sdk-X.Y.Z+apple-A.B.C) first to"
+              echo "       seed both lanes."
+              exit 1
+            fi
+            echo "SDK-only release; Apple version pinned to latest apple-v*: $APPLE_VERSION"
           fi
-          IS_PRERELEASE=false
-          if echo "$VERSION" | grep -qE '\-(preview|alpha|beta|rc)'; then
-            IS_PRERELEASE=true
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          echo "lane=$LANE" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=$SDK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "apple_version=$APPLE_VERSION" >> "$GITHUB_OUTPUT"
           echo "is_dryrun=$IS_DRYRUN" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
-          echo "Version: $VERSION (dryrun=$IS_DRYRUN, prerelease=$IS_PRERELEASE)"
+          echo "Lane:           $LANE"
+          echo "SDK version:    $SDK_VERSION"
+          echo "Apple version:  $APPLE_VERSION"
+          echo "Dry run:        $IS_DRYRUN"
+          echo "Prerelease:     $IS_PRERELEASE"
 
       - name: Preflight — check NuGet for existing versions
         if: steps.version.outputs.is_dryrun == 'false'
+        env:
+          LANE: ${{ steps.version.outputs.lane }}
+          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
+          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          # SwiftBindings.Apple's major.minor mirrors the Apple SDK train (iOS 26 → 26.x.x),
-          # which is independent of the generator SDK version cadence. Hardcoded for the
-          # initial 0.8.0 ship; future releases source this from the release manifest.
-          APPLE_VERSION="26.0.0"
+          # Build the (package, version) list this run is actually publishing.
+          PAIRS=()
+          case "$LANE" in
+            combined|sdk)
+              PAIRS+=("SwiftBindings.Runtime:${SDK_VERSION}" \
+                     "SwiftBindings.Sdk:${SDK_VERSION}" \
+                     "SwiftBindings.Templates:${SDK_VERSION}")
+              ;;
+          esac
+          case "$LANE" in
+            combined|apple)
+              PAIRS+=("SwiftBindings.Apple:${APPLE_VERSION}")
+              ;;
+          esac
+
           EXISTING=0
           TOTAL=0
-          for PKG_PAIR in \
-            "SwiftBindings.Runtime:${VERSION}" \
-            "SwiftBindings.Sdk:${VERSION}" \
-            "SwiftBindings.Templates:${VERSION}" \
-            "SwiftBindings.Apple:${APPLE_VERSION}"; do
+          for PKG_PAIR in "${PAIRS[@]}"; do
             PKG="${PKG_PAIR%:*}"
             PKG_VER="${PKG_PAIR#*:}"
             TOTAL=$((TOTAL + 1))
@@ -213,12 +373,12 @@ jobs:
           fi
 
       - name: Build and pack NuGet packages
-        # Apple-version hardcoded for the initial ship. Future two-lane releases
-        # (separate SDK and Apple tags) will source it from release-manifest.json.
+        # Pack always produces all 4 nupkgs; the publish step picks which ones
+        # to push. Both versions are required by `nuke pack`.
         run: >
           dotnet nuke pack
-          --version ${{ steps.version.outputs.version }}
-          --apple-version 26.0.0
+          --version ${{ steps.version.outputs.sdk_version }}
+          --apple-version ${{ steps.version.outputs.apple_version }}
           --output-dir ${{ github.workspace }}/artifacts
 
       - name: Upload packages
@@ -232,14 +392,24 @@ jobs:
         if: steps.version.outputs.is_dryrun == 'false'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          LANE: ${{ steps.version.outputs.lane }}
+          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
+          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          APPLE_VERSION="26.0.0"
-          for pkg in \
-            "artifacts/SwiftBindings.Runtime.${VERSION}.nupkg" \
-            "artifacts/SwiftBindings.Sdk.${VERSION}.nupkg" \
-            "artifacts/SwiftBindings.Templates.${VERSION}.nupkg" \
-            "artifacts/SwiftBindings.Apple.${APPLE_VERSION}.nupkg"; do
+          PKGS=()
+          case "$LANE" in
+            combined|sdk)
+              PKGS+=("artifacts/SwiftBindings.Runtime.${SDK_VERSION}.nupkg" \
+                    "artifacts/SwiftBindings.Sdk.${SDK_VERSION}.nupkg" \
+                    "artifacts/SwiftBindings.Templates.${SDK_VERSION}.nupkg")
+              ;;
+          esac
+          case "$LANE" in
+            combined|apple)
+              PKGS+=("artifacts/SwiftBindings.Apple.${APPLE_VERSION}.nupkg")
+              ;;
+          esac
+          for pkg in "${PKGS[@]}"; do
             echo "Publishing $pkg..."
             dotnet nuget push "$pkg" \
               --api-key "$NUGET_API_KEY" \
@@ -247,52 +417,73 @@ jobs:
               --skip-duplicate
           done
 
-      - name: Create git tag
-        # The initial 0.8.0 commit is dual-lane: it should also carry
-        # `sdk-v0.8.0` and `apple-v26.0.0` to seed future lane-prefixed
-        # compares. This workflow only pushes `v${VERSION}`; the two
-        # lane-prefixed tags are pushed manually post-release:
-        #   git tag sdk-v0.8.0 <commit> && git push origin sdk-v0.8.0
-        #   git tag apple-v26.0.0 <commit> && git push origin apple-v26.0.0
-        # Lane-aware automation is deferred until recurring two-lane
-        # releases actually exist.
+      - name: Create git tags
+        # Each lane gets its own tag stream. Combined releases push both;
+        # lane-only releases push only the advancing lane's tag.
         if: steps.version.outputs.is_dryrun == 'false'
+        env:
+          LANE: ${{ steps.version.outputs.lane }}
+          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
+          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${VERSION} already exists, skipping"
-          else
-            git tag "v${VERSION}"
-            git push origin "v${VERSION}"
-          fi
+          push_tag() {
+            local tag="$1"
+            if git rev-parse "$tag" >/dev/null 2>&1; then
+              echo "Tag $tag already exists, skipping"
+            else
+              git tag "$tag"
+              git push origin "$tag"
+              echo "Pushed $tag"
+            fi
+          }
+          case "$LANE" in
+            combined|sdk) push_tag "sdk-v${SDK_VERSION}" ;;
+          esac
+          case "$LANE" in
+            combined|apple) push_tag "apple-v${APPLE_VERSION}" ;;
+          esac
 
       - name: Generate release notes
         if: steps.version.outputs.is_dryrun == 'false'
         env:
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          LANE: ${{ steps.version.outputs.lane }}
+          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
+          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
-          # Skip if no API key configured — will fall back to GitHub's auto-generated notes
+          # Falls back to GitHub's auto-generated notes if no API key configured.
           if [ -z "$XAI_API_KEY" ]; then
             echo "No XAI_API_KEY configured, skipping LLM release notes"
             exit 0
           fi
 
-          # Gather commits since last release. Release branches don't share
-          # ancestry with previous release tags, so we find where the previous
-          # release forked from main and log from there to HEAD.
-          # Use Python for proper semver ordering (sort -V doesn't handle prereleases).
-          ALL_TAGS=$(git tag -l 'v*' | sed 's/^v//')
+          # Pick the previous tag to diff against, lane-aware. Combined/SDK
+          # releases compare against the previous SDK lane tag (with a one-time
+          # fall-through to legacy v* tags so the initial 0.8.0 ship can diff
+          # against v0.7.0). Apple releases compare against the previous
+          # apple-v tag. Release branches don't share ancestry with the prior
+          # release tag, so we find where the previous tag forked from main
+          # and log from there to HEAD.
+          case "$LANE" in
+            combined|sdk)
+              GLOB='sdk-v*'
+              STRIP='^sdk-v'
+              CURRENT="$SDK_VERSION"
+              ;;
+            apple)
+              GLOB='apple-v*'
+              STRIP='^apple-v'
+              CURRENT="$APPLE_VERSION"
+              ;;
+          esac
+
+          ALL_TAGS=$(git tag -l "$GLOB" | sed "s/${STRIP}//")
           PREV_TAG=$(python3 -c "
           import re, sys
           def pre_key(pre):
-              # SemVer §11: dot-separated identifiers, numeric sorts < alpha,
-              # numeric compared as integers, alpha compared lexically,
-              # shorter set wins if all preceding identifiers are equal.
-              # No prerelease (stable) sorts AFTER any prerelease.
+              # SemVer §11: numeric < alpha; stable > any prerelease.
               if pre is None:
-                  return (1,)  # stable > any prerelease
+                  return (1,)
               parts = []
               for p in pre.split('.'):
                   if p.isdigit():
@@ -305,12 +496,27 @@ jobs:
               if not m: return (0, 0, 0, (0, []))
               return (int(m[1]), int(m[2]), int(m[3]), pre_key(m[4]))
           current = sys.argv[1]
+          prefix = sys.argv[2]
           tags = [t.strip() for t in sys.stdin if t.strip()]
           lower = [t for t in tags if semver_key(t) < semver_key(current)]
           if lower:
               lower.sort(key=semver_key)
-              print('v' + lower[-1])
-          " "$VERSION" <<< "$ALL_TAGS")
+              print(prefix + lower[-1])
+          " "$CURRENT" "${GLOB%v*}v" <<< "$ALL_TAGS")
+
+          # Bootstrap fallback for the first SDK lane release (0.8.0 initial ship).
+          # Apple lane has no legacy fallback because the lane is new in 0.8.0.
+          if [ -z "$PREV_TAG" ] && { [ "$LANE" = "combined" ] || [ "$LANE" = "sdk" ]; }; then
+            LEGACY_TAGS=$(git tag -l 'v*' | grep -vE '^(sdk|apple)-' | sed 's/^v//')
+            if [ -n "$LEGACY_TAGS" ]; then
+              PREV_TAG=$(python3 -c "
+          import sys
+          tags = sorted([t.strip() for t in sys.stdin if t.strip()])
+          if tags: print('v' + tags[-1])
+          " <<< "$LEGACY_TAGS")
+            fi
+          fi
+
           if [ -n "$PREV_TAG" ]; then
             echo "Previous tag: $PREV_TAG"
             PREV_FORK=$(git merge-base "$PREV_TAG" origin/main 2>/dev/null || echo "")
@@ -320,22 +526,78 @@ jobs:
               COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %h %s" --no-merges)
             fi
           else
+            echo "No previous tag found; using last 100 commits"
             COMMITS=$(git log -n 100 --pretty=format:"- %h %s" --no-merges)
           fi
 
-          # Call Grok API via python3 (avoids shell escaping issues with curl + JSON)
-          export VERSION COMMITS
+          # Call Grok API via python3 (avoids shell escaping with curl + JSON).
+          export COMMITS LANE SDK_VERSION APPLE_VERSION
           python3 << 'PYEOF'
           import json, os, re, sys, urllib.request, urllib.error, textwrap
-          version = os.environ["VERSION"]
+          lane = os.environ["LANE"]
+          sdk_version = os.environ["SDK_VERSION"]
+          apple_version = os.environ["APPLE_VERSION"]
           commits = os.environ["COMMITS"]
           api_key = os.environ["XAI_API_KEY"]
+
+          if lane == "combined":
+              header = f"SwiftBindings SDK {sdk_version} + Apple {apple_version}"
+              scope = (
+                  f"This release ships both lanes together: the SDK lane "
+                  f"(SwiftBindings.Runtime, SwiftBindings.Sdk, SwiftBindings.Templates) "
+                  f"at {sdk_version}, and the Apple supplement (SwiftBindings.Apple) "
+                  f"at {apple_version}. Cover changes from both lanes."
+              )
+              packages_table = (
+                  f"List all four packages in a markdown table: "
+                  f"SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates "
+                  f"at version {sdk_version}; and SwiftBindings.Apple at version "
+                  f"{apple_version} (the supplement tracks the Apple SDK train, not "
+                  f"the generator SDK version)."
+              )
+          elif lane == "sdk":
+              header = f"SwiftBindings SDK {sdk_version}"
+              scope = (
+                  f"This is an SDK-lane-only release. It republishes "
+                  f"SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates "
+                  f"at {sdk_version}. SwiftBindings.Apple stays at its currently-published "
+                  f"{apple_version} and is not republished. Focus the notes on generator, "
+                  f"runtime, and template changes; ignore any Apple-supplement-only commits."
+              )
+              packages_table = (
+                  f"List the three SDK-lane packages in a markdown table: "
+                  f"SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates "
+                  f"at version {sdk_version}. After the table, add a one-line note that "
+                  f"SwiftBindings.Apple is unchanged at {apple_version}."
+              )
+          else:  # apple
+              header = f"SwiftBindings Apple {apple_version}"
+              scope = (
+                  f"This is an Apple-lane-only release. It republishes "
+                  f"SwiftBindings.Apple at {apple_version}. The SDK lane "
+                  f"(Runtime/Sdk/Templates) stays at its currently-published "
+                  f"{sdk_version} and is not republished. Focus the notes on Apple "
+                  f"supplement changes — manifest additions, new Swift-only Apple "
+                  f"type projections, supplement bug fixes, or VWT/storage "
+                  f"corrections; ignore generator/runtime commits that aren't "
+                  f"supplement-facing."
+              )
+              packages_table = (
+                  f"List the single Apple-lane package in a markdown table: "
+                  f"SwiftBindings.Apple at version {apple_version} (the supplement "
+                  f"tracks the Apple SDK train, not the generator SDK version). "
+                  f"After the table, add a one-line note that SwiftBindings.Runtime, "
+                  f".Sdk, and .Templates are unchanged at {sdk_version}."
+              )
+
           prompt = textwrap.dedent(f"""
-              Write release notes for v{version} of swift-dotnet-bindings,
-              a Swift/.NET binding generator that creates C# bindings from compiled
+              Write release notes for {header} of swift-dotnet-bindings, a
+              Swift/.NET binding generator that creates C# bindings from compiled
               Swift libraries for .NET on Apple platforms.
 
-              Commits since the last release:
+              {scope}
+
+              Commits since the last release on this lane:
 
               {commits}
 
@@ -343,7 +605,7 @@ jobs:
               1. Start with 1-2 sentences capturing the theme of this release — what it means for users in practical terms. Focus on what you can do now that you couldn't before, not internal metrics. Write like a maintainer talking to users, not a press release. No hype, no overpromising — this is an experimental project.
               2. A "## Highlights" section with 3-5 bold bullet points calling out the most important changes. Each highlight should have a bold short label followed by a dash and a one-sentence explanation of why it matters to someone consuming the bindings.
               3. Remaining sections grouped by category (e.g., "## Bug fixes", "## Generator improvements", "## Runtime improvements", "## Developer experience"). Only include categories that have meaningful content. Consolidate related commits into single bullets — don't list every commit separately. Aim for 3-6 bullets per section max.
-              4. End with a "## Packages" table listing all four packages with their versions: SwiftBindings.Runtime, SwiftBindings.Sdk, and SwiftBindings.Templates at version {version}; and SwiftBindings.Apple at version 26.0.0 (the Apple-framework supplement tracks the Apple SDK train, not the generator SDK version). Follow the table with a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
+              4. End with a "## Packages" section. {packages_table} After the table (and any unchanged-lane note), include a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
 
               Style guidelines:
               - Write like a knowledgeable maintainer, not a bot or marketer. No words like "seamless", "mastery", "bulletproof", "aces", "unlocking". Be direct and understated.
@@ -395,23 +657,58 @@ jobs:
         if: steps.version.outputs.is_dryrun == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          LANE: ${{ steps.version.outputs.lane }}
+          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
+          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            echo "Release v${VERSION} already exists, skipping"
+          # The release attaches to the lane tag that's actually advancing.
+          # Combined releases anchor on the SDK tag; the apple-v tag sits on
+          # the same commit and is discoverable from the body.
+          case "$LANE" in
+            combined|sdk)
+              RELEASE_TAG="sdk-v${SDK_VERSION}"
+              ;;
+            apple)
+              RELEASE_TAG="apple-v${APPLE_VERSION}"
+              ;;
+          esac
+
+          case "$LANE" in
+            combined) TITLE="SwiftBindings SDK ${SDK_VERSION} + Apple ${APPLE_VERSION}" ;;
+            sdk)      TITLE="SwiftBindings SDK ${SDK_VERSION}" ;;
+            apple)    TITLE="SwiftBindings Apple ${APPLE_VERSION}" ;;
+          esac
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists, skipping"
             exit 0
           fi
           notes_args=(--generate-notes)
           if [ -f RELEASE-NOTES.md ]; then
             notes_args=(--notes-file RELEASE-NOTES.md)
           fi
-          title_args=(--title "SwiftBindings v${VERSION}")
           prerelease_args=()
           if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
             prerelease_args=(--prerelease)
           fi
-          gh release create "v${VERSION}" \
-            "${title_args[@]}" \
+
+          # Only attach the nupkgs that this lane actually published.
+          ATTACH=()
+          case "$LANE" in
+            combined|sdk)
+              ATTACH+=("artifacts/SwiftBindings.Runtime.${SDK_VERSION}.nupkg" \
+                       "artifacts/SwiftBindings.Sdk.${SDK_VERSION}.nupkg" \
+                       "artifacts/SwiftBindings.Templates.${SDK_VERSION}.nupkg")
+              ;;
+          esac
+          case "$LANE" in
+            combined|apple)
+              ATTACH+=("artifacts/SwiftBindings.Apple.${APPLE_VERSION}.nupkg")
+              ;;
+          esac
+
+          gh release create "$RELEASE_TAG" \
+            --title "$TITLE" \
             "${notes_args[@]}" \
             "${prerelease_args[@]}" \
-            artifacts/*.nupkg
+            "${ATTACH[@]}"
