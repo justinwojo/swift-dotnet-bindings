@@ -158,7 +158,12 @@ jobs:
           restore-keys: nuget-
 
       - name: Pack all NuGet packages
-        run: dotnet nuke pack --version 0.0.0-smoke --output-dir /tmp/swift-nuget
+        # --apple-version is required by the Pack target so the SwiftBindings.Apple
+        # nupkg can't silently ride an unrelated main version. Pin to the live Apple
+        # train with a -smoke suffix so the scratch nupkg can't collide with a shipped
+        # one. Major must parse as a non-zero leading int (Apple-version parser rejects
+        # leading '0').
+        run: dotnet nuke pack --version 0.0.0-smoke --apple-version 26.2.0-smoke --output-dir /tmp/swift-nuget
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
