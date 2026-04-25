@@ -676,4 +676,57 @@ public class CsmDataProtocolTests : TestBase
         AssertContains("BytesValidationError.empty", e.Message,
             "ValidateAndReturnTagged(TaggedSearchItem(1234), false) — generic-return throws on a payload-bearing conformer should still round-trip BytesValidationError.empty description");
     }
+
+    // --- Sync-throws CSM with a non-frozen struct as a non-generic param ---
+    //
+    // Mirrors the CryptoKit AES.GCM.seal/ChaChaPoly.seal regression pattern: a
+    // sync-throws CSM generic over DataProtocol that takes a non-frozen struct
+    // (AeadKeyHandle, analog of SymmetricKey) by value. The wrapper must
+    // reconstruct the struct via .pointee (a value-witness-table-aware load),
+    // not unsafeBitCast on the pointer — the latter is only correct for Swift
+    // classes. With the wrong reconstruction, key.bitCount reads the pointer's
+    // low bits, and the Swift guard throws BytesValidationError.tooLarge(bits)
+    // instead of returning bits + bytes.count.
+
+    public void TestThrowingBytes_SealLengthWithKey_ByteArray_RoundTrip()
+    {
+        using var key = new AeadKeyHandle(256);
+        byte[] bytes = { 1, 2, 3, 4 };
+        var result = (int)ThrowingBytesNamespace.SealLengthWithKey(bytes, key);
+        AssertEqual(260, result,
+            "SealLengthWithKey(byte[], AeadKeyHandle(256)) — non-frozen struct param must round-trip via .pointee, not unsafeBitCast(OpaquePointer); a wrong reconstruction reads the pointer bits and throws BytesValidationError.tooLarge(<pointer-bits>)");
+    }
+
+    public void TestThrowingBytes_SealLengthWithKey_Data_RoundTrip()
+    {
+        using var key = new AeadKeyHandle(128);
+        // Data path mirrors AES.GCM.Seal(Data, SymmetricKey) — same emitter pairing
+        // for a DataProtocol conformer with a non-frozen struct param.
+        var data = global::Swift.Foundation.Data.FromByteArray(new byte[] { 9, 9 });
+        var result = (int)ThrowingBytesNamespace.SealLengthWithKey(data, key);
+        AssertEqual(130, result,
+            "SealLengthWithKey(Data, AeadKeyHandle(128)) — Data conformer + non-frozen struct param round-trip");
+    }
+
+    public void TestThrowingBytes_SealLengthWithKey_PayloadObservability()
+    {
+        // Distinguishes "param marshalling broken" from "this fixture happens to
+        // align with the pointer's low bits". A 192 key whose bitCount round-trips
+        // is a different value than 128 or 256 — proves the wrapper actually reads
+        // the struct's payload buffer, not a fixed pointer pattern.
+        using var key192 = new AeadKeyHandle(192);
+        var result192 = (int)ThrowingBytesNamespace.SealLengthWithKey(new byte[] { 1 }, key192);
+        AssertEqual(193, result192,
+            "SealLengthWithKey with AeadKeyHandle(192) — payload value must be observable inside the @_cdecl body");
+    }
+
+    public void TestThrowingBytes_SealLengthWithKey_EmptyBytes_Throws()
+    {
+        using var key = new AeadKeyHandle(256);
+        var e = CaptureSwiftException(
+            () => ThrowingBytesNamespace.SealLengthWithKey(System.Array.Empty<byte>(), key),
+            "SealLengthWithKey(empty byte[], AeadKeyHandle(256))");
+        AssertContains("BytesValidationError.empty", e.Message,
+            "SealLengthWithKey(empty byte[]) — sync-throws CSM with a non-frozen struct param must still surface the Swift error description on the catch arm");
+    }
 }

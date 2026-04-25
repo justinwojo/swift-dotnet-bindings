@@ -288,6 +288,42 @@ public struct BytesSummary {
     public init(count: Int, xor: UInt8) { self.count = count; self.xor = xor }
 }
 
+// MARK: - Sync-throws CSM with a non-frozen struct as a non-generic param
+//
+// Mirrors CryptoKit AES.GCM.seal<Plaintext: DataProtocol>(_:using: SymmetricKey) throws.
+// `AeadKeyHandle` is a non-frozen struct (no @frozen) so it projects to a C# class
+// backed by `SwiftSafeHandle`. When passed into a sync-throws CSM method as a
+// non-generic param, the @_cdecl wrapper must reconstruct the struct via
+// `_key.assumingMemoryBound(to: T.self).pointee` — a value-witness-table-aware
+// load of the heap buffer. `unsafeBitCast(OpaquePointer(_key), to: T.self)` is
+// only correct when the parameter is a Swift class (where the IntPtr IS the
+// object reference); applying it to a non-frozen struct reinterprets the
+// pointer's bits as the struct payload and corrupts every property read.
+public struct AeadKeyHandle {
+    private let _bitCount: Int
+    public init(bitCount: Int) { self._bitCount = bitCount }
+    public var bitCount: Int { _bitCount }
+}
+
+extension ThrowingBytesNamespace {
+    /// Reads `key.bitCount` first so a mis-marshalled struct surfaces deterministically:
+    /// if reconstruction reads the pointer bits instead of the payload, `bits` will be
+    /// the raw pointer's low word rather than the initializer's value. Throws
+    /// `tooLarge(bits)` on unrecognized sizes so a test can pin the corruption to an
+    /// exact code path; throws `empty` on zero-length input so the catch arm exercises
+    /// Swift error description routing on the same wrapper.
+    public static func sealLengthWithKey<D: DataProtocol>(
+        _ bytes: D, using key: AeadKeyHandle
+    ) throws -> Int {
+        let bits = key.bitCount
+        guard bits == 128 || bits == 192 || bits == 256 else {
+            throw BytesValidationError.tooLarge(bits)
+        }
+        if bytes.count == 0 { throw BytesValidationError.empty }
+        return bits + bytes.count
+    }
+}
+
 // MARK: - Additional sync-throws CSM direct-return shapes
 // These fixtures round out the throwing-CSM matrix that CountBytesOrThrow / FitsWithin
 // cover for Int / Bool. They exercise the two direct-return shapes that were previously

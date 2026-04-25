@@ -1796,8 +1796,13 @@ public static class MethodClosureBridge
 
     /// <summary>
     /// Checks if a NamedTypeSpec is a class type according to TypeDatabase.
+    /// Used by both MethodClosureBridge and ConcreteProtocolSpecializationEmitter
+    /// to discriminate Swift class params (where the IntPtr IS the object reference,
+    /// reconstruct via unsafeBitCast or Unmanaged.fromOpaque) from non-frozen struct
+    /// params (where the IntPtr points to a flat value-witness-table-layout buffer,
+    /// reconstruct via .assumingMemoryBound(to:).pointee).
     /// </summary>
-    private static bool IsClassTypeForSwift(NamedTypeSpec named, ITypeDatabase typeDatabase)
+    internal static bool IsClassTypeForSwift(NamedTypeSpec named, ITypeDatabase typeDatabase)
     {
         var lookupName = named.Name;
         try

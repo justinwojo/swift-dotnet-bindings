@@ -560,7 +560,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                         swiftParams.Add($"_ _{label}: UnsafeRawPointer");
                         var swiftTypeName = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
-                        callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer(_{label}), to: {swiftTypeName}.self)");
+                        // PayloadHandle covers both Swift classes and non-frozen structs.
+                        // Discriminate: Swift classes (and ObjC-bridged) — the IntPtr IS the
+                        // object reference, so unsafeBitCast(OpaquePointer) recovers the class.
+                        // Non-frozen structs — the IntPtr points to a flat value-witness-table
+                        // layout buffer (NativeMemory.Alloc(_payloadSize) on the C# side), so
+                        // .assumingMemoryBound(to:).pointee is the correct VWT-aware load.
+                        // Using unsafeBitCast on a non-frozen struct param reinterprets the
+                        // pointer's bits as the struct content and corrupts every property
+                        // read (e.g., CryptoKit's SymmetricKey would surface as AES.GCM.seal
+                        // throwing incorrectKeySize even though the same handle reads
+                        // bitCount correctly through the property-getter path).
+                        bool argIsClass = arg.SwiftTypeSpec is NamedTypeSpec namedArg
+                            && (abiCategory == MethodClosureBridge.ParamAbiCategory.ObjCHandle
+                                || MethodClosureBridge.IsClassTypeForSwift(namedArg, typeDatabase));
+                        if (argIsClass)
+                            callArgs.Add($"{argLabel}unsafeBitCast(OpaquePointer(_{label}), to: {swiftTypeName}.self)");
+                        else
+                            callArgs.Add($"{argLabel}_{label}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
                         break;
                     default:
                         swiftParams.Add($"_ _{label}: UnsafeRawPointer");
