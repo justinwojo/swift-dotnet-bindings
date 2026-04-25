@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Xml;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace BindingsGeneration
 {
@@ -588,17 +589,36 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// Loads an xcframework Info.plist (binary or XML) and returns its parsed
+        /// AvailableLibraries entries as <see cref="XCFrameworkSlice"/> records.
+        /// Convenience overload that uses a default command runner and a null logger.
+        /// </summary>
         internal static List<XCFrameworkSlice> ParseInfoPlist(string plistPath)
+            => ParseInfoPlist(plistPath, null, NullLogger.Instance);
+
+        /// <summary>
+        /// Loads an xcframework Info.plist (binary or XML) via <see cref="PlistReader"/>
+        /// and returns its parsed AvailableLibraries entries.
+        /// </summary>
+        internal static List<XCFrameworkSlice> ParseInfoPlist(
+            string plistPath, ICommandRunner? commandRunner, ILogger logger)
         {
-            var doc = new XmlDocument();
-            doc.Load(plistPath);
+            var rootDict = PlistReader.ReadPlistDict(plistPath, commandRunner, logger)
+                ?? throw new InvalidOperationException(
+                    $"Failed to read xcframework Info.plist at '{plistPath}'. The file may be missing or malformed.");
 
-            var rootDict = doc.SelectSingleNode("/plist/dict")
-                ?? throw new InvalidOperationException("Invalid Info.plist: missing root dict.");
+            return ParseAvailableLibraries(rootDict);
+        }
 
-            var rootData = ParsePlistDict(rootDict);
-
-            if (!rootData.TryGetValue("AvailableLibraries", out var librariesObj) || librariesObj is not List<object> libraries)
+        /// <summary>
+        /// Extracts <see cref="XCFrameworkSlice"/> entries from an already-parsed
+        /// xcframework root Info.plist dictionary. Shared by <see cref="XCFrameworkResolver"/>
+        /// and <see cref="XCFrameworkSlicer"/> so both code paths agree on slice metadata.
+        /// </summary>
+        internal static List<XCFrameworkSlice> ParseAvailableLibraries(Dictionary<string, object> rootDict)
+        {
+            if (!rootDict.TryGetValue("AvailableLibraries", out var librariesObj) || librariesObj is not List<object> libraries)
             {
                 throw new InvalidOperationException(
                     "Invalid Info.plist: missing or empty AvailableLibraries.");

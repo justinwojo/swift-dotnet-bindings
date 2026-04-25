@@ -1576,10 +1576,70 @@ TARGETSEOF"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 7b': Compute per-RID staged-source-xcframework paths            -->
+  <!--                                                                         -->
+  <!-- Source xcframeworks ship every slice (iOS, tvOS, macOS, watchOS, …)    -->
+  <!-- per RID; the slicer drops slices the current RID can't consume so the  -->
+  <!-- per-RID runtimes/<rid>/native/ directory only contains slices that RID -->
+  <!-- can actually use. Properties have to be set in a separate target so    -->
+  <!-- both the slicer Target and the pack Target see them — Inputs/Outputs   -->
+  <!-- are evaluated before the body of the same target runs.                 -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_SetSlicePaths"
+          DependsOnTargets="_DiscoverSwiftFrameworks"
+          Condition="'@(SwiftFramework)' != ''">
+    <PropertyGroup>
+      <_SwiftBindingSourceXcfwName>$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))</_SwiftBindingSourceXcfwName>
+      <_StagedSourceXcfwBaseDir>$(_SwiftBindingIntermediateDir)sliced/$(_SwiftBindingNuGetRid)/</_StagedSourceXcfwBaseDir>
+      <_StagedSourceXcfwDir>$(_StagedSourceXcfwBaseDir)$(_SwiftBindingSourceXcfwName)/</_StagedSourceXcfwDir>
+      <_StagedSourceXcfwStamp>$(_SwiftBindingIntermediateDir)sliced/$(_SwiftBindingNuGetRid).stamp</_StagedSourceXcfwStamp>
+    </PropertyGroup>
+    <!--
+      Materialize per-framework _CodeSignature/CodeResources file list. Used by
+      _SliceSourceXcframework as an Input alongside the generation fingerprint stamp:
+      _ComputeSwiftFingerprint deliberately excludes _CodeSignature/* from its hash,
+      but the slicer preserves signatures via ditto. Without this glob, re-signing
+      the source xcframework in place wouldn't invalidate the cached slice and we'd
+      ship stale signatures. Wildcard expansion happens here at task time (well-supported)
+      so the slicer's Inputs attribute can reference a concrete @(_SourceXcfwSigFiles).
+    -->
+    <ItemGroup>
+      <_SourceXcfwSigFiles Include="%(SwiftFramework.Identity)/**/_CodeSignature/CodeResources" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 7b'': Slice the source xcframework for the current RID          -->
+  <!--                                                                         -->
+  <!-- Inputs use $(_SwiftStampFile) (already updated whenever the source     -->
+  <!-- xcframework or generation-affecting properties change, by              -->
+  <!-- _ComputeSwiftFingerprint) and the generator binary itself (so an      -->
+  <!-- emitter-only change invalidates cached slices, same pattern as         -->
+  <!-- _GenerateAppleTypeSources in Swift.Bindings.Apple.csproj).             -->
+  <!--                                                                         -->
+  <!-- _ComputeSwiftFingerprint deliberately excludes _CodeSignature/* from   -->
+  <!-- its hash, but the slicer preserves per-framework signatures via ditto. -->
+  <!-- Glob CodeResources files explicitly so a re-signed-in-place source     -->
+  <!-- xcframework invalidates the staged slice and we don't ship stale sigs. -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_SliceSourceXcframework"
+          DependsOnTargets="_ImportSwiftBindingMetadata;_SetSlicePaths;_ComputeSwiftFingerprint"
+          BeforeTargets="_ConfigureSwiftBindingPack"
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND '@(SwiftFramework)' != ''"
+          Inputs="$(_SwiftStampFile);$(_SwiftBindingGeneratorDir)Swift.Bindings.dll;@(_SourceXcfwSigFiles)"
+          Outputs="$(_StagedSourceXcfwStamp)">
+    <MakeDir Directories="$(_StagedSourceXcfwBaseDir)" />
+    <RemoveDir Directories="$(_StagedSourceXcfwDir)" Condition="Exists('$(_StagedSourceXcfwDir)')" />
+    <Exec Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --slice-xcframework --xcframework &quot;%(SwiftFramework.Identity)&quot; --rid $(_SwiftBindingNuGetRid) -o &quot;$(_StagedSourceXcfwDir)&quot;"
+          ConsoleToMSBuild="true" />
+    <Touch Files="$(_StagedSourceXcfwStamp)" AlwaysCreate="true" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 7c: Configure NuGet pack layout                                 -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ConfigureSwiftBindingPack"
-          DependsOnTargets="_ImportSwiftBindingMetadata"
+          DependsOnTargets="_ImportSwiftBindingMetadata;_SetSlicePaths"
           Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND ('@(SwiftFramework)' != '' OR '@(SwiftAppleFrameworkTarget)' != '')"
           Returns="@(TfmSpecificPackageFile)">
 
@@ -1643,9 +1703,12 @@ TARGETSEOF"
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(PackageId).targets')" />
-      <!-- Source xcframework (xcframework mode only — Apple-framework mode has no source xcframework) -->
-      <TfmSpecificPackageFile Include="%(SwiftFramework.Identity)/**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$([System.IO.Path]::GetFileName('%(SwiftFramework.Identity)'))/"
+      <!-- Source xcframework, sliced down to slices the current RID can consume.
+           Wrapper/bridge xcframeworks are already per-TFM (no duplication problem)
+           and are packed raw below. _SliceSourceXcframework runs BeforeTargets this
+           target so $(_StagedSourceXcfwDir) is populated by the time we enumerate it. -->
+      <TfmSpecificPackageFile Include="$(_StagedSourceXcfwDir)**"
+            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingSourceXcfwName)/"
             Condition="'@(SwiftFramework)' != ''" />
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
             PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"

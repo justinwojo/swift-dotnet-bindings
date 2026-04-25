@@ -1,4 +1,4 @@
-/Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Consumer/bin/Release/net10.0-macos/osx-arm64/BlastRadius.Consumer.app/Contents/MacOS/BlastRadius.Consumer:
+BlastRadius.Consumer:
 	@executable_path/../../Contents/MonoBundle/libSystem.Globalization.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
 	@executable_path/../../Contents/MonoBundle/libSystem.IO.Compression.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
 	@executable_path/../../Contents/MonoBundle/libSystem.Native.dylib (compatibility version 0.0.0, current version 0.0.0)

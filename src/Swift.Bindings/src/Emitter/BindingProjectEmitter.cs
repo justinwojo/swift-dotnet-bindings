@@ -112,6 +112,32 @@ namespace BindingsGeneration
                 ? Path.GetRelativePath(outputDirFull, Path.GetFullPath(options.SourceXCFrameworkPath!))
                 : null;
 
+            // Slice source xcframework at generation time so the emitted csproj's pack item
+            // ships only RID-compatible slices. The local NativeReference still references the
+            // raw source xcfw (the consumer's local build environment has full source access);
+            // only the <None Pack="true"> item targets the sliced path. CLI standalone csprojs
+            // are single-TFM, so generation-time slicing is sufficient — re-run the generator
+            // when the source xcframework changes. The SDK pack-time path slices in Sdk.targets
+            // via _SliceSourceXcframework instead. See src/docs/per-rid-xcframework-slicing.md.
+            //
+            // Stage under `pack-staging/` (NOT `obj/`) so `dotnet clean` doesn't silently empty
+            // the pack glob and produce a nupkg with no source xcframework. Only re-running the
+            // generator (which calls PrepareDestination on the slice dir) clears the staged tree.
+            //
+            // Skip when SourceXCFrameworkPath is a synthetic test stub (no Info.plist on disk):
+            // unit tests pass paths like Path.Combine(dir, "..", "Module.xcframework") to
+            // exercise emitter string output without standing up a full xcframework. In real
+            // CLI runs XCFrameworkResolver has already validated the source's Info.plist
+            // before BindingProjectEmitter runs, so the skip path can only be hit by tests.
+            var packSourceXcfwRelative = relativeSourceXcfw;
+            if (hasSourceXcfw && File.Exists(Path.Combine(options.SourceXCFrameworkPath!, "Info.plist")))
+            {
+                var sliceDest = Path.Combine(
+                    outputDirFull, "pack-staging", pi.NuGetRid, $"{options.ModuleName}.xcframework");
+                XCFrameworkSlicer.Slice(options.SourceXCFrameworkPath!, pi.NuGetRid, sliceDest, logger);
+                packSourceXcfwRelative = Path.GetRelativePath(outputDirFull, sliceDest);
+            }
+
             // Version placeholder warning comment
             var versionComment = options.Metadata.IsVersionPlaceholder
                 ? "\n    <!-- WARNING: Version is a placeholder (Xcode default). Set PackageVersion manually. -->"
@@ -405,7 +431,7 @@ namespace BindingsGeneration
                     <None Include="{packageId}.targets" Pack="true"
                           PackagePath="{pi.GetBuildTransitivePath()}" />{(hasSourceXcfw ? $"""
 
-                    <None Include="{relativeSourceXcfw}/**" Pack="true"
+                    <None Include="{packSourceXcfwRelative}/**" Pack="true"
                           PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />
                 """ : "")}{wrapperPackItem}{bridgePackItem}{resourceBundlePackItems}
                   </ItemGroup>{objcProjectRef}

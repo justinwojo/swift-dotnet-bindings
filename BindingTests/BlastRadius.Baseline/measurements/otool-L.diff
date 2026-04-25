@@ -1,8 +1,8 @@
---- /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/baseline.otool-L.txt	2026-04-17 21:32:46
-+++ /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/consumer.otool-L.txt	2026-04-17 21:32:46
+--- /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/baseline.otool-L.txt	2026-04-24 22:21:23
++++ /Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/measurements/consumer.otool-L.txt	2026-04-24 22:21:23
 @@ -1,4 +1,4 @@
--/Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Baseline/bin/Release/net10.0-macos/osx-arm64/BlastRadius.Baseline.app/Contents/MacOS/BlastRadius.Baseline:
-+/Users/wojo/Dev/swift-bindings/BindingTests/BlastRadius.Consumer/bin/Release/net10.0-macos/osx-arm64/BlastRadius.Consumer.app/Contents/MacOS/BlastRadius.Consumer:
+-BlastRadius.Baseline:
++BlastRadius.Consumer:
  	@executable_path/../../Contents/MonoBundle/libSystem.Globalization.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
  	@executable_path/../../Contents/MonoBundle/libSystem.IO.Compression.Native.dylib (compatibility version 0.0.0, current version 0.0.0)
  	@executable_path/../../Contents/MonoBundle/libSystem.Native.dylib (compatibility version 0.0.0, current version 0.0.0)

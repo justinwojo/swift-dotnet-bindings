@@ -54,7 +54,10 @@ inspect() {
   local bin="$1"
   local label="$2"
   echo ">>> Inspecting $label"
-  otool -L "$bin" > "$OUT_DIR/$label.otool-L.txt"
+  # `otool -L` prints the binary's absolute path on the first line; strip it so
+  # the diff is portable across machines (the committed golden was captured on
+  # a developer box, but CI runs from /Users/runner/work/...).
+  otool -L "$bin" | sed '1s|^.*/||' > "$OUT_DIR/$label.otool-L.txt"
   nm -gU "$bin"  > "$OUT_DIR/$label.nm.txt" 2>/dev/null || true
   # `$s` is the Swift 5 mangling prefix (with `$S` as its Swift 4 predecessor and
   # `_$s` as the same symbol seen through a leading-underscore ABI). Add them so

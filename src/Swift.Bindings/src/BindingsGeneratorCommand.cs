@@ -54,6 +54,8 @@ public static class BindingsGeneratorCommand
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
+        var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
+        var rid = parseResult.GetValueForOption(options.Rid);
         var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
         var appleAbiJsonPaths = parseResult.GetValueForOption(options.AppleAbiJson);
         var appleIncludeTypes = parseResult.GetValueForOption(options.AppleIncludeTypes);
@@ -84,6 +86,43 @@ public static class BindingsGeneratorCommand
 
         ILoggerFactory loggerFactory = BindingsGenerator.CreateLoggerFactory(verbose);
         ILogger logger = loggerFactory.CreateLogger<BindingsGenerator>();
+
+        // Handle --slice-xcframework: stage a sliced copy of a source xcframework for a given
+        // NuGet RID. Out-of-tree from the binding-generation pipeline — this mode never
+        // consumes ABI JSON / dylib / TBD, so it must run BEFORE --platform validation.
+        if (sliceXcframework)
+        {
+            if (string.IsNullOrWhiteSpace(xcframeworkPath))
+            {
+                logger.LogError("Error: --slice-xcframework requires --xcframework <source-xcframework>.");
+                context.ExitCode = 1;
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(rid))
+            {
+                logger.LogError("Error: --slice-xcframework requires --rid <nuget-rid> (one of: {Rids}).",
+                    string.Join(", ", XCFrameworkSlicer.SupportedRids));
+                context.ExitCode = 1;
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(outputDirectory))
+            {
+                logger.LogError("Error: --slice-xcframework requires -o <staged-xcframework-dir>.");
+                context.ExitCode = 1;
+                return;
+            }
+            try
+            {
+                XCFrameworkSlicer.Slice(xcframeworkPath!, rid!, outputDirectory!, logger);
+                context.ExitCode = 0;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError("{Message}", ex.Message);
+                context.ExitCode = 1;
+            }
+            return;
+        }
 
         // Handle --emit-apple-types-manifest: fast path that ingests Apple ABI JSON dumps
         // and writes the SwiftBindings.Apple type metadata manifest. Out-of-tree from the
@@ -1197,6 +1236,10 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --skip-thunk-compilation    Optional. Skip native thunk assembly compilation.");
         Console.WriteLine("  --compile-wrapper-only      Optional. Compile existing .swift wrapper files only (no parsing/generation).");
         Console.WriteLine("  --compile-bridge-only       Optional. Compile existing SwiftUI bridge .swift files only (no parsing/generation).");
+        Console.WriteLine();
+        Console.WriteLine("Per-RID xcframework slicing — ignores binding-generation options:");
+        Console.WriteLine("  --slice-xcframework  Stage a sliced copy of --xcframework into -o, retaining only slices the given --rid can consume.");
+        Console.WriteLine("  --rid                NuGet RID: ios-arm64, tvos-arm64, osx-arm64, maccatalyst-arm64.");
         Console.WriteLine();
         Console.WriteLine("Apple types manifest (SwiftBindings.Apple) — ignores binding-generation options:");
         Console.WriteLine("  --emit-apple-types-manifest  Emit the Apple-types metadata manifest from ABI JSON dumps. With this flag, -o is a FILE path (the target .json), not a directory.");

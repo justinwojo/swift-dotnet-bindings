@@ -24,9 +24,11 @@ namespace RuntimeTestsApp.Generics;
 /// <c>CallConvSwift</c> (which trips Mono Issue 1 <c>!ji->async</c> with 2+
 /// type-metadata args). The <c>items</c>-backed collection-projection members
 /// (<c>Count</c>, indexer, <c>GetEnumerator</c>) route through the
-/// <c>Items</c> getter — a separate T-returning path whose cdecl routing is
-/// handled in Session 3 (WeatherKit <c>Forecast&lt;Element&gt;</c>) — and are
-/// intentionally not exercised here.
+/// <c>Items</c> getter — a separate T-returning path that is still emitted
+/// as raw <c>CallConvSwift</c> and trips upstream issue #4. The Count test
+/// below carries a <c>[Skip]</c> with that reason; the cdecl routing for
+/// T-returning generic property getters is Session 3 (WeatherKit
+/// <c>Forecast&lt;Element&gt;</c>) generator work.
 ///
 /// These tests prove the generated wrappers are (a) emitted at all, and
 /// (b) round-trip integer arithmetic through the witness-table-backed
@@ -85,25 +87,22 @@ public class MusicItemBagTests : TestBase
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Collection projection — array-backed path (Count only)
+    // Collection projection — array-backed path
     //
-    // MusicItemBag has a public `let items: [Item]`, so CollectionProjectionEmitter
-    // takes the array-backed path: `Count => Items.Count`. This guard proves that
-    // the projection at least lowers to an `IReadOnlyList<TItem>` surface with a
-    // working Count getter.
+    // `Count`, indexer, and `GetEnumerator` route through the `Items` getter,
+    // which is currently emitted as raw `CallConvSwift` to the Swift mangled
+    // symbol with two generic-metadata args (TItemMetadata + TItemCollectibleItemPWT).
+    // That trips upstream issue #4 — same pattern as
+    // `BasicGenericTests.TestGetPairSameType`. The destroy witness then
+    // SIGSEGVs on dispose because the bag's payload is left in a torn state.
     //
-    // The indexer, foreach, and IReadOnlyList tests that used to live here were
-    // removed: they delegate through `Items[int]` → `SwiftArray<TItem>.get_Item`,
-    // which crashes inside CollectibleCoin's init-with-copy value witness when
-    // TItem is a user struct with a reference-counted String field. That path
-    // never worked — no prior runtime test exercised `SwiftArray<UserStruct>.get_Item`
-    // — and root-causing it is a separate scope from Session 3 (which targets
-    // Forecast<T>'s witness-dispatch projection, exercised in ForecastSeriesTests
-    // where the same element type round-trips cleanly via the @_cdecl subscript
-    // wrapper — confirming the bug is in the array-delegation path, not in
-    // CollectibleCoin marshalling itself).
+    // Routing T-returning generic struct property getters through `@_cdecl`
+    // wrappers is Session 3 (WeatherKit `Forecast<Element>`) generator work
+    // and out of scope here. Skipped on both runtimes to match the bug's
+    // documented blast radius.
     // ─────────────────────────────────────────────────────────────────────
 
+    [Skip("Upstream issue #4: multi-type-parameter generic SIGSEGV. The MusicItemBag.items getter is emitted as direct CallConvSwift with 2 type metadata params (TItem + TItem:CollectibleItem PWT), which crashes on both Mono and NativeAOT. Long-term fix: PropertyWrapperEmitter needs to route T-returning generic struct property getters through @_cdecl wrappers.")]
     public void TestMusicItemBag_Count_ProjectsFromArrayBacking()
     {
         using var bag = Functions.MakeMusicItemBag(

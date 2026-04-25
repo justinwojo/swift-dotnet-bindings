@@ -157,6 +157,23 @@ public class CliOptions
                      "from the output directory into a {Module}Bridge.xcframework, and updates binding-metadata.props. Requires --xcframework and -o.",
         getDefaultValue: () => false);
 
+    public Option<bool> SliceXcframework { get; } = new(
+        aliases: new[] { "--slice-xcframework" },
+        description: "Slice-xcframework mode: copy a source xcframework to -o, retaining only " +
+                     "the slices a given NuGet RID can consume (the rest of the slices are " +
+                     "dropped from the staged copy and from a pruned root Info.plist). " +
+                     "Requires --xcframework, --rid, and -o. Used by the SDK pack pipeline so " +
+                     "per-RID runtimes/<rid>/native/ directories no longer ship slices the RID " +
+                     "cannot use. Slice copies use ditto to preserve symlinks, xattrs, " +
+                     "executable bits, and per-framework _CodeSignature/.",
+        getDefaultValue: () => false);
+
+    public Option<string?> Rid { get; } = new(
+        aliases: new[] { "--rid" },
+        description: "NuGet runtime identifier (e.g. ios-arm64, tvos-arm64, osx-arm64, " +
+                     "maccatalyst-arm64). Used by --slice-xcframework to pick which slices " +
+                     "of a source xcframework to retain.");
+
     public Option<bool> EmitAppleTypesManifest { get; } = new(
         aliases: new[] { "--emit-apple-types-manifest" },
         description: "Emit-apple-types-manifest mode: ingest one or more Apple Xcode SDK ABI JSON dumps and write the " +
@@ -289,6 +306,8 @@ public class CliOptions
             SkipThunkCompilation,
             CompileWrapperOnly,
             CompileBridgeOnly,
+            SliceXcframework,
+            Rid,
             EmitAppleTypesManifest,
             AppleAbiJson,
             AppleIncludeTypes,

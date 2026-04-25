@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -541,6 +542,89 @@ namespace BindingsGeneration.Tests
                 Assert.DoesNotContain(BindingProjectEmitter.DefaultSwiftRuntimeVersion, content);
             }
             finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_RealSourceXcframework_SlicesAtGenerationTime()
+        {
+            // Real source xcframework (Info.plist on disk) → emitter slices it at generation
+            // time and emits the pack <None> item against the sliced pack-staging/<rid>/ path.
+            // The local NativeReference still points at the raw source so the dev-loop
+            // build can pick the right slice from the full set per the Apple workload's
+            // _ExpandNativeReferences logic. Skipped on non-macOS — slicer uses ditto.
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return;
+
+            var dir = CreateTempDir();
+            try
+            {
+                var sourceXcfwPath = Path.Combine(dir, "..", "Foo.xcframework");
+                CreateFakeXcframeworkWithInfoPlist(sourceXcfwPath, "Foo", new[]
+                {
+                    ("ios-arm64",                  "ios",   (string?)null),
+                    ("ios-arm64-simulator",        "ios",   "simulator"),
+                    ("macos-arm64",                "macos", (string?)null),
+                    ("watchos-arm64",              "watchos", (string?)null),
+                });
+
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Foo",
+                    Metadata = CreateMinimalMetadata("Foo"),
+                    SourceXCFrameworkPath = sourceXcfwPath,
+                }, _logger);
+
+                var csproj = File.ReadAllText(Path.Combine(dir, "Foo.Swift.iOS.csproj"));
+
+                // Pack item targets the sliced staging path, not the raw source.
+                Assert.Contains("pack-staging/ios-arm64/Foo.xcframework/**", csproj.Replace('\\', '/'));
+                Assert.Contains("PackagePath=\"runtimes/ios-arm64/native/Foo.xcframework/\"", csproj);
+
+                // Local NativeReference still points at the raw source (relative to outputDir),
+                // so dev-loop builds see the full slice set.
+                Assert.Contains("<NativeReference Include=\"../Foo.xcframework\">", csproj);
+
+                // Sliced output exists and contains only RID-compatible slices (no watchos/macos).
+                var slicedDir = Path.Combine(dir, "pack-staging", "ios-arm64", "Foo.xcframework");
+                Assert.True(Directory.Exists(slicedDir), $"sliced output missing at {slicedDir}");
+                var sliceIds = Directory.EnumerateDirectories(slicedDir)
+                    .Select(Path.GetFileName).OrderBy(s => s).ToList();
+                Assert.Equal(new List<string?> { "ios-arm64", "ios-arm64-simulator" }, sliceIds);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static void CreateFakeXcframeworkWithInfoPlist(
+            string xcfwPath, string moduleName, IEnumerable<(string id, string platform, string? variant)> slices)
+        {
+            Directory.CreateDirectory(xcfwPath);
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<plist version=\"1.0\">");
+            sb.AppendLine("<dict>");
+            sb.AppendLine("  <key>AvailableLibraries</key>");
+            sb.AppendLine("  <array>");
+            foreach (var (id, platform, variant) in slices)
+            {
+                sb.AppendLine("    <dict>");
+                sb.AppendLine($"      <key>BinaryPath</key><string>{moduleName}.framework/{moduleName}</string>");
+                sb.AppendLine($"      <key>LibraryIdentifier</key><string>{id}</string>");
+                sb.AppendLine($"      <key>LibraryPath</key><string>{moduleName}.framework</string>");
+                sb.AppendLine("      <key>SupportedArchitectures</key><array><string>arm64</string></array>");
+                sb.AppendLine($"      <key>SupportedPlatform</key><string>{platform}</string>");
+                if (variant != null)
+                    sb.AppendLine($"      <key>SupportedPlatformVariant</key><string>{variant}</string>");
+                sb.AppendLine("    </dict>");
+                var sliceFx = Path.Combine(xcfwPath, id, $"{moduleName}.framework");
+                Directory.CreateDirectory(sliceFx);
+                File.WriteAllText(Path.Combine(sliceFx, moduleName), "stub-mach-o");
+            }
+            sb.AppendLine("  </array>");
+            sb.AppendLine("  <key>CFBundlePackageType</key><string>XFWK</string>");
+            sb.AppendLine("  <key>XCFrameworkFormatVersion</key><string>1.0</string>");
+            sb.AppendLine("</dict>");
+            sb.AppendLine("</plist>");
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), sb.ToString());
         }
 
         private static string EmitAndRead(string dir, string module, bool hasWrapper, string? wrapperPath = null)
