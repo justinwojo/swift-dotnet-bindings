@@ -44,9 +44,13 @@ namespace BindingsGeneration
         {
             try
             {
+                // Use "-" for stdout: "/dev/stdout" can resolve to a real file path when the
+                // child's stdout is a pipe (not a tty), causing plutil to error out with
+                // "couldn't be saved in the folder dev". The "-" form is plutil's documented
+                // stdout sentinel and works regardless of whether stdout is a tty or pipe.
                 var (exitCode, stdout, stderr) = commandRunner.Run(
                     "plutil",
-                    $"-convert xml1 -o /dev/stdout \"{plistPath}\"",
+                    $"-convert xml1 -o - \"{plistPath}\"",
                     timeoutMs: 10000);
 
                 if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
