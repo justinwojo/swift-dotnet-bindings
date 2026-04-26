@@ -136,14 +136,13 @@ public class BulkCollectionStressTests : TestBase
     }
 
     /// <summary>
-    /// Diagnostic counterpart to <see cref="TestSwiftSetBulkRoundTrip10K"/> using the
-    /// per-element <see cref="SwiftSet{Element}.Add"/> path instead of bulk
-    /// <c>FromEnumerable</c>. The two tests share the same simulator-skip reason: confirmed
-    /// crashing on iOS Mono Simulator regardless of insertion path proves the bug is in
-    /// <c>SwiftSet.CollectElements</c> / iterator marshalling at scale, not in the new
-    /// bulk <c>AddRange</c> code added in this work. Runs on device (NativeAOT).
+    /// Per-element <see cref="SwiftSet{Element}.Add"/> counterpart to
+    /// <see cref="TestSwiftSetBulkRoundTrip10K"/>. Exercises the per-call
+    /// <c>InsertUnsafe</c> path (acquire SafeHandle scope, marshal element,
+    /// invoke insert via the Cdecl wrapper, destroy memberAfterInsert) instead
+    /// of the hoisted bulk <c>AddRange</c> path, which lets us catch
+    /// regressions specific to either path in isolation.
     /// </summary>
-    [SkipOnSimulator("SwiftSet.CollectElements iterator crashes with 10K elements on iOS Mono Simulator — pre-existing Set marshalling issue (see ClosureOverloadCollisionTests skips); reproduces with per-element Add, so independent of bulk AddRange.")]
     public void TestSwiftSetPerElementRoundTrip10K_Diagnostic()
     {
         var source = new long[Iterations];
@@ -225,10 +224,7 @@ public class BulkCollectionStressTests : TestBase
     /// Build a <see cref="SwiftSet{Element}"/> from 10K distinct elements via
     /// <c>FromEnumerable</c>, then extract back via <c>ToArray</c> and assert that
     /// every source element is present (set semantics — order is unspecified).
-    /// Skipped on simulator: same iterator-marshalling crash as the per-element
-    /// diagnostic above. Runs on device (NativeAOT) where the bug does not reproduce.
     /// </summary>
-    [SkipOnSimulator("SwiftSet.CollectElements iterator crashes with 10K elements on iOS Mono Simulator — pre-existing Set marshalling issue (see ClosureOverloadCollisionTests skips); also reproduces via per-element Add (TestSwiftSetPerElementRoundTrip10K_Diagnostic), confirming it is independent of bulk AddRange.")]
     public void TestSwiftSetBulkRoundTrip10K()
     {
         for (int i = 0; i < 16; i++)
@@ -277,5 +273,197 @@ public class BulkCollectionStressTests : TestBase
 
         AssertTrue(growth < MaxGrowthBytes,
             $"Managed heap growth {growth:N0} bytes exceeds 100MB cap after {Iterations}-element SwiftSet round-trip");
+    }
+
+    /// <summary>
+    /// Bulk round-trip of a <see cref="SwiftArray{Element}"/> whose element type is a
+    /// ref-counted Swift class (<see cref="CoordinateRef"/>). The blittable-<c>long</c>
+    /// counterpart in <see cref="TestSwiftArrayBulkRoundTrip10K"/> doesn't exercise the
+    /// <c>swift_retain</c> path that fires once per element when the bulk-append loop
+    /// marshals an ISwiftObject — a regression in the hoisted SafeHandle scope across
+    /// retain-bearing elements would either crash inside <c>swift_retain</c> or drop a
+    /// reference and leave a dangling pointer in the Swift array.
+    /// </summary>
+    public void TestSwiftArrayBulkRefCountedRoundTrip10K()
+    {
+        // Warm-up with a small ref-counted bulk insert so type metadata is cached and
+        // first-call Mono JIT compilation does not pollute the growth baseline.
+        for (int i = 0; i < 8; i++)
+        {
+            using var warmRef = new CoordinateRef(i, i + 1);
+            using var warm = new SwiftArray<CoordinateRef>(new[] { warmRef });
+            _ = warm.Count;
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long baseline = GC.GetTotalMemory(forceFullCollection: true);
+
+        var source = new CoordinateRef[Iterations];
+        for (int i = 0; i < Iterations; i++)
+            source[i] = new CoordinateRef(i, i + 1);
+
+        var sw = Stopwatch.StartNew();
+        CoordinateRef[] roundTripped;
+        using (var arr = new SwiftArray<CoordinateRef>(source))
+        {
+            AssertEqual(Iterations, arr.Count, "SwiftArray<CoordinateRef> count after bulk insert");
+            roundTripped = arr.ToArray();
+        }
+        sw.Stop();
+
+        AssertEqual(Iterations, roundTripped.Length, "Round-tripped CoordinateRef array length");
+        try
+        {
+            for (int i = 0; i < Iterations; i++)
+            {
+                int x = roundTripped[i].X;
+                int y = roundTripped[i].Y;
+                if (x != i || y != i + 1)
+                    throw new AssertionException(
+                        $"SwiftArray<CoordinateRef> round-trip mismatch at index {i}: expected ({i},{i + 1}), got ({x},{y})");
+            }
+        }
+        finally
+        {
+            for (int i = 0; i < Iterations; i++)
+            {
+                roundTripped[i]?.Dispose();
+                source[i].Dispose();
+            }
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long after = GC.GetTotalMemory(forceFullCollection: true);
+        long growth = after - baseline;
+
+        TestLogger.Info(
+            $"SwiftArray<CoordinateRef> bulk round-trip: {Iterations} elements in {sw.ElapsedMilliseconds}ms, "
+            + $"managed heap grew {growth:N0} bytes (baseline {baseline:N0} -> {after:N0})");
+
+        AssertTrue(growth < MaxGrowthBytes,
+            $"Managed heap growth {growth:N0} bytes exceeds 100MB cap after {Iterations}-element SwiftArray<CoordinateRef> round-trip");
+    }
+
+    /// <summary>
+    /// Bulk round-trip of a <see cref="SwiftDictionary{TKey, TValue}"/> with a ref-counted
+    /// value type (<see cref="SwiftString"/>). The blittable-<c>long</c> counterpart in
+    /// <see cref="TestSwiftDictionaryBulkRoundTrip10K"/> doesn't exercise the SwiftString
+    /// payload retain that fires once per entry inside the bulk <c>UpdateRange</c> loop —
+    /// a regression in the hoisted payload SafeHandle scope across ref-counted-value
+    /// inserts would either drop a string payload or corrupt the bridged <c>String</c>
+    /// header. We read every value back via the indexer (per-call PayloadBuffer scope on
+    /// the read side) and compare the bridged <c>string</c>.
+    /// </summary>
+    public void TestSwiftDictionaryBulkRefCountedValueRoundTrip10K()
+    {
+        // Warm-up — same reason as TestSwiftArrayBulkRefCountedRoundTrip10K.
+        for (int i = 0; i < 8; i++)
+        {
+            using var warmVal = new SwiftString($"warm-{i}");
+            using var warm = SwiftDictionary<long, SwiftString>.FromDictionary(
+                new[] { new KeyValuePair<long, SwiftString>(i, warmVal) });
+            _ = warm.Count;
+        }
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long baseline = GC.GetTotalMemory(forceFullCollection: true);
+
+        var source = new KeyValuePair<long, SwiftString>[Iterations];
+        var expectedValues = new string[Iterations];
+        for (int i = 0; i < Iterations; i++)
+        {
+            string text = $"value-{i * 17 + 3}";
+            expectedValues[i] = text;
+            source[i] = new KeyValuePair<long, SwiftString>(i, new SwiftString(text));
+        }
+
+        var sw = Stopwatch.StartNew();
+        var snapshot = new string[Iterations];
+        using (var dict = SwiftDictionary<long, SwiftString>.FromDictionary(source))
+        {
+            AssertEqual(Iterations, dict.Count, "SwiftDictionary<long, SwiftString> count after bulk insert");
+            for (int i = 0; i < Iterations; i++)
+            {
+                using var roundTripped = dict[i];
+                snapshot[i] = roundTripped.ToString();
+            }
+        }
+        sw.Stop();
+
+        try
+        {
+            for (int i = 0; i < Iterations; i++)
+            {
+                if (snapshot[i] != expectedValues[i])
+                    throw new AssertionException(
+                        $"SwiftDictionary<long, SwiftString> round-trip mismatch at key {i}: expected {expectedValues[i]}, got {snapshot[i]}");
+            }
+        }
+        finally
+        {
+            for (int i = 0; i < Iterations; i++)
+                source[i].Value.Dispose();
+        }
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        long after = GC.GetTotalMemory(forceFullCollection: true);
+        long growth = after - baseline;
+
+        TestLogger.Info(
+            $"SwiftDictionary<long, SwiftString> bulk round-trip: {Iterations} pairs in {sw.ElapsedMilliseconds}ms, "
+            + $"managed heap grew {growth:N0} bytes (baseline {baseline:N0} -> {after:N0})");
+
+        AssertTrue(growth < MaxGrowthBytes,
+            $"Managed heap growth {growth:N0} bytes exceeds 100MB cap after {Iterations}-pair SwiftDictionary<long, SwiftString> round-trip");
+    }
+
+    /// <summary>
+    /// Sim-safe smaller-N bulk-insert + membership-probe round trip for
+    /// <see cref="SwiftSet{Element}.FromEnumerable"/>. Exercises the bulk
+    /// <c>AddRange</c> path (which routes per-element through the
+    /// <c>InsertUnsafe</c> Cdecl wrapper) plus the per-call <c>Contains</c>
+    /// PayloadBuffer scope, without ever touching the iterator-marshalling
+    /// path. Smaller element count than the 10K stress test above so a
+    /// regression here is caught quickly during the inner loop.
+    /// </summary>
+    public unsafe void TestSwiftSetBulkContainsOnlySmall()
+    {
+        const int simSafeCount = 256;
+
+        var source = new long[simSafeCount];
+        for (int i = 0; i < simSafeCount; i++)
+            source[i] = (long)i * 13 + 1;
+
+        var sw = Stopwatch.StartNew();
+        using (var set = SwiftSet<long>.FromEnumerable(source))
+        {
+            AssertEqual(simSafeCount, set.Count, "SwiftSet count after bulk insert (sim-safe)");
+
+            // Membership probe across every source element exercises the post-insert
+            // hash table without enumerating the set — Contains takes the per-call
+            // PayloadBuffer scope on each lookup, which is the read-side analogue
+            // of the bulk-write hoist this stress test is guarding.
+            for (int i = 0; i < simSafeCount; i++)
+            {
+                if (!set.Contains(source[i]))
+                    throw new AssertionException(
+                        $"SwiftSet bulk Contains lost element at source index {i} (value {source[i]})");
+            }
+
+            // Negative-membership probe at a value guaranteed not to collide with the
+            // arithmetic progression above: 0 is congruent to 1 (mod 13) only for i=0,
+            // where source[0] = 1, so source[i] != 0 for all i.
+            AssertTrue(!set.Contains(0L), "SwiftSet must not report a synthesized non-member as present");
+        }
+        sw.Stop();
+
+        TestLogger.Info(
+            $"SwiftSet bulk Contains-only (sim-safe): {simSafeCount} elements in {sw.ElapsedMilliseconds}ms");
     }
 }

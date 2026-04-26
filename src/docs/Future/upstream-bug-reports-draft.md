@@ -5,7 +5,7 @@ Project: [swift-dotnet-bindings](https://github.com/justinwojo/swift-dotnet-bind
 Contact: Justin Wojciechowski
 Repro project: [swift-interop-repro](https://github.com/justinwojo/swift-interop-repro)
 
-Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
+Eight .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
 > **2026-04-26 re-verification environment** (used for every "Verified on" line below):
 > - .NET SDK 10.0.103, Microsoft.iOS.Sdk 26.2.10197, runtime framework 10.0.3
@@ -14,7 +14,8 @@ Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (no
 >
 > **Behavioral shifts caught by this run** (read before filing — flag loudly):
 > - **Issue 1's original trigger no longer reproduces.** The direct `swift_getExistentialTypeMetadata` P/Invoke shown in the repro now PASSES on Mono (.NET 10.0.103). The `!ji->async` assertion at `jit-info.c:918` still fires, but only as a *secondary* crash during Mono signal-handler stack unwinding from an unrelated native SIGSEGV (e.g. Issue 7's `sumStruct4Ints`, or the SkipReduction `FourStringInit_Struct` 4-String struct call). The assertion bug is real and reproducible, but the minimal repro snippet currently in the draft is stale — see Issue 1 below for the updated trigger evidence and a TODO before filing.
-> - All six remaining issues (2, 3, 5, 6, 7, 8) reproduce with the same symptoms documented previously. No new issues observed; no behavior changes that would affect filing strategy.
+> - All six remaining issues (2, 3, 5, 6, 7, 8) reproduce with the same symptoms documented previously.
+> - **Issue 9 added (2026-04-26).** Mono `Cannot transition thread 0x0 from STARTING with DONE_BLOCKING` when calling `Set<T>.insert` via `CallConvSwift`. The `(Bool direct, @out via x0)` tuple-return ABI shape corrupts Mono's thread state machine during the managed-to-native transition. `Set.contains` (simpler ABI, no `@out` tuple) passes. Confirmed in standalone repro (Issue 9 in `swift-interop-repro`). Root cause in swift-bindings: `SwiftSet<T>.InsertUnsafe` uses `SwiftSetPInvokes.Insert` with this ABI shape.
 
 > **Before filing:**
 > 1. Re-search dotnet/runtime issues to confirm nothing has been filed in the interim.
@@ -31,6 +32,7 @@ Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (no
 - **Issue 6** — File as a **bug report**. Minimal repro of Issue 5 (single `double` field struct).
 - **Issue 7** — File as a **bug report**. NativeAOT passes custom integer structs >16B by pointer instead of in GPRs. Separate from float issue (Issue 5). Affects both NativeAOT (≥24B) and Mono (≥32B).
 - **Issue 8** — File as a **bug report**. NativeAOT SIGSEGV on multi-type-parameter generic functions via CallConvSwift. Clean delta: 1 type param PASSES, 2 type params SIGSEGV. Reproduced in standalone repro project.
+- **Issue 9** — File as a **bug report**. Mono `Cannot transition thread from STARTING with DONE_BLOCKING` on `Set<T>.insert` via `CallConvSwift`. Specific to the `(Bool direct, @out via x0)` tuple-return ABI shape. `Set.contains` (no `@out`) passes. Reproduced in standalone repro project (Issue 9 in `swift-interop-repro`).
 
 ---
 
@@ -737,5 +739,137 @@ All issues are reproducible via the standalone [repro project](https://github.co
 | 5-6 | NativeAOT | Custom struct float/double fields in GPR instead of FPR |
 | 7 | Both (different thresholds) | Custom integer struct >16B passed by pointer instead of in registers |
 | 8 | NativeAOT | Multi-type-parameter generic function SIGSEGV |
+| 9 | Mono | `Cannot transition thread from STARTING with DONE_BLOCKING` on `(Bool, @out via x0)` tuple-return ABI |
 
 All active issues have workarounds in production use (`@_cdecl` Swift wrapper functions using `CallingConvention.Cdecl`), but the workarounds add significant complexity (per-type/per-method Swift wrapper generation, wrapper xcframework bundling, manual marshalling). Issue 2 (non-blittable support) would have the largest impact — reducing the wrapper rate from ~67% to ~20%.
+
+---
+
+## Issue 9 (Bug): Mono `Cannot transition thread from STARTING with DONE_BLOCKING` on `(Bool direct, @out via x0)` tuple-return `CallConvSwift` P/Invoke
+
+### Title
+
+`[Mono] "Cannot transition thread from STARTING with DONE_BLOCKING" when calling Swift method with (Bool, @out Element) tuple return via CallConvSwift`
+
+### Labels
+
+`area-Interop-Swift`, `os-ios`, `os-maccatalyst`, `bug`, `runtime-mono`
+
+### Description
+
+**Environment:**
+- .NET 10.0 (10.0.103), Mono runtime (iOS Simulator, arm64)
+- Microsoft.iOS.Sdk 26.2.10197
+- Xcode 26.2, iOS Simulator runtime 26.3
+- Reproduced in: [swift-interop-repro](https://github.com/justinwojo/swift-interop-repro), Issue 9 class `Issue9_SetInsertAbi`
+
+**Symptom:**
+
+Calling `Swift.Set<T>.insert(_:)` via `[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]` P/Invoke on Mono causes an immediate `SIGABRT` with:
+
+```
+error: Cannot transition thread 0x0 from STARTING with DONE_BLOCKING
+```
+
+This is Mono's thread-state machine asserting that the thread is in `STARTING` state when `mono_threads_transition_done_blocking` is called to end the managed-to-native GC-safe region after the P/Invoke returns. The expected state before `DONE_BLOCKING` is `BLOCKING`; the actual state is `STARTING`, indicating the thread state was corrupted during the `CallConvSwift` callout.
+
+**ABI shape that triggers the crash:**
+
+`Set<T>.insert(_:)` returns a `(Bool inserted, Element memberAfterInsert)` tuple where:
+- `Bool` (`inserted`) is returned directly in `x0` (a single-register scalar)
+- `@out Element` (`memberAfterInsert`) is written via a pointer **also passed in `x0`** — not via `x8` (`SwiftIndirectResult`)
+
+This is a mixed tuple-return ABI: when one element is direct (`Bool`) and one is `@out`, the `@out` buffer pointer occupies `x0` on call entry, and the direct `Bool` is returned in `w0`/`x0` after return — `x0` is reused for both the inbound out-pointer argument and the outbound scalar result. This differs from the pure `@out` path that uses `x8`/`SwiftIndirectResult`.
+
+**P/Invoke signature (matches swift-bindings `SwiftSetPInvokes.Insert` exactly):**
+
+```csharp
+[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
+[DllImport("libswiftCore.dylib", EntryPoint = "$sSh6insertySb8inserted_x17memberAfterInserttxnF")]
+public static extern byte Insert(
+    IntPtr outMemberBuffer,   // x0 — @out Element buffer
+    IntPtr element,           // x1 — @in Element value
+    IntPtr setMetadata,       // x2 — full Set<T> metadata (generic context)
+    SwiftSelf self);          // x20 — @inout Set<T> (storage pointer buffer)
+// return: byte (Bool in x0)
+```
+
+**Control group — same call pattern, no @out — passes:**
+
+```csharp
+[UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
+[DllImport("libswiftCore.dylib", EntryPoint = "$sSh8containsySbxF")]
+public static extern byte SetContains(
+    IntPtr element,            // x0 — element
+    IntPtr setStoragePtr,      // x1 — Set value (storage pointer, passed by value)
+    IntPtr elementMetadata,    // x2 — T metadata
+    IntPtr hashableWT);        // x3 — T:Hashable witness table
+// return: byte (Bool in x0)
+```
+
+`SetContains` **passes** on Mono. `SetInsert` **crashes** with `DONE_BLOCKING` error. The delta is the `(Bool, @out via x0)` return shape.
+
+**Memory addresses from repro run:**
+```
+Int metadata:        0x1E8A72AC0
+Int:Hashable WT:     0x1E8A6A340
+Set<Int> metadata:   0x1E8A762C8
+Set<Int> size:       8, Int size: 8
+
+@_cdecl pre-populate insert(99): 1  (set properly initialized)
+Set storage ptr (after @_cdecl insert): 0x60000211EBC0  (valid heap address)
+Storage ptr looks like heap address: True
+
+9b. Set<Int>.contains(99) [CONTROL]: 1 (expected 1) — PASS
+
+[SetInsert called here — process crashes]
+error: Cannot transition thread 0x0 from STARTING with DONE_BLOCKING
+SIGABRT
+```
+
+**Native stacktrace key frames:**
+```
+mono_threads_transition_done_blocking
+mono_threads_exit_gc_safe_region_unbalanced
+wrapper_managed_to_native_..._SetInsert_intptr_intptr_intptr_SwiftSelf
+Issue9_SetInsertAbi_Run
+```
+
+**Symbol verified:**
+```
+nm -g libswiftCore.dylib | grep Sh6insert
+000000000004a190 T _$sSh6insertySb8inserted_x17memberAfterInserttxnF
+// swift-demangle: Swift.Set.insert(__owned A) -> (inserted: Swift.Bool, memberAfterInsert: A)
+```
+
+**Real-world impact:**
+
+`swift-dotnet-bindings` wraps Swift's `Set<T>` as `SwiftSet<T>` with an `Add(Element)` method that calls `insert(_:)` via this P/Invoke. The crash prevents any `SwiftSet<T>.Add()` call from completing on Mono (iOS Simulator), causing the `BulkCollectionStressTests` and `SwiftSetTests` to fail with SIGABRT rather than assertion failures.
+
+**SIL signatures (unspecialized, from verified dump):**
+
+```
+// Set<T>.insert(_:)
+$sSh6insertySb8inserted_x17memberAfterInserttxnF:
+  @convention(method) (@in T, @inout Set<T>) -> (Bool, @out T)
+```
+
+The return `(Bool, @out T)` is NOT handled via `x8`/`SwiftIndirectResult`. Instead, the `@out T` buffer pointer goes in `x0` and the direct `Bool` result is returned in `x0` after the call returns. Mono's `CallConvSwift` trampoline appears to mis-handle this mixed return shape, corrupting the thread state during transition cleanup.
+
+**Workaround:**
+
+Use an `@_cdecl` Swift wrapper that calls `insert` and returns just the `Bool` inserted flag, avoiding the mixed tuple-return ABI entirely:
+
+```swift
+@_cdecl("swiftset_insert")
+public func swiftset_insert(_ setPtr: UnsafeMutableRawPointer, _ value: Int) -> Int32 {
+    let result = setPtr.assumingMemoryBound(to: Set<Int>.self).pointee.insert(value)
+    return result.inserted ? 1 : 0
+}
+```
+
+**Filing notes:**
+- Verified: 2026-04-26, .NET 10.0.103, Mono (iOS Simulator arm64)
+- Related to Issue 1 (`!ji->async`) and the general pattern of Mono not handling non-standard CallConvSwift return ABIs
+- Not reproduced on NativeAOT (device) — needs separate verification
+- Priority: high for `SwiftSet<T>` correctness in swift-dotnet-bindings

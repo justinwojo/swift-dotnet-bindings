@@ -331,36 +331,93 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     }
 
     /// <summary>
-    /// Issues a single <c>insert(_:)</c> P/Invoke without acquiring the payload
+    /// Issues a single <c>insert(_:)</c> call without acquiring the payload
     /// SafeHandle. The caller must hold a successful <c>DangerousAddRef</c> scope
     /// across the call.
     /// </summary>
+    /// <remarks>
+    /// Routes through Swift `@_cdecl` wrappers (<c>SBW_SetInt_Insert</c>,
+    /// <c>SBW_SetString_Insert</c>) for the supported element types instead of
+    /// calling Swift stdlib's `Set.insert` directly via CallConvSwift. The
+    /// `Set.insert` ABI returns `(inserted: Bool, memberAfterInsert: Element)` —
+    /// a (direct Bool, @out via x0) tuple-return shape that Mono's CallConvSwift
+    /// trampoline mishandles on iOS Simulator: the call appears to succeed, but
+    /// a stack address from the trampoline's scratch frame is also written into
+    /// the caller's `self` slot, causing a SIGSEGV on the next VWT Destroy.
+    /// `Dictionary.updateValue` (pure `@out` via x8/SwiftIndirectResult) does NOT
+    /// exhibit the same corruption — confirming the bug is shape-specific.
+    /// </remarks>
     private static unsafe bool InsertUnsafe(Element element, TypeMetadata metadata, IntPtr handle)
     {
-        Span<byte> span = stackalloc byte[(int)ElementSize];
-        SwiftMarshal.MarshalToSwift(element, ref span);
-        IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
-
-        // Insert returns (Bool, @out Element). The @out Element is written to a buffer
-        // passed in x0, and the Bool is returned directly. We allocate a per-call
-        // buffer for the memberAfterInsert and destroy it via the element VWT.
-        void* outMemberBuffer = NativeMemory.Alloc(ElementSize);
-        try
+        // C# `long` ↔ Swift.Int64 (`$ss5Int64V`). Routed through Set<Int64> wrapper.
+        if (typeof(Element) == typeof(long))
         {
-            byte inserted = SwiftSetPInvokes.Insert(
-                (IntPtr)outMemberBuffer,
-                elementPayload,
-                metadata,
-                new SwiftSelf((void*)handle));
-
-            // Destroy the memberAfterInsert element written to the out buffer.
-            CachedElementTypeMetadata.ValueWitnessTable->Destroy(outMemberBuffer, CachedElementTypeMetadata);
-
+            long longElement = Unsafe.As<Element, long>(ref element);
+            long outMember = 0;
+            byte inserted = SwiftSetCdeclWrappers.SetInt64Insert(handle, longElement, (IntPtr)(&outMember));
+            // outMember is a plain Int64 — no VWT Destroy needed.
             return inserted != 0;
         }
-        finally
+
+        // C# `nint` (IntPtr) ↔ Swift.Int (`$sSi`). Routed through Set<Int> wrapper.
+        // Different generic instantiation than Set<Int64> despite identical layout
+        // on 64-bit platforms (per HashableConformanceRegistry mapping).
+        if (typeof(Element) == typeof(nint))
         {
-            NativeMemory.Free(outMemberBuffer);
+            nint nintElement = Unsafe.As<Element, nint>(ref element);
+            nint outMember = 0;
+            byte inserted = SwiftSetCdeclWrappers.SetIntInsert(handle, nintElement, (IntPtr)(&outMember));
+            // outMember is a plain Int — no VWT Destroy needed.
+            return inserted != 0;
+        }
+
+        if (typeof(Element) == typeof(SwiftString))
+        {
+            // String is 16 bytes / 2 words on arm64.
+            Span<byte> span = stackalloc byte[(int)ElementSize];
+            SwiftMarshal.MarshalToSwift(element, ref span);
+            IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+
+            Span<byte> outSpan = stackalloc byte[(int)ElementSize];
+            outSpan.Clear();
+            void* outMemberBuffer = Unsafe.AsPointer(ref MemoryMarshal.GetReference(outSpan));
+
+            byte inserted = SwiftSetCdeclWrappers.SetStringInsert(
+                handle, elementPayload, (IntPtr)outMemberBuffer);
+
+            // The Swift wrapper consumed `elementPayload` via .move() — its +1 retain
+            // was transferred into the Set (or released if the element was already
+            // present). Do NOT destroy `span`. The wrapper wrote `memberAfterInsert`
+            // into `outMemberBuffer` with a +1 retain — destroy it before discarding.
+            CachedElementTypeMetadata.ValueWitnessTable->Destroy(outMemberBuffer, CachedElementTypeMetadata);
+            return inserted != 0;
+        }
+
+        // Fallback path for element types without a Cdecl wrapper. Uses the
+        // CallConvSwift P/Invoke directly — known-broken on iOS Simulator (Mono)
+        // for the (Bool direct, @out via x0) tuple-return shape. Add a wrapper
+        // in SwiftBindingsRuntime.swift if a new element type is needed.
+        {
+            Span<byte> span = stackalloc byte[(int)ElementSize];
+            SwiftMarshal.MarshalToSwift(element, ref span);
+            IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+
+            void* outMemberBuffer = NativeMemory.Alloc(ElementSize);
+            try
+            {
+                byte inserted = SwiftSetPInvokes.Insert(
+                    (IntPtr)outMemberBuffer,
+                    elementPayload,
+                    metadata,
+                    new SwiftSelf((void*)handle));
+
+                CachedElementTypeMetadata.ValueWitnessTable->Destroy(outMemberBuffer, CachedElementTypeMetadata);
+                return inserted != 0;
+            }
+            finally
+            {
+                NativeMemory.Free(outMemberBuffer);
+            }
         }
     }
 
@@ -790,4 +847,53 @@ internal static class SwiftSetPInvokes
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftCore, EntryPoint = "$sSh8IteratorV4nextxSgyF")]
     public static extern void IteratorNext(SwiftIndirectResult result, TypeMetadata iteratorMetadata, SwiftSelf self);
+}
+
+/// <summary>
+/// Cdecl wrappers for <see cref="Swift.SwiftSet{Element}"/> operations whose
+/// CallConvSwift P/Invokes are mishandled by Mono on iOS Simulator. See
+/// <see cref="Swift.SwiftSet{Element}"/>'s <c>InsertUnsafe</c> for context on
+/// the (Bool direct, @out via x0) tuple-return shape this works around.
+/// </summary>
+internal static class SwiftSetCdeclWrappers
+{
+    /// <summary>
+    /// Inserts an Int64 into a Set&lt;Int64&gt;. Wraps Swift's
+    /// <c>set.insert(element)</c> behind a Cdecl boundary. Used for C# <c>long</c>
+    /// (Swift.Int64). See <see cref="SetIntInsert"/> for the Swift.Int (C# nint) variant.
+    /// </summary>
+    /// <param name="setHandle">Pointer to the Set's 8-byte storage slot.</param>
+    /// <param name="element">The Int64 value to insert.</param>
+    /// <param name="outMember">Pointer to a caller-owned 8-byte buffer for memberAfterInsert.</param>
+    /// <returns>1 if inserted; 0 if already present.</returns>
+    [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_SetInt64_Insert", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static extern byte SetInt64Insert(IntPtr setHandle, long element, IntPtr outMember);
+
+    /// <summary>
+    /// Inserts an Int into a Set&lt;Int&gt;. Wraps Swift's
+    /// <c>set.insert(element)</c> behind a Cdecl boundary. Used for C# <c>nint</c>
+    /// (Swift.Int). See <see cref="SetInt64Insert"/> for the Swift.Int64 (C# long) variant.
+    /// </summary>
+    /// <param name="setHandle">Pointer to the Set's 8-byte storage slot.</param>
+    /// <param name="element">The Int (nint-sized) value to insert.</param>
+    /// <param name="outMember">Pointer to a caller-owned 8-byte buffer for memberAfterInsert.</param>
+    /// <returns>1 if inserted; 0 if already present.</returns>
+    [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_SetInt_Insert", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static extern byte SetIntInsert(IntPtr setHandle, nint element, IntPtr outMember);
+
+    /// <summary>
+    /// Inserts a String into a Set&lt;String&gt;. Wraps Swift's
+    /// <c>set.insert(element)</c> behind a Cdecl boundary. The wrapper consumes
+    /// (moves out of) <paramref name="elementBuffer"/> — caller must NOT destroy
+    /// the element buffer afterwards.
+    /// </summary>
+    /// <param name="setHandle">Pointer to the Set's 8-byte storage slot.</param>
+    /// <param name="elementBuffer">Pointer to a 16-byte Swift.String raw representation. Consumed.</param>
+    /// <param name="outMember">Pointer to a caller-owned 16-byte buffer for memberAfterInsert; caller destroys via String VWT.</param>
+    /// <returns>1 if inserted; 0 if already present.</returns>
+    [DllImport("SwiftBindingsRuntime", EntryPoint = "SBW_SetString_Insert", CallingConvention = CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    public static extern byte SetStringInsert(IntPtr setHandle, IntPtr elementBuffer, IntPtr outMember);
 }

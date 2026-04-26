@@ -1,5 +1,5 @@
 {
-  "git_sha": "659233b1",
+  "git_sha": "33d4a506",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -922,15 +922,15 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1687,
+      "pass": 1704,
       "fail": 0,
-      "skip": 55,
+      "skip": 51,
       "crash": 0
     },
     "device": {
-      "pass": 1701,
+      "pass": 1716,
       "fail": 0,
-      "skip": 41,
+      "skip": 39,
       "crash": 0
     }
   }

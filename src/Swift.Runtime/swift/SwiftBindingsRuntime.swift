@@ -475,6 +475,110 @@ public func sbw_managedSettingsMarkerMetadata(_ markerIndex: Int) -> UnsafeMutab
     return accessor(0)
 }
 
+// MARK: - Set.insert Wrappers
+//
+// Swift's `Set.insert(_:)` returns `(inserted: Bool, memberAfterInsert: Element)` —
+// a tuple of (direct Bool, @out indirect Element). On ARM64 the `@out` element is
+// passed via x0 as a regular indirect parameter (NOT x8/SwiftIndirectResult, because
+// one tuple element is direct-return). Mono's CallConvSwift trampoline mishandles
+// this `(Bool direct, @out via x0)` shape on iOS Simulator: the call appears to
+// return successfully (`inserted=1`, the @out element is written), but a stack
+// address from the trampoline's scratch frame is also written into the caller's
+// `self` slot. The next VWT Destroy on Dispose then dereferences that stack
+// address as a HeapObject* and SIGSEGVs in `_swift_release_dealloc`.
+//
+// Routing through these Swift `@_cdecl` wrappers avoids Mono's CallConvSwift
+// trampoline entirely: C# enters via Cdecl, and the actual `Set.insert` call is
+// Swift-to-Swift (no Mono trampoline involvement).
+//
+// `Dictionary.updateValue(_:forKey:)` returns `Optional<Value>` (pure `@out` via
+// x8/SwiftIndirectResult) and does NOT exhibit the same corruption — confirming
+// the bug is specific to the tuple-return shape, not generic CallConvSwift.
+
+/// Inserts an `Int64` into a `Set<Int64>`. Equivalent to Swift's `set.insert(element)`.
+///
+/// Bound to C# `long` (`System.Int64`), which `HashableConformanceRegistry` maps to
+/// `Swift.Int64` (mangled `$ss5Int64V`) — distinct from `Swift.Int` (mangled `$sSi`).
+/// Although both are 64-bit on arm64, their generic instantiations of `Set` have
+/// different metadata, so we keep separate wrappers per Swift element type.
+///
+/// - Parameters:
+///   - setHandle: Pointer to the Set's storage slot (the 8-byte buffer holding the
+///     `__RawSetStorage` pointer). Mutated in place.
+///   - element: The Int64 value to insert.
+///   - outMember: Pointer to a caller-provided 8-byte buffer that receives
+///     `memberAfterInsert` (the pre-existing member if `inserted == false`, otherwise
+///     the just-inserted element).
+/// - Returns: `true` if the element was inserted; `false` if it was already present.
+@_cdecl("SBW_SetInt64_Insert")
+public func sbw_setInt64Insert(
+    _ setHandle: UnsafeMutableRawPointer,
+    _ element: Int64,
+    _ outMember: UnsafeMutableRawPointer
+) -> Bool {
+    let setPtr = setHandle.assumingMemoryBound(to: Set<Int64>.self)
+    let outPtr = outMember.assumingMemoryBound(to: Int64.self)
+    let result = setPtr.pointee.insert(element)
+    outPtr.initialize(to: result.memberAfterInsert)
+    return result.inserted
+}
+
+/// Inserts an `Int` into a `Set<Int>`. Equivalent to Swift's `set.insert(element)`.
+///
+/// Bound to C# `nint` (`System.IntPtr`), which `HashableConformanceRegistry` maps to
+/// `Swift.Int` (mangled `$sSi`) — distinct from `Swift.Int64` (handled by
+/// `SBW_SetInt64_Insert`). Same byte layout on 64-bit, different metadata.
+///
+/// - Parameters:
+///   - setHandle: Pointer to the Set's storage slot (the 8-byte buffer holding the
+///     `__RawSetStorage` pointer). Mutated in place.
+///   - element: The Int value to insert.
+///   - outMember: Pointer to a caller-provided 8-byte buffer that receives
+///     `memberAfterInsert` (the pre-existing member if `inserted == false`, otherwise
+///     the just-inserted element).
+/// - Returns: `true` if the element was inserted; `false` if it was already present.
+@_cdecl("SBW_SetInt_Insert")
+public func sbw_setIntInsert(
+    _ setHandle: UnsafeMutableRawPointer,
+    _ element: Int,
+    _ outMember: UnsafeMutableRawPointer
+) -> Bool {
+    let setPtr = setHandle.assumingMemoryBound(to: Set<Int>.self)
+    let outPtr = outMember.assumingMemoryBound(to: Int.self)
+    let result = setPtr.pointee.insert(element)
+    outPtr.initialize(to: result.memberAfterInsert)
+    return result.inserted
+}
+
+/// Inserts a `String` into a `Set<String>`. Equivalent to Swift's `set.insert(element)`.
+///
+/// - Parameters:
+///   - setHandle: Pointer to the Set's storage slot (the 8-byte buffer holding the
+///     `__RawSetStorage` pointer). Mutated in place.
+///   - elementBuffer: Pointer to a 16-byte (2-word) Swift.String raw representation
+///     carrying a +1 retain. **The buffer is moved-from** — its +1 retain is consumed
+///     by `insert`, matching the original `@in` ABI semantics. The C# caller must
+///     not destroy the buffer after this call returns.
+///   - outMember: Pointer to a caller-provided 16-byte buffer that receives
+///     `memberAfterInsert`. The caller is responsible for destroying it via the
+///     String VWT.
+/// - Returns: `true` if the element was inserted; `false` if it was already present.
+@_cdecl("SBW_SetString_Insert")
+public func sbw_setStringInsert(
+    _ setHandle: UnsafeMutableRawPointer,
+    _ elementBuffer: UnsafeMutableRawPointer,
+    _ outMember: UnsafeMutableRawPointer
+) -> Bool {
+    let setPtr = setHandle.assumingMemoryBound(to: Set<String>.self)
+    // .move() consumes the +1 in elementBuffer, transferring ownership to `element`.
+    // After this, elementBuffer is uninitialized — caller must not destroy it.
+    let element = elementBuffer.assumingMemoryBound(to: String.self).move()
+    let outPtr = outMember.assumingMemoryBound(to: String.self)
+    let result = setPtr.pointee.insert(element)
+    outPtr.initialize(to: result.memberAfterInsert)
+    return result.inserted
+}
+
 // MARK: - SwiftUI.Text Construction Bridge
 
 // SwiftUI.Text is not available in the Mac Catalyst SDK interface (macabi swiftinterface

@@ -28,7 +28,6 @@ public class ClosureOverloadCollisionTests : TestBase
         AssertTrue(result.Contains("a"), "Array result contains items");
     }
 
-    [Skip("SwiftSet<SwiftString>.FromEnumerable crash — pre-existing Set marshalling issue")]
     public void TestCollectionProcessorSetOverload()
     {
         // Second overload: process(unique: Set<String>) → Process2(IEnumerable<string>)
@@ -70,7 +69,6 @@ public class ClosureOverloadCollisionTests : TestBase
         AssertNotNull(method, "TransformCollection2 method exists (free function disambiguation worked)");
     }
 
-    [Skip("SwiftSet<SwiftString>.FromEnumerable crash — pre-existing Set marshalling issue")]
     public void TestTransformCollectionSetOverload()
     {
         // Free function: transformCollection(unique: Set<String>) → TransformCollection2(IEnumerable<string>)
