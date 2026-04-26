@@ -46,22 +46,6 @@ public static class DefaultParameterOverloadEmitter
         if (methodDecl.ParentDecl is TypeDecl parentTypeDecl && parentTypeDecl.IsModuleInternal)
             return;
 
-        // Skip methods on custom-global-actor-isolated parents (e.g., @ImagePipelineActor).
-        // The default-parameter overload helper is emitted as `extension Type { static func _dbw_*(...) }`,
-        // and Swift extensions inherit the extended type's actor isolation. Calling such a static
-        // helper from the synchronous nonisolated @_cdecl wrapper produces a Swift 6 isolation error.
-        // Mirrors the constructor wrapper gate in WrapperValidation.CanEmitMember (SWIFTBIND022).
-        if (methodDecl.ParentDecl is TypeDecl actorIsolatedParent && actorIsolatedParent.IsCustomActorIsolated)
-        {
-            logger.LogInformation(
-                "SWIFTBIND022: Skipping default-parameter overloads for '{Name}' on '{ParentName}' " +
-                "because the parent type is isolated to a custom global actor; the _dbw_ helper extension would inherit that isolation. " +
-                "The primary method signature is unaffected.",
-                methodDecl.Name,
-                actorIsolatedParent.Name);
-            return;
-        }
-
         // Skip methods on generic parent types — Swift extension syntax can't express
         // the generic parameters (e.g., `extension Keyframe` instead of `extension Keyframe<T>`),
         // and generic type params (τ_0_0) in parameter types aren't valid Swift identifiers.
@@ -78,6 +62,24 @@ public static class DefaultParameterOverloadEmitter
         var trailingDefaultCount = CountTrailingDefaults(methodDecl);
         if (trailingDefaultCount == 0)
             return;
+
+        // Skip methods on custom-global-actor-isolated parents (e.g., @ImagePipelineActor).
+        // The default-parameter overload helper is emitted as `extension Type { static func _dbw_*(...) }`,
+        // and Swift extensions inherit the extended type's actor isolation. Calling such a static
+        // helper from the synchronous nonisolated @_cdecl wrapper produces a Swift 6 isolation error.
+        // Mirrors the constructor wrapper gate in WrapperValidation.CanEmitMember (SWIFTBIND022).
+        // Placed after the no-trailing-defaults early return so we don't log a skip for methods
+        // that wouldn't have produced an overload anyway.
+        if (methodDecl.ParentDecl is TypeDecl actorIsolatedParent && actorIsolatedParent.IsCustomActorIsolated)
+        {
+            logger.LogInformation(
+                "SWIFTBIND022: Skipping default-parameter overloads for '{Name}' on '{ParentName}' " +
+                "because the parent type is isolated to a custom global actor; the _dbw_ helper extension would inherit that isolation. " +
+                "The primary method signature is unaffected.",
+                methodDecl.Name,
+                actorIsolatedParent.Name);
+            return;
+        }
 
         // Skip overload generation when all trailing defaults have C#-mappable inline values.
         // In that case, the primary method signature already has `= value` defaults.

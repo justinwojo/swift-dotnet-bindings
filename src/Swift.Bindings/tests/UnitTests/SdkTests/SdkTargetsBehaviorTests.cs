@@ -656,6 +656,48 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SUPPLEMENT_PROJ:", output);
         }
 
+        [Fact]
+        public void InjectAppleSupplementPrototype_OptOutWithManualReference_PreservesUserVersion()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // Consumer set DisableImplicitSwiftAppleReference=true (so Sdk.props skipped its
+            // implicit reference) and then manually pinned `SwiftBindings.Apple` to a sentinel
+            // version. The targets-side `Update=` must respect the same opt-out conditions
+            // as the props-side `Include=` — otherwise it would silently rewrite the user's
+            // pinned version to the generator-detected floor.
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestModuleSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>
+                    <_SwiftBindingAppleSupplementVersion>26.0.0</_SwiftBindingAppleSupplementVersion>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode,
+                plantImplicitSwiftAppleReference: true,
+                disableImplicitSwiftAppleReference: true,
+                plantedReferenceVersion: "[5.0.0,)");
+
+            Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
+            // The user's manually-pinned version must survive — Update was suppressed by the
+            // opt-out condition. The generator-detected floor "[26.0.0,)" must NOT appear.
+            Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[5.0.0,)", output);
+            Assert.DoesNotContain("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
+            Assert.Equal(1, CountOccurrences(output, "SUPPLEMENT_PKG:SwiftBindings.Apple|"));
+        }
+
         private static int CountOccurrences(string haystack, string needle)
         {
             if (string.IsNullOrEmpty(needle)) return 0;
@@ -669,7 +711,9 @@ namespace BindingsGeneration.Tests
         }
 
         private void RunInjectSupplementTarget(string intermediateDir, out string output, out int exitCode,
-            bool plantImplicitSwiftAppleReference = true)
+            bool plantImplicitSwiftAppleReference = true,
+            bool disableImplicitSwiftAppleReference = false,
+            string plantedReferenceVersion = "[0.0.0-placeholder,)")
         {
             var sdkTargetsPath = Path.Combine(FindRepoRoot(),
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
@@ -688,11 +732,22 @@ namespace BindingsGeneration.Tests
             // `[0.0.0-placeholder,)`). Set plantImplicitSwiftAppleReference=false to model
             // the opt-out path (DisableImplicitSwiftAppleReference=true or
             // SwiftFrameworkType=ObjC) where Sdk.props skips the implicit Include.
+            // To model "consumer opted out AND manually pinned a version", combine
+            // plantImplicitSwiftAppleReference=true (their hand-rolled item),
+            // disableImplicitSwiftAppleReference=true (suppresses the props-side Include),
+            // and a distinct plantedReferenceVersion to detect rewrites.
             var implicitItemGroup = plantImplicitSwiftAppleReference
-                ? """
+                ? $"""
                   <ItemGroup>
-                    <PackageReference Include="SwiftBindings.Apple" Version="[0.0.0-placeholder,)" />
+                    <PackageReference Include="SwiftBindings.Apple" Version="{plantedReferenceVersion}" />
                   </ItemGroup>
+                """
+                : "";
+            var optOutPropertyGroup = disableImplicitSwiftAppleReference
+                ? """
+                  <PropertyGroup>
+                    <DisableImplicitSwiftAppleReference>true</DisableImplicitSwiftAppleReference>
+                  </PropertyGroup>
                 """
                 : "";
             var project = $"""
@@ -701,6 +756,7 @@ namespace BindingsGeneration.Tests
                   <PropertyGroup>
                     <TargetFramework>net10.0</TargetFramework>
                   </PropertyGroup>
+                {optOutPropertyGroup}
                 {implicitItemGroup}
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>

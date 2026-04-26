@@ -1056,16 +1056,20 @@ done"
          PackageReference declared by Sdk.props instead of adding a second item with the
          same identity, which NuGet would flag as NU1504 (duplicate PackageReference) and
          which on Stripe-shaped sub-package graphs floods restore output with warnings.
-         If the consumer opted out via DisableImplicitSwiftAppleReference (or the binding
-         is ObjC-only), Sdk.props skips the implicit reference and Update is a no-op —
-         opt-out wins by design, consumers managing the reference manually keep that
-         control. The version guard prevents emitting an invalid version range if the
-         generator ever skips `_SwiftBindingAppleSupplementVersion` or a hand-authored
+         The same opt-out conditions used by Sdk.props gate this Update so consumers
+         managing the reference manually keep that control: if a consumer sets
+         DisableImplicitSwiftAppleReference=true or SwiftFrameworkType=ObjC and adds
+         their own pinned `PackageReference Include="SwiftBindings.Apple" Version="X"`,
+         `Update=` would otherwise rewrite their version to the generator-detected floor.
+         The version guard prevents emitting an invalid version range if the generator
+         ever skips `_SwiftBindingAppleSupplementVersion` or a hand-authored
          binding-metadata.props omits it — NuGet would otherwise fail with an opaque
          "invalid version range" error. -->
     <ItemGroup Condition="'$(_SwiftBindingNeedsAppleSupplement)' == 'True'
                            AND '$(_SwiftBindingAppleSupplementPrototypeCsproj)' == ''
-                           AND '$(_SwiftBindingAppleSupplementVersion)' != ''">
+                           AND '$(_SwiftBindingAppleSupplementVersion)' != ''
+                           AND '$(DisableImplicitSwiftAppleReference)' != 'true'
+                           AND '$(SwiftFrameworkType)' != 'ObjC'">
       <PackageReference Update="SwiftBindings.Apple" Version="[$(_SwiftBindingAppleSupplementVersion),)" />
     </ItemGroup>
   </Target>

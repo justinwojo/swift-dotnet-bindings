@@ -162,6 +162,128 @@ public class MemberEmissionValidatorTests
     }
 
     [Fact]
+    public void ShouldSkipMethodEmission_InOutUnsafeMutableRawBufferParam_ReturnsSwiftBind104()
+    {
+        // C# emits raw-buffer parameters as a split (IntPtr, nint) pair, but the Swift
+        // wrapper for an inout raw buffer would receive a single UnsafeMutableRawPointer
+        // and reconstruct it as a buffer-pointer struct via assumingMemoryBound.pointee.
+        // The two halves disagree on shape, so an inout raw-buffer param is an ABI mismatch
+        // and a memory-corruption hazard. Fail closed with SWIFTBIND104.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "mutateBuffer",
+            MangledName = "$s10TestModule12mutateBufferyySwzF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty),
+                new ArgumentDecl
+                {
+                    Name = "buf",
+                    PrivateName = "buf",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer"),
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
+
+        Assert.Equal(SkipReason.UnsupportedSignature, result);
+        Assert.Contains("SWIFTBIND104", skipDetails);
+        Assert.Contains("inout", skipDetails);
+        Assert.Contains("UnsafeMutableRawBufferPointer", skipDetails);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_InOutUnsafeRawBufferParam_ReturnsSwiftBind104()
+    {
+        // Read-only raw buffer in inout position is rejected for the same ABI-shape reason.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "swapBuffer",
+            MangledName = "$s10TestModule10swapBufferyySWzF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty),
+                new ArgumentDecl
+                {
+                    Name = "buf",
+                    PrivateName = "buf",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.UnsafeRawBufferPointer"),
+                    IsInOut = true,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var skipDetails);
+
+        Assert.Equal(SkipReason.UnsupportedSignature, result);
+        Assert.Contains("SWIFTBIND104", skipDetails);
+        Assert.Contains("inout", skipDetails);
+        Assert.Contains("UnsafeRawBufferPointer", skipDetails);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_ByValueUnsafeMutableRawBufferParam_ReturnsNull()
+    {
+        // Sanity check: a synchronous, non-inout raw-buffer parameter is supported (v1)
+        // and must NOT be rejected by the SWIFTBIND104 gate.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var method = new MethodDecl
+        {
+            Name = "consumeBuffer",
+            MangledName = "$s10TestModule13consumeBufferyySwF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, TupleTypeSpec.Empty),
+                CreateArgument("buf", new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer"))
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var result = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out _);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public void ShouldSkipMethodEmission_SwiftUIParam_ReturnsSwiftUIConstraint()
     {
         var typeDatabase = CreateTypeDatabase();

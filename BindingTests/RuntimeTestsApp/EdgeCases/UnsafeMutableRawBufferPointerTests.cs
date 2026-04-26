@@ -231,6 +231,94 @@ public class UnsafeMutableRawBufferPointerTests : TestBase
         }
     }
 
+    // ─── Constructor wrapper path ───────────────────────────────────────────
+    // Constructors take a different emission route than instance methods
+    // (own @_cdecl wrapper, indirect-result allocation, distinct parameter
+    // ordering). These tests prove the (ptr, len) split, empty-span handling,
+    // slice boundaries, and writeback all behave correctly through the init
+    // path — not just the instance-method path covered above.
+
+    public void TestCtorRecordsLengthAndEdgeBytes()
+    {
+        byte[] payload = { 0x10, 0x20, 0x30, 0x40, 0x50 };
+        using var holder = new UnsafeMutableRawBufferCtorHolder(payload);
+        AssertEqual(5, holder.BufferCount,
+            "Constructor must observe the pinned span's byte count via the (ptr, len) " +
+            "split; a wrong value indicates the length argument is mis-routed in the " +
+            "ctor wrapper path (distinct from the instance-method path).");
+        AssertEqual((byte)0x10, holder.FirstByteSeen,
+            "Constructor must read byte 0 of the pinned span; a wrong value indicates " +
+            "the ctor wrapper passed the wrong base address.");
+        AssertEqual((byte)0x50, holder.LastByteSeen,
+            "Constructor must read byte (count-1) of the pinned span; a wrong value " +
+            "indicates the ctor wrapper undercounted the length.");
+    }
+
+    public void TestCtorWritesBackSentinel()
+    {
+        byte[] payload = { 0x01, 0x02, 0x03, 0x04 };
+        using var holder = new UnsafeMutableRawBufferCtorHolder(payload);
+        AssertEqual(4, holder.BufferCount,
+            "Constructor's BufferCount must equal payload.Length — the writeback assertion " +
+            "below is meaningful only if Swift saw the right length.");
+        for (int i = 0; i < payload.Length; i++)
+        {
+            AssertEqual((byte)0x77, payload[i],
+                $"Byte at index {i} should equal the constructor's sentinel (0x77) — " +
+                "writes through the pinned span must round-trip back to the C# array " +
+                "by the time the synchronous ctor call returns.");
+        }
+    }
+
+    public void TestCtorEmptySpan()
+    {
+        using var holder = new UnsafeMutableRawBufferCtorHolder(Span<byte>.Empty);
+        AssertEqual(0, holder.BufferCount,
+            "Empty span pins a null-but-safe pointer; the ctor wrapper must accept " +
+            "count=0 and report it without indexing past the null pointer.");
+        AssertEqual((byte)0xFE, holder.FirstByteSeen,
+            "Empty-span fixture stores the 0xFE sentinel for FirstByteSeen — anything " +
+            "else means Swift dereferenced the null pointer to read byte 0.");
+        AssertEqual((byte)0xFE, holder.LastByteSeen,
+            "Empty-span fixture stores the 0xFE sentinel for LastByteSeen — anything " +
+            "else means Swift dereferenced the null pointer to read past the end.");
+    }
+
+    public void TestCtorSlicedSpan()
+    {
+        // Sliced span's (ptr, len) must reach Swift with the SLICE base/length, not
+        // the parent backing. Sentinels around the slice catch a regression that
+        // would write to the full backing array via the wrong pointer or length.
+        byte[] backing = { 0x99, 0x99, 0x10, 0x20, 0x30, 0x99, 0x99 };
+        var slice = backing.AsSpan(2, 3);
+        using var holder = new UnsafeMutableRawBufferCtorHolder(slice);
+        AssertEqual(3, holder.BufferCount,
+            "Constructor on a 3-byte slice must report 3 — the pin must target slice.Length, " +
+            "not the backing array's length.");
+        AssertEqual((byte)0x10, holder.FirstByteSeen,
+            "First byte of the slice (backing[2]=0x10) — proves the ctor wrapper used " +
+            "the slice's start pointer, not the backing array's start.");
+        AssertEqual((byte)0x30, holder.LastByteSeen,
+            "Last byte of the slice (backing[4]=0x30) — proves the ctor wrapper used " +
+            "the slice's length, stopping at start + length-1.");
+        AssertEqual((byte)0x99, backing[0],
+            "Sentinel before the slice must remain 0x99 — Swift must not write past " +
+            "the slice's start pointer through the ctor wrapper.");
+        AssertEqual((byte)0x99, backing[1],
+            "Sentinel before the slice must remain 0x99.");
+        AssertEqual((byte)0x77, backing[2],
+            "Slice byte 0 should be filled with 0x77 (ctor sentinel).");
+        AssertEqual((byte)0x77, backing[3],
+            "Slice byte 1 should be filled with 0x77 (ctor sentinel).");
+        AssertEqual((byte)0x77, backing[4],
+            "Slice byte 2 should be filled with 0x77 (ctor sentinel).");
+        AssertEqual((byte)0x99, backing[5],
+            "Sentinel after the slice must remain 0x99 — Swift must stop at the slice's " +
+            "end (start + length).");
+        AssertEqual((byte)0x99, backing[6],
+            "Sentinel after the slice must remain 0x99.");
+    }
+
     public void TestFillBufferLargePayload()
     {
         using var holder = new UnsafeMutableRawBufferHolder(fillByte: 0xAA, delta: 0);

@@ -80,3 +80,33 @@ public struct UnsafeMutableRawBufferHolder {
         return Int32(a.count &+ b.count)
     }
 }
+
+/// Companion fixture covering the *constructor* wrapper path for an
+/// UnsafeMutableRawBufferPointer parameter. Constructors take a different
+/// emission route than instance methods (own @_cdecl wrapper, indirect-result
+/// allocation, distinct parameter ordering for ObjC-rooted/static-helper
+/// variants), so even with full instance-method coverage the init path can
+/// regress independently. The captured values let C# tests assert that Swift
+/// saw the expected bytes and length, and the writeback proves the pinned
+/// buffer was the same one Swift mutated.
+public struct UnsafeMutableRawBufferCtorHolder {
+    public let bufferCount: Int32
+    public let firstByteSeen: UInt8
+    public let lastByteSeen: UInt8
+
+    /// Snapshot the buffer's count and edge bytes, then fill the buffer with
+    /// the sentinel 0x77. The constructor's writeback is observable to the
+    /// C# caller because the sentinel is written through the pinned address
+    /// before the synchronous call returns. The empty-span case stores a
+    /// distinguishable 0xFE for the edge bytes — picking those out of the
+    /// constructed value asserts Swift accepted count=0 cleanly without
+    /// indexing past a null pointer.
+    public init(_ buffer: UnsafeMutableRawBufferPointer) {
+        self.bufferCount = Int32(buffer.count)
+        self.firstByteSeen = buffer.count > 0 ? buffer[0] : 0xFE
+        self.lastByteSeen = buffer.count > 0 ? buffer[buffer.count - 1] : 0xFE
+        for i in 0..<buffer.count {
+            buffer[i] = 0x77
+        }
+    }
+}

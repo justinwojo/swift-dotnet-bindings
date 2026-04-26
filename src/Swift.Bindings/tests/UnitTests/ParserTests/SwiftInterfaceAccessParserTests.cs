@@ -3159,12 +3159,126 @@ public class DisposeBag {
         var path = WriteTempFile(swiftInterface);
         try
         {
-            // No custom actors known → can't detect annotation, return empty.
+            // Bare unqualified annotation with no local actors: the qualified-imported-actor
+            // heuristic requires at least one module-prefix segment, so this returns empty.
+            // Matching the bare form here would overlap with property wrappers / macros.
             var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, customActorTypeNames: null);
             Assert.Empty(result);
 
             var emptyResult = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, new HashSet<string>());
             Assert.Empty(emptyResult);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_DetectsImportedQualifiedActorAnnotation()
+    {
+        // Imported global actors slip past the local-actor list (nothing declares
+        // `ImagePipelineActor` in this swiftinterface) but the consumer still applies
+        // `@Dependency.ImagePipelineActor`. The qualified name + Actor suffix is the
+        // signal we lean on to fire SWIFTBIND022 in this case.
+        var swiftInterface = """
+            @Dependency.ImagePipelineActor public class ImagePrefetcher {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(
+                path, customActorTypeNames: null);
+            Assert.Contains("ImagePrefetcher", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_DetectsImportedQualifiedActorOnPriorLine()
+    {
+        // Multi-line annotation form for an imported actor: the annotation is on its
+        // own line and the type declaration follows. The deferred-annotation path must
+        // pick up the imported-actor regex match too.
+        var swiftInterface = """
+            @Dependency.ImagePipelineActor
+            public class ImageCache {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(
+                path, customActorTypeNames: new HashSet<string>());
+            Assert.Contains("ImageCache", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_DetectsNestedQualifiedActor()
+    {
+        // Imported actors can be nested under a parent type, producing qualifier paths
+        // with more than one dot (e.g., `@Foo.Inner.SomeActor`). The regex must match
+        // any number of qualifier segments.
+        var swiftInterface = """
+            @Foo.Inner.SomeActor public class IsolatedClass {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(
+                path, customActorTypeNames: null);
+            Assert.Contains("IsolatedClass", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_IgnoresQualifiedMainActor()
+    {
+        // `@_Concurrency.MainActor` matches the qualified-name shape but is the
+        // built-in @MainActor — which has its own IsMainActorIsolated path. Custom-
+        // actor isolation would double-classify the type and mis-route SWIFTBIND022;
+        // the negative lookahead in the regex must exclude it.
+        var swiftInterface = """
+            @_Concurrency.MainActor public class MainActorClass {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(
+                path, customActorTypeNames: null);
+            Assert.DoesNotContain("MainActorClass", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_QualifiedNonActorAttribute_NotMatched()
+    {
+        // Property wrappers / generic attributes that happen to use a qualified shape
+        // but do NOT end in `Actor` must not be flagged. The Actor-suffix gate keeps
+        // false positives off arbitrary `@Module.Wrapper` annotations.
+        var swiftInterface = """
+            @Foo.Bar public class WrappedThing {
+              public init()
+            }
+            @Module.SomeWrapper public class AnotherThing {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(
+                path, customActorTypeNames: null);
+            Assert.DoesNotContain("WrappedThing", result);
+            Assert.DoesNotContain("AnotherThing", result);
         }
         finally { File.Delete(path); }
     }

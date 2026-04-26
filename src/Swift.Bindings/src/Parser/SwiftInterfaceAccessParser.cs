@@ -380,6 +380,21 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
+    /// Regex for qualified imported global-actor annotations such as
+    /// <c>@Dependency.ImagePipelineActor</c>. Requires at least one module-prefix
+    /// segment and an <c>Actor</c> suffix on the leaf identifier. Excludes the
+    /// built-in <c>MainActor</c> (which has its own <see cref="TypeDecl.IsMainActorIsolated"/>
+    /// path) via negative lookahead. Qualification + <c>Actor</c> suffix is the
+    /// strongest available signal short of consulting cross-module metadata; bare
+    /// unqualified <c>@&lt;Name&gt;Actor</c> annotations are deliberately not matched
+    /// here because they overlap with property wrappers and macros — the local-actor
+    /// path covers them when the actor is declared in the same swiftinterface.
+    /// </summary>
+    private static readonly Regex ImportedCustomActorAnnotationRegex = new(
+        @"@(?:\w+\.)+(?!MainActor\b)\w*Actor\b",
+        RegexOptions.Compiled);
+
+    /// <summary>
     /// Returns a set of qualified type paths for types annotated with a custom global actor
     /// (e.g., <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
     /// <see cref="GetCustomActorTypes"/>, which returns types declared with the
@@ -387,32 +402,40 @@ public static class SwiftInterfaceAccessParser
     /// short-name set produced by <see cref="GetCustomActorTypes"/>; this method then
     /// scans declarations for matching <c>@&lt;ActorName&gt;</c> annotations and records the
     /// type path so the ABI parser can flag <see cref="TypeDecl.IsCustomActorIsolated"/>.
-    /// Returns an empty set when the swiftinterface doesn't exist or no custom actors are known.
+    /// Also detects fully-qualified imported global-actor annotations
+    /// (<c>@&lt;Module&gt;.&lt;Name&gt;Actor</c>) via <see cref="ImportedCustomActorAnnotationRegex"/>,
+    /// which lets the SWIFTBIND022 gate fire for types isolated to actors declared in
+    /// other modules. Returns an empty set when the swiftinterface doesn't exist
+    /// and there are neither local nor qualified imported annotations to scan for.
     /// </summary>
     public static HashSet<string> GetCustomActorIsolatedTypes(
         string swiftInterfacePath, HashSet<string>? customActorTypeNames)
     {
         var result = new HashSet<string>();
 
-        if (!File.Exists(swiftInterfacePath) ||
-            customActorTypeNames == null || customActorTypeNames.Count == 0)
+        if (!File.Exists(swiftInterfacePath))
             return result;
 
         // GetCustomActorTypes returns qualified paths (e.g., "Outer.ImagePipelineActor"
         // for nested actors). Swift annotations on the consumer side use the leaf name
         // (e.g., `@ImagePipelineActor`), so normalize to short names before building the regex.
-        var shortNames = customActorTypeNames
+        var shortNames = customActorTypeNames?
             .Select(n => n.Substring(n.LastIndexOf('.') + 1))
             .Where(n => n.Length > 0)
             .Distinct()
-            .ToList();
-        if (shortNames.Count == 0)
-            return result;
+            .ToList()
+            ?? new List<string>();
 
-        var escapedNames = string.Join("|", shortNames.Select(Regex.Escape));
-        var customActorRegex = new Regex(
-            @"@(?:\w+\.)?(?:" + escapedNames + @")\b",
-            RegexOptions.Compiled);
+        // Local-actor regex is built only when there are short names to escape; otherwise
+        // remains null and matching falls through to ImportedCustomActorAnnotationRegex.
+        Regex? customActorRegex = null;
+        if (shortNames.Count > 0)
+        {
+            var escapedNames = string.Join("|", shortNames.Select(Regex.Escape));
+            customActorRegex = new Regex(
+                @"@(?:\w+\.)?(?:" + escapedNames + @")\b",
+                RegexOptions.Compiled);
+        }
 
         var lines = File.ReadAllLines(swiftInterfacePath);
 
@@ -426,7 +449,9 @@ public static class SwiftInterfaceAccessParser
 
             var (openBraces, closeBraces) = CountBraces(line);
 
-            bool hasCustomActor = pendingCustomActor || customActorRegex.IsMatch(trimmed);
+            bool localActorMatch = customActorRegex != null && customActorRegex.IsMatch(trimmed);
+            bool importedActorMatch = ImportedCustomActorAnnotationRegex.IsMatch(trimmed);
+            bool hasCustomActor = pendingCustomActor || localActorMatch || importedActorMatch;
             pendingCustomActor = false;
 
             // Annotation on its own line — defer until the next decl line. We must NOT defer

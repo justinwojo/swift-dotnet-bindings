@@ -963,6 +963,21 @@ public static class MemberEmissionValidator
                           "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
             return SkipReason.UnsupportedSignature;
         }
+        // inout raw-buffer params are an ABI mismatch: PInvokeEmitter splits raw buffers
+        // into (IntPtr, nint) on the C# side, but CdeclParamMapper.MapInout produces a
+        // single UnsafeMutableRawPointer reconstructed via assumingMemoryBound to a
+        // buffer-pointer struct. The two halves disagree, so Swift would reinterpret
+        // caller bytes as a Swift buffer-pointer value (memory corruption). Until both
+        // sides agree on a split/writeback shape, reject inout raw-buffer parameters.
+        if (method.CSSignature.Skip(1).FirstOrDefault(arg =>
+            arg.IsInOut && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg.SwiftTypeSpec)) is { } inoutBufArg)
+        {
+            var bufTypeName = ((NamedTypeSpec)inoutBufArg.SwiftTypeSpec!).Name;
+            skipDetails = $"SWIFTBIND104: 'inout {bufTypeName}' is not supported as a parameter. " +
+                          "v1 supports synchronous, nonescaping by-value raw-buffer parameters only. " +
+                          "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
+            return SkipReason.UnsupportedSignature;
+        }
 
         // Reject methods whose return type or any parameter is a DIRECT existential
         // that IsSupportedExistential rejects — currently class-bounded compositions
