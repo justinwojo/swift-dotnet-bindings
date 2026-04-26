@@ -523,6 +523,13 @@ namespace BindingsGeneration.Tests
             // Open-ended floor range: the supplement is cross-major additive-only so
             // diamond graphs across iOS majors unify at the higher supplement version.
             Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
+            // The target uses `Update=` to refine the props-side reference rather than
+            // adding a second `Include=` (that would trip NU1504). Confirm exactly one
+            // PackageReference for SwiftBindings.Apple survives.
+            Assert.Equal(1, CountOccurrences(output, "SUPPLEMENT_PKG:SwiftBindings.Apple|"));
+            // The placeholder version planted by RunInjectSupplementTarget (mirroring the
+            // Sdk.props default) must have been overwritten by Update.
+            Assert.DoesNotContain("SUPPLEMENT_PKG:SwiftBindings.Apple|[0.0.0-placeholder,)", output);
         }
 
         [Fact]
@@ -565,6 +572,9 @@ namespace BindingsGeneration.Tests
             // Open-ended floor range: the supplement is cross-major additive-only so
             // diamond graphs across iOS majors unify at the higher supplement version.
             Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
+            // Same NU1504 guard as the xcframework-path test.
+            Assert.Equal(1, CountOccurrences(output, "SUPPLEMENT_PKG:SwiftBindings.Apple|"));
+            Assert.DoesNotContain("SUPPLEMENT_PKG:SwiftBindings.Apple|[0.0.0-placeholder,)", output);
         }
 
         [Fact]
@@ -595,21 +605,103 @@ namespace BindingsGeneration.Tests
             RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode);
 
             Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
+            // No supplement signals: the target's Update guard fails, so the placeholder
+            // PackageReference planted by RunInjectSupplementTarget (mirroring the props-side
+            // default) survives untouched. We assert the placeholder version remains AND that
+            // no refined "[26.0.0,)" reference appears.
+            Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[0.0.0-placeholder,)", output);
+            Assert.DoesNotContain("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
+            // Still exactly one item — Update did not run, but it also did not duplicate.
+            Assert.Equal(1, CountOccurrences(output, "SUPPLEMENT_PKG:SwiftBindings.Apple|"));
+            Assert.DoesNotContain("SUPPLEMENT_PROJ:", output);
+        }
+
+        [Fact]
+        public void InjectAppleSupplementPrototype_OptOut_NoReferenceInjected()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            // The supplement IS needed (generator detected types), but the consumer opted
+            // out of the implicit SwiftBindings.Apple PackageReference (e.g. by setting
+            // DisableImplicitSwiftAppleReference=true, or because SwiftFrameworkType=ObjC).
+            // Because the targets-side now uses `Update=`, it must NOT re-add the reference
+            // — opt-out wins by design. This locks in the behavior change vs. the previous
+            // `Include=` form, which would have injected the reference regardless of opt-out.
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestModuleSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>
+                    <_SwiftBindingAppleSupplementVersion>26.0.0</_SwiftBindingAppleSupplementVersion>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            // plantImplicitSwiftAppleReference: false models the props-side skip caused by
+            // an opt-out; the target's `Update=` should be a no-op against an absent item.
+            RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode,
+                plantImplicitSwiftAppleReference: false);
+
+            Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
             Assert.DoesNotContain("SUPPLEMENT_PKG:SwiftBindings.Apple", output);
             Assert.DoesNotContain("SUPPLEMENT_PROJ:", output);
         }
 
-        private void RunInjectSupplementTarget(string intermediateDir, out string output, out int exitCode)
+        private static int CountOccurrences(string haystack, string needle)
+        {
+            if (string.IsNullOrEmpty(needle)) return 0;
+            int count = 0, idx = 0;
+            while ((idx = haystack.IndexOf(needle, idx, StringComparison.Ordinal)) != -1)
+            {
+                count++;
+                idx += needle.Length;
+            }
+            return count;
+        }
+
+        private void RunInjectSupplementTarget(string intermediateDir, out string output, out int exitCode,
+            bool plantImplicitSwiftAppleReference = true)
         {
             var sdkTargetsPath = Path.Combine(FindRepoRoot(),
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
 
+            // The placeholder PackageReference (when planted) mirrors the implicit
+            // declaration in Sdk.props (line ~140): the real consumer flow declares
+            // `PackageReference Include="SwiftBindings.Apple"` at evaluation time so NuGet
+            // restore picks it up before targets run, and `_InjectAppleSupplementPrototype`
+            // then refines its version metadata via `PackageReference Update=` once
+            // generator metadata is available. This test fixture imports only the
+            // Microsoft.NET.Sdk Sdk.props (not the Swift Sdk.props), so we plant the
+            // placeholder here to model that pre-existing item — without it, the Update
+            // would be a no-op and we'd be testing a non-representative scenario. The
+            // sentinel version `[0.0.0-placeholder,)` lets assertions distinguish "Update
+            // refined the version" (becomes `[26.0.0,)`) from "Update did not fire" (stays
+            // `[0.0.0-placeholder,)`). Set plantImplicitSwiftAppleReference=false to model
+            // the opt-out path (DisableImplicitSwiftAppleReference=true or
+            // SwiftFrameworkType=ObjC) where Sdk.props skips the implicit Include.
+            var implicitItemGroup = plantImplicitSwiftAppleReference
+                ? """
+                  <ItemGroup>
+                    <PackageReference Include="SwiftBindings.Apple" Version="[0.0.0-placeholder,)" />
+                  </ItemGroup>
+                """
+                : "";
             var project = $"""
                 <Project>
                   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
                   <PropertyGroup>
                     <TargetFramework>net10.0</TargetFramework>
                   </PropertyGroup>
+                {implicitItemGroup}
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>
                     <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>

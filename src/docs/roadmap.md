@@ -74,6 +74,41 @@ Generator, SDK, runtime, and build infrastructure all properly support iOS, macO
 
 ---
 
+## Known SDK Bugs *(non-blocking, fix in next drop)*
+
+Bugs in `SwiftBindings.Sdk` itself. None of these block 1.0, but they should be cleaned up before / alongside the next SDK drop.
+
+### Wrapper compilation breaks on global-actor-isolated APIs
+
+**Symptom:** SWIFTBIND051 with swiftc errors of the form `error: call to global actor 'XActor'-isolated static method '_dbw_init_…' in a synchronous nonisolated context [#ActorIsolatedCall]`. The wrapper xcframework ends up incomplete (`_SwiftBindingHasWrapperXCFramework=False` in `binding-metadata.props`). C# bindings still emit, but any API that depends on the wrapper xcframework — constructors and async wrappers — throws `DllNotFoundException` at runtime.
+
+**Trigger:** Source library applies a global actor (e.g. `@MainActor`, `@<Lib>Actor`) to types or initializers that the wrapper generator emits constructor thunks for. First concrete hit: **Nuke 13.0.2** marks `Nuke.ImagePrefetcher` (and its inits) as `@ImagePipelineActor`. Nuke 12.x has the same APIs without the actor annotations, so 12.8.0 builds clean.
+
+Generator metadata also degrades around the actor type itself — `ImagePipelineActor` can't resolve protocol conformance descriptors (`Copyable`, `Escapable`, `Sendable`, `SendableMetatype`) from the `.swiftinterface`/ABI JSON, so the actor's `unownedExecutor` is skipped (`UnsupportedType`). Likely a separate gap — relevant because option 2 below depends on `unownedExecutor` being reachable.
+
+**Cause:** The wrapper generator emits constructor thunks like:
+
+```swift
+@_cdecl("SBW_Nuke_ImagePrefetcher_init_…")
+public func _sbw_init_…(_ pipeline: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
+    let pipelineVal = …
+    let result = Nuke.ImagePrefetcher._dbw_init_…(pipelineVal)  // actor-isolated call
+    return Unmanaged.passRetained(result).toOpaque()
+}
+```
+
+`@_cdecl` functions live in a nonisolated synchronous context. Swift 6 strict-concurrency rejects calls into actor-isolated members from there (`#ActorIsolatedCall`). Repro: bump `swift-dotnet-packages/libraries/Nuke/library.json` to `13.0.2`, run `dotnet nuke BuildLibrary --library Nuke` against `SwiftBindings.Sdk 0.8.0` + Xcode 26.3 (validated 2026-04-26).
+
+**Impact:** Hard block for any library that adopts global-actor isolation on init / static-factory members. Currently affects Nuke 13.x (we hold at 12.8.0 in shipping set). Expected to spread as the Swift 6 ecosystem migrates.
+
+**Fix options (need design):**
+
+1. **Generator-side, conservative**: detect `@<X>Actor`-isolated inits / static methods from the ABI JSON and skip them with a `SWIFTBIND0xx` warning. Loses the constructors but keeps the rest of the binding compiling. Cheapest path to unblocking Nuke 13.
+2. **Generator-side, full**: emit the `@_cdecl` thunk inside a matching `@<X>Actor`-isolated wrapper, or hop to the actor's executor synchronously via `assumeIsolated` / `withSerialExecutor`. Requires the actor's `unownedExecutor` accessor to be reachable — depends on fixing the metadata gap noted above.
+3. **Per-project opt-out**: surface a `<SkipActorIsolatedConstructors>true</SkipActorIsolatedConstructors>` knob so consumers can fall back to skipped-constructor behavior for affected APIs without flipping `<SwiftWrapperRequired>false</SwiftWrapperRequired>` for the whole module.
+
+---
+
 ## Lower Priority / Post-1.0
 
 | Item | Notes |
