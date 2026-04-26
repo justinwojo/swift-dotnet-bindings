@@ -1,17 +1,27 @@
 # Upstream Issues for dotnet/runtime
 
-Updated: April 2026
+Updated: April 2026 (re-verified 2026-04-26)
 Project: [swift-dotnet-bindings](https://github.com/justinwojo/swift-dotnet-bindings)
 Contact: Justin Wojciechowski
 Repro project: [swift-interop-repro](https://github.com/justinwojo/swift-interop-repro)
 
 Seven .NET runtime issues affect real-world Swift interop scenarios. Issue 2 (non-blittable type support) has the highest impact — it's the primary driver of ~67% of P/Invokes needing wrapper functions across 51 third-party Swift library bindings. Searches of dotnet/runtime issues (February 2026) found no existing reports. The main Swift interop tracking issues ([#93631](https://github.com/dotnet/runtime/issues/93631) for .NET 9, [#108662](https://github.com/dotnet/runtime/issues/108662) for .NET 10) do not mention these specific issues.
 
+> **2026-04-26 re-verification environment** (used for every "Verified on" line below):
+> - .NET SDK 10.0.103, Microsoft.iOS.Sdk 26.2.10197, runtime framework 10.0.3
+> - Xcode 26.2 (build 17C52), iOS Simulator runtime 26.3, iPhone 13 device on iOS 26
+> - macOS host arm64, repro project at `/Users/wojo/Dev/swift-interop-repro/`
+>
+> **Behavioral shifts caught by this run** (read before filing — flag loudly):
+> - **Issue 1's original trigger no longer reproduces.** The direct `swift_getExistentialTypeMetadata` P/Invoke shown in the repro now PASSES on Mono (.NET 10.0.103). The `!ji->async` assertion at `jit-info.c:918` still fires, but only as a *secondary* crash during Mono signal-handler stack unwinding from an unrelated native SIGSEGV (e.g. Issue 7's `sumStruct4Ints`, or the SkipReduction `FourStringInit_Struct` 4-String struct call). The assertion bug is real and reproducible, but the minimal repro snippet currently in the draft is stale — see Issue 1 below for the updated trigger evidence and a TODO before filing.
+> - All six remaining issues (2, 3, 5, 6, 7, 8) reproduce with the same symptoms documented previously. No new issues observed; no behavior changes that would affect filing strategy.
+
 > **Before filing:**
 > 1. Re-search dotnet/runtime issues to confirm nothing has been filed in the interim.
 > 2. Re-verify each repro against the current .NET SDK version.
 > 3. Update version numbers in each issue to match the SDK used for verification.
 > 4. Replace `justinwojo/swift-interop-repro` URLs with the actual published repo URL if different.
+> 5. **Issue 1 specifically:** rewrite the minimal repro to use the current trigger (a P/Invoke into Swift code that itself crashes — e.g. a struct with bad calling-convention layout — so Mono walks the stack and trips the assertion). The existential-metadata P/Invoke alone is no longer sufficient.
 
 **Filing strategy:**
 - **Issue 2** — File as a **feature request** (highest priority). Non-blittable `CallConvSwift` support. Includes source-level analysis of both Mono (`marshal.c:3729`) and CoreCLR (`SwiftPhysicalLowering.cs:215`) rejection points, architectural suggestion (run marshalling before blittable validation), and incremental approach (SafeHandle first, then String).
@@ -132,6 +142,15 @@ This blocks creating arrays of protocol-typed objects from C# — a common Swift
 
 The P/Invoke call to `swift_getExistentialTypeMetadata` with `CallConvSwift` should succeed without assertion failures. The function is synchronous and should not be marked as async by the JIT.
 
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — *behavior shift, do not file as-is*.
+
+The original repro (the snippet above, calling `swift_getExistentialTypeMetadata` from C# via `CallConvSwift`) now **PASSES** on Mono (`Baseline_BlittableCallConvSwift.Run()`: `swift_getExistentialTypeMetadata: valid=True — PASS`). However, the `!ji->async` assertion at `jit-info.c:918` *still fires reliably* — it is now only triggered when Mono's signal handler walks the stack after a *separate* native SIGSEGV in `CallConvSwift` code. Two paths reproduce in our current repro app:
+
+1. `NativeAOT_A2_StructSizes.sumStruct4Ints` (32-byte / 4×`nint` struct param via `CallConvSwift`) crashes the Swift callee with SIGSEGV → Mono's `mono_dump_native_crash_info` → `wrapper_managed_to_native_*` frame walk → `Assertion at jit-info.c:918, condition '!ji->async' not met`. Identical wording to the original report.
+2. `SkipReduction_FourStringParams.FourStringInit_Struct` (4×16-byte struct params via `CallConvCdecl`) also produces the same Mono assertion during signal-handler unwinding.
+
+**Recommendation before filing:** rewrite the minimal repro to a deliberately-crashing `CallConvSwift` P/Invoke (e.g. pass a deliberately-malformed integer struct and expect the Mono assertion during the resulting stack walk). The "synchronous Swift runtime function" framing in the current draft is no longer accurate; the bug is in Mono's frame-async classification during *unwinding*, not during the call itself.
+
 ---
 
 ## Issue 2 (Feature Request): Support non-blittable type marshalling with `CallConvSwift` P/Invoke
@@ -220,6 +239,10 @@ private static extern void SBW_MyType_name(IntPtr self, IntPtr resultPtr);
 
 Non-blittable types in `CallConvSwift` P/Invoke signatures should be marshalled to their blittable representations (using the existing IL marshalling stub infrastructure) before Swift struct lowering and register assignment.
 
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — reproduces, file as-is.
+
+Reproduction confirmed across BindingTests / sim-validation / repro-app paths: `InvalidProgramException: Passing non-blittable types to a P/Invoke with the Swift calling convention is unsupported.` is still thrown for `SafeHandle` / `SwiftSelf<SafeHandle>` / managed `string` parameters under `CallConvSwift` on both Mono and NativeAOT. The repro app's `MonoD_NonBlittableType` block prints the SKIP message that correctly points at `SwiftSelf<SafeHandle>` as the canonical trigger; the BindingTests + Apple-framework binding suite continue to drive `~67%` wrapper coverage primarily because of this restriction. No behavior change observed; the runtime source-level analysis above still matches `marshal.c:3729` and `SwiftPhysicalLowering.cs:215` in current dotnet/runtime main.
+
 ---
 
 ## Issue 3 (Tracking Issue Comment): SafeHandle/SwiftSelf lifetime across async P/Invoke with `CallConvSwift` (Mono-only)
@@ -264,6 +287,10 @@ public async Task AsyncMethod()
 3. If this scenario isn't supported yet, is it on the roadmap? It's required for calling any async instance method on a Swift class from .NET.
 
 This affects every async Swift API we bind — libraries like StoreKit 2 and Nuke rely heavily on async instance methods. Currently every such method requires a Swift wrapper function, which adds significant build complexity.
+
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — reproduces, post comment as-is.
+
+The Mono-only scope is confirmed by the most recent BindingTests `--device` runs on this branch (NativeAOT path): the same async + `SwiftSelf<SafeHandle>` patterns succeed there. The standalone repro app does not include a dedicated async-suspension test (the `MonoC_ClosureCallback_WithSwiftSelf` block exercises the synchronous-callback shape but not the await-induced suspension that triggers the lifetime gap), so this filing relies on the BindingTests evidence captured on the swift-bindings side rather than a `swift-interop-repro` reduction. The wording in the comment above is still accurate; no edits required.
 
 ---
 
@@ -368,6 +395,20 @@ Affects any Swift API taking custom struct parameters with float/double fields o
 
 `CallConvSwift` P/Invoke should place custom struct float/double fields in FPR (`d0`–`d7`), matching the Swift ABI for HFA types on ARM64.
 
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — reproduces, file as-is.
+
+NativeAOT device run (`xcrun devicectl device process launch` against an iPhone 13 on iOS 26, `ios-arm64` published with `PublishAot=true`) confirmed garbage values for every custom-struct double shape in `NativeAOT_A2_StructSizes`:
+
+```
+1 Double  (8B):                   val=3.0438774487E-314      (expected 42.5) — ABI MISMATCH
+2 Doubles (16B):                  sum=5.1716891354E-314      (expected 3)    — ABI MISMATCH
+3 Doubles (24B):                  sum=7.30579192E-314        (expected 6)    — ABI MISMATCH
+4 Doubles (32B, custom):          sum=7.305792511E-314       (expected 10)   — ABI MISMATCH
+Nested 4D  (32B, like CGRect):    sum=7.305792598E-314       (expected 10)   — ABI MISMATCH
+```
+
+`computeRectArea` (system `CGRect`, 32B / 4 doubles) and `sumLargeStruct` continue to PASS on the same NativeAOT device run, confirming the asymmetry between system-framework types and custom-C# struct definitions called out in the report.
+
 ---
 
 ## Issue 6 (Bug): NativeAOT CallConvSwift returns garbage for single-field custom struct with `double`
@@ -461,6 +502,10 @@ Or use `SwiftIndirectResult` to bypass register allocation entirely (struct retu
 
 `CallConvSwift` should read custom struct return values with `double` fields from FPR (`d0`), matching the Swift ABI on ARM64.
 
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — reproduces, file as-is.
+
+The single-`double` case (`Struct1Double`) on the same NativeAOT device run reads back `val=3.0438774487E-314` instead of `42.5` — a clean read from `x0`-as-double of whatever bit-pattern the GPR carried, exactly as the report describes. Same iPhone 13 / iOS 26 / `ios-arm64` configuration as Issue 5; no behavior change.
+
 ---
 
 ## Issue 7 (Bug): NativeAOT CallConvSwift passes custom integer structs >16 bytes incorrectly on ARM64
@@ -550,6 +595,12 @@ Affects any Swift API taking custom struct parameters with 3+ integer fields (�
 **Expected behavior:**
 
 `CallConvSwift` P/Invoke should decompose custom integer structs into individual register-sized elements in GPRs (x0–x7), up to the 4-element Swift CC limit, matching the Swift ABI on ARM64.
+
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — reproduces on both runtimes, file as-is.
+
+- **NativeAOT device** (iPhone 13, iOS 26, `ios-arm64`): `sumStruct4Ints` (32B / 4×`nint`) terminated the process with `signal 11` immediately after the float-struct ABI-mismatch tests. Same crash signature as previously documented.
+- **Mono Sim** (`iossimulator-arm64`, .NET 10.0.3): same `sumStruct4Ints` call SIGSEGVs and trips `Assertion at jit-info.c:918, condition '!ji->async' not met` during stack unwinding. Confirms the doc's "32B | 4×nint | SIGSEGV | SIGSEGV" row.
+- **24-byte (`Struct3Ints`) row remains "not tested" on Mono Sim in this run.** The repro app declares `sumStruct3Ints` (in `GapTests.Run`) but execution does not reach it after the 4-int SIGSEGV; the doc's "not tested" annotation is still accurate. Filing the issue as-is is fine; if the upstream reviewer asks, a single-purpose run that swaps the struct sizes will produce that row.
 
 ---
 
@@ -647,6 +698,19 @@ Blocks direct CallConvSwift dispatch for any generic Swift function with 2+ type
 **Expected behavior:**
 
 `CallConvSwift` P/Invoke should correctly place multiple type metadata parameters in consecutive GPRs, matching Swift's generic function calling convention on ARM64.
+
+**Verified on 2026-04-26 with .NET SDK 10.0.103, Xcode 26.2** — reproduces, file as-is.
+
+NativeAOT device run captured the clean delta between the 1-type-param and 2-type-param paths in a single execution (after re-ordering the repro app to hoist `Issue7_MultiGenericParam` ahead of the struct-ABI tests so the SIGSEGV from this issue isn't masked by Issue 5/7):
+
+```
+[Issue-7] Multi-generic-param CallConvSwift (2 type params)...
+  7a. @_cdecl pairIntInt(10, 20) = (10, 20) — PASS              ← concrete control
+  7b. genericIdentity<Int>(42) = 42 — PASS                       ← single-type-param generic (control)
+  App terminated due to signal 11.                               ← genericPair<Int,Int> SIGSEGV (the bug)
+```
+
+No diagnostic output between 7b and the SIGSEGV — the crash is in the P/Invoke transition itself, consistent with the second-`TypeMetadata` register-placement hypothesis in the analysis above.
 
 ---
 
