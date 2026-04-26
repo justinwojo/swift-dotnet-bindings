@@ -21,6 +21,7 @@ internal static class AppleFrameworkRegistry
     private static readonly HashSet<string> _optionalFallbackModules;
     private static readonly HashSet<string> _unsupportedModules;
     private static readonly Dictionary<string, string> _moduleNamespaceRemaps;
+    private static readonly Dictionary<string, string> _compileImportRemaps;
     private static readonly Dictionary<string, string> _typeNameRemaps;
     private static readonly HashSet<string> _valueTypes;
     private static readonly Dictionary<ApplePlatform, HashSet<string>> _platformUnavailableModules;
@@ -52,6 +53,9 @@ internal static class AppleFrameworkRegistry
 
         [JsonProperty("namespaceRemap")]
         public string? NamespaceRemap { get; set; }
+
+        [JsonProperty("compileImportModule")]
+        public string? CompileImportModule { get; set; }
 
         [JsonProperty("objcPrefixes")]
         public string[]? ObjcPrefixes { get; set; }
@@ -85,6 +89,7 @@ internal static class AppleFrameworkRegistry
         _optionalFallbackModules = new HashSet<string>(StringComparer.Ordinal);
         _unsupportedModules = new HashSet<string>(StringComparer.Ordinal);
         _moduleNamespaceRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
+        _compileImportRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _typeNameRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
         _knownModulesForElements = new HashSet<string>(StringComparer.Ordinal);
@@ -109,6 +114,9 @@ internal static class AppleFrameworkRegistry
 
             if (def.NamespaceRemap != null)
                 _moduleNamespaceRemaps[def.Module] = def.NamespaceRemap;
+
+            if (!string.IsNullOrEmpty(def.CompileImportModule))
+                _compileImportRemaps[def.Module] = def.CompileImportModule!;
 
             if (def.KnownModuleForElements)
                 _knownModulesForElements.Add(def.Module);
@@ -206,6 +214,19 @@ internal static class AppleFrameworkRegistry
     {
         if (string.IsNullOrEmpty(swiftModule)) return swiftModule;
         return _moduleNamespaceRemaps.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
+    }
+
+    /// <summary>
+    /// Returns the umbrella module to write on the wrapper Swift's <c>import</c> line
+    /// for a Swift module that Apple has marked <c>@_implementationOnly</c> (e.g.,
+    /// <c>RealityFoundation</c> → <c>RealityKit</c>). Returns the input unchanged when
+    /// no remap is registered. Type qualifications and the .NET namespace continue to
+    /// use the original module name — only the literal import line is rewritten.
+    /// </summary>
+    public static string MapModuleToCompileImport(string swiftModule)
+    {
+        if (string.IsNullOrEmpty(swiftModule)) return swiftModule;
+        return _compileImportRemaps.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
     }
 
     /// <summary>

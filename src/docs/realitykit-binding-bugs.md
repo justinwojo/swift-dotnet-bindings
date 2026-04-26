@@ -1,6 +1,6 @@
 # RealityKit / RealityFoundation binding bugs
 
-Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both fail at the wrapper-Swift compile step. Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members. The failures cluster into a small number of distinct generator bugs which between them produce 5 wrapper errors on RealityKit and 281 on RealityFoundation.
+Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both fail at the wrapper-Swift compile step. Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members. The failures cluster into a small number of distinct generator bugs which between them originally produced 5 wrapper errors on RealityKit and 281 on RealityFoundation. After Session 1 (RealityKit sweep) and Session 2 (Bug 10 / `@_implementationOnly`), RealityFoundation now reaches the wrapper body and reports 152 errors (76 unique), all attributable to the still-open Bugs 1, 3, and 4.
 
 Failing csprojs (kept in tree as repros):
 
@@ -173,15 +173,24 @@ public func _sbw_get_sceneUnderstanding_075C6F0B(_ resultPtr: UnsafeMutableRawPo
 
 → `cannot use mutating getter on immutable value: 'obj' is a 'let' constant`. Either bind `obj` as `var`, or — since this is a getter — don't materialize the struct at all and access through the pointer with `assumingMemoryBound(...).pointee.sceneUnderstanding` directly (the property is read-only from the C# side regardless).
 
-## 10. Module marked as RealityKit implementation detail (RealityFoundation only)
+## 10. Module marked as RealityKit implementation detail (RealityFoundation only) — **FIXED (Session 2)**
 
 ```
 RealityFoundation.Wrapper.swift:1:8: error: module 'RealityFoundation' is an implementation detail of 'RealityKit'; import 'RealityKit' instead
 ```
 
-Apple has flagged `RealityFoundation` as `@_implementationOnly` from RealityKit — direct `import RealityFoundation` is an error. Fix: when the target framework's `.swiftmodule` carries the implementation-detail marker, the generator should emit `import RealityKit` (and bind types as `RealityFoundation.X` qualifications, which still work) instead of `import RealityFoundation`. Two errors but they're load-bearing — the file refuses to compile until they're fixed.
+Apple has flagged `RealityFoundation` as `@_implementationOnly` from RealityKit — direct `import RealityFoundation` is an error.
 
-This bug is also the reason RealityFoundation can't ship as a standalone NuGet package even after the rest of these are fixed: the bound surface is reachable only through `import RealityKit`, so the `SwiftAppleFrameworkTarget` should likely target RealityKit and use a namespace pattern (or some new mechanism) to expose the sub-module's types. Worth thinking through whether RealityFoundation should be a separate package at all — it may need to become a logical sub-namespace of `SwiftBindings.RealityKit`.
+**Fix applied (Option D — registry-driven import remapping):** added a `compileImportModule` field to `apple-frameworks.json` (and its schema), populated `RealityFoundation → RealityKit`, and wired `AppleFrameworkRegistry.MapModuleToCompileImport` into `ModuleHandler.EmitSwiftImports` so the wrapper Swift emits `import RealityKit` while .NET namespace and `RealityFoundation.X` Swift type qualifications stay unchanged. After rebuild, the "implementation detail" errors are gone and the wrapper file reaches body compilation, exposing the rest of the bugs (1, 3, 4) on RF.
+
+Post-Session-2 RealityFoundation wrapper-error histogram (152 raw / 76 unique, down from 281):
+- Bug 1 (availability gates): 16 unique — `'==' is only available` ×7, `'FromToByAction'` ×2, `'SpatialForceFalloff'` ×2, `'TimedForceFalloff'` ×2, `'ForceEffect'`, `'UnsafeForceEffectBuffer'`, `'subscript(_:)'`.
+- Bug 3 (collection-template element-type mismatch): 33 unique — `no exact matches in call to instance method 'replaceAll'` ×11, `'append'` ×11, `no exact matches in call to initializer` ×2, plus 18 `inherit from`/`requires the types`/`conform to protocol` constraint failures (e.g. `'EveryProtocol' does not conform to 'RealityCoordinateSpace'`, `Data.Element (UInt8) inherit from Entity`).
+- Bug 4 (closure / unsafe-buffer): 9 unique — `cannot convert UnsafeMutableRawBufferPointer to UnsafeMutableRawPointer` ×6, `UnsafeRawBufferPointer to UnsafeMutableRawPointer` ×3.
+
+The categorization matches the original bug list — no new bug families surfaced, scope unchanged. Sanity check on Bug 14 still confirms broken (`AnchorEntity`/`BodyTrackedEntity`/`ModelEntity` emit as flat `: ISwiftObject` with no `: Entity` base in the generated `RealityFoundation.cs`, exactly as predicted).
+
+This bug was also flagged as the reason RealityFoundation can't ship as a standalone NuGet package — that question is now reframed: the wrapper compiles via `import RealityKit`, but RF still produces its own assembly/namespace `SwiftBindings.RealityFoundation`. Whether to fold RF into `SwiftBindings.RealityKit` as a packaging decision is now independent of the wrapper-compile blocker and can be revisited separately.
 
 ---
 
@@ -344,7 +353,7 @@ Counts measured against built `obj/Debug/<TFM>/swift-binding/` outputs in `swift
 | 11 | RF: 1 | 0 | RF-only |
 | 12 | RF: 4 (tvOS) | 0 across all built tvOS outputs | RF-only |
 | 13 | RK: 66 errors (maccatalyst) | 0 (no other maccatalyst C# references ARKit) | RK-only |
-| 14 | RF: confirmed flat | LCK / MusicKit / ProximityReader: working today | RF-only — likely Bug 10 cascade |
+| 14 | RF: confirmed flat (re-verified post-Session-2 — `AnchorEntity`/`BodyTrackedEntity`/`ModelEntity` still emit without `: Entity`) | LCK / MusicKit / ProximityReader: working today | RF-only — cascade rejected; needs full Session 6 fix |
 | 15 | RF: 286, RK: 19 | StoreKit2: 37, MusicKit: 23, TipKit: 21, Translation: 15, CryptoKit: 12, WorkoutKit: 12, LCK: 9, RoomPlan: 6, ProximityReader: 3 | **General — affects 11 of 13 built frameworks.** Two-layer fix: registry add for RF + general path fix for the rest. |
 
 ### Coupling decisions

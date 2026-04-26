@@ -36,6 +36,10 @@
             "type": "string",
             "description": "If set, this Swift module maps to a different .NET namespace (e.g., QuartzCore -> CoreAnimation)"
           },
+          "compileImportModule": {
+            "type": "string",
+            "description": "If set, the wrapper Swift file emits 'import <this>' instead of 'import <module>'. Used for Apple modules marked @_implementationOnly by their umbrella module (e.g., RealityFoundation -> RealityKit). Only the literal import line changes; type qualifications and the .NET namespace continue to use the logical module name."
+          },
           "objcPrefixes": {
             "type": "array",
             "items": { "type": "string" },

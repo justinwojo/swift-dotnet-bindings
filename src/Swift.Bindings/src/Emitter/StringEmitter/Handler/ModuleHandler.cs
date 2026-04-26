@@ -449,24 +449,36 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ModuleEmissionContext? emissionCtx = null)
         {
-            // Always import the module being bound
-            swiftWriter.WriteLine($"import {moduleDecl.Name}");
+            // Always import the module being bound. Some Apple modules (e.g. RealityFoundation)
+            // are marked @_implementationOnly by their umbrella (RealityKit) and must be imported
+            // through the umbrella instead. Type qualifications and the .NET namespace continue
+            // to use moduleDecl.Name — only this literal import line is rewritten.
+            var compileImport = AppleFrameworkRegistry.MapModuleToCompileImport(moduleDecl.Name);
+            swiftWriter.WriteLine($"import {compileImport}");
             swiftWriter.WriteLine("import Foundation");
 
-            var neededImports = CollectFrameworkImports(moduleDecl);
+            // Build the additional-imports set with every candidate normalized through the
+            // compile-import remap, then dedupe on the *normalized* name. This covers scanned
+            // imports (CollectFrameworkImports) and --framework-dependency entries equally,
+            // so a sibling module that pulls in @_implementationOnly RealityFoundation either
+            // way still emits `import RealityKit`.
+            var additionalImports = new HashSet<string>();
+            foreach (var scanned in CollectFrameworkImports(moduleDecl))
+            {
+                additionalImports.Add(AppleFrameworkRegistry.MapModuleToCompileImport(scanned));
+            }
+            foreach (var depModule in moduleDecl.DependencyModuleNames)
+            {
+                additionalImports.Add(AppleFrameworkRegistry.MapModuleToCompileImport(depModule));
+            }
+            additionalImports.Remove("Swift");
+            additionalImports.Remove("Foundation");
+            additionalImports.Remove(compileImport);
+            additionalImports.Remove(moduleDecl.Name);
 
-            foreach (var import in neededImports.OrderBy(s => s))
+            foreach (var import in additionalImports.OrderBy(s => s))
             {
                 swiftWriter.WriteLine($"import {import}");
-            }
-
-            // Import dependency modules (from --framework-dependency)
-            foreach (var depModule in moduleDecl.DependencyModuleNames.OrderBy(s => s))
-            {
-                if (depModule != moduleDecl.Name && !neededImports.Contains(depModule))
-                {
-                    swiftWriter.WriteLine($"import {depModule}");
-                }
             }
 
             swiftWriter.WriteLine();

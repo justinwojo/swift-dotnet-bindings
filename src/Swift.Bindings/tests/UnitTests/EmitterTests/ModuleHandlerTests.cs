@@ -373,6 +373,39 @@ public class ModuleHandlerTests
         Assert.Equal(1, EmitterTestHelpers.CountOccurrences(swiftOutput, "import UIKit"));
     }
 
+    [Fact]
+    public void EmitSwiftImports_RemapsDependencyModuleThroughCompileImport()
+    {
+        // Regression: dependency modules (--framework-dependency) marked @_implementationOnly
+        // by their umbrella must be remapped at the literal import line, just like the primary
+        // module is. Otherwise a sibling module that depends on RealityFoundation would emit
+        // `import RealityFoundation` and hit the same compiler error Bug 10 fixed for primaries.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.DependencyModuleNames = new List<string> { "RealityFoundation" };
+            });
+
+        Assert.Contains("import RealityKit", swiftOutput);
+        Assert.DoesNotContain("import RealityFoundation", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftImports_RemapDedupesAgainstPrimaryUmbrella()
+    {
+        // RealityKit binding itself: the primary module already emits `import RealityKit`.
+        // A dependency on RealityFoundation must remap to RealityKit and dedupe — the line
+        // should appear exactly once.
+        var (_, swiftOutput) = EmitModuleWithDependencies("RealityKit", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.DependencyModuleNames = new List<string> { "RealityFoundation" };
+            });
+
+        Assert.Equal(1, EmitterTestHelpers.CountOccurrences(swiftOutput, "import RealityKit"));
+        Assert.DoesNotContain("import RealityFoundation", swiftOutput);
+    }
+
     #endregion
 
     #region EveryProtocol Unsupported Module Tests

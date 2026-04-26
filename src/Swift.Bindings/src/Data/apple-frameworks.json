@@ -623,6 +623,10 @@
       }
     },
     {
+      "module": "RealityFoundation",
+      "compileImportModule": "RealityKit"
+    },
+    {
       "module": "RealityKit",
       "autoBridge": true,
       "optionalFallback": true,

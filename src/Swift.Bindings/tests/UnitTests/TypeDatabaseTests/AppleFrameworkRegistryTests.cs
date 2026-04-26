@@ -161,6 +161,28 @@ public class AppleFrameworkRegistryTests
         Assert.Equal(expected, AppleFrameworkRegistry.MapModuleToNetNamespace(input));
     }
 
+    // --- MapModuleToCompileImport ---
+
+    [Theory]
+    [InlineData("RealityFoundation", "RealityKit")]  // @_implementationOnly umbrella remap
+    [InlineData("RealityKit", "RealityKit")]         // No remap — pass through
+    [InlineData("UIKit", "UIKit")]                   // No remap — pass through
+    [InlineData("Foundation", "Foundation")]         // No remap — pass through
+    [InlineData("MyCustomLib", "MyCustomLib")]       // Unknown — pass through
+    [InlineData("", "")]
+    public void MapModuleToCompileImport_ReturnsExpected(string input, string expected)
+    {
+        Assert.Equal(expected, AppleFrameworkRegistry.MapModuleToCompileImport(input));
+    }
+
+    [Fact]
+    public void MapModuleToCompileImport_DoesNotAffectNetNamespace()
+    {
+        // The compile-import remap must NOT bleed into namespace remapping —
+        // RealityFoundation's .NET namespace stays "RealityFoundation".
+        Assert.Equal("RealityFoundation", AppleFrameworkRegistry.MapModuleToNetNamespace("RealityFoundation"));
+    }
+
     // --- MapModulesInString ---
 
     [Theory]
