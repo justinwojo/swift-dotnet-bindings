@@ -392,6 +392,31 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void IsActorIsolatedMember_CustomGlobalActorIsolatedParent_NonIsolatedMethod_ReturnsFalse()
+    {
+        // SWIFTBIND022 narrows blocking to constructors via CanEmitMember; this helper
+        // must remain permissive for plain instance members on a custom-global-actor type.
+        // A nonisolated method on @ImagePipelineActor class X compiles fine in a synchronous
+        // @_cdecl wrapper because the call doesn't cross the actor boundary.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("ImagePrefetcher", moduleDecl);
+        classDecl.IsCustomActorIsolated = true;
+
+        // No isolation, no nonisolated marker — IsActorIsolatedMember should NOT block.
+        Assert.False(WrapperValidation.IsActorIsolatedMember(
+            classDecl,
+            memberIsActorIsolated: false,
+            memberIsMainActorIsolated: false));
+
+        // Even an actor-isolated member that is also marked nonisolated stays unblocked.
+        Assert.False(WrapperValidation.IsActorIsolatedMember(
+            classDecl,
+            memberIsActorIsolated: true,
+            memberIsMainActorIsolated: false,
+            memberIsNonisolated: true));
+    }
+
+    [Fact]
     public void ContainsParameterizedProtocol_ProtocolBaseWithGenericArg_ReturnsTrue()
     {
         // Parameterized-protocol pattern: `EventStream<UIEvent>` where EventStream is a protocol

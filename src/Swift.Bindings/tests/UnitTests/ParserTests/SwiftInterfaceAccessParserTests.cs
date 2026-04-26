@@ -3046,4 +3046,128 @@ public class DisposeBag {
     }
 
     #endregion
+
+    #region GetCustomActorIsolatedTypes (SWIFTBIND022)
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_DetectsAnnotationOnSameLine()
+    {
+        // Reproduces the Nuke 13.0.2 pattern: @<Lib>Actor on the same line as the type decl.
+        var swiftInterface = """
+            @globalActor public actor ImagePipelineActor {
+              public static let shared: Nuke.ImagePipelineActor
+            }
+            @Nuke.ImagePipelineActor public class ImagePrefetcher {
+              public init(pipeline: Nuke.ImagePipeline = Nuke.ImagePipeline.shared)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ImagePipelineActor" };
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, customActors);
+            Assert.Contains("ImagePrefetcher", result);
+            // The actor declaration itself must NOT be in the set — that's GetCustomActorTypes' job.
+            Assert.DoesNotContain("ImagePipelineActor", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_DetectsAnnotationOnPriorLine()
+    {
+        var swiftInterface = """
+            @globalActor public actor ImagePipelineActor {
+              public static let shared: Nuke.ImagePipelineActor
+            }
+            @Nuke.ImagePipelineActor
+            public class ImageCache {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ImagePipelineActor" };
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, customActors);
+            Assert.Contains("ImageCache", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_IgnoresUnannotatedTypes()
+    {
+        var swiftInterface = """
+            @globalActor public actor ImagePipelineActor {
+              public static let shared: Nuke.ImagePipelineActor
+            }
+            public class PlainClass {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ImagePipelineActor" };
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, customActors);
+            Assert.DoesNotContain("PlainClass", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_AnnotatedMemberDoesNotTaintNextType()
+    {
+        // Regression: an actor-annotated member (init/func/var) on a line shared with the
+        // annotation must NOT cause the next type declaration to be flagged as actor-isolated.
+        // Previously the deferred-annotation logic carried the flag forward across complete
+        // member decls, making downstream types like AsyncWorker erroneously match SWIFTBIND022.
+        var swiftInterface = """
+            @globalActor public actor BindingsTestGlobalActor {
+              public static let shared: BindingsTestGlobalActor
+            }
+            @BindingsTestGlobalActor public class GlobalActorIsolatedClass {
+              @BindingsTestGlobalActor public init(label: Swift.String = "default")
+              @BindingsTestGlobalActor public func describe() -> Swift.String
+              @objc deinit
+            }
+            public func plainFreeFunction()
+            public struct AsyncWorker {
+              public init(name: Swift.String)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "BindingsTestGlobalActor" };
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, customActors);
+            Assert.Contains("GlobalActorIsolatedClass", result);
+            Assert.DoesNotContain("AsyncWorker", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatedTypes_ReturnsEmptyWhenNoCustomActorsKnown()
+    {
+        var swiftInterface = """
+            @ImagePipelineActor public class ImagePrefetcher {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            // No custom actors known → can't detect annotation, return empty.
+            var result = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, customActorTypeNames: null);
+            Assert.Empty(result);
+
+            var emptyResult = SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(path, new HashSet<string>());
+            Assert.Empty(emptyResult);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
 }

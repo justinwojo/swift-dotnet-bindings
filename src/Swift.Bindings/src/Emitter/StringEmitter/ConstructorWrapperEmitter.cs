@@ -27,10 +27,13 @@ public static class ConstructorWrapperEmitter
         if (!env.MethodDecl.IsConstructor)
             return false;
 
-        // Shared guards: xcframework, internal, non-copyable, async, inherited generic context
+        // Shared guards: xcframework, internal, non-copyable, async, actor isolation, inherited generic context
         if (!WrapperValidation.CanEmitMember(env, MemberKind.Constructor,
             isModuleInternal: env.MethodDecl.IsModuleInternal,
-            isAsync: env.MethodDecl.IsAsync))
+            isAsync: env.MethodDecl.IsAsync,
+            isActorIsolated: env.MethodDecl.IsActorIsolated,
+            isMainActorIsolated: env.MethodDecl.IsMainActorIsolated,
+            isNonisolated: env.MethodDecl.IsNonisolated))
             return false;
 
         // Skip failable inits on non-frozen struct types.

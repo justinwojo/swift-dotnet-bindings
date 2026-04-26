@@ -184,8 +184,8 @@ public static class WrapperValidation
                 return false;
         }
 
-        // 6. Actor isolation (Method, Property, Subscript)
-        if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Subscript)
+        // 6. Actor isolation (Method, Property, Subscript, Constructor)
+        if (kind is MemberKind.Method or MemberKind.Property or MemberKind.Subscript or MemberKind.Constructor)
         {
             // Nonisolated actor members only bypass the actor gate when their signature doesn't
             // require parameterized-protocol runtime support (iOS 16+ feature). When it does,
@@ -194,6 +194,19 @@ public static class WrapperValidation
                 !SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase);
             if (IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated, effectiveNonisolated))
                 return false;
+        }
+
+        // 6b. SWIFTBIND022: Constructors on custom-global-actor-isolated parent types
+        // (e.g., @ImagePipelineActor class X) cannot be wrapped synchronously. Any default-
+        // parameter overload helper extension (`extension X { static func _dbw_init_*() }`)
+        // inherits the type's actor isolation, so even a nominally nonisolated init routes
+        // through actor-isolated dispatch. Conservatively skip every constructor on such
+        // types; instance methods/properties/subscripts go through the standard actor gate
+        // above and the per-member nonisolated bypass still applies.
+        if (kind is MemberKind.Constructor &&
+            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true })
+        {
+            return false;
         }
 
         // 7. Inherited generic context on parent (Method, Property, Constructor)
@@ -243,6 +256,12 @@ public static class WrapperValidation
     /// - @MainActor members — exposed as synchronous C# APIs following the Xamarin.iOS precedent.
     /// - `nonisolated` members on actor types — these opt out of the actor's isolation and are
     ///   safe to call from any context (Swift 6 guarantees via the compiler).
+    ///
+    /// Note: Type-level custom global actor isolation (e.g., <c>@ImagePipelineActor class X</c>)
+    /// is NOT handled here. Constructor-specific blocking is in <see cref="CanEmitMember"/>'s
+    /// SWIFTBIND022 gate; default-parameter overload extensions are skipped in
+    /// <c>DefaultParameterOverloadEmitter</c>. Plain nonisolated instance methods/properties
+    /// on such types are still safe to wrap.
     /// </summary>
     public static bool IsActorIsolatedMember(
         BaseDecl? parentDecl,

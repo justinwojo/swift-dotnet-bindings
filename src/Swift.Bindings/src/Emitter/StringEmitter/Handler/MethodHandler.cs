@@ -96,6 +96,35 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
+            // Conservative skip for constructors on custom-global-actor-isolated types
+            // (e.g., @ImagePipelineActor class ImagePrefetcher). The synchronous @_cdecl wrapper
+            // can't safely call into a custom actor's executor, and any default-parameter
+            // overload helpers (`extension Type { static func _dbw_init_*() }`) inherit the
+            // actor's isolation. Skipping the constructor leaves the rest of the binding
+            // compilable; the type itself remains available via other (non-init) APIs.
+            // Removing this skip requires Option 2 (executor hop) — see roadmap.
+            if (methodEnv.ParentDecl is TypeDecl actorIsolatedParent &&
+                actorIsolatedParent.IsCustomActorIsolated)
+            {
+                _logger.LogWarning(
+                    "SWIFTBIND022: Skipping constructor '{Name}' on '{ParentName}' because the parent type is isolated to a custom global actor. " +
+                    "Synchronous @_cdecl wrappers cannot safely cross actor boundaries; " +
+                    "construct '{ParentName}' from a Swift wrapper that hops to the actor, or expose a nonisolated factory.",
+                    methodEnv.MethodDecl.Name,
+                    actorIsolatedParent.Name,
+                    actorIsolatedParent.Name);
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.ActorIsolatedConstructor,
+                    $"Constructor on custom-global-actor-isolated type '{actorIsolatedParent.Name}' cannot be wrapped synchronously.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    BindingItemKind.Method, SkipReason.ActorIsolatedConstructor,
+                    $"parent type '{actorIsolatedParent.Name}' is isolated to a custom global actor (SWIFTBIND022)");
+                return;
+            }
+
             // Phases 3-6 (thunk closure, protocol constraints, bound generic skip gates,
             // generic constructor own params) are now in MemberValidationPipeline.
             // Only existential type argument accumulation remains here — it feeds

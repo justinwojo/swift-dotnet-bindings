@@ -232,6 +232,9 @@ namespace BindingsGeneration
 
             if (_customActorTypes != null && _customActorTypes.Contains(qualifiedPath))
                 typeDecl.IsCustomActor = true;
+
+            if (_customActorIsolatedTypes != null && _customActorIsolatedTypes.Contains(qualifiedPath))
+                typeDecl.IsCustomActorIsolated = true;
         }
 
         /// <summary>
@@ -622,6 +625,14 @@ namespace BindingsGeneration
         private readonly HashSet<string>? _customActorTypes;
 
         /// <summary>
+        /// Optional set of qualified type paths annotated with a custom global actor
+        /// (e.g., <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
+        /// <see cref="_customActorTypes"/>, which holds the <c>actor X { }</c> keyword form.
+        /// Members on these types implicitly inherit the actor's isolation.
+        /// </summary>
+        private readonly HashSet<string>? _customActorIsolatedTypes;
+
+        /// <summary>
         /// Optional set of "TypeName.memberName" keys for actor-isolated members (both @MainActor and custom actors).
         /// </summary>
         private readonly HashSet<string>? _actorIsolatedMembers;
@@ -703,7 +714,8 @@ namespace BindingsGeneration
             Dictionary<string, List<string>>? subscriptLabels = null,
             HashSet<string>? mainActorIsolatedMembers = null,
             HashSet<string>? variadicMembers = null,
-            HashSet<string>? conventionCProtocols = null)
+            HashSet<string>? conventionCProtocols = null,
+            HashSet<string>? customActorIsolatedTypes = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -728,6 +740,7 @@ namespace BindingsGeneration
             _mainActorIsolatedMembers = mainActorIsolatedMembers;
             _variadicMembers = variadicMembers;
             _conventionCProtocols = conventionCProtocols;
+            _customActorIsolatedTypes = customActorIsolatedTypes;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");

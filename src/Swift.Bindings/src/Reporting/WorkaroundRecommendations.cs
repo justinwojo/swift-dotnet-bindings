@@ -54,6 +54,8 @@ public static class WorkaroundRecommendations
             "Ensure the type is exported in the module's public ABI.",
         SkipReason.AncestorSkipped =>
             "Parent type was skipped; nested declarations are unreachable until the parent is supported.",
+        SkipReason.ActorIsolatedConstructor =>
+            "Constructor is on a custom global-actor-isolated type. The synchronous @_cdecl wrapper cannot call into the actor's executor. Construct the type from a Swift wrapper that hops to the actor, or expose a nonisolated factory.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -105,6 +107,8 @@ public static class WorkaroundRecommendations
             "type not exported in the module's public ABI",
         SkipReason.AncestorSkipped =>
             "nested type whose parent was skipped",
+        SkipReason.ActorIsolatedConstructor =>
+            "constructor on a custom global-actor-isolated type (synchronous wrapper unsafe)",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

@@ -85,6 +85,7 @@ public enum SkipReason
     OwnedByAppleSupplement,
     IndeterminatePwtShape,
     AncestorSkipped,
+    ActorIsolatedConstructor,
     Unknown,
 }
 

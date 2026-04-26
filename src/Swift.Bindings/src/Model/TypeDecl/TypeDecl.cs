@@ -84,6 +84,16 @@ namespace BindingsGeneration
         public bool IsCustomActor { get; set; } = false;
 
         /// <summary>
+        /// Whether this type is annotated with a custom global actor (e.g., <c>@ImagePipelineActor</c>),
+        /// distinct from <see cref="IsCustomActor"/> which tracks the <c>actor X { }</c> keyword form.
+        /// All members on such a type implicitly inherit the actor's isolation unless they
+        /// individually opt out with <c>nonisolated</c>. Synchronous <c>@_cdecl</c> wrappers
+        /// can't safely call into a custom-actor-isolated context, so the constructor wrapper
+        /// gate skips inits on these types and emits SWIFTBIND022.
+        /// </summary>
+        public bool IsCustomActorIsolated { get; set; } = false;
+
+        /// <summary>
         /// Whether this type has a singleton pattern (static 'shared' property returning Self).
         /// Used for async method workarounds where passing self doesn't work correctly.
         /// </summary>

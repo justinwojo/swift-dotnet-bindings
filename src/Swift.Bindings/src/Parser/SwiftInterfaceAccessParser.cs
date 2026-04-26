@@ -108,6 +108,21 @@ public static class SwiftInterfaceAccessParser
         @"(?:convenience\s+)?init\s*\(",
         RegexOptions.Compiled);
 
+    // Detects any member-level declaration keyword (func/init/var/let/subscript/typealias/case/deinit)
+    // anywhere on the line. Used by deferred-annotation logic to avoid carrying an annotation
+    // forward when the same line already contains a member that consumes it.
+    private static readonly Regex MemberDeclKeywordRegex = new(
+        @"\b(?:func|init|deinit|subscript|typealias|case|operator)\b|\b(?:var|let)\s+\w+",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Returns true when the line contains a member-level declaration (func/init/var/let/subscript/...).
+    /// Used by deferred-annotation parsers to distinguish a standalone annotation line from a
+    /// complete annotated declaration that consumes the annotation on the same line.
+    /// </summary>
+    private static bool IsMemberDeclLine(string trimmed)
+        => MemberDeclKeywordRegex.IsMatch(trimmed);
+
     // Regex for public/open subscript declarations
     private static readonly Regex PublicSubscriptRegex = new(
         @"(?:public|open)\s+(?:static\s+)?subscript\s*(?:<[^>]*>\s*)?\(",
@@ -241,8 +256,12 @@ public static class SwiftInterfaceAccessParser
             bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
             pendingMainActor = false;
 
-            // If this line has @MainActor but no declaration, it's a pending annotation
-            if (hasMainActor && !TypeDeclRegex.IsMatch(trimmed) && openBraces == 0)
+            // If this line has @MainActor but no declaration, it's a pending annotation.
+            // Also ensure the line doesn't already carry a complete member decl
+            // (func/init/var/...) — in that case the annotation belongs to the member
+            // and must not be carried forward to the next type declaration.
+            if (hasMainActor && !TypeDeclRegex.IsMatch(trimmed) && openBraces == 0
+                && !IsMemberDeclLine(trimmed))
             {
                 pendingMainActor = true;
                 braceDepth += openBraces - closeBraces;
@@ -345,6 +364,109 @@ public static class SwiftInterfaceAccessParser
                     // Strip module prefix (first component) to get the full type path.
                     // e.g., "CryptoKit.P256.Signing" → "P256.Signing" (not just "Signing").
                     // Extensions in swiftinterface files are always module-qualified.
+                    var firstDotIdx = qualifiedName.IndexOf('.');
+                    var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                    typeStack.Push((typePath, braceDepth));
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                typeStack.Pop();
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns a set of qualified type paths for types annotated with a custom global actor
+    /// (e.g., <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
+    /// <see cref="GetCustomActorTypes"/>, which returns types declared with the
+    /// <c>actor</c> keyword. The supplied <paramref name="customActorTypeNames"/> is the
+    /// short-name set produced by <see cref="GetCustomActorTypes"/>; this method then
+    /// scans declarations for matching <c>@&lt;ActorName&gt;</c> annotations and records the
+    /// type path so the ABI parser can flag <see cref="TypeDecl.IsCustomActorIsolated"/>.
+    /// Returns an empty set when the swiftinterface doesn't exist or no custom actors are known.
+    /// </summary>
+    public static HashSet<string> GetCustomActorIsolatedTypes(
+        string swiftInterfacePath, HashSet<string>? customActorTypeNames)
+    {
+        var result = new HashSet<string>();
+
+        if (!File.Exists(swiftInterfacePath) ||
+            customActorTypeNames == null || customActorTypeNames.Count == 0)
+            return result;
+
+        // GetCustomActorTypes returns qualified paths (e.g., "Outer.ImagePipelineActor"
+        // for nested actors). Swift annotations on the consumer side use the leaf name
+        // (e.g., `@ImagePipelineActor`), so normalize to short names before building the regex.
+        var shortNames = customActorTypeNames
+            .Select(n => n.Substring(n.LastIndexOf('.') + 1))
+            .Where(n => n.Length > 0)
+            .Distinct()
+            .ToList();
+        if (shortNames.Count == 0)
+            return result;
+
+        var escapedNames = string.Join("|", shortNames.Select(Regex.Escape));
+        var customActorRegex = new Regex(
+            @"@(?:\w+\.)?(?:" + escapedNames + @")\b",
+            RegexOptions.Compiled);
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        bool pendingCustomActor = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            bool hasCustomActor = pendingCustomActor || customActorRegex.IsMatch(trimmed);
+            pendingCustomActor = false;
+
+            // Annotation on its own line — defer until the next decl line. We must NOT defer
+            // when the same line already carries a member declaration (func/init/var/let/...),
+            // because the annotation belongs to that member, not to the next line. Without this
+            // check, an actor-isolated init/func would taint the next type declaration encountered
+            // (e.g., `@<Actor> public init(...)` followed later by `public struct Other`).
+            if (hasCustomActor && !TypeDeclRegex.IsMatch(trimmed) && openBraces == 0
+                && !IsMemberDeclLine(trimmed))
+            {
+                pendingCustomActor = true;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            bool pushedScope = false;
+            var typeMatch = TypeDeclRegex.Match(trimmed);
+            if (typeMatch.Success && openBraces > 0)
+            {
+                var typeName = typeMatch.Groups[1].Value;
+                typeStack.Push((typeName, braceDepth));
+                pushedScope = true;
+
+                // Record only when the annotation lands on a non-actor type (the actor
+                // declaration itself is a separate concept tracked by GetCustomActorTypes).
+                if (hasCustomActor && !ActorDeclRegex.IsMatch(trimmed))
+                {
+                    var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
+                    result.Add(qualifiedPath);
+                }
+            }
+
+            if (!pushedScope)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && openBraces > 0)
+                {
+                    var qualifiedName = extMatch.Groups[1].Value;
                     var firstDotIdx = qualifiedName.IndexOf('.');
                     var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
                     typeStack.Push((typePath, braceDepth));
