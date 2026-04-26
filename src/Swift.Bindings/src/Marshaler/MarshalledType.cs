@@ -70,14 +70,19 @@ public abstract record MarshalledType
     /// Marshalling creates a buffer with elements at ABI offsets.</summary>
     public sealed record CdeclTuple(string CSharpTupleType) : MarshalledType;
 
-    /// <summary>Pointer half of a split Swift.UnsafeRawBufferPointer parameter.
-    /// Public C# signature takes ReadOnlySpan&lt;byte&gt;; at the call site the span is
-    /// pinned via <c>fixed (byte* {SourceCsName}PinnedPtr = {SourceCsName})</c> and
-    /// the P/Invoke receives <c>(IntPtr){SourceCsName}PinnedPtr</c>.</summary>
+    /// <summary>Pointer half of a split Swift.UnsafeRawBufferPointer or
+    /// Swift.UnsafeMutableRawBufferPointer parameter. Public C# signature takes
+    /// ReadOnlySpan&lt;byte&gt; (read-only) or Span&lt;byte&gt; (mutable); at the call site
+    /// the span is pinned via <c>fixed (byte* {SourceCsName}PinnedPtr = {SourceCsName})</c>
+    /// and the P/Invoke receives <c>(IntPtr){SourceCsName}PinnedPtr</c>. The C ABI is
+    /// identical for both variants — the read-only/mutable distinction lives only on the
+    /// Swift wrapper side (UnsafeRawPointer? vs UnsafeMutableRawPointer?). See
+    /// src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.</summary>
     public sealed record RawBufferPtr(string SourceCsName) : MarshalledType;
 
-    /// <summary>Length half of a split Swift.UnsafeRawBufferPointer parameter.
-    /// P/Invoke receives <c>(nint){SourceCsName}.Length</c>.</summary>
+    /// <summary>Length half of a split Swift.UnsafeRawBufferPointer or
+    /// Swift.UnsafeMutableRawBufferPointer parameter. P/Invoke receives
+    /// <c>(nint){SourceCsName}.Length</c>.</summary>
     public sealed record RawBufferLen(string SourceCsName) : MarshalledType;
 
     /// <summary>@convention(c) function pointer with full delegate* type string.</summary>

@@ -96,6 +96,30 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Determines whether the specified type spec represents the writable Swift.UnsafeMutableRawBufferPointer.
+        /// Marshalled identically to <see cref="IsUnsafeRawBufferPointer"/> at the C ABI boundary
+        /// (split into IntPtr pointer + nint length); the C# side exposes Span&lt;byte&gt; instead of
+        /// ReadOnlySpan&lt;byte&gt; so callers can observe Swift-side mutations after the synchronous call.
+        /// See <c>src/docs/Design/unsafe-mutable-raw-buffer-pointer.md</c>.
+        /// </summary>
+        public static bool IsUnsafeMutableRawBufferPointer(TypeSpec? typeSpec)
+        {
+            return typeSpec is NamedTypeSpec named && named.Name == "Swift.UnsafeMutableRawBufferPointer";
+        }
+
+        /// <summary>
+        /// Determines whether the specified type spec represents either the read-only
+        /// Swift.UnsafeRawBufferPointer or the writable Swift.UnsafeMutableRawBufferPointer.
+        /// Both share the same (IntPtr pointer, nint length) C ABI; differences live in the
+        /// public C# parameter type (ReadOnlySpan vs Span) and the Swift-side reconstruction
+        /// (UnsafeRawBufferPointer vs UnsafeMutableRawBufferPointer).
+        /// </summary>
+        public static bool IsAnyUnsafeRawBufferPointer(TypeSpec? typeSpec)
+        {
+            return IsUnsafeRawBufferPointer(typeSpec) || IsUnsafeMutableRawBufferPointer(typeSpec);
+        }
+
+        /// <summary>
         /// Determines whether the specified type spec represents Swift.Optional wrapping
         /// an ObjC bridged type (e.g., Optional&lt;UIImage&gt;, Optional&lt;NSUrlResponse&gt;).
         /// ObjC optionals use nullable pointer ABI (nil = IntPtr.Zero), not SwiftOptional layout.

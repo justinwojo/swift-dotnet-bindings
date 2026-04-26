@@ -190,9 +190,12 @@ namespace BindingsGeneration
                 _needsUnsafeBody = true;
             }
 
-            // UnsafeRawBufferPointer params pin via `fixed (byte* p = span)` which requires unsafe.
+            // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer params pin via
+            // `fixed (byte* p = span)` which requires unsafe. Both variants follow the same
+            // emission shape; only the public C# parameter type and the Swift-side
+            // reconstruction differ — see CdeclParamMapper.
             if (_env.MethodDecl.CSSignature.Skip(1).Any(arg =>
-                    MarshallingHelpers.IsUnsafeRawBufferPointer(arg.SwiftTypeSpec)))
+                    MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg.SwiftTypeSpec)))
             {
                 _needsUnsafeBody = true;
             }
@@ -705,15 +708,18 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits nested `fixed (byte* {name}PinnedPtr = {name})` blocks for every
-        /// Swift.UnsafeRawBufferPointer parameter, pinning the C# ReadOnlySpan&lt;byte&gt; so
-        /// its data survives across the P/Invoke call. Empty spans pin to a null pointer,
-        /// which the Swift side reconstructs as UnsafeRawBufferPointer(start: nil, count: 0).
+        /// Swift.UnsafeRawBufferPointer / Swift.UnsafeMutableRawBufferPointer parameter,
+        /// pinning the C# (ReadOnly)Span&lt;byte&gt; so its data survives across the P/Invoke
+        /// call. Empty spans pin to a null pointer, which the Swift side reconstructs as
+        /// (Mutable)RawBufferPointer(start: nil, count: 0). Same `fixed` shape works for
+        /// both variants — Span&lt;T&gt;.GetPinnableReference() is defined on both Span and
+        /// ReadOnlySpan.
         /// </summary>
         private void EmitRawBufferFixedStart(CSharpWriter csWriter)
         {
             foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
             {
-                if (!MarshallingHelpers.IsUnsafeRawBufferPointer(arg.SwiftTypeSpec))
+                if (!MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg.SwiftTypeSpec))
                     continue;
                 var csName = NameProvider.GetCSharpParameterName(arg);
                 csWriter.WriteLine($"fixed (byte* {csName}PinnedPtr = {csName})");
@@ -730,7 +736,7 @@ namespace BindingsGeneration
         {
             foreach (var arg in _env.MethodDecl.CSSignature.Skip(1))
             {
-                if (!MarshallingHelpers.IsUnsafeRawBufferPointer(arg.SwiftTypeSpec))
+                if (!MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg.SwiftTypeSpec))
                     continue;
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

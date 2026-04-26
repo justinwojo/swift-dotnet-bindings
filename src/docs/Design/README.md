@@ -17,6 +17,7 @@ These docs are useful for contributors who need to understand the internals of t
 - [binding-closures.md](binding-closures.md) — Closure callback patterns
 - [binding-tuples.md](binding-tuples.md) — Tuple marshalling
 - [binding-functions.md](binding-functions.md) — Function classification
+- [unsafe-mutable-raw-buffer-pointer.md](unsafe-mutable-raw-buffer-pointer.md) — `UnsafeMutableRawBufferPointer` ↔ `Span<byte>` projection
 - [binding-properties.md](binding-properties.md) — Property getter/setter patterns
 - [binding-variables.md](binding-variables.md) — Module-level globals
 - [binding-typedatabase.md](binding-typedatabase.md) — Type database design

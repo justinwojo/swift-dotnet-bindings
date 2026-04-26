@@ -2748,6 +2748,43 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void CdeclParamMapper_UnsafeMutableRawBufferPointer_SplitsIntoMutablePtrAndLen()
+    {
+        // Swift.UnsafeMutableRawBufferPointer follows the same split as the read-only variant,
+        // but Swift sees an UnsafeMutableRawPointer? (mutable) and reconstructs an
+        // UnsafeMutableRawBufferPointer so write-back through the buffer mutates the C# memory
+        // directly. C# side projects to Span<byte> instead of ReadOnlySpan<byte>. See
+        // unsafe-mutable-raw-buffer-pointer.md.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var mutableRawBuf = new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer");
+        var arg = new ArgumentDecl
+        {
+            SwiftTypeSpec = mutableRawBuf,
+            Name = "buffer",
+            PrivateName = "buffer",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("fillBuffer", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "buffer", env);
+
+        Assert.Contains("bufferPtr: UnsafeMutableRawPointer?", cdeclParam);
+        Assert.Contains("bufferLen: Int", cdeclParam);
+        Assert.Contains("UnsafeMutableRawBufferPointer(start: bufferPtr, count: bufferLen)", reconstruction!);
+        // The read-only initializer must NOT appear — that would silently demote write-back.
+        Assert.DoesNotContain("= UnsafeRawBufferPointer(", reconstruction!);
+        Assert.Contains("buffer: bufferVal", callArg);
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_OptionalSelfReturn_ClassParent_ReturnsTrue()
     {
         // Optional<Self> return on class parents — Self resolves to concrete class,

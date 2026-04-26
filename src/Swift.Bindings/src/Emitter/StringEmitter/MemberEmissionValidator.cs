@@ -929,17 +929,39 @@ public static class MemberEmissionValidator
             }
         }
 
-        // Swift.UnsafeRawBufferPointer is supported by splitting into (ptr, len) at the @_cdecl
-        // boundary and bridging to ReadOnlySpan<byte> on the C# side. See CdeclParamMapper.Map
-        // and RawBufferPointerProjection. The mutable variant remains unsupported.
-        foreach (var arg in method.CSSignature.Skip(1))
+        // Swift.UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer parameters in synchronous,
+        // nonescaping positions are supported by splitting into (ptr, len) at the @_cdecl boundary
+        // and bridging to ReadOnlySpan<byte> / Span<byte> on the C# side. See CdeclParamMapper.Map
+        // and src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.
+        //
+        // Out-of-scope shapes for v1:
+        //   - Return-position buffers (no fixed-block scope to pin under).
+        //   - Async method parameters (the fixed block scopes only the synchronous P/Invoke start;
+        //     the await would cross out of the pin, leaving Swift with a dangling pointer if it
+        //     retained the address).
+        //   - Escaping closure parameters are already filtered out earlier by
+        //     MethodClosureBridge.IsSwiftPointerType, which excludes both buffer pointer variants
+        //     from closure bridging.
+        // Fail closed with SWIFTBIND104 so consumers see the warning at generate time rather than
+        // a runtime crash.
+        if (method.CSSignature.Count > 0
+            && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(method.CSSignature[0].SwiftTypeSpec))
         {
-            if (arg.SwiftTypeSpec is NamedTypeSpec rawBufSpec &&
-                rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer")
-            {
-                skipDetails = $"Parameter '{arg.Name}' uses '{rawBufSpec.Name}', which is not yet supported for @_cdecl marshalling.";
-                return SkipReason.UnsupportedSignature;
-            }
+            var returnTypeName = ((NamedTypeSpec)method.CSSignature[0].SwiftTypeSpec!).Name;
+            skipDetails = $"SWIFTBIND104: '{returnTypeName}' is not supported as a return type. " +
+                          "v1 supports synchronous, nonescaping parameters only. " +
+                          "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
+            return SkipReason.UnsupportedSignature;
+        }
+        if (method.IsAsync
+            && method.CSSignature.Skip(1).FirstOrDefault(arg =>
+                MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg.SwiftTypeSpec)) is { } asyncBufArg)
+        {
+            var bufTypeName = ((NamedTypeSpec)asyncBufArg.SwiftTypeSpec!).Name;
+            skipDetails = $"SWIFTBIND104: '{bufTypeName}' is not supported as a parameter on async methods. " +
+                          "v1 supports synchronous, nonescaping parameters only. " +
+                          "See src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.";
+            return SkipReason.UnsupportedSignature;
         }
 
         // Reject methods whose return type or any parameter is a DIRECT existential

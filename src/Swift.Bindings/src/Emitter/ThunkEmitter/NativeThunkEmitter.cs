@@ -121,10 +121,11 @@ public static class NativeThunkEmitter
         if (HasObjCBridgeableParamsOrReturn(env))
             return false;
 
-        // UnsafeRawBufferPointer params are split into (IntPtr, nint) at the C ABI boundary
-        // via @_cdecl wrapper. Native thunks preserve Swift ABI (16-byte struct in two
-        // registers), which doesn't match the split. Force the @_cdecl wrapper path.
-        if (methodDecl.CSSignature.Skip(1).Any(a => MarshallingHelpers.IsUnsafeRawBufferPointer(a.SwiftTypeSpec)))
+        // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer params are split into
+        // (IntPtr, nint) at the C ABI boundary via @_cdecl wrapper. Native thunks preserve
+        // Swift ABI (16-byte struct in two registers), which doesn't match the split.
+        // Force the @_cdecl wrapper path for both variants.
+        if (methodDecl.CSSignature.Skip(1).Any(a => MarshallingHelpers.IsAnyUnsafeRawBufferPointer(a.SwiftTypeSpec)))
             return false;
 
         // Inout parameters — write-back semantics incompatible

@@ -986,7 +986,6 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Theory]
-    [InlineData("Swift.UnsafeMutableRawBufferPointer")]
     [InlineData("Swift.UnsafeBufferPointer")]
     [InlineData("Swift.UnsafeMutableBufferPointer")]
     public void HasUnsupportedBufferPointerParameter_UnsupportedBufferTypes_ReturnsTrue(string bufferTypeName)
@@ -1029,13 +1028,16 @@ public class ConstructorWrapperEmitterTests
             $"{bufferTypeName} must be flagged as unsupported at the @_cdecl boundary.");
     }
 
-    [Fact]
-    public void HasUnsupportedBufferPointerParameter_UnsafeRawBufferPointer_ReturnsFalse()
+    [Theory]
+    [InlineData("Swift.UnsafeRawBufferPointer")]
+    [InlineData("Swift.UnsafeMutableRawBufferPointer")]
+    public void HasUnsupportedBufferPointerParameter_RawBufferPointer_ReturnsFalse(string bufferTypeName)
     {
-        // UnsafeRawBufferPointer IS supported — CdeclParamMapper splits it into
-        // (ptr, len) and the managed side exposes ReadOnlySpan<byte>. Regression
-        // guard against a refactor that accidentally names it alongside the
-        // unsupported variants.
+        // UnsafeRawBufferPointer and UnsafeMutableRawBufferPointer are BOTH supported —
+        // CdeclParamMapper splits each into (ptr, len) and the managed side exposes
+        // ReadOnlySpan<byte> (read-only) / Span<byte> (mutable). Regression guard
+        // against a refactor that accidentally names either alongside the unsupported
+        // typed-buffer-pointer variants. See unsafe-mutable-raw-buffer-pointer.md.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         var parentDecl = CreateStructDecl("MyType", moduleDecl);
         var method = new MethodDecl
@@ -1051,7 +1053,7 @@ public class ConstructorWrapperEmitterTests
                 {
                     Name = "buffer",
                     PrivateName = "buffer",
-                    SwiftTypeSpec = new NamedTypeSpec("Swift.UnsafeRawBufferPointer"),
+                    SwiftTypeSpec = new NamedTypeSpec(bufferTypeName),
                     IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,

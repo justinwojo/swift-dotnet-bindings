@@ -597,11 +597,13 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Swift.UnsafeRawBufferPointer split: public C# ReadOnlySpan<byte> is pinned at the
-                // call site via a fixed block; the @_cdecl wrapper receives (UnsafeRawPointer?, Int).
+                // Swift.UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer split: the public C#
+                // (ReadOnly)Span<byte> is pinned at the call site via a fixed block; the @_cdecl
+                // wrapper receives (UnsafeRawPointer?/UnsafeMutableRawPointer?, Int). The C ABI
+                // is identical for both variants, so the same MarshalledType records apply.
                 // See CdeclParamMapper.Map for the Swift-side reconstruction and WrapperEmitter
                 // for the C# fixed-block emission that surrounds this P/Invoke call.
-                if (MarshallingHelpers.IsUnsafeRawBufferPointer(argument.SwiftTypeSpec))
+                if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(argument.SwiftTypeSpec))
                 {
                     AddParameter(new MarshalledType.RawBufferPtr(csName), csName + "Ptr");
                     AddParameter(new MarshalledType.RawBufferLen(csName), csName + "Len");

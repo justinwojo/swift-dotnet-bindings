@@ -77,8 +77,9 @@ public static class ConstructorWrapperEmitter
             return false;
 
         // Skip constructors with unsupported buffer pointer parameters
-        // (UnsafeMutableRawBufferPointer, UnsafeBufferPointer<T>, UnsafeMutableBufferPointer<T>).
-        // UnsafeRawBufferPointer is supported via CdeclParamMapper (split into ptr+len at the C ABI boundary).
+        // (UnsafeBufferPointer<T>, UnsafeMutableBufferPointer<T>).
+        // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer are supported via
+        // CdeclParamMapper (split into ptr+len at the C ABI boundary).
         if (HasUnsupportedBufferPointerParameter(env))
             return false;
 
@@ -261,11 +262,13 @@ public static class ConstructorWrapperEmitter
     }
 
     /// <summary>
-    /// Checks if any parameter is an unsupported buffer pointer type: UnsafeMutableRawBufferPointer,
-    /// UnsafeBufferPointer&lt;T&gt;, or UnsafeMutableBufferPointer&lt;T&gt;. These are multi-word structs
-    /// that can't be represented in the @_cdecl C ABI and don't yet have cross-ABI marshalling.
-    /// UnsafeRawBufferPointer is NOT treated as unsupported — CdeclParamMapper splits it into
-    /// (ptr, len) at the @_cdecl boundary and the C# side exposes ReadOnlySpan&lt;byte&gt;.
+    /// Checks if any parameter is an unsupported buffer pointer type:
+    /// UnsafeBufferPointer&lt;T&gt; or UnsafeMutableBufferPointer&lt;T&gt;. These are multi-word
+    /// structs that can't be represented in the @_cdecl C ABI and don't yet have cross-ABI
+    /// marshalling. UnsafeRawBufferPointer and UnsafeMutableRawBufferPointer are NOT treated
+    /// as unsupported — CdeclParamMapper splits both into (ptr, len) at the @_cdecl boundary
+    /// and the C# side exposes ReadOnlySpan&lt;byte&gt; / Span&lt;byte&gt;. See
+    /// src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.
     /// </summary>
     internal static bool HasUnsupportedBufferPointerParameter(MethodEnvironment env)
     {
@@ -274,8 +277,7 @@ public static class ConstructorWrapperEmitter
             if (arg.SwiftTypeSpec is NamedTypeSpec namedSpec)
             {
                 var name = namedSpec.Name;
-                if (name == "Swift.UnsafeMutableRawBufferPointer" ||
-                    name == "Swift.UnsafeBufferPointer" ||
+                if (name == "Swift.UnsafeBufferPointer" ||
                     name == "Swift.UnsafeMutableBufferPointer")
                     return true;
             }

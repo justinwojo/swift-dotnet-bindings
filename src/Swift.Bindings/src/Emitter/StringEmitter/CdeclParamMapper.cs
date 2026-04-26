@@ -50,16 +50,23 @@ public static class CdeclParamMapper
             var n => $"{n}: "
         };
 
-        // Swift.UnsafeRawBufferPointer: 16-byte stdlib struct (base + count) that @_cdecl can't
-        // represent. Split into (ptr, len) at the C ABI boundary and reconstruct via
-        // UnsafeRawBufferPointer(start:count:) in the wrapper body. C# side pins a
-        // ReadOnlySpan<byte> via `fixed` and passes (IntPtr)ptr + (nint)length. Empty span pins
-        // to a null pointer, so the Swift ptr parameter is UnsafeRawPointer? (optional) —
-        // UnsafeRawBufferPointer(start:count:) accepts an optional start already.
-        if (swiftTypeSpec is NamedTypeSpec rawBufSpec && rawBufSpec.Name == "Swift.UnsafeRawBufferPointer")
+        // Swift.UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: 16-byte stdlib structs
+        // (base + count) that @_cdecl can't represent. Split into (ptr, len) at the C ABI
+        // boundary and reconstruct via (Mutable)RawBufferPointer(start:count:) in the wrapper
+        // body. C# side pins a (ReadOnly)Span<byte> via `fixed` and passes (IntPtr)ptr +
+        // (nint)length. Empty span pins to a null pointer, so the Swift ptr parameter is
+        // optional — both initializers accept an optional start already. The mutable variant
+        // uses UnsafeMutableRawPointer? on the Swift side so write-back through the buffer
+        // mutates the C# memory directly. See unsafe-mutable-raw-buffer-pointer.md.
+        if (swiftTypeSpec is NamedTypeSpec rawBufSpec
+            && (rawBufSpec.Name == "Swift.UnsafeRawBufferPointer"
+                || rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer"))
         {
-            return ($"_ {label}Ptr: UnsafeRawPointer?, _ {label}Len: Int",
-                    $"let {label}Val = UnsafeRawBufferPointer(start: {label}Ptr, count: {label}Len)",
+            bool isMutable = rawBufSpec.Name == "Swift.UnsafeMutableRawBufferPointer";
+            string ptrType = isMutable ? "UnsafeMutableRawPointer?" : "UnsafeRawPointer?";
+            string bufferType = isMutable ? "UnsafeMutableRawBufferPointer" : "UnsafeRawBufferPointer";
+            return ($"_ {label}Ptr: {ptrType}, _ {label}Len: Int",
+                    $"let {label}Val = {bufferType}(start: {label}Ptr, count: {label}Len)",
                     $"{argLabel}{label}Val");
         }
 

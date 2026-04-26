@@ -828,4 +828,54 @@ public class MarshallingHelpersTests
     }
 
     #endregion
+
+    #region UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer Predicates
+
+    [Fact]
+    public void IsUnsafeRawBufferPointer_ReadOnlyVariant_ReturnsTrue()
+    {
+        var spec = new NamedTypeSpec("Swift.UnsafeRawBufferPointer");
+        Assert.True(MarshallingHelpers.IsUnsafeRawBufferPointer(spec));
+        Assert.False(MarshallingHelpers.IsUnsafeMutableRawBufferPointer(spec));
+        Assert.True(MarshallingHelpers.IsAnyUnsafeRawBufferPointer(spec));
+    }
+
+    [Fact]
+    public void IsUnsafeMutableRawBufferPointer_MutableVariant_ReturnsTrue()
+    {
+        var spec = new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer");
+        Assert.False(MarshallingHelpers.IsUnsafeRawBufferPointer(spec));
+        Assert.True(MarshallingHelpers.IsUnsafeMutableRawBufferPointer(spec));
+        Assert.True(MarshallingHelpers.IsAnyUnsafeRawBufferPointer(spec));
+    }
+
+    [Theory]
+    [InlineData("Swift.UnsafePointer")]
+    [InlineData("Swift.UnsafeMutablePointer")]
+    [InlineData("Swift.UnsafeRawPointer")]
+    [InlineData("Swift.UnsafeMutableRawPointer")]
+    [InlineData("Swift.UnsafeBufferPointer")]
+    [InlineData("Swift.UnsafeMutableBufferPointer")]
+    [InlineData("Swift.Int")]
+    [InlineData("Swift.String")]
+    public void RawBufferPointerPredicates_OtherPointerTypes_ReturnFalse(string typeName)
+    {
+        // Bare pointers and typed buffer pointers are explicitly NOT raw buffer pointers.
+        // Bare UnsafeMutableRawPointer in particular has no length and cannot project to
+        // Span<byte> — see unsafe-mutable-raw-buffer-pointer.md ("Bare pointer projection").
+        var spec = new NamedTypeSpec(typeName);
+        Assert.False(MarshallingHelpers.IsUnsafeRawBufferPointer(spec));
+        Assert.False(MarshallingHelpers.IsUnsafeMutableRawBufferPointer(spec));
+        Assert.False(MarshallingHelpers.IsAnyUnsafeRawBufferPointer(spec));
+    }
+
+    [Fact]
+    public void RawBufferPointerPredicates_NullSpec_ReturnsFalse()
+    {
+        Assert.False(MarshallingHelpers.IsUnsafeRawBufferPointer(null));
+        Assert.False(MarshallingHelpers.IsUnsafeMutableRawBufferPointer(null));
+        Assert.False(MarshallingHelpers.IsAnyUnsafeRawBufferPointer(null));
+    }
+
+    #endregion
 }
