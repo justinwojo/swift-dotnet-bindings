@@ -446,6 +446,120 @@ public class MemberValidationPipelineTests
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
     }
 
+    // SWIFTBIND104 — UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer in
+    // unsupported positions (return type or async-method parameter). The
+    // generator must skip these members rather than emit a P/Invoke whose
+    // pinned pointer would dangle past the synchronous frame. See
+    // src/docs/Design/unsafe-mutable-raw-buffer-pointer.md.
+    [Fact]
+    public void ValidateMethodEmission_UnsafeMutableRawBufferPointerReturnType_EmitsSwiftBind104Skip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethod("borrowMutable", new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer"));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("SWIFTBIND104", result.Details!);
+        Assert.Contains("UnsafeMutableRawBufferPointer", result.Details!);
+        Assert.Contains("return type", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_UnsafeRawBufferPointerReturnType_EmitsSwiftBind104Skip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethod("borrowReadOnly", new NamedTypeSpec("Swift.UnsafeRawBufferPointer"));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("SWIFTBIND104", result.Details!);
+        Assert.Contains("UnsafeRawBufferPointer", result.Details!);
+        Assert.Contains("return type", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_UnsafeMutableRawBufferPointerOnAsyncParam_EmitsSwiftBind104Skip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs(
+            "writeAsync",
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer"));
+        method.IsAsync = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("SWIFTBIND104", result.Details!);
+        Assert.Contains("UnsafeMutableRawBufferPointer", result.Details!);
+        Assert.Contains("async", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_UnsafeRawBufferPointerOnAsyncParam_EmitsSwiftBind104Skip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs(
+            "readAsync",
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.UnsafeRawBufferPointer"));
+        method.IsAsync = true;
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("SWIFTBIND104", result.Details!);
+        Assert.Contains("UnsafeRawBufferPointer", result.Details!);
+        Assert.Contains("async", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_UnsafeMutableRawBufferPointerOnSyncParam_DoesNotSkip()
+    {
+        // Regression guard: synchronous, non-return-position UnsafeMutableRawBufferPointer
+        // parameters are the v1 happy path — must NOT trigger SWIFTBIND104.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs(
+            "fill",
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.UnsafeMutableRawBufferPointer"));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+        Assert.Null(result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_UnsafeRawBufferPointerOnSyncParam_DoesNotSkip()
+    {
+        // Regression guard: the SWIFTBIND104 gate intentionally treats both buffer
+        // pointer variants identically. The read-only happy path must continue to
+        // emit cleanly — over-broad gating would silently strip valid bindings.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var method = CreateMethodWithArgs(
+            "read",
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.UnsafeRawBufferPointer"));
+
+        var result = pipeline.ValidateMethodEmission(method, null!);
+
+        Assert.True(result.ShouldEmit);
+        Assert.Null(result.Reason);
+    }
+
     #endregion
 
     #region ValidatePropertyEmission Tests
