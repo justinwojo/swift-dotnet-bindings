@@ -199,7 +199,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     public SwiftArray(Element[] source) : this()
     {
         if (source == null) throw new ArgumentNullException(nameof(source));
-        foreach (var item in source) Append(item);
+        AppendRange(source);
     }
 
     /// <summary>
@@ -209,7 +209,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
     public SwiftArray(IEnumerable<Element> source) : this()
     {
         if (source == null) throw new ArgumentNullException(nameof(source));
-        foreach (var item in source) Append(item);
+        AppendRange(source);
     }
 
     /// <summary>
@@ -243,16 +243,57 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         _payload.DangerousAddRef(ref success);
         try
         {
-            Span<byte> span = stackalloc byte[(int)ElementSize];
-            IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
-            SwiftMarshal.MarshalToSwift(item, ref span);
-            SwiftArrayPInvokes.Append(payload, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
+            AppendUnsafe(item, metadata, _payload.DangerousGetHandle());
         }
         finally
         {
             if (success)
                 _payload.DangerousRelease();
         }
+    }
+
+    /// <summary>
+    /// Bulk-append every item from <paramref name="source"/> under a single
+    /// <see cref="System.Runtime.InteropServices.SafeHandle.DangerousAddRef(ref bool)"/>
+    /// scope. Hoisting the SafeHandle ref-count ops outside the loop replaces
+    /// N managed↔SafeHandle interlocked operations with one for large inserts;
+    /// the per-element marshal + Swift-stdlib P/Invoke is unchanged.
+    /// </summary>
+    private unsafe void AppendRange(IEnumerable<Element> source)
+    {
+        // Avoid acquiring the SafeHandle scope if the source is provably empty.
+        if (source is ICollection<Element> collection && collection.Count == 0)
+            return;
+
+        var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
+        {
+            IntPtr handle = _payload.DangerousGetHandle();
+            foreach (var item in source)
+            {
+                AppendUnsafe(item, metadata, handle);
+            }
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
+        }
+    }
+
+    /// <summary>
+    /// Append a single element without acquiring/releasing the payload SafeHandle.
+    /// The caller is responsible for holding a successful <c>DangerousAddRef</c>
+    /// scope across the call.
+    /// </summary>
+    private static unsafe void AppendUnsafe(Element item, TypeMetadata metadata, IntPtr handle)
+    {
+        Span<byte> span = stackalloc byte[(int)ElementSize];
+        IntPtr payload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+        SwiftMarshal.MarshalToSwift(item, ref span);
+        SwiftArrayPInvokes.Append(payload, metadata, new SwiftSelf((void*)handle));
     }
 
     /// <summary>
@@ -429,8 +470,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         int count = Count;
         if (arrayIndex < 0 || arrayIndex + count > array.Length)
             throw new ArgumentOutOfRangeException(nameof(arrayIndex));
-        for (int i = 0; i < count; i++)
-            array[arrayIndex + i] = this[i];
+        ExtractRange(array, arrayIndex, count);
     }
 
     bool ICollection<Element>.IsReadOnly => false;
@@ -475,10 +515,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
             throw new ArgumentNullException(nameof(source));
 
         var array = new SwiftArray<Element>();
-        foreach (var item in source)
-        {
-            array.Append(item);
-        }
+        array.AppendRange(source);
         return array;
     }
 
@@ -490,8 +527,7 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         ThrowIfDisposed();
         int count = Count;
         var result = new Element[count];
-        for (int i = 0; i < count; i++)
-            result[i] = this[i];
+        ExtractRange(result, 0, count);
         return result;
     }
 
@@ -503,9 +539,82 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         ThrowIfDisposed();
         int count = Count;
         var result = new List<Element>(count);
-        for (int i = 0; i < count; i++)
-            result.Add(this[i]);
+        if (count > 0)
+        {
+            // Allocate once, fill via the bulk-extract path, then dump into the list.
+            // List<T>.Add inside a hot per-element loop would otherwise reacquire the
+            // payload SafeHandle on every Get call.
+            var buffer = new Element[count];
+            ExtractRange(buffer, 0, count);
+            for (int i = 0; i < count; i++)
+                result.Add(buffer[i]);
+        }
         return result;
+    }
+
+    /// <summary>
+    /// Reads <paramref name="count"/> elements out of the Swift array under a single
+    /// <see cref="System.Runtime.InteropServices.SafeHandle.DangerousAddRef(ref bool)"/>
+    /// scope, writing them into <paramref name="destination"/> starting at
+    /// <paramref name="destinationIndex"/>. Bounds are caller-checked.
+    /// </summary>
+    private unsafe void ExtractRange(Element[] destination, int destinationIndex, int count)
+    {
+        if (count == 0) return;
+
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
+        {
+            // Swift's Array.subscript getter is non-mutating: `self` is borrowed by value
+            // (a single storage pointer for Array). The Get P/Invoke's third parameter is
+            // that storage pointer, NOT the address-of-storage. The single-element indexer
+            // dereferences via `PayloadBuffer<IntPtr>.Buffer` (= *(IntPtr*)handle); we do
+            // the same here, once, hoisted outside the loop.
+            IntPtr storage = *(IntPtr*)_payload.DangerousGetHandle();
+            var elementMetadata = ElementTypeMetadata;
+            nuint elementSize = ElementSize;
+            bool elementIsClass = typeof(ISwiftObject).IsAssignableFrom(typeof(Element))
+                && !typeof(Element).IsValueType
+                && !typeof(ISwiftStruct).IsAssignableFrom(typeof(Element))
+                && elementMetadata.Kind == TypeMetadataKind.Class;
+            bool elementIsStruct = typeof(ISwiftStruct).IsAssignableFrom(typeof(Element));
+
+            for (int i = 0; i < count; i++)
+            {
+                void* payload = NativeMemory.Alloc(elementSize);
+                try
+                {
+                    SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), i, storage, elementMetadata);
+
+                    if (elementIsClass)
+                    {
+                        IntPtr classPointer = *(IntPtr*)payload;
+                        NativeMemory.Free(payload);
+                        payload = null;
+                        destination[destinationIndex + i] = SwiftMarshal.MarshalFromSwift<Element>(classPointer);
+                    }
+                    else
+                    {
+                        destination[destinationIndex + i] = SwiftMarshal.MarshalFromSwift<Element>((IntPtr)payload);
+                    }
+                }
+                finally
+                {
+                    // ISwiftStruct.NewFromPayload takes ownership of the buffer
+                    // (stores it in SwiftSafeHandle which frees on dispose).
+                    if (payload != null && !elementIsStruct)
+                    {
+                        NativeMemory.Free(payload);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
+        }
     }
 
     /// <summary>

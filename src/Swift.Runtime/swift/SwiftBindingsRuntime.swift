@@ -280,6 +280,62 @@ public func sbw_vwtDestroy(_ ptr: UnsafeMutableRawPointer, _ metadataPtr: Unsafe
     destroy(ptr, metadataPtr)
 }
 
+// MARK: - Bulk ARC (Single Managed→Native Transition)
+//
+// Per-element `swift_retain` / `swift_release` from C# costs one managed↔native
+// transition per pointer. For collection-shaped workloads (the classic case is
+// transferring N class-pointer elements between a Swift Array and a C# array)
+// that scales linearly with collection size. Routing the loop through these
+// `@_cdecl` helpers collapses N transitions to 1 — C# pins a `ReadOnlySpan<IntPtr>`
+// once and Swift walks the buffer in-process. C# `Arc.RetainMultiple` /
+// `Arc.ReleaseMultiple` are the consumers; collection runtime helpers reach
+// these via Arc, not directly.
+//
+// Null entries are tolerated (skipped) so callers don't have to filter.
+
+/// Bulk-retain a buffer of Swift class pointers. Skips null entries.
+///
+/// - Parameters:
+///   - ptrs: Pointer to a contiguous buffer of `count` class-instance pointers.
+///   - count: Number of pointer slots in the buffer (must be ≥ 0).
+@_cdecl("SBW_BulkRetain")
+public func sbw_bulkRetain(
+    _ ptrs: UnsafePointer<UnsafeMutableRawPointer?>,
+    _ count: Int
+) {
+    guard count > 0 else { return }
+    for i in 0..<count {
+        if let p = ptrs[i] {
+            _ = Unmanaged<AnyObject>.fromOpaque(p).retain()
+        }
+    }
+}
+
+/// Bulk-release a buffer of Swift class pointers. Skips null entries.
+///
+/// As with `SBW_SwiftRelease`, the actual `swift_release` call happens from
+/// inside Swift — the C# caller only ever crosses one Cdecl boundary, which
+/// avoids the Mono JIT `!ji->async` assertion that fires when `swift_release`
+/// is called directly through a per-element P/Invoke loop after CallConvSwift
+/// JIT contamination.
+///
+/// - Parameters:
+///   - ptrs: Pointer to a contiguous buffer of `count` class-instance pointers
+///     each carrying a +1 retain.
+///   - count: Number of pointer slots in the buffer (must be ≥ 0).
+@_cdecl("SBW_BulkRelease")
+public func sbw_bulkRelease(
+    _ ptrs: UnsafePointer<UnsafeMutableRawPointer?>,
+    _ count: Int
+) {
+    guard count > 0 else { return }
+    for i in 0..<count {
+        if let p = ptrs[i] {
+            Unmanaged<AnyObject>.fromOpaque(p).release()
+        }
+    }
+}
+
 // MARK: - Swift Class ARC Release (Finalizer-Safe)
 
 /// Releases a Swift class reference (-1 ARC retain). Called from the .NET GC

@@ -240,7 +240,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public SwiftSet(IEnumerable<Element> source) : this()
     {
         if (source == null) throw new ArgumentNullException(nameof(source));
-        foreach (var item in source) Add(item);
+        AddRange(source);
     }
 
     /// <summary>
@@ -292,36 +292,75 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         _payload.DangerousAddRef(ref success);
         try
         {
-            Span<byte> span = stackalloc byte[(int)ElementSize];
-            SwiftMarshal.MarshalToSwift(element, ref span);
-            IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+            return InsertUnsafe(element, metadata, _payload.DangerousGetHandle());
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
+        }
+    }
 
-            // Insert returns (Bool, @out Element). The @out Element is written to a buffer
-            // passed in x0, and the Bool is returned directly in x0.
-            // Allocate a buffer for the memberAfterInsert @out parameter.
-            void* outMemberBuffer = NativeMemory.Alloc(ElementSize);
-            try
+    /// <summary>
+    /// Bulk-add every element from <paramref name="source"/> under a single payload
+    /// SafeHandle scope. Replaces N <c>DangerousAddRef</c>/<c>Release</c> pairs (one
+    /// per <see cref="Add(Element)"/>) with one for large inserts; the per-element
+    /// marshal + Swift-stdlib P/Invoke is unchanged.
+    /// </summary>
+    private unsafe void AddRange(IEnumerable<Element> source)
+    {
+        if (source is ICollection<Element> collection && collection.Count == 0)
+            return;
+
+        var metadata = SwiftObjectHelper<SwiftSet<Element>>.GetTypeMetadata();
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
+        {
+            IntPtr handle = _payload.DangerousGetHandle();
+            foreach (var item in source)
             {
-                byte inserted = SwiftSetPInvokes.Insert(
-                    (IntPtr)outMemberBuffer,
-                    elementPayload,
-                    metadata,
-                    new SwiftSelf((void*)_payload.DangerousGetHandle()));
-
-                // Destroy the memberAfterInsert element written to the out buffer
-                ElementTypeMetadata.ValueWitnessTable->Destroy(outMemberBuffer, ElementTypeMetadata);
-
-                return inserted != 0;
-            }
-            finally
-            {
-                NativeMemory.Free(outMemberBuffer);
+                InsertUnsafe(item, metadata, handle);
             }
         }
         finally
         {
             if (success)
                 _payload.DangerousRelease();
+        }
+    }
+
+    /// <summary>
+    /// Issues a single <c>insert(_:)</c> P/Invoke without acquiring the payload
+    /// SafeHandle. The caller must hold a successful <c>DangerousAddRef</c> scope
+    /// across the call.
+    /// </summary>
+    private static unsafe bool InsertUnsafe(Element element, TypeMetadata metadata, IntPtr handle)
+    {
+        Span<byte> span = stackalloc byte[(int)ElementSize];
+        SwiftMarshal.MarshalToSwift(element, ref span);
+        IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+
+        // Insert returns (Bool, @out Element). The @out Element is written to a buffer
+        // passed in x0, and the Bool is returned directly. We allocate a per-call
+        // buffer for the memberAfterInsert and destroy it via the element VWT.
+        void* outMemberBuffer = NativeMemory.Alloc(ElementSize);
+        try
+        {
+            byte inserted = SwiftSetPInvokes.Insert(
+                (IntPtr)outMemberBuffer,
+                elementPayload,
+                metadata,
+                new SwiftSelf((void*)handle));
+
+            // Destroy the memberAfterInsert element written to the out buffer.
+            CachedElementTypeMetadata.ValueWitnessTable->Destroy(outMemberBuffer, CachedElementTypeMetadata);
+
+            return inserted != 0;
+        }
+        finally
+        {
+            NativeMemory.Free(outMemberBuffer);
         }
     }
 
@@ -644,10 +683,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             throw new ArgumentNullException(nameof(source));
 
         var set = new SwiftSet<Element>();
-        foreach (var item in source)
-        {
-            set.Add(item);
-        }
+        set.AddRange(source);
         return set;
     }
 

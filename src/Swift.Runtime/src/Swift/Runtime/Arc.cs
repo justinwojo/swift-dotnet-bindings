@@ -131,45 +131,51 @@ public static class Arc
     }
 
     /// <summary>
-    /// Retains multiple heap-allocated Swift objects in a single batch.
-    /// Uses [SuppressGCTransition] per-call (validated safe for retain — leaf atomic increment).
+    /// Retains every pointer in <paramref name="pointers"/> in a single managed→native
+    /// transition. The buffer is pinned and forwarded to the Swift companion's
+    /// <c>SBW_BulkRetain</c> helper, which walks it in-process. Cuts ARC overhead on
+    /// large collection transfers from O(N) P/Invokes to one.
     /// </summary>
     /// <param name="pointers">Span of non-null pointers to unmanaged Swift objects.</param>
     /// <exception cref="ArgumentException">Throws if any pointer is null.</exception>
-    public static void RetainMultiple(ReadOnlySpan<IntPtr> pointers)
+    public static unsafe void RetainMultiple(ReadOnlySpan<IntPtr> pointers)
     {
-        // Pre-validate all pointers before calling into native code
+        if (pointers.IsEmpty) return;
+        // Pre-validate all pointers before calling into native code so a null entry
+        // surfaces as a managed exception, not a Swift-side crash.
         for (int i = 0; i < pointers.Length; i++)
         {
             if (pointers[i] == IntPtr.Zero)
                 throw new ArgumentException($"Pointer at index {i} is null.", nameof(pointers));
         }
-        for (int i = 0; i < pointers.Length; i++)
+        fixed (IntPtr* p = pointers)
         {
-            swift_retain(pointers[i]);
+            BulkArc.SBW_BulkRetain((IntPtr)p, pointers.Length);
         }
     }
 
     /// <summary>
-    /// Releases multiple heap-allocated Swift objects in a single batch.
-    /// Does NOT use [SuppressGCTransition] — deinit on final release can trigger managed callbacks.
+    /// Releases every pointer in <paramref name="pointers"/> in a single managed→native
+    /// transition via the Swift companion's <c>SBW_BulkRelease</c>. Deinit on final
+    /// release can re-enter managed code through closures or <c>@_cdecl</c> callbacks,
+    /// so the call is not <c>[SuppressGCTransition]</c>.
     /// </summary>
     /// <param name="pointers">Span of non-null pointers to unmanaged Swift objects.</param>
     /// <exception cref="ArgumentException">Throws if any pointer is null.</exception>
     /// <exception cref="Exception">Throws if any pointer points to an object being deinitialized.</exception>
-    public static void ReleaseMultiple(ReadOnlySpan<IntPtr> pointers)
+    public static unsafe void ReleaseMultiple(ReadOnlySpan<IntPtr> pointers)
     {
-        // Pre-validate all pointers before calling into native code
+        if (pointers.IsEmpty) return;
         for (int i = 0; i < pointers.Length; i++)
         {
             if (pointers[i] == IntPtr.Zero)
                 throw new ArgumentException($"Pointer at index {i} is null.", nameof(pointers));
-        }
-        for (int i = 0; i < pointers.Length; i++)
-        {
             if (swift_isDeallocating(pointers[i]))
                 throw new Exception($"Attempt to release a Swift object at index {i} that has been deinitialized {pointers[i].ToString($"X{IntPtr.Size * 2}")}");
-            swift_release(pointers[i]);
+        }
+        fixed (IntPtr* p = pointers)
+        {
+            BulkArc.SBW_BulkRelease((IntPtr)p, pointers.Length);
         }
     }
 
@@ -254,4 +260,23 @@ internal static class SwiftReleaseTrampoline
 {
     [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_SwiftRelease")]
     internal static extern void Release(IntPtr p);
+}
+
+/// <summary>
+/// Bulk Swift ARC helpers implemented in the Swift companion. These accept a pinned
+/// buffer of class-instance pointers plus a count and walk the buffer in Swift, so
+/// the C# caller crosses one managed→native boundary instead of N. Used by
+/// <see cref="Arc.RetainMultiple"/> and <see cref="Arc.ReleaseMultiple"/>; collection
+/// runtime helpers should reach these via Arc, not directly.
+/// </summary>
+internal static class BulkArc
+{
+    // count is `nint` to match Swift's `Int` (64-bit on arm64). Declaring this as
+    // C# `int` leaves the upper 32 bits of the count register undefined, which
+    // causes the Swift loop to iterate billions of times and SIGSEGV.
+    [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_BulkRetain")]
+    internal static extern void SBW_BulkRetain(IntPtr pointers, nint count);
+
+    [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_BulkRelease")]
+    internal static extern void SBW_BulkRelease(IntPtr pointers, nint count);
 }

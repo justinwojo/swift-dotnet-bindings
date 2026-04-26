@@ -255,44 +255,56 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         {
             ThrowIfDisposed();
             var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
+            var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
 
             bool success = false;
             _payload.DangerousAddRef(ref success);
             try
             {
-                // Marshal the key
-                Span<byte> keySpan = stackalloc byte[(int)KeySize];
-                SwiftMarshal.MarshalToSwift(key, ref keySpan);
-                IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
-
-                // Marshal the value
-                Span<byte> valueSpan = stackalloc byte[(int)ValueSize];
-                SwiftMarshal.MarshalToSwift(value, ref valueSpan);
-                IntPtr valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valueSpan));
-
-                // Allocate space for optional return value (old value if any)
-                // Use proper Optional<TValue> metadata size instead of hardcoded arithmetic
-                var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
-                void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
-                try
-                {
-                    SwiftDictionaryPInvokes.UpdateValue(
-                        new SwiftIndirectResult(resultPayload),
-                        valuePayload,
-                        keyPayload,
-                        metadata,
-                        new SwiftSelf((void*)_payload.DangerousGetHandle()));
-                }
-                finally
-                {
-                    NativeMemory.Free(resultPayload);
-                }
+                UpdateValueUnsafe(key, value, metadata, optionalMetadata, _payload.DangerousGetHandle());
             }
             finally
             {
                 if (success)
                     _payload.DangerousRelease();
             }
+        }
+    }
+
+    /// <summary>
+    /// Performs a single <c>updateValue(_:forKey:)</c> P/Invoke without acquiring the
+    /// payload SafeHandle. The caller must hold a successful <c>DangerousAddRef</c>
+    /// scope across the call.
+    /// </summary>
+    private static unsafe void UpdateValueUnsafe(
+        TKey key,
+        TValue value,
+        TypeMetadata dictionaryMetadata,
+        TypeMetadata optionalValueMetadata,
+        IntPtr handle)
+    {
+        Span<byte> keySpan = stackalloc byte[(int)KeySize];
+        SwiftMarshal.MarshalToSwift(key, ref keySpan);
+        IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
+
+        Span<byte> valueSpan = stackalloc byte[(int)ValueSize];
+        SwiftMarshal.MarshalToSwift(value, ref valueSpan);
+        IntPtr valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valueSpan));
+
+        // Allocate space for the optional old-value return.
+        void* resultPayload = NativeMemory.Alloc(optionalValueMetadata.Size);
+        try
+        {
+            SwiftDictionaryPInvokes.UpdateValue(
+                new SwiftIndirectResult(resultPayload),
+                valuePayload,
+                keyPayload,
+                dictionaryMetadata,
+                new SwiftSelf((void*)handle));
+        }
+        finally
+        {
+            NativeMemory.Free(resultPayload);
         }
     }
 
@@ -596,11 +608,39 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             throw new ArgumentNullException(nameof(source));
 
         var dict = new SwiftDictionary<TKey, TValue>();
-        foreach (var kvp in source)
-        {
-            dict[kvp.Key] = kvp.Value;
-        }
+        dict.UpdateRange(source);
         return dict;
+    }
+
+    /// <summary>
+    /// Bulk-update every pair from <paramref name="source"/> under a single
+    /// payload SafeHandle scope, replacing N <c>DangerousAddRef</c>/<c>Release</c>
+    /// pairs (one per <c>this[key] = value</c>) with one. The per-element marshal
+    /// + Swift-stdlib P/Invoke is unchanged.
+    /// </summary>
+    private unsafe void UpdateRange(IEnumerable<KeyValuePair<TKey, TValue>> source)
+    {
+        if (source is ICollection<KeyValuePair<TKey, TValue>> collection && collection.Count == 0)
+            return;
+
+        var metadata = SwiftObjectHelper<SwiftDictionary<TKey, TValue>>.GetTypeMetadata();
+        var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
+
+        bool success = false;
+        _payload.DangerousAddRef(ref success);
+        try
+        {
+            IntPtr handle = _payload.DangerousGetHandle();
+            foreach (var kvp in source)
+            {
+                UpdateValueUnsafe(kvp.Key, kvp.Value, metadata, optionalMetadata, handle);
+            }
+        }
+        finally
+        {
+            if (success)
+                _payload.DangerousRelease();
+        }
     }
 
     /// <summary>
