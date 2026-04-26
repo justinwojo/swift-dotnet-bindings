@@ -1669,22 +1669,28 @@ public class EveryProtocolEmitter
             var internalName = GetSwiftParameterName(param, i);
             internalNames.Add(internalName);
 
-            // Add inout modifier if the parameter is passed by reference
-            var inoutPrefix = param.IsInOut ? "inout " : "";
+            // Add inout modifier if the parameter is passed by reference.
+            // Add `consuming` for ~Copyable params (Swift 6 requires explicit ownership; the
+            // wrapper body moves the value into a local var before passing inout to the vtable).
+            var ownershipPrefix = param.IsInOut
+                ? "inout "
+                : (WrapperValidation.IsNonCopyableType(param.SwiftTypeSpec, _typeDatabase, method.ModuleDecl)
+                    ? "consuming "
+                    : "");
 
             // Swift parameter format: "externalLabel internalName: Type" or "_ internalName: Type"
             if (externalLabel == "_")
             {
-                parameters.Add($"_ {internalName}: {inoutPrefix}{paramTypeName}");
+                parameters.Add($"_ {internalName}: {ownershipPrefix}{paramTypeName}");
             }
             else if (externalLabel == internalName)
             {
                 // Same label and name - just use one
-                parameters.Add($"{internalName}: {inoutPrefix}{paramTypeName}");
+                parameters.Add($"{internalName}: {ownershipPrefix}{paramTypeName}");
             }
             else
             {
-                parameters.Add($"{externalLabel} {internalName}: {inoutPrefix}{paramTypeName}");
+                parameters.Add($"{externalLabel} {internalName}: {ownershipPrefix}{paramTypeName}");
             }
         }
         var parametersString = string.Join(", ", parameters);

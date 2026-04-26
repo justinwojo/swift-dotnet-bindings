@@ -1139,9 +1139,11 @@ public static class ProtocolExtensionEmitter
     /// Renders a non-closure parameter's Swift declaration for the @_silgen_name wrapper.
     /// Existentials → "any Protocol", Data → "Foundation.Data", Array → "UnsafeMutableRawPointer",
     /// Class → "UnsafeMutableRawPointer", Primitive → rendered type.
+    /// Noncopyable (~Copyable) named types fall through to the generic rendering path
+    /// and require a `borrowing` ownership keyword in Swift 6.
     /// </summary>
     private static string RenderSwiftParam(string paramName, TypeSpec typeSpec,
-        ExistentialHandler existentialHandler)
+        ExistentialHandler existentialHandler, ITypeDatabase typeDatabase)
     {
         if (existentialHandler.IsExistential(typeSpec))
         {
@@ -1158,7 +1160,11 @@ public static class ProtocolExtensionEmitter
             return $"_ {paramName}: UnsafeMutableRawPointer";
 
         var rendered = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
-        return $"_ {paramName}: {rendered}";
+        // Noncopyable parameters require explicit ownership in Swift 6; we use `consuming`
+        // (the default convention for ~Copyable params per SE-0390) so the wrapper body can
+        // forward the value to the underlying method without needing to borrow re-borrow.
+        var ownership = WrapperValidation.IsNonCopyableType(typeSpec, typeDatabase) ? "consuming " : "";
+        return $"_ {paramName}: {ownership}{rendered}";
     }
 
     /// <summary>
@@ -1253,7 +1259,7 @@ public static class ProtocolExtensionEmitter
         foreach (var (label, typeSpec, swiftType) in parameters)
         {
             var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-            swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler));
+            swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler, typeDatabase));
         }
 
         // For generic conforming types, add explicit T.Type metatype params.
@@ -1310,6 +1316,13 @@ public static class ProtocolExtensionEmitter
 
         // Emit the wrapper function
         ctx.AddProtocolExtWrapperLine("");
+        // _silgen_name wrappers are top-level Swift functions and don't inherit the
+        // conforming type's availability. Without these annotations the wrapper body
+        // can reference types/constraints (e.g. ActionAnimation<ActionType> where
+        // ActionType : EntityAction, both iOS 18+) that the host wrapper module — built
+        // at the framework's deployment target — doesn't satisfy. Emit the strictest
+        // per-platform introduced version walking the conforming type's ancestor chain.
+        EmitProtocolExtAvailabilityLines(conformingType, ctx);
         ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
         {
@@ -1487,7 +1500,7 @@ public static class ProtocolExtensionEmitter
             else
             {
                 var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-                swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler));
+                swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler, typeDatabase));
             }
         }
 
@@ -1536,6 +1549,7 @@ public static class ProtocolExtensionEmitter
 
         // Emit the wrapper function
         ctx.AddProtocolExtWrapperLine("");
+        EmitProtocolExtAvailabilityLines(conformingType, ctx);
         ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
         {
@@ -2075,6 +2089,21 @@ public static class ProtocolExtensionEmitter
         }
 
         return typeSpec;
+    }
+
+    /// <summary>
+    /// Emits one <c>@available({Platform} {Version}, *)</c> line per platform for the conforming
+    /// type's ancestor chain so the top-level <c>@_silgen_name</c> wrapper can reference
+    /// availability-gated types and constraints. Mirrors the @_cdecl path which already runs
+    /// availability through <see cref="WrapperEmitterHelpers.EmitSwiftAvailability"/>.
+    /// </summary>
+    private static void EmitProtocolExtAvailabilityLines(TypeDecl conformingType, ModuleEmissionContext ctx)
+    {
+        var availability = WrapperEmitterHelpers.MergeAvailability(memberAnnotations: null, parentDecl: conformingType);
+        foreach (var key in WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(availability))
+        {
+            ctx.AddProtocolExtWrapperLine($"@available({key}, *)");
+        }
     }
 
     /// <summary>

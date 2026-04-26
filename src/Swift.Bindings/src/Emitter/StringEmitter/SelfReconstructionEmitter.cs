@@ -10,6 +10,9 @@ namespace BindingsGeneration;
 /// Four patterns:
 /// - Class: <c>let obj = Unmanaged&lt;ClassName&gt;.fromOpaque(self_).takeUnretainedValue()</c>
 /// - Struct (immutable): <c>let obj = self_.assumingMemoryBound(to: ClassName.self).pointee</c>
+/// - Struct (mutable copy): <c>var obj = self_.assumingMemoryBound(to: ClassName.self).pointee</c>
+///   used when the caller needs to invoke a mutating-getter computed property; mutations stay
+///   on the local copy (the wrapper exposes a read-only path to C# anyway).
 /// - Struct (mutating): no variable emitted — caller uses through-pointer access directly
 /// - Struct (noncopyable): no variable emitted — caller uses inline <c>self_.assumingMemoryBound(to:).pointee</c>
 ///   borrow without copying (let binding would require a copy, which ~Copyable types reject)
@@ -32,7 +35,9 @@ public static class SelfReconstructionEmitter
     /// <param name="isMutating">Whether the method is mutating (structs only).</param>
     /// <param name="moduleQualifiedName">The module-qualified Swift type name.</param>
     /// <param name="isNonCopyable">Whether the parent type is noncopyable (~Copyable).</param>
-    public static void Emit(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedName, bool isNonCopyable = false)
+    /// <param name="bindAsVar">Bind <c>obj</c> as <c>var</c> for the immutable-self struct path so the
+    /// caller can invoke a mutating-getter computed property. Ignored for class/mutating/noncopyable.</param>
+    public static void Emit(SwiftWriter swiftWriter, bool isClass, bool isMutating, string moduleQualifiedName, bool isNonCopyable = false, bool bindAsVar = false)
     {
         if (isClass)
         {
@@ -51,7 +56,8 @@ public static class SelfReconstructionEmitter
         }
         else
         {
-            swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee");
+            var binding = bindAsVar ? "var" : "let";
+            swiftWriter.WriteLine($"{binding} obj = self_.assumingMemoryBound(to: {moduleQualifiedName}.self).pointee");
         }
     }
 

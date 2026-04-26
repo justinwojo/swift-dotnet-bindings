@@ -192,7 +192,8 @@ public static class SwiftBuilder
     }
 
     private static bool IsTypeSyntaxChar(char c) =>
-        c == '<' || c == '>' || c == '[' || c == ']' || c == '(' || c == ')';
+        c == '<' || c == '>' || c == '[' || c == ']' || c == '(' || c == ')' ||
+        c == '?' || c == '!';
 
     // ═══════════════════════════════════════════════════════════════════════
     // 1C. Scope-managed blocks

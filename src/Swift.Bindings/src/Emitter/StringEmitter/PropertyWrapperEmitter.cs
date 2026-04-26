@@ -62,6 +62,13 @@ public static class PropertyWrapperEmitter
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return false;
 
+        // 2e. Skip the Swift built-in `self` property — `obj.self` returns the receiver type,
+        //     not the declared return type, so the wrapper would emit an invalid cast (e.g.
+        //     a nested struct's `self` getter declared as the outer type cannot be reconstructed
+        //     from `obj.self` of the nested type). The C# side already exposes the receiver.
+        if (propertyDecl.Name == "self")
+            return false;
+
         // 3. Direct closure properties: getters allowed — routed through IndirectResult (resultPtr buffer)
         // with invoke thunk for closure invocation (same pattern as MethodWrapperEmitter).
         // Optional<closure> getter also allowed — routes through IndirectResult buffer with null check.
@@ -160,6 +167,8 @@ public static class PropertyWrapperEmitter
             return "spi_protected";
         if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
             return "metatype_property";
+        if (propertyDecl.Name == "self")
+            return "self_property";
         if (propertyDecl.SwiftTypeSpec is ClosureTypeSpec &&
             propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
             return "direct_closure_setter";
@@ -342,15 +351,22 @@ public static class PropertyWrapperEmitter
         swiftWriter.Indent++;
 
         // Reconstruct self
+        // A struct getter declared as `mutating get { ... }` cannot be invoked on a `let`-bound
+        // copy. Bind `obj` as `var` for that case so the call site `obj.{property}` compiles.
+        // Class getters and noncopyable structs handle reconstruction differently and are unaffected.
+        bool isMutatingGetter = !isClass
+            && propertyDecl.Accessors
+                .OfType<GetAccessorDecl>()
+                .FirstOrDefault()?.Method.IsMutating == true;
         if (!isStatic)
         {
             if (isGenericClassParent && protocolName != null)
             {
-                SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: false);
+                SelfReconstructionEmitter.EmitProtocolCast(swiftWriter, protocolName, isMutable: isMutatingGetter);
             }
             else
             {
-                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: false, isNonCopyableParent);
+                EmitSelfReconstruction(swiftWriter, isClass, moduleQualifiedName, isMutable: isMutatingGetter, isNonCopyableParent);
             }
         }
 
@@ -668,7 +684,7 @@ public static class PropertyWrapperEmitter
     /// </summary>
     private static void EmitSelfReconstruction(SwiftWriter swiftWriter, bool isClass, string moduleQualifiedName, bool isMutable, bool isNonCopyable = false)
     {
-        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName, isNonCopyable);
+        SelfReconstructionEmitter.Emit(swiftWriter, isClass, isMutating: false, moduleQualifiedName, isNonCopyable, bindAsVar: isMutable);
     }
 
     /// <summary>

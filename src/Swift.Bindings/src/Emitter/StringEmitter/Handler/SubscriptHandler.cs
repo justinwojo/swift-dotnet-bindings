@@ -806,6 +806,17 @@ namespace BindingsGeneration
             if (projection != null)
                 return projection.PublicType;
 
+            // Tuples render with Swift's `(label: Type, ...)` grammar via TypeSpec.ToString();
+            // route them through TupleHandler so the C# subscript signature uses the correct
+            // `(Type label, ...)` form. Element TypeSpecs are recursively resolved via this
+            // same routine so nested generic params, optionals, etc. project consistently.
+            if (typeSpec is TupleTypeSpec tupleTypeSpec)
+            {
+                var tupleHandler = new TupleHandler(typeDatabase);
+                return tupleHandler.GetCSharpTupleType(tupleTypeSpec,
+                    elementSpec => ResolveSubscriptTypeName(elementSpec, typeDatabase, boundGenericsHandler, isParameter));
+            }
+
             // Check bound generics
             if (typeSpec is NamedTypeSpec namedType && namedType.ContainsGenericParameters)
             {

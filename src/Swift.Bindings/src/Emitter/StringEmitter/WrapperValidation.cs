@@ -247,6 +247,46 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true if the given TypeSpec resolves to a `~Copyable` (noncopyable) struct.
+    /// Walks the same paths as <see cref="ConstructorWrapperEmitter.HasNonCopyableStructParameter"/>:
+    /// same-module StructDecl conformances first, then cross-module TypeRecord.NonCopyable flag.
+    /// </summary>
+    public static bool IsNonCopyableType(TypeSpec? typeSpec, ITypeDatabase typeDatabase, ModuleDecl? currentModule = null)
+    {
+        if (typeSpec is not NamedTypeSpec namedSpec)
+            return false;
+
+        var moduleTypes = currentModule?.Types;
+        if (moduleTypes != null)
+        {
+            StructDecl? FindStruct(IEnumerable<TypeDecl> types, string fqName)
+            {
+                foreach (var t in types)
+                {
+                    if (t is StructDecl s && s.SwiftTypeName.ModuleQualifiedName == fqName)
+                        return s;
+                    var nested = FindStruct(t.Types, fqName);
+                    if (nested != null) return nested;
+                }
+                return null;
+            }
+            var structDecl = FindStruct(moduleTypes, namedSpec.Name);
+            if (structDecl != null)
+            {
+                return structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Escapable") &&
+                       !structDecl.Conformances.Any(c => c.Protocol.ToString() == "Swift.Copyable");
+            }
+        }
+
+        if (typeDatabase.TryGetTypeRecord(namedSpec, out var typeRecord) &&
+            typeRecord.Flags.HasFlag(TypeRecordFlags.NonCopyable))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Checks whether a member should be blocked from @_cdecl wrapper emission due to actor isolation.
     /// Blocks:
     /// (a) Custom actor types (ClassDecl { IsActor: true }) — isolated members require async dispatch

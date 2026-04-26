@@ -861,15 +861,16 @@ public class WitnessDispatchEmitter
             if (elemType is NamedTypeSpec namedElem)
             {
                 // Known Swift primitives (Swift.Int, Swift.Bool, etc.) — strip module prefix
-                if (SwiftToCSharpPrimitiveMap.ContainsKey(namedElem.Name))
+                if (SwiftToCSharpPrimitiveMap.ContainsKey(namedElem.Name) && namedElem.GenericParameters.Count == 0)
                     return namedElem.NameWithoutModule;
                 // Swift.String — strip module prefix
                 if (IsStringType(elemType))
                     return namedElem.NameWithoutModule;
-                // Keep module-qualified for user types
-                return namedElem.Name;
+                // Keep module-qualified for user types and render nested generics so a
+                // nested array element (Swift.Array<Float>) doesn't collapse to "Swift.Array".
+                return ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(elemType);
             }
-            return "Any";
+            return ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(elemType);
         }
 
         if (MarshallingHelpers.IsSwiftArray(typeSpec))
@@ -1269,9 +1270,24 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            // Blittable getter: direct pointer allocation
-            var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
-            var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+            // Blittable getter: direct pointer allocation.
+            // Primitives (Swift.Int32, Swift.Bool, …) round-trip through GetSwiftPrimitiveType
+            // to get the Swift-side bare name (`Int32`, `Bool`). Container types fall back to
+            // RenderModuleQualifiedSwiftTypeSpec so generic parameters survive — without that,
+            // `Swift.Array<Float>` collapses to `Swift.Array` and the emitted Swift name
+            // (`[Swift.Array]`) would not name a real type.
+            string swiftReturnType;
+            if (property.SwiftTypeSpec is NamedTypeSpec primitiveCandidate &&
+                primitiveCandidate.GenericParameters.Count == 0 &&
+                SwiftToCSharpPrimitiveMap.ContainsKey(primitiveCandidate.Name))
+            {
+                var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
+                swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+            }
+            else
+            {
+                swiftReturnType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(property.SwiftTypeSpec);
+            }
             EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, needsMainActor);
         }
     }

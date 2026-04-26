@@ -106,6 +106,12 @@ namespace BindingsGeneration
             csWriter.WriteLine($"using {generatedNamespace}.SwiftInterop;");
             // Alias the runtime Utf8Slice type so generated code can reference it unqualified
             csWriter.WriteLine("using Utf8Slice = global::Swift.Runtime.Utf8Slice;");
+
+            // (RealityKit-bug-13: The maccatalyst-only "missing `using ARKit;`" problem will need
+            // a per-project SwiftFrameworkDependency-aware emit — emitting `using` for every
+            // referenced Apple framework breaks consumer projects that don't reference those
+            // packages, e.g. LiveCommunicationKit which references AVFAudio types without
+            // pulling AVFAudio into its csproj. Tracked in roadmap.)
             csWriter.WriteLine();
             csWriter.WriteLine($"namespace {generatedNamespace}");
             csWriter.WriteLine("{");
@@ -396,19 +402,17 @@ namespace BindingsGeneration
             "ManagedSettings", "DeviceActivity", "FamilyControls",
             "Translation", "ProximityReader", "LiveCommunicationKit",
             "WeatherKit", "TipKit", "WorkoutKit", "ActivityKit",
-            "BackgroundTasks", "CallKit"
+            "BackgroundTasks", "CallKit", "MultipeerConnectivity"
         };
 
         /// <summary>
-        /// Emits Swift import statements to the wrapper file.
+        /// Collects the set of Apple framework module names referenced by a module's bound
+        /// surface (declared dependencies + scanned method/property/protocol/subscript signatures).
+        /// Filtering of implicit / self modules (Swift, Foundation, the module being bound) is
+        /// applied here so callers receive a ready-to-emit set.
         /// </summary>
-        private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ModuleEmissionContext? emissionCtx = null)
+        private HashSet<string> CollectFrameworkImports(ModuleDecl moduleDecl)
         {
-            // Always import the module being bound
-            swiftWriter.WriteLine($"import {moduleDecl.Name}");
-            swiftWriter.WriteLine("import Foundation");
-
-            // Track which framework imports are needed
             var neededImports = new HashSet<string>();
 
             // Add platform UI frameworks if present in dependencies
@@ -430,11 +434,26 @@ namespace BindingsGeneration
             }
 
             // Drop implicit / already-imported / self modules discovered during the scan.
-            // Swift stdlib is implicit; Foundation is imported unconditionally above;
-            // the module being bound is imported on the first line.
+            // Swift stdlib is implicit; Foundation is imported unconditionally on the wrapper
+            // side and lives in System on the C# side; the module being bound is its own
+            // namespace.
             neededImports.Remove("Swift");
             neededImports.Remove("Foundation");
             neededImports.Remove(moduleDecl.Name);
+
+            return neededImports;
+        }
+
+        /// <summary>
+        /// Emits Swift import statements to the wrapper file.
+        /// </summary>
+        private void EmitSwiftImports(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ModuleEmissionContext? emissionCtx = null)
+        {
+            // Always import the module being bound
+            swiftWriter.WriteLine($"import {moduleDecl.Name}");
+            swiftWriter.WriteLine("import Foundation");
+
+            var neededImports = CollectFrameworkImports(moduleDecl);
 
             foreach (var import in neededImports.OrderBy(s => s))
             {

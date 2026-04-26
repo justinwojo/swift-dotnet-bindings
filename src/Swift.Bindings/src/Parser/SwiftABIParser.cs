@@ -1979,6 +1979,10 @@ namespace BindingsGeneration
                 ModuleDecl = moduleDecl,
                 Throws = accessor.throwing ?? false,
                 IsAsync = isAsync,
+                // Accessors mark mutation via the "Mutating" DeclAttribute (lazy-var getters, mutating get).
+                // Plain methods use funcSelfKind, but accessor nodes don't carry that — use either signal.
+                IsMutating = accessor.DeclAttributes?.Contains("Mutating") == true
+                    || accessor.funcSelfKind == "Mutating",
                 Visibility = Visibility.Private,
                 IsFinal = accessor.DeclAttributes?.Contains("Final") == true,
             };
