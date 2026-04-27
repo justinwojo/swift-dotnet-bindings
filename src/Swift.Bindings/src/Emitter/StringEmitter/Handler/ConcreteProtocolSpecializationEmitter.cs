@@ -1573,7 +1573,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // can bypass CouplingConstraints depending on how the ABI parser captured them.
         // Recheck here so pathological pairings like `[UInt8]` against `S.Element == Album`
         // are rejected before we emit an uncompilable Swift wrapper.
-        if (!DoesPairingSatisfyAssociatedTypeConstraints(method, parentTypeDecl, pairing))
+        if (!DoesPairingSatisfyAssociatedTypeConstraints(method, parentTypeDecl, pairing, typeDatabase))
         {
             rejectReason = "associated-type constraint not satisfied by conformer";
             return false;
@@ -1588,14 +1588,28 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// verify that every <see cref="ConformanceKind.ConcreteType"/> entry on its
     /// <see cref="GenericArgumentDecl.AssosiatedTypeConformances"/> is satisfied by the chosen
     /// conformer's <see cref="ConcreteSpecializationEngine.ConcreteConformer.AssociatedTypes"/>.
-    /// This catches constraints the engine's <c>CouplingConstraints</c> didn't capture — typically
-    /// parent-declared same-type floors like <c>S.Element == Album</c> that the pairing machinery
-    /// would otherwise enumerate (e.g. <c>S = [UInt8]</c>) and emit an uncompilable wrapper for.
+    /// Same-type bounds (<c>==</c>) require exact-name equality. Subtype bounds (<c>:</c>) are
+    /// handled in two ways depending on the target's nature:
+    /// <list type="bullet">
+    ///   <item><description>Class target (e.g. <c>S.Element : RealityKit.Entity</c>) — accepts
+    ///   the conformer's recorded <see cref="ConcreteSpecializationEngine.ConcreteConformer.AssociatedTypes"/>
+    ///   value when it equals the target name OR has the target in its
+    ///   <see cref="TypeRecord.SuperclassTypeName"/> chain (Swift class subtype admits subclasses).
+    ///   Unresolvable chains fail closed.</description></item>
+    ///   <item><description>Protocol target (true protocol conformance like <c>S.Element : Hashable</c>)
+    ///   — pass-through. The engine's primary coupling check doesn't validate protocol-witness
+    ///   conformance and TypeRecord doesn't carry per-type conformance lists, so we have no
+    ///   structural way to verify here. Tracked as a known engine-level gap.</description></item>
+    /// </list>
+    /// Without this filter, parent-declared same-type floors like <c>S.Element == Album</c> would
+    /// pass straight through and the pairing machinery would enumerate every Sequence conformer
+    /// (e.g. <c>S = [UInt8]</c>), emitting an uncompilable wrapper.
     /// </summary>
     internal static bool DoesPairingSatisfyAssociatedTypeConstraints(
         MethodDecl method,
         TypeDecl parentTypeDecl,
-        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase? typeDatabase = null)
     {
         foreach (var (param, conformer) in pairing)
         {
@@ -1605,9 +1619,29 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
             foreach (var assoc in assocList)
             {
-                if (assoc.Kind != ConformanceKind.ConcreteType)
-                    continue;
                 if (assoc.Path == null || assoc.Path.Length < 2)
+                    continue;
+
+                // ConcreteType (`==`): same-type bound, always enforce exact-name match.
+                // Protocol-kind: the parser emits this for both class-inheritance bounds
+                // (`S.Element : Entity` where Entity is a class) and true protocol-conformance
+                // bounds (`S.Element : Hashable`). Distinguish by typeDatabase lookup —
+                // a target proven to be a non-class (Protocol/Struct/Enum) is true protocol
+                // conformance. Pass-through here is a known gap: the engine's primary path
+                // doesn't validate protocol-witness conformance and TypeRecord carries no
+                // per-type conformance list, so neither side has anything to enforce against.
+                // Otherwise (target is a class, OR target cannot be resolved — typically a
+                // cross-module reference like RealityKit.Entity when generating RealityFoundation)
+                // fall through to subtype check below: exact-name match wins, transitive
+                // subclass via SuperclassTypeName chain accepts, anything else fails closed.
+                if (assoc.Kind == ConformanceKind.Protocol &&
+                    typeDatabase is not null &&
+                    typeDatabase.TryGetTypeRecord(assoc.ConformanceTarget, out var targetRecord) &&
+                    targetRecord.Kind != TypeRecordKind.Class)
+                {
+                    continue;
+                }
+                if (assoc.Kind != ConformanceKind.ConcreteType && assoc.Kind != ConformanceKind.Protocol)
                     continue;
 
                 // Path[0] is the owning generic param's name; Path[1..] is the associated-type chain.
@@ -1636,11 +1670,75 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     return false;
                 if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
                     return false;
-                if (!string.Equals(declared, expected, StringComparison.Ordinal))
-                    return false;
+                if (string.Equals(declared, expected, StringComparison.Ordinal))
+                    continue;
+
+                // For Protocol-kind constraints with a class target, Swift's `:` is a subtype
+                // bound — `where S.Element : Animal` accepts `[Dog]` when `Dog : Animal`. Exact-
+                // name match alone would falsely reject valid subclasses. Walk the conformer's
+                // superclass chain via TypeDatabase: if `expected` appears anywhere up the chain,
+                // accept. ConcreteType (`==`) constraints stay strict — same-type bounds don't
+                // admit subclasses. Unresolvable chain (records missing from typeDatabase) keeps
+                // the prior fail-closed semantics — we'd rather drop a specialization than emit
+                // a wrapper whose subtype relationship we couldn't verify.
+                if (assoc.Kind == ConformanceKind.Protocol &&
+                    typeDatabase is not null &&
+                    IsDeclaredSubclassOfExpected(declared, expected, typeDatabase))
+                {
+                    continue;
+                }
+
+                return false;
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="declared"/> names a class that has
+    /// <paramref name="expected"/> in its <see cref="TypeRecord.SuperclassTypeName"/>
+    /// chain. Both names must resolve in <paramref name="typeDatabase"/>; any
+    /// unresolved hop returns false (fail-closed). Used to admit valid Swift subclass
+    /// pairings under class-inheritance bounds (`S.Element : Animal` accepts `[Dog]`).
+    /// </summary>
+    private static bool IsDeclaredSubclassOfExpected(
+        string declared, string expected, ITypeDatabase typeDatabase)
+    {
+        if (declared.Contains('<') || expected.Contains('<'))
+            return false;
+
+        SwiftTypeName declaredName, expectedName;
+        try
+        {
+            declaredName = SwiftTypeName.FromModuleQualifiedName(declared);
+            expectedName = SwiftTypeName.FromModuleQualifiedName(expected);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        if (!typeDatabase.TryGetTypeRecord(expectedName, out var expectedRecord) ||
+            expectedRecord.Kind != TypeRecordKind.Class)
+            return false;
+
+        if (!typeDatabase.TryGetTypeRecord(declaredName, out var declaredRecord) ||
+            declaredRecord.Kind != TypeRecordKind.Class)
+            return false;
+
+        var visited = new HashSet<string>(StringComparer.Ordinal) { declaredName.ModuleQualifiedName };
+        var cursor = declaredRecord;
+        while (cursor.SuperclassTypeName is not null)
+        {
+            if (string.Equals(cursor.SuperclassTypeName.ModuleQualifiedName, expected, StringComparison.Ordinal))
+                return true;
+            if (!visited.Add(cursor.SuperclassTypeName.ModuleQualifiedName))
+                return false;
+            if (!typeDatabase.TryGetTypeRecord(cursor.SuperclassTypeName, out var parent))
+                return false;
+            cursor = parent;
+        }
+        return false;
     }
 
     /// <summary>

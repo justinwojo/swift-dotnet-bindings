@@ -38,7 +38,9 @@
         { "swiftType": "Swift.Array<MusicKit.Track>", "csharpType": "Swift.SwiftArray<MusicKit.Track>", "swiftLiteral": "[MusicKit.Track]", "associatedTypes": { "Element": "MusicKit.Track" }, "modules": ["MusicKit"] },
         { "swiftType": "Swift.Array<SwiftBindingsTestLib.SongItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.SongItem>", "swiftLiteral": "[SongItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.SongItem" }, "modules": ["SwiftBindingsTestLib"] },
         { "swiftType": "Swift.Array<SwiftBindingsTestLib.AlbumItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.AlbumItem>", "swiftLiteral": "[AlbumItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.AlbumItem" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.ArtistItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.ArtistItem>", "swiftLiteral": "[ArtistItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.ArtistItem" }, "modules": ["SwiftBindingsTestLib"] }
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.ArtistItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.ArtistItem>", "swiftLiteral": "[ArtistItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.ArtistItem" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Animal>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Animal>", "swiftLiteral": "[Animal]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Animal" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Dog>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Dog>", "swiftLiteral": "[Dog]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Dog" }, "modules": ["SwiftBindingsTestLib"] }
       ]
     },
     {

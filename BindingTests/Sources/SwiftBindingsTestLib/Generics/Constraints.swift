@@ -381,3 +381,56 @@ public func makeAppleShapedForecast(
         IdentifiableCoin(identifier: thirdId),
     ])
 }
+
+// MARK: - RealityKit.RealityRenderer.EntityCollection shape — class-bounded sequence param
+//
+// Reproduces RealityFoundation Bug 3: a non-generic value type with a method
+// `insert<S: Sequence>(contentsOf source: S, beforeIndex i: Int) where S.Element : SomeClass`.
+// The class-inheritance bound is encoded in `genericSig` as `S.Element : SomeClass`, which the
+// parser routes through `ConformanceKind.Protocol` (Swift writes any `:` clause that way). The
+// pre-fix bilateral filter in `ConcreteProtocolSpecializationEmitter.DoesPairingSatisfyAssociated-
+// TypeConstraints` skipped Protocol-kind entries unconditionally, so every Sequence conformer
+// in the engine's pool — including `Foundation.Data` and `[UInt8]` — got paired with this
+// method and the generator emitted wrappers whose bodies referenced the wrong element type.
+// Wrapper.swift then failed to compile with `Data.Element (UInt8) does not inherit from Animal`.
+//
+// The fix consults the type database: when the constraint target resolves to a class, the
+// filter enforces exact-name equality on the conformer's recorded `Element`. Conformers
+// without recorded associated types (ABI-only) fail closed.
+//
+// `Animal` already exists in `Types/Classes.swift` as a public class with a `Dog: Animal`
+// subclass — reusing it keeps the surface narrow.
+public struct AnimalRoster {
+    public private(set) var animals: [Animal]
+
+    public init() { self.animals = [] }
+
+    public init(_ animals: [Animal]) {
+        self.animals = animals
+    }
+
+    /// `S.Element : Animal` — class-inheritance bound on a method-level generic.
+    /// The pre-fix engine emitted broken wrappers for `[UInt8]` / `Foundation.Data`
+    /// against this method; the post-fix engine drops them and only emits a wrapper
+    /// for conformers whose recorded Element matches `SwiftBindingsTestLib.Animal`
+    /// exactly (declared in specialization-hints.json).
+    public mutating func insert<S: Sequence>(
+        contentsOf source: S, beforeIndex i: Int
+    ) where S.Element : Animal {
+        let upcast: [Animal] = source.map { $0 as Animal }
+        animals.insert(contentsOf: upcast, at: i)
+    }
+
+    public var count: Int { animals.count }
+    public subscript(position: Int) -> Animal { animals[position] }
+}
+
+/// Factory returning a concrete `AnimalRoster` populated with two `Animal` instances.
+/// Mirrors the `makeMusicItemBag` pattern so the runtime test doesn't depend on
+/// the generic-method dispatch path for construction.
+public func makeAnimalRoster(firstName: String, secondName: String) -> AnimalRoster {
+    return AnimalRoster([
+        Animal(name: firstName, sound: "Roar"),
+        Animal(name: secondName, sound: "Howl"),
+    ])
+}

@@ -624,7 +624,9 @@ public class ConcreteSpecializationEngineTests
         public string GetLibraryPath(string moduleName) => "";
         public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
 
-        public void Register(SwiftTypeName swiftTypeName, string csNamespace, string csName)
+        public void Register(SwiftTypeName swiftTypeName, string csNamespace, string csName,
+            TypeRecordKind kind = TypeRecordKind.Struct,
+            SwiftTypeName? superclass = null)
         {
             _records[swiftTypeName.ToString()] = new TypeRecord
             {
@@ -632,7 +634,8 @@ public class ConcreteSpecializationEngineTests
                 SwiftTypeName = swiftTypeName,
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
-                Kind = TypeRecordKind.Struct
+                Kind = kind,
+                SuperclassTypeName = superclass
             };
         }
     }
@@ -1343,6 +1346,242 @@ public class ConcreteSpecializationEngineTests
             .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing));
     }
 
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafMatches_Accepts()
+    {
+        // EntityCollection.insert<S where S: Sequence, S.Element: RealityKit.Entity>:
+        // class-inheritance bound parses as ConformanceKind.Protocol but the target is
+        // a class, not a protocol. With a TypeDatabase that resolves Entity as a class,
+        // a conformer whose Element matches must still be accepted.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity"),
+            "RealityKit", "Entity", TypeRecordKind.Class);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "EntityCollection", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<RealityKit.Entity>",
+            elementAssocType: "RealityKit.Entity",
+            expectedElement: "RealityKit.Entity");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafMismatches_Rejects()
+    {
+        // The Bug 3 pathology: the bilateral filter previously skipped Protocol-kind
+        // entries unconditionally, so an EntityCollection conformer with Element=UInt8
+        // sailed through and produced a wrapper body referencing the wrong insert overload.
+        // With a class target registered in the TypeDatabase, mismatched Elements must reject.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity"),
+            "RealityKit", "Entity", TypeRecordKind.Class);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "EntityCollection", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Swift.UInt8>",
+            elementAssocType: "Swift.UInt8",
+            expectedElement: "RealityKit.Entity");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_MissingAssociatedTypesMap_Rejects()
+    {
+        // ABI-only conformers (no specialization hint, no AssociatedTypes recorded) must
+        // fail closed when the constraint is a class-inheritance bound — we can't verify
+        // the conformer's Element, and the prior behavior (accept everything) emitted broken
+        // wrappers across every Sequence/Collection conformer.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity"),
+            "RealityKit", "Entity", TypeRecordKind.Class);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "EntityCollection", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "RealityFoundation.SomeRangeReplaceableCollection",
+            elementAssocType: null,
+            expectedElement: "RealityKit.Entity");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafIsSubclass_Accepts()
+    {
+        // Swift class subtype admits subclasses: `where S.Element : Animal` accepts `[Dog]`
+        // when `Dog : Animal`. Exact-name match alone (the first cut of Bug 3) would falsely
+        // reject this. With both records resolvable in typeDatabase, the filter walks the
+        // conformer Element's SuperclassTypeName chain and accepts when expected appears.
+        var db = new ResolvingTypeDatabase();
+        var animalName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Animal");
+        var dogName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Dog");
+        db.Register(animalName, "SwiftBindingsTestLib", "Animal", TypeRecordKind.Class);
+        db.Register(dogName, "SwiftBindingsTestLib", "Dog", TypeRecordKind.Class, superclass: animalName);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "AnimalRoster", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<SwiftBindingsTestLib.Dog>",
+            elementAssocType: "SwiftBindingsTestLib.Dog",
+            expectedElement: "SwiftBindingsTestLib.Animal");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafIsTransitiveSubclass_Accepts()
+    {
+        // Multi-hop subtype: `Puppy : Dog : Animal`. The chain walk must follow
+        // SuperclassTypeName transitively, not just the direct parent.
+        var db = new ResolvingTypeDatabase();
+        var animalName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Animal");
+        var dogName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Dog");
+        var puppyName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Puppy");
+        db.Register(animalName, "SwiftBindingsTestLib", "Animal", TypeRecordKind.Class);
+        db.Register(dogName, "SwiftBindingsTestLib", "Dog", TypeRecordKind.Class, superclass: animalName);
+        db.Register(puppyName, "SwiftBindingsTestLib", "Puppy", TypeRecordKind.Class, superclass: dogName);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "AnimalRoster", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<SwiftBindingsTestLib.Puppy>",
+            elementAssocType: "SwiftBindingsTestLib.Puppy",
+            expectedElement: "SwiftBindingsTestLib.Animal");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafIsUnrelatedClass_Rejects()
+    {
+        // Cat is a sibling class with no Animal in its chain — must reject for
+        // `where S.Element : Animal`. Confirms the chain walk doesn't false-accept
+        // unrelated classes registered in the same database.
+        var db = new ResolvingTypeDatabase();
+        var animalName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Animal");
+        var catName = SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Cat");
+        db.Register(animalName, "SwiftBindingsTestLib", "Animal", TypeRecordKind.Class);
+        db.Register(catName, "SwiftBindingsTestLib", "Cat", TypeRecordKind.Class);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "AnimalRoster", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<SwiftBindingsTestLib.Cat>",
+            elementAssocType: "SwiftBindingsTestLib.Cat",
+            expectedElement: "SwiftBindingsTestLib.Animal");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ClassInheritanceConstraint_LeafElementUnresolvable_Rejects()
+    {
+        // Conformer Element type is missing from the type database (cross-module class
+        // we couldn't index when generating the consumer module). With expected
+        // resolvable as a class but declared not, we cannot prove subclass relationship.
+        // Fail-closed mirrors the broader "unverifiable cross-module class target"
+        // semantics of the original Bug 3 fix.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("SwiftBindingsTestLib.Animal"),
+            "SwiftBindingsTestLib", "Animal", TypeRecordKind.Class);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "AnimalRoster", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<OtherModule.MysteryAnimal>",
+            elementAssocType: "OtherModule.MysteryAnimal",
+            expectedElement: "SwiftBindingsTestLib.Animal");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_TrueProtocolConformanceConstraint_TargetIsProtocol_Accepts()
+    {
+        // True protocol conformance bounds (e.g. `S.Element: Hashable`) remain pass-through
+        // when we can prove the target is a protocol: protocols don't carry per-conformer
+        // type witnesses we can match against, and the engine's primary coupling check has
+        // already verified witness conformance. Register Hashable as Protocol so the filter
+        // sees it's not a class and skips the exact-name check.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+            "Swift", "Hashable", TypeRecordKind.Protocol);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HashableCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Swift.UInt8>",
+            elementAssocType: "Swift.UInt8",
+            expectedElement: "Swift.Hashable");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolKindConstraint_TargetNotInDatabase_FailsClosed()
+    {
+        // Cross-module class target (e.g. `S.Element : RealityKit.Entity` while generating
+        // RealityFoundation): the parser tags it ConformanceKind.Protocol because Swift's
+        // genericSig text uses `:` for both class-inheritance and protocol-conformance.
+        // typeDatabase.TryGetTypeRecord misses on RealityKit types because we don't load
+        // RealityKit when generating RealityFoundation. The previous pass-through behavior
+        // let every Sequence conformer (Foundation.Data, [UInt8], MeshModelCollection, …)
+        // slip through and produced wrappers that fail to Swift-compile. Fail closed: when
+        // the target's nature is unknown, require the conformer's Element to exact-match
+        // the target's name.
+        var db = new ResolvingTypeDatabase();
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "EntityCollection", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Swift.UInt8>",
+            elementAssocType: "Swift.UInt8",
+            expectedElement: "RealityKit.Entity");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolKindConstraint_TargetNotInDatabase_ElementMatches_Accepts()
+    {
+        // Mirror of the fail-closed case: when the target is unresolvable but the conformer's
+        // recorded Element exactly matches the target name, accept. This preserves legitimate
+        // pairings (e.g. Swift.Array<RealityKit.Entity> against `where S.Element : Entity`)
+        // even when the target's class-vs-protocol nature can't be determined from the DB.
+        var db = new ResolvingTypeDatabase();
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "EntityCollection", "insert", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<RealityKit.Entity>",
+            elementAssocType: "RealityKit.Entity",
+            expectedElement: "RealityKit.Entity");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
     // ==================== Test helpers for the new filters ====================
 
     /// <summary>
@@ -1393,6 +1632,49 @@ public class ConcreteSpecializationEngineTests
         // The key constraint: S.Element must be a specific concrete type.
         var elementConstraint = new GenericParameterConformance(
             new[] { "T", "Element" }, expectedElementName, ConformanceKind.ConcreteType);
+
+        var genericParam = new GenericArgumentDecl(
+            TypeName: "T",
+            SugaredTypeName: "S",
+            GenericConformances: new List<GenericParameterConformance> { protocolConformance },
+            AssosiatedTypeConformances: new List<GenericParameterConformance> { elementConstraint });
+
+        var param = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: genericParam,
+            ConstraintProtocol: sequenceName,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer>());
+
+        IReadOnlyDictionary<string, string>? assocTypes = elementAssocType is null
+            ? null
+            : new Dictionary<string, string> { ["Element"] = elementAssocType };
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerSwiftName,
+            CSharpType: conformerSwiftName.Contains('<') ? "Array" : conformerSwiftName.Split('.')[^1],
+            AssociatedTypes: assocTypes);
+
+        return new[] { (param, conformer) };
+    }
+
+    /// <summary>
+    /// Builds a pairing for `init&lt;S: Sequence&gt;() where S.Element: SomeType`
+    /// — the class-inheritance / protocol-conformance form. Swift's `genericSig`
+    /// parser writes any `:` clause as <see cref="ConformanceKind.Protocol"/>, so
+    /// class-inheritance bounds like <c>S.Element: RealityKit.Entity</c> land here.
+    /// The bilateral filter must inspect <c>typeDatabase</c> to disambiguate
+    /// class-inheritance (must enforce) from true protocol conformance (pass-through).
+    /// </summary>
+    private static (ConcreteSpecializationEngine.SpecializableParam Param,
+                    ConcreteSpecializationEngine.ConcreteConformer Conformer)[]
+        MakeSequencePairingProtocolKind(string conformerSwiftName, string? elementAssocType, string expectedElement)
+    {
+        var sequenceName = SwiftTypeName.FromModuleQualifiedName("Swift.Sequence");
+        var expectedElementName = SwiftTypeName.FromModuleQualifiedName(expectedElement);
+
+        var protocolConformance = new GenericParameterConformance(
+            new[] { "T" }, sequenceName, ConformanceKind.Protocol);
+        var elementConstraint = new GenericParameterConformance(
+            new[] { "T", "Element" }, expectedElementName, ConformanceKind.Protocol);
 
         var genericParam = new GenericArgumentDecl(
             TypeName: "T",
