@@ -434,3 +434,73 @@ public func makeAnimalRoster(firstName: String, secondName: String) -> AnimalRos
         Animal(name: secondName, sound: "Howl"),
     ])
 }
+
+// MARK: - Bug 3 Follow-up: Protocol-target associated-type constraint
+//
+// Closes the gap left open after the original Bug 3 fix. The bilateral pairing
+// filter previously passed through `ConformanceKind.Protocol` entries when the
+// constraint target was itself a protocol (e.g., `where S.Element : SomeProtocol`).
+// Pre-fix, the engine paired every Sequence conformer in the pool with
+// `HashSink.sumHashes` regardless of whether the conformer's Element actually
+// conformed to `HashLike` — including a non-conforming wrapper struct
+// (`NonHashableBox`) registered alongside the conforming one. The generator
+// stamped wrappers for both, and `Wrapper.swift` failed to compile with
+// `'NonHashableBox' does not conform to protocol 'HashLike'`.
+//
+// Post-fix: the filter consults the type database. When the constraint target
+// resolves to a protocol, it looks up the conformer's Element TypeRecord and
+// checks (transitively) that the target appears in its `ProtocolConformances`.
+// Conformers without the recorded conformance fail closed.
+//
+// `HashLike` is intentionally library-defined rather than stdlib `Hashable`,
+// for two reasons: (1) the parser path populates `TypeRecord.ProtocolConformances`
+// for both boxes inside the same module being generated, exercising the fresh-
+// parser plumbing end-to-end; (2) older module-database XMLs predate the field
+// and don't carry conformance metadata for stdlib protocols, which would
+// short-circuit the filter to the fail-closed branch and weaken the test.
+
+public protocol HashLike {
+    var hashCode: Int { get }
+}
+
+/// Conforms to `HashLike` — should pair with `HashSink.sumHashes`.
+@frozen
+public struct HashableBox: HashLike {
+    public let value: Int32
+    public init(value: Int32) { self.value = value }
+    public var hashCode: Int { return Int(value) }
+}
+
+/// Does NOT conform to `HashLike` — must NOT pair with `HashSink.sumHashes`.
+/// Registered as a Swift.Sequence conformer in specialization-hints.json so the
+/// bilateral filter sees both options. Build success is the regression detector:
+/// without the fix, the generator emits a wrapper for this box whose body calls
+/// `sumHashes` and Swift compilation fails on the missing conformance.
+@frozen
+public struct NonHashableBox {
+    public let label: Int32
+    public init(label: Int32) { self.label = label }
+}
+
+/// Non-`@frozen` so the C# emitter projects it as `ClassWithOpaquePayload`
+/// (matching the `AnimalRoster` pattern above). The concrete-specialization
+/// emitter currently emits `_payload.DangerousGetHandle()` for the parent
+/// `self`, which only exists on class-projected types — a `@frozen` empty
+/// struct projects as a value-type and the specialization fails to compile.
+/// That's an unrelated gap in the CSM emitter's coverage of value-projected
+/// parents; this fixture sidesteps it by following the existing class-shape
+/// convention rather than expanding scope.
+public struct HashSink {
+    public init() {}
+
+    /// `S.Element : HashLike` — protocol-conformance bound on a method-level
+    /// generic. The bilateral filter must accept the `[HashableBox]` pairing
+    /// (Element conforms) and reject the `[NonHashableBox]` pairing (Element
+    /// does not conform).
+    public func sumHashes<S: Sequence>(_ source: S) -> Int where S.Element : HashLike {
+        var sum = 0
+        for item in source { sum += item.hashCode }
+        return sum
+    }
+}
+

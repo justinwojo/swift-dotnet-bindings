@@ -1589,7 +1589,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// <see cref="GenericArgumentDecl.AssosiatedTypeConformances"/> is satisfied by the chosen
     /// conformer's <see cref="ConcreteSpecializationEngine.ConcreteConformer.AssociatedTypes"/>.
     /// Same-type bounds (<c>==</c>) require exact-name equality. Subtype bounds (<c>:</c>) are
-    /// handled in two ways depending on the target's nature:
+    /// handled in three ways depending on the target's nature:
     /// <list type="bullet">
     ///   <item><description>Class target (e.g. <c>S.Element : RealityKit.Entity</c>) — accepts
     ///   the conformer's recorded <see cref="ConcreteSpecializationEngine.ConcreteConformer.AssociatedTypes"/>
@@ -1597,9 +1597,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
     ///   <see cref="TypeRecord.SuperclassTypeName"/> chain (Swift class subtype admits subclasses).
     ///   Unresolvable chains fail closed.</description></item>
     ///   <item><description>Protocol target (true protocol conformance like <c>S.Element : Hashable</c>)
-    ///   — pass-through. The engine's primary coupling check doesn't validate protocol-witness
-    ///   conformance and TypeRecord doesn't carry per-type conformance lists, so we have no
-    ///   structural way to verify here. Tracked as a known engine-level gap.</description></item>
+    ///   — looks up the conformer Element's <see cref="TypeRecord"/> and walks its
+    ///   <see cref="TypeRecord.ProtocolConformances"/> transitively (refining edges like
+    ///   <c>Hashable : Equatable</c>): accepts when the target appears anywhere in the closure.
+    ///   Element record unresolvable, or its <see cref="TypeRecord.ProtocolConformances"/>
+    ///   not populated, fails closed — same posture as the class-chain path.</description></item>
+    ///   <item><description>Other resolved kinds (Struct/Enum/Existential on a <c>:</c> clause —
+    ///   uncommon ABI shape, typically a same-type alias) — pass-through.</description></item>
     /// </list>
     /// Without this filter, parent-declared same-type floors like <c>S.Element == Album</c> would
     /// pass straight through and the pairing machinery would enumerate every Sequence conformer
@@ -1622,22 +1626,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (assoc.Path == null || assoc.Path.Length < 2)
                     continue;
 
-                // ConcreteType (`==`): same-type bound, always enforce exact-name match.
-                // Protocol-kind: the parser emits this for both class-inheritance bounds
-                // (`S.Element : Entity` where Entity is a class) and true protocol-conformance
-                // bounds (`S.Element : Hashable`). Distinguish by typeDatabase lookup —
-                // a target proven to be a non-class (Protocol/Struct/Enum) is true protocol
-                // conformance. Pass-through here is a known gap: the engine's primary path
-                // doesn't validate protocol-witness conformance and TypeRecord carries no
-                // per-type conformance list, so neither side has anything to enforce against.
-                // Otherwise (target is a class, OR target cannot be resolved — typically a
-                // cross-module reference like RealityKit.Entity when generating RealityFoundation)
-                // fall through to subtype check below: exact-name match wins, transitive
-                // subclass via SuperclassTypeName chain accepts, anything else fails closed.
+                // Resolve the target's record once — drives the per-target-kind branching below.
+                TypeRecord? targetRecord = null;
+                if (typeDatabase is not null)
+                {
+                    typeDatabase.TryGetTypeRecord(assoc.ConformanceTarget, out targetRecord);
+                }
+
+                // ConcreteType (`==`) and Protocol (`:`) bounds are the only kinds we handle.
+                // For `:` clauses where the resolved target is Struct/Enum/Existential — an
+                // uncommon ABI shape (typically a same-type alias surfaced as a conformance
+                // bound) — preserve the historical pass-through. We only tighten Class and
+                // Protocol cases here.
                 if (assoc.Kind == ConformanceKind.Protocol &&
-                    typeDatabase is not null &&
-                    typeDatabase.TryGetTypeRecord(assoc.ConformanceTarget, out var targetRecord) &&
-                    targetRecord.Kind != TypeRecordKind.Class)
+                    targetRecord is not null &&
+                    targetRecord.Kind != TypeRecordKind.Class &&
+                    targetRecord.Kind != TypeRecordKind.Protocol)
                 {
                     continue;
                 }
@@ -1670,8 +1674,36 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     return false;
                 if (!conformer.AssociatedTypes.TryGetValue(assocName, out var declared))
                     return false;
-                if (string.Equals(declared, expected, StringComparison.Ordinal))
+
+                // Exact-name fast path: valid for same-type (`==`) constraints and
+                // class-subtype (`:` over a class target) — `Element == Animal` /
+                // `Element : Animal` both accept `Element = Animal`. NOT valid for a
+                // protocol target: Swift rejects `[any P]` for `where S.Element : P`
+                // because an existential `any P` does not itself conform to `P`
+                // (`type 'any P' cannot conform to 'P'`). For protocol targets we
+                // skip the fast path and fall through to the conformance walk —
+                // which correctly rejects `Element == TargetProtocol` because the
+                // protocol's own `ProtocolConformances` (its inherited protocols)
+                // does not include itself.
+                bool isProtocolTarget = assoc.Kind == ConformanceKind.Protocol &&
+                                        targetRecord is not null &&
+                                        targetRecord.Kind == TypeRecordKind.Protocol;
+                if (!isProtocolTarget && string.Equals(declared, expected, StringComparison.Ordinal))
                     continue;
+
+                // Protocol target: verify the conformer Element conforms to the target
+                // protocol (directly or transitively via refining edges like
+                // `Hashable : Equatable`). The Element's TypeRecord.ProtocolConformances
+                // carries direct edges only; we walk transitively here.
+                if (isProtocolTarget)
+                {
+                    if (typeDatabase is not null &&
+                        IsDeclaredConformingToProtocol(declared, assoc.ConformanceTarget, typeDatabase))
+                    {
+                        continue;
+                    }
+                    return false;
+                }
 
                 // For Protocol-kind constraints with a class target, Swift's `:` is a subtype
                 // bound — `where S.Element : Animal` accepts `[Dog]` when `Dog : Animal`. Exact-
@@ -1692,6 +1724,91 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="declared"/> names a type whose
+    /// <see cref="TypeRecord.ProtocolConformances"/> chain transitively contains
+    /// <paramref name="target"/>. Walks each direct conformance's own
+    /// <see cref="TypeRecord.ProtocolConformances"/> recursively to follow protocol
+    /// refining edges (<c>Hashable : Equatable</c> etc.). Cycles are guarded by a
+    /// visited set; unresolvable hops are skipped (sibling conformances may still
+    /// match). Used to admit valid Swift subtype pairings under
+    /// protocol-conformance bounds (<c>S.Element : Hashable</c> accepts a UInt8
+    /// element whose record declares <c>Hashable</c>). Fail-closed when the
+    /// declared element's record is missing or has no populated
+    /// <see cref="TypeRecord.ProtocolConformances"/> list — same posture as the
+    /// class-chain path.
+    /// </summary>
+    private static bool IsDeclaredConformingToProtocol(
+        string declared, SwiftTypeName target, ITypeDatabase typeDatabase)
+    {
+        // Strip a bound-generic suffix to the head — `Swift.Array<Foo>` resolves
+        // its conformances at `Swift.Array`, not at the bound form.
+        var ltIndex = declared.IndexOf('<');
+        if (ltIndex > 0)
+            declared = declared.Substring(0, ltIndex);
+
+        SwiftTypeName declaredName;
+        try
+        {
+            declaredName = SwiftTypeName.FromModuleQualifiedName(declared);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+
+        if (!typeDatabase.TryGetTypeRecord(declaredName, out var declaredRecord))
+            return false;
+
+        // Reject existential element types. Swift refuses `[any P]` (and `[any Q]`
+        // where `Q : P`) for `where S.Element : P` — only concrete types satisfy
+        // a generic protocol-conformance constraint, even when the existential's
+        // protocol refines the target. Without this guard the DFS below would
+        // walk a protocol record's `ProtocolConformances` (which stores its
+        // inherited protocols for protocol-kind records) and incorrectly accept
+        // `Element = ChildProtocol` for `Element : P` because the inheritance
+        // chain reaches `P`. Fail closed instead.
+        if (declaredRecord.Kind == TypeRecordKind.Protocol)
+            return false;
+
+        if (declaredRecord.ProtocolConformances is null)
+            return false;
+
+        var visited = new HashSet<string>(StringComparer.Ordinal) { declaredName.ModuleQualifiedName };
+        return WalkProtocolConformancesTransitively(
+            declaredRecord.ProtocolConformances, target, typeDatabase, visited);
+    }
+
+    /// <summary>
+    /// DFS over a list of direct protocol conformances looking for
+    /// <paramref name="target"/>. Recurses into each conformance's own
+    /// <see cref="TypeRecord.ProtocolConformances"/> to follow refining edges.
+    /// Unresolvable conformance entries are silently skipped — we can't decide
+    /// from them, but a sibling branch may still match.
+    /// </summary>
+    private static bool WalkProtocolConformancesTransitively(
+        IReadOnlyList<SwiftTypeName> conformances,
+        SwiftTypeName target,
+        ITypeDatabase typeDatabase,
+        HashSet<string> visited)
+    {
+        foreach (var p in conformances)
+        {
+            if (string.Equals(p.ModuleQualifiedName, target.ModuleQualifiedName, StringComparison.Ordinal))
+                return true;
+            if (!visited.Add(p.ModuleQualifiedName))
+                continue;
+            if (!typeDatabase.TryGetTypeRecord(p, out var pRecord))
+                continue;
+            if (pRecord.ProtocolConformances is { Count: > 0 } inherited &&
+                WalkProtocolConformancesTransitively(inherited, target, typeDatabase, visited))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

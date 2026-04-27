@@ -144,6 +144,18 @@ namespace BindingsGeneration
             if (record.SuperclassTypeName != null)
                 writer.WriteAttributeString("superclass", record.SuperclassTypeName.ModuleQualifiedName);
 
+            // Direct protocol conformances (struct/class/enum: declared protocols;
+            // protocol: inherited protocols). Stored as a comma-separated list of
+            // module-qualified names, mirroring AbiFieldLayout's compact encoding.
+            // Used by the bilateral specialization filter to verify
+            // `S.Element : SomeProtocol` constraints across modules.
+            if (record.ProtocolConformances is { Count: > 0 } conformances)
+            {
+                writer.WriteAttributeString(
+                    "protocolConformances",
+                    string.Join(",", conformances.Select(p => p.ModuleQualifiedName)));
+            }
+
             // Inline size for frozen struct Buffer field sizing (e.g., Swift.String = 16 bytes)
             if (record.InlineSize.HasValue)
                 writer.WriteAttributeString("inlineSize", record.InlineSize.Value.ToString());

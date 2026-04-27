@@ -378,9 +378,70 @@ namespace BindingsGeneration
                 Kind = TypeRecordKind.Struct,
                 InlineSize = inlineSize,
                 AbiFieldLayout = abiFieldLayout,
+                ProtocolConformances = BuildDirectProtocolConformances(structDecl.Conformances),
             };
 
             _moduleDatabase.RegisterType(structDecl.SwiftTypeName, typeRecord);
+        }
+
+        /// <summary>
+        /// Projects a type's <see cref="TypeConformance"/> list (or a protocol's
+        /// <c>InheritedProtocols</c>) into the <see cref="TypeRecord.ProtocolConformances"/>
+        /// shape: a deduplicated list of <see cref="SwiftTypeName"/>s carrying only the
+        /// <em>direct</em> conformance edges. Transitive resolution (e.g. <c>Hashable</c>
+        /// satisfying a <c>: Equatable</c> bound) is performed at filter time by walking
+        /// each entry's own record — we don't expand here so each kind stores the same
+        /// shape (struct/class/enum: their declared protocols; protocol: its inherited
+        /// protocols) and the persisted XML stays bounded.
+        /// </summary>
+        private static IReadOnlyList<SwiftTypeName> BuildDirectProtocolConformances(
+            IEnumerable<TypeConformance> conformances)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<SwiftTypeName>();
+            foreach (var c in conformances)
+            {
+                var qualified = c.Protocol.ModuleQualifiedName;
+                if (string.IsNullOrEmpty(qualified))
+                    continue;
+                if (qualified.Contains('<'))
+                    continue;
+                if (seen.Add(qualified))
+                    result.Add(c.Protocol);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Same shape as <see cref="BuildDirectProtocolConformances"/> but sourced from
+        /// a protocol's inherited-protocols list (a list of <see cref="NamedTypeSpec"/>s
+        /// rather than <see cref="TypeConformance"/>s). Skips entries that don't look
+        /// like module-qualified type names.
+        /// </summary>
+        private static IReadOnlyList<SwiftTypeName> BuildInheritedProtocolConformances(
+            IEnumerable<NamedTypeSpec> inheritedProtocols)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<SwiftTypeName>();
+            foreach (var p in inheritedProtocols)
+            {
+                if (p.Name is null || p.Name.Contains('<'))
+                    continue;
+                if (!p.Name.Contains('.'))
+                    continue;
+                SwiftTypeName name;
+                try
+                {
+                    name = SwiftTypeName.FromModuleQualifiedName(p.Name);
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+                if (seen.Add(name.ModuleQualifiedName))
+                    result.Add(name);
+            }
+            return result;
         }
 
         /// <summary>
@@ -641,6 +702,7 @@ namespace BindingsGeneration
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = enumDecl.RawValueTypeName,
                 InlineSize = inlineSize,
+                ProtocolConformances = BuildDirectProtocolConformances(enumDecl.Conformances),
             };
 
             _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);
@@ -679,6 +741,7 @@ namespace BindingsGeneration
                     && !classDecl.DirectSuperclassName.Contains('<')
                     ? SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName)
                     : null,
+                ProtocolConformances = BuildDirectProtocolConformances(classDecl.Conformances),
             };
 
             _moduleDatabase.RegisterType(classDecl.SwiftTypeName, typeRecord);
@@ -1090,6 +1153,7 @@ namespace BindingsGeneration
                 Flags = flags,
                 Kind = TypeRecordKind.Protocol,
                 ProtocolDescriptorSymbol = ConvertProtocolTypeToDescriptorSymbol(protocolDecl.MangledName),
+                ProtocolConformances = BuildInheritedProtocolConformances(protocolDecl.InheritedProtocols),
             };
 
             if (!protocolDecl.IsSpiProtected)

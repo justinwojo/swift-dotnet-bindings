@@ -40,7 +40,9 @@
         { "swiftType": "Swift.Array<SwiftBindingsTestLib.AlbumItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.AlbumItem>", "swiftLiteral": "[AlbumItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.AlbumItem" }, "modules": ["SwiftBindingsTestLib"] },
         { "swiftType": "Swift.Array<SwiftBindingsTestLib.ArtistItem>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.ArtistItem>", "swiftLiteral": "[ArtistItem]", "associatedTypes": { "Element": "SwiftBindingsTestLib.ArtistItem" }, "modules": ["SwiftBindingsTestLib"] },
         { "swiftType": "Swift.Array<SwiftBindingsTestLib.Animal>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Animal>", "swiftLiteral": "[Animal]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Animal" }, "modules": ["SwiftBindingsTestLib"] },
-        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Dog>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Dog>", "swiftLiteral": "[Dog]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Dog" }, "modules": ["SwiftBindingsTestLib"] }
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.Dog>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.Dog>", "swiftLiteral": "[Dog]", "associatedTypes": { "Element": "SwiftBindingsTestLib.Dog" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.HashableBox>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.HashableBox>", "swiftLiteral": "[HashableBox]", "associatedTypes": { "Element": "SwiftBindingsTestLib.HashableBox" }, "modules": ["SwiftBindingsTestLib"] },
+        { "swiftType": "Swift.Array<SwiftBindingsTestLib.NonHashableBox>", "csharpType": "Swift.SwiftArray<SwiftBindingsTestLib.NonHashableBox>", "swiftLiteral": "[NonHashableBox]", "associatedTypes": { "Element": "SwiftBindingsTestLib.NonHashableBox" }, "modules": ["SwiftBindingsTestLib"] }
       ]
     },
     {

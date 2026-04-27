@@ -626,7 +626,8 @@ public class ConcreteSpecializationEngineTests
 
         public void Register(SwiftTypeName swiftTypeName, string csNamespace, string csName,
             TypeRecordKind kind = TypeRecordKind.Struct,
-            SwiftTypeName? superclass = null)
+            SwiftTypeName? superclass = null,
+            IReadOnlyList<SwiftTypeName>? protocolConformances = null)
         {
             _records[swiftTypeName.ToString()] = new TypeRecord
             {
@@ -635,7 +636,8 @@ public class ConcreteSpecializationEngineTests
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
                 Kind = kind,
-                SuperclassTypeName = superclass
+                SuperclassTypeName = superclass,
+                ProtocolConformances = protocolConformances,
             };
         }
     }
@@ -1514,16 +1516,17 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
-    public void AssociatedTypeConstraints_TrueProtocolConformanceConstraint_TargetIsProtocol_Accepts()
+    public void AssociatedTypeConstraints_ProtocolTarget_ConformerElementConforms_Accepts()
     {
-        // True protocol conformance bounds (e.g. `S.Element: Hashable`) remain pass-through
-        // when we can prove the target is a protocol: protocols don't carry per-conformer
-        // type witnesses we can match against, and the engine's primary coupling check has
-        // already verified witness conformance. Register Hashable as Protocol so the filter
-        // sees it's not a class and skips the exact-name check.
+        // True protocol-conformance bound `S.Element : Hashable`. The conformer's recorded
+        // Element (Swift.UInt8) is registered with Hashable in its ProtocolConformances list.
+        // Filter walks the conformer Element's TypeRecord chain and accepts on direct match.
+        var hashableName = SwiftTypeName.FromModuleQualifiedName("Swift.Hashable");
+        var uint8Name = SwiftTypeName.FromModuleQualifiedName("Swift.UInt8");
         var db = new ResolvingTypeDatabase();
-        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
-            "Swift", "Hashable", TypeRecordKind.Protocol);
+        db.Register(hashableName, "Swift", "Hashable", TypeRecordKind.Protocol);
+        db.Register(uint8Name, "Swift", "UInt8", TypeRecordKind.Struct,
+            protocolConformances: new[] { hashableName });
 
         var method = CreateStructWithProtocolConstrainedMethod(
             "HashableCollection", "init", "Swift.Sequence").Methods[0];
@@ -1534,6 +1537,192 @@ public class ConcreteSpecializationEngineTests
             expectedElement: "Swift.Hashable");
 
         Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_ConformerElementDoesNotConform_Rejects()
+    {
+        // Element is registered, but its ProtocolConformances list does NOT contain the target
+        // protocol (and no transitive refining edge reaches it). The previous pass-through
+        // semantics would have accepted any Sequence conformer; the tightened filter rejects.
+        var hashableName = SwiftTypeName.FromModuleQualifiedName("Swift.Hashable");
+        var fooName = SwiftTypeName.FromModuleQualifiedName("TestLib.NonHashableThing");
+        var db = new ResolvingTypeDatabase();
+        db.Register(hashableName, "Swift", "Hashable", TypeRecordKind.Protocol);
+        db.Register(fooName, "TestLib", "NonHashableThing", TypeRecordKind.Struct,
+            protocolConformances: Array.Empty<SwiftTypeName>());
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HashableCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<TestLib.NonHashableThing>",
+            elementAssocType: "TestLib.NonHashableThing",
+            expectedElement: "Swift.Hashable");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_ConformerElementUnresolvable_Rejects()
+    {
+        // Element record missing entirely (cross-module element type whose database wasn't
+        // loaded for this generation pass). Fail-closed mirrors the class-chain path's
+        // posture for unresolvable hops — better to drop a specialization than emit a
+        // wrapper whose conformance we couldn't verify.
+        var hashableName = SwiftTypeName.FromModuleQualifiedName("Swift.Hashable");
+        var db = new ResolvingTypeDatabase();
+        db.Register(hashableName, "Swift", "Hashable", TypeRecordKind.Protocol);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HashableCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<OtherModule.UnresolvedElement>",
+            elementAssocType: "OtherModule.UnresolvedElement",
+            expectedElement: "Swift.Hashable");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_ConformerElementNullProtocolConformances_Rejects()
+    {
+        // Element record exists but its ProtocolConformances field is null — typically
+        // a record loaded from an older module database file that predates the field.
+        // We can't verify, so fail-closed (same posture as outright-missing).
+        var hashableName = SwiftTypeName.FromModuleQualifiedName("Swift.Hashable");
+        var stringName = SwiftTypeName.FromModuleQualifiedName("Swift.String");
+        var db = new ResolvingTypeDatabase();
+        db.Register(hashableName, "Swift", "Hashable", TypeRecordKind.Protocol);
+        db.Register(stringName, "Swift", "String", TypeRecordKind.Struct,
+            protocolConformances: null);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HashableCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Swift.String>",
+            elementAssocType: "Swift.String",
+            expectedElement: "Swift.Hashable");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_TransitiveConformance_Accepts()
+    {
+        // `S.Element : Equatable` accepts an element whose declared conformance is
+        // Hashable (Hashable refines Equatable in stdlib). The element itself doesn't
+        // list Equatable directly — only Hashable — so the filter must walk the
+        // refining edge `Hashable : Equatable` to admit the pairing.
+        var equatableName = SwiftTypeName.FromModuleQualifiedName("Swift.Equatable");
+        var hashableName = SwiftTypeName.FromModuleQualifiedName("Swift.Hashable");
+        var intName = SwiftTypeName.FromModuleQualifiedName("Swift.Int");
+        var db = new ResolvingTypeDatabase();
+        db.Register(equatableName, "Swift", "Equatable", TypeRecordKind.Protocol);
+        db.Register(hashableName, "Swift", "Hashable", TypeRecordKind.Protocol,
+            protocolConformances: new[] { equatableName });
+        db.Register(intName, "Swift", "Int", TypeRecordKind.Struct,
+            protocolConformances: new[] { hashableName });
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "EquatableCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Swift.Int>",
+            elementAssocType: "Swift.Int",
+            expectedElement: "Swift.Equatable");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_ConformerElementIsExistentialOfTarget_Rejects()
+    {
+        // Swift rejects `where S.Element : P` paired with `S.Element == any P`:
+        // `type 'any P' cannot conform to 'P'`. Pre-fix the exact-name fast path
+        // ran before the target-kind branch, so a conformer whose Element was
+        // recorded as the protocol existential itself slipped through. Post-fix
+        // the fast path is gated to non-protocol targets — the protocol-target
+        // branch always requires the conformance walk, which correctly rejects
+        // because the protocol's own ProtocolConformances (its inherited
+        // protocols) does not include itself.
+        var hashableName = SwiftTypeName.FromModuleQualifiedName("Test.HashLike");
+        var db = new ResolvingTypeDatabase();
+        db.Register(hashableName, "Test", "HashLike", TypeRecordKind.Protocol);
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HashSink", "sumHashes", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Test.HashLike>",
+            elementAssocType: "Test.HashLike",
+            expectedElement: "Test.HashLike");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_ConformerElementIsRefiningProtocol_Rejects()
+    {
+        // Sister case to the existential-of-target rejection: Swift also refuses
+        // `[any ChildProtocol]` for `where S.Element : P` when ChildProtocol : P.
+        // Only concrete types satisfy a generic protocol-conformance constraint,
+        // even when the existential's protocol refines the target. Pre-fix, the
+        // DFS in IsDeclaredConformingToProtocol walked ChildProtocol's own
+        // ProtocolConformances (its inherited protocols, populated for protocol-
+        // kind records) and incorrectly accepted because the inheritance chain
+        // reaches P. Post-fix, an existential element is rejected before the walk.
+        var pName = SwiftTypeName.FromModuleQualifiedName("Test.HashLike");
+        var childName = SwiftTypeName.FromModuleQualifiedName("Test.RichHashLike");
+        var db = new ResolvingTypeDatabase();
+        db.Register(pName, "Test", "HashLike", TypeRecordKind.Protocol);
+        db.Register(childName, "Test", "RichHashLike", TypeRecordKind.Protocol,
+            protocolConformances: new[] { pName });
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "HashSink", "sumHashes", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Test.RichHashLike>",
+            elementAssocType: "Test.RichHashLike",
+            expectedElement: "Test.HashLike");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
+            .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
+    }
+
+    [Fact]
+    public void AssociatedTypeConstraints_ProtocolTarget_TransitiveConformance_Cycle_DoesNotInfiniteLoop()
+    {
+        // Defensive coverage: pathological self-referential chain (P : P) must terminate
+        // via the visited set rather than spin. Should reject — target Q never appears.
+        var pName = SwiftTypeName.FromModuleQualifiedName("Test.SelfRefP");
+        var qName = SwiftTypeName.FromModuleQualifiedName("Test.SeparateQ");
+        var elementName = SwiftTypeName.FromModuleQualifiedName("Test.ElementWithCycle");
+        var db = new ResolvingTypeDatabase();
+        db.Register(pName, "Test", "SelfRefP", TypeRecordKind.Protocol,
+            protocolConformances: new[] { pName });
+        db.Register(qName, "Test", "SeparateQ", TypeRecordKind.Protocol);
+        db.Register(elementName, "Test", "ElementWithCycle", TypeRecordKind.Struct,
+            protocolConformances: new[] { pName });
+
+        var method = CreateStructWithProtocolConstrainedMethod(
+            "QCollection", "init", "Swift.Sequence").Methods[0];
+        var parent = (TypeDecl)method.ParentDecl!;
+        var pairing = MakeSequencePairingProtocolKind(
+            conformerSwiftName: "Swift.Array<Test.ElementWithCycle>",
+            elementAssocType: "Test.ElementWithCycle",
+            expectedElement: "Test.SeparateQ");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter
             .DoesPairingSatisfyAssociatedTypeConstraints(method, parent, pairing, db));
     }
 

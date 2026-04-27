@@ -166,6 +166,24 @@ public record TypeRecord
     public SwiftTypeName? SuperclassTypeName { get; init; }
 
     /// <summary>
+    /// Direct protocol conformances declared by this type. For struct/class/enum kinds
+    /// these are the protocols listed on the type's <c>Conformances</c> in ABI JSON.
+    /// For Protocol kind, these are the protocol's <c>InheritedProtocols</c> — refining
+    /// edges in the protocol graph. The transitive closure is computed at filter time
+    /// by walking each entry's own <see cref="ProtocolConformances"/>; we deliberately
+    /// store DIRECT edges only to keep the persisted size bounded and the data model
+    /// uniform across kinds.
+    ///
+    /// Used by <see cref="BindingsGeneration.ConcreteProtocolSpecializationEmitter.DoesPairingSatisfyAssociatedTypeConstraints"/>
+    /// to verify <c>S.Element : SomeProtocol</c> bounds when the conformer's recorded
+    /// Element doesn't exact-match the constraint target. Null means the data wasn't
+    /// populated (typically loaded from an older module database that predates this
+    /// field) — the filter treats null as "unverifiable" and fails closed for
+    /// protocol-conformance bounds whose target is a true protocol.
+    /// </summary>
+    public IReadOnlyList<SwiftTypeName>? ProtocolConformances { get; init; }
+
+    /// <summary>
     /// The inline byte size of this type when embedded as a field in a frozen struct Buffer.
     /// For XML-loaded types, this comes from the <c>inlineSize</c> attribute.
     /// For module types, this is computed from <see cref="SwiftTypeInfo"/> at parse time.

@@ -199,6 +199,27 @@ namespace BindingsGeneration
                 int? inlineSize = inlineSizeStr != null ? int.Parse(inlineSizeStr) : null;
                 string? abiFieldLayout = typeDeclarationNode?.Attributes?["abiLayout"]?.Value;
                 string? protocolDescriptorSymbol = typeDeclarationNode?.Attributes?["protocolDescriptorSymbol"]?.Value;
+                string? protocolConformancesAttr = typeDeclarationNode?.Attributes?["protocolConformances"]?.Value;
+                IReadOnlyList<SwiftTypeName>? protocolConformances = null;
+                if (!string.IsNullOrEmpty(protocolConformancesAttr))
+                {
+                    var entries = protocolConformancesAttr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    var list = new List<SwiftTypeName>(entries.Length);
+                    foreach (var entry in entries)
+                    {
+                        if (entry.Contains('<'))
+                            continue;
+                        try
+                        {
+                            list.Add(SwiftTypeName.FromModuleQualifiedName(entry));
+                        }
+                        catch (ArgumentException)
+                        {
+                            // Skip malformed entries — older databases may carry odd shapes.
+                        }
+                    }
+                    protocolConformances = list;
+                }
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -257,6 +278,7 @@ namespace BindingsGeneration
                     InlineSize = inlineSize,
                     AbiFieldLayout = abiFieldLayout,
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
+                    ProtocolConformances = protocolConformances,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);
