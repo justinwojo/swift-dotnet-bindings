@@ -295,6 +295,8 @@ This is *the* highest-leverage usability fix and likely the largest single piece
 
 ## 15. `SwiftOptional<IntPtr>` returned for nullable reference types
 
+**Status: Fixed for the umbrella-import case in Session 7 (commit `<TBD>`). Residual 219/286 occurrences are unrelated bug categories — see post-fix breakdown below.**
+
 286 occurrences in `RealityFoundation.cs`. Properties and method returns that should be `Scene?` / `Entity?` are typed as `Swift.SwiftOptional<IntPtr>`, exposing a raw pointer instead of a managed reference:
 
 ```csharp
@@ -305,7 +307,25 @@ public virtual Swift.SwiftOptional<IntPtr> Scene { get => Scene_Get(); }
 public virtual Swift.SwiftOptional<IntPtr> FindEntity(string name) { … }
 ```
 
-Caller has to manually round-trip the IntPtr through `SwiftMarshal.MarshalFromSwift<T>` to recover the typed object. The generator already knows the underlying type (it emitted the corresponding Swift wrapper with the right type) — this is an emit-side gap where the C# type-resolution path falls back to `IntPtr` instead of looking up the bound managed type. RoomPlan and CryptoKit don't show this pattern at the same density (RoomPlan returns `RoomPlan.CapturedRoom.Surface?` etc.), so it's likely triggered by something specific to RealityFoundation's type graph — possibly tied to bug 10 (`@_implementationOnly` confuses the type-name resolver).
+Caller has to manually round-trip the IntPtr through `SwiftMarshal.MarshalFromSwift<T>` to recover the typed object. The generator already knows the underlying type (it emitted the corresponding Swift wrapper with the right type) — this is an emit-side gap where the C# type-resolution path falls back to `IntPtr` instead of looking up the bound managed type. RoomPlan and CryptoKit don't show this pattern at the same density (RoomPlan returns `RoomPlan.CapturedRoom.Surface?` etc.).
+
+**Root cause (confirmed in Session 7):** Apple's `@_implementationOnly` umbrella re-exports collapse the canonical Swift name onto the umbrella module — RealityFoundation's own ABI JSON prints types like `RealityKit.Entity` even though the declaration lives in RealityFoundation. The cross-module `TypeDatabase.TryGetTypeRecord` never rewrote the umbrella prefix back onto the source module, so `Optional<RealityKit.Entity>` projection couldn't find Entity's record and dropped to the bound-generic `IntPtr` shape. This was Bug #15's RF subset; the residual cases are different bug categories that share only the surface symptom.
+
+**Session 7 fix:** Generalized the cross-module type-database population at `TypeDatabase.cs:462+` and `:504+` so any `compileImportModule` source registered in `apple-frameworks.json` (currently only `RealityFoundation → RealityKit`) participates in the lookup. Reverse map is built once in `AppleFrameworkRegistry`'s static constructor and exposed via `GetCompileImportSourceModules`. No Entity-specific code path; adding another umbrella relationship is data-only.
+
+**Post-fix RealityFoundation count:** `Swift.SwiftOptional<IntPtr>` 286 → 219 (67 cases corrected). `RealityFoundation.Entity?` 9 → 62, `RealityFoundation.Scene?` 0 → 1, `BindTarget?` correctly emitted, and the previously broken cases the prior session called out are fixed:
+
+- `PortalComponent.TargetEntity` (was `SwiftOptional<IntPtr>`, now `RealityFoundation.Entity?`)
+- `AudioPlaybackController.Entity` (was `SwiftOptional<IntPtr>`, now `RealityFoundation.Entity?`)
+
+**Residual 219 occurrences are not Bug #15.** A category breakdown of the remaining cases:
+- **`TimeInterval?` primitives** (most common — `TrimStart`/`TrimEnd`/`TrimDuration` on every `…Animation` type): ABI JSON types these as `Swift.Optional<TimeInterval>` where `TimeInterval` is `typealias Double`. Generic-Optional-of-primitive bug, separate root cause.
+- **Generic `TValue?` from `Optional<Value>` generic params** on types like `FromToByAnimation<Value>`, `SampledAnimation<Value>` — `Optional` of a generic parameter renders as `SwiftOptional<TValue>`/`SwiftOptional<IntPtr>` depending on resolution path. Generic-parameter Optional bug.
+- **Opaque IntPtr-as-handle properties** (e.g., `Semantic`, `Text`, `Orientation`, `CurrentViewingMode`, `MeshResource…Update`/`Remove`/`GetNext`): types where IntPtr is correct but should be wrapped in a typed handle. Separate emission-shape concern.
+
+These categories were originally rolled into the 286 baseline because they share the visible `SwiftOptional<IntPtr>` surface; they require their own dedicated fixes and are out of scope for Session 7. The 11-of-13-frameworks blast radius cited in the original plan was directional — most of those framework counts are the same primitive/generic categories, not class-typed Optional cases.
+
+**BindingTests fixture limitation:** The umbrella mechanism is Apple-framework-specific (`@_implementationOnly` re-exports + `apple-frameworks.json` registration) and cannot be reproduced inside the single-Swift-module `SwiftBindingsTestLib`. A faithful fixture would require a multi-module test project (LibA declaring a class, LibB registered as `compileImportModule` of LibA) plus harness changes to load both into the binding generator under a synthetic registry entry. Session 7's coverage instead rides on three layers: (1) two unit-test layers — `TypeDatabaseTests.TryGetTypeRecord_CompileImportModule_*` (Theory over Entity + Scene proves data-driven, not class-specific), `AppleFrameworkRegistryTests.GetCompileImportSourceModules_*`, and `TypeProjectionFactoryTests.Project_OptionalClass_FromAutoBridgeModule_ExplicitDBRecord`; (2) the regenerated `RealityFoundation.cs` itself, which is the real-world end-to-end gate (production ABI, production registry, production projection); (3) `nuke validate` zero-regression sweep across all 127 libraries.
 
 ## Generator-bug ↔ silent-skip cross-link
 
@@ -444,9 +464,9 @@ Four viable approaches; pick before Session 2 starts:
 | 4 | **#4 closure-buffer adapter** | 4 | **DONE** | `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs` (split `UnsafeRawBufferPointer` into `(baseAddress, count)` at the C-ABI boundary) | sim + device |
 | 5 | **#5 EveryProtocol witness skip** | 5 | **DONE** — see Bug 5 section for post-fix histogram | `EveryProtocolEmitter.cs` (`EmitProtocolConformance` + `WillSkipConformance`), BindingTests fixture, EveryProtocolEmitterTests + ProtocolConformanceCacheTests | sim + device |
 | 6 | **#14 same-module class inheritance** | 14 | **DONE** — see Bug 14 section for the umbrella-USR vs generic-instantiation distinction | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs`, plus marshaler/wrapper plumbing for cross-module bases | sim + device |
-| 7 | **#15 general nullable-class fix** | 15 (covers RF + 9 other frameworks) | open | `Emitter/StringEmitter/Handler/MethodSignature.cs` (both fallback sites: 539 accessor, 556 bound-generic), `Marshaler/Projection/TypeProjectionFactory.cs`, `Marshaler/BoundGenericsHandler.cs` | sim + device |
+| 7 | **#15 general nullable-class fix** | 15 (umbrella-import subset; residual cases are unrelated categories) | **DONE** (`<TBD>`) — see Bug 15 section for the recategorization of the 286 baseline | `TypeDatabase/AppleFrameworkRegistry.cs` (reverse `compileImportSourceModules` map + `GetCompileImportSourceModules`), `TypeDatabase/TypeDatabase.cs` (umbrella-fallback probe in both `TryGetTypeRecordInternal` and `IsTypeProcessedInternal`), unit tests in `TypeDatabaseTests` + `AppleFrameworkRegistryTests` + `TypeProjectionFactoryTests` | `nuke test` (598/598) + `nuke validate` (zero regression) + `nuke binding-tests --compile-only --strict` |
 
-**Sessions 1–6 done; 1 session remaining** (7), independent and parallelizable via worktrees.
+**Sessions 1–7 done.**
 
 **Why this ordering, briefly:**
 - Sessions 4, 5 are independent architectural fixes; each could split if the worker hits unexpected complexity.

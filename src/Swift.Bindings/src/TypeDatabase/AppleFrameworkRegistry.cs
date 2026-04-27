@@ -22,6 +22,14 @@ internal static class AppleFrameworkRegistry
     private static readonly HashSet<string> _unsupportedModules;
     private static readonly Dictionary<string, string> _moduleNamespaceRemaps;
     private static readonly Dictionary<string, string> _compileImportRemaps;
+    // Reverse view of _compileImportRemaps: umbrella module → list of source modules.
+    // Apple's `@_implementationOnly` re-exports collapse the canonical Swift type name
+    // onto the umbrella module (e.g., RealityKit.Entity instead of RealityFoundation.Entity)
+    // even though the type's real declaration lives in the source. The cross-module type
+    // lookup consults this map so a name qualified with the umbrella module falls back to
+    // the source module's TypeRecord. List-typed because in principle multiple sources
+    // can re-export through one umbrella; the lookup probes them in registration order.
+    private static readonly Dictionary<string, List<string>> _compileImportSourceModules;
     private static readonly Dictionary<string, string> _typeNameRemaps;
     private static readonly HashSet<string> _valueTypes;
     private static readonly Dictionary<ApplePlatform, HashSet<string>> _platformUnavailableModules;
@@ -90,6 +98,7 @@ internal static class AppleFrameworkRegistry
         _unsupportedModules = new HashSet<string>(StringComparer.Ordinal);
         _moduleNamespaceRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _compileImportRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
+        _compileImportSourceModules = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         _typeNameRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
         _knownModulesForElements = new HashSet<string>(StringComparer.Ordinal);
@@ -116,7 +125,15 @@ internal static class AppleFrameworkRegistry
                 _moduleNamespaceRemaps[def.Module] = def.NamespaceRemap;
 
             if (!string.IsNullOrEmpty(def.CompileImportModule))
+            {
                 _compileImportRemaps[def.Module] = def.CompileImportModule!;
+                if (!_compileImportSourceModules.TryGetValue(def.CompileImportModule!, out var sources))
+                {
+                    sources = new List<string>();
+                    _compileImportSourceModules[def.CompileImportModule!] = sources;
+                }
+                sources.Add(def.Module);
+            }
 
             if (def.KnownModuleForElements)
                 _knownModulesForElements.Add(def.Module);
@@ -227,6 +244,25 @@ internal static class AppleFrameworkRegistry
     {
         if (string.IsNullOrEmpty(swiftModule)) return swiftModule;
         return _compileImportRemaps.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
+    }
+
+    /// <summary>
+    /// Reverse direction of <see cref="MapModuleToCompileImport"/>: given an umbrella module
+    /// (e.g., <c>RealityKit</c>), returns the source modules that Apple has marked
+    /// <c>@_implementationOnly</c> through it (e.g., <c>RealityFoundation</c>). Used by the
+    /// type database's cross-module lookup so a type name qualified with the umbrella name
+    /// falls back to its real declaring module's TypeRecord — without this, references like
+    /// <c>RealityKit.Entity</c> in RealityFoundation's own ABI JSON (canonical Swift name uses
+    /// the umbrella because of <c>@_implementationOnly</c>) cannot find Entity's record and
+    /// the projection factory drops to <c>SwiftOptional&lt;IntPtr&gt;</c> for nullable cases.
+    /// Returns an empty list when no source modules are registered.
+    /// </summary>
+    public static IReadOnlyList<string> GetCompileImportSourceModules(string umbrellaModule)
+    {
+        if (string.IsNullOrEmpty(umbrellaModule)) return Array.Empty<string>();
+        return _compileImportSourceModules.TryGetValue(umbrellaModule, out var sources)
+            ? sources
+            : (IReadOnlyList<string>)Array.Empty<string>();
     }
 
     /// <summary>

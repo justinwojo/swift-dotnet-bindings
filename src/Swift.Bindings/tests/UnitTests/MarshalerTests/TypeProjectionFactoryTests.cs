@@ -633,6 +633,31 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
+    public void Project_OptionalClass_FromAutoBridgeModule_ExplicitDBRecord()
+    {
+        // Optional<RealityKit.Entity> when Entity is materialized in the cross-module DB:
+        // the inner ClassProjection projects to "Entity?" (NOT SwiftOptional<IntPtr>).
+        // This is the path Bug #15's fix needs to drive every Optional<class> case through.
+        var db = new MockTypeDatabase();
+        db.AddType("RealityKit.Entity", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityKit", "Entity"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class
+        });
+        var ctx = CreateContext(db);
+        var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("RealityKit.Entity"));
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        var opt = Assert.IsType<OptionalProjection>(projection);
+        Assert.Equal("RealityKit.Entity?", opt.PublicType);
+    }
+
+    [Fact]
     public void Project_SwiftResult_NullWhenInnerFails()
     {
         // Result with unresolvable inner type → null

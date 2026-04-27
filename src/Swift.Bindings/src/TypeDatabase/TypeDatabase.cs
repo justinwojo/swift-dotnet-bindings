@@ -460,6 +460,28 @@ namespace BindingsGeneration
                 }
             }
 
+            // Apple `@_implementationOnly` umbrella fallback: a type qualified with the
+            // umbrella module name (e.g., RealityKit.Entity) may actually be declared in
+            // a source module that re-exports through it (RealityFoundation). The
+            // `compileImportModule` declaration in apple-frameworks.json registers each
+            // source→umbrella relationship; consult the reverse map and probe each source
+            // module's database for the type. Without this, the cross-module recursion in
+            // TypeProjectionFactory drops Optional<RealityKit.Entity> to null and emission
+            // falls back to the raw bound-generic shape (Swift.SwiftOptional<IntPtr>).
+            var sourceModules = AppleFrameworkRegistry.GetCompileImportSourceModules(swiftTypeName.Module);
+            if (sourceModules.Count > 0)
+            {
+                foreach (var sourceModule in sourceModules)
+                {
+                    if (!_modules.TryGetValue(sourceModule, out moduleDatabase))
+                        continue;
+                    var rewrittenQualifiedName = $"{sourceModule}.{swiftTypeName.ModuleQualifiedName[(swiftTypeName.Module.Length + 1)..]}";
+                    var rewrittenTypeName = SwiftTypeName.FromModuleQualifiedName(rewrittenQualifiedName);
+                    if (moduleDatabase.TryGetTypeRecord(rewrittenTypeName, out record))
+                        return true;
+                }
+            }
+
             record = null;
             return false;
         }
@@ -477,6 +499,24 @@ namespace BindingsGeneration
                     var aliasedQualifiedName = $"{aliasedModule}.{swiftTypeName.ModuleQualifiedName[(swiftTypeName.Module.Length + 1)..]}";
                     var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(aliasedQualifiedName);
                     return moduleDatabase.IsTypeProcessed(aliasedTypeName);
+                }
+            }
+
+            // Apple `@_implementationOnly` umbrella fallback — see TryGetTypeRecordInternal
+            // for the rationale. Mirrors the same source-module probe so processed-state
+            // queries keyed on the umbrella name (e.g., RealityKit.Entity) resolve to the
+            // source module's record (RealityFoundation.Entity).
+            var sourceModules = AppleFrameworkRegistry.GetCompileImportSourceModules(swiftTypeName.Module);
+            if (sourceModules.Count > 0)
+            {
+                foreach (var sourceModule in sourceModules)
+                {
+                    if (!_modules.TryGetValue(sourceModule, out moduleDatabase))
+                        continue;
+                    var rewrittenQualifiedName = $"{sourceModule}.{swiftTypeName.ModuleQualifiedName[(swiftTypeName.Module.Length + 1)..]}";
+                    var rewrittenTypeName = SwiftTypeName.FromModuleQualifiedName(rewrittenQualifiedName);
+                    if (moduleDatabase.IsTypeProcessed(rewrittenTypeName))
+                        return true;
                 }
             }
 

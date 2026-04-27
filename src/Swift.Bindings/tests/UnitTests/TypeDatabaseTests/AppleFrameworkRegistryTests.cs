@@ -183,6 +183,29 @@ public class AppleFrameworkRegistryTests
         Assert.Equal("RealityFoundation", AppleFrameworkRegistry.MapModuleToNetNamespace("RealityFoundation"));
     }
 
+    // --- GetCompileImportSourceModules ---
+
+    [Fact]
+    public void GetCompileImportSourceModules_ReturnsRegisteredSources()
+    {
+        // Reverse direction of MapModuleToCompileImport: "RealityKit" is the umbrella;
+        // RealityFoundation declares it as compileImportModule, so the source list must
+        // contain RealityFoundation (and only that, for the current data file).
+        var sources = AppleFrameworkRegistry.GetCompileImportSourceModules("RealityKit");
+        Assert.Contains("RealityFoundation", sources);
+    }
+
+    [Theory]
+    [InlineData("RealityFoundation")]   // Source side, not the umbrella
+    [InlineData("UIKit")]               // No compile-import relationship
+    [InlineData("MyCustomLib")]         // Unknown module
+    [InlineData("")]                    // Empty input
+    public void GetCompileImportSourceModules_ReturnsEmpty_ForNonUmbrellaModule(string module)
+    {
+        var sources = AppleFrameworkRegistry.GetCompileImportSourceModules(module);
+        Assert.Empty(sources);
+    }
+
     // --- MapModulesInString ---
 
     [Theory]

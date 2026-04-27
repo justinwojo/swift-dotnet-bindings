@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.IO;
@@ -777,6 +778,89 @@ public class TypeDatabaseTests
             var unknownAlias = SwiftTypeName.FromModuleQualifiedName("FamilyControls.NonExistentToken");
             Assert.False(typeDatabase.TryGetTypeRecord(unknownAlias, out _),
                 "Unknown type alias should not resolve");
+        }
+
+        [Theory]
+        // Two distinct classes from RealityFoundation prove the fallback is driven by
+        // apple-frameworks.json's RealityFoundation→RealityKit compileImportModule entry,
+        // not by an Entity-specific code path. If a third RF class is added later it
+        // resolves through the same mechanism with no generator changes.
+        [InlineData("Entity")]
+        [InlineData("Scene")]
+        public void TryGetTypeRecord_CompileImportModule_FallsBackToSourceModule(string typeName)
+        {
+            // Apple ships RealityFoundation under RealityKit's @_implementationOnly umbrella.
+            // RealityFoundation's own ABI JSON prints canonical names like "RealityKit.Entity"
+            // even though the type's declaration lives in RealityFoundation. The cross-module
+            // lookup must rewrite the umbrella-qualified name back onto the source module.
+            var typeDatabase = new TypeDatabase();
+            var sourceModule = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.dylib");
+            var declaredName = SwiftTypeName.FromModuleQualifiedName($"RealityFoundation.{typeName}");
+            sourceModule.RegisterType(declaredName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", typeName),
+                SwiftTypeName = declaredName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+            typeDatabase.AddModuleDatabase(sourceModule);
+
+            // Lookup with the umbrella-qualified name (the form that appears in ABI JSON).
+            var umbrellaName = SwiftTypeName.FromModuleQualifiedName($"RealityKit.{typeName}");
+            Assert.True(typeDatabase.TryGetTypeRecord(umbrellaName, out var record),
+                $"RealityKit.{typeName} must resolve to RealityFoundation.{typeName} via compileImportModule fallback.");
+            Assert.NotNull(record);
+            Assert.Equal(typeName, record!.CSharpTypeName.Name);
+            Assert.Equal("RealityFoundation", record.SwiftTypeName.Module);
+            Assert.Equal(TypeRecordKind.Class, record.Kind);
+
+            Assert.True(typeDatabase.IsTypeProcessed(umbrellaName),
+                $"IsTypeProcessed must mirror TryGetTypeRecord for RealityKit.{typeName}.");
+        }
+
+        [Fact]
+        public void TryGetTypeRecord_CompileImportModule_UnknownSourceType_ReturnsFalse()
+        {
+            // Negative case: the umbrella module is registered as a compile-import target,
+            // but the requested type is not declared in any source module. The fallback must
+            // not invent a record — emission falls back to the existing AnyType / synthetic
+            // ObjC-bridged paths (or null), preserving the prior behaviour for unrelated names.
+            var typeDatabase = new TypeDatabase();
+            var sourceModule = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.dylib");
+            var declaredName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Entity");
+            sourceModule.RegisterType(declaredName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Entity"),
+                SwiftTypeName = declaredName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+            typeDatabase.AddModuleDatabase(sourceModule);
+
+            var unknownUmbrellaName = SwiftTypeName.FromModuleQualifiedName("RealityKit.NonExistentType");
+            Assert.False(typeDatabase.TryGetTypeRecord(unknownUmbrellaName, out var record),
+                "Unknown umbrella-qualified type names must not be invented by the compileImport fallback.");
+            Assert.Null(record);
+            Assert.False(typeDatabase.IsTypeProcessed(unknownUmbrellaName));
+        }
+
+        [Fact]
+        public void TryGetTypeRecord_CompileImportModule_NoSourceLoaded_ReturnsFalse()
+        {
+            // When the source module is not present in the database at all, the umbrella
+            // lookup must report missing rather than return a stale record from another path.
+            // This mirrors what happens during cross-module emission when a downstream
+            // consumer references a RealityKit umbrella name without RealityFoundation
+            // being part of the current build's loaded modules.
+            var typeDatabase = new TypeDatabase();
+            var realityKitModule = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.dylib");
+            typeDatabase.AddModuleDatabase(realityKitModule);
+
+            var umbrellaName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+            Assert.False(typeDatabase.TryGetTypeRecord(umbrellaName, out var record));
+            Assert.Null(record);
         }
 
         [Fact]
