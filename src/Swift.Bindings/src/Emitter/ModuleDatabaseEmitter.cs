@@ -179,6 +179,33 @@ namespace BindingsGeneration
                 writer.WriteAttributeString("nativeType", nativeType);
             }
 
+            // Emitted class instance methods (Class kind only) — used by downstream modules to
+            // verify cross-module `override` modifiers. See WrapperEmitter.HasMethodInResolvedAncestors.
+            // Always emit the <emittedMethods> element when the list is non-null, even when empty:
+            // an empty element means "this class was processed and emitted zero instance methods"
+            // (e.g., everything was filtered by validation gates) and the verifier must reject
+            // any derived `override` against this parent. Omitting the element would round-trip
+            // back to null on read, which the verifier treats as a legacy database and trusts the
+            // Swift IsOverride bit — reopening the CS0115 case the populator was added to close.
+            if (record.Kind == TypeRecordKind.Class && record.EmittedClassMethods != null)
+            {
+                writer.WriteStartElement("emittedMethods");
+                foreach (var method in record.EmittedClassMethods)
+                {
+                    writer.WriteStartElement("method");
+                    writer.WriteAttributeString("swiftName", method.SwiftName);
+                    writer.WriteAttributeString("csharpName", method.CSharpName);
+                    // Pipe-separated to avoid colliding with generic type-arg commas. Empty list
+                    // (no parameters) is encoded as an empty string, distinct from a single empty
+                    // entry by way of WriteAttributeString preserving "".
+                    writer.WriteAttributeString(
+                        "paramTypes",
+                        string.Join("|", method.ParameterSwiftTypes));
+                    writer.WriteEndElement();
+                }
+                writer.WriteEndElement();
+            }
+
             writer.WriteEndElement(); // typedeclaration
             writer.WriteEndElement(); // entity
         }

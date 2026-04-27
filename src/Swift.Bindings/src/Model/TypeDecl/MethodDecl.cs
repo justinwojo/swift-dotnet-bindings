@@ -109,6 +109,20 @@ namespace BindingsGeneration
         public bool WasEmitted { get; set; } = false;
 
         /// <summary>
+        /// The actual emitted public C# method name as it appears in the generated source —
+        /// post-NameProvider renames (property/nested-type collisions, "Get" prefix, "Async"
+        /// suffix, builder rules) AND post-collision-disambiguation suffix (when two Swift
+        /// overloads project to the same C# signature, IHandler.HandleBaseDecl assigns a
+        /// numeric suffix via <c>MethodEnvironment.CollisionIndex</c>; the second overload
+        /// emits as <c>Foo2</c>, third as <c>Foo3</c>, etc.). Stamped by the conductor right
+        /// after <c>handler.Emit</c> returns, when <see cref="WasEmitted"/> is true. Null
+        /// until emission. Cross-module override verification reads this directly so the
+        /// downstream module's verifier sees the truth, not a recomputation that lacks the
+        /// runtime-assigned collision suffix.
+        /// </summary>
+        public string? EmittedCSharpName { get; set; }
+
+        /// <summary>
         /// Indicates the method is @usableFromInline internal — visible in the ABI but not
         /// callable from external modules. Used by ArraySlice normalization to skip generating
         /// wrapper extensions for inaccessible methods.

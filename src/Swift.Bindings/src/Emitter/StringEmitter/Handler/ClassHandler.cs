@@ -467,6 +467,65 @@ namespace BindingsGeneration
             csWriter.WriteLines(disposeMethods);
             csWriter.WriteLine();
         }
+
+        /// <summary>
+        /// Post-emission fixup: stamps each Class TypeRecord with the Swift signatures of its
+        /// instance methods that survived emission (<c>WasEmitted == true</c>). Must run after
+        /// <c>EmitModule</c> (so all <c>WasEmitted</c> bits are set) and before module database
+        /// serialization. Consumed by <c>WrapperEmitter.HasMethodInResolvedAncestors</c> in a
+        /// downstream module: when a derived class declares <c>override</c> on a method whose
+        /// parent lives in another module, the verifier consults the parent record's
+        /// <see cref="EmittedClassMethod"/> list and only emits C# <c>override</c> on a match —
+        /// otherwise it falls through to <c>virtual</c>, avoiding silent CS0115 when the parent
+        /// binding skipped the method (e.g., validation gates dropped it).
+        /// </summary>
+        public static void PopulateEmittedClassMethods(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            CollectAndStampClassMethods(moduleDecl.Types, typeDatabase);
+        }
+
+        private static void CollectAndStampClassMethods(IEnumerable<TypeDecl> types, ITypeDatabase typeDatabase)
+        {
+            foreach (var typeDecl in types)
+            {
+                if (typeDecl is ClassDecl classDecl
+                    && typeDatabase.TryGetTypeRecord(classDecl.SwiftTypeName, out var record)
+                    && record.Kind == TypeRecordKind.Class)
+                {
+                    var emitted = new List<EmittedClassMethod>();
+                    foreach (var method in classDecl.Methods)
+                    {
+                        if (!method.WasEmitted) continue;
+                        if (method.IsAccessor) continue;
+                        if (method.IsConstructor) continue;
+                        // Static methods can't participate in C# override dispatch — exclude
+                        // so the cross-module verifier only sees instance methods.
+                        if (method.MethodType == MethodType.Static) continue;
+
+                        var paramTypes = new List<string>(method.CSSignature.Count - 1);
+                        for (int i = 1; i < method.CSSignature.Count; i++)
+                            paramTypes.Add(method.CSSignature[i].SwiftTypeSpec.ToString());
+                        // Prefer the C# name stamped at emission time on MethodDecl — that's
+                        // the truth, including any numeric suffix that IHandler assigned for
+                        // projected-signature collisions (`Foo` vs `Foo2`). Only when the field
+                        // is absent (synthesized methods that bypass the conductor) do we fall
+                        // back to recomputing via NameProvider — which doesn't see the runtime
+                        // collision suffix, so the fallback is acceptable only when there's no
+                        // collision (the bypass paths don't participate in projected-signature
+                        // dedup, so collisionIndex is always 0 for them).
+                        var csharpName = method.EmittedCSharpName
+                            ?? WrapperEmitter.ComputeMethodCSharpName(method, classDecl, typeDatabase);
+                        emitted.Add(new EmittedClassMethod(method.Name, csharpName, paramTypes));
+                    }
+
+                    typeDatabase.UpdateTypeRecord(classDecl.SwiftTypeName,
+                        record with { EmittedClassMethods = emitted });
+                }
+
+                if (typeDecl.Types.Count > 0)
+                    CollectAndStampClassMethods(typeDecl.Types, typeDatabase);
+            }
+        }
     }
 
     /// <summary>

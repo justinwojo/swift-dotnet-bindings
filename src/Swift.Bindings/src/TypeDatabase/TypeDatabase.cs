@@ -223,6 +223,35 @@ namespace BindingsGeneration
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
+                // Emitted class instance methods (Class kind only). See ModuleDatabaseEmitter
+                // and WrapperEmitter.HasMethodInResolvedAncestors for the cross-module override
+                // verification this enables. Older databases predate this element — null means
+                // "unverifiable", and the cross-module fallback retains its prior trust-the-Swift-bit
+                // behavior so legacy XMLs continue to work.
+                IReadOnlyList<EmittedClassMethod>? emittedClassMethods = null;
+                XmlNode? emittedMethodsNode = typeDeclarationNode?.SelectSingleNode("emittedMethods");
+                if (emittedMethodsNode != null)
+                {
+                    var list = new List<EmittedClassMethod>();
+                    foreach (XmlNode? methodNode in emittedMethodsNode.ChildNodes)
+                    {
+                        if (methodNode?.NodeType != XmlNodeType.Element) continue;
+                        if (methodNode.Name != "method") continue;
+                        var swiftName = methodNode.Attributes?["swiftName"]?.Value;
+                        if (string.IsNullOrEmpty(swiftName)) continue;
+                        // csharpName persists the post-NameProvider C# name so the verifier can
+                        // compare names without recomputing renames it can't see. Empty (missing
+                        // attribute on a legacy database that predates this field) means the
+                        // verifier should skip the C# name check — see CrossModuleAncestorHasMethod.
+                        var csharpName = methodNode.Attributes?["csharpName"]?.Value ?? string.Empty;
+                        var paramTypesAttr = methodNode.Attributes?["paramTypes"]?.Value ?? string.Empty;
+                        var paramTypes = paramTypesAttr.Length == 0
+                            ? Array.Empty<string>()
+                            : paramTypesAttr.Split('|');
+                        list.Add(new EmittedClassMethod(swiftName, csharpName, paramTypes));
+                    }
+                    emittedClassMethods = list;
+                }
 
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{swiftTypeIdentifier}");
                 var csharpTypeName = string.IsNullOrEmpty(@namespace)
@@ -279,6 +308,7 @@ namespace BindingsGeneration
                     AbiFieldLayout = abiFieldLayout,
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                     ProtocolConformances = protocolConformances,
+                    EmittedClassMethods = emittedClassMethods,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);
@@ -488,8 +518,17 @@ namespace BindingsGeneration
 
         private bool IsTypeProcessedInternal(SwiftTypeName swiftTypeName)
         {
+            // Mirror TryGetTypeRecordInternal: each lookup path (direct module / module alias /
+            // umbrella source-module) returns ONLY on a positive hit, then falls through. A direct
+            // module-name match without the type record (e.g., RealityKit is loaded but Entity is
+            // declared in RealityFoundation under @_implementationOnly) must still consult the
+            // compileImportModule reverse map; otherwise IsTypeProcessed disagrees with
+            // TryGetTypeRecord and downstream emitters get inconsistent answers.
             if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
-                return moduleDatabase.IsTypeProcessed(swiftTypeName);
+            {
+                if (moduleDatabase.IsTypeProcessed(swiftTypeName))
+                    return true;
+            }
 
             // Try module alias (e.g., CoreFoundation -> CoreGraphics)
             if (_moduleAliases.TryGetValue(swiftTypeName.Module, out var aliasedModule))
@@ -498,7 +537,8 @@ namespace BindingsGeneration
                 {
                     var aliasedQualifiedName = $"{aliasedModule}.{swiftTypeName.ModuleQualifiedName[(swiftTypeName.Module.Length + 1)..]}";
                     var aliasedTypeName = SwiftTypeName.FromModuleQualifiedName(aliasedQualifiedName);
-                    return moduleDatabase.IsTypeProcessed(aliasedTypeName);
+                    if (moduleDatabase.IsTypeProcessed(aliasedTypeName))
+                        return true;
                 }
             }
 

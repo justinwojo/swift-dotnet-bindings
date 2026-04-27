@@ -506,6 +506,143 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_EmittedClassMethods_EmptyList_RoundTripsAsEmptyNotNull()
+        {
+            // A class whose binding emitted zero instance methods (e.g. all candidates skipped
+            // by validation gates) must serialize as an EXPLICIT empty <emittedMethods/> element,
+            // not be omitted. Omission round-trips back to null, which the cross-module verifier
+            // treats as a legacy database and trusts the Swift IsOverride bit — silently
+            // reopening CS0115 for any derived class that overrides into this parent.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.SilentParent");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "SilentParent"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib12SilentParentC",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                    EmittedClassMethods = new List<EmittedClassMethod>(),
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                // The element must be present (closing tag in self-closed or open form)
+                Assert.Contains("emittedMethods", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                // Must round-trip as a non-null empty list, NOT null. The verifier
+                // distinguishes "processed → zero methods → reject override" from
+                // "legacy → unverifiable → trust Swift bit".
+                Assert.NotNull(loaded!.EmittedClassMethods);
+                Assert.Empty(loaded!.EmittedClassMethods!);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_EmittedClassMethods_WithCSharpName_RoundTrips()
+        {
+            // Verify both Swift and C# names persist through XML serialization. The cross-module
+            // override verifier compares the persisted CSharpName against the derived class's
+            // C# name to catch NameProvider renames (property/nested-type collisions, builder
+            // patterns) that Swift name + parameter types alone wouldn't detect.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.NamedParent");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "NamedParent"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib11NamedParentC",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                    EmittedClassMethods = new List<EmittedClassMethod>
+                    {
+                        // Builder rename: Swift `tag()` returning Self collides with a `tag`
+                        // property → NameProvider renames to `WithTag`.
+                        new("tag", "WithTag", Array.Empty<string>()),
+                        new("describe", "Describe", new[] { "Swift.String" }),
+                    },
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.Contains("csharpName=\"WithTag\"", xml);
+                Assert.Contains("csharpName=\"Describe\"", xml);
+                Assert.Contains("paramTypes=\"Swift.String\"", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.NotNull(loaded!.EmittedClassMethods);
+                Assert.Equal(2, loaded!.EmittedClassMethods!.Count);
+
+                var tag = loaded!.EmittedClassMethods!.Single(m => m.SwiftName == "tag");
+                Assert.Equal("WithTag", tag.CSharpName);
+                Assert.Empty(tag.ParameterSwiftTypes);
+
+                var describe = loaded!.EmittedClassMethods!.Single(m => m.SwiftName == "describe");
+                Assert.Equal("Describe", describe.CSharpName);
+                Assert.Equal(new[] { "Swift.String" }, describe.ParameterSwiftTypes);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_EmittedClassMethods_NullList_OmitsElement()
+        {
+            // Null EmittedClassMethods (non-class records, or class records that haven't run
+            // through the populator) must NOT emit an <emittedMethods> element. On read, that
+            // absence is what tells the verifier "legacy database, fall back to trusting Swift's
+            // IsOverride bit". This preserves compatibility with already-published parent NuGets.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.LegacyClass");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "LegacyClass"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib11LegacyClassC",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                    EmittedClassMethods = null,
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.DoesNotContain("emittedMethods", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Null(loaded!.EmittedClassMethods);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

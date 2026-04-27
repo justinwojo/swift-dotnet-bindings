@@ -420,6 +420,14 @@ namespace BindingsGeneration
                         // can dedup against methods already emitted from the main pass
                         env.EmittedProjectedSignatures = emittedProjectedSignatures;
                         handler.Emit(csWriter, swiftWriter, env, conductor, context);
+                        // Stamp the actual emitted C# name on the decl while the env is still
+                        // alive (CollisionIndex is set here and nowhere else). This is the only
+                        // single source of truth for the post-disambiguation name — recomputing
+                        // later via NameProvider misses the collision suffix. Read by
+                        // ClassHandler.PopulateEmittedClassMethods for the cross-module override
+                        // verifier so a parent emitted as `Foo2` is recorded as `Foo2`, not `Foo`.
+                        if (methodDecl.WasEmitted)
+                            methodDecl.EmittedCSharpName = env.CSharpMethodName;
                     }
                     else
                     {

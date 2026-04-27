@@ -256,4 +256,34 @@ public record TypeRecord
     /// <see cref="AbiCarrierTypeName"/> if set, otherwise <see cref="CSharpTypeName"/>.
     /// </summary>
     public CSharpTypeName EffectiveAbiCarrier => AbiCarrierTypeName ?? CSharpTypeName;
+
+    /// <summary>
+    /// For <see cref="TypeRecordKind.Class"/> records: signatures of the class instance
+    /// methods the emitter actually wrote to C# output (<c>WasEmitted == true</c>).
+    /// Populated as a post-emission step on the producing module so a downstream module's
+    /// cross-module override path can verify the derived class's <c>override</c> modifier
+    /// has a matching parent method before writing C# <c>override</c> (otherwise CS0115).
+    /// Null on non-class records or on legacy module databases that predate this field —
+    /// callers fall back to trusting Swift's <c>IsOverride</c> bit, which is the prior
+    /// v0.8.x behavior.
+    /// </summary>
+    public IReadOnlyList<EmittedClassMethod>? EmittedClassMethods { get; init; }
 }
+
+/// <summary>
+/// Compact signature of a class instance method that survived emission. Stored on the
+/// declaring class's <see cref="TypeRecord.EmittedClassMethods"/> for cross-module
+/// override verification. <see cref="SwiftName"/> + <see cref="ParameterSwiftTypes"/>
+/// identify the Swift overload (entries produced via <c>SwiftTypeSpec.ToString()</c>
+/// at emission time so the verifier can match by exact spec string without re-parsing).
+/// <see cref="CSharpName"/> records the public C# method name post all NameProvider
+/// renaming (property collisions, self-returning builders, "Get" prefix, "Async"
+/// suffix, etc.) so a downstream module can verify that the parent binding actually
+/// emits a method with the same C# name as the derived class — Swift name + parameter
+/// types alone aren't sufficient because two classes can produce different C# names
+/// for the same Swift method depending on their property/nested-type sets. Empty when
+/// loaded from a legacy database that predates this attribute; the verifier treats
+/// empty as "skip the C# name check" to preserve compatibility with already-published
+/// parent NuGets.
+/// </summary>
+public sealed record EmittedClassMethod(string SwiftName, string CSharpName, IReadOnlyList<string> ParameterSwiftTypes);

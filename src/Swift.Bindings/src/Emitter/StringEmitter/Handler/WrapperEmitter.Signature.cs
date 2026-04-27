@@ -353,29 +353,112 @@ namespace BindingsGeneration
                     && (derivedCSharpName == null || AncestorCSharpNameMatches(m, ancestor, derivedCSharpName, typeDatabase))))
                     return true;
                 // Same-module walk reached a class whose parent lives cross-module — fall through
-                // to the cross-module heuristic so we don't lose the override at a 3-level chain.
-                if (!ancestor.HasResolvedSuperclass && ancestor.HasCrossModuleSwiftSuperclass && method.IsOverride)
+                // to the cross-module record check (verifying against the parent's persisted
+                // EmittedClassMethods) so we don't lose the override at a 3-level chain.
+                if (!ancestor.HasResolvedSuperclass && ancestor.HasCrossModuleSwiftSuperclass && method.IsOverride
+                    && CrossModuleAncestorHasMethod(ancestor.CrossModuleSuperclassRecord, method, paramCount, paramTypes, derivedCSharpName, typeDatabase))
                     return true;
                 ancestor = ancestor.ResolvedSuperclass;
             }
-            // Cross-module fallthrough at the immediate parent: the Swift `override` keyword is the
-            // trust signal. Without ClassDecl-level method records for the parent module we can't
-            // verify the parent's C# binding actually emitted the method; if it didn't, the C#
-            // compiler will surface CS0115. That's a clearer error than the silent CS0114 hides
-            // we currently produce, and the parent module's binding is presumed correct in v1.
-            if (classDecl.HasCrossModuleSwiftSuperclass && method.IsOverride)
+            // Cross-module fallthrough at the immediate parent: consult the parent module's
+            // persisted EmittedClassMethods (populated by ClassHandler.PopulateEmittedClassMethods
+            // post-emission and serialized via ModuleDatabaseEmitter). Verifying that the parent
+            // actually emitted a matching method prevents silent CS0115 when a validation gate
+            // skipped the parent method. When the persisted list is null (legacy XML database
+            // generated before this field existed) we fall back to trusting Swift's IsOverride
+            // bit — that preserves the v0.8.x behavior for already-published parent NuGets.
+            if (classDecl.HasCrossModuleSwiftSuperclass && method.IsOverride
+                && CrossModuleAncestorHasMethod(classDecl.CrossModuleSuperclassRecord, method, paramCount, paramTypes, derivedCSharpName, typeDatabase))
                 return true;
             return false;
         }
 
         /// <summary>
+        /// Verifies the cross-module parent's TypeRecord actually has an emitted instance method
+        /// matching the override target's Swift name + parameter Swift type strings. The verifier
+        /// walks the parent record chain (parent → grandparent → …) via each record's
+        /// <see cref="TypeRecord.SuperclassTypeName"/>, so an override targeting a method declared
+        /// on a cross-module grandparent (rather than the immediate parent) still resolves — that
+        /// matches Swift's vtable rules where <c>override</c> binds to whichever ancestor first
+        /// declared the slot. Returns true at any point in the chain where the persisted list is
+        /// null (legacy database before <see cref="TypeRecord.EmittedClassMethods"/> existed) so
+        /// already-published parent NuGets compile against newly generated children.
+        /// </summary>
+        private static bool CrossModuleAncestorHasMethod(
+            TypeRecord? parentRecord,
+            MethodDecl method,
+            int paramCount,
+            List<string> paramTypes,
+            string? derivedCSharpName,
+            ITypeDatabase? typeDatabase)
+        {
+            var current = parentRecord;
+            while (current != null)
+            {
+                // Legacy XML database at any point in the chain: preserve prior trust-the-Swift-bit
+                // behavior so already-published parent NuGets keep compiling.
+                if (current.EmittedClassMethods == null) return true;
+
+                foreach (var emitted in current.EmittedClassMethods)
+                {
+                    if (emitted.SwiftName != method.Name) continue;
+                    if (emitted.ParameterSwiftTypes.Count != paramCount) continue;
+                    bool allMatch = true;
+                    for (int i = 0; i < paramCount; i++)
+                    {
+                        if (emitted.ParameterSwiftTypes[i] != paramTypes[i]) { allMatch = false; break; }
+                    }
+                    if (!allMatch) continue;
+                    // C# name parity: NameProvider can rename methods in the parent binding due
+                    // to property/nested-type collisions or self-returning builder rules
+                    // (see AncestorCSharpNameMatches). Swift name + parameter types alone are
+                    // not enough — the derived class must emit the SAME C# name the parent did,
+                    // otherwise `override` targets a non-existent method. Empty CSharpName means
+                    // the persisted record predates this field (loaded from a legacy database
+                    // generated before EmittedClassMethod gained CSharpName) — skip the check
+                    // so already-published parent NuGets keep compiling.
+                    if (derivedCSharpName != null
+                        && !string.IsNullOrEmpty(emitted.CSharpName)
+                        && emitted.CSharpName != derivedCSharpName)
+                        continue;
+                    return true;
+                }
+
+                // Walk up the chain via the record's SuperclassTypeName. Without a TypeDatabase
+                // the verifier cannot resolve the next record — the cross-module override target
+                // will fall back to `virtual`. (Tests that don't pass a TypeDatabase exercise the
+                // immediate-parent case only.)
+                if (typeDatabase == null || current.SuperclassTypeName == null)
+                    return false;
+                if (!typeDatabase.TryGetTypeRecord(current.SuperclassTypeName, out var next)
+                    || next.Kind != TypeRecordKind.Class)
+                    return false;
+                current = next;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Computes the C# method name for an ancestor method and checks if it matches the derived name.
-        /// Uses the production ComputePropertyRenames path (ClassHandler.cs:104) when a TypeDatabase is
-        /// available, which applies type-based filtering and AsyncStream handling. Falls back to
-        /// ComputePropertyRenamesForNestedTypeCollisions (nested-type collision only) when no TypeDatabase
-        /// is provided (e.g., from tests that don't set up a full type database).
         /// </summary>
         private static bool AncestorCSharpNameMatches(MethodDecl ancestorMethod, ClassDecl ancestorClass, string derivedCSharpName, ITypeDatabase? typeDatabase)
+            => ComputeMethodCSharpName(ancestorMethod, ancestorClass, typeDatabase) == derivedCSharpName;
+
+        /// <summary>
+        /// Computes the public C# method name as it would appear after NameProvider renaming
+        /// for the given method on the given class (property collisions, nested-type collisions,
+        /// self-returning builder rules, "Get" prefix, "Async" suffix). Single source of truth
+        /// shared by the same-module override verifier and the cross-module
+        /// <see cref="ClassHandler.PopulateEmittedClassMethods"/> populator — the latter persists
+        /// the result on each <see cref="EmittedClassMethod"/> so a downstream module can compare
+        /// names without recomputing renames it can't see.
+        ///
+        /// Uses the production <see cref="NameProvider.ComputePropertyRenames(TypeDecl, ITypeDatabase)"/>
+        /// path (which applies type-based filtering and AsyncStream handling) when a TypeDatabase is
+        /// available. Falls back to <see cref="NameProvider.ComputePropertyRenamesForNestedTypeCollisions"/>
+        /// for callers (e.g. unit tests) that don't set up a full type database.
+        /// </summary>
+        internal static string ComputeMethodCSharpName(MethodDecl method, ClassDecl classDecl, ITypeDatabase? typeDatabase)
         {
             // Build property name set matching ClassHandler.cs:262-267:
             // - GetPropertyName (handles keyword escaping, wrapper sanitization, type-name collision)
@@ -385,35 +468,33 @@ namespace BindingsGeneration
             // collision set — a non-emitted property still occupies the name and can cause
             // method name collisions.
             var propertyRenames = typeDatabase != null
-                ? NameProvider.ComputePropertyRenames(ancestorClass, typeDatabase)
+                ? NameProvider.ComputePropertyRenames(classDecl, typeDatabase)
                 : NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
-                    ancestorClass.Properties.Select(p => NameProvider.GetPropertyName(p.Name, ancestorClass.Name)),
-                    ancestorClass.Types.Select(t => t.Name));
-            var ancestorProps = new HashSet<string>(
-                ancestorClass.Properties
+                    classDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name, classDecl.Name)),
+                    classDecl.Types.Select(t => t.Name));
+            var props = new HashSet<string>(
+                classDecl.Properties
                     .Select(p => NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(p.Name, ancestorClass.Name), propertyRenames)),
+                        NameProvider.GetPropertyName(p.Name, classDecl.Name), propertyRenames)),
                 StringComparer.Ordinal);
             // Nested type names collide with method names in C# (CS0102)
-            foreach (var nestedType in ancestorClass.Types)
-                ancestorProps.Add(NameProvider.ToPascalCase(nestedType.Name));
+            foreach (var nestedType in classDecl.Types)
+                props.Add(NameProvider.ToPascalCase(nestedType.Name));
 
             // Use the canonical IsSelfReturningMethod helper which also checks
             // concrete parent-type returns (not just DynamicSelf/literal "Self").
-            bool isSelfReturning = MethodEnvironment.IsSelfReturningMethod(ancestorMethod);
+            bool isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
 
-            int parameterCount = ancestorMethod.CSSignature.Skip(1)
+            int parameterCount = method.CSSignature.Skip(1)
                 .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple);
 
-            var ancestorCSharpName = NameProvider.GetPublicMethodName(
-                ancestorMethod.Name, ancestorMethod.IsAsync,
-                hasReturnValue: !ancestorMethod.IsAccessor && ancestorMethod.CSSignature.Count > 0 && !ancestorMethod.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
-                ancestorProps,
+            return NameProvider.GetPublicMethodName(
+                method.Name, method.IsAsync,
+                hasReturnValue: !method.IsAccessor && method.CSSignature.Count > 0 && !method.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
+                props,
                 isSelfReturning: isSelfReturning,
-                parentTypeName: ancestorClass.Name,
+                parentTypeName: classDecl.Name,
                 parameterCount: parameterCount);
-
-            return ancestorCSharpName == derivedCSharpName;
         }
 
         /// <summary>

@@ -830,6 +830,307 @@ public class ClassInheritanceEmissionTests
         Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedFoo));
     }
 
+    [Fact]
+    public void CrossModuleOverride_ParentRecord_HasMatchingEmittedMethod_ReturnsTrue()
+    {
+        // The cross-module immediate-parent path (WrapperEmitter.Signature.cs:366) must
+        // verify against the parent module's persisted EmittedClassMethods rather than
+        // blindly trusting Swift's IsOverride bit. Happy path: parent emitted describe(),
+        // child overrides it → emit C# override.
+        var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");
+        derivedClass.SuperclassNames = new List<string> { "ParentModule.DependencyBaseEntity" };
+        derivedClass.CrossModuleSuperclassRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyBaseEntity"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyBaseEntity"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            EmittedClassMethods = new List<EmittedClassMethod>
+            {
+                new("describe", "Describe", Array.Empty<string>()),
+                new("tag", "Tag", Array.Empty<string>()),
+            },
+        };
+        derivedClass.CrossModuleSuperclassCSharpName = "ParentModule.DependencyBaseEntity";
+
+        var derivedDescribe = CreateVoidMethodDecl("describe", isOverride: true);
+        derivedDescribe.ParentDecl = derivedClass;
+
+        Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedDescribe));
+    }
+
+    [Fact]
+    public void CrossModuleOverride_ParentRecord_MissingMethod_ReturnsFalse()
+    {
+        // Defensive case: the parent's binding generation skipped describe() (e.g. validation
+        // gate dropped it because of an unsupported parameter type), so EmittedClassMethods
+        // does NOT contain it. Without the post-Session-7 verifier the emitter would trust
+        // Swift's IsOverride bit and write `override`, producing CS0115 in the child's C# build.
+        // The verifier returns false so the caller falls back to `virtual` instead.
+        var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");
+        derivedClass.SuperclassNames = new List<string> { "ParentModule.DependencyBaseEntity" };
+        derivedClass.CrossModuleSuperclassRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyBaseEntity"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyBaseEntity"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            // Parent's binding emitted only `tag()` — describe() was skipped.
+            EmittedClassMethods = new List<EmittedClassMethod>
+            {
+                new("tag", "Tag", Array.Empty<string>()),
+            },
+        };
+        derivedClass.CrossModuleSuperclassCSharpName = "ParentModule.DependencyBaseEntity";
+
+        var derivedDescribe = CreateVoidMethodDecl("describe", isOverride: true);
+        derivedDescribe.ParentDecl = derivedClass;
+
+        Assert.False(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedDescribe));
+    }
+
+    [Fact]
+    public void CrossModuleOverride_MethodOnGrandparent_WalksRecordChain()
+    {
+        // Swift `override` binds to whichever ancestor first declared the virtual slot. If the
+        // immediate cross-module parent doesn't redeclare describe() but its grandparent does,
+        // the verifier must walk up via TypeRecord.SuperclassTypeName and find the slot on the
+        // grandparent's record — otherwise it would falsely reject a perfectly valid override.
+        var typeDatabase = new TypeDatabase();
+        var grandparentName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyBaseEntity");
+        var parentName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyMidEntity");
+
+        var grandparentRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyBaseEntity"),
+            SwiftTypeName = grandparentName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            EmittedClassMethods = new List<EmittedClassMethod>
+            {
+                new("describe", "Describe", Array.Empty<string>()),
+            },
+        };
+        var parentRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyMidEntity"),
+            SwiftTypeName = parentName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            SuperclassTypeName = grandparentName,
+            // Parent does NOT redeclare describe() — the slot lives on the grandparent.
+            EmittedClassMethods = new List<EmittedClassMethod>(),
+        };
+        var parentModule = new ModuleTypeDatabase("ParentModule", "/fake/ParentModule.dylib");
+        parentModule.RegisterType(grandparentName, grandparentRecord);
+        parentModule.RegisterType(parentName, parentRecord);
+        typeDatabase.AddModuleDatabase(parentModule);
+
+        var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");
+        derivedClass.SuperclassNames = new List<string> { "ParentModule.DependencyMidEntity" };
+        derivedClass.CrossModuleSuperclassRecord = parentRecord;
+        derivedClass.CrossModuleSuperclassCSharpName = "ParentModule.DependencyMidEntity";
+
+        var derivedDescribe = CreateVoidMethodDecl("describe", isOverride: true);
+        derivedDescribe.ParentDecl = derivedClass;
+
+        Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(
+            derivedClass, derivedDescribe, derivedCSharpName: null, typeDatabase: typeDatabase));
+    }
+
+    [Fact]
+    public void CrossModuleOverride_ParentRecord_LegacyNullList_ReturnsTrue()
+    {
+        // Backward compatibility: parent module XML databases generated before the
+        // EmittedClassMethods field existed leave the property null. The verifier must NOT
+        // fail-closed in this case — that would break already-published parent NuGets when a
+        // child upgrades to a new generator. Treat null as "unverifiable", trust the Swift
+        // IsOverride bit, and preserve the v0.8.x behavior. Newly generated parents (with
+        // a populated list) get the strict verification path.
+        var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");
+        derivedClass.SuperclassNames = new List<string> { "ParentModule.DependencyBaseEntity" };
+        derivedClass.CrossModuleSuperclassRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyBaseEntity"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyBaseEntity"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            EmittedClassMethods = null,
+        };
+        derivedClass.CrossModuleSuperclassCSharpName = "ParentModule.DependencyBaseEntity";
+
+        var derivedDescribe = CreateVoidMethodDecl("describe", isOverride: true);
+        derivedDescribe.ParentDecl = derivedClass;
+
+        Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(derivedClass, derivedDescribe));
+    }
+
+    [Fact]
+    public void CrossModuleOverride_ParentRecord_CSharpNameMismatch_ReturnsFalse()
+    {
+        // NameProvider can rename methods in the parent binding due to property/nested-type
+        // collisions or self-returning builder rules — `tag()` returning Self in a class with
+        // a `tag` property becomes `WithTag()`, while in a class without that property it
+        // stays `Tag()`. Swift name + parameter types alone are NOT sufficient to verify the
+        // override target; the verifier must compare the persisted C# name with the derived
+        // class's C# name. Here the parent emitted `WithTag()` (because of a builder-pattern
+        // rename) but the derived class emits the unqualified `Tag()` — these are different
+        // C# methods, and the verifier must reject the override (otherwise CS0115 in the
+        // child's C# build).
+        var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");
+        derivedClass.SuperclassNames = new List<string> { "ParentModule.DependencyBaseEntity" };
+        derivedClass.CrossModuleSuperclassRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyBaseEntity"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyBaseEntity"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            EmittedClassMethods = new List<EmittedClassMethod>
+            {
+                new("tag", "WithTag", Array.Empty<string>()),
+            },
+        };
+        derivedClass.CrossModuleSuperclassCSharpName = "ParentModule.DependencyBaseEntity";
+
+        var derivedTag = CreateVoidMethodDecl("tag", isOverride: true);
+        derivedTag.ParentDecl = derivedClass;
+
+        // derivedCSharpName "Tag" disagrees with the parent's persisted "WithTag" — reject.
+        Assert.False(WrapperEmitter.HasMethodInResolvedAncestors(
+            derivedClass, derivedTag, derivedCSharpName: "Tag"));
+    }
+
+    [Fact]
+    public void CrossModuleOverride_ParentRecord_LegacyEmptyCSharpName_SkipsNameCheck()
+    {
+        // Backward compat: a parent module XML database generated before EmittedClassMethod
+        // gained the CSharpName field deserializes with CSharpName = "" (the missing-attribute
+        // default in TypeDatabase.ReadVersion1_0). The verifier must NOT compare against an
+        // empty C# name — that would falsely reject every override on legacy records. Empty
+        // means "skip the C# name check, fall back to Swift-name-and-params parity".
+        var derivedClass = CreateClassDecl("LocalChildEntity", moduleName: "ChildModule");
+        derivedClass.SuperclassNames = new List<string> { "ParentModule.DependencyBaseEntity" };
+        derivedClass.CrossModuleSuperclassRecord = new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ParentModule", "DependencyBaseEntity"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ParentModule.DependencyBaseEntity"),
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+            // Legacy: list is populated but CSharpName missing → empty string
+            EmittedClassMethods = new List<EmittedClassMethod>
+            {
+                new("describe", string.Empty, Array.Empty<string>()),
+            },
+        };
+        derivedClass.CrossModuleSuperclassCSharpName = "ParentModule.DependencyBaseEntity";
+
+        var derivedDescribe = CreateVoidMethodDecl("describe", isOverride: true);
+        derivedDescribe.ParentDecl = derivedClass;
+
+        // Even with derivedCSharpName supplied, the empty persisted CSharpName must not
+        // cause a false-negative — match by Swift name + params and accept.
+        Assert.True(WrapperEmitter.HasMethodInResolvedAncestors(
+            derivedClass, derivedDescribe, derivedCSharpName: "Describe"));
+    }
+
+    [Fact]
+    public void Populator_PreservesEmittedCSharpName_WithCollisionSuffix()
+    {
+        // When two Swift overloads project to the same C# signature, IHandler.HandleBaseDecl
+        // assigns a numeric suffix at emission time via MethodEnvironment.CollisionIndex —
+        // first emission stays `Process`, second becomes `Process2`. The conductor stamps the
+        // disambiguated name on MethodDecl.EmittedCSharpName. The populator must read THAT
+        // value, not recompute via NameProvider (which doesn't see the runtime collision
+        // index and would produce `Process` for both, corrupting the cross-module override
+        // contract).
+        var classDecl = CreateClassDecl("Worker", moduleName: "TestModule");
+        var first = CreateVoidMethodDecl("process");
+        first.WasEmitted = true;
+        first.EmittedCSharpName = "Process";
+        first.ParentDecl = classDecl;
+        var second = CreateMethodDeclWithParam("process", "Swift.Int", "value");
+        second.WasEmitted = true;
+        second.EmittedCSharpName = "Process2"; // Collision suffix from emission
+        second.ParentDecl = classDecl;
+        classDecl.Methods.Add(first);
+        classDecl.Methods.Add(second);
+
+        var module = CreateModuleDecl("TestModule");
+        module.Types.Add(classDecl);
+
+        var typeDatabase = new TypeDatabase();
+        var moduleDatabase = new ModuleTypeDatabase("TestModule", "/fake/TestModule.dylib");
+        moduleDatabase.RegisterType(classDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Worker"),
+            SwiftTypeName = classDecl.SwiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        typeDatabase.AddModuleDatabase(moduleDatabase);
+
+        ClassHandler.PopulateEmittedClassMethods(module, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(classDecl.SwiftTypeName, out var record));
+        Assert.NotNull(record!.EmittedClassMethods);
+        Assert.Equal(2, record!.EmittedClassMethods!.Count);
+
+        // First overload: no collision, stamped as "Process".
+        var firstEntry = record.EmittedClassMethods!.Single(m => m.ParameterSwiftTypes.Count == 0);
+        Assert.Equal("Process", firstEntry.CSharpName);
+
+        // Second overload: collision suffix preserved as "Process2", NOT recomputed to "Process".
+        var secondEntry = record.EmittedClassMethods!.Single(m => m.ParameterSwiftTypes.Count == 1);
+        Assert.Equal("Process2", secondEntry.CSharpName);
+    }
+
+    [Fact]
+    public void Populator_FallsBackToComputed_WhenEmittedCSharpNameIsNull()
+    {
+        // Synthesized methods (e.g., ConcreteProtocolSpecializationEmitter outputs) bypass the
+        // IHandler conductor that stamps EmittedCSharpName. They do NOT participate in
+        // projected-signature collision tracking, so collisionIndex would be 0 for them anyway —
+        // recomputing via NameProvider is safe and matches the actual emitted name. The
+        // populator must accept the null-stamp case and produce a sensible CSharpName.
+        var classDecl = CreateClassDecl("Worker", moduleName: "TestModule");
+        var method = CreateVoidMethodDecl("describe");
+        method.WasEmitted = true;
+        method.EmittedCSharpName = null; // Synthesized path didn't stamp
+        method.ParentDecl = classDecl;
+        classDecl.Methods.Add(method);
+
+        var module = CreateModuleDecl("TestModule");
+        module.Types.Add(classDecl);
+
+        var typeDatabase = new TypeDatabase();
+        var moduleDatabase = new ModuleTypeDatabase("TestModule", "/fake/TestModule.dylib");
+        moduleDatabase.RegisterType(classDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Worker"),
+            SwiftTypeName = classDecl.SwiftTypeName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        typeDatabase.AddModuleDatabase(moduleDatabase);
+
+        ClassHandler.PopulateEmittedClassMethods(module, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(classDecl.SwiftTypeName, out var record));
+        Assert.NotNull(record!.EmittedClassMethods);
+        var entry = Assert.Single(record!.EmittedClassMethods!);
+        // Recomputed via NameProvider: void no-arg "describe" → "Describe".
+        Assert.Equal("Describe", entry.CSharpName);
+    }
+
     #endregion
 
     #region Protocol Conformance Inheritance (Session I5)

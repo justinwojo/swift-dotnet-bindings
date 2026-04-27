@@ -864,6 +864,44 @@ public class TypeDatabaseTests
         }
 
         [Fact]
+        public void IsTypeProcessed_CompileImportModule_UmbrellaLoadedButTypeMissing_FallsBackToSourceModule()
+        {
+            // Real-world build state: BOTH the umbrella module (RealityKit) AND the source
+            // module (RealityFoundation) are loaded, but the umbrella module's TypeDatabase
+            // doesn't itself contain Entity (it's declared in RealityFoundation and re-exported
+            // through RealityKit's @_implementationOnly umbrella). TryGetTypeRecord falls
+            // through to the compileImportModule reverse map; IsTypeProcessed must agree —
+            // otherwise downstream emitters that gate on "is this type processed?" treat
+            // RealityKit.Entity as unknown and re-fall to the AnyType / SwiftOptional<IntPtr>
+            // shape that Session 7 fixed.
+            var typeDatabase = new TypeDatabase();
+            var umbrellaModule = new ModuleTypeDatabase("RealityKit", "/fake/RealityKit.dylib");
+            typeDatabase.AddModuleDatabase(umbrellaModule);
+
+            var sourceModule = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.dylib");
+            var declaredName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Entity");
+            sourceModule.RegisterType(declaredName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Entity"),
+                SwiftTypeName = declaredName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+            typeDatabase.AddModuleDatabase(sourceModule);
+
+            var umbrellaName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+            // TryGetTypeRecord must resolve via compileImport reverse map.
+            Assert.True(typeDatabase.TryGetTypeRecord(umbrellaName, out var record));
+            Assert.NotNull(record);
+            Assert.Equal("RealityFoundation", record!.SwiftTypeName.Module);
+            // IsTypeProcessed must agree — that is the parity bug being asserted here.
+            Assert.True(typeDatabase.IsTypeProcessed(umbrellaName),
+                "IsTypeProcessed must fall through on a direct-module miss when the umbrella " +
+                "module is loaded but the type lives in a compileImportModule source.");
+        }
+
+        [Fact]
         public void GetBuiltInDatabases_NullPlatform_IncludesAllOptionalDatabases()
         {
             var databases = BindingsGenerator.GetBuiltInDatabases(platform: null);

@@ -527,6 +527,11 @@ namespace BindingsGeneration
                 // Must run after EmitModule (all direct counts set) and before database serialization.
                 ProtocolHandler.FixupProtocolInheritedRequirements(decl, typeDatabase);
 
+                // Stamp emitted class instance methods onto each Class TypeRecord so a
+                // downstream module can verify cross-module `override` modifiers. Must run after
+                // EmitModule (WasEmitted bits set) and before database serialization.
+                ClassHandler.PopulateEmittedClassMethods(decl, typeDatabase);
+
                 // Emit module database XML for cross-module resolution by downstream modules
                 ModuleDatabaseEmitter.Emit(moduleDatabase, outputDirectory, logger);
 
