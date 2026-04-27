@@ -423,7 +423,12 @@ partial class Build
 
             // Preserve dependency wrapper Swift sources for device build (RunBuildDeviceWrappers).
             // The generator compiles these for simulator; device needs a separate compilation.
+            // Also preserve any .arm64.s thunk-assembly files so the device-side dep wrapper
+            // build can compile and link them — without these, P/Invokes that point at
+            // `thunk_<DepModule>_<hash>` symbols (cross-module inherited methods, etc.) fail
+            // with EntryPointNotFoundException at runtime on device.
             var depSwiftFiles = Directory.GetFiles(depOutputDir, "*.swift");
+            var depAsmFiles = Directory.GetFiles(depOutputDir, "*.arm64.s");
             if (depSwiftFiles.Length > 0)
             {
                 var depSwiftDir = BtOutputDir / "dep-swift";
@@ -432,7 +437,10 @@ partial class Build
                 depSwiftDir.CreateDirectory();
                 foreach (var sf in depSwiftFiles)
                     File.Copy(sf, depSwiftDir / Path.GetFileName(sf));
-                Log.Information("Preserved {Count} dependency wrapper Swift source file(s) for device build.", depSwiftFiles.Length);
+                foreach (var af in depAsmFiles)
+                    File.Copy(af, depSwiftDir / Path.GetFileName(af));
+                Log.Information("Preserved {Count} dependency wrapper Swift source file(s) and {AsmCount} thunk-assembly file(s) for device build.",
+                    depSwiftFiles.Length, depAsmFiles.Length);
             }
 
             // Clean up dep temp directory

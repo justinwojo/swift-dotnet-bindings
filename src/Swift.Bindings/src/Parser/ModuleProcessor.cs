@@ -974,8 +974,66 @@ namespace BindingsGeneration
                 if (classesByName.TryGetValue(superName, out var superclassDecl))
                 {
                     classDecl.ResolvedSuperclass = superclassDecl;
+                    continue;
+                }
+
+                // Skip USR fallback for generic-instantiated parents: the USR strips type
+                // arguments, so resolving via USR would silently drop them and the emitter
+                // would produce <T> instead of the concrete instantiation (e.g. RxSwift's
+                // HistoricalScheduler : VirtualTimeScheduler<HistoricalSchedulerTimeConverter>).
+                // Same-module generic-instantiated parents stay external for now.
+                if (superName.Contains('<'))
+                    continue;
+
+                // Umbrella-module fallback: SuperclassNames may use the original Swift module
+                // (e.g. "RealityKit.Entity") while the parent class is processed under its
+                // umbrella module (e.g. "RealityFoundation.Entity"). The USR is canonical and
+                // contains the umbrella module — use it as the source of truth.
+                if (TryResolveSuperclassByUsr(classDecl, classesByName, out superclassDecl))
+                {
+                    classDecl.ResolvedSuperclass = superclassDecl;
                 }
                 // else: cross-module or ObjC base — leave null (HasExternalSuperclass will be true)
+            }
+
+            // Cross-module Swift fallback: when same-module resolution misses, look the parent
+            // up in the global type database. The TypeRecord lookup covers two cases:
+            //   (1) The parent class is in a different processed module (a true dependency).
+            //   (2) The parent shares the current module's logical namespace but ended up in a
+            //       separate processing pass (e.g. RealityFoundation Entity ↔ ModelEntity, where
+            //       the umbrella Apple module structure splits the hierarchy across the parser
+            //       passes).
+            // Both look identical to this code: TypeRecord is present, ClassDecl is not.
+            // ObjC-bridged parents (USR starts with "c:") still take the existing ObjC-rooted
+            // boundary path via HasObjCSuperclass — they are not Swift class TypeRecords and
+            // would not match the Kind == Class guard below in any case.
+            foreach (var (_, classDecl) in classesByName)
+            {
+                if (classDecl.HasResolvedSuperclass)
+                    continue; // Same-module already linked
+                if (classDecl.HasObjCSuperclass)
+                    continue; // ObjC boundary path handles this
+                if (classDecl.DirectSuperclassName == null)
+                    continue; // Root class
+                if (classDecl.DirectSuperclassName.Contains('<'))
+                    continue; // Generic-instantiated parent — out of scope (parity with RegisterClassType)
+
+                SwiftTypeName parentName;
+                try
+                {
+                    parentName = SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName);
+                }
+                catch (ArgumentException)
+                {
+                    continue; // Malformed name — skip rather than throw
+                }
+
+                if (_typeDatabase.TryGetTypeRecord(parentName, out var parentRecord) &&
+                    parentRecord.Kind == TypeRecordKind.Class)
+                {
+                    classDecl.CrossModuleSuperclassRecord = parentRecord;
+                    classDecl.CrossModuleSuperclassCSharpName = parentRecord.CSharpTypeName.FullyQualifiedName;
+                }
             }
 
             // Compute IsObjCRooted via fixed-point loop.
@@ -1056,6 +1114,75 @@ namespace BindingsGeneration
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Looks up a class's superclass via its USR rather than <see cref="ClassDecl.DirectSuperclassName"/>.
+        /// The Swift ABI's <c>superclassNames</c> can disagree with the class's own
+        /// <c>moduleName</c> when an umbrella module re-exports the parent (e.g. RealityFoundation
+        /// → "RealityKit.Entity"). The USR (<c>s:17RealityFoundation6EntityC</c>) is canonical
+        /// and always names the umbrella module that the parser actually keyed the class under.
+        /// </summary>
+        /// <returns>True when the USR-derived module-qualified name matches a class in <paramref name="classesByName"/>.</returns>
+        private static bool TryResolveSuperclassByUsr(
+            ClassDecl classDecl,
+            Dictionary<string, ClassDecl> classesByName,
+            [NotNullWhen(true)] out ClassDecl? superclassDecl)
+        {
+            superclassDecl = null;
+            var usr = classDecl.SuperclassUsr;
+            if (string.IsNullOrEmpty(usr) || !usr.StartsWith("s:", StringComparison.Ordinal))
+                return false; // ObjC ("c:…") or unparseable
+            if (!TryParseSwiftClassUsr(usr, out var canonicalName))
+                return false;
+            return classesByName.TryGetValue(canonicalName, out superclassDecl);
+        }
+
+        /// <summary>
+        /// Parses a Swift class USR into its module-qualified canonical name. Returns true on success.
+        /// Form: <c>s:&lt;NN&gt;&lt;Module&gt;(&lt;NN&gt;&lt;Nest&gt;C)*&lt;NN&gt;&lt;Type&gt;C</c>.
+        /// Example: <c>s:17RealityFoundation6EntityC</c> → "RealityFoundation.Entity".
+        /// Nested types: <c>s:5MyMod5OuterC5InnerC</c> → "MyMod.Outer.Inner".
+        /// Returns false for non-Swift USRs and any USR whose final kind char is not <c>C</c> (class).
+        /// Module name carries no trailing kind char in Swift mangling; intermediate nominal-type
+        /// segments do — accept and skip them as long as the final segment is a class.
+        /// </summary>
+        internal static bool TryParseSwiftClassUsr(string usr, [NotNullWhen(true)] out string? moduleQualifiedName)
+        {
+            moduleQualifiedName = null;
+            if (string.IsNullOrEmpty(usr) || !usr.StartsWith("s:", StringComparison.Ordinal))
+                return false;
+            int i = 2;
+            var segments = new List<string>();
+            while (i < usr.Length && char.IsDigit(usr[i]))
+            {
+                int digitStart = i;
+                while (i < usr.Length && char.IsDigit(usr[i])) i++;
+                if (!int.TryParse(usr.AsSpan(digitStart, i - digitStart), out int len) || len <= 0)
+                    return false;
+                if (i + len > usr.Length)
+                    return false;
+                segments.Add(usr.Substring(i, len));
+                i += len;
+                // Skip nominal-type kind char between segments. Module has none, intermediate
+                // nested types each carry one (C/V/O for class/struct/enum). The final char
+                // must be 'C' for the type to be a class.
+                if (i < usr.Length && IsNominalKindChar(usr[i]) && HasMoreSegments(usr, i + 1))
+                    i++;
+            }
+            if (segments.Count < 2)
+                return false;
+            if (i >= usr.Length || usr[i] != 'C')
+                return false; // Not a class USR (could be V/O for struct/enum, P for protocol, etc.)
+            moduleQualifiedName = string.Join('.', segments);
+            return true;
+        }
+
+        private static bool IsNominalKindChar(char c) => c is 'C' or 'V' or 'O';
+
+        private static bool HasMoreSegments(string usr, int from)
+        {
+            return from < usr.Length && char.IsDigit(usr[from]);
         }
 
         /// <summary>

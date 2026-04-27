@@ -82,5 +82,32 @@ namespace BindingsGeneration
         /// Set by ModuleProcessor after hierarchy resolution via fixed-point computation.
         /// </summary>
         public bool IsObjCRooted { get; set; }
+
+        /// <summary>
+        /// The TypeRecord for a cross-module Swift superclass — the parent class lives in another
+        /// module's TypeDatabase rather than the current module's <c>_typeDecls</c>. Populated by
+        /// <c>ResolveClassHierarchy</c> when <c>DirectSuperclassName</c> resolves to a Swift Class
+        /// TypeRecord in the global type database (a parent module processed earlier in the same
+        /// run). Null when: root class, <c>ResolvedSuperclass</c> is non-null (same-module), or the
+        /// parent is ObjC-bridged (handled by the existing ObjC-boundary path).
+        /// </summary>
+        public TypeRecord? CrossModuleSuperclassRecord { get; set; }
+
+        /// <summary>
+        /// The C# type name of the cross-module Swift superclass, namespace-qualified
+        /// (e.g. "RealityFoundation.Entity"). Captured at hierarchy-resolution time so emitters
+        /// don't need to re-query the type database. Null in the same conditions as
+        /// <see cref="CrossModuleSuperclassRecord"/>.
+        /// </summary>
+        public string? CrossModuleSuperclassCSharpName { get; set; }
+
+        /// <summary>
+        /// Whether this class derives from a Swift class in another module. Distinct from
+        /// <see cref="HasObjCSuperclass"/> (which fires for ObjC-bridged parents only) and
+        /// <see cref="HasResolvedSuperclass"/> (same-module Swift parents only). The C# emitter
+        /// uses this to decide whether to emit <c>: ParentModule.Parent</c> in the inheritance
+        /// list and to suppress the duplicate <c>_handle</c>/<c>Dispose</c> emission.
+        /// </summary>
+        public bool HasCrossModuleSwiftSuperclass => CrossModuleSuperclassRecord != null;
     }
 }

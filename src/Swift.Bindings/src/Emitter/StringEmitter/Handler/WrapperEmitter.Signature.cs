@@ -31,8 +31,11 @@ namespace BindingsGeneration
             else
             {
                 // Derived class constructors must chain to the base's protected sentinel constructor
-                // to satisfy C#'s requirement for a parameterless base constructor.
-                var baseChain = _env.ParentDecl is ClassDecl cd2 && cd2.HasResolvedSuperclass
+                // to satisfy C#'s requirement for a parameterless base constructor. Cross-module
+                // Swift parents (Bug #14) also need the chain — the parent assembly emitted the
+                // protected sentinel ctor and the C# compiler enforces the same chaining rule.
+                var baseChain = _env.ParentDecl is ClassDecl cd2
+                    && (cd2.HasResolvedSuperclass || cd2.HasCrossModuleSwiftSuperclass)
                     ? " : base(default(SwiftInheritanceChain))"
                     : "";
                 csWriter.WriteLine($"{accessModifier} {constructorName}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}){baseChain}");
@@ -349,8 +352,19 @@ namespace BindingsGeneration
                     && ParameterTypesMatch(m, paramTypes)
                     && (derivedCSharpName == null || AncestorCSharpNameMatches(m, ancestor, derivedCSharpName, typeDatabase))))
                     return true;
+                // Same-module walk reached a class whose parent lives cross-module — fall through
+                // to the cross-module heuristic so we don't lose the override at a 3-level chain.
+                if (!ancestor.HasResolvedSuperclass && ancestor.HasCrossModuleSwiftSuperclass && method.IsOverride)
+                    return true;
                 ancestor = ancestor.ResolvedSuperclass;
             }
+            // Cross-module fallthrough at the immediate parent: the Swift `override` keyword is the
+            // trust signal. Without ClassDecl-level method records for the parent module we can't
+            // verify the parent's C# binding actually emitted the method; if it didn't, the C#
+            // compiler will surface CS0115. That's a clearer error than the silent CS0114 hides
+            // we currently produce, and the parent module's binding is presumed correct in v1.
+            if (classDecl.HasCrossModuleSwiftSuperclass && method.IsOverride)
+                return true;
             return false;
         }
 
@@ -444,6 +458,11 @@ namespace BindingsGeneration
                     return true;
                 ancestor = ancestor.ResolvedSuperclass;
             }
+            // Cross-module Swift parent: we don't carry per-property emission info on the
+            // parent's TypeRecord, so the safest answer is "no". Callers fall back to the
+            // virtual / new path. If a cross-module parent's binding does redeclare the
+            // same property, the C# compiler reports CS0108 and the user adds `new`/`override`
+            // by hand. Inheriting and not redeclaring (the common case) is unaffected.
             return false;
         }
     }

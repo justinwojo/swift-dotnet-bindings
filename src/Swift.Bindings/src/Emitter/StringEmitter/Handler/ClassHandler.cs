@@ -136,12 +136,15 @@ namespace BindingsGeneration
                 // If the base class would be skipped (e.g., unsupported generic constraints),
                 // fall back to flat emission to avoid referencing a non-emitted base type.
                 bool isDerived = IsEffectivelyDerived(classDecl);
+                bool isSameModuleDerived = classDecl.HasResolvedSuperclass
+                    && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
+                bool isCrossModuleDerived = isDerived && !isSameModuleDerived;
                 bool isObjCRooted = classDecl.IsObjCRooted;
                 // An ObjC-rooted boundary class directly inherits an ObjC type (e.g., CALayer)
-                // and is NOT derived from a same-module Swift parent.
+                // and is NOT derived from a Swift parent (same-module or cross-module).
                 bool isObjCBoundary = isObjCRooted && !isDerived;
 
-                if (isDerived)
+                if (isSameModuleDerived)
                 {
                     var baseName = GenericTypeEmitter.GetTypeNameWithGenerics(classDecl.ResolvedSuperclass!, env.TypeDatabase);
 
@@ -155,6 +158,32 @@ namespace BindingsGeneration
                     // Start with base class name. Keep ISwiftObject (needed for explicit interface
                     // re-implementation with derived type metadata). Skip IDisposable (inherited).
                     // Skip base-class protocols that aren't parameterized differently on derived.
+                    var derivedInterfaces = new List<string> { baseName };
+                    foreach (var iface in interfaces)
+                    {
+                        if (iface == "IDisposable")
+                            continue;
+                        if (iface == "ISwiftObject")
+                        {
+                            derivedInterfaces.Add(iface);
+                            continue;
+                        }
+                        if (!baseInterfaces.Contains(iface))
+                            derivedInterfaces.Add(iface);
+                    }
+                    interfaces = derivedInterfaces;
+                }
+                else if (isCrossModuleDerived)
+                {
+                    // Cross-module Swift parent: emit `: ParentNamespace.Parent` followed by the
+                    // derived class's interface set, with the parent's already-implemented
+                    // interfaces filtered out so we don't list e.g. IRealityCoordinateSpace twice.
+                    // The parent's TypeRecord supplies the C# name and (when available) the
+                    // recursive ProtocolConformances chain we walk for dedup.
+                    var baseName = classDecl.CrossModuleSuperclassCSharpName!;
+                    var baseInterfaces = ProtocolConformanceHelper.GetCrossModuleInheritedInterfaces(
+                        classDecl.CrossModuleSuperclassRecord!, env.TypeDatabase);
+
                     var derivedInterfaces = new List<string> { baseName };
                     foreach (var iface in interfaces)
                     {
@@ -383,14 +412,19 @@ namespace BindingsGeneration
         // ComputePropertyRenames is now centralized in NameProvider.
 
         /// <summary>
-        /// Returns true if the class has a resolved superclass that will actually be emitted
-        /// in C# (i.e., not skipped due to unsupported generic constraints).
-        /// This is the canonical "effectively derived" predicate — use it everywhere
-        /// instead of raw HasResolvedSuperclass to ensure consistent behavior.
+        /// Returns true if the class has a superclass whose binding will actually be reachable
+        /// from the emitted C# — either a same-module ClassDecl that survives generic-constraint
+        /// validation, or a cross-module Swift parent registered in the global type database.
+        /// This is the canonical "effectively derived" predicate; use it everywhere instead of
+        /// raw <c>HasResolvedSuperclass</c> so cross-module hierarchies (Bug #14) are picked up.
         /// </summary>
         internal static bool IsEffectivelyDerived(ClassDecl classDecl)
-            => classDecl.HasResolvedSuperclass
-               && !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _);
+        {
+            if (classDecl.HasResolvedSuperclass &&
+                !GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl.ResolvedSuperclass!, out _))
+                return true;
+            return classDecl.HasCrossModuleSwiftSuperclass;
+        }
 
         /// <summary>
         /// Writes the _handle instance field (root classes only — derived classes inherit).
@@ -479,6 +513,10 @@ namespace BindingsGeneration
         /// Stops at non-emittable ancestors (unsupported generic constraints) to stay
         /// consistent with IsEffectivelyDerived — a flat-emitted class must use its own
         /// type name so _payload and the private constructor agree on SwiftSafeHandle&lt;T&gt;.
+        /// When the same-module walk lands on a cross-module-derived class, continues up
+        /// through TypeRecord.SuperclassTypeName so derived classes share their cross-module
+        /// root's <c>SwiftClassHandle&lt;T&gt;</c> typing (the inherited <c>_handle</c> field
+        /// was emitted in the parent module's binding output against that root).
         /// </summary>
         internal static string GetRootBaseTypeNameWithGenerics(ClassDecl classDecl, ITypeDatabase? typeDatabase = null)
         {
@@ -486,6 +524,25 @@ namespace BindingsGeneration
             while (current.HasResolvedSuperclass
                    && !GenericTypeEmitter.TryGetUnsupportedConstraint(current.ResolvedSuperclass!, out _))
                 current = current.ResolvedSuperclass!;
+
+            // Cross-module fallthrough: if the current class derives from a Swift parent in
+            // another module, walk that parent's TypeRecord chain to the root.
+            if (current.HasCrossModuleSwiftSuperclass && typeDatabase != null)
+            {
+                var record = current.CrossModuleSuperclassRecord!;
+                var visited = new HashSet<string>(StringComparer.Ordinal)
+                {
+                    current.SwiftTypeName.ModuleQualifiedName
+                };
+                while (record.SuperclassTypeName != null
+                       && visited.Add(record.SwiftTypeName.ModuleQualifiedName)
+                       && typeDatabase.TryGetTypeRecord(record.SuperclassTypeName, out var parent)
+                       && parent.Kind == TypeRecordKind.Class)
+                {
+                    record = parent;
+                }
+                return record.CSharpTypeName.FullyQualifiedName;
+            }
             return GenericTypeEmitter.GetTypeNameWithGenerics(current, typeDatabase);
         }
 

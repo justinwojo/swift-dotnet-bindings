@@ -943,6 +943,61 @@ internal static class ProtocolConformanceHelper
     }
 
         /// <summary>
+        /// Returns the C# interface set already implemented by a cross-module class parent and
+        /// its ancestors. Walks <see cref="TypeRecord.SuperclassTypeName"/> via the type database
+        /// (cycle-guarded) and projects each conformance through <see cref="NameProvider.GetInterfaceName"/>
+        /// so the same dedup vocabulary applies as the same-module path. Used by
+        /// <c>ClassHandler</c> to filter the derived class's interface declaration list and avoid
+        /// re-listing protocols the parent already exposes (e.g. <c>IRealityCoordinateSpace</c>
+        /// shared by every <c>Entity</c> subclass).
+        /// </summary>
+        public static HashSet<string> GetCrossModuleInheritedInterfaces(
+            TypeRecord parentRecord,
+            ITypeDatabase typeDatabase)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var current = parentRecord;
+            while (current != null && visited.Add(current.SwiftTypeName.ModuleQualifiedName))
+            {
+                var parentName = current.CSharpTypeName.FullyQualifiedName;
+                var conformances = current.ProtocolConformances;
+                if (conformances != null)
+                {
+                    foreach (var protocolName in conformances)
+                    {
+                        // Hashable is a marker interface (ISwiftHashable) for PWT lookup, not a
+                        // user-facing C# interface — never appears in the derived class's list.
+                        if (protocolName.ModuleQualifiedName == "Swift.Hashable" ||
+                            (protocolName.Name == "Hashable" && string.IsNullOrEmpty(protocolName.Module)))
+                            continue;
+
+                        // Equatable is special-cased to IEquatable<T>: the parent's instantiation is
+                        // IEquatable<ParentType>, distinct from the derived class's IEquatable<DerivedType>,
+                        // so we only filter the parent's exact instantiation.
+                        var iface = NameProvider.GetInterfaceName(protocolName.Name, parentName, protocolName.Module);
+                        result.Add(iface);
+                    }
+                }
+
+                // Walk to the parent's superclass via the type database. Older module-DB XMLs that
+                // predate ProtocolConformances or SuperclassTypeName fail the gates here and the
+                // walk simply terminates — we lose some dedup precision but still produce valid C#.
+                if (current.SuperclassTypeName == null) break;
+                if (!typeDatabase.TryGetTypeRecord(current.SuperclassTypeName, out var grandparent)) break;
+                if (grandparent.Kind != TypeRecordKind.Class) break;
+                current = grandparent;
+            }
+
+            // The parent assembly's binding emitted IExistentialBoxable when its conformance list
+            // was non-empty. Mirror that here so the derived class doesn't re-declare it.
+            if (result.Count > 0)
+                result.Add("Swift.Runtime.IExistentialBoxable");
+
+            return result;
+        }
+
+        /// <summary>
         /// Generates the dictionary entries for GetProtocolConformanceDescriptor implementation.
         /// </summary>
         /// <param name="conformances">The conformances to process.</param>

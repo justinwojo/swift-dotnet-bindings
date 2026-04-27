@@ -260,7 +260,24 @@ public func SBW_HasModel_get_blendWeights_0(_ containerPtr: UnsafeRawPointer) ->
 
 `apple-frameworks/RealityKit/obj/Debug/net10.0-maccatalyst26.2/swift-binding/RealityKit.cs:2181` references `ARKit.ARSession` in a method signature, but the file's `using` directives don't include the maccatalyst-resolved ARKit namespace. iOS and macOS resolve the same reference fine — likely a workload-namespace gap rather than a generator bug per se, but the generator emits the same C# unconditionally so it manifests as a generator-side issue. Easiest fix: emit `using ARKit;` (or fully-qualify) in every C# file that references ARKit types, regardless of TFM.
 
-## 14. Same-module class inheritance not emitted in C#
+## 14. Same-module class inheritance not emitted in C# — **FIXED (Session 6)**
+
+Generator now resolves cross-module Swift superclasses through three complementary paths:
+
+1. **Same-module exact-name match** (existing path). Resolves `Sub` → `Base` when both classes share the parser pass. Unchanged.
+2. **Umbrella-module USR fallback** (new). When the ABI's `superclassNames` disagrees with the umbrella module under which the parser keyed the class — RealityFoundation re-exports RealityKit's `Entity`, so the ABI says `RealityKit.Entity` but `_typeDecls` is keyed by `RealityFoundation.Entity` — the USR is canonical and contains the umbrella module. `TryParseSwiftClassUsr` parses `s:17RealityFoundation6EntityC` → `RealityFoundation.Entity` (and supports nested types like `s:5MyMod5OuterC5InnerC` → `MyMod.Outer.Inner`). USR fallback is **gated on `superName.Contains('<') == false`**: a generic-instantiated parent like RxSwift's `VirtualTimeScheduler<HistoricalSchedulerTimeConverter>` strips its type arguments in the USR and would silently emit `<TConverter>` in C#. Same-module generic instantiations stay external until the emitter can re-render them with full fidelity.
+3. **Cross-module TypeDatabase fallback** (new). When same-module resolution misses, look the parent up in the global type database. Captures the parent's `TypeRecord` and pre-resolved C# name on `ClassDecl.CrossModuleSuperclassRecord` / `CrossModuleSuperclassCSharpName`. The emitter walks `TypeRecord.SuperclassTypeName` to find the cross-module root so derived classes type their inherited `_handle` against the same `SwiftClassHandle<T>` as the parent module's binding.
+
+Emitter changes:
+- `ClassHandler` adds an `isCrossModuleDerived` branch that emits `: ParentNamespace.Parent` and dedups the derived class's interface set against `ProtocolConformanceHelper.GetCrossModuleInheritedInterfaces` so e.g. `IRealityCoordinateSpace` isn't listed twice.
+- `IsEffectivelyDerived` now returns true for cross-module Swift parents in addition to same-module resolved parents.
+- `GetRootBaseTypeNameWithGenerics` continues walking through the cross-module record chain to the original root, so the derived class's private constructor and `_payload` typing match the parent module's emitted `SwiftClassHandle<T>`.
+
+Marshaler / wrapper plumbing follows the same pattern: `MethodMarshalPlanBuilder`, `WrapperEmitter.Signature`, and `TypeHandlerHelpers` accept a cross-module `Self` type so `super.method()` invocations still type-check across the C ABI boundary.
+
+Sanity check on the original RealityFoundation scenario was deferred to a packages-repo run (separate NU1605 infrastructure issue); same-module pattern is fully covered by the cross-module BindingTests fixture (`LocalChildEntity : DependencyBaseEntity`, `LocalGrandchildEntity : DependencyMidEntity : DependencyBaseEntity`) and unit coverage in `ClassHierarchyResolutionTests` (umbrella-module USR resolution, generic-instantiated-parent rejection, USR parser theory).
+
+
 
 The generator emits cross-framework inheritance correctly (`ARView : UIKit.UIView`, `EntityTranslationGestureRecognizer : UIKit.UIGestureRecognizer` — verified in `RealityKit.cs`) but flattens **same-module Swift class hierarchies** into sibling C# classes. In Swift, `ModelEntity`, `AnchorEntity`, `BodyTrackedEntity`, `PerspectiveCamera` all extend `Entity`. In the generated C#, they're parallel:
 
@@ -426,10 +443,10 @@ Four viable approaches; pick before Session 2 starts:
 | 3 | **#3 collection-template re-resolution** | 3 | **DONE** (`3fefcf0e` + `22f0f9fc`) — narrow init-site residual remains (see Bug 3 section) | `ConcreteProtocolSpecializationEmitter.cs`, `TypeRecord` (`ProtocolConformances`), module-database XML round-trip | sim |
 | 4 | **#4 closure-buffer adapter** | 4 | **DONE** | `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs` (split `UnsafeRawBufferPointer` into `(baseAddress, count)` at the C-ABI boundary) | sim + device |
 | 5 | **#5 EveryProtocol witness skip** | 5 | **DONE** — see Bug 5 section for post-fix histogram | `EveryProtocolEmitter.cs` (`EmitProtocolConformance` + `WillSkipConformance`), BindingTests fixture, EveryProtocolEmitterTests + ProtocolConformanceCacheTests | sim + device |
-| 6 | **#14 same-module class inheritance** | 14 | open | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs` | sim + device |
+| 6 | **#14 same-module class inheritance** | 14 | **DONE** — see Bug 14 section for the umbrella-USR vs generic-instantiation distinction | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs`, plus marshaler/wrapper plumbing for cross-module bases | sim + device |
 | 7 | **#15 general nullable-class fix** | 15 (covers RF + 9 other frameworks) | open | `Emitter/StringEmitter/Handler/MethodSignature.cs` (both fallback sites: 539 accessor, 556 bound-generic), `Marshaler/Projection/TypeProjectionFactory.cs`, `Marshaler/BoundGenericsHandler.cs` | sim + device |
 
-**Sessions 1–5 done; 2 sessions remaining** (6, 7), all largely independent and parallelizable via worktrees.
+**Sessions 1–6 done; 1 session remaining** (7), independent and parallelizable via worktrees.
 
 **Why this ordering, briefly:**
 - Sessions 4, 5 are independent architectural fixes; each could split if the worker hits unexpected complexity.

@@ -327,6 +327,9 @@ internal class MethodMarshalPlanBuilder
 
             // For derived classes, SwiftSafeHandle<T> must use the root base type
             // because _payload is declared as SwiftSafeHandle<RootBase> on the base class.
+            // Cross-module Swift parents (Bug #14) participate in the same rule: the inherited
+            // _handle field was declared in the parent assembly with the cross-module root's
+            // type parameter, so derived constructors must allocate against that same root.
             var safeHandleTypeName = typeName;
             if (_env.ParentDecl is ClassDecl cd && cd.HasResolvedSuperclass)
             {
@@ -334,6 +337,10 @@ internal class MethodMarshalPlanBuilder
                 while (root.HasResolvedSuperclass)
                     root = root.ResolvedSuperclass!;
                 safeHandleTypeName = GenericTypeEmitter.GetTypeNameWithGenerics(root);
+            }
+            else if (_env.ParentDecl is ClassDecl crossCd && crossCd.HasCrossModuleSwiftSuperclass)
+            {
+                safeHandleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(crossCd, _env.TypeDatabase);
             }
 
             if (_env.MethodDecl.UsesCdeclConstructorWrapper)

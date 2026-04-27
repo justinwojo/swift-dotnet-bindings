@@ -2501,13 +2501,21 @@ partial class Build
                 File.Copy(csFile, dest, overwrite: true);
             }
 
-            // Consolidate dependency Swift wrappers to dep-swift/ for RunBuildAsyncWrapper
+            // Consolidate dependency Swift wrappers to dep-swift/ for RunBuildAsyncWrapper.
+            // Also preserve thunk-assembly files; the device dep wrapper rebuild
+            // (BuildDependencyWrapperDevice) needs them or P/Invokes targeting
+            // `thunk_<DepModule>_<hash>` symbols fail with EntryPointNotFound on device.
             var depSwiftDir = BtOutputDir / "dep-swift";
             depSwiftDir.CreateDirectory();
             foreach (var swiftFile in Directory.GetFiles(depOutputDir, "*.swift"))
             {
                 var dest = depSwiftDir / Path.GetFileName(swiftFile);
                 File.Copy(swiftFile, dest, overwrite: true);
+            }
+            foreach (var asmFile in Directory.GetFiles(depOutputDir, "*.arm64.s"))
+            {
+                var dest = depSwiftDir / Path.GetFileName(asmFile);
+                File.Copy(asmFile, dest, overwrite: true);
             }
 
             // Consolidate dependency wrapper xcframework
@@ -2790,6 +2798,11 @@ partial class Build
             return;
         }
 
+        // Thunk-assembly files preserved by RunRegenerateBindings. Each .arm64.s defines
+        // `thunk_<DepModule>_<hash>` trampolines that P/Invokes target. Without them the
+        // device dep framework is missing the symbols and runtime calls EntryPointNotFound.
+        var asmFiles = Directory.GetFiles(depSwiftDir, "*.arm64.s").ToList();
+
         Log.Information("=== Building {Module} (device) ===", depWrapperName);
 
         var xcfwSliceDir = BtXcframeworkDir / deviceSliceId;
@@ -2817,6 +2830,25 @@ partial class Build
             return;
         }
 
+        // Compile each .arm64.s into a .o the Swift driver can pick up via -Xlinker.
+        // Mirrors the simulator path in NativeThunkCompiler / RunBuildAsyncWrapper.
+        var thunkObjects = new List<string>();
+        foreach (var asmFile in asmFiles)
+        {
+            var objFile = Path.Combine(cleanedDir, Path.GetFileNameWithoutExtension(asmFile) + ".o");
+            try
+            {
+                XcRunTool($"clang -c {asmFile} -o {objFile} -target {deviceTarget}");
+                thunkObjects.Add(objFile);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("Failed to compile dep thunk assembly {File}: {Message}", asmFile, ex.Message);
+            }
+        }
+
+        var allSourceFiles = cleanedFiles.Concat(thunkObjects).ToList();
+
         var settings = new SwiftCompilerSettings()
             .SetEmitLibrary()
             .SetTarget(deviceTarget)
@@ -2826,7 +2858,7 @@ partial class Build
             .SetStrictConcurrency("minimal")
             .SetInstallName($"@rpath/{depWrapperName}.framework/{depWrapperName}")
             .SetOutputPath(outputFwDir / depWrapperName)
-            .AddSourceFiles(cleanedFiles);
+            .AddSourceFiles(allSourceFiles);
 
         // Also need main library search path for cross-module references
         if (Directory.Exists(xcfwSliceDir))
