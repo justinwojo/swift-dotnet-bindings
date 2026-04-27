@@ -54,8 +54,19 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
-            parameters.Add($"{paramType} arg{argIndex}");
+            // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: split into (ptr, len) pair
+            // to match the Swift @convention(c) decomposition. C# callback reconstructs the
+            // 16-byte struct before invoking the user delegate.
+            if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                parameters.Add($"void* arg{argIndex}");
+                parameters.Add($"nint arg{argIndex}_len");
+            }
+            else
+            {
+                var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
+                parameters.Add($"{paramType} arg{argIndex}");
+            }
             argTypes.Add(arg);
             argIndex++;
         }
@@ -611,6 +622,16 @@ public static partial class ClosureEmitter
     /// <returns>The expression string to use when invoking the delegate.</returns>
     private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler, bool useCdecl = false)
     {
+        // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: reconstruct the 16-byte
+        // struct from the (ptr, len) pair the Swift @convention(c) callback handed us.
+        if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(typeSpec))
+        {
+            var bufferType = MarshallingHelpers.IsUnsafeMutableRawBufferPointer(typeSpec)
+                ? "global::Swift.UnsafeMutableRawBufferPointer"
+                : "global::Swift.UnsafeRawBufferPointer";
+            return $"new {bufferType}(arg{argIndex}, arg{argIndex}_len)";
+        }
+
         // Cdecl existential: Swift adapter handed us a void* pointer to a heap-allocated
         // ExistentialContainer{N}. Dereference and wrap with the appropriate proxy/runtime type.
         // Both forms reach here: ProtocolListTypeSpec (multi-proto) and
@@ -925,7 +946,17 @@ public static partial class ClosureEmitter
 
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
+            // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer split into (void*, nint)
+            // — must mirror EmitEscapingClosureCallback's parameter expansion exactly.
+            if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                types.Add("void*");
+                types.Add("nint");
+            }
+            else
+            {
+                types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
+            }
         }
 
         types.Add(isIndirectReturn ? "void" : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler));
@@ -944,7 +975,15 @@ public static partial class ClosureEmitter
         var types = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
+            if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                types.Add("void*");
+                types.Add("nint");
+            }
+            else
+            {
+                types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl));
+            }
         }
 
         types.Add("SwiftError*");

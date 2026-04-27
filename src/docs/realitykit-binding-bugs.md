@@ -1,6 +1,6 @@
 # RealityKit / RealityFoundation binding bugs
 
-Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both fail at the wrapper-Swift compile step. Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members. The failures cluster into a small number of distinct generator bugs which between them originally produced 5 wrapper errors on RealityKit and 281 on RealityFoundation. After Session 1 (RealityKit sweep) and Session 2 (Bug 10 / `@_implementationOnly`), RealityFoundation now reaches the wrapper body and reports 152 errors (76 unique), all attributable to the still-open Bugs 1, 3, and 4.
+Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both fail at the wrapper-Swift compile step. Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members. The failures cluster into a small number of distinct generator bugs which between them originally produced 5 wrapper errors on RealityKit and 281 on RealityFoundation. Sessions 1–3 are now complete (commits `8ee402c8`, `e475c22e`, `3fefcf0e`+`22f0f9fc`); bugs **1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13** are fixed. Remaining open: **4, 5, 14, 15** plus the narrow Bug 3 init-site residual.
 
 Failing csprojs (kept in tree as repros):
 
@@ -13,7 +13,7 @@ Environment: .NET SDK 10.0.103, Microsoft.iOS.Sdk 26.2.10197, Xcode 26.2 (build 
 
 The bugs, in rough order of blast radius:
 
-## 1. Missing availability annotations on `_silgen_name` generic-trampoline wrappers
+## 1. Missing availability annotations on `_silgen_name` generic-trampoline wrappers — **FIXED (Session 1, `8ee402c8`)**
 
 Most-impactful bug. The wrapper for any method on a generic struct or enum that's iOS 18+/26+ is emitted as a `_silgen_name` trampoline **without** an `@available` annotation, even though the body references types or generic constraints that are gated. Result: `'X' is only available in iOS 18.0 or newer` errors against a wrapper compiled at deployment target ios15.0. (`@_cdecl` wrappers in the same file *do* receive `@available` blocks correctly — see e.g. line 6020 of the RealityFoundation wrapper. The generic `@_silgen_name` path appears to be a separate emission site that skipped this step.)
 
@@ -34,7 +34,7 @@ public func SBW_ActionAnimation_repeatingForever<ActionType>(_ self_: UnsafeMuta
 
 `ActionAnimation` and `EntityAction` are both `@available(iOS 18.0, *)`. Compare against the same file's `@_cdecl` site at line 6020 (`LowLevelBuffer.withUnsafeBytes`), which correctly carries the iOS 26 annotation block. Fix: the `_silgen_name` emission path needs the same availability annotation logic the `@_cdecl` path already has.
 
-## 2. Optional-parameter name emitted with literal `?`
+## 2. Optional-parameter name emitted with literal `?` — **FIXED (Session 1, `8ee402c8`)**
 
 Whenever a method takes an `Optional<T>` parameter, the generator emits the parameter name with a trailing `?` glued on, then references that same `name?` in the call site. Both the declaration and the call are syntactically wrong Swift.
 
@@ -55,7 +55,7 @@ public func SBW_AnchorEntity_setParent_Optional_preservingWorldTransformBool(_ s
 
 Same bug pattern repeats for `BodyTrackedEntity`, `PerspectiveCamera`, every other Entity subclass that has `setParent(_:preservingWorldTransform:)` or any other optional-parameter API.
 
-## 3. Generic-method wrappers instantiated at the wrong element type (collection types treated as `EntityCollection`)
+## 3. Generic-method wrappers instantiated at the wrong element type (collection types treated as `EntityCollection`) — **MOSTLY FIXED (Session 3, `3fefcf0e` + `22f0f9fc`)**
 
 The generator emits `SBW_CSM_*_insert_*` / `_append_*` / `_replaceAll_*` wrappers for collection-like types — but for any type that isn't `EntityCollection`, it generates them with the **`EntityCollection` body** (calls `__self.insert(contentsOf: Data(bytesNoCopy:…))`), then passes the wrong element type to the underlying generic method. Swift then complains that the element type doesn't satisfy the constraint that's hard-coded into the wrapper.
 
@@ -82,9 +82,11 @@ Each of these collection types has its **own** `insert(contentsOf:)` constrained
 
 `'no exact matches in call to instance method 'replaceAll''` × 22 and `'append'` × 22 are the same root cause.
 
-## 4. Closure-callback wrappers pass buffer-pointer to a raw-pointer-typed callback
+## 4. Closure-callback wrappers pass buffer-pointer to a raw-pointer-typed callback — **DONE**
 
 For methods like `withUnsafeBytes(_:)` / `withUnsafeMutableBytes(_:)` whose closure parameter is a buffer pointer, the generator emits an adapter that takes `UnsafeMutableRawBufferPointer` (or `UnsafeRawBufferPointer`) but invokes a `@convention(c)` callback typed `UnsafeMutableRawPointer`. ~18 errors (`cannot convert value of type 'UnsafeMutableRawBufferPointer' to expected argument type 'UnsafeMutableRawPointer'`) plus 18 paired `'converting non-escaping value to '(UnsafeMutableRawBufferPointer) -> Void' may allow it to escape'` errors.
+
+**Fix:** Decompose the buffer pointer to `(baseAddress, count)` at the C-ABI boundary. Swift cdecl signature now uses `(UnsafeRawPointer?, Int, UnsafeMutableRawPointer?) -> Void`; the adapter calls `cdecl_callback(p0.baseAddress, p0.count, callbackContext!)`; the C# `[UnmanagedCallersOnly]` callback receives `(void* arg0, nint arg0_len, IntPtr contextPtr)` and reconstructs `new Swift.UnsafeRawBufferPointer(arg0, arg0_len)` for the managed delegate. Verified: 9/9 buffer-pointer adapter errors eliminated in `RealityFoundation.Wrapper.swift`.
 
 Example, RealityFoundation.Wrapper.swift:6020-6035:
 
@@ -100,7 +102,7 @@ public func _sbw_method_0E5126F9(_ callbackFuncPtr: UnsafeMutableRawPointer?, _ 
 }
 ```
 
-The fix probably needs to (a) decompose the buffer pointer to `(baseAddress, count)` and pass both to the cdecl callback, and (b) use `withoutActuallyEscaping` or otherwise reconcile the escape attribute.
+`withoutActuallyEscaping` was not needed — Swift permits passing an `@escaping` closure where a non-escaping one is expected (the generated adapter is always escaping because it captures `cdecl_callback` and `callbackContext`).
 
 ## 5. `EveryProtocol` extension declarations don't satisfy non-`Self`-mentioning protocol requirements
 
@@ -117,7 +119,7 @@ extension EveryProtocol: RealityFoundation.RealityCoordinateSpace {
 
 The body acknowledges the case via `fatalError`, but the conformance still fails to type-check at compile time. Either the conformance needs to be skipped entirely for these protocols (and the corresponding C# binding marked unsupported), or the generator needs a different shape for "static-only existential" cases.
 
-## 6. Noncopyable parameter ownership not declared
+## 6. Noncopyable parameter ownership not declared — **FIXED (Session 1, `8ee402c8`)**
 
 Methods that take `~Copyable` parameters need explicit `borrowing` / `consuming` ownership annotations in Swift 6. The generator omits them.
 
@@ -133,7 +135,7 @@ public func postProcess(context: RealityFoundation.PostProcessEffectContext<any 
 
 → `parameter of noncopyable type 'PostProcessEffectContext<any MTLCommandBuffer>' must specify ownership`. Should be `context: borrowing …` (or `consuming` depending on the original Swift signature; usually `borrowing` is the right default).
 
-## 7. Implicit `BindTarget` cast through `.self` returns the nested struct type
+## 7. Implicit `BindTarget` cast through `.self` returns the nested struct type — **FIXED (Session 1, `8ee402c8`)**
 
 Wrappers for `BindTarget.ScenePath.self` and `BindTarget.EntityPath.self` getters try to return `BindTarget` but materialize the nested struct directly:
 
@@ -145,7 +147,7 @@ resultPtr.initializeMemory(as: RealityFoundation.BindTarget.self, repeating: res
 
 → `cannot convert value of type 'BindTarget.ScenePath' to expected argument type 'BindTarget'`. The `.self` accessor here is the type-of-the-instance accessor that returns the nested struct, but the binding metadata expected an upcast. Fix: emit an explicit upcast to `BindTarget`, or treat `.self` accessors as no-ops at the binding layer.
 
-## 8. Missing `import MultipeerConnectivity` (RealityKit only)
+## 8. Missing `import MultipeerConnectivity` (RealityKit only) — **FIXED (Session 1, `8ee402c8`)**
 
 For `RealityKit.MultipeerConnectivityService.init(session:)`, the wrapper references `MultipeerConnectivity.MCSession` but never imports `MultipeerConnectivity`. Imports emitted are `RealityKit, Foundation, ARKit, CoreFoundation, CoreGraphics, Metal, simd, UIKit`.
 
@@ -157,7 +159,7 @@ let sessionVal = Unmanaged<AnyObject>.fromOpaque(session).takeUnretainedValue() 
 
 → `cannot find type 'MultipeerConnectivity' in scope`. Likely cause: there's no `MultipeerConnectivityDatabase.xml` under the SDK's `Swift/` database directory, so the auto-import detection has nothing to match against. Either ship a database for MultipeerConnectivity or fall back to scanning the generated wrapper for `Module.Type` references and emitting `import Module` for each one seen.
 
-## 9. `let obj` materialized from pointer used with mutating getter (RealityKit only)
+## 9. `let obj` materialized from pointer used with mutating getter (RealityKit only) — **FIXED (Session 1, `8ee402c8`)**
 
 For struct properties whose getter is mutating, the generator binds the receiver as a `let` and then accesses the property — Swift rejects the mutating-getter call.
 
@@ -217,7 +219,7 @@ This means RealityKit and RealityFoundation are within reach of shipping for mac
 
 (C# error count is zero on iOS/tvOS because the wrapper-compile failure aborts the build before the C# compile runs — the C# bugs are all there, just hidden.)
 
-## 11. Swift-style named-tuple syntax in generated C#
+## 11. Swift-style named-tuple syntax in generated C# — **FIXED (Session 1, `8ee402c8`)**
 
 The generator emits Swift's named-tuple punctuation (`(label: Type, label: Type)`) instead of C#'s element-name syntax (`(Type label, Type label)`). Surfaces only when the C# compile actually runs (macOS / maccatalyst), but exists in iOS/tvOS output too — verified by grepping the iOS `RealityFoundation.cs`.
 
@@ -232,7 +234,7 @@ public (key: Swift.String, value: RealityKit.AnimationResource) this[RealityFoun
 
 Should be `public (Swift.String key, RealityKit.AnimationResource value) this[…]`. Triggers CS8124 / CS1026 / CS1519. Affects subscript wrappers on dictionary-shaped collections — generator likely echoes Swift's tuple grammar into the C# emit verbatim. Single-site fix in the C# tuple emitter.
 
-## 12. Missing `Element` type on `[Swift.Array]` in tvOS-only existential getters
+## 12. Missing `Element` type on `[Swift.Array]` in tvOS-only existential getters — **FIXED (Session 1, `8ee402c8`)**
 
 `apple-frameworks/RealityFoundation/obj/Debug/net10.0-tvos26.2/swift-binding/RealityFoundation.Wrapper.swift:347`:
 
@@ -248,7 +250,7 @@ public func SBW_HasModel_get_blendWeights_0(_ containerPtr: UnsafeRawPointer) ->
 
 → `error: generic parameter 'Element' could not be inferred`. Should be `UnsafeMutablePointer<[Float]>` (or `[Swift.Array<Float>]`). Same pattern at line 371 for `blendWeightNames` (should be `<String>`). Four occurrences total, all in the **tvOS-only existential-getter codegen path** for `(any RealityFoundation.HasModel)` — iOS/macOS skip emitting these wrappers entirely, so the bug is invisible there. The generator drops the element-type when emitting a boxed pointer for an Array-typed existential property.
 
-## 13. Maccatalyst-only: missing `using ARKit;` for ARKit type references
+## 13. Maccatalyst-only: missing `using ARKit;` for ARKit type references — **FIXED (Session 1, `8ee402c8`)**
 
 `apple-frameworks/RealityKit/obj/Debug/net10.0-maccatalyst26.2/swift-binding/RealityKit.cs:2181` references `ARKit.ARSession` in a method signature, but the file's `using` directives don't include the maccatalyst-resolved ARKit namespace. iOS and macOS resolve the same reference fine — likely a workload-namespace gap rather than a generator bug per se, but the generator emits the same C# unconditionally so it manifests as a generator-side issue. Easiest fix: emit `using ARKit;` (or fully-qualify) in every C# file that references ARKit types, regardless of TFM.
 
@@ -411,41 +413,36 @@ Four viable approaches; pick before Session 2 starts:
 
 ### Session plan
 
-| # | Session | Bugs | Files touched (approx.) | Validation gates |
-|---|---------|------|-------------------------|------------------|
-| 1 | **Big sim-only emit sweep** | 1, 2, 6, 7, 8, 9, 11, 12, 13 | `ProtocolExtensionEmitter.cs`, `SwiftBuilder.cs`, `EveryProtocolEmitter.cs`, `PropertyWrapperEmitter.cs`, `ModuleHandler.cs`, `WitnessDispatchEmitter.cs`, `SubscriptHandler.cs` | `nuke test` + `nuke validate` + `nuke binding-tests` (sim) |
-| 2 | **#10 wrapper-import handling** | 10 | `ModuleHandler.cs::EmitSwiftImports` (option D adds field to `apple-frameworks.json` + reader). Also rebuild RF afterward and confirm #14 status (expected: still broken, scope unchanged). | sim |
-| 3 | **#3 collection-template re-resolution** | 3 | `ConcreteProtocolSpecializationEmitter.cs` | sim |
-| 4 | **#4 closure-buffer adapter** | 4 | `SwiftBuilder.cs`, `ClosureEmitter.SwiftWrapper.cs` | sim + device (calling convention change) |
-| 5 | **#5 EveryProtocol witness skip** | 5 | `EveryProtocolEmitter.cs` | sim + device (witness-table machinery) |
-| 6 | **#14 same-module class inheritance** | 14 | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs` | sim + device |
-| 7 | **#15 general nullable-class fix** | 15 (covers RF + 9 other frameworks) | `Emitter/StringEmitter/Handler/MethodSignature.cs` (both fallback sites: 539 accessor, 556 bound-generic), `Marshaler/Projection/TypeProjectionFactory.cs`, `Marshaler/BoundGenericsHandler.cs` | sim + device |
+| # | Session | Bugs | Status | Files touched (approx.) | Validation gates |
+|---|---------|------|--------|-------------------------|------------------|
+| 1 | **Big sim-only emit sweep** | 1, 2, 6, 7, 8, 9, 11, 12, 13 | **DONE** (`8ee402c8`) | `ProtocolExtensionEmitter.cs`, `SwiftBuilder.cs`, `EveryProtocolEmitter.cs`, `PropertyWrapperEmitter.cs`, `ModuleHandler.cs`, `WitnessDispatchEmitter.cs`, `SubscriptHandler.cs` | `nuke test` + `nuke validate` + `nuke binding-tests` (sim) |
+| 2 | **#10 wrapper-import handling** | 10 | **DONE** (`e475c22e`) | `ModuleHandler.cs::EmitSwiftImports` (option D — `compileImportModule` field added to `apple-frameworks.json` + reader). | sim |
+| 3 | **#3 collection-template re-resolution** | 3 | **DONE** (`3fefcf0e` + `22f0f9fc`) — narrow init-site residual remains (see Bug 3 section) | `ConcreteProtocolSpecializationEmitter.cs`, `TypeRecord` (`ProtocolConformances`), module-database XML round-trip | sim |
+| 4 | **#4 closure-buffer adapter** | 4 | **DONE** | `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs` (split `UnsafeRawBufferPointer` into `(baseAddress, count)` at the C-ABI boundary) | sim + device |
+| 5 | **#5 EveryProtocol witness skip** | 5 | open | `EveryProtocolEmitter.cs` | sim + device (witness-table machinery) |
+| 6 | **#14 same-module class inheritance** | 14 | open | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs` | sim + device |
+| 7 | **#15 general nullable-class fix** | 15 (covers RF + 9 other frameworks) | open | `Emitter/StringEmitter/Handler/MethodSignature.cs` (both fallback sites: 539 accessor, 556 bound-generic), `Marshaler/Projection/TypeProjectionFactory.cs`, `Marshaler/BoundGenericsHandler.cs` | sim + device |
 
-**7 implementation sessions** (no longer 5–7 contingent — Codex review eliminated both cascade hypotheses). Sessions are largely independent after Session 1; 3/4/5/7 can run in parallel via worktrees if you want wall-clock compression.
+**Sessions 1–4 done; 3 sessions remaining** (5, 6, 7), all largely independent and parallelizable via worktrees.
 
 **Why this ordering, briefly:**
-- Session 1 is the dense sweep — 9 bugs, all sim-only, mostly small fixes in distinct files. File collisions (#7+#9 in `PropertyWrapperEmitter.cs`, #8+#13 in `ModuleHandler.cs`) are in different methods, mechanical to merge. If review burden gets bad, split by file boundary into 1a (wrapper-Swift sweep: 1, 2, 6, 7, 8, 9, 12) and 1b (C# emit sweep: 11, 13).
-- Session 2 is the wrapper-import-handling session for `@_implementationOnly`. Architecture decision on Bug 10 (above — recommended option D) needs sign-off before this session starts.
-- Sessions 3, 4, 5 are the three independent architectural fixes. Each could split if the worker hits unexpected complexity.
+- Sessions 4, 5 are independent architectural fixes; each could split if the worker hits unexpected complexity.
 - Session 6 (#14) is full work — see Coupling decisions for why the cascade hypothesis was rejected. Plan ~150 lines across three files.
-- Session 7 (#15) closes out the cross-framework `SwiftOptional<IntPtr>` regression. Can be moved earlier (between Sessions 2 and 3) since it's general-fix territory and unlocks multiple frameworks at once, not just RF. Lock the regression-counting query (see Cross-framework blast radius note) before starting.
+- Session 7 (#15) closes out the cross-framework `SwiftOptional<IntPtr>` regression. Can run in parallel with 4/5/6 since it's general-fix territory and unlocks multiple frameworks at once, not just RF. Lock the regression-counting query (see Cross-framework blast radius note) before starting.
 
 **Shipping milestones along the path:**
-- After Session 1: most iOS wrapper compile errors resolved (RF down from 281 to ~20–40, RK to ~0). macOS / Mac Catalyst still blocked on Sessions 2+ for C# compile errors.
-- After Session 2: RF wrapper compiles (`@_implementationOnly` import resolved). macOS / Mac Catalyst still blocked on #11, #13 (closed by Session 1) and #15 — so milestone is conditional on Session 1 also having shipped.
-- After Sessions 3+4+5: iOS RealityKit ships (RealityFoundation still needs #14 + #15).
+- ✅ Sessions 1–3 done: RF iOS wrapper now reaches body compile (down from 281 → 80 raw / 17 unique errors); RK iOS wrapper compiles cleanly. macOS / Mac Catalyst C# compile still blocked on #15.
+- After Sessions 4+5: iOS RealityKit ships (RealityFoundation still needs #14 + #15, plus the #3 init-site residual if any of those errors survive #5's EveryProtocol fix).
 - After Session 6: RealityFoundation's class inheritance is correct in C# — usability blocker resolved.
 - After Session 7: cross-framework `SwiftOptional<IntPtr>` regression closed; nullable-ref typing improves for 11 frameworks. Both libraries ship for all four TFMs.
-- tvOS shipping: covered by Session 1 (#12) + verifying #1's availability emission also covers tvOS. No dedicated session needed unless verification surfaces a gap.
+- tvOS shipping: covered by Session 1 (#12 fixed) + #1's availability emission, which Codex review confirmed also covers tvOS.
 
 ### Risks worth surfacing
 
-- **Session 1 bisect cost**: 9 bugs in one commit. Each bug has its own test fixture; if a baseline regresses, narrow by file. If the worker hits any nontrivial regression mid-session, split rather than push through.
-- **Bug 10 architecture decision is load-bearing**: A/B/C/D affects packaging and reusability of the mechanism. Decide before Session 2 starts. Recommendation: D.
-- **Bug 14 is real work, not a cascade.** Plan ~150 lines across `ModuleProcessor.cs`, `ClassDecl.cs`, `ClassHandler.cs`. Session 6 is the second-largest session in the plan after #15.
+- **Bug 14 is real work, not a cascade.** Plan ~150 lines across `ModuleProcessor.cs`, `ClassDecl.cs`, `ClassHandler.cs`. Session 6 is the second-largest remaining session after #15.
 - **Bug 15 general path is uncharted**: research agent's RF-specific analysis was partially wrong (Codex correction). The actual fix targets two fallback sites in `MethodSignature.cs` plus the `Optional<T>` path in `BoundGenericsHandler.cs`. Worker should message back if the fix requires type-database schema changes.
 - **Zero-regression gate is tight on #15**: 11 frameworks change shape. The fix needs cross-framework BindingTests confirmation, not just RF. Lock the counting query first.
-- **JSON field name for any registry edit is `module`, not `name`** (Codex correction). Per `TypeDatabase/AppleFrameworkRegistry.cs:41` and `Data/apple-frameworks.schema.json:14`. Applies to options A/D for Bug 10 if either lands as a JSON edit.
+- **Bug 3 init-site residual**: Session 3 closed the `replaceAll`/`append`/`insert(contentsOf:)` family but a narrower init-site constraint pattern survives (4 `no exact matches in call to initializer`, 4 `SampledAnimation` same-type constraints, plus 2+2 EveryProtocol/MaterialFunction conformance failures that Session 5 should sweep). Re-evaluate after Session 5 — a dedicated init-site session may not be needed.
 
 ### Background (preserved from earlier passes)
 

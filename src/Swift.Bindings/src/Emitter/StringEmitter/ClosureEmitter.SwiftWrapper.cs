@@ -23,7 +23,7 @@ public static partial class ClosureEmitter
         var paramTypes = new List<string>();
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            paramTypes.Add(GetSwiftCdeclParamType(arg, closureHandler));
+            paramTypes.AddRange(GetSwiftCdeclParamTypesForArg(arg, closureHandler));
         }
 
         // For throwing closures: add error out parameter
@@ -51,6 +51,27 @@ public static partial class ClosureEmitter
     /// </summary>
     private static string GetSwiftCdeclParamType(TypeSpec typeSpec, ClosureHandler? closureHandler = null)
         => SwiftBuilder.GetSwiftCdeclParamType(typeSpec, closureHandler);
+
+    /// <summary>
+    /// Returns the Swift @convention(c) parameter types for a closure argument, expanding
+    /// buffer-pointer types into a (pointer, count) pair. UnsafeRawBufferPointer is a 16-byte
+    /// struct (baseAddress + count) that cannot cross the @convention(c) boundary intact —
+    /// the callback callee must split it into two separate scalar parameters. All other
+    /// types map 1:1 to a single cdecl param via <see cref="GetSwiftCdeclParamType"/>.
+    /// </summary>
+    private static IEnumerable<string> GetSwiftCdeclParamTypesForArg(TypeSpec arg, ClosureHandler closureHandler)
+    {
+        if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg) && arg is NamedTypeSpec named)
+        {
+            var ptrType = named.Name == "Swift.UnsafeMutableRawBufferPointer"
+                ? "UnsafeMutableRawPointer?"
+                : "UnsafeRawPointer?";
+            yield return ptrType;
+            yield return "Int";
+            yield break;
+        }
+        yield return GetSwiftCdeclParamType(arg, closureHandler);
+    }
 
     /// <summary>
     /// Returns the Swift return type for a Cdecl function pointer.
@@ -255,6 +276,13 @@ public static partial class ClosureEmitter
             {
                 // `any Protocol`: heap-allocated ExistentialContainer pointer
                 cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: 16-byte struct
+                // (baseAddress + count) decomposed at the @convention(c) boundary.
+                cdeclArgs.Add($"p{argIndex}.baseAddress");
+                cdeclArgs.Add($"p{argIndex}.count");
             }
             else
             {

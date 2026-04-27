@@ -36,8 +36,18 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
-            parameters.Add($"{paramType} arg{argIndex}");
+            // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: split into (ptr, len)
+            // pair to match the Swift @convention(c) decomposition. Mirrors EmitEscapingClosureCallback.
+            if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                parameters.Add($"void* arg{argIndex}");
+                parameters.Add($"nint arg{argIndex}_len");
+            }
+            else
+            {
+                var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
+                parameters.Add($"{paramType} arg{argIndex}");
+            }
             argTypes.Add(arg);
             argIndex++;
         }
@@ -245,7 +255,15 @@ public static partial class ClosureEmitter
         var types = new List<string> { "void*" }; // indirect result buffer
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl: true));
+            if (MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                types.Add("void*");
+                types.Add("nint");
+            }
+            else
+            {
+                types.Add(GetCallbackParameterType(arg, closureHandler, useCdecl: true));
+            }
         }
         types.Add("void"); // indirect return callbacks always return void
         return $"delegate* unmanaged[Cdecl]<{string.Join(", ", types)}>";

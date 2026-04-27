@@ -35,8 +35,19 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
-            parameters.Add($"{paramType} arg{argIndex}");
+            // UnsafeRawBufferPointer / UnsafeMutableRawBufferPointer: split into (ptr, len)
+            // pair to match the Swift @convention(c) decomposition. Mirrors the expansion in
+            // EmitEscapingClosureCallback and BuildThrowingClosureCallbackFunctionPointerType.
+            if (useCdecl && MarshallingHelpers.IsAnyUnsafeRawBufferPointer(arg))
+            {
+                parameters.Add($"void* arg{argIndex}");
+                parameters.Add($"nint arg{argIndex}_len");
+            }
+            else
+            {
+                var paramType = GetCallbackParameterType(arg, closureHandler, useCdecl);
+                parameters.Add($"{paramType} arg{argIndex}");
+            }
             argTypes.Add(arg);
             argIndex++;
         }
@@ -95,6 +106,12 @@ public static partial class ClosureEmitter
             {
                 csWriter.WriteLine($"{indent}    return default; // Return default value on error");
             }
+        }
+        else
+        {
+            // Void-return: explicit early return so we don't fall through
+            // to the success block and clobber *errorOut with default.
+            csWriter.WriteLine($"{indent}    return;");
         }
 
         csWriter.WriteLines($$"""
