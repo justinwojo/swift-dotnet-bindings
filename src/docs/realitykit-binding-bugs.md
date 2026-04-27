@@ -104,7 +104,7 @@ public func _sbw_method_0E5126F9(_ callbackFuncPtr: UnsafeMutableRawPointer?, _ 
 
 `withoutActuallyEscaping` was not needed — Swift permits passing an `@escaping` closure where a non-escaping one is expected (the generated adapter is always escaping because it captures `cdecl_callback` and `callbackContext`).
 
-## 5. `EveryProtocol` extension declarations don't satisfy non-`Self`-mentioning protocol requirements
+## 5. `EveryProtocol` extension declarations don't satisfy non-`Self`-mentioning protocol requirements — **FIXED for static-only protocols (Session 5)**
 
 The generator emits an `EveryProtocol` placeholder type and tries to extend it to conform to bound protocols — but for protocols whose requirements include `static var` properties (no `Self` mention), the bridge stubs in the extension don't actually satisfy the requirement. Swift then rejects the conformance.
 
@@ -117,7 +117,13 @@ extension EveryProtocol: RealityFoundation.RealityCoordinateSpace {
 }
 ```
 
-The body acknowledges the case via `fatalError`, but the conformance still fails to type-check at compile time. Either the conformance needs to be skipped entirely for these protocols (and the corresponding C# binding marked unsupported), or the generator needs a different shape for "static-only existential" cases.
+The body acknowledges the case via `fatalError`, but the conformance still fails to type-check at compile time.
+
+**Fix applied (Session 5, option a — skip conformance):** `EveryProtocolEmitter.EmitProtocolConformance` now early-returns with a `StaticPropertyRequirements` skip reason whenever a protocol's requirement set is exclusively static-property-only. The matching `WillSkipConformance` PreScan branch records the same skip so transitive `genericSig` constraint propagation through Pass 2 sees it too. The C# interface (`IRealityCoordinateSpace`, `IBug5StaticOnlyProtocol`, …) is still emitted at the type-emit site; only the proxy class — which would have needed the witness-table getter Swift refused to compile — is suppressed via the existing `EveryProtocolConformanceSkipped` propagation path in `ProtocolHandler`. Composition / empty-marker protocols continue through the empty-extension path unchanged.
+
+**Post-Session-5 RealityFoundation iOS wrapper-error histogram** (44 raw lines / ~22 occurrences / 12 unique signatures, down from 80 raw / 17 unique post-Session-3): the two `RealityCoordinateSpace` conformance failures are gone. The two `MaterialFunction` failures collapse to one — and the surviving error is a different root cause: Swift now reports `protocol requires property '__linkSPI' with type 'Bool'`, an `@_spi` requirement that the generator's ABI parser doesn't see. That gap is **not Bug #5**; track it separately as an SPI-visibility issue. Bug-1 availability errors and the Bug-3 `SampledAnimation` init-site residuals are unchanged.
+
+End-to-end coverage is in `BindingTests/Sources/SwiftBindingsTestLib/Protocols/StaticOnlyProtocolSkipping.swift` + `BindingTests/RuntimeTestsApp/Protocols/StaticOnlyProtocolSkipTests.cs`: a static-var-only protocol fixture (`Bug5StaticOnlyProtocol`) builds end-to-end, the conformer/consumer round-trip the static values via instance methods, and the proxy class is asserted absent from the generated assembly. Wrapper compile success is itself the regression detector.
 
 ## 6. Noncopyable parameter ownership not declared — **FIXED (Session 1, `8ee402c8`)**
 
@@ -419,11 +425,11 @@ Four viable approaches; pick before Session 2 starts:
 | 2 | **#10 wrapper-import handling** | 10 | **DONE** (`e475c22e`) | `ModuleHandler.cs::EmitSwiftImports` (option D — `compileImportModule` field added to `apple-frameworks.json` + reader). | sim |
 | 3 | **#3 collection-template re-resolution** | 3 | **DONE** (`3fefcf0e` + `22f0f9fc`) — narrow init-site residual remains (see Bug 3 section) | `ConcreteProtocolSpecializationEmitter.cs`, `TypeRecord` (`ProtocolConformances`), module-database XML round-trip | sim |
 | 4 | **#4 closure-buffer adapter** | 4 | **DONE** | `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs` (split `UnsafeRawBufferPointer` into `(baseAddress, count)` at the C-ABI boundary) | sim + device |
-| 5 | **#5 EveryProtocol witness skip** | 5 | open | `EveryProtocolEmitter.cs` | sim + device (witness-table machinery) |
+| 5 | **#5 EveryProtocol witness skip** | 5 | **DONE** — see Bug 5 section for post-fix histogram | `EveryProtocolEmitter.cs` (`EmitProtocolConformance` + `WillSkipConformance`), BindingTests fixture, EveryProtocolEmitterTests + ProtocolConformanceCacheTests | sim + device |
 | 6 | **#14 same-module class inheritance** | 14 | open | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs` | sim + device |
 | 7 | **#15 general nullable-class fix** | 15 (covers RF + 9 other frameworks) | open | `Emitter/StringEmitter/Handler/MethodSignature.cs` (both fallback sites: 539 accessor, 556 bound-generic), `Marshaler/Projection/TypeProjectionFactory.cs`, `Marshaler/BoundGenericsHandler.cs` | sim + device |
 
-**Sessions 1–4 done; 3 sessions remaining** (5, 6, 7), all largely independent and parallelizable via worktrees.
+**Sessions 1–5 done; 2 sessions remaining** (6, 7), all largely independent and parallelizable via worktrees.
 
 **Why this ordering, briefly:**
 - Sessions 4, 5 are independent architectural fixes; each could split if the worker hits unexpected complexity.
@@ -442,7 +448,7 @@ Four viable approaches; pick before Session 2 starts:
 - **Bug 14 is real work, not a cascade.** Plan ~150 lines across `ModuleProcessor.cs`, `ClassDecl.cs`, `ClassHandler.cs`. Session 6 is the second-largest remaining session after #15.
 - **Bug 15 general path is uncharted**: research agent's RF-specific analysis was partially wrong (Codex correction). The actual fix targets two fallback sites in `MethodSignature.cs` plus the `Optional<T>` path in `BoundGenericsHandler.cs`. Worker should message back if the fix requires type-database schema changes.
 - **Zero-regression gate is tight on #15**: 11 frameworks change shape. The fix needs cross-framework BindingTests confirmation, not just RF. Lock the counting query first.
-- **Bug 3 init-site residual**: Session 3 closed the `replaceAll`/`append`/`insert(contentsOf:)` family but a narrower init-site constraint pattern survives (4 `no exact matches in call to initializer`, 4 `SampledAnimation` same-type constraints, plus 2+2 EveryProtocol/MaterialFunction conformance failures that Session 5 should sweep). Re-evaluate after Session 5 — a dedicated init-site session may not be needed.
+- **Bug 3 init-site residual**: Session 3 closed the `replaceAll`/`append`/`insert(contentsOf:)` family but a narrower init-site constraint pattern survives. Post-Session-5 status: the `RealityCoordinateSpace` EveryProtocol-conformance pair is gone, the `MaterialFunction` pair collapses to one residual error driven by an `@_spi` member (separate root cause — track as an SPI-visibility issue, not Bug #3). The 4 `no exact matches in call to initializer` and 2+2 `SampledAnimation` same-type constraint errors remain. Reassess whether a dedicated init-site session is still warranted.
 
 ### Background (preserved from earlier passes)
 

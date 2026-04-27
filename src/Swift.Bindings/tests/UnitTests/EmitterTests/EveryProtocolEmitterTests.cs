@@ -1866,14 +1866,20 @@ public class EveryProtocolEmitterTests
     #region Static/Composition Protocol Conformance Tests
 
     [Fact]
-    public void EmitProtocolConformance_StaticOnlyProtocol_EmitsStubConformance()
+    public void EmitProtocolConformance_StaticOnlyProtocol_SkipsConformance()
     {
+        // Bug #5: protocols whose only requirements are `static var` properties cannot
+        // be reliably satisfied by `fatalError()` stub bodies — Swift's type-checker
+        // rejects the conformance for protocols with constrained static-var requirements
+        // (e.g. RealityFoundation.RealityCoordinateSpace, MaterialFunction). Skip the
+        // conformance entirely; ProtocolHandler propagates the suppression to the C#
+        // proxy via the existing EveryProtocolConformanceSkipped path.
         var protocol = CreateStaticOnlyProtocol("SafeEnumDecodable");
 
         var output = EmitConformance(protocol);
 
-        Assert.Contains("extension EveryProtocol: TestModule.SafeEnumDecodable", output);
-        Assert.Contains("fatalError", output);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+        Assert.DoesNotContain("fatalError", output);
     }
 
     [Fact]

@@ -95,6 +95,58 @@ public class ProtocolConformanceCacheTests
     }
 
     [Fact]
+    public void EmitProtocolConformance_StaticPropertyOnly_SkipsWithStaticPropertyRequirementsReason()
+    {
+        // Bug #5: protocols whose only requirements are `static var` properties cannot
+        // be satisfied by `fatalError()` stubs — Swift type-checks the conformance and
+        // rejects it for protocols with constrained static-var requirements
+        // (RealityFoundation.RealityCoordinateSpace, MaterialFunction). Skip explicitly.
+        var (emitter, ctx) = CreateEmitterWithContext();
+        var protocolDecl = CreateProtocolWithOnlyStaticProperty("StaticPropProto");
+
+        var output = new System.IO.StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(output), protocolDecl);
+
+        Assert.False(ctx.WasConformanceEmitted("StaticPropProto"));
+        Assert.Equal("StaticPropertyRequirements", ctx.ConformanceDecisions["StaticPropProto"].SkipReason);
+        Assert.DoesNotContain("extension EveryProtocol", output.ToString());
+        Assert.DoesNotContain("fatalError", output.ToString());
+    }
+
+    private static ProtocolDecl CreateProtocolWithOnlyStaticProperty(string name)
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            HasSelfRequirement = false,
+            IsClassBound = false,
+            Properties = new List<PropertyDecl>
+            {
+                new PropertyDecl
+                {
+                    Name = "defaultValue",
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    HasStorage = false,
+                    IsStatic = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+    }
+
+    [Fact]
     public void EmitProtocolConformance_EmptyMarkerProtocol_EmitsTrivialConformance()
     {
         var (emitter, ctx) = CreateEmitterWithContext();

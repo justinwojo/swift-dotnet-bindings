@@ -751,6 +751,14 @@ public class EveryProtocolEmitter
         if (protocolDecl.Methods.Any(m => !m.IsConstructor && m.MethodType == MethodType.Static))
             return true;
 
+        // Bug #5: protocols whose only requirements are `static var` properties are skipped.
+        // `fatalError()` stubs don't reliably satisfy Swift's type-checker for protocols whose
+        // static-var requirements carry inherited-protocol or same-type constraints
+        // (RealityFoundation.RealityCoordinateSpace, MaterialFunction). PreScan records the
+        // skip so transitive `genericSig` constraint propagation through Pass 2 sees it too.
+        if (!hasImplementableMembers && protocolDecl.Properties.Any(p => p.IsStatic))
+            return true;
+
         return false;
     }
 
@@ -931,24 +939,36 @@ public class EveryProtocolEmitter
         }
         else
         {
-            // Static-only or composition protocol: emit conformance with stub implementations
-            // for static property requirements. Instance member vtable dispatch is not needed.
+            // Skip protocols whose only requirements are static properties.
+            // Earlier emission attempted to satisfy them with `fatalError()` stub bodies,
+            // but Swift's type-checker rejects the conformance: the static property
+            // declaration's stated type (e.g. `static var scene: SceneRealityCoordinateSpace`)
+            // must be satisfied by a witness whose type matches, and Apple's framework
+            // protocols (RealityCoordinateSpace, MaterialFunction, etc.) commonly bake in
+            // additional same-type / inherited-protocol constraints that EveryProtocol
+            // cannot satisfy via a Never-returning stub. Skipping the conformance lets
+            // ProtocolHandler suppress the C# proxy class via the existing
+            // `EveryProtocolConformanceSkipped` propagation path.
+            //
+            // The `!hasImplementableMembers` clause is redundant here (we're already in
+            // the else branch) but mirrors `WillSkipConformance` exactly so a future
+            // refactor that flattens the if/else can't accidentally fire this gate when
+            // the protocol has dispatchable instance members.
+            if (!hasImplementableMembers && protocolDecl.Properties.Any(p => p.IsStatic))
+            {
+                _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has static property requirements (fatalError stubs don't reliably satisfy Swift type-checker for protocols with constrained static-var requirements)");
+                RecordSkip("StaticPropertyRequirements");
+                return;
+            }
+
+            // Composition / empty marker protocol: emit a trivial empty conformance so
+            // C# can construct existential containers via the witness-table getter below.
             var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
-            writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name} (static/composition protocol)");
+            writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name} (composition/marker protocol)");
             var staticAvailAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                 protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(writer, staticAvailAnnotations);
             writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
-            // Emit stubs for static property requirements.
-            // fatalError() returns Never, which satisfies any return type requirement.
-            foreach (var prop in protocolDecl.Properties.Where(p => p.IsStatic))
-            {
-                var propType = ExistentialBypassEmitter.RenderSwiftTypeSpec(prop.SwiftTypeSpec);
-                // Self-typed (τ_0_0) static properties: use EveryProtocol as the concrete Self type
-                if (propType.Contains("τ_0_0") || propType == "Any")
-                    propType = "EveryProtocol";
-                writer.WriteLine($"    public static var {prop.Name}: {propType} {{ fatalError(\"EveryProtocol does not support static protocol requirements\") }}");
-            }
             writer.WriteLine("}");
             writer.WriteLine();
         }

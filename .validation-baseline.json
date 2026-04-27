@@ -1,5 +1,5 @@
 {
-  "git_sha": "22f0f9fc",
+  "git_sha": "5e6f2c0b",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -257,7 +257,7 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21575,
+        "lines": 21272,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,7 +278,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59688,
+        "lines": 59386,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -873,7 +873,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 28,
-        "lines": 27439,
+        "lines": 27133,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -895,7 +895,7 @@
   },
   "skip_metrics": {
     "total_emitted_members": 18792,
-    "total_skipped_members": 3720,
+    "total_skipped_members": 3723,
     "skip_rate_pct": 16.5,
     "skip_reasons": {
       "ModuleInternal": 750,
@@ -903,7 +903,7 @@
       "UnsupportedSignature": 613,
       "GenericProtocolConstraint": 453,
       "AnyTypeFallback": 429,
-      "EveryProtocolConformanceSkipped": 244,
+      "EveryProtocolConformanceSkipped": 247,
       "UnsupportedClosure": 188,
       "UnsupportedType": 177,
       "SwiftUIConstraint": 128,
@@ -922,13 +922,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1717,
+      "pass": 1722,
       "fail": 0,
       "skip": 51,
       "crash": 0
     },
     "device": {
-      "pass": 1729,
+      "pass": 1734,
       "fail": 0,
       "skip": 39,
       "crash": 0
