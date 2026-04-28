@@ -31,6 +31,21 @@
          generated P/Invoke methods with CallConvSwift cause ILC Bus error.
          Generated types' NewFromPayload factories are registered at runtime via
          NewFromPayloadDispatcher when accessed through constrained code paths. -->
+
+    <!-- Protocol proxy types referenced only by reflection in the Bug16/Bug17
+         skip-tests. SwiftBindingsTestLib.cs is `<Compile Include>`'d directly
+         into RuntimeTestsApp.dll, so these roots live in the RuntimeTestsApp
+         assembly block, not a separate SwiftBindingsTestLib block (that would
+         trip IL2007 — no such assembly exists at link time).
+
+         We deliberately do NOT use `typeof(Proxy)` or `[DynamicDependency(typeof(Proxy))]`
+         in the test bodies: under Mono JIT the resulting metadata edge poisons
+         the generic-context init graph and crashes
+         `OptionalGenericHolder<LargeValueStruct>.GetPeek` inside
+         `mini_init_method_rgctx`. A descriptor-only root keeps NativeAOT trim
+         happy without introducing the Mono-side compile-time edge. -->
+    <type fullname="SwiftBindingsTestLib.SwiftInterop.Bug16SpiRequirementProtocolProxy" preserve="all" />
+    <type fullname="SwiftBindingsTestLib.SwiftInterop.Bug17HiddenRequirementProtocolProxy" preserve="all" />
   </assembly>
 
   <!-- Preserve Swift.Runtime ISwiftObject type methods for NativeAOT reflection fallback.

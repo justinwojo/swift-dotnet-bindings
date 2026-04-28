@@ -64,11 +64,14 @@ public class SpiRequirementProtocolSkipTests : TestBase
         // swiftinterface, neither HasSuppressedRequiredMember nor
         // HasUnsatisfiedHiddenRequirements fires for this protocol. The proxy
         // (and its IBug16SpiRequirementProtocol witness for `publicLabel`)
-        // must therefore be emitted normally.
-        // Proxies live in the SwiftInterop sub-namespace.
+        // must therefore be emitted normally. The proxy is rooted in
+        // TrimmerRoots.xml so this reflection lookup also returns non-null
+        // on NativeAOT — see the comment there for why we don't use
+        // `[DynamicDependency]` or a body-level `typeof(Proxy)` to keep the
+        // proxy alive.
         var assembly = typeof(Bug16SpiRequirementConformer).Assembly;
         var proxyType = assembly.GetType("SwiftBindingsTestLib.SwiftInterop.Bug16SpiRequirementProtocolProxy");
-        AssertTrue(proxyType is not null,
+        AssertNotNull(proxyType,
             "Bug16SpiRequirementProtocolProxy MUST be emitted — the @_spi requirement is invisible to the parser, so the gate cannot fire and the proxy is witnessed normally");
         TestLogger.Info("Bug16SpiRequirementProtocolProxy correctly present in generated bindings");
     }

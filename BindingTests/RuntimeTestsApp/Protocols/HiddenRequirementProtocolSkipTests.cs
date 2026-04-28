@@ -66,11 +66,13 @@ public class HiddenRequirementProtocolSkipTests : TestBase
         // The gate must NOT fire here: the ABI carries `__linkSPI`, so the
         // proxy can be witnessed normally. (The MaterialFunction case where the
         // proxy IS suppressed is covered by `nuke validate` against the
-        // RealityFoundation framework.)
-        // Proxies live in the SwiftInterop sub-namespace.
+        // RealityFoundation framework.) The proxy is rooted in TrimmerRoots.xml
+        // so this reflection lookup also returns non-null on NativeAOT — see
+        // the comment there for why we don't use `[DynamicDependency]` or a
+        // body-level `typeof(Proxy)` to keep the proxy alive.
         var assembly = typeof(Bug17HiddenRequirementConformer).Assembly;
         var proxyType = assembly.GetType("SwiftBindingsTestLib.SwiftInterop.Bug17HiddenRequirementProtocolProxy");
-        AssertTrue(proxyType is not null,
+        AssertNotNull(proxyType,
             "Bug17HiddenRequirementProtocolProxy MUST be emitted — when the __-prefixed requirement is present in the ABI, the gate must not suppress the proxy");
         TestLogger.Info("Bug17HiddenRequirementProtocolProxy correctly present in generated bindings");
     }
