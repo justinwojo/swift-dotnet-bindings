@@ -229,7 +229,7 @@ namespace BindingsGeneration
             HashSet<string>? publicTypeNames = null;
             HashSet<string>? mainActorTypes = null;
             HashSet<string>? customActorTypes = null;
-            HashSet<string>? customActorIsolatedTypes = null;
+            Dictionary<string, string>? customActorIsolatorMap = null;
             HashSet<string>? actorIsolatedMembers = null;
             HashSet<string>? mainActorIsolatedMembers = null;
             HashSet<string>? nonisolatedMembers = null;
@@ -291,10 +291,10 @@ namespace BindingsGeneration
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} custom actor type names from swiftinterface", customActorTypes.Count);
 
-                customActorIsolatedTypes = TryParseSwiftInterface("custom-actor-isolated types",
-                    () => SwiftInterfaceAccessParser.GetCustomActorIsolatedTypes(swiftInterfacePath, customActorTypes),
-                    () => new HashSet<string>(), logger, ref parseFailures);
-                logger.LogInformation("Loaded {Count} custom-actor-isolated type names from swiftinterface", customActorIsolatedTypes.Count);
+                customActorIsolatorMap = TryParseSwiftInterface("custom-actor-isolated types",
+                    () => SwiftInterfaceAccessParser.GetCustomActorIsolatorMap(swiftInterfacePath, customActorTypes),
+                    () => new Dictionary<string, string>(), logger, ref parseFailures);
+                logger.LogInformation("Loaded {Count} custom-actor-isolated type names from swiftinterface", customActorIsolatorMap.Count);
 
                 (actorIsolatedMembers, mainActorIsolatedMembers) = TryParseSwiftInterface(
                     "actor-isolated members",
@@ -373,7 +373,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, enumCaseRawValues, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers, conventionCProtocols, customActorIsolatedTypes, hiddenRequirementProtocols);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, enumCaseRawValues, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers, conventionCProtocols, customActorIsolatorMap, hiddenRequirementProtocols);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);

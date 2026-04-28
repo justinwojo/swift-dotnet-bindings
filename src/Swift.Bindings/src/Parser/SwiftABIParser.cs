@@ -233,8 +233,11 @@ namespace BindingsGeneration
             if (_customActorTypes != null && _customActorTypes.Contains(qualifiedPath))
                 typeDecl.IsCustomActor = true;
 
-            if (_customActorIsolatedTypes != null && _customActorIsolatedTypes.Contains(qualifiedPath))
+            if (_customActorIsolatorMap != null && _customActorIsolatorMap.TryGetValue(qualifiedPath, out var isolatorName))
+            {
                 typeDecl.IsCustomActorIsolated = true;
+                typeDecl.CustomActorIsolatorName = isolatorName;
+            }
         }
 
         /// <summary>
@@ -625,12 +628,16 @@ namespace BindingsGeneration
         private readonly HashSet<string>? _customActorTypes;
 
         /// <summary>
-        /// Optional set of qualified type paths annotated with a custom global actor
-        /// (e.g., <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
+        /// Optional map from qualified type path → matched actor short name for types
+        /// annotated with a custom global actor (e.g.,
+        /// <c>{ "ImagePipeline" → "ImagePipelineActor" }</c> for
+        /// <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
         /// <see cref="_customActorTypes"/>, which holds the <c>actor X { }</c> keyword form.
-        /// Members on these types implicitly inherit the actor's isolation.
+        /// Members on these types implicitly inherit the actor's isolation, and the emitter
+        /// uses the value (the actor's leaf identifier) to build the
+        /// <c>&lt;Actor&gt;.shared.assumeIsolated</c> hop in the constructor wrapper.
         /// </summary>
-        private readonly HashSet<string>? _customActorIsolatedTypes;
+        private readonly IReadOnlyDictionary<string, string>? _customActorIsolatorMap;
 
         /// <summary>
         /// Optional set of "TypeName.memberName" keys for actor-isolated members (both @MainActor and custom actors).
@@ -727,7 +734,7 @@ namespace BindingsGeneration
             HashSet<string>? mainActorIsolatedMembers = null,
             HashSet<string>? variadicMembers = null,
             HashSet<string>? conventionCProtocols = null,
-            HashSet<string>? customActorIsolatedTypes = null,
+            IReadOnlyDictionary<string, string>? customActorIsolatorMap = null,
             Dictionary<string, HashSet<string>>? hiddenRequirementProtocols = null)
         {
             _filePath = filePath;
@@ -753,7 +760,7 @@ namespace BindingsGeneration
             _mainActorIsolatedMembers = mainActorIsolatedMembers;
             _variadicMembers = variadicMembers;
             _conventionCProtocols = conventionCProtocols;
-            _customActorIsolatedTypes = customActorIsolatedTypes;
+            _customActorIsolatorMap = customActorIsolatorMap;
             _hiddenRequirementProtocols = hiddenRequirementProtocols;
 
             string jsonContent = File.ReadAllText(_filePath);

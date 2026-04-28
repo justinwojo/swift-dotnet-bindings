@@ -1231,6 +1231,169 @@ public class WrapperConsistencyTests
 
     #endregion
 
+    #region SWIFTBIND022 — Custom Global Actor Resolution
+
+    [Fact]
+    public void TryResolveCustomActorExecutor_SameModuleActor_Resolves()
+    {
+        // Standard @globalActor pattern: a sibling actor in the same module with a
+        // `static var shared` singleton. When the resolver succeeds, the SWIFTBIND022
+        // narrowing keeps the constructor in the C# binding (calling Swift's native
+        // init via CallConvSwift) instead of triggering the wholesale skip.
+        var moduleDecl = CreateModuleDecl();
+        var actorDecl = CreateActorDecl("BindingsTestGlobalActor", moduleDecl);
+        var isolatedClass = CreateClassDecl("GlobalActorIsolatedClass", moduleDecl);
+        isolatedClass.IsCustomActorIsolated = true;
+        isolatedClass.CustomActorIsolatorName = "BindingsTestGlobalActor";
+
+        Assert.True(WrapperValidation.TryResolveCustomActorExecutor(isolatedClass, out var actorRef));
+        Assert.Equal("TestModule.BindingsTestGlobalActor", actorRef);
+    }
+
+    [Fact]
+    public void TryResolveCustomActorExecutor_MissingActor_FallsBack()
+    {
+        // Imported global actor whose TypeDecl isn't in the bound module. The resolver
+        // must return false so MethodHandler / WrapperValidation skip the constructor
+        // wholesale via SWIFTBIND022 instead of emitting a constructor that calls into
+        // an unreachable actor's executor.
+        var moduleDecl = CreateModuleDecl();
+        var isolatedClass = CreateClassDecl("ImagePrefetcher", moduleDecl);
+        isolatedClass.IsCustomActorIsolated = true;
+        isolatedClass.CustomActorIsolatorName = "ImagePipelineActor";
+
+        Assert.False(WrapperValidation.TryResolveCustomActorExecutor(isolatedClass, out var actorRef));
+        Assert.Equal(string.Empty, actorRef);
+    }
+
+    [Fact]
+    public void TryResolveCustomActorExecutor_ActorWithoutSharedSingleton_FallsBack()
+    {
+        // An actor type that lacks the `static var shared` accessor isn't a usable
+        // @globalActor — there's no canonical singleton to call into. Fall back to the
+        // SWIFTBIND022 wholesale skip.
+        var moduleDecl = CreateModuleDecl();
+        var actorDecl = CreateClassDecl("NotAGlobalActor", moduleDecl);
+        actorDecl.IsCustomActor = true;
+        // Deliberately no `shared` property: HasSingletonPattern is false.
+
+        var isolatedClass = CreateClassDecl("Isolated", moduleDecl);
+        isolatedClass.IsCustomActorIsolated = true;
+        isolatedClass.CustomActorIsolatorName = "NotAGlobalActor";
+
+        Assert.False(WrapperValidation.TryResolveCustomActorExecutor(isolatedClass, out _));
+    }
+
+    [Fact]
+    public void TryResolveCustomActorExecutor_ResolverNameMissing_FallsBack()
+    {
+        // Belt-and-suspenders: a TypeDecl flagged IsCustomActorIsolated but with no
+        // CustomActorIsolatorName recorded (e.g., from a code path that pre-dates the
+        // map plumbing) must still fall through to the SWIFTBIND022 skip.
+        var moduleDecl = CreateModuleDecl();
+        var isolatedClass = CreateClassDecl("Isolated", moduleDecl);
+        isolatedClass.IsCustomActorIsolated = true;
+        // CustomActorIsolatorName is null.
+
+        Assert.False(WrapperValidation.TryResolveCustomActorExecutor(isolatedClass, out _));
+    }
+
+    [Fact]
+    public void CanEmitMember_CustomGlobalActor_ConstructorAcceptsWhenActorResolves()
+    {
+        // The SWIFTBIND022 narrowing must let CanEmitMember return true for a
+        // custom-global-actor-isolated constructor when the actor TypeDecl is reachable
+        // in the bound module — the constructor stays in the C# binding (calling Swift's
+        // native init via CallConvSwift) instead of being skipped wholesale. The
+        // complementary "actor not resolvable → fallback skip" case is covered by
+        // CanEmitMember_CustomGlobalActor_ConstructorRejectsWhenActorMissing below.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var actorDecl = CreateActorDecl("BindingsTestGlobalActor", moduleDecl);
+        var parentDecl = CreateClassDecl("GlobalActorIsolatedClass", moduleDecl);
+        parentDecl.IsCustomActorIsolated = true;
+        parentDecl.CustomActorIsolatorName = "BindingsTestGlobalActor";
+
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Constructor),
+            "CanEmitMember must accept a custom-global-actor-isolated constructor when the actor is resolvable.");
+    }
+
+    [Fact]
+    public void CanEmitMember_CustomGlobalActor_ConstructorRejectsWhenActorMissing()
+    {
+        // Fallback path: the actor isolating this type isn't in the bound module(s).
+        // The constructor would call into an unreachable actor's executor at runtime,
+        // so SWIFTBIND022 skips it wholesale.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ImagePrefetcher", moduleDecl);
+        parentDecl.IsCustomActorIsolated = true;
+        parentDecl.CustomActorIsolatorName = "ImagePipelineActor"; // not a TypeDecl in this module
+
+        var ctor = CreateConstructor("init", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(ctor, typeDb);
+
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor),
+            "CanEmitMember must still skip the constructor (SWIFTBIND022 fallback) when the actor isn't reachable.");
+    }
+
+    [Fact]
+    public void TryResolveCustomActorExecutor_NestedActor_Resolves()
+    {
+        // Nested @globalActor declarations (e.g., `extension Outer { @globalActor public
+        // actor Inner { … } }`) live inside another type's `Types` list, not the module's
+        // top-level type list. The resolver's recursive lookup must find them.
+        var (moduleDecl, _) = CreateTestEnvironment("OuterContainer");
+
+        var outerDecl = CreateClassDecl("OuterContainer", moduleDecl);
+        var nestedActor = CreateActorDecl("InnerActor", moduleDecl);
+        // Move the actor from module-level into the outer's nested types so the
+        // module's `Types` no longer reaches it directly — only the recursive walk does.
+        moduleDecl.Types.Remove(nestedActor);
+        outerDecl.Types.Add(nestedActor);
+        nestedActor.ParentDecl = outerDecl;
+
+        var isolatedClass = CreateClassDecl("IsolatedClass", moduleDecl);
+        isolatedClass.IsCustomActorIsolated = true;
+        isolatedClass.CustomActorIsolatorName = "InnerActor";
+
+        Assert.True(WrapperValidation.TryResolveCustomActorExecutor(isolatedClass, out var actorRef),
+            "Resolver must walk nested Types to find a global actor declared inside another type.");
+        Assert.Equal("TestModule.InnerActor", actorRef);
+    }
+
+    /// <summary>
+    /// Helper: create a custom actor TypeDecl with the standard `static var shared` singleton.
+    /// Mirrors the @globalActor pattern (`@globalActor public actor Foo { public static let
+    /// shared = Foo() }`) so the resolver's `IsCustomActor` + `HasSingletonPattern` checks
+    /// both succeed.
+    /// </summary>
+    private static ClassDecl CreateActorDecl(string name, ModuleDecl moduleDecl)
+    {
+        var actorDecl = CreateClassDecl(name, moduleDecl);
+        actorDecl.IsCustomActor = true;
+        // HasSingletonPattern requires a static `shared` property whose SwiftTypeSpec
+        // name ends with the actor's Name (matches `static let shared: Self`).
+        actorDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "shared",
+            SwiftTypeSpec = new NamedTypeSpec($"TestModule.{name}"),
+            HasStorage = true,
+            IsStatic = true,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = actorDecl,
+            ModuleDecl = moduleDecl
+        });
+        return actorDecl;
+    }
+
+    #endregion
+
     #region Test Helpers
 
     private static MethodDecl CreateMethodWithGenericParam()

@@ -391,7 +391,7 @@ public static class SwiftInterfaceAccessParser
     /// path covers them when the actor is declared in the same swiftinterface.
     /// </summary>
     private static readonly Regex ImportedCustomActorAnnotationRegex = new(
-        @"@(?:\w+\.)+(?!MainActor\b)\w*Actor\b",
+        @"@(?:\w+\.)+(?!MainActor\b)(\w*Actor)\b",
         RegexOptions.Compiled);
 
     /// <summary>
@@ -410,8 +410,21 @@ public static class SwiftInterfaceAccessParser
     /// </summary>
     public static HashSet<string> GetCustomActorIsolatedTypes(
         string swiftInterfacePath, HashSet<string>? customActorTypeNames)
+        => new HashSet<string>(GetCustomActorIsolatorMap(swiftInterfacePath, customActorTypeNames).Keys);
+
+    /// <summary>
+    /// Same scan as <see cref="GetCustomActorIsolatedTypes"/>, but also records which actor
+    /// short name annotates each type. The returned map's keys are qualified type paths
+    /// (e.g., "ImagePrefetcher" or "Outer.ImageCache") and values are the matched actor's
+    /// leaf identifier (e.g., "ImagePipelineActor"). The constructor wrapper emitter uses
+    /// the value to build the <c>&lt;Actor&gt;.shared.assumeIsolated</c> hop; when the actor
+    /// short name doesn't resolve to a same-module actor TypeDecl, the emitter falls back
+    /// to the SWIFTBIND022 skip path.
+    /// </summary>
+    public static Dictionary<string, string> GetCustomActorIsolatorMap(
+        string swiftInterfacePath, HashSet<string>? customActorTypeNames)
     {
-        var result = new HashSet<string>();
+        var result = new Dictionary<string, string>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
@@ -428,12 +441,14 @@ public static class SwiftInterfaceAccessParser
 
         // Local-actor regex is built only when there are short names to escape; otherwise
         // remains null and matching falls through to ImportedCustomActorAnnotationRegex.
+        // The single capture group exposes the matched actor's leaf identifier so callers
+        // can build the `<Actor>.shared.assumeIsolated` hop without re-scanning the line.
         Regex? customActorRegex = null;
         if (shortNames.Count > 0)
         {
             var escapedNames = string.Join("|", shortNames.Select(Regex.Escape));
             customActorRegex = new Regex(
-                @"@(?:\w+\.)?(?:" + escapedNames + @")\b",
+                @"@(?:\w+\.)?(" + escapedNames + @")\b",
                 RegexOptions.Compiled);
         }
 
@@ -442,6 +457,7 @@ public static class SwiftInterfaceAccessParser
         var typeStack = new Stack<(string Name, int Depth)>();
         int braceDepth = 0;
         bool pendingCustomActor = false;
+        string? pendingActorName = null;
 
         foreach (var line in lines)
         {
@@ -449,10 +465,34 @@ public static class SwiftInterfaceAccessParser
 
             var (openBraces, closeBraces) = CountBraces(line);
 
-            bool localActorMatch = customActorRegex != null && customActorRegex.IsMatch(trimmed);
-            bool importedActorMatch = ImportedCustomActorAnnotationRegex.IsMatch(trimmed);
+            string? localActorName = null;
+            if (customActorRegex != null)
+            {
+                var localMatch = customActorRegex.Match(trimmed);
+                if (localMatch.Success)
+                    localActorName = localMatch.Groups[1].Value;
+            }
+
+            string? importedActorName = null;
+            {
+                var importedMatch = ImportedCustomActorAnnotationRegex.Match(trimmed);
+                if (importedMatch.Success)
+                    importedActorName = importedMatch.Groups[1].Value;
+            }
+
+            bool localActorMatch = localActorName != null;
+            bool importedActorMatch = importedActorName != null;
             bool hasCustomActor = pendingCustomActor || localActorMatch || importedActorMatch;
+
+            // Pick the effective actor name: a deferred annotation wins, else the local
+            // (same-module) match, else the imported qualified-name match. Local matches
+            // take priority over imported because a same-module actor is more reliably
+            // resolvable when the emitter looks it up later.
+            string? matchedActorName = pendingCustomActor ? pendingActorName
+                : localActorName ?? importedActorName;
+
             pendingCustomActor = false;
+            pendingActorName = null;
 
             // Annotation on its own line — defer until the next decl line. We must NOT defer
             // when the same line already carries a member declaration (func/init/var/let/...),
@@ -463,6 +503,7 @@ public static class SwiftInterfaceAccessParser
                 && !IsMemberDeclLine(trimmed))
             {
                 pendingCustomActor = true;
+                pendingActorName = matchedActorName;
                 braceDepth += openBraces - closeBraces;
                 while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
                     typeStack.Pop();
@@ -479,10 +520,13 @@ public static class SwiftInterfaceAccessParser
 
                 // Record only when the annotation lands on a non-actor type (the actor
                 // declaration itself is a separate concept tracked by GetCustomActorTypes).
-                if (hasCustomActor && !ActorDeclRegex.IsMatch(trimmed))
+                if (hasCustomActor && !ActorDeclRegex.IsMatch(trimmed) && matchedActorName != null)
                 {
                     var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
-                    result.Add(qualifiedPath);
+                    // First match wins — repeated `@Actor`-prefixed members on the same type
+                    // shouldn't overwrite the type-level annotation.
+                    if (!result.ContainsKey(qualifiedPath))
+                        result[qualifiedPath] = matchedActorName;
                 }
             }
 

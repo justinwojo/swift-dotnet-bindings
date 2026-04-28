@@ -96,32 +96,41 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
-            // Conservative skip for constructors on custom-global-actor-isolated types
-            // (e.g., @ImagePipelineActor class ImagePrefetcher). The synchronous @_cdecl wrapper
-            // can't safely call into a custom actor's executor, and any default-parameter
-            // overload helpers (`extension Type { static func _dbw_init_*() }`) inherit the
-            // actor's isolation. Skipping the constructor leaves the rest of the binding
-            // compilable; the type itself remains available via other (non-init) APIs.
-            // Removing this skip requires Option 2 (executor hop) — see roadmap.
+            // Constructors on custom-global-actor-isolated types (e.g., @ImagePipelineActor
+            // class ImagePrefetcher) reach C# only when the actor's TypeDecl is resolvable
+            // in the bound module: the constructor stays in the binding (calling Swift's
+            // native init via CallConvSwift, with the SB0001 [Obsolete] safety warning) and
+            // works at runtime when the caller is on the actor's executor — the documented
+            // Swift contract. When the actor isn't resolvable (cross-module imported actor
+            // without a bound TypeDecl, missing `static var shared` singleton) the
+            // constructor would call into an unreachable executor, so SWIFTBIND022 skips it
+            // wholesale. (Synchronous entry into custom global-actor isolation via a Swift
+            // @_cdecl thunk isn't viable in Swift 6 either — `<Actor>.shared.assumeIsolated`
+            // propagates instance-actor isolation, not the @<Actor> global-actor isolation
+            // the init requires, so the wrapper would fail to swiftc-compile.)
             if (methodEnv.ParentDecl is TypeDecl actorIsolatedParent &&
-                actorIsolatedParent.IsCustomActorIsolated)
+                actorIsolatedParent.IsCustomActorIsolated &&
+                !WrapperValidation.TryResolveCustomActorExecutor(actorIsolatedParent, out _))
             {
                 _logger.LogWarning(
-                    "SWIFTBIND022: Skipping constructor '{Name}' on '{ParentName}' because the parent type is isolated to a custom global actor. " +
-                    "Synchronous @_cdecl wrappers cannot safely cross actor boundaries; " +
-                    "construct '{ParentName}' from a Swift wrapper that hops to the actor, or expose a nonisolated factory.",
+                    "SWIFTBIND022 (fallback): Skipping constructor '{Name}' on '{ParentName}' — the custom global actor " +
+                    "isolating this type ('{Isolator}') is not reachable in the bound module(s). " +
+                    "Without a TypeDecl for the actor, the C# binding would call into an executor " +
+                    "it can't validate; the constructor is skipped while the rest of the binding stays compilable.",
                     methodEnv.MethodDecl.Name,
                     actorIsolatedParent.Name,
-                    actorIsolatedParent.Name);
+                    actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>");
                 ReportCollector.RecordMemberSkipped(
                     BindingItemKind.Method,
                     methodEnv.MethodDecl.Name,
                     methodEnv.MethodDecl.ParentDecl,
                     SkipReason.ActorIsolatedConstructor,
-                    $"Constructor on custom-global-actor-isolated type '{actorIsolatedParent.Name}' cannot be wrapped synchronously.");
+                    $"Constructor on custom-global-actor-isolated type '{actorIsolatedParent.Name}' " +
+                    $"skipped: actor '{actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>"}' " +
+                    "not resolvable in the bound module(s).");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
                     BindingItemKind.Method, SkipReason.ActorIsolatedConstructor,
-                    $"parent type '{actorIsolatedParent.Name}' is isolated to a custom global actor (SWIFTBIND022)");
+                    $"parent type '{actorIsolatedParent.Name}' is isolated to an unreachable global actor (SWIFTBIND022 fallback)");
                 return;
             }
 

@@ -74,25 +74,6 @@ Generator, SDK, runtime, and build infrastructure all properly support iOS, macO
 
 ---
 
-## Known SDK Bugs *(non-blocking, fix in next drop)*
-
-Bugs in `SwiftBindings.Sdk` itself. None of these block 1.0, but they should be cleaned up before / alongside the next SDK drop.
-
-### Actor-isolated constructors are skipped instead of bound
-
-**Current state:** When a Swift class is annotated with a custom global actor (e.g. `@ImagePipelineActor`, `@MainActor`), the synchronous `@_cdecl` init thunk can't safely call into the actor's executor. The parser detects the annotation, marks the parent `TypeDecl`, and emits SWIFTBIND022 — the constructor wrapper is conservatively skipped, the rest of the binding stays compilable, and the wrapper xcframework builds end-to-end. Confirmed against **Nuke 13.0.2** (`TaskQueue`, `ImagePipeline`, `ImagePrefetcher` inits skipped; library builds clean). Shipped in `8ac575e6` (2026-04-26).
-
-**What's still missing:** Skipped constructors mean consumers can't construct these types from C# at all. The full fix is to emit the `@_cdecl` thunk inside a matching actor-isolated wrapper that hops to the actor's executor synchronously via `assumeIsolated` against `unownedExecutor`. That depends on a metadata gap: the actor type itself can't resolve `Copyable` / `Escapable` / `Sendable` / `SendableMetatype` conformance descriptors from the `.swiftinterface` / ABI JSON, so its `unownedExecutor` accessor is dropped as `UnsupportedType`.
-
-**Impact:** Affects any library that adopts global-actor isolation on init / static-factory members. Nuke 13.x compiles but its actor-isolated types have no usable constructor surface from C#. Expected to spread as the Swift 6 ecosystem migrates.
-
-**Remaining work:**
-
-1. **Fix the actor-type metadata gap** so the actor's `unownedExecutor` is reachable through the type database. Self-contained parser / type-db bug.
-2. **Replace the SWIFTBIND022 skip with a real actor-isolated thunk** using `assumeIsolated` (or `withSerialExecutor`) against the resolved `unownedExecutor`. Depends on (1). Constructors work after this; SWIFTBIND022 stays as a fallback for actor types whose executor still can't be reached.
-
----
-
 ## Lower Priority / Post-1.0
 
 | Item | Notes |
@@ -100,7 +81,7 @@ Bugs in `SwiftBindings.Sdk` itself. None of these block 1.0, but they should be 
 | **Performance benchmarks** | Baseline P/Invoke overhead measurement. [`Future/interop-performance-validation-plan.md`](Future/interop-performance-validation-plan.md) |
 | **API snapshot tooling** | Detect API surface drift between versions. [`Future/api-snapshot-tooling.md`](Future/api-snapshot-tooling.md) |
 | **SwiftUI beyond current level** | Wait for consumer feedback before investing further |
-| **Custom actor types** | Niche — requires async dispatch through actor's serial executor |
+| **Custom-global-actor constructors — runtime executor-aware dispatch** | Status today: (1) the marker-protocol metadata gap is closed, so `Sendable` / `Copyable` / `Escapable` / `SendableMetatype` / `_Concurrency.Actor` / `UnownedSerialExecutor` resolve through the type DB and non-init members on `@<Actor>`-isolated classes survive `MemberEmissionValidator`. (2) SWIFTBIND022 is narrowed: when the actor `TypeDecl` is resolvable, the constructor stays in the C# binding and calls Swift's native init via `CallConvSwift`, carrying the SB0001 `[Obsolete]` safety warning that documents the runtime contract — the caller must already be on the actor's executor. (3) The SWIFTBIND022 wholesale skip is now the fallback for the unreachable-executor branch (imported actors whose `TypeDecl` can't be found in the bound module). (4) Open follow-up: a runtime executor-aware dispatch that lets C# callers cross from an arbitrary thread onto a custom global actor's executor before the init fires. No synchronous primitive exists in Swift 6 — `MainActor.assumeIsolated` is a stdlib special case, and `<Actor>.shared.assumeIsolated { _ in init(...) }` enters *instance-actor* isolation, which Swift 6 treats as a different domain than `@<Actor>` *global-actor* isolation (compile error: "call to global actor 'X'-isolated initializer in a synchronous actor-isolated context"). Closing this gap requires either Swift evolution exposing a generic synchronous global-actor entry, or a different binding pattern (e.g., async factory through `Task { @<Actor> in init(...) }` projected as `static async Task<T> CreateAsync(...)`). |
 | **Property wrappers / KeyPaths** | Low frequency in public API surfaces |
 | **Static protocol constructors** | Init witness dispatch needs allocation infrastructure |
 | **Weak/unowned references** | 4 test skips. Requires ownership tracking infrastructure |

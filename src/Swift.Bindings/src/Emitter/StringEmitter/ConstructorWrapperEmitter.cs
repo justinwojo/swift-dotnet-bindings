@@ -537,7 +537,18 @@ public static class ConstructorWrapperEmitter
             callExpr = $"{moduleQualifiedSwiftName}({callArgString})";
         }
 
-        // For generic parent types: emit metadata accessor helper at module scope (before @_cdecl)
+        // Custom-global-actor-isolated parents are handled upstream: WrapperValidation's
+        // actor-isolation gate blocks the @_cdecl wrapper for these constructors, so the
+        // C# binding falls back to a direct CallConvSwift call to the Swift-native init
+        // (with an SB0001 [Obsolete] safety warning). Synchronous entry into a custom
+        // global actor's isolation domain is not supported in Swift 6 — the actor-instance
+        // `<Actor>.shared.assumeIsolated { _ in init() }` form propagates instance-actor
+        // isolation, not the @<Actor> global-actor isolation the init requires, so a
+        // wrapper that calls the init from inside the closure fails to swiftc-compile.
+        // The direct CallConvSwift path works at runtime when the caller is on the actor's
+        // executor (the documented Swift contract for actor-isolated entry).
+
+// For generic parent types: emit metadata accessor helper at module scope (before @_cdecl)
         string? metaHelperName = null;
         if (isGenericClassParent && protocolName != null)
         {

@@ -196,15 +196,22 @@ public static class WrapperValidation
                 return false;
         }
 
-        // 6b. SWIFTBIND022: Constructors on custom-global-actor-isolated parent types
-        // (e.g., @ImagePipelineActor class X) cannot be wrapped synchronously. Any default-
-        // parameter overload helper extension (`extension X { static func _dbw_init_*() }`)
-        // inherits the type's actor isolation, so even a nominally nonisolated init routes
-        // through actor-isolated dispatch. Conservatively skip every constructor on such
-        // types; instance methods/properties/subscripts go through the standard actor gate
-        // above and the per-member nonisolated bypass still applies.
+        // 6b. SWIFTBIND022 narrowing: Constructors on custom-global-actor-isolated parent
+        // types (e.g., @ImagePipelineActor class X) used to be skipped wholesale at the
+        // MethodHandler level. The narrowing here lets the constructor emit in C# (with
+        // an SB0001 [Obsolete] safety warning) when the actor TypeDecl is reachable; the
+        // C# call still routes through CallConvSwift to the Swift-native init, which is
+        // safe when the caller is on the actor's executor (the documented Swift contract).
+        // The assumeIsolated synchronous hop is NOT a viable wrapper strategy in Swift 6:
+        // <Actor>.shared.assumeIsolated propagates instance-actor isolation, not the
+        // @<Actor> global-actor isolation the init requires, so a wrapper that calls the
+        // init from inside the closure fails to swiftc-compile.
+        // When the actor type can't be located (cross-module imported actor with no bound
+        // TypeDecl, missing singleton accessor) the gate falls back to the SWIFTBIND022
+        // wholesale skip in MethodHandler/DefaultParameterOverloadEmitter.
         if (kind is MemberKind.Constructor &&
-            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true })
+            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true } isolatedParent &&
+            !TryResolveCustomActorExecutor(isolatedParent, out _))
         {
             return false;
         }
@@ -336,6 +343,71 @@ public static class WrapperValidation
     {
         // Without the MainActor distinction, treat all per-member isolation as custom actor
         return IsActorIsolatedMember(parentDecl, memberIsActorIsolated, memberIsMainActorIsolated: false);
+    }
+
+    /// <summary>
+    /// Resolves a custom global actor's <c>.shared.assumeIsolated { … }</c> hop expression for a
+    /// type annotated with that global actor (i.e., <see cref="TypeDecl.IsCustomActorIsolated"/>
+    /// is set). Looks up the actor's TypeDecl in the same module by short name, verifies that
+    /// it is itself an <c>actor</c> with a <c>static var shared</c> singleton (the standard
+    /// <c>@globalActor</c> shape), and returns the module-qualified Swift name of the actor in
+    /// <paramref name="actorTypeRef"/>. Returns <c>false</c> when the actor is not in the bound
+    /// module(s) or doesn't carry the singleton — in that case the caller falls back to
+    /// SWIFTBIND022 (skip the constructor) because the synchronous <c>assumeIsolated</c> hop
+    /// has nowhere to land.
+    /// </summary>
+    public static bool TryResolveCustomActorExecutor(TypeDecl parentTypeDecl, out string actorTypeRef)
+    {
+        actorTypeRef = string.Empty;
+
+        if (!parentTypeDecl.IsCustomActorIsolated)
+            return false;
+
+        var actorShortName = parentTypeDecl.CustomActorIsolatorName;
+        if (string.IsNullOrEmpty(actorShortName))
+            return false;
+
+        // The actor type and the isolated type usually live in the same module — Nuke's
+        // ImagePipelineActor isolates Nuke.ImagePipeline, BindingsTestGlobalActor isolates
+        // BindingsTestGlobalActor's siblings, etc. Imported global actors that fall through
+        // to the SWIFTBIND022 fallback go through the regex's qualified-name path; we don't
+        // have a parsed TypeDecl for those without binding their defining module too.
+        var moduleDecl = parentTypeDecl.ModuleDecl;
+        if (moduleDecl == null)
+            return false;
+
+        var actorDecl = FindTypeByShortName(moduleDecl.Types, actorShortName!);
+        if (actorDecl == null)
+            return false;
+
+        // Must be a real `actor` keyword type with a `static let/var shared` accessor —
+        // that's the @globalActor shape. Anything else (e.g., a class also coincidentally
+        // named SomeActor) doesn't expose `.shared.assumeIsolated`.
+        if (!actorDecl.IsCustomActor)
+            return false;
+        if (!actorDecl.HasSingletonPattern)
+            return false;
+
+        actorTypeRef = actorDecl.SwiftTypeName.ModuleQualifiedName;
+        return true;
+    }
+
+    /// <summary>
+    /// Recursive lookup for a TypeDecl by short name, walking nested types. Used by
+    /// <see cref="TryResolveCustomActorExecutor"/> so nested global actors
+    /// (<c>extension Outer { @globalActor public actor Inner { … } }</c>) still resolve.
+    /// </summary>
+    private static TypeDecl? FindTypeByShortName(List<TypeDecl> types, string shortName)
+    {
+        foreach (var t in types)
+        {
+            if (t.Name == shortName)
+                return t;
+            var nested = FindTypeByShortName(t.Types, shortName);
+            if (nested != null)
+                return nested;
+        }
+        return null;
     }
 
     /// <summary>

@@ -63,21 +63,26 @@ public static class DefaultParameterOverloadEmitter
         if (trailingDefaultCount == 0)
             return;
 
-        // Skip methods on custom-global-actor-isolated parents (e.g., @ImagePipelineActor).
-        // The default-parameter overload helper is emitted as `extension Type { static func _dbw_*(...) }`,
-        // and Swift extensions inherit the extended type's actor isolation. Calling such a static
-        // helper from the synchronous nonisolated @_cdecl wrapper produces a Swift 6 isolation error.
-        // Mirrors the constructor wrapper gate in WrapperValidation.CanEmitMember (SWIFTBIND022).
-        // Placed after the no-trailing-defaults early return so we don't log a skip for methods
-        // that wouldn't have produced an overload anyway.
-        if (methodDecl.ParentDecl is TypeDecl actorIsolatedParent && actorIsolatedParent.IsCustomActorIsolated)
+        // Default-parameter overloads on custom-global-actor-isolated parents (e.g.,
+        // @ImagePipelineActor) emit as `extension Type { static func _dbw_*(...) }`, and
+        // those extensions inherit the type's actor isolation. The C# binding routes the
+        // primary signature through CallConvSwift to Swift's native init when the actor
+        // TypeDecl is reachable in the bound module — that path doesn't need the _dbw_
+        // helper extension at all. When the actor isn't reachable, the constructor itself
+        // is already skipped via the SWIFTBIND022 wholesale path in MethodHandler, so the
+        // overload extension would be dead code; skip it here to mirror that behavior.
+        if (methodDecl.ParentDecl is TypeDecl actorIsolatedParent &&
+            actorIsolatedParent.IsCustomActorIsolated &&
+            !WrapperValidation.TryResolveCustomActorExecutor(actorIsolatedParent, out _))
         {
             logger.LogInformation(
-                "SWIFTBIND022: Skipping default-parameter overloads for '{Name}' on '{ParentName}' " +
-                "because the parent type is isolated to a custom global actor; the _dbw_ helper extension would inherit that isolation. " +
+                "SWIFTBIND022 (fallback): Skipping default-parameter overloads for '{Name}' on '{ParentName}' — " +
+                "the custom global actor ('{Isolator}') isolating this type is not reachable in the bound module(s), " +
+                "so the constructor itself is skipped wholesale; the overload extension would be unreachable. " +
                 "The primary method signature is unaffected.",
                 methodDecl.Name,
-                actorIsolatedParent.Name);
+                actorIsolatedParent.Name,
+                actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>");
             return;
         }
 

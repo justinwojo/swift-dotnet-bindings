@@ -3462,5 +3462,76 @@ public class DisposeBag {
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public void GetCustomActorIsolatorMap_RecordsLocalActorShortName()
+    {
+        // Local-actor annotation must record the matched actor's leaf identifier so the
+        // emitter can build `<Actor>.shared.assumeIsolated { … }` without re-scanning.
+        var swiftInterface = """
+            @globalActor public actor ImagePipelineActor {
+              public static let shared: Nuke.ImagePipelineActor
+            }
+            @Nuke.ImagePipelineActor public class ImagePrefetcher {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ImagePipelineActor" };
+            var map = SwiftInterfaceAccessParser.GetCustomActorIsolatorMap(path, customActors);
+            Assert.True(map.TryGetValue("ImagePrefetcher", out var actorName));
+            Assert.Equal("ImagePipelineActor", actorName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatorMap_RecordsImportedQualifiedActorShortName()
+    {
+        // The qualified-imported regex captures the trailing `*Actor` segment as the
+        // short name — exactly what the emitter needs to resolve the actor TypeDecl.
+        var swiftInterface = """
+            @Dependency.ImagePipelineActor public class ImagePrefetcher {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var map = SwiftInterfaceAccessParser.GetCustomActorIsolatorMap(
+                path, customActorTypeNames: null);
+            Assert.True(map.TryGetValue("ImagePrefetcher", out var actorName));
+            Assert.Equal("ImagePipelineActor", actorName);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetCustomActorIsolatorMap_DeferredAnnotationCarriesActorName()
+    {
+        // Annotation on its own line: the deferred-flag path must also carry the matched
+        // actor's short name forward — otherwise the lookup map ends up missing the value
+        // and the emitter would silently fall back to SWIFTBIND022.
+        var swiftInterface = """
+            @globalActor public actor ImagePipelineActor {
+              public static let shared: Nuke.ImagePipelineActor
+            }
+            @Nuke.ImagePipelineActor
+            public class ImageCache {
+              public init()
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var customActors = new HashSet<string> { "ImagePipelineActor" };
+            var map = SwiftInterfaceAccessParser.GetCustomActorIsolatorMap(path, customActors);
+            Assert.True(map.TryGetValue("ImageCache", out var actorName));
+            Assert.Equal("ImagePipelineActor", actorName);
+        }
+        finally { File.Delete(path); }
+    }
+
     #endregion
 }

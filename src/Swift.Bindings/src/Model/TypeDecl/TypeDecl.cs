@@ -87,11 +87,22 @@ namespace BindingsGeneration
         /// Whether this type is annotated with a custom global actor (e.g., <c>@ImagePipelineActor</c>),
         /// distinct from <see cref="IsCustomActor"/> which tracks the <c>actor X { }</c> keyword form.
         /// All members on such a type implicitly inherit the actor's isolation unless they
-        /// individually opt out with <c>nonisolated</c>. Synchronous <c>@_cdecl</c> wrappers
-        /// can't safely call into a custom-actor-isolated context, so the constructor wrapper
-        /// gate skips inits on these types and emits SWIFTBIND022.
+        /// individually opt out with <c>nonisolated</c>. The constructor wrapper hops into the
+        /// isolation domain via <c>&lt;Actor&gt;.shared.assumeIsolated { … }</c> when the actor
+        /// type is resolvable through <see cref="CustomActorIsolatorName"/>; SWIFTBIND022 is
+        /// emitted only as a fallback when the actor itself can't be located in the type model.
         /// </summary>
         public bool IsCustomActorIsolated { get; set; } = false;
+
+        /// <summary>
+        /// Short name of the global actor type that isolates this type (e.g., <c>"ImagePipelineActor"</c>
+        /// for a class annotated <c>@ImagePipelineActor</c> or <c>@Nuke.ImagePipelineActor</c>).
+        /// Populated by the swiftinterface scanner when <see cref="IsCustomActorIsolated"/> is set.
+        /// Used by the constructor wrapper emitter to build the <c>actor.shared.assumeIsolated</c>
+        /// hop; when the named actor cannot be located in the bound module(s), the emitter falls
+        /// back to skipping the constructor with SWIFTBIND022.
+        /// </summary>
+        public string? CustomActorIsolatorName { get; set; }
 
         /// <summary>
         /// Whether this type has a singleton pattern (static 'shared' property returning Self).
