@@ -1126,7 +1126,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
-                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
+                MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsSpiProtected = IsNodeSpiProtected(node)
             };
@@ -1138,6 +1138,23 @@ namespace BindingsGeneration
             ApplyAvailability(decl);
             PopulateDocumentation(decl, node);
             return decl;
+        }
+
+        // Resolves the metadata accessor symbol for a struct/enum decl. Prefers the demangled
+        // TBD entry; falls back to the canonical Swift mangling ({mangledName}Ma) only when the
+        // node belongs to the module being parsed — covering umbrella re-exports where
+        // RealityFoundation parses RealityKit-mangled types as its own (node.ModuleName ==
+        // moduleDecl.Name) but the accessor symbol lives in RealityKit.tbd. Cross-module
+        // extension types from other Apple frameworks (e.g., a SwiftUI.Label extension declared
+        // in FamilyControls) keep the original throw-and-drop behavior so they aren't mistakenly
+        // registered into the wrong module's database.
+        private string ResolveMetadataAccessor(Node node, SwiftTypeName swiftTypeName, ModuleDecl moduleDecl)
+        {
+            if (_demangledTbd.TryGetMetadataAccessor(swiftTypeName, out var symbol))
+                return symbol;
+            if (string.IsNullOrEmpty(node.ModuleName) || node.ModuleName == moduleDecl.Name)
+                return $"{node.MangledName}Ma";
+            return _demangledTbd.GetMetadataAccessor(swiftTypeName);
         }
 
         /// <summary>
@@ -1168,7 +1185,7 @@ namespace BindingsGeneration
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
-                MetadataAccessor = _demangledTbd.GetMetadataAccessor(swiftTypeName),
+                MetadataAccessor = ResolveMetadataAccessor(node, swiftTypeName, moduleDecl),
                 RawValueTypeName = node.EnumRawTypeName,
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsSpiProtected = IsNodeSpiProtected(node)

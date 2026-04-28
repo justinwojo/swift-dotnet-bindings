@@ -13,7 +13,8 @@
     "CryptoKit.P384.Signing.ECDSASignature",
     "CryptoKit.P521.Signing.ECDSASignature",
     "Foundation.DateComponents",
-    "Foundation.PersonNameComponents"
+    "Foundation.PersonNameComponents",
+    "Foundation.AttributedString"
   ],
   "typealiases": []
 }

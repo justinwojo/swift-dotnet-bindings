@@ -122,6 +122,25 @@ public class DemanglingResults
     }
 
     /// <summary>
+    /// Non-throwing variant of <see cref="GetMetadataAccessor"/>. Returns false when the
+    /// TBD does not contain a metadata accessor for the requested type. Lets callers fall
+    /// back to the canonical Swift mangling convention (`{mangledName}Ma`) for types whose
+    /// accessor symbol lives in a different framework's TBD — e.g., umbrella re-exports
+    /// where RealityFoundation re-exports RealityKit's `TextureResource.Semantic` enum.
+    /// </summary>
+    public bool TryGetMetadataAccessor(SwiftTypeName swiftTypeName, out string symbol)
+    {
+        var metadataAccessor = MetadataAccessors.FirstOrDefault(x => x.TypeSpec.Name == swiftTypeName.ModuleQualifiedName);
+        if (metadataAccessor == null)
+        {
+            symbol = string.Empty;
+            return false;
+        }
+        symbol = metadataAccessor.Symbol;
+        return true;
+    }
+
+    /// <summary>
     /// Retrieve ProtocolConformanceDescriptor for a type.
     /// </summary>
     /// <param name="implementingType">The implementing Swift type.</param>

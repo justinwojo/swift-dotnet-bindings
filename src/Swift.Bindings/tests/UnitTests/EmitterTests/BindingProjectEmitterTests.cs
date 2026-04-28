@@ -1552,6 +1552,28 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Resolver_FoundationAttributedString_ResolvesAsSwiftFoundationSupplement()
+        {
+            // Foundation.AttributedString ships in include-types.json + manifest.json with a
+            // VWT-opaque storage strategy and Swift.Foundation namespace projection. Without a
+            // dedicated test, the entry could silently disappear from include-types.json (the
+            // build would still pass — Microsoft.iOS exposes NSAttributedString, so emission
+            // falls back to an ObjC handle that compiles but breaks at runtime when callers
+            // hand in a Swift-side AttributedString). This pins the resolver result so the
+            // entry can't regress to that broken-but-compilable shape unnoticed.
+            var swiftName = SwiftTypeName.FromModuleQualifiedName("Foundation.AttributedString");
+            var found = AppleSupplementResolver.TryResolve(
+                swiftName, currentlyGeneratingModule: null, out var record);
+
+            Assert.True(found);
+            Assert.Equal("Swift.Foundation", record.CSharpTypeName.Namespace);
+            Assert.Equal("AttributedString", record.CSharpTypeName.Name);
+            Assert.Equal(TypeRecordKind.Struct, record.Kind);
+            Assert.True(record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement));
+            Assert.False(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        }
+
+        [Fact]
         public void Resolver_LegacyRuntimeCanonical_DoesNotHijack()
         {
             // Foundation.Date is a legacy canonical pinned to SwiftBindings.Runtime via the

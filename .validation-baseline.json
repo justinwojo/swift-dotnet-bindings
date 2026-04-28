@@ -1,5 +1,5 @@
 {
-  "git_sha": "75abf10a",
+  "git_sha": "f3be785b",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -879,8 +879,8 @@
       },
       "WhatsNewKit": {
         "compile": "known_errors",
-        "errors": 3,
-        "lines": 8295,
+        "errors": 2,
+        "lines": 8294,
         "dep_compile": "none",
         "swift_compile": "ok"
       },

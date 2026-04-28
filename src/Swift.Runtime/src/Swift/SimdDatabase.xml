@@ -37,5 +37,15 @@
              System.Numerics — Matrix3x2 is 3×2 (24 bytes) and would misrepresent the storage.
              Members exposing simd_float3x3 fall through to the [OpaqueSwiftType] + SB0001
              path so consumers see a diagnostic instead of broken syntax. -->
+        <!-- simd_quatf — single-precision quaternion (16 bytes: 4 contiguous IEEE-754 floats).
+             Swift's simd_quatf wraps a simd_float4 with imaginary lanes (xi, yj, zk) at
+             indices 0–2 and the real lane (w) at index 3 — bit-compatible with
+             System.Numerics.Quaternion's (X, Y, Z, W) field order. Required by RealityFoundation
+             (ForceEffect.orientation, GeometricPin.offsetOrientation, ConvexCast.{from,to}Orientation),
+             RealityKit motion APIs, and SampledAnimation<simd_quatf> orientation animations. -->
+        <entity managedNameSpace="System.Numerics" managedTypeName="Quaternion">
+            <typedeclaration kind="struct" name="simd_quatf" module="simd"
+                             frozen="true" requiresMemoryManagement="false" hasFloatFields="true" inlineSize="16" />
+        </entity>
     </entities>
 </swifttypedatabase>

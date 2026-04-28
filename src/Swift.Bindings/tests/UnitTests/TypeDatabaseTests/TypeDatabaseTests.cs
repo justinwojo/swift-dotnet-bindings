@@ -636,6 +636,7 @@ public class TypeDatabaseTests
         [Theory]
         [InlineData("simd.simd_float4x4", TypeRecordKind.Struct, true, true, 64)]
         [InlineData("simd.simd_float3", TypeRecordKind.Struct, true, true, 16)]
+        [InlineData("simd.simd_quatf", TypeRecordKind.Struct, true, true, 16)]
         public async Task SimdDatabase_StructTypes_ResolvesCorrectly(
             string typeName, TypeRecordKind expectedKind, bool expectedFrozen, bool expectedHasFloatFields, int expectedInlineSize)
         {
@@ -690,6 +691,26 @@ public class TypeDatabaseTests
 
             Assert.True(typeDatabase.IsTypeProcessed(typeSpec),
                 "IsTypeProcessed must recognise Swift.SIMD3<Swift.Float> via the bound-generic alias.");
+        }
+
+        [Fact]
+        public async Task SimdDatabase_Quatf_ProjectsAsSystemNumericsQuaternion()
+        {
+            // RealityFoundation surfaces simd_quatf for orientation/rotation properties on
+            // ForceEffect, GeometricPin, ConvexCast, SampledAnimation<simd_quatf>, etc.
+            // Swift's simd_quatf wraps a simd_float4 with imaginary lanes (xi, yj, zk) at
+            // indices 0–2 and the real lane (w) at index 3 — bit-compatible with
+            // System.Numerics.Quaternion's (X, Y, Z, W) field order.
+            var typeDatabase = new TypeDatabase();
+            var dbPath = Path.Combine(TestDbDirectory, "SimdDatabase.xml");
+            await typeDatabase.LoadModuleDatabaseFromFile(dbPath);
+
+            var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("simd.simd_quatf");
+            Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+                "simd.simd_quatf should resolve via SimdDatabase.xml.");
+            Assert.Equal("System.Numerics.Quaternion", record!.CSharpTypeName.FullyQualifiedName);
+            Assert.Equal("System.Numerics", record.CSharpTypeName.Namespace);
+            Assert.Equal("Quaternion", record.CSharpTypeName.Name);
         }
 
         [Fact]

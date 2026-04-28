@@ -1,6 +1,8 @@
 # RealityKit / RealityFoundation binding bugs
 
-Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both fail at the wrapper-Swift compile step. Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members. The failures cluster into a small number of distinct generator bugs which between them originally produced 5 wrapper errors on RealityKit and 281 on RealityFoundation. Sessions 1–3 are now complete (commits `8ee402c8`, `e475c22e`, `3fefcf0e`+`22f0f9fc`); bugs **1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13** are fixed. Remaining open: **4, 5, 14, 15** plus the narrow Bug 3 init-site residual.
+Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both originally failed at the wrapper-Swift compile step (5 errors on RealityKit, 281 on RealityFoundation). Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members.
+
+**Status:** Sessions 1–7 closed the headline generator bugs. Bugs **1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14** are fully fixed; bug **3** is fixed except for a narrow init-site residual; bug **15** is fixed for the umbrella-import subset (286 → 219 occurrences in RF). The remaining 219 cases are three distinct sub-bugs that share Bug 15's surface symptom but have separate root causes — promoted to **15a/15b/15c**. Session 5's fix also surfaced a new ABI-parser gap (now tracked as **bug 16**, `@_spi`-visibility). **Active punch list lives in [`remaining-binding-bugs.md`](remaining-binding-bugs.md)** — this doc is the historical record for Bugs 1–14 + Sessions 1–7.
 
 Failing csprojs (kept in tree as repros):
 
@@ -295,7 +297,7 @@ This is *the* highest-leverage usability fix and likely the largest single piece
 
 ## 15. `SwiftOptional<IntPtr>` returned for nullable reference types
 
-**Status: Fixed for the umbrella-import case in Session 7 (commit `<TBD>`). Residual 219/286 occurrences are unrelated bug categories — see post-fix breakdown below.**
+**Status: Fixed for the umbrella-import case in Session 7. Residual 219/286 occurrences are three separate sub-bugs (promoted to 15a/15b/15c — see post-fix breakdown below and the [Remaining work](#remaining-work-after-session-7) table).**
 
 286 occurrences in `RealityFoundation.cs`. Properties and method returns that should be `Scene?` / `Entity?` are typed as `Swift.SwiftOptional<IntPtr>`, exposing a raw pointer instead of a managed reference:
 
@@ -318,10 +320,10 @@ Caller has to manually round-trip the IntPtr through `SwiftMarshal.MarshalFromSw
 - `PortalComponent.TargetEntity` (was `SwiftOptional<IntPtr>`, now `RealityFoundation.Entity?`)
 - `AudioPlaybackController.Entity` (was `SwiftOptional<IntPtr>`, now `RealityFoundation.Entity?`)
 
-**Residual 219 occurrences are not Bug #15.** A category breakdown of the remaining cases:
-- **`TimeInterval?` primitives** (most common — `TrimStart`/`TrimEnd`/`TrimDuration` on every `…Animation` type): ABI JSON types these as `Swift.Optional<TimeInterval>` where `TimeInterval` is `typealias Double`. Generic-Optional-of-primitive bug, separate root cause.
-- **Generic `TValue?` from `Optional<Value>` generic params** on types like `FromToByAnimation<Value>`, `SampledAnimation<Value>` — `Optional` of a generic parameter renders as `SwiftOptional<TValue>`/`SwiftOptional<IntPtr>` depending on resolution path. Generic-parameter Optional bug.
-- **Opaque IntPtr-as-handle properties** (e.g., `Semantic`, `Text`, `Orientation`, `CurrentViewingMode`, `MeshResource…Update`/`Remove`/`GetNext`): types where IntPtr is correct but should be wrapped in a typed handle. Separate emission-shape concern.
+**Residual 219 occurrences are not Bug #15.** They split into three separate sub-bugs (now tracked as 15a/15b/15c in [Remaining work](#remaining-work-after-session-7)):
+- **15a — `TimeInterval?` primitive Optionals** (most common — `TrimStart`/`TrimEnd`/`TrimDuration` on every `…Animation` type): ABI JSON types these as `Swift.Optional<TimeInterval>` where `TimeInterval` is `typealias Double`. Generic-Optional-of-primitive bug.
+- **15b — Generic-parameter `Optional<TValue>`** on types like `FromToByAnimation<Value>`, `SampledAnimation<Value>` — `Optional` of a generic parameter renders as `SwiftOptional<TValue>`/`SwiftOptional<IntPtr>` depending on resolution path.
+- **15c — Opaque IntPtr-as-handle properties** (e.g., `Semantic`, `Text`, `Orientation`, `CurrentViewingMode`, `MeshResource…Update`/`Remove`/`GetNext`): types where IntPtr is correct but should be wrapped in a typed handle. Emission-shape concern.
 
 These categories were originally rolled into the 286 baseline because they share the visible `SwiftOptional<IntPtr>` surface; they require their own dedicated fixes and are out of scope for Session 7. The 11-of-13-frameworks blast radius cited in the original plan was directional — most of those framework counts are the same primitive/generic categories, not class-typed Optional cases.
 
@@ -464,9 +466,9 @@ Four viable approaches; pick before Session 2 starts:
 | 4 | **#4 closure-buffer adapter** | 4 | **DONE** | `ClosureEmitter.SwiftWrapper.cs`, `ClosureEmitter.cs` (split `UnsafeRawBufferPointer` into `(baseAddress, count)` at the C-ABI boundary) | sim + device |
 | 5 | **#5 EveryProtocol witness skip** | 5 | **DONE** — see Bug 5 section for post-fix histogram | `EveryProtocolEmitter.cs` (`EmitProtocolConformance` + `WillSkipConformance`), BindingTests fixture, EveryProtocolEmitterTests + ProtocolConformanceCacheTests | sim + device |
 | 6 | **#14 same-module class inheritance** | 14 | **DONE** — see Bug 14 section for the umbrella-USR vs generic-instantiation distinction | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs`, plus marshaler/wrapper plumbing for cross-module bases | sim + device |
-| 7 | **#15 general nullable-class fix** | 15 (umbrella-import subset; residual cases are unrelated categories) | **DONE** (`<TBD>`) — see Bug 15 section for the recategorization of the 286 baseline | `TypeDatabase/AppleFrameworkRegistry.cs` (reverse `compileImportSourceModules` map + `GetCompileImportSourceModules`), `TypeDatabase/TypeDatabase.cs` (umbrella-fallback probe in both `TryGetTypeRecordInternal` and `IsTypeProcessedInternal`), unit tests in `TypeDatabaseTests` + `AppleFrameworkRegistryTests` + `TypeProjectionFactoryTests` | `nuke test` (598/598) + `nuke validate` (zero regression) + `nuke binding-tests --compile-only --strict` |
+| 7 | **#15 nullable-class umbrella-import subset** | 15 (umbrella-import subset; 15a/b/c carry the residual cases) | **DONE** — see Bug 15 section for the recategorization of the 286 baseline | `TypeDatabase/AppleFrameworkRegistry.cs` (reverse `compileImportSourceModules` map + `GetCompileImportSourceModules`), `TypeDatabase/TypeDatabase.cs` (umbrella-fallback probe in both `TryGetTypeRecordInternal` and `IsTypeProcessedInternal`), unit tests in `TypeDatabaseTests` + `AppleFrameworkRegistryTests` + `TypeProjectionFactoryTests` | `nuke test` (598/598) + `nuke validate` (zero regression) + `nuke binding-tests --compile-only --strict` |
 
-**Sessions 1–7 done.**
+**Sessions 1–7 done.** Active punch list (Sessions 8–10 covering bugs 15a/b/c, 16, plus the Bug 3 reassessment) lives in [`remaining-binding-bugs.md`](remaining-binding-bugs.md).
 
 **Why this ordering, briefly:**
 - Sessions 4, 5 are independent architectural fixes; each could split if the worker hits unexpected complexity.
