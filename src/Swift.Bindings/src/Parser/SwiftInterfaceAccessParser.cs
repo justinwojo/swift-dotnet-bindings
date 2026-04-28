@@ -416,10 +416,11 @@ public static class SwiftInterfaceAccessParser
     /// Same scan as <see cref="GetCustomActorIsolatedTypes"/>, but also records which actor
     /// short name annotates each type. The returned map's keys are qualified type paths
     /// (e.g., "ImagePrefetcher" or "Outer.ImageCache") and values are the matched actor's
-    /// leaf identifier (e.g., "ImagePipelineActor"). The constructor wrapper emitter uses
-    /// the value to build the <c>&lt;Actor&gt;.shared.assumeIsolated</c> hop; when the actor
-    /// short name doesn't resolve to a same-module actor TypeDecl, the emitter falls back
-    /// to the SWIFTBIND022 skip path.
+    /// leaf identifier (e.g., "ImagePipelineActor"). The value is retained for diagnostics
+    /// and SWIFTBIND022 skip-reason reporting and to give the parser context when tagging
+    /// constructors as <c>IsAsync</c> for the async-factory rewrite — synchronous
+    /// constructors on these types are wholesale-skipped (no <c>assumeIsolated</c> hop is
+    /// emitted).
     /// </summary>
     public static Dictionary<string, string> GetCustomActorIsolatorMap(
         string swiftInterfacePath, HashSet<string>? customActorTypeNames)
@@ -442,7 +443,7 @@ public static class SwiftInterfaceAccessParser
         // Local-actor regex is built only when there are short names to escape; otherwise
         // remains null and matching falls through to ImportedCustomActorAnnotationRegex.
         // The single capture group exposes the matched actor's leaf identifier so callers
-        // can build the `<Actor>.shared.assumeIsolated` hop without re-scanning the line.
+        // can record it (used for SWIFTBIND022 diagnostics) without re-scanning the line.
         Regex? customActorRegex = null;
         if (shortNames.Count > 0)
         {

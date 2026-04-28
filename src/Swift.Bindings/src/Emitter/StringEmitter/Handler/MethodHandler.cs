@@ -114,8 +114,14 @@ namespace BindingsGeneration
             // If we still see a sync constructor on a custom-actor-isolated parent here,
             // the async-rewrite didn't fire (e.g., the parser couldn't tag the type) — fall
             // back to the historical wholesale skip rather than emit a guaranteed-broken
-            // sync wrapper.
-            if (!methodEnv.MethodDecl.IsAsync &&
+            // sync wrapper. The IsConstructor check is redundant inside ConstructorHandler
+            // (the factory already filters to IsConstructor && !IsAsync) but kept explicit
+            // so the gate stays correctly scoped if this block is ever lifted into a shared
+            // helper or moved alongside the regular MethodHandler path — non-constructor
+            // members on isolated types must continue to emit through the standard actor
+            // gate in WrapperValidation, not be skipped wholesale.
+            if (methodEnv.MethodDecl.IsConstructor &&
+                !methodEnv.MethodDecl.IsAsync &&
                 methodEnv.ParentDecl is TypeDecl actorIsolatedParent &&
                 actorIsolatedParent.IsCustomActorIsolated)
             {

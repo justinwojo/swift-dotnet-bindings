@@ -633,9 +633,12 @@ namespace BindingsGeneration
         /// <c>{ "ImagePipeline" → "ImagePipelineActor" }</c> for
         /// <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
         /// <see cref="_customActorTypes"/>, which holds the <c>actor X { }</c> keyword form.
-        /// Members on these types implicitly inherit the actor's isolation, and the emitter
-        /// uses the value (the actor's leaf identifier) to build the
-        /// <c>&lt;Actor&gt;.shared.assumeIsolated</c> hop in the constructor wrapper.
+        /// Members on these types implicitly inherit the actor's isolation. The value
+        /// (the actor's leaf identifier) is propagated to <see cref="TypeDecl.CustomActorIsolatorName"/>
+        /// for SWIFTBIND022 diagnostics and skip-reason logging; synchronous constructors
+        /// on these types are wholesale-skipped and async constructors are rewritten as
+        /// <c>static Task&lt;T&gt; CreateAsync(...)</c> factories — no <c>assumeIsolated</c>
+        /// hop is emitted.
         /// </summary>
         private readonly IReadOnlyDictionary<string, string>? _customActorIsolatorMap;
 

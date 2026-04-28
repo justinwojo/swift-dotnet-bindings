@@ -87,10 +87,13 @@ namespace BindingsGeneration
         /// Whether this type is annotated with a custom global actor (e.g., <c>@ImagePipelineActor</c>),
         /// distinct from <see cref="IsCustomActor"/> which tracks the <c>actor X { }</c> keyword form.
         /// All members on such a type implicitly inherit the actor's isolation unless they
-        /// individually opt out with <c>nonisolated</c>. The constructor wrapper hops into the
-        /// isolation domain via <c>&lt;Actor&gt;.shared.assumeIsolated { … }</c> when the actor
-        /// type is resolvable through <see cref="CustomActorIsolatorName"/>; SWIFTBIND022 is
-        /// emitted only as a fallback when the actor itself can't be located in the type model.
+        /// individually opt out with <c>nonisolated</c>. Constructors on these types are surfaced
+        /// as <c>static Task&lt;T&gt; CreateAsync(...)</c> async factories — the parser tags them
+        /// <c>IsAsync</c> in the actor-isolation block, and the Swift wrapper schedules
+        /// <c>Task { try await Type.init(...) }</c> so the implicit hop at <c>await</c> lands the
+        /// init on the actor's executor. Synchronous <c>new T(...)</c> projection is wholesale-skipped
+        /// under SWIFTBIND022 because Swift 6 has no synchronous-entry mechanism into a custom
+        /// global actor's isolation domain.
         /// </summary>
         public bool IsCustomActorIsolated { get; set; } = false;
 
@@ -98,9 +101,9 @@ namespace BindingsGeneration
         /// Short name of the global actor type that isolates this type (e.g., <c>"ImagePipelineActor"</c>
         /// for a class annotated <c>@ImagePipelineActor</c> or <c>@Nuke.ImagePipelineActor</c>).
         /// Populated by the swiftinterface scanner when <see cref="IsCustomActorIsolated"/> is set.
-        /// Used by the constructor wrapper emitter to build the <c>actor.shared.assumeIsolated</c>
-        /// hop; when the named actor cannot be located in the bound module(s), the emitter falls
-        /// back to skipping the constructor with SWIFTBIND022.
+        /// Used in skip-reason log messages and SWIFTBIND022 diagnostics to identify which actor
+        /// drove the constructor skip; the synchronous emission path itself does not act on the
+        /// value (constructors are skipped wholesale, async-factory rewrites happen in the parser).
         /// </summary>
         public string? CustomActorIsolatorName { get; set; }
 
