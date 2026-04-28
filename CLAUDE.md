@@ -102,4 +102,4 @@ Unit tests catch logic bugs. **BindingTests** catch ABI mismatches, calling-conv
 
 ## Key References
 
-- `src/docs/roadmap.md` — remaining work to ship + post-ship improvements (single source of truth)
+- `src/docs/roadmap.md` — themes, blocked items, and lower-priority ideas (single source of truth)
