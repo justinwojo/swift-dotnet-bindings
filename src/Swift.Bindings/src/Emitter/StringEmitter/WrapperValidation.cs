@@ -196,22 +196,21 @@ public static class WrapperValidation
                 return false;
         }
 
-        // 6b. SWIFTBIND022 narrowing: Constructors on custom-global-actor-isolated parent
-        // types (e.g., @ImagePipelineActor class X) used to be skipped wholesale at the
-        // MethodHandler level. The narrowing here lets the constructor emit in C# (with
-        // an SB0001 [Obsolete] safety warning) when the actor TypeDecl is reachable; the
-        // C# call still routes through CallConvSwift to the Swift-native init, which is
-        // safe when the caller is on the actor's executor (the documented Swift contract).
-        // The assumeIsolated synchronous hop is NOT a viable wrapper strategy in Swift 6:
-        // <Actor>.shared.assumeIsolated propagates instance-actor isolation, not the
-        // @<Actor> global-actor isolation the init requires, so a wrapper that calls the
-        // init from inside the closure fails to swiftc-compile.
-        // When the actor type can't be located (cross-module imported actor with no bound
-        // TypeDecl, missing singleton accessor) the gate falls back to the SWIFTBIND022
-        // wholesale skip in MethodHandler/DefaultParameterOverloadEmitter.
+        // 6b. SWIFTBIND022: Constructors on custom-global-actor-isolated parent types
+        // (e.g., @ImagePipelineActor class X) cannot reach C# safely. Swift 6 only
+        // exposes synchronous global-actor entry for `@MainActor` (a stdlib special
+        // case); a `<Actor>.shared.assumeIsolated { _ in init(...) }` thunk enters
+        // *instance*-actor isolation, a different domain than the @<Actor>
+        // *global-actor* isolation the init requires, so swiftc rejects that wrapper.
+        // A direct CallConvSwift call from C# to the Swift-native `cfC` init also
+        // doesn't satisfy the actor contract — the metatype lands in `x20` from C#
+        // but the function still expects to enter the global actor's isolation domain
+        // before allocating, and we cannot establish that from a foreign runtime.
+        // Conservatively skip every constructor on such types; instance methods,
+        // properties and subscripts go through the standard actor gate above and the
+        // per-member nonisolated bypass still applies.
         if (kind is MemberKind.Constructor &&
-            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true } isolatedParent &&
-            !TryResolveCustomActorExecutor(isolatedParent, out _))
+            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true })
         {
             return false;
         }

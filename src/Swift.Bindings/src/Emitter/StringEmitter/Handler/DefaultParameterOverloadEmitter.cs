@@ -65,21 +65,18 @@ public static class DefaultParameterOverloadEmitter
 
         // Default-parameter overloads on custom-global-actor-isolated parents (e.g.,
         // @ImagePipelineActor) emit as `extension Type { static func _dbw_*(...) }`, and
-        // those extensions inherit the type's actor isolation. The C# binding routes the
-        // primary signature through CallConvSwift to Swift's native init when the actor
-        // TypeDecl is reachable in the bound module — that path doesn't need the _dbw_
-        // helper extension at all. When the actor isn't reachable, the constructor itself
-        // is already skipped via the SWIFTBIND022 wholesale path in MethodHandler, so the
-        // overload extension would be dead code; skip it here to mirror that behavior.
+        // those extensions inherit the type's actor isolation. The constructor itself
+        // is already skipped wholesale via SWIFTBIND022 in MethodHandler (no synchronous
+        // entry into custom global-actor isolation from a foreign runtime), so any
+        // overload extension would be dead code. Skip it here to mirror that behavior.
         if (methodDecl.ParentDecl is TypeDecl actorIsolatedParent &&
-            actorIsolatedParent.IsCustomActorIsolated &&
-            !WrapperValidation.TryResolveCustomActorExecutor(actorIsolatedParent, out _))
+            actorIsolatedParent.IsCustomActorIsolated)
         {
             logger.LogInformation(
-                "SWIFTBIND022 (fallback): Skipping default-parameter overloads for '{Name}' on '{ParentName}' — " +
-                "the custom global actor ('{Isolator}') isolating this type is not reachable in the bound module(s), " +
-                "so the constructor itself is skipped wholesale; the overload extension would be unreachable. " +
-                "The primary method signature is unaffected.",
+                "SWIFTBIND022: Skipping default-parameter overloads for '{Name}' on '{ParentName}' — " +
+                "the custom global actor ('{Isolator}') isolating this type has no synchronous-entry " +
+                "mechanism we can wrap, so the constructor itself is skipped wholesale; the overload " +
+                "extension would be unreachable. The primary method signature is unaffected.",
                 methodDecl.Name,
                 actorIsolatedParent.Name,
                 actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>");

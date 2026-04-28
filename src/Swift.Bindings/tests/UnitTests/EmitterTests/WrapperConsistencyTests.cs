@@ -1299,14 +1299,15 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
-    public void CanEmitMember_CustomGlobalActor_ConstructorAcceptsWhenActorResolves()
+    public void CanEmitMember_CustomGlobalActor_ConstructorRejectsEvenWhenActorResolves()
     {
-        // The SWIFTBIND022 narrowing must let CanEmitMember return true for a
-        // custom-global-actor-isolated constructor when the actor TypeDecl is reachable
-        // in the bound module — the constructor stays in the C# binding (calling Swift's
-        // native init via CallConvSwift) instead of being skipped wholesale. The
-        // complementary "actor not resolvable → fallback skip" case is covered by
-        // CanEmitMember_CustomGlobalActor_ConstructorRejectsWhenActorMissing below.
+        // SWIFTBIND022 wholesale skip: a constructor on a custom-global-actor-isolated
+        // parent type must be rejected by CanEmitMember regardless of whether the actor
+        // TypeDecl is reachable. Swift 6 exposes synchronous global-actor entry only for
+        // @MainActor; an `<Actor>.shared.assumeIsolated` thunk enters *instance*-actor
+        // isolation (a different domain), and a direct CallConvSwift call from C# to the
+        // Swift-native `cfC` allocating init crashes on device because the actor
+        // isolation contract isn't satisfied. Construct such types inside Swift instead.
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1318,16 +1319,17 @@ public class WrapperConsistencyTests
         var ctor = CreateConstructor("init", parentDecl, moduleDecl);
         var env = new MethodEnvironment(ctor, typeDb);
 
-        Assert.True(WrapperValidation.CanEmitMember(env, MemberKind.Constructor),
-            "CanEmitMember must accept a custom-global-actor-isolated constructor when the actor is resolvable.");
+        Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor),
+            "CanEmitMember must reject every constructor on a custom-global-actor-isolated " +
+            "type — Swift has no synchronous-entry mechanism we can wrap.");
     }
 
     [Fact]
     public void CanEmitMember_CustomGlobalActor_ConstructorRejectsWhenActorMissing()
     {
-        // Fallback path: the actor isolating this type isn't in the bound module(s).
-        // The constructor would call into an unreachable actor's executor at runtime,
-        // so SWIFTBIND022 skips it wholesale.
+        // Same wholesale skip applies when the actor isolating this type isn't in the
+        // bound module(s) — the constructor would call into an unreachable actor's
+        // executor at runtime, so SWIFTBIND022 skips it.
         var (moduleDecl, typeDb) = CreateTestEnvironment("TestModule");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1339,7 +1341,7 @@ public class WrapperConsistencyTests
         var env = new MethodEnvironment(ctor, typeDb);
 
         Assert.False(WrapperValidation.CanEmitMember(env, MemberKind.Constructor),
-            "CanEmitMember must still skip the constructor (SWIFTBIND022 fallback) when the actor isn't reachable.");
+            "CanEmitMember must skip the constructor (SWIFTBIND022) when the actor isn't reachable.");
     }
 
     [Fact]
