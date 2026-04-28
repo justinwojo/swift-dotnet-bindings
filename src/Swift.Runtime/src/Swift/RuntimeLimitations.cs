@@ -22,7 +22,7 @@ public static class RuntimeLimitations
     /// Each value maps to a confirmed upstream bug with a reproduction
     /// and workaround documented in upstream-bug-reports-draft.md.
     /// </summary>
-    public enum Limitation
+    internal enum Limitation
     {
         /// <summary>
         /// Mono: CallConvSwift JIT assertion failure (!ji->async) when calling
@@ -78,7 +78,7 @@ public static class RuntimeLimitations
     /// and CoreCLR (desktop macOS). Desktop CoreCLR is not affected by any
     /// runtime-specific limitation since it doesn't execute Swift interop P/Invokes.
     /// </summary>
-    public static bool IsAffected(Limitation limitation)
+    internal static bool IsAffected(Limitation limitation)
     {
         bool isMono = SwiftRuntimeInfo.IsMonoRuntime;
         bool isNativeAot = SwiftRuntimeInfo.IsNativeAotRuntime;
@@ -112,7 +112,7 @@ public static class RuntimeLimitations
     /// Returns a human-readable description of the limitation suitable for
     /// skip messages, diagnostics, and test output.
     /// </summary>
-    public static string Describe(Limitation limitation)
+    internal static string Describe(Limitation limitation)
     {
         return limitation switch
         {
@@ -148,12 +148,12 @@ public static class RuntimeLimitations
     /// Returns all registered limitations. Used for completeness validation
     /// in unit tests and diagnostic tools.
     /// </summary>
-    public static IReadOnlyList<Limitation> GetAllLimitations() => AllLimitations;
+    internal static IReadOnlyList<Limitation> GetAllLimitations() => AllLimitations;
 
     /// <summary>
     /// Returns all limitations that affect the current runtime.
     /// </summary>
-    public static IReadOnlyList<Limitation> GetAffectedLimitations()
+    internal static IReadOnlyList<Limitation> GetAffectedLimitations()
     {
         var affected = new List<Limitation>();
         foreach (var limitation in AllLimitations)

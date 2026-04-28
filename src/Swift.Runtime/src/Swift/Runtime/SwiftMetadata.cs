@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
+using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -80,6 +82,7 @@ namespace Swift.Runtime
     /// https://github.com/apple/swift/blob/main/docs/ABI/TypeMetadata.rst#common-metadata-layout
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public unsafe ref struct SwiftMetadata
     {
         public IntPtr _Kind;
@@ -104,6 +107,7 @@ namespace Swift.Runtime
     /// https://github.com/apple/swift/blob/main/include/swift/ABI/Metadata.h#L3844
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public unsafe ref struct NominalTypeDescriptor
     {
         public ContextDescriptor Context;
@@ -181,6 +185,7 @@ namespace Swift.Runtime
     /// https://github.com/apple/swift/blob/main/include/swift/Basic/RelativePointer.h
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public unsafe ref struct RelativePointer
     {
         public int offset; // make internal
@@ -209,6 +214,7 @@ namespace Swift.Runtime
     /// https://github.com/apple/swift/blob/main/include/swift/RemoteInspection/Records.h
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public unsafe ref struct FieldDescriptor
     {
         public FieldDescriptorKind Kind;

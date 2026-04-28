@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Xml;
 
@@ -26,6 +28,7 @@ namespace Swift.Runtime
     /// See https://github.com/apple/swift/blob/main/include/swift/ABI/ValueWitness.def
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public unsafe ref struct ValueWitnessTable
     {
         /// <summary>

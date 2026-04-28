@@ -112,28 +112,35 @@ public class RuntimeLimitationsTests
             "Mono async SafeHandle is iOS simulator only, not desktop CoreCLR");
     }
 
+    // The InlineData strings below are enum value names parsed via Enum.Parse inside
+    // each test body. We pass the name (not the enum value) because xUnit 2.9.x test
+    // methods must be public, and a public method cannot expose an internal enum as
+    // a parameter type (CS0051). Limitation became internal as part of the 1.0
+    // surface lock-down.
     [Theory]
-    [InlineData(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion, "jit-info.c:918")]
-    [InlineData(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection, "marshal.c:3729")]
-    [InlineData(RuntimeLimitations.Limitation.NativeAotFloatStructParam, "GPR instead of FPR")]
-    [InlineData(RuntimeLimitations.Limitation.NativeAotFloatStructReturn, "GPR instead of FPR")]
-    [InlineData(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime, "SafeHandle")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "jit-info.c:918")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "marshal.c:3729")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructParam), "GPR instead of FPR")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructReturn), "GPR instead of FPR")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "SafeHandle")]
     public void DescribeContainsKeyDiagnosticInfo(
-        RuntimeLimitations.Limitation limitation, string expectedSubstring)
+        string limitationName, string expectedSubstring)
     {
+        var limitation = Enum.Parse<RuntimeLimitations.Limitation>(limitationName);
         var description = RuntimeLimitations.Describe(limitation);
         Assert.Contains(expectedSubstring, description, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
-    [InlineData(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion, "Issue 1")]
-    [InlineData(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection, "Issue 2")]
-    [InlineData(RuntimeLimitations.Limitation.NativeAotFloatStructParam, "Issue 5")]
-    [InlineData(RuntimeLimitations.Limitation.NativeAotFloatStructReturn, "Issue 6")]
-    [InlineData(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime, "Issue 3")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Issue 1")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Issue 2")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructParam), "Issue 5")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructReturn), "Issue 6")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "Issue 3")]
     public void DescribeReferencesUpstreamIssueNumber(
-        RuntimeLimitations.Limitation limitation, string expectedIssueRef)
+        string limitationName, string expectedIssueRef)
     {
+        var limitation = Enum.Parse<RuntimeLimitations.Limitation>(limitationName);
         var description = RuntimeLimitations.Describe(limitation);
         Assert.Contains(expectedIssueRef, description, StringComparison.OrdinalIgnoreCase);
     }
@@ -236,14 +243,15 @@ public class RuntimeLimitationsTests
     }
 
     [Theory]
-    [InlineData(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion, "Workaround")]
-    [InlineData(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection, "Workaround")]
-    [InlineData(RuntimeLimitations.Limitation.NativeAotFloatStructParam, "Workaround")]
-    [InlineData(RuntimeLimitations.Limitation.NativeAotFloatStructReturn, "Workaround")]
-    [InlineData(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime, "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructParam), "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructReturn), "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "Workaround")]
     public void DescribeIncludesWorkaround(
-        RuntimeLimitations.Limitation limitation, string expectedSubstring)
+        string limitationName, string expectedSubstring)
     {
+        var limitation = Enum.Parse<RuntimeLimitations.Limitation>(limitationName);
         var description = RuntimeLimitations.Describe(limitation);
         Assert.Contains(expectedSubstring, description, StringComparison.OrdinalIgnoreCase);
     }

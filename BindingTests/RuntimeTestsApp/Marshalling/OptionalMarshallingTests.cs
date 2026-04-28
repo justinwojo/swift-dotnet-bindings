@@ -323,6 +323,7 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalGenericHolder<LargeValueStruct> Stored round-trip preserved all 6 Int64 fields");
     }
 
+    [SkipOnSimulator("Mono JIT crashes resolving Optional<LargeStruct> generic metadata in GetPeek readback (upstream Issue 1 — !ji->async at jit-info.c:918)")]
     public void TestOptionalGenericHolderLargeStructPeek()
     {
         // GetPeek hits the SwiftOptional<TValue> readback path for a 48-byte payload —

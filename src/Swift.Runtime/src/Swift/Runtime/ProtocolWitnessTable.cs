@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
@@ -9,6 +11,7 @@ namespace Swift.Runtime;
 /// <summary>
 /// Represents a Swift protocol witness table.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
 {
     private readonly IntPtr _handle;

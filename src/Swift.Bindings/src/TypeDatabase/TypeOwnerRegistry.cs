@@ -4,7 +4,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 
-namespace Swift.Runtime;
+namespace BindingsGeneration;
 
 /// <summary>
 /// Identifies which distribution channel owns the managed projection of a Swift type.
@@ -14,7 +14,7 @@ namespace Swift.Runtime;
 /// package, pull a type from the ObjC workload, or emit the type locally in the consumer
 /// assembly.
 /// </remarks>
-public enum TypeOwnerKind
+internal enum TypeOwnerKind
 {
     /// <summary>Owned by the <c>SwiftBindings.Runtime</c> package (legacy canonical types).</summary>
     Runtime,
@@ -41,7 +41,7 @@ public enum TypeOwnerKind
 /// <summary>
 /// Describes the package (and, when relevant, managed projection target) that owns a Swift type.
 /// </summary>
-public readonly record struct TypeOwner
+internal readonly record struct TypeOwner
 {
     /// <summary>The kind of owner.</summary>
     public TypeOwnerKind Kind { get; init; }
@@ -115,7 +115,7 @@ public readonly record struct TypeOwner
 /// protocol from module B with the conformance itself owned by a third party — type
 /// ownership alone cannot answer that question.</para>
 /// </remarks>
-public static class TypeOwnerRegistry
+internal static class TypeOwnerRegistry
 {
     /// <summary>NuGet package id of the runtime package.</summary>
     public const string RuntimePackageId = "SwiftBindings.Runtime";

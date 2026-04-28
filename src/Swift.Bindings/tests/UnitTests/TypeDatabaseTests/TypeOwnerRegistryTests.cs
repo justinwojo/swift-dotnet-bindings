@@ -1,10 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-using Swift.Runtime;
 using Xunit;
 
-namespace Swift.Runtime.Tests;
+namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Exercises the 6-level resolver order: per-type overrides, per-conformance overrides,

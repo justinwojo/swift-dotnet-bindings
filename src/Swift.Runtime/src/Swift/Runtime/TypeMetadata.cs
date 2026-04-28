@@ -3,6 +3,7 @@
 // Licensed under the MIT License.
 
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -142,6 +143,7 @@ public enum TypeMetadataRequest
 /// <summary>
 /// Represents the type metadata for a Swift type
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 {
     private readonly IntPtr handle;

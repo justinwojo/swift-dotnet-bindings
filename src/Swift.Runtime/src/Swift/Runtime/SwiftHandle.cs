@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
@@ -18,6 +19,7 @@ namespace Swift.Runtime;
 /// Represents an opaque raw handle to a Swift object.
 /// Used internally in private constructors to prevent conflicts with public IntPtr constructors.
 /// </summary>
+[EditorBrowsable(EditorBrowsableState.Never)]
 public struct SwiftHandle
 {
     /// <summary>
