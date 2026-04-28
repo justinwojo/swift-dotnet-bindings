@@ -504,3 +504,54 @@ public struct HashSink {
     }
 }
 
+// MARK: - HasSelfRequirement existential boxing
+//
+// Companion fixture to `PATFallbackBoundary.swift`. `TaggedAssociator` there
+// triggers `HasAssociatedTypes` only; this protocol triggers
+// `HasSelfRequirement` — the parser in `SwiftABIParser` looks for "Self." or
+// "Self ==" in the protocol genericSig, and declaring `Stamp == Self` on the
+// associated type plants both substrings. Both flags fire here, walking the
+// shared `HasSelfRequirement || HasAssociatedTypes` lowering branch in
+// `ExistentialHandler.GetPublicExistentialType()`. The conformance
+// dictionary registration in
+// `TypeHandlerHelpers.GenerateProtocolConformanceDictionaryEntries` then
+// skips Self-requirement protocols from the standard `typeof(I{Proto})`
+// entry, so the runtime `GetOrCreate<object>` lookup must be serviced by
+// the `typeof(object)` entry the HasAssociatedTypes branch emits. The free
+// function below dispatches `.anchorTag` through `any SelfReqAnchored`,
+// exercising that lookup end-to-end; two distinct conformers prove the
+// witness table routes to the concrete type rather than landing on a
+// default.
+public protocol SelfReqAnchored {
+    associatedtype Stamp where Stamp == Self
+    var anchorTag: String { get }
+}
+
+/// First conformer. Non-`@frozen` so it projects as `ClassWithOpaquePayload`
+/// (matching the `IntTaggedAssociator` shape that already exercises the PAT
+/// boxing path).
+public struct StampedAlpha: SelfReqAnchored {
+    public typealias Stamp = StampedAlpha
+    public let anchorTag: String
+    public init(anchorTag: String) { self.anchorTag = anchorTag }
+}
+
+/// Second conformer with a distinct `anchorTag` so dispatch routing through
+/// the existential container is observable — if every value comes back with
+/// the same tag, the witness table isn't actually carrying the concrete type.
+public struct StampedOmega: SelfReqAnchored {
+    public typealias Stamp = StampedOmega
+    public let anchorTag: String
+    public init(anchorTag: String) { self.anchorTag = anchorTag }
+}
+
+/// Free function with `any SelfReqAnchored` at the parameter position. The
+/// generator must lower this through the
+/// `HasSelfRequirement || HasAssociatedTypes` branch and the runtime must
+/// resolve the witness table descriptor from the conformer's
+/// `_protocolConformanceSymbols` dictionary so the property dispatch lands
+/// on the concrete struct's `.anchorTag`.
+public func readSelfReqAnchored(_ value: any SelfReqAnchored) -> String {
+    return "stamp:\(value.anchorTag)"
+}
+
