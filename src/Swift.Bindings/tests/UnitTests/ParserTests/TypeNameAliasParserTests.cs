@@ -52,6 +52,30 @@ public class TypeNameAliasParserTests
     }
 
     [Fact]
+    public void CreateTypeSpec_OptionalOfTypeNameAlias_UnwrapsInnerToUnderlyingNominal()
+    {
+        // Optional<simd.float4x4> shape: kNominal "Optional" whose only child is a TypeNameAlias
+        // pointing at simd.simd_float4x4. TypeSpecParser sees PrintedName "simd.float4x4?" and
+        // keeps the alias name as the Optional's inner; without unwrapping, the database lookup
+        // falls back to SwiftOptional<IntPtr>. The parser must substitute the alias child to
+        // restore the real nominal so it resolves through normal type-database paths.
+        var underlying = CreateNode(kind: "TypeNominal", name: "simd_float4x4",
+            printedName: "simd.simd_float4x4");
+        var alias = CreateAliasNode(name: "float4x4", printedName: "simd.float4x4", underlying);
+        var optional = CreateNodeWithChildren(kind: "TypeNominal", name: "Optional",
+            printedName: "simd.float4x4?", children: new[] { alias });
+        var parser = CreateMinimalParser();
+
+        var result = parser.CreateTypeSpec(optional);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("Swift.Optional", named.Name);
+        Assert.Single(named.GenericParameters);
+        var inner = Assert.IsType<NamedTypeSpec>(named.GenericParameters[0]);
+        Assert.Equal("simd.simd_float4x4", inner.Name);
+    }
+
+    [Fact]
     public void CreateTypeSpec_TypeNameAlias_NoChildren_Throws()
     {
         // Defensive: a TypeNameAlias without the expected underlying child is malformed.

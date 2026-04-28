@@ -720,6 +720,17 @@ public class EveryProtocolEmitter
         // and method-level generic methods get fatalError() stubs alongside normal vtable
         // dispatch for non-generic members.
 
+        // Subscript-level generics gate (e.g. RealityFoundation.MeshBufferContainer's
+        // `subscript<S: MeshBufferSemantic>(_: S) -> MeshBuffer<S.Element>?`). The Self-typed
+        // stub path substitutes S → EveryProtocol and S.Element → Any, producing
+        // `subscript(_: EveryProtocol) -> MeshBuffer<Any>?` which does not satisfy a
+        // method-generic protocol requirement. SubscriptDecl has no generics field, so we
+        // detect the shape from the parsed signature: a dependent member whose base is a
+        // single-letter generic (NOT Self / τ_0_*) means the base is bound at subscript
+        // scope and EveryProtocol cannot witness it.
+        if (protocolDecl.Subscripts.Any(s => !s.IsStatic && HasSubscriptLevelGenericDependentMember(s)))
+            return true;
+
         if (IsClassBoundProtocol(protocolDecl))
             return true;
 
@@ -867,6 +878,17 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: required member suppressed by parser-time validation");
             RecordSkip("RequiredMemberSuppressed");
+            return;
+        }
+
+        // Skip protocols whose subscript signatures bind a generic param at subscript scope
+        // and reference its associated type (e.g. MeshBufferContainer's
+        // `subscript<S: MeshBufferSemantic>(_: S) -> MeshBuffer<S.Element>?`). The Self-typed
+        // stub path substitutes Self/τ_0_* only, leaving the subscript-bound base unsatisfied.
+        if (protocolDecl.Subscripts.Any(s => !s.IsStatic && HasSubscriptLevelGenericDependentMember(s)))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: subscript binds a generic param whose associated type EveryProtocol cannot witness");
+            RecordSkip("SubscriptLevelGenericDependentMember");
             return;
         }
 
@@ -2047,6 +2069,67 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Returns true when a subscript's signature references a generic param that is
+    /// bound at subscript scope rather than at the protocol's <c>Self</c>. Catches both
+    /// the dependent-member form (<c>S.Element</c>) and the bare form
+    /// (<c>subscript&lt;T&gt;(key: String) -&gt; T?</c>). <see cref="SubscriptDecl"/> does not
+    /// preserve a generic clause, so the Self-typed stub emitter substitutes the bare
+    /// generic with <c>EveryProtocol</c> — which fails to witness a generic subscript
+    /// requirement. Skipping the conformance is safer than emitting a bad stub.
+    /// </summary>
+    private static bool HasSubscriptLevelGenericDependentMember(SubscriptDecl subscript)
+    {
+        if (ContainsSubscriptLevelGenericDependent(subscript.ReturnTypeSpec))
+            return true;
+        return subscript.IndexParameters.Any(ip => ContainsSubscriptLevelGenericDependent(ip.SwiftTypeSpec));
+    }
+
+    private static bool ContainsSubscriptLevelGenericDependent(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return false;
+        switch (typeSpec)
+        {
+            case AssociatedTypeReferenceSpec assoc:
+                return IsNonSelfGenericParamName(assoc.BaseType);
+            case NamedTypeSpec named:
+                // Nested DependentMember nodes do not flow through CreateTypeSpec — TypeSpecParser
+                // parses generic params from the PrintedName text, so "S.Element" surfaces as a
+                // NamedTypeSpec with a literal dotted name. Match both the dotted form and the
+                // bare-param form (<T> / <τ_1_0>) where the generic appears alone with no member
+                // access. IsGenericTypeParameter (rather than IsProtocolLevelGenericParam) is
+                // required so canonical method/subscript-scope spellings like τ_1_0 are caught.
+                var dotIdx = named.Name.IndexOf('.');
+                if (dotIdx > 0)
+                {
+                    if (IsNonSelfGenericParamName(named.Name.Substring(0, dotIdx)))
+                        return true;
+                }
+                else if (IsNonSelfGenericParamName(named.Name))
+                {
+                    return true;
+                }
+                return named.GenericParameters.Any(ContainsSubscriptLevelGenericDependent);
+            case TupleTypeSpec tuple:
+                return tuple.Elements.Any(ContainsSubscriptLevelGenericDependent);
+            case ClosureTypeSpec closure:
+                return ContainsSubscriptLevelGenericDependent(closure.Arguments) ||
+                       ContainsSubscriptLevelGenericDependent(closure.ReturnType);
+            case ProtocolListTypeSpec protocolList:
+                return protocolList.Protocols.Keys.Any(ContainsSubscriptLevelGenericDependent);
+            default:
+                return false;
+        }
+    }
+
+    private static bool IsNonSelfGenericParamName(string name)
+    {
+        if (name == "Self" || name.StartsWith("τ_0_", StringComparison.Ordinal))
+            return false;
+        return TypeSpecHelpers.IsGenericTypeParameter(name);
+    }
+
+    /// <summary>
     /// Recursively checks if a TypeSpec contains a generic type parameter.
     /// Walks through NamedTypeSpec, TupleTypeSpec, ClosureTypeSpec, and ProtocolListTypeSpec.
     /// </summary>
@@ -2134,8 +2217,14 @@ public class EveryProtocolEmitter
         switch (typeSpec)
         {
             case AssociatedTypeReferenceSpec assocRef:
-                // Dependent member types on Self (τ_0_0.RowDecoder) → Any
-                if (assocRef.BaseType.StartsWith("τ_0_"))
+                // Dependent member types on Self (τ_0_0.RowDecoder) or on a method-level
+                // generic param (S.Element, T.RawValue) collapse to Any — neither has a
+                // concrete associated-type witness in the extension context. Stays in sync
+                // with ContainsSelfTypeParam's detection, which uses the same generic-name
+                // signal to flag the member for stub emission.
+                if (assocRef.BaseType.StartsWith("τ_0_") ||
+                    TypeSpecHelpers.IsGenericTypeParameter(assocRef.BaseType) ||
+                    assocRef.BaseType == "Self")
                     return "Any";
                 return GetSwiftTypeName(typeSpec);
 
@@ -2158,6 +2247,18 @@ public class EveryProtocolEmitter
                 if (namedType.Name.StartsWith("Self.", StringComparison.Ordinal))
                 {
                     return namedType.Name == "Self.Type" ? "EveryProtocol.Type" : "Any";
+                }
+                // Method-level generic associated types like S.Element / T.RawValue come in
+                // as a NamedTypeSpec whose literal Name is "S.Element" (TypeSpecParser keeps
+                // it as a single dotted token). Without this branch, GetSwiftTypeName emits
+                // the raw "S.Element" into the stub and the wrapper fails to compile because
+                // S is unbound in the EveryProtocol extension. Treat this the same way as
+                // the Self.X / τ_0_*.X cases above.
+                var dotIndex = namedType.Name.IndexOf('.');
+                if (dotIndex > 0 &&
+                    TypeSpecHelpers.IsGenericTypeParameter(namedType.Name.Substring(0, dotIndex)))
+                {
+                    return namedType.Name.Substring(dotIndex) == ".Type" ? "EveryProtocol.Type" : "Any";
                 }
                 // Non-generic types: recurse into generic params
                 if (!TypeSpecHelpers.IsGenericTypeParameter(namedType.Name))

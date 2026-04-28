@@ -2559,6 +2559,25 @@ namespace BindingsGeneration
                     {
                         throw new Exception($"Error parsing type from \"{node.PrintedName}\"");
                     }
+                    // When a typealias appears inside Optional<T>, swift-api-digester encodes the
+                    // underlying nominal in the TypeNameAlias child node — but TypeSpecParser
+                    // only sees PrintedName ("simd.float4x4?"), so it keeps the alias name as the
+                    // Optional's inner spec. The alias itself isn't registered in the type
+                    // database, so the lookup falls back to SwiftOptional<IntPtr>. Substitute
+                    // the resolved child via the existing TypeNameAlias unwrap path so the inner
+                    // generic param refers to the real nominal (e.g. simd.simd_float4x4 →
+                    // System.Numerics.Matrix4x4, RealityKit.…ShadowMapCullMode →
+                    // RealityFoundation.MaterialParameterTypes.FaceCulling).
+                    if (node.Name == "Optional" &&
+                        spec is NamedTypeSpec optionalSpec &&
+                        optionalSpec.Name == "Swift.Optional" &&
+                        optionalSpec.GenericParameters.Count == 1 &&
+                        node.Children.Count() == 1 &&
+                        node.Children.First().Kind == "TypeNameAlias")
+                    {
+                        var unwrappedInner = CreateTypeSpec(node.Children.First());
+                        optionalSpec.GenericParameters[0] = unwrappedInner;
+                    }
                     // Propagate escaping attribute from ABI JSON typeAttributes.
                     // Swift public API convention: closures are @escaping unless
                     // explicitly marked noescape. TypeSpecParser doesn't parse

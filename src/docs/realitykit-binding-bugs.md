@@ -2,7 +2,7 @@
 
 Tried binding `RealityKit` and `RealityFoundation` in `swift-dotnet-packages` on 2026-04-26 with `SwiftBindings.Sdk` 0.8.0. Both originally failed at the wrapper-Swift compile step (5 errors on RealityKit, 281 on RealityFoundation). Generation itself succeeds — `RealityKit` emits 27 types / 126 members, `RealityFoundation` emits 438 types / 1705 members.
 
-**Status:** Sessions 1–7 closed the headline generator bugs. Bugs **1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14** are fully fixed; bug **3** is fixed except for a narrow init-site residual; bug **15** is fixed for the umbrella-import subset (286 → 219 occurrences in RF). The remaining 219 cases are three distinct sub-bugs that share Bug 15's surface symptom but have separate root causes — promoted to **15a/15b/15c**. Session 5's fix also surfaced a new ABI-parser gap (now tracked as **bug 16**, `@_spi`-visibility). **Active punch list lives in [`remaining-binding-bugs.md`](remaining-binding-bugs.md)** — this doc is the historical record for Bugs 1–14 + Sessions 1–7.
+**Status:** All headline generator bugs closed. Bugs **1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14** are fully fixed; bug **15** and its sub-bugs (15a/15b/15c) are closed; bug **16** (`@_spi`-visibility) is closed. Bug 3's init-site residuals (`SampledAnimation` same-type constraint errors and the four `no exact matches in call to initializer` errors) cleared after the post-15b regen — and a parser-side `Optional<TypeNameAlias>` unwrap fix removed the last public-API `SwiftOptional<IntPtr>` leaks (e.g. `cullMode`, `bindTarget` parameters), which had been mis-categorized as Metal/SwiftUI threads. The `MaterialFunction.__linkSPI` residual is the only known wrapper-compile error left and is a known consumer-facing limitation with no public-API impact. The surviving 186 internal `SwiftOptional<IntPtr>` call sites in RF are routine marshalling for `Optional<ClassPayload>` parameters across the FFI boundary, not public surface.
 
 Failing csprojs (kept in tree as repros):
 
@@ -468,7 +468,7 @@ Four viable approaches; pick before Session 2 starts:
 | 6 | **#14 same-module class inheritance** | 14 | **DONE** — see Bug 14 section for the umbrella-USR vs generic-instantiation distinction | `Parser/ModuleProcessor.cs`, `Model/TypeDecl/ClassDecl.cs`, `Emitter/StringEmitter/Handler/ClassHandler.cs`, plus marshaler/wrapper plumbing for cross-module bases | sim + device |
 | 7 | **#15 nullable-class umbrella-import subset** | 15 (umbrella-import subset; 15a/b/c carry the residual cases) | **DONE** — see Bug 15 section for the recategorization of the 286 baseline | `TypeDatabase/AppleFrameworkRegistry.cs` (reverse `compileImportSourceModules` map + `GetCompileImportSourceModules`), `TypeDatabase/TypeDatabase.cs` (umbrella-fallback probe in both `TryGetTypeRecordInternal` and `IsTypeProcessedInternal`), unit tests in `TypeDatabaseTests` + `AppleFrameworkRegistryTests` + `TypeProjectionFactoryTests` | `nuke test` (598/598) + `nuke validate` (zero regression) + `nuke binding-tests --compile-only --strict` |
 
-**Sessions 1–7 done.** Active punch list (Sessions 8–10 covering bugs 15a/b/c, 16, plus the Bug 3 reassessment) lives in [`remaining-binding-bugs.md`](remaining-binding-bugs.md).
+**Sessions 1–10 done.** Bugs 15a/15b/15c, 16, and the Bug 3 init-site reassessment all closed; the `Optional<TypeNameAlias>` parser unwrap was the final tranche.
 
 **Why this ordering, briefly:**
 - Sessions 4, 5 are independent architectural fixes; each could split if the worker hits unexpected complexity.
@@ -487,7 +487,7 @@ Four viable approaches; pick before Session 2 starts:
 - **Bug 14 is real work, not a cascade.** Plan ~150 lines across `ModuleProcessor.cs`, `ClassDecl.cs`, `ClassHandler.cs`. Session 6 is the second-largest remaining session after #15.
 - **Bug 15 general path is uncharted**: research agent's RF-specific analysis was partially wrong (Codex correction). The actual fix targets two fallback sites in `MethodSignature.cs` plus the `Optional<T>` path in `BoundGenericsHandler.cs`. Worker should message back if the fix requires type-database schema changes.
 - **Zero-regression gate is tight on #15**: 11 frameworks change shape. The fix needs cross-framework BindingTests confirmation, not just RF. Lock the counting query first.
-- **Bug 3 init-site residual**: Session 3 closed the `replaceAll`/`append`/`insert(contentsOf:)` family but a narrower init-site constraint pattern survives. Post-Session-5 status: the `RealityCoordinateSpace` EveryProtocol-conformance pair is gone, the `MaterialFunction` pair collapses to one residual error driven by an `@_spi` member (separate root cause — track as an SPI-visibility issue, not Bug #3). The 4 `no exact matches in call to initializer` and 2+2 `SampledAnimation` same-type constraint errors remain. Reassess whether a dedicated init-site session is still warranted.
+- **Bug 3 init-site residual**: Session 3 closed the `replaceAll`/`append`/`insert(contentsOf:)` family. Post-15b regen confirmed the 4 `no exact matches in call to initializer` and 2+2 `SampledAnimation` same-type constraint errors are gone; only the `MaterialFunction.__linkSPI` residual (separate root cause — `@_spi`-visibility, tracked under bug 16) survives.
 
 ### Background (preserved from earlier passes)
 

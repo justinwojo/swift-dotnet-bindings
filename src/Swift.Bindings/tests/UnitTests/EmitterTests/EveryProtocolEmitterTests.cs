@@ -2667,6 +2667,348 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void WillSkipConformance_SubscriptHasMethodLevelGenericDependentMember_ReturnsTrue()
+    {
+        // Mirrors RealityFoundation.MeshBufferContainer's
+        //   subscript<S: MeshBufferSemantic>(_: S) -> MeshBuffer<S.Element>?
+        // The Self-typed stub path substitutes S → EveryProtocol and S.Element → Any,
+        // producing `subscript(_: EveryProtocol) -> MeshBuffer<Any>?` which does not
+        // satisfy the protocol's generic requirement. The conformance must be skipped.
+        var protocol = CreateSimpleProtocol("MeshBufferContainer");
+        // Add a non-generic property so the protocol has implementable members and
+        // would otherwise pass the empty-protocol gate.
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        // MeshBuffer<S.Element>? — Optional<MeshBuffer<assoc("S","Element")>>.
+        var elementRef = new AssociatedTypeReferenceSpec("S", "Element");
+        var meshBuffer = new NamedTypeSpec("RealityFoundation.MeshBuffer");
+        meshBuffer.GenericParameters.Add(elementRef);
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(meshBuffer);
+
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test",
+            ReturnTypeSpec = optional,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "index0",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("S"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_SubscriptDottedNamedTypeSpec_ReturnsTrue()
+    {
+        // The parser materializes nested DependentMember nodes via TypeSpecParser.Parse
+        // on the outer PrintedName, which produces NamedTypeSpec("S.Element") rather than
+        // an AssociatedTypeReferenceSpec. Verify the gate also catches the dotted-name
+        // shape so MeshBufferContainer's
+        //   subscript<S: MeshBufferSemantic>(_: S) -> MeshBuffer<S.Element>?
+        // is skipped after the Optional<TypeNameAlias> parser fix unblocks emission.
+        var protocol = CreateSimpleProtocol("DottedContainer");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var dottedAssoc = new NamedTypeSpec("S.Element");
+        var meshBuffer = new NamedTypeSpec("RealityFoundation.MeshBuffer");
+        meshBuffer.GenericParameters.Add(dottedAssoc);
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(meshBuffer);
+
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test",
+            ReturnTypeSpec = optional,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "index0",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("S"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_SubscriptBareGenericReturnType_ReturnsTrue()
+    {
+        // Bare subscript-scoped generic: subscript<T>(key: String) -> T?
+        // The return type is Swift.Optional<T> where T is a NamedTypeSpec("T") —
+        // a bare protocol-level-looking single letter that is actually bound at
+        // the subscript itself. SubscriptDecl carries no generic clause, so the
+        // self-typed stub would render T as EveryProtocol and emit a non-generic
+        // subscript that cannot satisfy the original requirement. Skip instead.
+        var protocol = CreateSimpleProtocol("BareGenericSubscriptProto");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var bareT = new NamedTypeSpec("T");
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(bareT);
+
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test",
+            ReturnTypeSpec = optional,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "key",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_SubscriptCanonicalTauReturnType_ReturnsTrue()
+    {
+        // Canonical method/subscript-scope generic spelling: τ_1_0 surfaces directly
+        // when CreateTypeSpec walks ABI nodes that already use the τ form. The gate
+        // must NOT rely on the sugar (T/S) — it must trip on τ_1_* too, otherwise the
+        // same broken non-generic witness emits.
+        var protocol = CreateSimpleProtocol("CanonicalTauProto");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var tau = new NamedTypeSpec("τ_1_0");
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(tau);
+
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test",
+            ReturnTypeSpec = optional,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "key",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_SubscriptCanonicalTauDottedMember_ReturnsTrue()
+    {
+        // τ_1_0.Element form — canonical dotted spelling for a dependent member on a
+        // subscript-scope generic. Must trip the gate the same as the S.Element shape.
+        var protocol = CreateSimpleProtocol("CanonicalTauDottedProto");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var dottedTau = new NamedTypeSpec("τ_1_0.Element");
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(dottedTau);
+
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test",
+            ReturnTypeSpec = optional,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "index0",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("τ_1_0"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_SubscriptSelfTypedDependentMember_StillEmits()
+    {
+        // Counterpart: a subscript whose dependent member is on Self (Self.Element)
+        // is the existing Self-typed-stub path — substitution produces a valid witness.
+        // The new gate must NOT trip on Self/τ_0_* bases.
+        var protocol = CreateSimpleProtocol("SelfElementContainer");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "name",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("name_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var selfElement = new AssociatedTypeReferenceSpec("Self", "Element");
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s_test",
+            ReturnTypeSpec = selfElement,
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "index0",
+                    PrivateName = string.Empty,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.Contains("extension EveryProtocol: TestModule.SelfElementContainer", output);
+    }
+
+    [Fact]
     public void WillSkipConformance_NonRequiredSpiProperty_StillEmits()
     {
         // Extension defaults (protocolReq=false) that happen to be SPI must NOT
