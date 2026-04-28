@@ -705,6 +705,16 @@ public class EveryProtocolEmitter
         if (protocolDecl.HasConventionCClosureParameters)
             return true;
 
+        // Required-but-suppressed gate (Bug 16): a protocol requirement that parsed
+        // successfully but is `@_spi`-protected cannot have a witness in EveryProtocol's
+        // conformance — PropertyHandler/MethodHandler skip SPI members, leaving Swift's
+        // type-checker to reject the extension at compile time. Skip the entire
+        // conformance to keep the wrapper buildable. The gate covers any required member
+        // Kind (property, method, constructor). IsModuleInternal is intentionally NOT
+        // consulted: see HasSuppressedRequiredMember for the rationale.
+        if (HasSuppressedRequiredMember(protocolDecl))
+            return true;
+
         // Self-typed members (τ_0_*) and mixed method-level generics no longer skip the
         // entire protocol. Self-typed members get fatalError() stubs with τ_0_0→EveryProtocol,
         // and method-level generic methods get fatalError() stubs alongside normal vtable
@@ -763,6 +773,36 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Returns true if any protocol requirement is suppressed by an explicit
+    /// <c>@_spi</c> annotation. Member emission validators drop such members as
+    /// <see cref="SkipReason.ModuleInternal"/>, leaving the EveryProtocol extension
+    /// without a witness for that requirement — Swift's type-checker rejects the
+    /// conformance at compile time.
+    ///
+    /// Only <see cref="PropertyDecl.IsSpiProtected"/> / <see cref="MethodDecl.IsSpiProtected"/>
+    /// are checked here. <c>IsModuleInternal</c> is intentionally NOT consulted: protocol
+    /// requirements appear in the public swiftinterface body without a leading
+    /// <c>public</c> keyword, which causes the parser's negative-space heuristic
+    /// (<c>IsInternalFromPublicMemberNames</c>) to flag legitimate public requirements
+    /// as internal. Treating those as "suppressed" would skip conformances that already
+    /// emit working witnesses on baseline (e.g. SnapKit.ConstraintPriorityTarget).
+    /// </summary>
+    private static bool HasSuppressedRequiredMember(ProtocolDecl protocolDecl)
+    {
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (property.IsProtocolRequirement && property.IsSpiProtected)
+                return true;
+        }
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsProtocolRequirement && method.IsSpiProtected)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Emits all Swift code needed for a protocol's EveryProtocol conformance.
     /// </summary>
     /// <param name="globalEmittedSignatures">Optional set to track method signatures globally across protocols.
@@ -817,6 +857,16 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has @convention(c)/@convention(block) closure parameters");
             RecordSkip("ConventionCClosureParameters");
+            return;
+        }
+
+        // Skip protocols with required-but-suppressed members. Mirrors the WillSkipConformance
+        // pre-scan so the skip reason is recorded for reporting and the proxy class is
+        // suppressed via _skippedProtocols. See HasSuppressedRequiredMember.
+        if (HasSuppressedRequiredMember(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: required member suppressed by parser-time validation");
+            RecordSkip("RequiredMemberSuppressed");
             return;
         }
 

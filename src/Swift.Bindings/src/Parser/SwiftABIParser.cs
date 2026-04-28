@@ -1003,23 +1003,25 @@ namespace BindingsGeneration
                     enumDecl.Cases.AddRange(childDecls.OfType<EnumCaseDecl>());
                 }
 
-                // Detect missing protocol requirements: count ABI JSON Function/Constructor
+                // Detect missing protocol requirements: count ABI JSON Function/Constructor/Var
                 // children that are actual protocol requirements (protocolReq=true) and compare
-                // against successfully parsed methods that are requirements. Extension defaults
+                // against successfully parsed members that are requirements. Extension defaults
                 // (protocolReq=false or absent) don't need proxy stubs — Swift provides their
-                // default implementation automatically. Only flag MissingRequirements when a
-                // required method fails to parse, since the emitter can't generate stubs for
-                // requirements it doesn't know about.
+                // default implementation automatically. Var requirements are counted alongside
+                // Function/Constructor: a Var requirement that fails to parse is just as fatal
+                // to EveryProtocol conformance as a missing method (the emitter can't synthesize
+                // a stub for an unknown property type).
                 if (decl is ProtocolDecl protocolDecl2)
                 {
-                    int expectedReqFuncChildren = node.Children
-                        .Count(c => (c.Kind == "Function" || c.Kind == "Constructor") && c.protocolReq == true);
-                    int parsedReqMethods = decl.Methods.Count(m => m.IsProtocolRequirement);
-                    if (parsedReqMethods < expectedReqFuncChildren)
+                    int expectedReqChildren = node.Children
+                        .Count(c => (c.Kind == "Function" || c.Kind == "Constructor" || c.Kind == "Var") && c.protocolReq == true);
+                    int parsedReqMembers = decl.Methods.Count(m => m.IsProtocolRequirement)
+                                         + decl.Properties.Count(p => p.IsProtocolRequirement);
+                    if (parsedReqMembers < expectedReqChildren)
                     {
                         protocolDecl2.HasMissingRequirements = true;
-                        _logger.LogDebug("Protocol {Name}: {Missing} required method(s) failed ABI parsing ({Parsed}/{Expected})",
-                            decl.Name, expectedReqFuncChildren - parsedReqMethods, parsedReqMethods, expectedReqFuncChildren);
+                        _logger.LogDebug("Protocol {Name}: {Missing} required member(s) failed ABI parsing ({Parsed}/{Expected})",
+                            decl.Name, expectedReqChildren - parsedReqMembers, parsedReqMembers, expectedReqChildren);
                     }
                 }
 
@@ -2085,6 +2087,7 @@ namespace BindingsGeneration
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
+                IsProtocolRequirement = node.protocolReq == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
             // Propagate extension flag to accessor MethodDecls. Extension methods use static

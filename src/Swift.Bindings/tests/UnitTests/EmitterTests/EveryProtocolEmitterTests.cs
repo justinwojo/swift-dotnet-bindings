@@ -2613,6 +2613,92 @@ public class EveryProtocolEmitterTests
         Assert.DoesNotContain("extension EveryProtocol", output);
     }
 
+    [Fact]
+    public void WillSkipConformance_RequiredSpiProperty_ReturnsTrue()
+    {
+        // Bug 16: a protocol whose required Var is `@_spi`-protected loses its
+        // witness in the EveryProtocol extension (PropertyHandler skips SPI
+        // properties). The conformance must be skipped to keep the wrapper buildable.
+        var protocol = CreateProtocolWithProperty("MaterialFunction", "__linkSPI",
+            hasGetter: true, hasSetter: false);
+        protocol.Properties[0].IsProtocolRequirement = true;
+        protocol.Properties[0].IsSpiProtected = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_RequiredModuleInternalProperty_DoesNotSkip()
+    {
+        // Bug 16 narrowing: IsModuleInternal must NOT trigger the gate. The parser's
+        // negative-space heuristic (IsInternalFromPublicMemberNames) flags protocol
+        // requirement vars as internal because the swiftinterface body lists them
+        // without a leading `public` keyword (e.g. SnapKit.ConstraintPriorityTarget).
+        // Those conformances already emit working witnesses on baseline; treating
+        // IsModuleInternal as a suppression signal regresses them. Only IsSpiProtected
+        // is consulted by the gate.
+        var protocol = CreateProtocolWithProperty("InternalShape", "value",
+            hasGetter: true, hasSetter: false);
+        protocol.Properties[0].IsProtocolRequirement = true;
+        protocol.Properties[0].IsModuleInternal = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.Contains("extension EveryProtocol: TestModule.InternalShape", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_RequiredSpiMethod_ReturnsTrue()
+    {
+        // Bug 16: same gate over methods. A required Function with IsSpiProtected
+        // would also yield an unsatisfiable extension.
+        var protocol = CreateProtocolWithMethod("Logger", "log");
+        protocol.Methods[0].IsProtocolRequirement = true;
+        protocol.Methods[0].IsSpiProtected = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void WillSkipConformance_NonRequiredSpiProperty_StillEmits()
+    {
+        // Extension defaults (protocolReq=false) that happen to be SPI must NOT
+        // trigger the gate — they don't need a witness; Swift provides them via
+        // the default implementation. Adds a non-SPI required getter so the
+        // conformance has implementable members.
+        var protocol = CreateProtocolWithProperty("NormalProto", "value",
+            hasGetter: true, hasSetter: false);
+        protocol.Properties[0].IsProtocolRequirement = true;
+        // Add a second SPI property that is NOT a requirement (extension default).
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "_spiHelper",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("_spiHelper_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsProtocolRequirement = false,
+            IsSpiProtected = true
+        });
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.Contains("extension EveryProtocol: TestModule.NormalProto", output);
+    }
+
     #endregion
 
     #region Swift Keyword Escaping Tests

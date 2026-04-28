@@ -87,6 +87,15 @@ namespace BindingsGeneration
         public bool IsObjCOptional { get; set; } = false;
 
         /// <summary>
+        /// Whether this property is a protocol requirement (protocolReq=true in ABI JSON).
+        /// Mirrors <see cref="MethodDecl.IsProtocolRequirement"/>. Required protocol properties
+        /// must have a witness in EveryProtocol's conformance — if a required property is
+        /// dropped by suppression (SPI, module-internal) or fails to parse, the conformance
+        /// itself must be skipped to avoid emitting an unsatisfiable extension.
+        /// </summary>
+        public bool IsProtocolRequirement { get; set; } = false;
+
+        /// <summary>
         /// Setter-specific availability annotations when the setter is restricted to a
         /// newer platform than the property getter. Read from the ABI JSON's
         /// <c>intro_iOS</c>/<c>intro_Macosx</c>/etc. fields on the set accessor node and
