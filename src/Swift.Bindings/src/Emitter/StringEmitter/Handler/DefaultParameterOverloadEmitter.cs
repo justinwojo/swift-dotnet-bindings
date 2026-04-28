@@ -63,20 +63,25 @@ public static class DefaultParameterOverloadEmitter
         if (trailingDefaultCount == 0)
             return;
 
-        // Default-parameter overloads on custom-global-actor-isolated parents (e.g.,
-        // @ImagePipelineActor) emit as `extension Type { static func _dbw_*(...) }`, and
-        // those extensions inherit the type's actor isolation. The constructor itself
-        // is already skipped wholesale via SWIFTBIND022 in MethodHandler (no synchronous
-        // entry into custom global-actor isolation from a foreign runtime), so any
-        // overload extension would be dead code. Skip it here to mirror that behavior.
+        // Default-parameter overloads on custom-global-actor-isolated parents emit as
+        // `extension Type { static func _dbw_*(...) }`, and those extensions inherit the
+        // type's actor isolation. Synchronous constructors are wholesale-skipped via
+        // SWIFTBIND022 in MethodHandler (no synchronous entry into custom global-actor
+        // isolation from a foreign runtime), so any sync overload extension would be
+        // dead code. Async constructors are surfaced as `static Task<T> CreateAsync`
+        // factories; the implicit actor hop at the `await` inside the wrapper lets the
+        // overload extension legally call the actor-isolated init, so trimmed factory
+        // overloads route through the same async-factory pipeline as the primary.
         if (methodDecl.ParentDecl is TypeDecl actorIsolatedParent &&
-            actorIsolatedParent.IsCustomActorIsolated)
+            actorIsolatedParent.IsCustomActorIsolated &&
+            !(methodDecl.IsConstructor && methodDecl.IsAsync))
         {
             logger.LogInformation(
                 "SWIFTBIND022: Skipping default-parameter overloads for '{Name}' on '{ParentName}' — " +
                 "the custom global actor ('{Isolator}') isolating this type has no synchronous-entry " +
-                "mechanism we can wrap, so the constructor itself is skipped wholesale; the overload " +
-                "extension would be unreachable. The primary method signature is unaffected.",
+                "mechanism we can wrap, so the synchronous projection is skipped wholesale; the overload " +
+                "extension would be unreachable. Async constructors are exempt and route through the " +
+                "async-factory pipeline. The primary method signature is unaffected.",
                 methodDecl.Name,
                 actorIsolatedParent.Name,
                 actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>");

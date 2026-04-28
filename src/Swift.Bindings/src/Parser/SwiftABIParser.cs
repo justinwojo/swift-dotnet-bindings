@@ -1828,17 +1828,32 @@ namespace BindingsGeneration
             // Swift requires `await` at the call site even for sync declarations. Route them
             // through the async @_cdecl wrapper pipeline so the Swift wrapper emits
             // `Task { await self.method() }` and the C# side surfaces a Task<T>-returning API.
-            // Scope: instance methods only, skipping constructors (actor init is sync-from-outside),
-            // nonisolated (opts out of isolation), and @MainActor (exposed as sync per Xamarin.iOS precedent).
+            // Scope: instance methods (not @MainActor — exposed as sync per Xamarin.iOS precedent;
+            // not nonisolated — opts out of isolation).
+            //
+            // Constructors on @<CustomActor>-isolated types follow the same pattern: Swift 6 has
+            // no synchronous entry into a custom global actor's isolation domain, so the binding
+            // surfaces them as `static Task<T> CreateAsync(...)` factories. The Swift wrapper
+            // becomes `Task { let result = try await Type.init(...) }` — Swift inserts the actor
+            // hop implicitly at the await. Constructors on Swift `actor` types stay sync because
+            // their default inits are nonisolated from outside.
             if (!methodDecl.IsAsync &&
-                !methodDecl.IsConstructor &&
-                methodDecl.MethodType == MethodType.Instance &&
                 !methodDecl.IsNonisolated &&
                 !methodDecl.IsMainActorIsolated)
             {
                 bool parentIsActor = parentDecl is ClassDecl { IsActor: true };
-                if (parentIsActor || methodDecl.IsActorIsolated)
+                bool parentIsCustomActorIsolated = parentDecl is TypeDecl { IsCustomActorIsolated: true };
+
+                if (!methodDecl.IsConstructor &&
+                    methodDecl.MethodType == MethodType.Instance &&
+                    (parentIsActor || methodDecl.IsActorIsolated))
+                {
                     methodDecl.IsAsync = true;
+                }
+                else if (methodDecl.IsConstructor && parentIsCustomActorIsolated)
+                {
+                    methodDecl.IsAsync = true;
+                }
             }
 
             PopulateDocumentation(methodDecl, node);

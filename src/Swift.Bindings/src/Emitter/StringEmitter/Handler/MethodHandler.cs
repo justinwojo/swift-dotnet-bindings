@@ -96,24 +96,34 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
-            // SWIFTBIND022: Constructors on custom-global-actor-isolated parent types
-            // (e.g., @ImagePipelineActor class ImagePrefetcher) cannot be reached safely
-            // from C#. Swift 6 has no synchronous entry into a custom @<Actor> global
+            // SWIFTBIND022: The synchronous `new T(...)` projection is unreachable for
+            // constructors on @<CustomActor>-isolated parent types (e.g., @ImagePipelineActor
+            // class ImagePrefetcher). Swift 6 has no synchronous entry into a custom global
             // actor's isolation domain — `<Actor>.shared.assumeIsolated { ... }` enters
-            // *instance*-actor isolation, a different domain, so swiftc rejects an
-            // @_cdecl wrapper that calls the init. A direct CallConvSwift call to the
-            // Swift-native `cfC` allocating init from C# also crashes on device because
-            // the actor isolation contract isn't satisfied. The constructor is therefore
-            // skipped wholesale; the rest of the binding (instance members, factories,
-            // marshal in/out) stays compilable.
-            if (methodEnv.ParentDecl is TypeDecl actorIsolatedParent &&
+            // *instance*-actor isolation, a different domain, so swiftc rejects an @_cdecl
+            // wrapper that calls the init. A direct CallConvSwift call to the Swift-native
+            // `cfC` allocating init also crashes on device (the actor isolation contract
+            // isn't satisfied across the foreign-runtime boundary).
+            //
+            // The parser instead marks these constructors as IsAsync (see SwiftABIParser
+            // actor-isolation block); they reach C# via the async-factory pipeline as
+            // `static Task<T> CreateAsync(...)`. The Swift wrapper becomes
+            // `Task { let result = try await Type.init(...) }` — the implicit actor hop
+            // at the await lands the init on the actor's executor.
+            //
+            // If we still see a sync constructor on a custom-actor-isolated parent here,
+            // the async-rewrite didn't fire (e.g., the parser couldn't tag the type) — fall
+            // back to the historical wholesale skip rather than emit a guaranteed-broken
+            // sync wrapper.
+            if (!methodEnv.MethodDecl.IsAsync &&
+                methodEnv.ParentDecl is TypeDecl actorIsolatedParent &&
                 actorIsolatedParent.IsCustomActorIsolated)
             {
                 _logger.LogWarning(
-                    "SWIFTBIND022: Skipping constructor '{Name}' on '{ParentName}' — the custom global actor " +
-                    "isolating this type ('{Isolator}') has no synchronous-entry mechanism we can wrap. " +
-                    "Construct instances inside Swift (via factory functions or by interacting with the " +
-                    "framework's intended entry point) and pass them across to C#.",
+                    "SWIFTBIND022: Skipping synchronous constructor '{Name}' on '{ParentName}' — the custom " +
+                    "global actor isolating this type ('{Isolator}') has no synchronous-entry mechanism we " +
+                    "can wrap, and the parser did not tag this constructor as async (so the CreateAsync " +
+                    "factory path is unavailable). Construct instances inside Swift and hand them to C#.",
                     methodEnv.MethodDecl.Name,
                     actorIsolatedParent.Name,
                     actorIsolatedParent.CustomActorIsolatorName ?? "<unknown>");
