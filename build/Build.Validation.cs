@@ -778,6 +778,10 @@ partial class Build
         var frameworkModule = target.FrameworkModule ?? target.Name;
         var platform = ApplePlatform.FromName(target.Platform);
 
+        // Captured below when the generator subprocess actually runs; remains null
+        // when the digester or path-resolution steps throw before genProc starts.
+        List<string>? genOutputLines = null;
+
         try
         {
             // Step 1: resolve SDK root via xcrun. iOS/tvOS use simulator SDKs for
@@ -831,7 +835,7 @@ partial class Build
                     result.GenVerbose = string.Join("\n", tail);
                 }
                 Log.Debug("  {Name}: swift-api-digester failed (exit {Exit})", target.Name, digesterProc.ExitCode);
-                FinishAppleFrameworkGenerate(target, outdir, result, genStart);
+                FinishAppleFrameworkGenerate(target, outdir, result, genStart, genOutputLines);
                 return;
             }
 
@@ -863,6 +867,12 @@ partial class Build
                 workingDirectory: outdir, logOutput: false);
             genProc.AssertWaitForExit();
 
+            // Snapshot generator output once — the wrapper compile runs inline inside
+            // genProc, so swiftc diagnostics surface here. Threaded into
+            // FinishAppleFrameworkGenerate so swift_compile failures carry a real
+            // diagnostic instead of an opaque "fail".
+            genOutputLines = genProc.Output.Select(o => o.Text).ToList();
+
             var hasCs = Directory.GetFiles(outdir, "*.cs")
                 .Any(f => !f.EndsWith(".Wrappers.cs") && !f.EndsWith(".SwiftUIBridge.cs"));
 
@@ -875,8 +885,7 @@ partial class Build
                 result.Gen = "fail";
                 if (Verbose)
                 {
-                    var tail = genProc.Output.Select(o => o.Text).TakeLast(5);
-                    result.GenVerbose = string.Join("\n", tail);
+                    result.GenVerbose = string.Join("\n", genOutputLines.TakeLast(5));
                 }
             }
         }
@@ -886,11 +895,11 @@ partial class Build
             Log.Debug("  {Name}: apple-framework generation exception: {Message}", target.Name, ex.Message);
         }
 
-        FinishAppleFrameworkGenerate(target, outdir, result, genStart);
+        FinishAppleFrameworkGenerate(target, outdir, result, genStart, genOutputLines);
     }
 
     void FinishAppleFrameworkGenerate(ValidationTarget target, AbsolutePath outdir,
-        TargetResult result, DateTime genStart)
+        TargetResult result, DateTime genStart, List<string>? genOutputLines)
     {
         var platform = ApplePlatform.FromName(target.Platform);
         var frameworkModule = target.FrameworkModule ?? target.Name;
@@ -916,6 +925,13 @@ partial class Build
                 if (deviceStatus != "ok")
                     result.SwiftCompile = "fail";
             }
+
+            // Surface swiftc diagnostics whenever the wrapper compile failed. The
+            // generator catches its own swift wrapper exceptions and re-emits them as
+            // SWIFTBIND050 warnings on stderr; without this capture the gate prints
+            // only `swift:fail` with no clue what swiftc actually said.
+            if (result.SwiftCompile == "fail" && genOutputLines != null)
+                result.SwiftVerbose = ExtractSwiftDiagnosticLines(genOutputLines);
         }
         else
         {
@@ -932,6 +948,18 @@ partial class Build
             "ok" => $"  {target.Name}: generated ({result.Lines} lines, {result.GenSeconds}s)",
             _ => $"  {target.Name}: gen failed ({result.GenSeconds}s)"
                  + (result.GenVerbose != null ? $"\n    {result.GenVerbose}" : ""),
+        };
+
+        // Render swift compile output for apple-framework targets here (Phase 3b's
+        // CompileWrapper is a no-op for this mode). Mirrors the formatting used by
+        // CompileWrapper so all targets read consistently in the gate output.
+        result.SwiftOutput = result.SwiftCompile switch
+        {
+            "ok" => $"  {target.Name}: [swift:ok]",
+            "fail" => (result.SwiftVerbose != null ? $"    {result.SwiftVerbose}\n" : "") +
+                      $"  {target.Name}: [swift:fail]",
+            "no_wrapper" => $"  {target.Name}: [no wrapper]",
+            _ => null
         };
     }
 
@@ -1147,6 +1175,49 @@ partial class Build
         return (swiftinterface, tbd, frameworkDir);
     }
 
+    /// <summary>
+    /// Extracts the most useful swiftc diagnostic lines from generator output for display
+    /// when a wrapper compile fails. Looks for line:col-formatted swift errors first,
+    /// then falls back to SWIFTBIND050 / "compilation failed" markers, and finally to
+    /// the last few non-empty lines so the gate never reports an opaque failure with
+    /// no diagnostic. Returns null when the output is empty.
+    /// </summary>
+    static string? ExtractSwiftDiagnosticLines(IEnumerable<string> outputLines)
+    {
+        var lines = outputLines
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.TrimEnd())
+            .ToList();
+        if (lines.Count == 0)
+            return null;
+
+        // Primary: any line containing a Swift compiler diagnostic file:line:col error/warning.
+        var diagnostics = lines
+            .Where(t => Regex.IsMatch(t, @"\.swift:\d+:\d+: (?:error|warning):"))
+            .Distinct()
+            .Take(8)
+            .ToList();
+
+        // Secondary: SWIFTBIND050 / generic compile-failure markers carry the truncated
+        // swiftc stderr that the generator surfaces via logger.LogWarning.
+        if (diagnostics.Count == 0)
+        {
+            diagnostics = lines
+                .Where(t => t.Contains("SWIFTBIND050", StringComparison.Ordinal)
+                            || t.Contains("Swift wrapper compilation failed", StringComparison.Ordinal)
+                            || t.Contains("error: no such module", StringComparison.Ordinal))
+                .Distinct()
+                .Take(8)
+                .ToList();
+        }
+
+        // Last resort: tail of output so failures are never silent.
+        if (diagnostics.Count == 0)
+            diagnostics = lines.TakeLast(8).ToList();
+
+        return string.Join("\n", diagnostics);
+    }
+
     static string RunAppleCapture(string file, string args)
     {
         var psi = new System.Diagnostics.ProcessStartInfo
@@ -1251,26 +1322,23 @@ partial class Build
                 var swiftStatus = CheckSwiftWrapper(outdir);
                 result.SwiftCompile = swiftStatus;
 
-                // Capture Swift error lines when verbose + fail
-                if (Verbose && swiftStatus == "fail")
-                {
-                    var swiftErrors = process.Output
-                        .Where(o => Regex.IsMatch(o.Text, @"\.swift:\d+:\d+: error:"))
-                        .Take(5)
-                        .Select(o => o.Text);
-                    result.SwiftVerbose = string.Join("\n", swiftErrors);
-                }
+                // Always capture swiftc diagnostics when the wrapper compile fails. The
+                // generator catches wrapper-compile exceptions and surfaces them via
+                // logger.LogWarning (SWIFTBIND050), so the truncated swiftc stderr lands
+                // in process.Output. Without this capture the gate prints only `swift:fail`
+                // with no diagnostic — which is how three Mac Catalyst targets stayed
+                // silently broken since the apple-framework tier was first added.
+                if (swiftStatus == "fail")
+                    result.SwiftVerbose = ExtractSwiftDiagnosticLines(process.Output.Select(o => o.Text));
             }
             catch (Exception ex)
             {
                 result.SwiftCompile = "fail";
+                result.SwiftVerbose = $"wrapper compilation exception: {ex.Message}";
                 Log.Debug("  {Name}: wrapper compilation exception: {Message}", target.Name, ex.Message);
             }
 
             // Format swift wrapper result
-            if (result.SwiftVerbose != null)
-                result.SwiftOutput = $"    {result.SwiftVerbose}\n";
-
             result.SwiftOutput = result.SwiftCompile switch
             {
                 "ok" => $"  {target.Name}: [swift:ok]",

@@ -75,6 +75,23 @@ public static class WrapperEmitterHelpers
             }
         }
 
+        // Mac Catalyst's version policy mirrors iOS for the unified SDK era (iOS 13.0+):
+        // an API marked `@available(iOS 26.0, *)` is unavailable on macCatalyst < 26.0
+        // even when the parent type carries an explicit `@available(macCatalyst 17.4, *)`.
+        // When both an iOS floor and a macCatalyst floor are present, lift macCatalyst to
+        // at least iOS so the wrapper's `@available` matches what swiftc actually checks
+        // when compiling for `-target arm64-apple-ios<X>-macabi`. Without this, properties
+        // from iOS-only-newer APIs (e.g. ConversationManager.Configuration.supportsAudioTranslation
+        // on iOS 26.0 inside a struct introduced at macCatalyst 17.4) fail wrapper compile
+        // with `'<member>' is only available in iOS <X> or newer`.
+        if (perPlatformMax.TryGetValue("iOS", out var iOSVersion)
+            && perPlatformMax.TryGetValue("macCatalyst", out var catalystVersion)
+            && CompareOsVersions(iOSVersion, catalystVersion) > 0
+            && CompareOsVersions(iOSVersion, "13.0") >= 0)
+        {
+            perPlatformMax["macCatalyst"] = iOSVersion;
+        }
+
         var result = new List<string>(perPlatformMax.Count);
         foreach (var kvp in perPlatformMax)
             result.Add($"{kvp.Key} {kvp.Value}");

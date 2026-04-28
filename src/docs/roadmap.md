@@ -78,34 +78,18 @@ Generator, SDK, runtime, and build infrastructure all properly support iOS, macO
 
 Bugs in `SwiftBindings.Sdk` itself. None of these block 1.0, but they should be cleaned up before / alongside the next SDK drop.
 
-### Wrapper compilation breaks on global-actor-isolated APIs
+### Actor-isolated constructors are skipped instead of bound
 
-**Symptom:** SWIFTBIND051 with swiftc errors of the form `error: call to global actor 'XActor'-isolated static method '_dbw_init_…' in a synchronous nonisolated context [#ActorIsolatedCall]`. The wrapper xcframework ends up incomplete (`_SwiftBindingHasWrapperXCFramework=False` in `binding-metadata.props`). C# bindings still emit, but any API that depends on the wrapper xcframework — constructors and async wrappers — throws `DllNotFoundException` at runtime.
+**Current state:** When a Swift class is annotated with a custom global actor (e.g. `@ImagePipelineActor`, `@MainActor`), the synchronous `@_cdecl` init thunk can't safely call into the actor's executor. The parser detects the annotation, marks the parent `TypeDecl`, and emits SWIFTBIND022 — the constructor wrapper is conservatively skipped, the rest of the binding stays compilable, and the wrapper xcframework builds end-to-end. Confirmed against **Nuke 13.0.2** (`TaskQueue`, `ImagePipeline`, `ImagePrefetcher` inits skipped; library builds clean). Shipped in `8ac575e6` (2026-04-26).
 
-**Trigger:** Source library applies a global actor (e.g. `@MainActor`, `@<Lib>Actor`) to types or initializers that the wrapper generator emits constructor thunks for. First concrete hit: **Nuke 13.0.2** marks `Nuke.ImagePrefetcher` (and its inits) as `@ImagePipelineActor`. Nuke 12.x has the same APIs without the actor annotations, so 12.8.0 builds clean.
+**What's still missing:** Skipped constructors mean consumers can't construct these types from C# at all. The full fix is to emit the `@_cdecl` thunk inside a matching actor-isolated wrapper that hops to the actor's executor synchronously via `assumeIsolated` against `unownedExecutor`. That depends on a metadata gap: the actor type itself can't resolve `Copyable` / `Escapable` / `Sendable` / `SendableMetatype` conformance descriptors from the `.swiftinterface` / ABI JSON, so its `unownedExecutor` accessor is dropped as `UnsupportedType`.
 
-Generator metadata also degrades around the actor type itself — `ImagePipelineActor` can't resolve protocol conformance descriptors (`Copyable`, `Escapable`, `Sendable`, `SendableMetatype`) from the `.swiftinterface`/ABI JSON, so the actor's `unownedExecutor` is skipped (`UnsupportedType`). Likely a separate gap — relevant because option 2 below depends on `unownedExecutor` being reachable.
+**Impact:** Affects any library that adopts global-actor isolation on init / static-factory members. Nuke 13.x compiles but its actor-isolated types have no usable constructor surface from C#. Expected to spread as the Swift 6 ecosystem migrates.
 
-**Cause:** The wrapper generator emits constructor thunks like:
+**Remaining work:**
 
-```swift
-@_cdecl("SBW_Nuke_ImagePrefetcher_init_…")
-public func _sbw_init_…(_ pipeline: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer {
-    let pipelineVal = …
-    let result = Nuke.ImagePrefetcher._dbw_init_…(pipelineVal)  // actor-isolated call
-    return Unmanaged.passRetained(result).toOpaque()
-}
-```
-
-`@_cdecl` functions live in a nonisolated synchronous context. Swift 6 strict-concurrency rejects calls into actor-isolated members from there (`#ActorIsolatedCall`). Repro: bump `swift-dotnet-packages/libraries/Nuke/library.json` to `13.0.2`, run `dotnet nuke BuildLibrary --library Nuke` against `SwiftBindings.Sdk 0.8.0` + Xcode 26.3 (validated 2026-04-26).
-
-**Impact:** Hard block for any library that adopts global-actor isolation on init / static-factory members. Currently affects Nuke 13.x (we hold at 12.8.0 in shipping set). Expected to spread as the Swift 6 ecosystem migrates.
-
-**Fix options (need design):**
-
-1. **Generator-side, conservative**: detect `@<X>Actor`-isolated inits / static methods from the ABI JSON and skip them with a `SWIFTBIND0xx` warning. Loses the constructors but keeps the rest of the binding compiling. Cheapest path to unblocking Nuke 13.
-2. **Generator-side, full**: emit the `@_cdecl` thunk inside a matching `@<X>Actor`-isolated wrapper, or hop to the actor's executor synchronously via `assumeIsolated` / `withSerialExecutor`. Requires the actor's `unownedExecutor` accessor to be reachable — depends on fixing the metadata gap noted above.
-3. **Per-project opt-out**: surface a `<SkipActorIsolatedConstructors>true</SkipActorIsolatedConstructors>` knob so consumers can fall back to skipped-constructor behavior for affected APIs without flipping `<SwiftWrapperRequired>false</SwiftWrapperRequired>` for the whole module.
+1. **Fix the actor-type metadata gap** so the actor's `unownedExecutor` is reachable through the type database. Self-contained parser / type-db bug.
+2. **Replace the SWIFTBIND022 skip with a real actor-isolated thunk** using `assumeIsolated` (or `withSerialExecutor`) against the resolved `unownedExecutor`. Depends on (1). Constructors work after this; SWIFTBIND022 stays as a fallback for actor types whose executor still can't be reached.
 
 ---
 
@@ -114,7 +98,6 @@ public func _sbw_init_…(_ pipeline: UnsafeMutableRawPointer) -> UnsafeMutableR
 | Item | Notes |
 |------|-------|
 | **Performance benchmarks** | Baseline P/Invoke overhead measurement. [`Future/interop-performance-validation-plan.md`](Future/interop-performance-validation-plan.md) |
-| **Bulk retain/release helpers for collections** | Replace per-element `DangerousAddRef`/`DangerousRelease` + P/Invoke loops in `SwiftArray`, `SwiftDictionary`, `SwiftSet` with Swift-side batch helpers. Cuts managed↔native transition cost on large collections. |
 | **API snapshot tooling** | Detect API surface drift between versions. [`Future/api-snapshot-tooling.md`](Future/api-snapshot-tooling.md) |
 | **SwiftUI beyond current level** | Wait for consumer feedback before investing further |
 | **Custom actor types** | Niche — requires async dispatch through actor's serial executor |
@@ -126,7 +109,6 @@ public func _sbw_init_…(_ pipeline: UnsafeMutableRawPointer) -> UnsafeMutableR
 | **Self-requirement existential boxing untested** | `GetPublicExistentialType()` lowers `HasSelfRequirement` protocols to `object` at call sites, but no runtime test exercises an `any SelfReqProto`-typed parameter end-to-end. Same-module conformers have `typeof(IFoo<TSelf>)` keyed dictionary entries — whether this round-trips correctly through `GetOrCreate<object>` is unverified. Separate from the PAT fix. |
 | **Multi-PAT existential boxing** | A type conforming to 2+ PAT protocols cannot box through the `object` fallback because the `typeof(object)` dictionary key is ambiguous. Guarded to fail explicitly (`InvalidCastException`) rather than silently select the wrong witness table. Extremely rare in practice. |
 | **tvOS device runner** | Requires provisioning profile + physical Apple TV. Generator, SDK, runtime, and build infra already support tvOS; only the `nuke runtime-tests-tvos-device` Nuke target and deployment mechanism are missing. |
-| **`UnsafeMutableRawBufferPointer` / mutable raw-buffer bridging** | Post-ship **new feature/design item** — not missing §5.2 coverage. §5.2 shipped read-only `UnsafeRawBufferPointer` → `ReadOnlySpan<byte>`. Extending to the mutable Swift type requires a separate design: likely map synchronous nonescaping calls to `Span<byte>` or an explicit mutable-buffer wrapper. Define lifetime, aliasing, write-back semantics, and async/escaping restrictions before implementation. Runtime coverage: zero-length, sliced/aliased, large payload, write-back. |
 
 ---
 

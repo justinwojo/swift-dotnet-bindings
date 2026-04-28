@@ -1,5 +1,5 @@
 {
-  "git_sha": "dc1162e0",
+  "git_sha": "b45961b7",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -61,9 +61,9 @@
       "LiveCommunicationKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8034,
+        "lines": 7520,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "MusicKit": {
         "compile": "ok",
@@ -105,7 +105,7 @@
         "errors": 0,
         "lines": 32801,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "RoomPlan": {
         "compile": "ok",
@@ -133,7 +133,7 @@
         "errors": 0,
         "lines": 31445,
         "dep_compile": "none",
-        "swift_compile": "fail"
+        "swift_compile": "ok"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
@@ -895,7 +895,7 @@
   },
   "skip_metrics": {
     "total_emitted_members": 18794,
-    "total_skipped_members": 3722,
+    "total_skipped_members": 3723,
     "skip_rate_pct": 16.5,
     "skip_reasons": {
       "ModuleInternal": 750,
@@ -903,7 +903,7 @@
       "UnsupportedSignature": 611,
       "GenericProtocolConstraint": 453,
       "AnyTypeFallback": 429,
-      "EveryProtocolConformanceSkipped": 248,
+      "EveryProtocolConformanceSkipped": 249,
       "UnsupportedClosure": 188,
       "UnsupportedType": 177,
       "SwiftUIConstraint": 128,

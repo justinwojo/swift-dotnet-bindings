@@ -1072,6 +1072,55 @@ namespace BindingsGeneration
                             }
                         }
                     }
+
+                    // TBD-method-descriptor gate (Mac Catalyst Apple-bug pattern): the
+                    // macCatalyst swiftinterface can declare a protocol requirement whose
+                    // method-descriptor symbol (`{mangledName}Tq`) is absent from the
+                    // framework's TBD on this slice — Apple's
+                    // LiveCommunicationKit.ConversationManagerDelegate.didActivate /
+                    // didDeactivate ships in the macabi swiftinterface but the macOS
+                    // dylib's TBD does not export the Tq descriptor. The EveryProtocol
+                    // extension would synthesize a witness table referencing the
+                    // missing descriptor, producing an undefined-symbol link error.
+                    // Skip the conformance so the wrapper links; existential dispatch
+                    // through the protocol's vtable remains unaffected because that
+                    // path uses ConversationManagerDelegateProxy, not EveryProtocol.
+                    //
+                    // The gate is scoped to native-Swift protocols. `@objc` protocols
+                    // (BonMot.AdaptableTextContainer, SwiftyGifDelegate, …) and `@objc
+                    // optional` members dispatch through the ObjC selector table rather
+                    // than a Swift witness table — they never emit a `Tq` descriptor,
+                    // so a missing one means nothing for them. Treating them as missing
+                    // would suppress proxy classes for every `@objc` protocol on every
+                    // slice, eliminating a working surface.
+                    //
+                    // Scope: methods only. Protocol property and subscript requirements
+                    // also have `Tq` descriptors in Swift, but no observed Apple SDK has
+                    // missing-property-descriptor cases against the validation corpus.
+                    // If one ever surfaces, it will fail loudly through the now-always-on
+                    // swiftc stderr propagation in Build.Validation rather than silently,
+                    // and the cross-check can be extended to walk Properties/Subscripts.
+                    bool isObjCProtocol = node.DeclAttributes is not null &&
+                        Array.IndexOf(node.DeclAttributes, "ObjC") != -1;
+                    if (!isObjCProtocol)
+                    {
+                        foreach (var method in protocolDecl2.Methods)
+                        {
+                            if (!method.IsProtocolRequirement)
+                                continue;
+                            if (method.IsObjCOptional)
+                                continue;
+                            if (string.IsNullOrEmpty(method.MangledName))
+                                continue;
+                            if (!_demangledTbd.AllSymbols.Contains(method.MangledName + "Tq"))
+                            {
+                                protocolDecl2.HasMissingTbdMethodDescriptors = true;
+                                _logger.LogDebug("Protocol {Name}: required method '{Method}' has no Tq method descriptor in TBD ({Mangled}Tq missing); skipping EveryProtocol conformance.",
+                                    decl.Name, method.Name, method.MangledName);
+                                break;
+                            }
+                        }
+                    }
                 }
 
                 foreach (var type in decl.Types)

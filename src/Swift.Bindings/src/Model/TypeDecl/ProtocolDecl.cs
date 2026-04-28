@@ -98,4 +98,19 @@ public sealed record ProtocolDecl : TypeDecl
     /// a default implementation for the hidden member.
     /// </summary>
     public bool HasUnsatisfiedHiddenRequirements { get; set; }
+
+    /// <summary>
+    /// Indicates whether at least one protocol-requirement method's method-descriptor symbol
+    /// (mangled name + <c>Tq</c>) is missing from the framework's TBD on this slice. Apple
+    /// occasionally ships a swiftinterface that declares a protocol requirement which the
+    /// binary's TBD does not export — most often on Mac Catalyst, where the macOS dylib backs
+    /// a macCatalyst-only swiftinterface (e.g. <c>LiveCommunicationKit.ConversationManagerDelegate.didActivate</c>
+    /// is declared in the macabi swiftinterface but its <c>Tq</c> descriptor isn't in
+    /// <c>LiveCommunicationKit.tbd</c> under MacOSX.sdk). The synthesized
+    /// <c>extension EveryProtocol: P</c> would emit a witness table referencing the missing
+    /// descriptor, producing an undefined-symbol link error in the wrapper. Skipping the
+    /// conformance leaves the protocol callable through its existing existential surface
+    /// while letting the wrapper link.
+    /// </summary>
+    public bool HasMissingTbdMethodDescriptors { get; set; }
 }

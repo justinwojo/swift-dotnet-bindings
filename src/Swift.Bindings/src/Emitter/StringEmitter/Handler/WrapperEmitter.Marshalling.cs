@@ -156,19 +156,15 @@ namespace BindingsGeneration
         /// </summary>
         private static string BuildAvailabilityAttributeLines(IReadOnlyList<AvailabilityAnnotation>? annotations, string separator)
         {
-            if (annotations == null || annotations.Count == 0)
+            // Route through the shared helper so per-platform deduplication and the
+            // macCatalyst-tracks-iOS lift apply uniformly to every wrapper variant.
+            var keys = WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(annotations);
+            if (keys.Count == 0)
                 return string.Empty;
 
-            var emitted = new HashSet<string>();
-            var parts = new List<string>();
-            foreach (var annotation in annotations)
-            {
-                if (annotation.Platform == null || annotation.IntroducedVersion == null)
-                    continue;
-                var key = $"{annotation.Platform} {annotation.IntroducedVersion}";
-                if (emitted.Add(key))
-                    parts.Add($"@available({key}, *)");
-            }
+            var parts = new List<string>(keys.Count);
+            foreach (var key in keys)
+                parts.Add($"@available({key}, *)");
             return string.Join(separator, parts);
         }
 

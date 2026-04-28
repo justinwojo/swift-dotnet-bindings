@@ -724,6 +724,16 @@ public class EveryProtocolEmitter
         if (protocolDecl.HasUnsatisfiedHiddenRequirements)
             return true;
 
+        // TBD-method-descriptor gate: at least one required method's Tq descriptor is
+        // missing from the framework's TBD on this slice (Apple ships the swiftinterface
+        // declaration but not the descriptor symbol — observed on Mac Catalyst for
+        // LiveCommunicationKit.ConversationManagerDelegate.didActivate / didDeactivate).
+        // The synthesized EveryProtocol witness table would reference an unresolved
+        // symbol and the wrapper link would fail. Detected during ABI parsing in
+        // SwiftABIParser.HandleNominalDecl.
+        if (protocolDecl.HasMissingTbdMethodDescriptors)
+            return true;
+
         // Self-typed members (τ_0_*) and mixed method-level generics no longer skip the
         // entire protocol. Self-typed members get fatalError() stubs with τ_0_0→EveryProtocol,
         // and method-level generic methods get fatalError() stubs alongside normal vtable
@@ -897,6 +907,18 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: swiftinterface declares an __-prefixed requirement stripped from ABI JSON with no extension default");
             RecordSkip("UnsatisfiedHiddenRequirements");
+            return;
+        }
+
+        // Skip protocols where at least one required method's `Tq` method-descriptor symbol
+        // is absent from the framework's TBD on this slice. The emitted EveryProtocol
+        // witness table would reference an unresolved descriptor and fail to link
+        // (observed on Mac Catalyst for LiveCommunicationKit.ConversationManagerDelegate's
+        // didActivate / didDeactivate). See WillSkipConformance for the rationale.
+        if (protocolDecl.HasMissingTbdMethodDescriptors)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: required method has no Tq method descriptor in framework TBD");
+            RecordSkip("MissingTbdMethodDescriptors");
             return;
         }
 

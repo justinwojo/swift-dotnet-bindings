@@ -3040,6 +3040,39 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void WillSkipConformance_HasMissingTbdMethodDescriptors_ReturnsTrue()
+    {
+        // Mac Catalyst Apple-bug pattern: the macCatalyst swiftinterface declares a
+        // protocol requirement whose method-descriptor ($mangled+Tq) symbol isn't
+        // exported in the framework's TBD. Apple's
+        // LiveCommunicationKit.ConversationManagerDelegate.didActivate / didDeactivate
+        // are the canonical example. The synthesized EveryProtocol witness table would
+        // reference an unresolved descriptor and the wrapper link would fail. The
+        // parser sets HasMissingTbdMethodDescriptors during ABI parsing; the emitter
+        // must skip the conformance so the wrapper links.
+        var protocol = CreateProtocolWithMethod("ConversationManagerDelegate", "didActivate");
+        protocol.HasMissingTbdMethodDescriptors = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_HasMissingTbdMethodDescriptors_SkipsConformance()
+    {
+        // Mirror of the WillSkipConformance test through the direct emission path —
+        // verifies the same gate fires when the pre-scan was bypassed.
+        var protocol = CreateProtocolWithMethod("ConversationManagerDelegate", "didActivate");
+        protocol.HasMissingTbdMethodDescriptors = true;
+
+        var output = EmitConformance(protocol);
+
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
     public void WillSkipConformance_NonRequiredSpiProperty_StillEmits()
     {
         // Extension defaults (protocolReq=false) that happen to be SPI must NOT
