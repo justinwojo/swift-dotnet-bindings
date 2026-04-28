@@ -7,17 +7,17 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
-/// Bug 16 regression coverage: protocols whose requirements include any
-/// `@_spi`-protected (or otherwise parser-suppressed) member must skip the
-/// EveryProtocol conformance instead of emitting an unsatisfiable
-/// `extension EveryProtocol: P` that Swift's type-checker rejects. Before the
-/// generalized "required-but-suppressed" gate the wrapper failed to compile;
-/// after the gate the conformance is dropped and the proxy class is suppressed
-/// via the existing `EveryProtocolConformanceSkipped` propagation path.
+/// Bug 16 regression coverage: protocols whose requirement set includes a
+/// `@_spi`-protected member round-trip cleanly through the binding pipeline.
 ///
-/// The C# interface itself is still emitted, so consumers can hold typed
-/// references to existential values; only the proxy (which would need a witness
-/// for the SPI requirement) is suppressed.
+/// Under the current toolchain, `swift-api-digester` and the swiftinterface
+/// printer both strip `@_spi` requirements from the public ABI surface, so
+/// neither the parser nor the emitter ever sees `__linkSPI`. The protocol that
+/// reaches `EveryProtocolEmitter` looks like a one-requirement protocol
+/// (`publicLabel`), the conformance, interface, and proxy all emit normally,
+/// and the wrapper compiles. The `HasSuppressedRequiredMember` gate stays in
+/// place as defense-in-depth for any future toolchain that surfaces an
+/// `@_spi` requirement to the parser before PropertyHandler skips it.
 /// </summary>
 public class SpiRequirementProtocolSkipTests : TestBase
 {
@@ -47,21 +47,30 @@ public class SpiRequirementProtocolSkipTests : TestBase
         TestLogger.Info($"Bug16SpiRequirementConsumer.GetLabel() = \"{label}\"");
     }
 
+    public void TestPublicLabelThroughInterface()
+    {
+        IBug16SpiRequirementProtocol proto = new Bug16SpiRequirementConformer();
+        AssertEqual("spi-required", proto.PublicLabel, "PublicLabel reachable through IBug16SpiRequirementProtocol");
+        TestLogger.Info($"IBug16SpiRequirementProtocol.PublicLabel = \"{proto.PublicLabel}\"");
+    }
+
     #endregion
 
-    #region Bug 16 — Proxy suppression invariant
+    #region Bug 16 — Proxy emission invariant
 
-    public void TestProtocolProxyIsNotEmitted()
+    public void TestProtocolProxyIsEmitted()
     {
-        // The C# interface IBug16SpiRequirementProtocol must still be emitted
-        // (consumers can hold typed references), but the *proxy* class — which
-        // would need a witness for the SPI-protected `__linkSPI` requirement —
-        // must be suppressed via the EveryProtocolConformanceSkipped path.
+        // With the @_spi requirement filtered from both abi.json and
+        // swiftinterface, neither HasSuppressedRequiredMember nor
+        // HasUnsatisfiedHiddenRequirements fires for this protocol. The proxy
+        // (and its IBug16SpiRequirementProtocol witness for `publicLabel`)
+        // must therefore be emitted normally.
+        // Proxies live in the SwiftInterop sub-namespace.
         var assembly = typeof(Bug16SpiRequirementConformer).Assembly;
-        var proxyType = assembly.GetType("SwiftBindingsTestLib.Bug16SpiRequirementProtocolProxy");
-        AssertTrue(proxyType is null,
-            "Bug16SpiRequirementProtocolProxy must NOT be emitted — Bug 16 requires the proxy to be suppressed when EveryProtocol conformance is skipped");
-        TestLogger.Info("Bug16SpiRequirementProtocolProxy correctly absent from generated bindings");
+        var proxyType = assembly.GetType("SwiftBindingsTestLib.SwiftInterop.Bug16SpiRequirementProtocolProxy");
+        AssertTrue(proxyType is not null,
+            "Bug16SpiRequirementProtocolProxy MUST be emitted — the @_spi requirement is invisible to the parser, so the gate cannot fire and the proxy is witnessed normally");
+        TestLogger.Info("Bug16SpiRequirementProtocolProxy correctly present in generated bindings");
     }
 
     #endregion

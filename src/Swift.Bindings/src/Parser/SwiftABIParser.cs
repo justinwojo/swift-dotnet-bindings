@@ -691,6 +691,18 @@ namespace BindingsGeneration
         /// </summary>
         private readonly HashSet<string>? _conventionCProtocols;
 
+        /// <summary>
+        /// Optional map of protocol name to the underscore-prefixed requirement names declared
+        /// in the swiftinterface protocol body that have no matching default in any same-module
+        /// extension. The parser consults this and only sets
+        /// <c>HasUnsatisfiedHiddenRequirements</c> when at least one of those names is also
+        /// missing from the protocol's parsed ABI children — i.e. <c>swift-api-digester</c>
+        /// stripped it from the JSON, leaving no way to satisfy the witness from generated
+        /// code. Used by the EveryProtocol emitter to skip otherwise-unsatisfiable
+        /// conformances (e.g. <c>RealityFoundation.MaterialFunction.__linkSPI</c>).
+        /// </summary>
+        private readonly Dictionary<string, HashSet<string>>? _hiddenRequirementProtocols;
+
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
@@ -715,7 +727,8 @@ namespace BindingsGeneration
             HashSet<string>? mainActorIsolatedMembers = null,
             HashSet<string>? variadicMembers = null,
             HashSet<string>? conventionCProtocols = null,
-            HashSet<string>? customActorIsolatedTypes = null)
+            HashSet<string>? customActorIsolatedTypes = null,
+            Dictionary<string, HashSet<string>>? hiddenRequirementProtocols = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
@@ -741,6 +754,7 @@ namespace BindingsGeneration
             _variadicMembers = variadicMembers;
             _conventionCProtocols = conventionCProtocols;
             _customActorIsolatedTypes = customActorIsolatedTypes;
+            _hiddenRequirementProtocols = hiddenRequirementProtocols;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1022,6 +1036,41 @@ namespace BindingsGeneration
                         protocolDecl2.HasMissingRequirements = true;
                         _logger.LogDebug("Protocol {Name}: {Missing} required member(s) failed ABI parsing ({Parsed}/{Expected})",
                             decl.Name, expectedReqChildren - parsedReqMembers, parsedReqMembers, expectedReqChildren);
+                    }
+
+                    // Hidden-requirement gate: only fire when a __-prefixed requirement
+                    // declared in the swiftinterface protocol body is ALSO absent from the
+                    // ABI JSON children for this protocol. If the requirement is in the ABI
+                    // (e.g. newer Swift toolchains that retain __-names), the generator can
+                    // witness it normally and the EveryProtocol conformance is fine.
+                    // Comparing names — not just protocol identity — keeps us from
+                    // suppressing valid proxies whenever the swiftinterface happens to
+                    // declare a __-name.
+                    if (_hiddenRequirementProtocols != null &&
+                        _hiddenRequirementProtocols.TryGetValue(decl.Name, out var swiftinterfaceUnderscored) &&
+                        swiftinterfaceUnderscored.Count > 0)
+                    {
+                        var abiUnderscored = new HashSet<string>(StringComparer.Ordinal);
+                        foreach (var child in node.Children)
+                        {
+                            if (child.protocolReq != true)
+                                continue;
+                            if (child.Kind != "Function" && child.Kind != "Var" && child.Kind != "Constructor" && child.Kind != "Subscript")
+                                continue;
+                            var memberName = ExtractUniqueName(child.Name);
+                            if (memberName.StartsWith("__", StringComparison.Ordinal))
+                                abiUnderscored.Add(memberName);
+                        }
+                        foreach (var name in swiftinterfaceUnderscored)
+                        {
+                            if (!abiUnderscored.Contains(name))
+                            {
+                                protocolDecl2.HasUnsatisfiedHiddenRequirements = true;
+                                _logger.LogDebug("Protocol {Name}: swiftinterface declares __-prefixed requirement '{Member}' that is missing from ABI JSON; skipping EveryProtocol conformance.",
+                                    decl.Name, name);
+                                break;
+                            }
+                        }
                     }
                 }
 

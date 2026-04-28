@@ -5,21 +5,19 @@ import Foundation
 
 // MARK: - Bug 16 fixture: protocol with a required `@_spi` Var
 
-/// Reproduces the RealityFoundation `MaterialFunction` pattern: a public protocol
-/// whose requirement set includes a `@_spi`-protected `var` (e.g. `__linkSPI`).
-/// The Var requirement parses cleanly into the model, but PropertyHandler skips
-/// SPI properties by returning `SkipReason.ModuleInternal`. Without the Bug 16
-/// gate the generator still emitted `extension EveryProtocol: MaterialFunction { ... }`
-/// missing the SPI witness, and Swift's type-checker rejected the conformance —
-/// the wrapper failed to compile.
+/// Public protocol whose requirement set includes a `@_spi`-protected `var`
+/// (mirrors the original RealityFoundation `MaterialFunction` pattern that
+/// motivated the fix). Under the current toolchain `swift-api-digester` and
+/// the swiftinterface printer both strip `@_spi` requirements from the public
+/// ABI surface, so the requirement is invisible to the parser and the
+/// protocol that reaches `EveryProtocolEmitter` looks like a single-member
+/// protocol (`publicLabel`). The conformance, interface, and proxy emit
+/// normally and the wrapper compiles.
 ///
-/// The generalized "required-but-suppressed" gate skips the EveryProtocol
-/// conformance for any protocol whose required member is dropped by parser-time
-/// validation (today: `@_spi`, in principle: any future suppression reason).
-/// This fixture's protocol, conformer, and consumer should round-trip cleanly
-/// because the proxy class is suppressed via the existing
-/// `EveryProtocolConformanceSkipped` propagation path while the C# interface
-/// itself is still emitted.
+/// The `HasSuppressedRequiredMember` gate (`EveryProtocolEmitter`) remains in
+/// place as defense-in-depth for any future toolchain that surfaces an
+/// `@_spi` requirement before PropertyHandler skips it as
+/// `SkipReason.ModuleInternal`.
 public protocol Bug16SpiRequirementProtocol {
     var publicLabel: String { get }
 

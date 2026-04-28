@@ -87,4 +87,15 @@ public sealed record ProtocolDecl : TypeDecl
     /// Detected via swiftinterface cross-reference.
     /// </summary>
     public bool HasConventionCClosureParameters { get; set; }
+
+    /// <summary>
+    /// Indicates whether the protocol declares an underscore-prefixed (e.g., <c>__linkSPI</c>)
+    /// requirement that swift-api-digester strips from the ABI JSON yet the Swift compiler
+    /// still enforces at conformance type-check time. The parser only sees what the ABI JSON
+    /// exposes, so EveryProtocol's extension cannot emit a witness for the hidden member;
+    /// Swift then rejects the conformance with "protocol requires property '__X'". Detected
+    /// via swiftinterface cross-reference and only set when no same-protocol extension supplies
+    /// a default implementation for the hidden member.
+    /// </summary>
+    public bool HasUnsatisfiedHiddenRequirements { get; set; }
 }

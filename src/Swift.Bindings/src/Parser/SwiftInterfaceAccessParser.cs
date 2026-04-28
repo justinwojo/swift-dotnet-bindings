@@ -1086,6 +1086,243 @@ public static class SwiftInterfaceAccessParser
         return result;
     }
 
+    // Underscore-prefixed protocol requirement: var/let/func/init/subscript/static var/static func
+    // whose member name begins with "__" (e.g., `var __linkSPI: Bool { get }`). swift-api-digester
+    // strips these from the ABI JSON, but swiftc still enforces them as protocol requirements.
+    private static readonly Regex UnderscoredProtocolMemberRegex = new(
+        @"\b(?:var|let|func|init|subscript)\s+(__\w+)|\bvar\s+(__\w+)\s*:|\bsubscript\b",
+        RegexOptions.Compiled);
+
+    private static readonly Regex UnderscoredVarRegex = new(
+        @"\b(?:var|let)\s+(__\w+)\b",
+        RegexOptions.Compiled);
+
+    private static readonly Regex UnderscoredFuncRegex = new(
+        @"\bfunc\s+(__\w+)\b",
+        RegexOptions.Compiled);
+
+    // Header line format: "// swift-module-flags: ... -module-name <Name> ..."
+    private static readonly Regex ModuleNameHeaderRegex = new(
+        @"-module-name\s+([A-Za-z_][A-Za-z0-9_]*)",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a .swiftinterface file and returns, per protocol, the set of underscore-prefixed
+    /// (e.g. <c>__linkSPI</c>) requirement names declared in the protocol body that lack a
+    /// matching default implementation in any same-module same-protocol extension.
+    ///
+    /// The returned names are only candidates: the caller (<c>SwiftABIParser</c>) compares
+    /// them against the parsed protocol's children and only acts on names that are also
+    /// missing from the ABI JSON. This avoids over-broad suppression in toolchains where
+    /// <c>swift-api-digester</c> retains <c>__</c>-prefixed names (they can be witnessed
+    /// from C# normally).
+    ///
+    /// Pass 2 matches extensions only when the target is <c>&lt;moduleName&gt;.&lt;Protocol&gt;</c>
+    /// or the unqualified <c>&lt;Protocol&gt;</c> (Swift's same-module form). Foreign extensions
+    /// like <c>extension OtherModule.Component</c> never count as defaults for the local
+    /// <c>Component</c>. The module name is extracted from the swiftinterface header's
+    /// <c>-module-name</c> flag.
+    /// </summary>
+    public static Dictionary<string, HashSet<string>> GetProtocolsWithUnsatisfiedHiddenRequirements(
+        string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        // Pull the module name from the header so Pass 2 can reject foreign extensions
+        // (e.g. `extension SomeOtherModule.Component { ... }`) which never satisfy a
+        // local Component requirement, despite sharing a simple name.
+        string? moduleName = null;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        // Header lines (those starting with "//") usually live in the first ~10 lines.
+        // Stop scanning at the first non-comment, non-blank line.
+        for (int i = 0; i < lines.Length && i < 64; i++)
+        {
+            var headerLine = lines[i];
+            if (headerLine.StartsWith("//", StringComparison.Ordinal))
+            {
+                var nameMatch = ModuleNameHeaderRegex.Match(headerLine);
+                if (nameMatch.Success)
+                {
+                    moduleName = nameMatch.Groups[1].Value;
+                    break;
+                }
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(headerLine))
+                continue;
+            break;
+        }
+
+        // Pass 1: find protocol declarations and the names of __-prefixed members declared
+        // directly in their bodies. Track outer brace depth so nested types inside a protocol
+        // don't pollute the requirement set.
+        var requirements = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        int braceDepth = 0;
+        string? currentProtocol = null;
+        int protocolBraceDepth = -1;
+        int innerNestedDepth = 0; // depth of `{ ... }` opened *inside* the protocol body
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var (opens, closes) = CountBraces(trimmed);
+
+            // Detect a protocol declaration that opens its body on this line
+            var protoMatch = ProtocolDeclRegex.Match(trimmed);
+            if (protoMatch.Success && opens > 0 && currentProtocol == null)
+            {
+                currentProtocol = protoMatch.Groups[1].Value;
+                protocolBraceDepth = braceDepth;
+                innerNestedDepth = 0;
+                if (!requirements.ContainsKey(currentProtocol))
+                    requirements[currentProtocol] = new HashSet<string>(StringComparer.Ordinal);
+                braceDepth += opens - closes;
+                continue;
+            }
+
+            int prevDepth = braceDepth;
+            braceDepth += opens - closes;
+
+            if (currentProtocol != null)
+            {
+                // Members declared directly inside the protocol body sit at exactly
+                // `protocolBraceDepth + 1` (i.e., innerNestedDepth == 0 entering the line).
+                // Skip declarations inside nested `{}` (e.g. accessor blocks, nested types).
+                if (innerNestedDepth == 0 && !trimmed.StartsWith("//", StringComparison.Ordinal))
+                {
+                    var varMatch = UnderscoredVarRegex.Match(trimmed);
+                    if (varMatch.Success)
+                        requirements[currentProtocol].Add(varMatch.Groups[1].Value);
+                    var funcMatch = UnderscoredFuncRegex.Match(trimmed);
+                    if (funcMatch.Success)
+                        requirements[currentProtocol].Add(funcMatch.Groups[1].Value);
+                }
+
+                // Adjust nested depth using the line's net brace delta (after we've
+                // captured pre-line member declarations). A `var __x: Bool { get }`
+                // line has opens==closes so innerNestedDepth stays 0 across the line.
+                innerNestedDepth += opens - closes;
+                if (innerNestedDepth < 0) innerNestedDepth = 0;
+
+                // Exit the protocol body when depth drops to or below the opening depth.
+                if (braceDepth <= protocolBraceDepth)
+                {
+                    currentProtocol = null;
+                    protocolBraceDepth = -1;
+                    innerNestedDepth = 0;
+                }
+            }
+        }
+
+        // Drop protocols with no hidden requirements.
+        var protocolsWithHidden = requirements
+            .Where(kvp => kvp.Value.Count > 0)
+            .ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.Ordinal);
+        if (protocolsWithHidden.Count == 0)
+            return result;
+
+        // Pass 2: walk extension blocks for the same module. For any
+        // `extension <qualified>.<protocol>` whose simple name matches a tracked protocol,
+        // collect __-prefixed members from the extension body — they're default impls that
+        // satisfy the corresponding requirement.
+        var satisfied = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        braceDepth = 0;
+        string? currentExtensionProto = null;
+        int extensionBraceDepth = -1;
+        int extInnerNestedDepth = 0;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var (opens, closes) = CountBraces(trimmed);
+
+            if (currentExtensionProto == null)
+            {
+                var extMatch = ExtensionDeclRegex.Match(trimmed);
+                if (extMatch.Success && opens > 0)
+                {
+                    var qualified = extMatch.Groups[1].Value;
+                    string? simpleName = null;
+                    var dot = qualified.IndexOf('.');
+                    if (dot < 0)
+                    {
+                        // Unqualified `extension X`: Swift requires same-module reference.
+                        simpleName = qualified;
+                    }
+                    else if (moduleName != null)
+                    {
+                        // Qualified `extension <Mod>.<X>`: only count when the module
+                        // matches the swiftinterface's own module. Cross-module extensions
+                        // (e.g. extension OtherModule.Component) never satisfy a local
+                        // Component requirement.
+                        var qualifier = qualified.Substring(0, dot);
+                        if (string.Equals(qualifier, moduleName, StringComparison.Ordinal))
+                            simpleName = qualified.Substring(dot + 1);
+                    }
+                    if (simpleName != null && protocolsWithHidden.ContainsKey(simpleName))
+                    {
+                        currentExtensionProto = simpleName;
+                        extensionBraceDepth = braceDepth;
+                        extInnerNestedDepth = 0;
+                        if (!satisfied.ContainsKey(simpleName))
+                            satisfied[simpleName] = new HashSet<string>(StringComparer.Ordinal);
+                    }
+                    braceDepth += opens - closes;
+                    continue;
+                }
+                braceDepth += opens - closes;
+                continue;
+            }
+
+            braceDepth += opens - closes;
+
+            if (extInnerNestedDepth == 0 && !trimmed.StartsWith("//", StringComparison.Ordinal))
+            {
+                var varMatch = UnderscoredVarRegex.Match(trimmed);
+                if (varMatch.Success)
+                    satisfied[currentExtensionProto].Add(varMatch.Groups[1].Value);
+                var funcMatch = UnderscoredFuncRegex.Match(trimmed);
+                if (funcMatch.Success)
+                    satisfied[currentExtensionProto].Add(funcMatch.Groups[1].Value);
+            }
+
+            extInnerNestedDepth += opens - closes;
+            if (extInnerNestedDepth < 0) extInnerNestedDepth = 0;
+
+            if (braceDepth <= extensionBraceDepth)
+            {
+                currentExtensionProto = null;
+                extensionBraceDepth = -1;
+                extInnerNestedDepth = 0;
+            }
+        }
+
+        // Final: collect, per protocol, the underscored requirements that have no extension
+        // default in this swiftinterface. The caller cross-checks against ABI JSON before
+        // acting — a name present in the ABI can be witnessed normally.
+        foreach (var kvp in protocolsWithHidden)
+        {
+            satisfied.TryGetValue(kvp.Key, out var defaults);
+            HashSet<string>? unsatisfied = null;
+            foreach (var name in kvp.Value)
+            {
+                if (defaults != null && defaults.Contains(name))
+                    continue;
+                unsatisfied ??= new HashSet<string>(StringComparer.Ordinal);
+                unsatisfied.Add(name);
+            }
+            if (unsatisfied != null)
+                result[kvp.Key] = unsatisfied;
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Parses a .swiftinterface file and returns protocol extension methods grouped by
     /// fully-qualified protocol name (e.g., "Kingfisher.KFOptionSetter").

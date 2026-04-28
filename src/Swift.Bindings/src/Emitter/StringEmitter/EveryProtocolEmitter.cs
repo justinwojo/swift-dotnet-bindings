@@ -715,6 +715,15 @@ public class EveryProtocolEmitter
         if (HasSuppressedRequiredMember(protocolDecl))
             return true;
 
+        // Hidden-requirement gate: the protocol body declares an `__`-prefixed requirement
+        // that swift-api-digester strips from the ABI JSON, and no same-protocol extension
+        // supplies a default. The parser never sees the requirement, so the EveryProtocol
+        // extension emits no witness — Swift rejects the conformance at compile time
+        // (e.g. RealityFoundation.MaterialFunction.__linkSPI). Detected via swiftinterface
+        // cross-reference; see SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements.
+        if (protocolDecl.HasUnsatisfiedHiddenRequirements)
+            return true;
+
         // Self-typed members (τ_0_*) and mixed method-level generics no longer skip the
         // entire protocol. Self-typed members get fatalError() stubs with τ_0_0→EveryProtocol,
         // and method-level generic methods get fatalError() stubs alongside normal vtable
@@ -878,6 +887,16 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: required member suppressed by parser-time validation");
             RecordSkip("RequiredMemberSuppressed");
+            return;
+        }
+
+        // Skip protocols whose swiftinterface body declares an `__`-prefixed requirement
+        // that swift-api-digester strips from the ABI JSON and that no same-protocol extension
+        // satisfies. See WillSkipConformance for the rationale.
+        if (protocolDecl.HasUnsatisfiedHiddenRequirements)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: swiftinterface declares an __-prefixed requirement stripped from ABI JSON with no extension default");
+            RecordSkip("UnsatisfiedHiddenRequirements");
             return;
         }
 

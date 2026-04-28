@@ -2934,6 +2934,185 @@ public class DisposeBag {
 
     #endregion
 
+    #region GetProtocolsWithUnsatisfiedHiddenRequirements Tests
+
+    private const string TestModuleHeader =
+        "// swift-interface-format-version: 1.0\n" +
+        "// swift-module-flags: -target arm64-apple-ios15.0-simulator -module-name TestModule\n";
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_UnderscoredVarNoExtension_ReturnsRequirementName()
+    {
+        // Mirrors RealityFoundation.MaterialFunction: __linkSPI is a public protocol
+        // requirement in the swiftinterface but stripped from the ABI JSON, with no
+        // extension supplying a default. The conformance can't be satisfied.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol MaterialFunction {
+              var name: Swift.String { get set }
+              var __linkSPI: Swift.Bool { get }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.True(result.TryGetValue("MaterialFunction", out var unsatisfied));
+            Assert.Contains("__linkSPI", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_UnderscoredVarWithExtensionDefault_NotDetected()
+    {
+        // Same-module qualified extension supplies a default, so the protocol's
+        // __-prefixed requirement is satisfied. Must NOT be flagged for skip.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol Component {
+              static var __typeName: Swift.String { get }
+              static var __size: Swift.Int { get }
+            }
+            extension TestModule.Component {
+              public static var __typeName: Swift.String {
+                get
+              }
+              public static var __size: Swift.Int {
+                get
+              }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.DoesNotContain("Component", result.Keys);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_ForeignModuleExtension_DoesNotSatisfy()
+    {
+        // P2: a public extension on a same-simple-name protocol declared in a foreign
+        // module never satisfies the local protocol's hidden requirement. The local
+        // Component must still be flagged because no LOCAL extension provides defaults.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol Component {
+              static var __typeName: Swift.String { get }
+            }
+            extension OtherModule.Component {
+              public static var __typeName: Swift.String { get { "" } }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.True(result.TryGetValue("Component", out var unsatisfied));
+            Assert.Contains("__typeName", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_UnqualifiedExtensionDefault_Satisfies()
+    {
+        // Unqualified `extension Foo` always refers to the same-module Foo (Swift
+        // requires qualification for cross-module). Defaults declared this way satisfy.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol Foo {
+              var __token: Swift.Int { get }
+            }
+            extension Foo {
+              public var __token: Swift.Int { get { 0 } }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.DoesNotContain("Foo", result.Keys);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_UnderscoredFunc_ReturnsRequirementName()
+    {
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol __SyncService {
+              func __fromCore(peerID: Swift.OpaquePointer) -> Swift.Bool
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.True(result.TryGetValue("__SyncService", out var unsatisfied));
+            Assert.Contains("__fromCore", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_PartialDefaults_OnlyReturnsMissing()
+    {
+        // Extension provides a default for one of two underscored requirements — the
+        // remaining unsatisfied requirement is reported, the satisfied one is not.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol PartiallyDefaulted {
+              var __coveredByDefault: Swift.Int { get }
+              var __stillMissing: Swift.Bool { get }
+            }
+            extension TestModule.PartiallyDefaulted {
+              public var __coveredByDefault: Swift.Int { get { 0 } }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.True(result.TryGetValue("PartiallyDefaulted", out var unsatisfied));
+            Assert.Contains("__stillMissing", unsatisfied);
+            Assert.DoesNotContain("__coveredByDefault", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_NoUnderscoredRequirements_ReturnsEmpty()
+    {
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol PlainProto {
+              var name: Swift.String { get }
+              func doWork()
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_UnderscoredVarOutsideProtocol_NotDetected()
+    {
+        var path = WriteTempFile(TestModuleHeader + """
+            public class Entity {
+            }
+            extension TestModule.Entity {
+              public var __interactions: [Swift.String] { get { [] } }
+            }
+            public protocol PlainProto {
+              var name: Swift.String { get }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.Empty(result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     #region GetForeignTypeExtensionMembers Tests
 
     [Fact]

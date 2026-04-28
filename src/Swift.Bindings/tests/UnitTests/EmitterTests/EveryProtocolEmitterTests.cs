@@ -3009,6 +3009,37 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void WillSkipConformance_HasUnsatisfiedHiddenRequirements_ReturnsTrue()
+    {
+        // Bug 16 supplement: swift-api-digester strips __-prefixed protocol requirements
+        // (e.g. RealityFoundation.MaterialFunction.__linkSPI) from the ABI JSON, so the
+        // parser never sees them. The Swift compiler still enforces them at conformance
+        // type-check time. SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements
+        // surfaces these from the swiftinterface; the emitter must skip the conformance.
+        var protocol = CreateProtocolWithMethod("MaterialFunction", "name");
+        protocol.HasUnsatisfiedHiddenRequirements = true;
+
+        _emitter.PreScanProtocols(new List<ProtocolDecl> { protocol });
+
+        var output = EmitConformance(protocol);
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_HasUnsatisfiedHiddenRequirements_SkipsConformance()
+    {
+        // Mirror of the WillSkipConformance test through the direct emission path —
+        // verifies the same gate fires when the pre-scan was bypassed (e.g. tests that
+        // construct a ProtocolDecl ad-hoc and invoke EmitProtocolConformance).
+        var protocol = CreateProtocolWithMethod("MaterialFunction", "name");
+        protocol.HasUnsatisfiedHiddenRequirements = true;
+
+        var output = EmitConformance(protocol);
+
+        Assert.DoesNotContain("extension EveryProtocol", output);
+    }
+
+    [Fact]
     public void WillSkipConformance_NonRequiredSpiProperty_StillEmits()
     {
         // Extension defaults (protocolReq=false) that happen to be SPI must NOT
