@@ -568,7 +568,8 @@ namespace BindingsGeneration
         {
             var result = new List<string>
             {
-                "FoundationDatabase.xml", "SwiftDatabase.xml", "CoreGraphicsDatabase.xml",
+                "FoundationDatabase.xml", "SwiftDatabase.xml", "_ConcurrencyDatabase.xml",
+                "CoreGraphicsDatabase.xml",
                 "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml",
                 "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml",
                 "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml",

@@ -562,24 +562,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Checks if a protocol is available in the TypeDatabase and can be used as a generic constraint.
-        /// Protocols with associated types cannot be used as constraints because they generate generic
-        /// C# interfaces which require type arguments.
+        /// Delegates to <see cref="MethodValidationGates.IsProtocolAvailableForConstraint(SwiftTypeName, ITypeDatabase)"/>
+        /// so the constraint-emission filter has a single source of truth across
+        /// <c>WrapperEmitter</c>, <c>PInvokeEmitter</c>, and <c>BoundGenericsHandler</c>.
         /// </summary>
         /// <param name="protocolTypeName">The protocol type name to check.</param>
-        /// <returns>True if the protocol is known and can be used as a constraint, false otherwise.</returns>
+        /// <returns>True if the protocol can be projected into a C# generic constraint.</returns>
         private bool IsProtocolAvailableForConstraint(SwiftTypeName protocolTypeName)
-        {
-            if (_env.TypeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
-            {
-                // Must be a protocol and must NOT have associated types or Self requirements
-                // (both generate generic interfaces which can't be used as non-generic constraints)
-                return record.Kind == TypeRecordKind.Protocol &&
-                       !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
-                       !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
-            }
-            return false;
-        }
+            => MethodValidationGates.IsProtocolAvailableForConstraint(protocolTypeName, _env.TypeDatabase);
 
         /// <summary>
         /// Emits the finally block.

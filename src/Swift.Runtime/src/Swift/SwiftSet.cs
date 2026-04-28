@@ -47,6 +47,53 @@ public interface ISwiftDecodable { }
 public interface ISwiftEncodable { }
 
 /// <summary>
+/// Marker interface for Swift's <c>Sendable</c> protocol. <c>Sendable</c> is a compile-time
+/// marker protocol with no witness table — it has no runtime members and produces no
+/// conformance descriptor in TBD. The XML database entry exists so that any type that lists
+/// <c>Sendable</c> in its conformance list (notably every actor type and every value type that
+/// crosses a concurrency boundary) can resolve a TypeRecord instead of being treated as
+/// referencing an unknown protocol. The generator never emits a concrete conformance because
+/// <c>IsWellKnownRuntimeProtocol</c>-style gates filter it out before
+/// <c>GetImplementedInterfaces</c> / dictionary entry construction.
+/// </summary>
+public interface ISwiftSendable { }
+
+/// <summary>
+/// Marker interface for Swift's <c>Copyable</c> protocol. Marker protocol — no witness table,
+/// no descriptor. Present for typedb resolution only; see <see cref="ISwiftSendable"/>.
+/// </summary>
+public interface ISwiftCopyable { }
+
+/// <summary>
+/// Marker interface for Swift's <c>Escapable</c> protocol. Marker protocol — no witness table,
+/// no descriptor. Present for typedb resolution only; see <see cref="ISwiftSendable"/>.
+/// </summary>
+public interface ISwiftEscapable { }
+
+/// <summary>
+/// Marker interface for Swift's <c>SendableMetatype</c> protocol. Marker protocol — no
+/// witness table, no descriptor. Present for typedb resolution only; see
+/// <see cref="ISwiftSendable"/>.
+/// </summary>
+public interface ISwiftSendableMetatype { }
+
+/// <summary>
+/// Marker interface for Swift's <c>_Concurrency.Actor</c> protocol. Actor types all
+/// implicitly conform to <c>Actor</c>; the type database entry lets the parser resolve
+/// the conformance descriptor without falling off the well-known-protocol path.
+/// Not user-implementable — actors are constructed via Swift, not declared in C#.
+/// </summary>
+public interface ISwiftActor { }
+
+/// <summary>
+/// Marker interface for Swift's <c>_Concurrency.GlobalActor</c> protocol. <c>GlobalActor</c>
+/// has an associated type (<c>ActorType</c>), so it never produces a usable C# interface;
+/// the typedb entry exists purely for conformance-descriptor lookup on global-actor-isolated
+/// types like <c>@MainActor</c>.
+/// </summary>
+public interface ISwiftGlobalActor { }
+
+/// <summary>
 /// Represents a Swift set.
 /// </summary>
 /// <typeparam name="Element">The element type contained in the set.</typeparam>

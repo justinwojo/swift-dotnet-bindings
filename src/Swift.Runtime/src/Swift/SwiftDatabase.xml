@@ -128,5 +128,57 @@
                              hasAssociatedTypes="true"
                              protocolDescriptorSymbol="$sSEMp" />
         </entity>
+        <!--
+            Marker protocols — Sendable / Copyable / Escapable / SendableMetatype.
+
+            These four are compile-time-only protocols: Swift emits no witness table
+            and no concrete conformance descriptor in TBD, so the
+            HandleConformance path returns a TypeConformance with an empty descriptor
+            symbol. The typedb entry is needed so that classes / structs / enums (and
+            in particular actor types) which list these in their `conformances` array
+            can resolve a real TypeRecord during lookup — without it, downstream
+            ShouldEmitConformance silently drops every marker conformance because
+            TryGetTypeRecord fails.
+
+            Filtered out of GetImplementedInterfaces and GenerateProtocolConformanceDictionaryEntries
+            via TypeDatabaseExtensions.IsWellKnownRuntimeProtocol so the marker stays
+            a metadata-only signal: never a C# interface, never a dictionary entry,
+            but always discoverable by callers walking ProtocolConformances.
+        -->
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftSendable">
+            <typedeclaration kind="protocol" name="Sendable" module="Swift" mangledName="$ss8SendableP"
+                             frozen="false" requiresMemoryManagement="false"
+                             protocolDescriptorSymbol="$ss8SendableMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftCopyable">
+            <typedeclaration kind="protocol" name="Copyable" module="Swift" mangledName="$ss8CopyableP"
+                             frozen="false" requiresMemoryManagement="false"
+                             protocolDescriptorSymbol="$ss8CopyableMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftEscapable">
+            <typedeclaration kind="protocol" name="Escapable" module="Swift" mangledName="$ss9EscapableP"
+                             frozen="false" requiresMemoryManagement="false"
+                             protocolDescriptorSymbol="$ss9EscapableMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftSendableMetatype">
+            <typedeclaration kind="protocol" name="SendableMetatype" module="Swift" mangledName="$ss16SendableMetatypeP"
+                             frozen="false" requiresMemoryManagement="false"
+                             protocolDescriptorSymbol="$ss16SendableMetatypeMp" />
+        </entity>
+        <!--
+            GlobalActor's mangled name uses the bare-`s` substitution ($ss11GlobalActorP),
+            which the demangler resolves to Swift.GlobalActor even though the USR points
+            at _Concurrency. Register under both modules: the canonical _Concurrency.GlobalActor
+            entry lives in _ConcurrencyDatabase.xml; this one mirrors the demangler's
+            Swift.GlobalActor shape so HandleConformance's TBD descriptor lookup succeeds.
+            Has an associated type (ActorType), so HasAssociatedTypes filters it out of
+            ShouldEmitConformance regardless of the marker-protocol gate.
+        -->
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftGlobalActor">
+            <typedeclaration kind="protocol" name="GlobalActor" module="Swift" mangledName="$ss11GlobalActorP"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasAssociatedTypes="true"
+                             protocolDescriptorSymbol="$ss11GlobalActorMp" />
+        </entity>
     </entities>
 </swifttypedatabase>

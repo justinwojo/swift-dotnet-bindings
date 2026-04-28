@@ -1976,5 +1976,109 @@ public class TypeDatabaseExtensionsTests
         Assert.False(record.Flags.HasFlag(TypeRecordFlags.Frozen));
     }
 
+    // --- Actor metadata reachability: marker protocols + _Concurrency stubs ---
+    //
+    // Custom global-actor-isolated types (e.g. Nuke 13.x's ImagePipelineActor) declare
+    // conformance to the four compile-time marker protocols (Sendable / Copyable /
+    // Escapable / SendableMetatype) and to _Concurrency.Actor, plus an implicit
+    // unownedExecutor property returning _Concurrency.UnownedSerialExecutor. Before
+    // the typedb stubs landed, none of those protocol/type names had TypeRecords:
+    //   * The marker protocols were silently dropped from emission via
+    //     ShouldEmitConformance because TryGetTypeRecord returned false.
+    //   * UnownedSerialExecutor failed lookup so MemberEmissionValidator.CanEmitProperty
+    //     rejected the unownedExecutor accessor with SkipReason.UnsupportedType — the
+    //     accessor symbol Session 3 needs to wire `assumeIsolated` against was hidden.
+    //
+    // These tests pin the database registrations down so the Session 3 isolated-thunk
+    // work can rely on stable metadata, and so a regression that drops the entries (e.g.
+    // an XML refactor that loses the entity blocks) breaks here instead of in some
+    // distant emitter codepath.
+
+    [Theory]
+    [InlineData("Swift.Sendable",         "$ss8SendableMp")]
+    [InlineData("Swift.Copyable",         "$ss8CopyableMp")]
+    [InlineData("Swift.Escapable",        "$ss9EscapableMp")]
+    [InlineData("Swift.SendableMetatype", "$ss16SendableMetatypeMp")]
+    public async Task LoadSwiftDatabase_MarkerProtocol_ResolvesWithDescriptorAndIsRuntimeOnly(
+        string moduleQualifiedName, string expectedDescriptorSymbol)
+    {
+        // The marker protocols must be reachable as TypeRecords (so ShouldEmitConformance
+        // doesn't drop them) AND must be flagged as well-known runtime protocols (so they
+        // never project to a public C# interface — they have no witness table).
+        var typeDatabase = await CreateDbWithXmlAsync("SwiftDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+            $"{moduleQualifiedName} must be registered in SwiftDatabase.xml.");
+        Assert.Equal(TypeRecordKind.Protocol, record!.Kind);
+        Assert.Equal(expectedDescriptorSymbol, record.ProtocolDescriptorSymbol);
+        Assert.True(TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record),
+            $"{moduleQualifiedName} must be classified as well-known so it is filtered out " +
+            "of the C# interface surface — these markers are metadata-only.");
+    }
+
+    [Fact]
+    public async Task LoadConcurrencyDatabase_Actor_ResolvesAsClassBoundProtocol()
+    {
+        // _Concurrency.Actor is the protocol every `actor` type conforms to. The XML
+        // entry exists purely so the typedb can resolve the conformance — IsActor on
+        // ClassDecl is set independently from the raw $sScA mangled-name check, but
+        // the conformance still has to round-trip through ShouldEmitConformance.
+        var typeDatabase = await CreateDbWithXmlAsync("_ConcurrencyDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("_Concurrency.Actor");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+            "_Concurrency.Actor must be registered in _ConcurrencyDatabase.xml.");
+        Assert.Equal(TypeRecordKind.Protocol, record!.Kind);
+        Assert.Equal("$sScAMp", record.ProtocolDescriptorSymbol);
+        Assert.True(TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record),
+            "_Concurrency.Actor must be filtered from the C# interface surface — " +
+            "actor adoption is implicit via the `actor` keyword, not via an interface.");
+    }
+
+    [Fact]
+    public async Task LoadConcurrencyDatabase_GlobalActor_ResolvesWithAssociatedTypeFlag()
+    {
+        // GlobalActor carries an `ActorType` associated type. The hasAssociatedTypes
+        // attribute is what causes ShouldEmitConformance to skip it the same way
+        // Swift.Decodable / Swift.Encodable are skipped — without this flag, the PAT
+        // fallback path would key the conformance on typeof(object) and emit a junk
+        // IExistentialBoxable on every @globalActor-isolated type.
+        var typeDatabase = await CreateDbWithXmlAsync("_ConcurrencyDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("_Concurrency.GlobalActor");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+            "_Concurrency.GlobalActor must be registered in _ConcurrencyDatabase.xml.");
+        Assert.Equal(TypeRecordKind.Protocol, record!.Kind);
+        Assert.Equal("$ss11GlobalActorMp", record.ProtocolDescriptorSymbol);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes),
+            "GlobalActor's ActorType associated type must surface as HasAssociatedTypes " +
+            "so PAT-aware emission paths skip it.");
+    }
+
+    [Fact]
+    public async Task LoadConcurrencyDatabase_UnownedSerialExecutor_ResolvesAsFrozen16ByteStruct()
+    {
+        // The implicit `var unownedExecutor: UnownedSerialExecutor { get }` accessor
+        // every actor carries returns this struct. Before the registration landed,
+        // TryGetTypeRecord("_Concurrency.UnownedSerialExecutor") returned false and
+        // MemberEmissionValidator.CanEmitProperty dropped the accessor with
+        // SkipReason.UnsupportedType — meaning Session 3 had no executor accessor symbol
+        // to wire `assumeIsolated` against. The 16-byte size mirrors Swift's frozen
+        // {executor pointer, witness pointer} layout; the C# mirror in
+        // Swift.Runtime.UnownedSerialExecutor is also a 16-byte sequential struct.
+        var typeDatabase = await CreateDbWithXmlAsync("_ConcurrencyDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("_Concurrency.UnownedSerialExecutor");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record),
+            "_Concurrency.UnownedSerialExecutor must be registered in _ConcurrencyDatabase.xml.");
+        Assert.Equal(TypeRecordKind.Struct, record!.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen),
+            "UnownedSerialExecutor is a frozen struct in Swift; if this regresses to non-frozen " +
+            "the marshaller will indirect through a buffer instead of inline-marshalling 16 bytes.");
+        Assert.Equal("Swift.Runtime", record.CSharpTypeName.Namespace);
+        Assert.Equal("UnownedSerialExecutor", record.CSharpTypeName.Name);
+    }
+
     #endregion
 }

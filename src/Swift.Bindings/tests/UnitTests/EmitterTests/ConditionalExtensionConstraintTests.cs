@@ -431,6 +431,85 @@ public class ConditionalExtensionConstraintTests
 
     #endregion
 
+    #region Marker Protocol Gate Split Tests
+
+    /// <summary>
+    /// Session 2: well-known runtime-only marker protocols (Sendable / Copyable / Escapable /
+    /// SendableMetatype / _Concurrency.Actor) MUST be dropped from generic where clauses but
+    /// MUST NOT block the method itself. These tests lock in the gate split — if either gate
+    /// regresses, real-world libraries (Alamofire / GRDB / Kingfisher / Nuke) either fail to
+    /// compile (CS0246 ISendableMetatype) or silently lose 70+ emitted members.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Sendable")]
+    [InlineData("Swift.Copyable")]
+    [InlineData("Swift.Escapable")]
+    [InlineData("Swift.SendableMetatype")]
+    [InlineData("_Concurrency.Actor")]
+    public void IsProtocolAvailableForConstraint_WellKnownRuntimeProtocol_ReturnsFalse(string protocolName)
+    {
+        // The constraint must be silently dropped from where clauses and PWT extraction —
+        // these protocols have no projected C# interface (ISendable etc. don't exist in
+        // generated bindings).
+        var typeDatabase = CreateTypeDatabase(
+            (protocolName, TypeRecordKind.Protocol, TypeRecordFlags.None));
+
+        var result = MethodValidationGates.IsProtocolAvailableForConstraint(
+            SwiftTypeName.FromModuleQualifiedName(protocolName), typeDatabase);
+
+        Assert.False(result,
+            $"{protocolName} must NOT emit as a generic constraint — it has no projected C# interface.");
+    }
+
+    [Theory]
+    [InlineData("Swift.Sendable")]
+    [InlineData("Swift.Copyable")]
+    [InlineData("Swift.Escapable")]
+    [InlineData("Swift.SendableMetatype")]
+    [InlineData("_Concurrency.Actor")]
+    public void IsUnsupportedProtocolConstraint_WellKnownRuntimeProtocol_ReturnsFalse(string protocolName)
+    {
+        // The method must STILL EMIT — these constraints are ignorable, not method-killing.
+        // Adding IsWellKnownRuntimeProtocol to this gate (a tempting "symmetry" with the
+        // constraint-emission gate) would tombstone any method that lists Sendable etc. in
+        // its genericSig and drops 70+ emitted members across real-world libraries.
+        var typeDatabase = CreateTypeDatabase(
+            (protocolName, TypeRecordKind.Protocol, TypeRecordFlags.None));
+
+        var result = MethodValidationGates.IsUnsupportedProtocolConstraint(
+            SwiftTypeName.FromModuleQualifiedName(protocolName), typeDatabase);
+
+        Assert.False(result,
+            $"{protocolName} must NOT block the method — the constraint is dropped, the method survives.");
+    }
+
+    [Fact]
+    public void HasUnsupportedProtocolConstraints_MethodWithSendableConstraint_DoesNotBlockMethod()
+    {
+        // End-to-end gate split: a generic method whose only "extra" constraint is Sendable
+        // must not be blocked. The constraint will be silently dropped at where-clause
+        // emission, but the method itself emits.
+        var typeDatabase = CreateTypeDatabase(
+            ("Swift.Sendable", TypeRecordKind.Protocol, TypeRecordFlags.None));
+
+        var moduleDecl = CreateModuleDecl("Nuke");
+        var parentType = CreateGenericStructDecl("Pipeline", moduleDecl, "T", "Swift.Equatable");
+
+        var method = CreateMethodDecl("send", parentType, moduleDecl,
+            genericParams: new List<GenericArgumentDecl>
+            {
+                CreateGenericParam("τ_0_0", "T",
+                    ("Swift.Equatable", ConformanceKind.Protocol),
+                    ("Swift.Sendable", ConformanceKind.Protocol))
+            });
+
+        var methodEnv = new MethodEnvironment(method, typeDatabase);
+        Assert.False(MethodValidationGates.HasUnsupportedProtocolConstraints(methodEnv),
+            "Sendable as a method-level constraint must not block emission.");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MockTypeDatabase CreateTypeDatabase(

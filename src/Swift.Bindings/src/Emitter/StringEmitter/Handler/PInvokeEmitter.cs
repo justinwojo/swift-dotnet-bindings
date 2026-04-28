@@ -786,21 +786,12 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Determines whether a protocol can be used as a generic constraint.
-        /// Returns false for unknown protocols or protocols with associated types.
+        /// Delegates to <see cref="MethodValidationGates.IsProtocolAvailableForConstraint(SwiftTypeName, ITypeDatabase)"/>
+        /// so the constraint-emission filter has a single source of truth across
+        /// <c>WrapperEmitter</c>, <c>PInvokeEmitter</c>, and <c>BoundGenericsHandler</c>.
         /// </summary>
         private static bool IsProtocolAvailableForConstraint(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
-        {
-            if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
-            {
-                // Must be a protocol and must NOT have associated types or Self requirements
-                // (both generate generic interfaces which can't be used as non-generic constraints)
-                return record.Kind == TypeRecordKind.Protocol &&
-                       !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
-                       !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
-            }
-            return false;
-        }
+            => MethodValidationGates.IsProtocolAvailableForConstraint(protocolTypeName, typeDatabase);
 
         /// <summary>
         /// Returns true if all tuple elements are blittable primitives that can be safely

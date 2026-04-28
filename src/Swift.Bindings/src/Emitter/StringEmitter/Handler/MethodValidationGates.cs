@@ -82,8 +82,15 @@ internal static class MethodValidationGates
     }
 
     /// <summary>
-    /// Checks whether a protocol is unsupported as a constraint — has associated types
-    /// or HasSelfRequirement. Aligned with PInvokeEmitter.IsProtocolAvailableForConstraint.
+    /// Checks whether a protocol makes the entire method unsupported (i.e., the method must
+    /// be skipped because the constraint can't be satisfied in C#). Returns <c>true</c> only
+    /// for protocols with associated types or <c>Self</c> requirements, which generate
+    /// generic interfaces that can't be used as non-generic constraints.
+    ///
+    /// Well-known runtime-only marker protocols (<c>Sendable</c>, <c>Copyable</c>, etc.) are
+    /// NOT unsupported here — they're <em>ignorable</em>: the method still emits, but the
+    /// constraint is silently dropped at where-clause and PWT-extraction time. That filtering
+    /// happens in <see cref="IsProtocolAvailableForConstraint(SwiftTypeName, ITypeDatabase)"/>.
     /// </summary>
     internal static bool IsUnsupportedProtocolConstraint(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
     {
@@ -92,6 +99,42 @@ internal static class MethodValidationGates
         {
             return record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
                    record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Decides whether a protocol can be emitted as a generic constraint in C# (i.e., as
+    /// <c>I{Protocol}</c> in a <c>where T : ISwiftObject, I{Protocol}</c> clause and as a
+    /// matching <c>ProtocolWitnessTable.GetOrThrow&lt;T, I{Protocol}&gt;()</c> extraction).
+    ///
+    /// Returns <c>false</c> when:
+    /// <list type="bullet">
+    ///   <item><description>the protocol is not in the TypeDatabase (unknown — fail closed),</description></item>
+    ///   <item><description>the record isn't a protocol kind,</description></item>
+    ///   <item><description>the protocol has associated types or a <c>Self</c> requirement
+    ///   (<see cref="IsUnsupportedProtocolConstraint"/> would already have blocked the method),</description></item>
+    ///   <item><description>or the protocol is a well-known runtime-only marker
+    ///   (<c>Sendable</c> / <c>Copyable</c> / <c>Escapable</c> / <c>SendableMetatype</c> /
+    ///   <c>_Concurrency.Actor</c>) — these have TypeRecords purely so actor / Sendable-conforming
+    ///   types can resolve their conformance arrays, but they have no projected C# interface.
+    ///   Emitting <c>ISendableMetatype</c> as a constraint would produce CS0246, and emitting a
+    ///   PWT extraction for them would produce a missing P/Invoke parameter.</description></item>
+    /// </list>
+    ///
+    /// This is the single source of truth for the "drop constraint, keep method" half of the
+    /// gate split. The matching "skip method entirely" half lives in
+    /// <see cref="IsUnsupportedProtocolConstraint"/>.
+    /// </summary>
+    internal static bool IsProtocolAvailableForConstraint(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
+    {
+        if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+        {
+            return record.Kind == TypeRecordKind.Protocol &&
+                   !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
+                   !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) &&
+                   !TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record);
         }
 
         return false;

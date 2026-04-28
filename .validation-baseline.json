@@ -1,5 +1,5 @@
 {
-  "git_sha": "b45961b7",
+  "git_sha": "307cdacc",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -229,7 +229,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55700,
+        "lines": 55599,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -922,7 +922,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1749,
+      "pass": 1750,
       "fail": 0,
       "skip": 51,
       "crash": 0

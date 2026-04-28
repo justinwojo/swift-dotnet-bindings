@@ -1301,22 +1301,13 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
-    /// Checks whether a protocol can be used for a conditional extension constraint.
-    /// Returns false for protocols with associated types or Self requirements,
-    /// aligned with PInvokeEmitter.IsProtocolAvailableForConstraint.
+    /// Delegates to <see cref="MethodValidationGates.IsProtocolAvailableForConstraint(SwiftTypeName, ITypeDatabase)"/>
+    /// so the constraint-emission filter has a single source of truth. Used here to gate
+    /// <em>conditional</em> extension constraints — a method-level constraint that doesn't
+    /// appear on the parent type's generic parameters.
     /// </summary>
     private bool IsProtocolEmittableForConditionalConstraint(SwiftTypeName protocolTypeName)
-    {
-        if (_typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
-        {
-            return record.Kind == TypeRecordKind.Protocol &&
-                   !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
-                   !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
-        }
-
-        // Unknown protocol — fail closed
-        return false;
-    }
+        => MethodValidationGates.IsProtocolAvailableForConstraint(protocolTypeName, _typeDatabase);
 
     /// <summary>
     /// Well-known conformances for Swift standard library types that the generator

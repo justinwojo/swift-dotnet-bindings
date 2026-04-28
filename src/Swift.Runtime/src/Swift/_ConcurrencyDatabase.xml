@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    _Concurrency stdlib stubs.
+
+    Registers the metadata-only types every actor type implicitly references:
+      - _Concurrency.Actor — the protocol every `actor` type conforms to (mangled $sScA).
+      - _Concurrency.UnownedSerialExecutor — the return type of an actor's implicit
+        unownedExecutor accessor. Without this entry, the accessor's return type fails
+        TryGetTypeRecord and the property is dropped as SkipReason.UnsupportedType.
+      - _Concurrency.GlobalActor — the protocol every `@globalActor` type conforms to
+        (carries an ActorType associated type, so HasAssociatedTypes filters it out
+        of ShouldEmitConformance the same way Swift.Decodable/Encodable are filtered).
+
+    These entries have no public C# surface — they exist purely so the type database
+    can resolve actor-related conformance and accessor metadata. The marker protocol
+    interfaces (ISwiftActor / ISwiftGlobalActor) are defined in Swift.Runtime as empty
+    stubs and referenced solely so the XML loader has a valid managed-type target;
+    they must never be projected into a generated C# generic constraint (filtered by
+    MethodValidationGates.IsProtocolAvailableForConstraint via IsWellKnownRuntimeProtocol).
+-->
+<swifttypedatabase version="1.0" moduleName="_Concurrency" modulePath="/usr/lib/swift/libswift_Concurrency.dylib">
+    <entities>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftActor">
+            <typedeclaration kind="protocol" name="Actor" module="_Concurrency" mangledName="$sScA"
+                             frozen="false" requiresMemoryManagement="false"
+                             classBound="true"
+                             protocolDescriptorSymbol="$sScAMp" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ISwiftGlobalActor">
+            <typedeclaration kind="protocol" name="GlobalActor" module="_Concurrency" mangledName="$ss11GlobalActorP"
+                             frozen="false" requiresMemoryManagement="false"
+                             hasAssociatedTypes="true"
+                             protocolDescriptorSymbol="$ss11GlobalActorMp" />
+        </entity>
+        <!--
+            UnownedSerialExecutor is a frozen 16-byte value type (two pointer-sized
+            words: an unowned executor reference plus the SerialExecutor witness).
+            BitwiseCopyable; the C# mirror in Swift.Runtime.UnownedSerialExecutor is
+            also a 16-byte struct so the frozen-struct marshalling path round-trips
+            through the buffer correctly without invoking ARC.
+        -->
+        <entity managedNameSpace="Swift.Runtime" managedTypeName="UnownedSerialExecutor">
+            <typedeclaration kind="struct" name="UnownedSerialExecutor" module="_Concurrency" mangledName="$sSce"
+                             frozen="true" requiresMemoryManagement="false" inlineSize="16" />
+        </entity>
+    </entities>
+</swifttypedatabase>

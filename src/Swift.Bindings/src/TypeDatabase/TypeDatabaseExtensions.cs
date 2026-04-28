@@ -611,9 +611,24 @@ public static class TypeDatabaseExtensions
     /// to a direct runtime type (e.g., Swift.Error → AnyError) rather than a generated interface.
     /// Such protocols should not produce "I{Name}" constraints in generic where clauses.
     /// </summary>
+    /// <remarks>
+    /// Also covers the four compile-time marker protocols (<c>Sendable</c>, <c>Copyable</c>,
+    /// <c>Escapable</c>, <c>SendableMetatype</c>) and the implicit actor protocol
+    /// (<c>_Concurrency.Actor</c>). These have type-database entries so that classes /
+    /// structs / enums (and especially actor types) which list them in their conformance
+    /// arrays can resolve a TypeRecord during lookup, but they must never be projected
+    /// into the generated C# surface — they have no witness table, no usable conformance
+    /// descriptor, and no consumer-facing semantics.
+    /// </remarks>
     public static bool IsWellKnownRuntimeProtocol(TypeRecord record)
     {
-        return record.SwiftTypeName.ModuleQualifiedName == "Swift.Error";
+        var name = record.SwiftTypeName.ModuleQualifiedName;
+        return name is "Swift.Error"
+            or "Swift.Sendable"
+            or "Swift.Copyable"
+            or "Swift.Escapable"
+            or "Swift.SendableMetatype"
+            or "_Concurrency.Actor";
     }
 
     /// <summary>
