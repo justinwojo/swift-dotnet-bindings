@@ -1,5 +1,5 @@
 {
-  "git_sha": "97bf4094",
+  "git_sha": "e35080ad",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57179,
+        "lines": 57305,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51352,
+        "lines": 51478,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 51535,
+        "lines": 51661,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56497,
+        "lines": 56623,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -117,56 +117,56 @@
       "StoreKit2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31427,
+        "lines": 31431,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27807,
+        "lines": 27811,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31427,
+        "lines": 31431,
         "dep_compile": "none",
         "swift_compile": "fail"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27062,
+        "lines": 27066,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9676,
+        "lines": 9677,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8605,
+        "lines": 8606,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9676,
+        "lines": 9677,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7851,
+        "lines": 7852,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -180,28 +180,28 @@
       "WeatherKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21806,
+        "lines": 21815,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WeatherKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21806,
+        "lines": 21815,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WeatherKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21806,
+        "lines": 21815,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WeatherKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21806,
+        "lines": 21815,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -229,7 +229,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55582,
+        "lines": 55700,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -243,7 +243,7 @@
       "BlinkIDUX": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13787,
+        "lines": 13794,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -264,7 +264,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 97415,
+        "lines": 97483,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,7 +278,7 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59386,
+        "lines": 59443,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -334,14 +334,14 @@
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12099,
+        "lines": 12114,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10476,
+        "lines": 10478,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -488,7 +488,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5488,
+        "lines": 5490,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -530,7 +530,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5922,
+        "lines": 5944,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -579,7 +579,7 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4007,
+        "lines": 4034,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -607,7 +607,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16393,
+        "lines": 16395,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -873,7 +873,7 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 28,
-        "lines": 27133,
+        "lines": 27136,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -922,13 +922,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1728,
+      "pass": 1739,
       "fail": 0,
       "skip": 51,
       "crash": 0
     },
     "device": {
-      "pass": 1740,
+      "pass": 1751,
       "fail": 0,
       "skip": 39,
       "crash": 0

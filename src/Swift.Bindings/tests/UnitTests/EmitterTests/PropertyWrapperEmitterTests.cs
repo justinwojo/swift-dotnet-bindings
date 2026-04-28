@@ -91,12 +91,13 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_NonCollectionConformer_ArrayOfT_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_NonCollectionConformer_ArrayOfT_ReturnsTrue()
     {
         // Same shape as the test above, but the parent struct does NOT conform to any
-        // Collection-family protocol. Baseline — the Collection-family widening must stay
-        // restricted: T-referencing getters on non-Collection generic structs still fall
-        // through to the complex-composition rejection (CollectibleBag.items shape).
+        // Collection-family protocol. The gate is shape-based — Array<T> on any generic
+        // struct routes through the static-dispatch wrapper because the round-trip is
+        // proven end-to-end (MusicItemBag<Item>.items / IndexedSeries<Element>.items),
+        // and the wrapper renders identically regardless of parent conformance.
         var (moduleDecl, typeDb) = CreateTestEnvironment("CollectibleBag");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -108,16 +109,17 @@ public class PropertyWrapperEmitterTests
         var arrayOfT = new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("τ_0_0") });
         var (propertyDecl, env) = CreatePropertyAndEnv("items", arrayOfT, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_OptionalOfT_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_OptionalOfT_ReturnsTrue()
     {
-        // Collection-family conformer + `Optional<T>` getter. The wrapper would render
-        // correctly via initializeMemory, but the runtime allocator path through
-        // `TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<TItem>>()` isn't validated
-        // end-to-end by BindingTests. Stay behind the gate until the round-trip is proven.
+        // `Optional<T>` getter on a generic struct. The wrapper renders via
+        // initializeMemory(as: Optional<Item>.self) and the C# side reconstructs through
+        // SwiftOptional<TItem> with parent metadata injected at the call site
+        // (PInvoke_getMetadata accessor). Proven end-to-end via OptionalGenericHolder<Value>
+        // .Stored / .Peek runtime tests on Mono simulator and NativeAOT device.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -135,14 +137,16 @@ public class PropertyWrapperEmitterTests
         var optionalOfT = new NamedTypeSpec("Swift.Optional", new[] { new NamedTypeSpec("τ_0_0") });
         var (propertyDecl, env) = CreatePropertyAndEnv("first", optionalOfT, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]
     public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_DictionaryOfStringT_ReturnsFalse()
     {
-        // Collection-family conformer + `Dictionary<String, T>` getter. Same reasoning as
-        // the Optional<T> case — gate stays narrow until proven end-to-end.
+        // `Dictionary<String, T>` getter on a generic struct. The static-dispatch gate is
+        // narrowed to shapes with end-to-end runtime evidence — Optional<T> and Array<T>.
+        // Dictionary renders identically through initializeMemory(as: Dictionary<String, Item>.self),
+        // but no BindingTest covers the round-trip yet, so it stays behind the gate.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -167,11 +171,10 @@ public class PropertyWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_GenericStructParent_CollectionConformer_UserPairOfT_ReturnsFalse()
     {
-        // Collection-family conformer + user-defined `Pair<T>` getter. The original wider
-        // gate (IsBareOrSimplyParameterizedNamedTypeSpec) accepted this; the narrowed gate
-        // (IsArrayOfParentGeneric) does not. Pair<T>'s metadata accessor sits in the
-        // bindings library — the C# allocator can't currently look it up across modules —
-        // so it stays gated until the cross-module path is wired and tested.
+        // User-defined `Pair<T>` getter on a generic struct. The static-dispatch gate is
+        // narrowed to Optional<T> and Array<T> — shapes with end-to-end runtime evidence.
+        // User-defined parameterized shapes render through the same emitter path but
+        // aren't validated, so they stay behind the gate.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -193,14 +196,11 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_GenericStructParent_UserCollectionProtocol_ArrayOfT_ReturnsFalse()
+    public void ShouldEmitWrapper_GenericStructParent_UserCollectionProtocol_ArrayOfT_ReturnsTrue()
     {
-        // Parent struct conforms to `Other.Collection` — a user-defined protocol from a
-        // non-Swift module that happens to share a simple name with the stdlib protocol.
-        // HasCollectionConformance must NOT match on unqualified Name alone, otherwise any
-        // third-party protocol called "Collection" / "Sequence" / etc. would falsely route
-        // generic struct getters through the static-dispatch wrapper and bypass the
-        // constrained-extension fallback.
+        // Parent struct conforms only to a user-defined `Other.Collection`. The shape-based
+        // gate doesn't consult parent conformance — Array<T> on any generic struct routes
+        // through the static-dispatch wrapper.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MusicItemBag");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -218,7 +218,7 @@ public class PropertyWrapperEmitterTests
         var arrayOfT = new NamedTypeSpec("Swift.Array", new[] { new NamedTypeSpec("τ_0_0") });
         var (propertyDecl, env) = CreatePropertyAndEnv("items", arrayOfT, parentDecl, moduleDecl, typeDb);
 
-        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+        Assert.True(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
     }
 
     [Fact]

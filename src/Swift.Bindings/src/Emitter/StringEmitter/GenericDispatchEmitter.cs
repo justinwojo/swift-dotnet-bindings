@@ -440,6 +440,25 @@ internal static class GenericDispatchEmitter
     }
 
     /// <summary>
+    /// Returns true when <paramref name="spec"/> is <c>Optional&lt;T&gt;</c> whose payload is
+    /// a bare parent generic param. Round-trip is proven end-to-end by BindingTests
+    /// (<c>OptionalGenericHolder&lt;Value&gt;.stored</c>). Other simply-parameterized shapes
+    /// (Dictionary&lt;K,T&gt;, Pair&lt;T,T&gt;, etc.) render through the same emitter path but
+    /// aren't validated, so they stay behind the gate.
+    /// </summary>
+    internal static bool IsOptionalOfParentGeneric(TypeSpec spec, HashSet<string> genericParamNames)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+        if (named.Name is not ("Swift.Optional" or "Optional"))
+            return false;
+        if (named.GenericParameters.Count != 1)
+            return false;
+        var gp = named.GenericParameters[0];
+        return gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name);
+    }
+
+    /// <summary>
     /// Checks whether any parameter or the return type references the parent type's generic
     /// type parameters (e.g., τ_0_0, τ_0_1).
     /// </summary>

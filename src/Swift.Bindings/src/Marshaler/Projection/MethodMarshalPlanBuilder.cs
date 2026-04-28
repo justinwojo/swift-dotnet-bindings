@@ -148,6 +148,16 @@ internal class MethodMarshalPlanBuilder
             lines.Add($"TypeMetadata {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
         }
 
+        // Swift's calling convention for non-constructor methods on a generic struct expects
+        // the PARENT type's metadata in the first metadata slot — NOT individual generic
+        // param metadata. Compute it here so the call site can pass parentMetatype.Handle
+        // in place of the first parent generic param's metadata.
+        if (RequiresParentMetadataInjection())
+        {
+            var perParamMetadata = string.Join(", ", _env.PInvokeHelperContext!.GetTypeMetadataAccessorArgumentList());
+            lines.Add($"var _parentMetatype = {_env.PInvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {perParamMetadata});");
+        }
+
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(a => a.IsGeneric))
         {
             var csName = NameProvider.GetCSharpParameterName(argument);
@@ -500,19 +510,26 @@ internal class MethodMarshalPlanBuilder
                         OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         var innerSpec = ((NamedTypeSpec)returnArg.SwiftTypeSpec).GenericParameters[0];
+                        var innerProjection = s_projectionFactory.Project(innerSpec,
+                            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                                GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                        // Generic parameters: layout is unknown at compile time, so size the buffer from the
+                        // C# generic param's runtime metadata. The wrapper writes Value.self into resultPtr,
+                        // so a class T (8-byte pointer) and a large struct T must each get exactly Size bytes
+                        // followed by the hasValue byte. Falling through to the existential branch sizes the
+                        // buffer to ExistentialContainer1 (16 bytes), which silently overruns for any T whose
+                        // metadata.Size exceeds 15 bytes.
+                        bool isGenericParam = (innerProjection as BlittableProjection)?.IsGenericParameter == true;
                         // Protocol existential inner types: ExistentialContainer1 is a C# interop struct
                         // without Swift type metadata. Use Unsafe.SizeOf instead of TypeMetadata.
-                        bool isExistentialInner = innerSpec is ProtocolListTypeSpec ||
+                        bool isExistentialInner = !isGenericParam && (innerSpec is ProtocolListTypeSpec ||
                             (_env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerRecord) &&
-                             (innerRecord.Kind == TypeRecordKind.Protocol || innerRecord.Kind == TypeRecordKind.Existential));
+                             (innerRecord.Kind == TypeRecordKind.Protocol || innerRecord.Kind == TypeRecordKind.Existential)));
                         if (isExistentialInner)
                         {
                             // Use the projected container type (ExistentialContainer1, ExistentialContainer2, etc.)
                             // to get the correct size for protocol compositions.
-                            var innerProjection = s_projectionFactory.Project(innerSpec,
-                                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                                    GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                             var containerTypeName = (innerProjection as ExistentialProjection)?.PInvokeType ?? "ExistentialContainer1";
                             allocCode = $$"""
                                 var _innerSize = (nuint)System.Runtime.CompilerServices.Unsafe.SizeOf<{{containerTypeName}}>();
@@ -524,10 +541,6 @@ internal class MethodMarshalPlanBuilder
                         }
                         else
                         {
-                            var innerProjection = s_projectionFactory.Project(innerSpec,
-                                new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
-                                    GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
-                                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
                             var innerTypeName = innerProjection?.MarshalFromSwiftType ?? allocTypeName;
                             allocCode = $$"""
                                 var innerMetadata = TypeMetadata.GetTypeMetadataOrThrow<{{innerTypeName}}>();
@@ -931,6 +944,27 @@ internal class MethodMarshalPlanBuilder
                 // added inline TypeMetadata to the P/Invoke signature. Skip trailing metadata
                 // from PInvokeHelperContext to avoid duplicate TypeMetadata params.
                 metadataArgs = "";
+
+                // Swift's calling convention for non-constructor methods on a generic struct
+                // expects the PARENT type's metadata in the first metadata slot, NOT the
+                // individual generic param's metadata. Substitute the first parent-generic-param
+                // metadata.Handle expression with _parentMetatype.Handle. Subsequent parent-generic
+                // metadata args (for parents with multiple generic params, e.g., BufferModeQuad)
+                // remain in the call list but are ignored by Swift since only x0 is read.
+                if (RequiresParentMetadataInjection() && _env.ParentDecl is TypeDecl parentTypeDeclForCall)
+                {
+                    var firstParentSwiftParam = parentTypeDeclForCall.GenericParameters[0].TypeName;
+                    if (_env.GenericTypeMapping.TryGetValue(firstParentSwiftParam, out var mapping))
+                    {
+                        var firstParentCsParam = mapping.TypeParameter;
+                        var oldArg = $"{NameProvider.GetMetadataName(firstParentCsParam)}.Handle";
+                        var idx = callArgs.IndexOf(oldArg, StringComparison.Ordinal);
+                        if (idx >= 0)
+                        {
+                            callArgs = callArgs.Substring(0, idx) + "_parentMetatype.Handle" + callArgs.Substring(idx + oldArg.Length);
+                        }
+                    }
+                }
             }
             else
             {
@@ -1045,5 +1079,25 @@ internal class MethodMarshalPlanBuilder
         }
 
         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+    }
+
+    /// <summary>
+    /// True when this method needs the PARENT type's metadata injected into the first
+    /// metadata slot of the raw CallConvSwift call. Swift's calling convention for a
+    /// non-constructor method on a generic struct expects the parent metadata pointer
+    /// (not individual generic-param metadata). Methods routed through @_cdecl /
+    /// native-thunk wrappers handle this internally and don't need injection.
+    /// </summary>
+    private bool RequiresParentMetadataInjection()
+    {
+        if (_env.MethodDecl.IsConstructor) return false;
+        if (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) return false;
+        if (_env.MethodDecl.UsesNativeThunk) return false;
+        if (_env.MethodDecl.UsesFreeFunctionWrapper) return false;
+        if (_env.MethodDecl.IsProtocolExtensionMethod) return false;
+        if (_env.PInvokeHelperContext == null) return false;
+        if (_env.ParentDecl is not TypeDecl { IsGeneric: true }) return false;
+        if (_env.MethodDecl.GenericParameters.Count == 0) return false;
+        return true;
     }
 }

@@ -85,3 +85,67 @@ public struct OptionalConfig {
         return label ?? fallbackLabel
     }
 }
+
+// MARK: - Bug 15a — Optional<typealias-to-primitive>
+
+/// Returns an optional Foundation.TimeInterval (typealias to Double). The ABI parser
+/// preserves the alias name in the Optional's printedName, so without the projection
+/// fallback the public surface drops to Swift.SwiftOptional<IntPtr> instead of double?.
+/// Mirrors the RealityFoundation animation TrimStart/TrimEnd/TrimDuration shape.
+public func describeOptionalTimeInterval(_ value: TimeInterval?) -> String {
+    if let v = value {
+        return "Interval: \(v)"
+    }
+    return "nil"
+}
+
+/// Returns a TimeInterval? based on whether the input is positive — exercises the
+/// return-position projection so the C# caller sees double? rather than SwiftOptional<IntPtr>.
+public func computeOptionalDuration(_ seconds: Double) -> TimeInterval? {
+    if seconds > 0 {
+        return seconds
+    }
+    return nil
+}
+
+// MARK: - Bug 15b — Optional<generic-param>
+
+/// Generic struct with an Optional<Value> property. Mirrors the RealityFoundation
+/// FromToByAnimation<Value> / SampledAnimation<Value> shape where Optional<TValue>
+/// previously dropped to SwiftOptional<IntPtr>.
+public struct OptionalGenericHolder<Value> {
+    public var stored: Value?
+
+    public init(stored: Value?) {
+        self.stored = stored
+    }
+
+    /// Returns the stored value (Optional<Value>) — exercises the generic-param projection
+    /// path so the C# return type is TValue? rather than SwiftOptional<IntPtr>.
+    public func peek() -> Value? {
+        return stored
+    }
+}
+
+/// 48-byte frozen struct used to exercise OptionalGenericHolder<LargeValueStruct>.
+/// Any T whose runtime layout exceeds the previous fixed 16-byte buffer would have been
+/// silently overrun before the metadata-sized allocation fix. Six Int64 fields keep the
+/// layout fully frozen+blittable so the generator emits a value-type C# struct.
+@frozen
+public struct LargeValueStruct {
+    public var a: Int64
+    public var b: Int64
+    public var c: Int64
+    public var d: Int64
+    public var e: Int64
+    public var f: Int64
+
+    public init(a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+        self.f = f
+    }
+}

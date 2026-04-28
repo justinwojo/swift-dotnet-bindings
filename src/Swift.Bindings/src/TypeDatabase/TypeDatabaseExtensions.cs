@@ -76,6 +76,10 @@ public static class TypeDatabaseExtensions
         if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out _))
             return true;
 
+        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double).
+        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out _))
+            return true;
+
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.IsTypeProcessed(typeName))
             return true;
@@ -165,6 +169,13 @@ public static class TypeDatabaseExtensions
         // Swift stdlib SIMD generics map to C simd module typedefs with different ABI layouts.
         if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
             return aliasRecord;
+
+        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double).
+        // The SwiftTypeName overload below would otherwise miss this and fall through to
+        // CreateObjCBridgedTypeRecord, producing a synthetic class record that breaks
+        // generic translation (Optional<TimeInterval> → SwiftOptional<AnyType>).
+        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out var aliasPrimitive))
+            return aliasPrimitive;
 
         // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
@@ -284,6 +295,12 @@ public static class TypeDatabaseExtensions
             record = aliasRecord;
             return true;
         }
+
+        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double)
+        // resolve to the underlying primitive's TypeRecord so downstream code sees a real struct
+        // record and not the synthetic ObjCBridged class record from IsObjCModuleType.
+        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out record))
+            return true;
 
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
@@ -495,6 +512,13 @@ public static class TypeDatabaseExtensions
 
         // ObjC framework types are handled via synthetic ObjCBridged records, not a fallback
         if (IsObjCModuleType(typeSpec))
+        {
+            fallbackInfo = null;
+            return false;
+        }
+
+        // Foundation typealiases to stdlib primitives resolve via the underlying primitive's record.
+        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out _))
         {
             fallbackInfo = null;
             return false;
@@ -729,6 +753,14 @@ public static class TypeDatabaseExtensions
         if (!typeSpec.HasModule())
             return false;
 
+        // Foundation typealiases to stdlib primitives (e.g., TimeInterval → Swift.Double) are
+        // Swift value types, not ObjC classes. Without this exclusion, the synthetic ObjCBridged
+        // record (Kind=Class) misroutes Optional<TimeInterval> through OptionalClassPointer
+        // (AnyObject boxing), breaking the C#/Swift wrapper contract. The actual TypeRecord for
+        // these typealiases is supplied by TryGetTypeRecord via the underlying primitive lookup.
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(typeSpec.Name))
+            return false;
+
         // ObjectiveC/Foundation root classes (conservative: only NSObject, NSProxy)
         if ((typeSpec.Module == ObjCModuleName || typeSpec.Module == "Foundation")
             && AppleFrameworkRegistry.IsKnownObjCRootClass(typeSpec.NameWithoutModule))
@@ -738,6 +770,28 @@ public static class TypeDatabaseExtensions
         // but exclude known value types (structs/enums) from those modules
         return AppleFrameworkRegistry.IsAutoBridgeModule(typeSpec.Module)
             && !AppleFrameworkRegistry.IsKnownValueType(typeSpec.Name);
+    }
+
+    /// <summary>
+    /// Resolves Foundation typealiases that target stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double)
+    /// by looking up the underlying primitive's TypeRecord. This keeps these aliases as first-class resolved
+    /// types instead of being routed to synthetic ObjCBridged records or "missing from type database" fallbacks.
+    /// </summary>
+    private static bool TryResolvePrimitiveTypeAlias(ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(true)] out TypeRecord? record)
+    {
+        record = null;
+        if (!MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(typeSpec.Name))
+            return false;
+
+        var underlying = MarshallingHelpers.TypeAliasToCSPrimitive[typeSpec.Name] switch
+        {
+            "double" => SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+            _ => null
+        };
+        if (underlying is null)
+            return false;
+
+        return typeDatabase.TryGetTypeRecord(underlying, out record);
     }
 
     /// <summary>
@@ -757,6 +811,10 @@ public static class TypeDatabaseExtensions
     /// </summary>
     private static bool IsObjCClassSwiftType(SwiftTypeName swiftTypeName)
     {
+        // Foundation typealiases to stdlib primitives (parity with IsObjCModuleType)
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(swiftTypeName.ModuleQualifiedName))
+            return false;
+
         // ObjectiveC/Foundation root classes
         if ((swiftTypeName.Module == ObjCModuleName || swiftTypeName.Module == "Foundation")
             && AppleFrameworkRegistry.IsKnownObjCRootClass(swiftTypeName.Name))

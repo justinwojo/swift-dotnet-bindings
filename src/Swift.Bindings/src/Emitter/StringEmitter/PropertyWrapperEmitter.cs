@@ -785,18 +785,19 @@ public static class PropertyWrapperEmitter
             if (propertyDecl.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
                 return true; // Direct T property, can use static dispatch
 
-            // Collection-family exception — narrowly accept `Array<T>` (bare T is already
-            // handled above). Matches the same shape the method-side relaxation in
-            // GenericDispatchEmitter.CanEmitStaticDispatch validates end-to-end via
-            // BindingTests (MusicItemBag<Item>.items, IndexedSeries<Element>.items). Routes
-            // the getter through the @_cdecl static-dispatch wrapper instead of direct
-            // CallConvSwift, avoiding both Mono Issue 1 (`!ji->async` with 2+ type-metadata
-            // args) and NativeAOT's multi-type-parameter generic SIGSEGV. Other simply-
-            // parameterized shapes (Optional<T>, Dictionary<K,T>, user-defined Pair<T>)
-            // render correctly but aren't proven end-to-end, so they stay behind the gate.
-            if (parentTypeDecl is StructDecl structDecl
-                && CollectionProjectionEmitter.HasCollectionConformance(structDecl)
-                && GenericDispatchEmitter.IsArrayOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames))
+            // Simply-parameterized shapes route through the @_cdecl static-dispatch wrapper.
+            // Same shape the method-side gate accepts — both render the result via
+            // initializeMemory(as: Type<T>.self) and avoid Mono Issue 1 (`!ji->async` with
+            // 2+ type-metadata args) plus NativeAOT's multi-type-parameter generic SIGSEGV.
+            // Narrowed to the two shapes with end-to-end runtime evidence:
+            //   * Optional<T> — OptionalGenericHolder<Value>.stored (sim + device)
+            //   * Array<T>    — MusicItemBag<Item>.items / IndexedSeries<Element>.items
+            // Other shapes (Dictionary<K,T>, Pair<T,T>, custom generic structs) render
+            // identically but lack end-to-end coverage, so they stay behind the gate until
+            // a BindingTest proves the static-dispatch round-trip.
+            if (parentTypeDecl is StructDecl
+                && (GenericDispatchEmitter.IsOptionalOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames)
+                    || GenericDispatchEmitter.IsArrayOfParentGeneric(propertyDecl.SwiftTypeSpec, genericParamNames)))
                 return true;
 
             return false; // Complex generic composition, deferred
@@ -1090,9 +1091,23 @@ public static class PropertyWrapperEmitter
         var cdeclCallArgs = new List<string>();
 
         bool isDecomposedOptionalSetter = OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, env.TypeDatabase);
+        // Generic-parameter Optional<T>: Swift's Optional<T> ABI varies by T's runtime layout, so we
+        // route through the decomposed (payload, hasValue) pattern. The inner T is the parent's
+        // generic param (only nameable inside the protocol-extension body where Self is bound),
+        // so reconstruction must happen inside the extension method, not at the @_cdecl boundary.
+        bool propertyReferencesTOptional = propertyReferencesT && isDecomposedOptionalSetter;
 
         // NewValue param
-        if (propertyReferencesT)
+        if (propertyReferencesTOptional)
+        {
+            cdeclParams.Add("_ newValue: UnsafeRawPointer");
+            cdeclParams.Add($"_ {OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
+            protocolParams.Add("newValuePtr: UnsafeRawPointer");
+            protocolParams.Add($"{OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueType}");
+            cdeclCallArgs.Add("newValuePtr: newValue");
+            cdeclCallArgs.Add($"{OptionalMarshalClassifier.SwiftHasValueParam}: {OptionalMarshalClassifier.SwiftHasValueParam}");
+        }
+        else if (propertyReferencesT)
         {
             cdeclParams.Add("_ newValue: UnsafeRawPointer");
             protocolParams.Add("newValuePtr: UnsafeRawPointer");
@@ -1159,7 +1174,17 @@ public static class PropertyWrapperEmitter
             bodyLines.Add("// Mutate through pointer for struct setter");
 
         string valueExpr;
-        if (propertyReferencesT)
+        if (propertyReferencesTOptional)
+        {
+            // Reconstruct Optional<Value> inside the extension — Value is in scope here but not at @_cdecl scope.
+            // newValuePtr points to a TValue.Size buffer holding just the inner Value (not the full Optional).
+            // Read the inner with sugared inner type, wrap in Optional.some, or use nil for None.
+            var innerSpec = ((NamedTypeSpec)propertyDecl.SwiftTypeSpec).GenericParameters[0];
+            var innerSugared = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(innerSpec, abiToSugaredName);
+            bodyLines.Add($"let val: {propertySwiftType} = {OptionalMarshalClassifier.SwiftHasValueParam} != 0 ? Optional.some(newValuePtr.assumingMemoryBound(to: {innerSugared}.self).pointee) : nil");
+            valueExpr = "val";
+        }
+        else if (propertyReferencesT)
         {
             bodyLines.Add($"let val = newValuePtr.assumingMemoryBound(to: {propertySwiftType}.self).pointee");
             valueExpr = "val";

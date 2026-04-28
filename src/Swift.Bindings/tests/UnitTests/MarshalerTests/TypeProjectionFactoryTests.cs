@@ -681,6 +681,130 @@ public class TypeProjectionFactoryTests
 
     #endregion
 
+    #region Bug 15a — Optional<typealias-to-primitive>
+
+    [Fact]
+    public void Project_FoundationTimeInterval_ResolvesToDouble()
+    {
+        // Foundation.TimeInterval is a typealias to Swift.Double. The ABI parser preserves
+        // the alias name in NamedTypeSpec when it's nested inside Optional (parsed via
+        // printedName instead of CreateTypeSpec). Without the typealias fallback, DB lookup
+        // misses (no TypeRecord for an alias) and Optional<TimeInterval> drops to
+        // Swift.SwiftOptional<IntPtr> instead of double?. Bug 15a fix.
+        var typeSpec = new NamedTypeSpec("Foundation.TimeInterval");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BlittableProjection>(projection);
+        Assert.Equal("double", projection.PublicType);
+    }
+
+    [Fact]
+    public void Project_OptionalFoundationTimeInterval_ResolvesToNullableDouble()
+    {
+        // Optional<Foundation.TimeInterval> wraps the primitive resolution above into a
+        // nullable double, matching the public surface for RealityFoundation animation
+        // properties (TrimStart/TrimEnd/TrimDuration on every …Animation type).
+        var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.TimeInterval"));
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        var opt = Assert.IsType<OptionalProjection>(projection);
+        Assert.Equal("double?", opt.PublicType);
+    }
+
+    #endregion
+
+    #region Bug 15b — Optional<generic-param> with sugared parameter name
+
+    [Fact]
+    public void Project_SugaredGenericParamName_ResolvesViaContext()
+    {
+        // Apple framework ABI JSON often emits sugared generic parameter names
+        // (e.g., "Value", "Element", "SignedType") directly as TypeNominal names instead of
+        // the τ_0_0 form. IsGenericTypeParameter's shape check would miss "Value" (multi-char,
+        // no τ_ prefix), so the factory must trust GenericContext.TryResolve as the
+        // authoritative signal. Bug 15b fix.
+        var ctx = new ProjectionContext
+        {
+            TypeDatabase = new MockTypeDatabase(),
+            GenericContext = new GenericContext(new Dictionary<string, GenericParameterCSName>
+            {
+                ["Value"] = new GenericParameterCSName("TValue")
+            })
+        };
+        var typeSpec = new NamedTypeSpec("Value");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.IsType<BlittableProjection>(projection);
+        Assert.Equal("TValue", projection.PublicType);
+    }
+
+    [Fact]
+    public void Project_OptionalSugaredGenericParam_ResolvesToNullableMappedName()
+    {
+        // Optional<Value> on FromToByAnimation<Value> / SampledAnimation<Value> — must form
+        // OptionalProjection(BlittableProjection("TValue")) so the public surface is TValue?
+        // instead of Swift.SwiftOptional<IntPtr>.
+        var ctx = new ProjectionContext
+        {
+            TypeDatabase = new MockTypeDatabase(),
+            GenericContext = new GenericContext(new Dictionary<string, GenericParameterCSName>
+            {
+                ["Value"] = new GenericParameterCSName("TValue")
+            })
+        };
+        var typeSpec = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Value"));
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        var opt = Assert.IsType<OptionalProjection>(projection);
+        Assert.Equal("TValue?", opt.PublicType);
+    }
+
+    [Fact]
+    public void Project_TauStyleGenericParam_StillResolvesViaContext()
+    {
+        // The shape-based check (τ_0_0) keeps working — context resolution is preferred
+        // but the τ_-prefixed form must continue to resolve too.
+        var ctx = new ProjectionContext
+        {
+            TypeDatabase = new MockTypeDatabase(),
+            GenericContext = new GenericContext(new Dictionary<string, GenericParameterCSName>
+            {
+                ["τ_0_0"] = new GenericParameterCSName("T0")
+            })
+        };
+        var typeSpec = new NamedTypeSpec("τ_0_0");
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.NotNull(projection);
+        Assert.Equal("T0", projection.PublicType);
+    }
+
+    [Fact]
+    public void Project_UnresolvedGenericParam_ReturnsNull()
+    {
+        // No GenericContext entry → cannot project. Caller treats null as the original
+        // "unsupported" signal. The fix must not synthesize a name blindly.
+        var typeSpec = new NamedTypeSpec("Value");
+        var ctx = CreateContext();
+
+        var projection = _factory.Project(typeSpec, ctx);
+
+        Assert.Null(projection);
+    }
+
+    #endregion
+
     #region Helpers
 
     private static ProjectionContext CreateContext(ITypeDatabase? db = null)

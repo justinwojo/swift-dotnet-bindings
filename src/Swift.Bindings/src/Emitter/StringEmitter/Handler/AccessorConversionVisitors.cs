@@ -170,8 +170,10 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     public (string?, bool) Visit(ObjCRootedClassProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
 
-    // Default: cast to nullable public type
-    public (string?, bool) Visit(BlittableProjection p) => DefaultCast(p);
+    // Default: cast to nullable public type.
+    // Generic param: accessor already returns TValue? directly via decomposed buffer path
+    // (UsesCdeclPropertyWrapper + IsDecomposed), so no SwiftOptional wrap is needed.
+    public (string?, bool) Visit(BlittableProjection p) => p.IsGenericParameter ? (null, false) : DefaultCast(p);
     public (string?, bool) Visit(BoolProjection p) => DefaultCast(p);
     public (string?, bool) Visit(SimpleEnumProjection p) => DefaultCast(p);
     public (string?, bool) Visit(FrozenWithMemoryProjection p) => DefaultCast(p);

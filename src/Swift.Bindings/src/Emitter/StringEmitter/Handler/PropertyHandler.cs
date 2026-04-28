@@ -1054,6 +1054,38 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         if (setter.Method.UsesCdeclPropertyWrapper &&
             OptionalMarshalClassifier.IsDecomposed(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
         {
+            // Generic param inner: TValue is unconstrained, so .Payload is not available. Allocate a
+            // buffer of TValue.Size bytes, marshal the value into it via SwiftMarshal, and pass the
+            // pointer. Mirrors the getter's decomposed buffer layout (resultPtr + hasValuePtr).
+            if (propertyDecl.ParentDecl is TypeDecl parentTd && parentTd.IsGeneric &&
+                propertyDecl.SwiftTypeSpec is NamedTypeSpec namedOpt &&
+                namedOpt.GenericParameters.Count == 1 &&
+                namedOpt.GenericParameters[0] is NamedTypeSpec innerNamed &&
+                (genericContext ?? GenericContext.Empty).TryResolve(innerNamed.Name, out var innerCs))
+            {
+                csWriter.WriteLines($$"""
+                    set {
+                        unsafe {
+                            void* __heap = null;
+                            try {
+                                IntPtr __ptr = IntPtr.Zero;
+                                bool __hasVal = value is not null;
+                                if (__hasVal) {
+                                    var __meta = TypeMetadata.GetTypeMetadataOrThrow<{{innerCs}}>();
+                                    __heap = NativeMemory.AllocZeroed((nuint)__meta.Size);
+                                    var __span = new System.Span<byte>(__heap, (int)__meta.Size);
+                                    SwiftMarshal.MarshalToSwift<{{innerCs}}>(value!, ref __span);
+                                    __ptr = (IntPtr)__heap;
+                                }
+                                {{methodName}}(__ptr, __hasVal);
+                            } finally {
+                                if (__heap != null) NativeMemory.Free(__heap);
+                            }
+                        }
+                    }
+                    """);
+                return;
+            }
             csWriter.WriteLine($"set => {methodName}(value?.Payload.DangerousGetHandle() ?? IntPtr.Zero, value != null);");
             return;
         }

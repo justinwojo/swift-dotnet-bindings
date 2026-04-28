@@ -69,22 +69,38 @@ namespace BindingsGeneration
                 }
                 else
                 {
+                    // Direct CallConvSwift fallback (no @_cdecl, no native thunk, no wrapper lib):
+                    // when the wrapper body needs indirect result (Swift sret) — typical for
+                    // generic-typed bound-generic returns like Optional<τ_0_0> on generic structs —
+                    // fall through to the unified indirect-result branch so the P/Invoke signature
+                    // adds SwiftIndirectResult and returns void. Without this, the wrapper
+                    // allocates _cdeclBuf + builds swiftIndirectResult but the P/Invoke is emitted
+                    // as IntPtr-returning without the buffer arg, leaving uninitialized memory.
+                    if (MarshallingHelpers.MethodRequiresIndirectResult(_env) &&
+                        !_env.MethodDecl.UsesNativeThunk &&
+                        !_env.MethodDecl.HasOptionalPointerWrapper &&
+                        !_env.MethodDecl.UsesWrapperLibrary)
+                    {
+                        // Fall through to MethodRequiresIndirectResult branch below.
+                    }
                     // Large Optional returns use out-buffer pattern — PInvoke returns void
                     // Guard: only when a Swift wrapper exists to handle the buffer
-                    if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
+                    else if (_env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
                         (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary))
                     {
                         SetReturnType("void");
                         return;
                     }
-
-                    var csTypeParam = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) switch
+                    else
                     {
-                        true => _env.BoundGenericsHandler.GetBufferType(returnType),
-                        false => _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnType, _genericContext)
-                    };
-                    SetReturnType(csTypeParam);
-                    return;
+                        var csTypeParam = _env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnType) switch
+                        {
+                            true => _env.BoundGenericsHandler.GetBufferType(returnType),
+                            false => _env.BoundGenericsHandler.TranslateBoundGenericTypeToCSharp(returnType, _genericContext)
+                        };
+                        SetReturnType(csTypeParam);
+                        return;
+                    }
                 }
             }
 

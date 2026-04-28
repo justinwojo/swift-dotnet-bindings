@@ -571,7 +571,7 @@ public class OptionalMarshalStrategyTests
     {
         var result = OptionalMarshalClassifier.CSharpHasValueNullCheck();
 
-        Assert.Equal("if (_hasValue == 0) return null;", result);
+        Assert.Equal("if (_hasValue == 0) return default;", result);
     }
 
     [Fact]

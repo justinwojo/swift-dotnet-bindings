@@ -100,13 +100,21 @@ public class TypeProjectionFactory
     {
         var name = namedType.Name;
 
-        // Generic type parameters (τ_0_0, T, U, etc.) — resolve via GenericContext if available.
-        if (TypeSpecHelpers.IsGenericTypeParameter(name))
+        // Generic type parameter resolution: trust GenericContext over shape-based check
+        // (parity with BoundGenericsHandler.TranslateBoundGenericTypeToCSharp). Apple framework
+        // ABI JSON emits sugared parameter names ("Value", "Element", "SignedType") directly
+        // instead of the τ_0_0 form, so a context hit is the authoritative signal that the
+        // typespec is a generic parameter in the current scope — even when IsGenericTypeParameter's
+        // shape check would miss it (multi-character non-τ names).
+        if (namedType.GenericParameters.Count == 0 && namedType.InnerType == null &&
+            context.GenericContext?.TryResolve(name, out var resolvedCsName) == true)
         {
-            if (context.GenericContext?.TryResolve(name, out var csTypeName) == true)
-                return new BlittableProjection(csTypeName);
-            return null;
+            return new BlittableProjection(resolvedCsName, isGenericParameter: true);
         }
+
+        // Recognized as a generic param by shape but no resolution → can't project.
+        if (TypeSpecHelpers.IsGenericTypeParameter(name))
+            return null;
 
         // Parameter packs (Swift 5.9+ variadic generics) can't be projected
         if (name is "repeat")
@@ -284,6 +292,16 @@ public class TypeProjectionFactory
         // Test fixtures may use bare names like "SomeUnknownProtocol".
         if (!name.Contains('.'))
             return null;
+
+        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double → "double").
+        // The ABI parser unwraps a TypeNameAlias node when it's the immediate target of CreateTypeSpec, but
+        // when Optional<TimeInterval?> is encoded as a TypeNominal whose printedName is "Foundation.TimeInterval?",
+        // the alias name survives in the resulting NamedTypeSpec. There's no TypeRecord for an alias, so the
+        // DB lookup below misses and the caller falls back to BoundGenericsHandler, which renders the inner as
+        // IntPtr — producing Swift.SwiftOptional<IntPtr> instead of double?. Resolve known aliases to their
+        // primitive C# name here so OptionalProjection(BlittableProjection("double")) forms correctly.
+        if (MarshallingHelpers.TypeAliasToCSPrimitive.TryGetValue(name, out var aliasCsName))
+            return new BlittableProjection(aliasCsName);
 
         // Try to resolve from the type database
         if (!context.TypeDatabase.TryGetTypeRecord(
@@ -469,7 +487,6 @@ public class TypeProjectionFactory
     /// </summary>
     private static bool IsStdlibContainer(string name) =>
         name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.Optional" or "Swift.Result";
-
 
     /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple ObjC classes.

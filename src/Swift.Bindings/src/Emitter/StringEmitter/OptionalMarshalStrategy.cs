@@ -270,8 +270,10 @@ public static class OptionalMarshalClassifier
 
     /// <summary>
     /// Returns the C# null-check expression for the hasValue local.
-    /// Returns "if (_hasValue == 0) return null;" as a complete statement.
+    /// Uses `return default;` (not `return null;`) so unconstrained generic `TValue?`
+    /// returns compile — `null` is invalid for unconstrained T (CS0403). `default`
+    /// is equivalent to `null` for concrete nullable types (string?, int?).
     /// </summary>
     public static string CSharpHasValueNullCheck()
-        => $"if ({CSharpHasValueLocal} == 0) return null;";
+        => $"if ({CSharpHasValueLocal} == 0) return default;";
 }

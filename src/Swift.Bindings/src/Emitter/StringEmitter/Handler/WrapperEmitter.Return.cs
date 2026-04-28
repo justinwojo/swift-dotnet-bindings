@@ -232,6 +232,36 @@ namespace BindingsGeneration
                             return;
                         }
 
+                        // Unconstrained generic param TValue: the buffer's contents differ by kind.
+                        //   * Frozen value-type struct (C# struct): bytes ARE the struct payload.
+                        //     NewFromPayload dereferences resultPtr; the temp buffer is freed in finally.
+                        //   * ISwiftStruct (non-frozen Swift struct emitted as C# class with SafeHandle):
+                        //     bytes are the struct payload, but NewFromPayload TAKES OWNERSHIP of the
+                        //     buffer (stores it in SwiftSafeHandle). Suppress the finally-free.
+                        //   * ISwiftObject class: the buffer holds a single heap pointer (with retain).
+                        //     NewFromPayload expects that heap pointer, not the buffer address.
+                        // Dispatch on type at runtime.
+                        if (optProj.InnerProjection is BlittableProjection blitGeneric && blitGeneric.IsGenericParameter)
+                        {
+                            csWriter.WriteLines($$"""
+                                unsafe {
+                                    {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
+                                    {{OptionalMarshalClassifier.CSharpHasValueNullCheck()}}
+                                    if (typeof({{innerType}}).IsValueType) {
+                                        return SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
+                                    } else if (typeof(global::Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({{innerType}}))) {
+                                        var _result = SwiftMarshal.MarshalFromSwift<{{innerType}}>(resultPtr);
+                                        _cdeclBuf = null; // NewFromPayload took ownership
+                                        return _result;
+                                    } else {
+                                        IntPtr _classHandle = *(IntPtr*)resultPtr;
+                                        return SwiftMarshal.MarshalFromSwift<{{innerType}}>(_classHandle);
+                                    }
+                                }
+                                """);
+                            return;
+                        }
+
                         csWriter.WriteLines($$"""
                             unsafe {
                                 {{OptionalMarshalClassifier.CSharpReadHasValue("hasValuePtr")}}
@@ -279,8 +309,9 @@ namespace BindingsGeneration
                         // Frozen blittable struct fast path: use TypeMetadata.Size for tag offset.
                         // Uses the runtime's source of truth (not Unsafe.SizeOf which includes C# padding).
                         // Avoids VWT GetEnumTag which returns incorrect values for frozen structs on Mono.
-                        if (optProj.InnerProjection is BlittableProjection && blittableSize == null &&
-                            !OptionalProjection.IsKnownPrimitiveTypeNamePublic(optProj.InnerProjection.PublicType))
+                        if (optProj.InnerProjection is BlittableProjection blitInner && blittableSize == null &&
+                            !OptionalProjection.IsKnownPrimitiveTypeNamePublic(optProj.InnerProjection.PublicType) &&
+                            !blitInner.IsGenericParameter)
                         {
                             var innerType = optProj.InnerProjection.PublicType;
                             var containerType = optProj.ContainerTypeName;

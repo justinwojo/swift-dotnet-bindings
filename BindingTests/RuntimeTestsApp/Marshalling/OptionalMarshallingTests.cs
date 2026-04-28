@@ -185,4 +185,157 @@ public class OptionalMarshallingTests : TestBase
     }
 
     #endregion
+
+    #region Bug 15a — Optional<typealias-to-primitive>
+
+    public void TestOptionalTimeIntervalParameterSome()
+    {
+        // Foundation.TimeInterval is a typealias to Double. The C# binding must accept
+        // double? (and not Swift.SwiftOptional<IntPtr>) — verifying the projection fallback
+        // resolves the alias to its primitive ABI form.
+        var result = TestLibFunctions.DescribeOptionalTimeInterval(2.5);
+        AssertEqual("Interval: 2.5", result, "DescribeOptionalTimeInterval with value");
+        TestLogger.Info($"DescribeOptionalTimeInterval(2.5) = \"{result}\"");
+    }
+
+    public void TestOptionalTimeIntervalParameterNone()
+    {
+        var result = TestLibFunctions.DescribeOptionalTimeInterval(null);
+        AssertEqual("nil", result, "DescribeOptionalTimeInterval with null");
+        TestLogger.Info($"DescribeOptionalTimeInterval(null) = \"{result}\"");
+    }
+
+    public void TestOptionalTimeIntervalReturnSome()
+    {
+        var result = TestLibFunctions.ComputeOptionalDuration(3.5);
+        AssertTrue(result.HasValue, "ComputeOptionalDuration positive returns Some");
+        AssertEqual(3.5, result!.Value, "ComputeOptionalDuration value matches");
+        TestLogger.Info($"ComputeOptionalDuration(3.5) = {result}");
+    }
+
+    public void TestOptionalTimeIntervalReturnNone()
+    {
+        var result = TestLibFunctions.ComputeOptionalDuration(-1.0);
+        AssertFalse(result.HasValue, "ComputeOptionalDuration non-positive returns None");
+        TestLogger.Info("ComputeOptionalDuration(-1.0) = null");
+    }
+
+    #endregion
+
+    #region Bug 15b — Optional<generic-param> on generic struct
+
+    // Round-trips Optional<Value> through OptionalGenericHolder<Value>'s constructor,
+    // stored property accessors, and peek() method. Exercises the generic-typed indirect
+    // result path: PInvokeSignatureBuilder must emit SwiftIndirectResult and the projection
+    // must avoid the inline byte-read path (which assumes a trailing discriminant byte
+    // and is wrong for class TValue where Optional<T> reuses the pointer's spare bits).
+    //
+    // [SkipOnSimulator]: the getters/peek() path goes through a raw CallConvSwift P/Invoke
+    // (no @_cdecl wrapper — Swift forbids @_cdecl on generic-param-bearing functions, and
+    // an unconstrained TValue gives no protocol witness to dispatch through). The
+    // (SwiftIndirectResult, IntPtr, SwiftSelf) signature trips Mono's JIT first-call
+    // !ji->async assertion (upstream Issue 1). NativeAOT (device) handles this signature
+    // shape and is the gate for these cases. Constructor uses (SwiftIndirectResult, IntPtr…
+    // IntPtr) without SwiftSelf so it does not hit the same path.
+
+    public void TestOptionalGenericHolderStoredSome()
+    {
+        var animal = TestLibFunctions.CreateAnimal("Lion", "Roar");
+        using var holder = new OptionalGenericHolder<Animal>(animal);
+        var stored = holder.Stored;
+        AssertNotNull(stored, "Stored returns Some(animal)");
+        AssertEqual("Lion", stored!.Name, "Stored animal's Name preserved");
+        AssertEqual("Roar", stored.Sound, "Stored animal's Sound preserved");
+        TestLogger.Info($"OptionalGenericHolder<Animal>(Lion).Stored.Name = \"{stored.Name}\"");
+    }
+
+    public void TestOptionalGenericHolderStoredNone()
+    {
+        using var holder = new OptionalGenericHolder<Animal>(null);
+        var stored = holder.Stored;
+        AssertNull(stored, "Stored returns None for null-constructed holder");
+        TestLogger.Info("OptionalGenericHolder<Animal>(null).Stored = null");
+    }
+
+    public void TestOptionalGenericHolderStoredSetter()
+    {
+        using var holder = new OptionalGenericHolder<Animal>(null);
+        AssertNull(holder.Stored, "Initial Stored is None");
+
+        var animal = TestLibFunctions.CreateAnimal("Tiger", "Growl");
+        holder.Stored = animal;
+        var afterSet = holder.Stored;
+        AssertNotNull(afterSet, "Stored is Some after setter");
+        AssertEqual("Tiger", afterSet!.Name, "Setter round-trips animal's Name");
+
+        holder.Stored = null;
+        AssertNull(holder.Stored, "Stored is None after setting to null");
+        TestLogger.Info("OptionalGenericHolder<Animal>.Stored setter round-trip passed");
+    }
+
+    public void TestOptionalGenericHolderPeekSome()
+    {
+        // peek() is the function (vs property accessor) that previously emitted a broken
+        // P/Invoke (no SwiftIndirectResult arg) plus an inline byte-read of uninitialized
+        // memory. Both fixes — sret signature and SwiftMarshal-based readback — must hold.
+        var animal = TestLibFunctions.CreateAnimal("Eagle", "Screech");
+        using var holder = new OptionalGenericHolder<Animal>(animal);
+        var peeked = holder.GetPeek();
+        AssertNotNull(peeked, "GetPeek returns Some(animal)");
+        AssertEqual("Eagle", peeked!.Name, "Peeked animal's Name preserved");
+        AssertEqual("Screech", peeked.Sound, "Peeked animal's Sound preserved");
+        TestLogger.Info($"OptionalGenericHolder<Animal>(Eagle).GetPeek().Name = \"{peeked.Name}\"");
+    }
+
+    public void TestOptionalGenericHolderPeekNone()
+    {
+        using var holder = new OptionalGenericHolder<Animal>(null);
+        var peeked = holder.GetPeek();
+        AssertNull(peeked, "GetPeek returns None for null-constructed holder");
+        TestLogger.Info("OptionalGenericHolder<Animal>(null).GetPeek() = null");
+    }
+
+    public void TestOptionalGenericHolderLargeStructStored()
+    {
+        // 48-byte struct payload — exceeds the previous fixed 16-byte ExistentialContainer1
+        // buffer. Stored_Get must allocate a buffer sized to TValue's runtime metadata and
+        // place hasValuePtr at offset Size; otherwise the trailing field overflows into the
+        // discriminant byte and the read appears to return None.
+        // Note: TValue=struct under `where TValue : ISwiftObject` means TValue? collapses to
+        // TValue at the C# type level (no Nullable wrapping for unconstrained-T?), so the
+        // null-path is not expressible through the public API for value-type T. The Some
+        // round-trip is what exercises the buffer-size fix.
+        var value = new LargeValueStruct(1, 2, 3, 4, 5, 6);
+        using var holder = new OptionalGenericHolder<LargeValueStruct>(value);
+        var stored = holder.Stored;
+        AssertEqual(1L, stored.A, "field a preserved");
+        AssertEqual(2L, stored.B, "field b preserved");
+        AssertEqual(3L, stored.C, "field c preserved");
+        AssertEqual(4L, stored.D, "field d preserved");
+        AssertEqual(5L, stored.E, "field e preserved");
+        AssertEqual(6L, stored.F, "field f preserved");
+
+        holder.Stored = new LargeValueStruct(10, 20, 30, 40, 50, 60);
+        var after = holder.Stored;
+        AssertEqual(10L, after.A, "setter round-trip field a");
+        AssertEqual(20L, after.B, "setter round-trip field b");
+        AssertEqual(60L, after.F, "setter round-trip field f");
+        TestLogger.Info("OptionalGenericHolder<LargeValueStruct> Stored round-trip preserved all 6 Int64 fields");
+    }
+
+    public void TestOptionalGenericHolderLargeStructPeek()
+    {
+        // GetPeek hits the SwiftOptional<TValue> readback path for a 48-byte payload —
+        // independent of Stored_Get's decomposed buffer, but still must not assume a
+        // 16-byte fixed inner size.
+        var value = new LargeValueStruct(7, 14, 21, 28, 35, 42);
+        using var holder = new OptionalGenericHolder<LargeValueStruct>(value);
+        var peeked = holder.GetPeek();
+        AssertEqual(7L, peeked.A, "GetPeek field a preserved");
+        AssertEqual(14L, peeked.B, "GetPeek field b preserved");
+        AssertEqual(42L, peeked.F, "GetPeek field f preserved");
+        TestLogger.Info("OptionalGenericHolder<LargeValueStruct>.GetPeek round-trip preserved");
+    }
+
+    #endregion
 }

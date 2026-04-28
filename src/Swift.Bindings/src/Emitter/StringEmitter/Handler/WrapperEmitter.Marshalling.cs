@@ -590,7 +590,16 @@ namespace BindingsGeneration
                 bool needsCdeclOptOverride = _env.MethodDecl.UsesCdeclWrapper &&
                     !CdeclParamMapper.IsOptionalWithReferenceInner(argumentDecl.SwiftTypeSpec, _env.TypeDatabase);
 
-                if (needsLargeOptOverride || needsCdeclOptOverride)
+                // Raw CallConvSwift with Optional<generic-param> inner: Swift ABI passes generic
+                // Optionals indirectly (size unknown at caller). C# must pass the buffer ADDRESS,
+                // not the dereferenced first IntPtr — otherwise Swift treats the heap-pointer
+                // value as a buffer pointer and reads the inner instance's first 8 bytes
+                // (typically a class type-metadata word) into the receiving slot.
+                bool needsGenericOptOverride =
+                    optProjForHandle.InnerProjection is BlittableProjection blitInner
+                    && blitInner.IsGenericParameter;
+
+                if (needsLargeOptOverride || needsCdeclOptOverride || needsGenericOptOverride)
                 {
                     projection = new OptionalProjection(optProjForHandle.InnerProjection, optProjForHandle.IsExistentialInner, useDangerousGetHandle: true);
                 }

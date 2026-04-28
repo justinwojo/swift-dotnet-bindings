@@ -346,8 +346,9 @@ public class OptionalProjection : ITypeProjection
         // Unsafe.SizeOf<T>() which includes C# trailing padding and can disagree for padded structs.
         // Excludes known primitives (which use the compile-time fast path above).
         // Layout: [TypeMetadata.Size bytes payload][1 byte discriminator: 0=Some, 1=None]
-        if (_innerProjection is BlittableProjection && blittableSize == null &&
+        if (_innerProjection is BlittableProjection blitProj && blittableSize == null &&
             !IsKnownPrimitiveTypeName(_innerProjection.PublicType) &&
+            !blitProj.IsGenericParameter &&
             strategy is ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer)
         {
             var innerType = _innerProjection.PublicType;
@@ -408,9 +409,11 @@ public class OptionalProjection : ITypeProjection
 
         // No element conversion — explicit HasValue/Some check.
         // Cast Some to nullable type so the ternary expression has type T?, not T.
-        // Without the cast, `default` would be `default(T)` (zero value) not `default(T?)` (null).
+        // Use `default` (inferred from the LHS as default(T?) = null) so the expression
+        // also compiles when T is an unconstrained generic parameter — `null` literal
+        // is rejected (CS0403) when T could be a non-nullable value type.
         var optInnerType = _innerProjection.PublicType;
-        var nullableExpr = $"_swiftOpt.HasValue ? ({optInnerType}?)_swiftOpt.Some : null";
+        var nullableExpr = $"_swiftOpt.HasValue ? ({optInnerType}?)_swiftOpt.Some : default";
         return strategy switch
         {
             ReturnStrategy.Direct => new MarshalPlan
