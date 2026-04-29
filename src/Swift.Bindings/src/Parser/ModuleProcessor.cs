@@ -168,9 +168,12 @@ namespace BindingsGeneration
             // Ensure that all properties are processed or known in the database.
             ProcessStructProperties(structDecl);
 
-            // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS)
+            // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS).
+            // Skip generic types: their accessors take one IntPtr per generic parameter and
+            // DynamicLibraryLoader.invoke calls them with zero args — on a host-arch dylib
+            // the accessor reads garbage as type-arg pointers and SIGSEGVs in libswiftCore.
             IntPtr metadataPtr = IntPtr.Zero;
-            if (!string.IsNullOrEmpty(structDecl.MetadataAccessor))
+            if (!string.IsNullOrEmpty(structDecl.MetadataAccessor) && !structDecl.IsGeneric)
             {
                 try
                 {
@@ -596,9 +599,10 @@ namespace BindingsGeneration
         /// <param name="enumDecl">The enum declaration node.</param>
         private void ProcessEnum(NamedTypeSpec namedTypeSpec, EnumDecl enumDecl)
         {
-            // Get metadata pointer if the enum has a metadata accessor
+            // Get metadata pointer if the enum has a metadata accessor.
+            // Skip generic enums for the same reason as generic structs (see ProcessStruct).
             IntPtr metadataPtr = IntPtr.Zero;
-            if (!string.IsNullOrEmpty(enumDecl.MetadataAccessor))
+            if (!string.IsNullOrEmpty(enumDecl.MetadataAccessor) && !enumDecl.IsGeneric)
             {
                 try
                 {
@@ -754,16 +758,20 @@ namespace BindingsGeneration
         /// <param name="classDecl">The class declaration node.</param>
         private void ProcessClass(NamedTypeSpec namedTypeSpec, ClassDecl classDecl)
         {
-            // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS)
+            // Get metadata pointer if possible (may fail for cross-platform builds, e.g., iOS on macOS).
+            // Skip generic classes for the same reason as generic structs (see ProcessStruct).
             IntPtr metadataPtr = IntPtr.Zero;
-            try
+            if (!classDecl.IsGeneric)
             {
-                metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, $"{classDecl.MangledName}Ma");
-            }
-            catch
-            {
-                // If metadata accessor fails (e.g., iOS dylib on macOS), continue without metadata
-                _logger.LogWarning($"Failed to get metadata for class '{classDecl.Name}'. Continuing without metadata.");
+                try
+                {
+                    metadataPtr = DynamicLibraryLoader.invoke(_dylibPath, $"{classDecl.MangledName}Ma");
+                }
+                catch
+                {
+                    // If metadata accessor fails (e.g., iOS dylib on macOS), continue without metadata
+                    _logger.LogWarning($"Failed to get metadata for class '{classDecl.Name}'. Continuing without metadata.");
+                }
             }
             var swiftTypeInfo = new SwiftTypeInfo { MetadataPtr = metadataPtr };
 

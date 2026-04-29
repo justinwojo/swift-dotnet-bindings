@@ -88,9 +88,9 @@
   </ItemGroup>
 
   <!-- Main test library and dependency xcframeworks. These are rebuilt by
-       the Nuke binding-tests --catalyst target before each run. Additional native
-       artifacts (async wrapper, runtime dylib) are injected by the Nuke target
-       into the output directory. -->
+       the Nuke binding-tests target (catalyst flag) before each run. Additional
+       native artifacts (async wrapper, runtime dylib) are injected by the Nuke
+       target into the output directory. -->
   <ItemGroup>
     <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
       <Kind>Framework</Kind>

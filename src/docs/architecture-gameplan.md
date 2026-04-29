@@ -21,7 +21,7 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 
 ## 1.0 Plan: Four Milestones
 
-### Milestone 1 — Trust the output *(3–4 sessions)*
+### Milestone 1 — Trust the output *(3–4 sessions)* — **DONE**
 
 **Goal**: the diagnostic surface reflects what the consumer actually receives, and CI catches degraded generation.
 
@@ -39,14 +39,14 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 **Gate**: full `nuke binding-tests --sim --device` + `nuke validate` at or above baseline; manifest-derived report shows correct counts vs. captured pre-gating evidence. Device included because fail-closed gating changes apply to NativeAOT packaging paths.
 
 
-### Milestone 2 — Catch real release bugs *(2–3 sessions)*
+### Milestone 2 — Catch real release bugs *(2–3 sessions)* — **IN PROGRESS**
 
 **Goal**: every confirmed release target has a regression baseline and at least one library that is verified working end-to-end from a fresh consumer.
 
 **Scope**:
-- End-to-end consumer test: `dotnet new swift-binding && dotnet build && dotnet run` actually invoking a Swift method. Today `Build.PackGate.cs` does library-build only — never runs Swift.
+- **DONE**: End-to-end consumer test: `dotnet new swift-binding && dotnet build && dotnet run` actually invoking a Swift method. Today `Build.PackGate.cs` does library-build only — never runs Swift.
 - Behavior tier in `nuke validate` for 1–2 representative libs: instantiate one type, call one Swift function from a fresh consumer project. Today validation only proves bindings *compile*, not that they *run*. Library selection is an open question (Foundation + one Theme B candidate is the working assumption).
-- Populate runtime regression baselines for macOS, Mac Catalyst, and tvOS simulator. `Build.RuntimeTests.cs:2121` returns null for those today, so they aren't load-bearing as gates. All three are confirmed release targets per roadmap Theme E. (iOS simulator + iOS device baselines exist already; tvOS device is explicitly deferred per roadmap — no provisioning + physical Apple TV.)
+- Populate runtime regression baselines for macOS, Mac Catalyst, and tvOS simulator. `Build.RuntimeTests.cs:2121` returns null for those today, so they aren't load-bearing as gates. All three are confirmed release targets per roadmap Theme E. (iOS simulator + iOS device baselines exist already; tvOS device is explicitly deferred per roadmap — no provisioning + physical Apple TV.) **Status**: macOS generator SIGSEGV unblocked (generic-type metadata accessor invocation in `ModuleProcessor` was calling parameterless delegates against accessors that require generic-arg pointers). Next blocker: emitted bindings reference `Swift.Foundation.*` types not present on macOS/Catalyst/tvOS, blocking C# compile on all three. Baselines remain unpopulated until that gap is closed.
 
 **Why (litmus)**: exposes binding failures earlier (real consumer surface, real platforms). Three of the supported runtime axes currently can't catch regressions — that will produce real release bugs.
 
@@ -106,12 +106,12 @@ Unit-tests-only loops miss generated C# that compiles unit tests but emits broke
 
 Four checkpoints — one per milestone. Each runs the full sim + device + validate sweep and updates baselines.
 
-1. End of M1 — diagnostic surface trustworthy; CI fail-closed.
+1. **DONE** — End of M1: diagnostic surface trustworthy; CI fail-closed.
 2. End of M2 — every release target gates against regressions; consumer surface verified.
 3. End of M3 — emitted API surface measurably larger.
 4. End of M4 — bug-factory areas closed. **1.0 candidate.**
 
-### Phase 0 setup
+### Phase 0 setup — **DONE**
 
 Before M1 starts:
 1. Snapshot baselines: `validation-baseline.json`, BindingTests sim pass count, BindingTests device pass count, unit test pass count.

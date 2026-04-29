@@ -86,9 +86,9 @@
   </ItemGroup>
 
   <!-- Main test library and dependency xcframeworks. These are rebuilt by
-       the Nuke binding-tests --macos target before each run. Additional native
-       artifacts (async wrapper, runtime dylib) are injected by the Nuke target
-       into the output directory. -->
+       the Nuke binding-tests target (macos flag) before each run. Additional
+       native artifacts (async wrapper, runtime dylib) are injected by the Nuke
+       target into the output directory. -->
   <ItemGroup>
     <NativeReference Include="../.build/SwiftBindingsTestLib.xcframework">
       <Kind>Framework</Kind>
@@ -120,7 +120,7 @@
        gates both iOS and macOS; the RID condition ensures only the matching block
        activates in each project.
 
-       Opt in via: nuke binding-tests --macos --enable-cryptokit-smoke -->
+       Opt in via: nuke binding-tests with macos and enable-cryptokit-smoke flags. -->
   <PropertyGroup>
     <CryptoKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/CryptoKitSnapshot-macOS/</CryptoKitSnapshotDir>
     <CryptoKitSnapshotCsproj>$(CryptoKitSnapshotDir)CryptoKit.Swift.macOS.csproj</CryptoKitSnapshotCsproj>
@@ -156,7 +156,7 @@
        but targets the macOS snapshot (WeatherKitSnapshot-macOS/) with the macos-arm64
        xcframework slice and osx-arm64 RID.
 
-       Opt in via: nuke binding-tests --macos --enable-weatherkit-smoke -->
+       Opt in via: nuke binding-tests with macos and enable-weatherkit-smoke flags. -->
   <PropertyGroup>
     <WeatherKitSnapshotDir>$(MSBuildThisFileDirectory)../obj/WeatherKitSnapshot-macOS/</WeatherKitSnapshotDir>
     <WeatherKitSnapshotCsproj>$(WeatherKitSnapshotDir)WeatherKit.Swift.macOS.csproj</WeatherKitSnapshotCsproj>
