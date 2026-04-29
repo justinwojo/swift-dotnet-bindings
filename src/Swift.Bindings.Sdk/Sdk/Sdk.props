@@ -24,39 +24,15 @@
     <_SwiftBindingSdkVersion>0.0.0-dev</_SwiftBindingSdkVersion>
     <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>
 
-    <!-- Auto-detect platform from TFM (maccatalyst before macos to avoid substring overlap) -->
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('maccatalyst'))">maccatalyst</_SwiftBindingPlatform>
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('tvos'))">tvos</_SwiftBindingPlatform>
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('macos'))">macos</_SwiftBindingPlatform>
-    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('ios'))">ios</_SwiftBindingPlatform>
-    <!-- Fail fast for unsupported TFMs (e.g. net10.0, net10.0-android, typos).
-         No fallback assignment — _SwiftBindingPlatform stays empty so downstream
-         properties also stay empty, making the invalid state visible if SWIFTBIND010
-         is ever bypassed. -->
-    <_SwiftBindingPlatformUnsupported Condition="'$(_SwiftBindingPlatform)' == ''">true</_SwiftBindingPlatformUnsupported>
-
-    <!-- Whether platform has separate simulator + device slices -->
-    <_SwiftBindingHasSimulatorSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'tvos'">true</_SwiftBindingHasSimulatorSlice>
-
-    <!-- NuGet RID for native pack layout -->
-    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingPlatform)' == 'macos'">osx-arm64</_SwiftBindingNuGetRid>
-    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos-arm64</_SwiftBindingNuGetRid>
-    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">maccatalyst-arm64</_SwiftBindingNuGetRid>
-    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingNuGetRid)' == ''">ios-arm64</_SwiftBindingNuGetRid>
-
-    <!-- Device slice directory in wrapper xcframework -->
-    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingPlatform)' == 'macos'">macos-arm64</_SwiftBindingDeviceSliceId>
-    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos-arm64</_SwiftBindingDeviceSliceId>
-    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">ios-arm64-maccatalyst</_SwiftBindingDeviceSliceId>
-    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingDeviceSliceId)' == ''">ios-arm64</_SwiftBindingDeviceSliceId>
-
-    <!-- Simulator slice directory (only for iOS/tvOS) -->
-    <_SwiftBindingSimulatorSliceId Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos-arm64-simulator</_SwiftBindingSimulatorSliceId>
-    <_SwiftBindingSimulatorSliceId Condition="'$(_SwiftBindingSimulatorSliceId)' == '' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'">ios-arm64-simulator</_SwiftBindingSimulatorSliceId>
+    <!-- NOTE: Platform detection (_SwiftBindingPlatform et al) lives in Sdk.targets,
+         not here. Sdk.props is imported BEFORE the project body, so $(TargetFramework)
+         is empty for single-TFM projects (the most common shape, including the
+         dotnet new swift-binding template default). Multi-TFM inner builds happen to
+         set TargetFramework as a global property and would work either way, but
+         single-TFM is the case we ship for, so the detection runs in Sdk.targets
+         after the project body has set the property. -->
 
     <!-- User-configurable -->
-    <!-- macOS/Catalyst have no simulator — only set default for iOS/tvOS -->
-    <SwiftPlatformTarget Condition="'$(SwiftPlatformTarget)' == '' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'">simulator</SwiftPlatformTarget>
     <SwiftGeneratorVerbosity Condition="'$(SwiftGeneratorVerbosity)' == ''">1</SwiftGeneratorVerbosity>
     <!-- Default to both slices (device + simulator) so dotnet pack always works -->
     <!-- Fast-iteration users can override to 'simulator' for quicker dev builds -->
@@ -89,13 +65,8 @@
          supplement changes without waiting for a new NuGet publish. No default — users opt in
          explicitly by setting this property. No-op when the run resolves no supplement types. -->
     <SwiftAppleSupplementPrototypeDir Condition="'$(SwiftAppleSupplementPrototypeDir)' == ''"></SwiftAppleSupplementPrototypeDir>
-    <!-- Apple-framework target mode: minimum deployment target for swift-api-digester.
-         Platform-specific floors match .NET 10 minimums. maccatalyst before macos to
-         avoid substring overlap. -->
-    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND $(TargetFramework.Contains('maccatalyst'))">15.0</SwiftAppleFrameworkMinDeploymentVersion>
-    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND $(TargetFramework.Contains('macos'))">12.0</SwiftAppleFrameworkMinDeploymentVersion>
-    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND $(TargetFramework.Contains('tvos'))">15.0</SwiftAppleFrameworkMinDeploymentVersion>
-    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
+    <!-- NOTE: SwiftAppleFrameworkMinDeploymentVersion default is set in Sdk.targets,
+         alongside the rest of the platform-derived properties (see note above). -->
 
     <!-- Register our pack target for per-TFM content collection.
          This is how .NET SDK's NuGet pack discovers per-TFM pack items

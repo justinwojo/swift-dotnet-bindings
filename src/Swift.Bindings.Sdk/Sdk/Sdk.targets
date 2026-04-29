@@ -8,6 +8,54 @@
     <_SwiftBindingIntermediateDir>$(IntermediateOutputPath)swift-binding/</_SwiftBindingIntermediateDir>
   </PropertyGroup>
 
+  <!-- Platform detection from $(TargetFramework). Lives here, not in Sdk.props,
+       because Sdk.props is imported before the project body — for single-TFM
+       projects (the dotnet new swift-binding default), $(TargetFramework) is
+       empty at that point and the .Contains() checks all fail, leaving every
+       downstream property empty and tripping SWIFTBIND010. Sdk.targets is
+       imported after the project body, so $(TargetFramework) is set whether
+       it came from <TargetFramework> or a multi-TFM inner build. -->
+  <PropertyGroup>
+    <!-- Auto-detect platform from TFM (maccatalyst before macos to avoid substring overlap) -->
+    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('maccatalyst'))">maccatalyst</_SwiftBindingPlatform>
+    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('tvos'))">tvos</_SwiftBindingPlatform>
+    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('macos'))">macos</_SwiftBindingPlatform>
+    <_SwiftBindingPlatform Condition="'$(_SwiftBindingPlatform)' == '' AND $(TargetFramework.Contains('ios'))">ios</_SwiftBindingPlatform>
+    <!-- Fail fast for unsupported TFMs (e.g. net10.0, net10.0-android, typos).
+         No fallback assignment — _SwiftBindingPlatform stays empty so downstream
+         properties also stay empty, making the invalid state visible if SWIFTBIND010
+         is ever bypassed. -->
+    <_SwiftBindingPlatformUnsupported Condition="'$(_SwiftBindingPlatform)' == ''">true</_SwiftBindingPlatformUnsupported>
+
+    <!-- Whether platform has separate simulator + device slices -->
+    <_SwiftBindingHasSimulatorSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'tvos'">true</_SwiftBindingHasSimulatorSlice>
+
+    <!-- NuGet RID for native pack layout -->
+    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingPlatform)' == 'macos'">osx-arm64</_SwiftBindingNuGetRid>
+    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos-arm64</_SwiftBindingNuGetRid>
+    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">maccatalyst-arm64</_SwiftBindingNuGetRid>
+    <_SwiftBindingNuGetRid Condition="'$(_SwiftBindingNuGetRid)' == ''">ios-arm64</_SwiftBindingNuGetRid>
+
+    <!-- Device slice directory in wrapper xcframework -->
+    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingPlatform)' == 'macos'">macos-arm64</_SwiftBindingDeviceSliceId>
+    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos-arm64</_SwiftBindingDeviceSliceId>
+    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">ios-arm64-maccatalyst</_SwiftBindingDeviceSliceId>
+    <_SwiftBindingDeviceSliceId Condition="'$(_SwiftBindingDeviceSliceId)' == ''">ios-arm64</_SwiftBindingDeviceSliceId>
+
+    <!-- Simulator slice directory (only for iOS/tvOS) -->
+    <_SwiftBindingSimulatorSliceId Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos-arm64-simulator</_SwiftBindingSimulatorSliceId>
+    <_SwiftBindingSimulatorSliceId Condition="'$(_SwiftBindingSimulatorSliceId)' == '' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'">ios-arm64-simulator</_SwiftBindingSimulatorSliceId>
+
+    <!-- macOS/Catalyst have no simulator — only set default for iOS/tvOS -->
+    <SwiftPlatformTarget Condition="'$(SwiftPlatformTarget)' == '' AND '$(_SwiftBindingHasSimulatorSlice)' == 'true'">simulator</SwiftPlatformTarget>
+
+    <!-- Apple-framework target mode: minimum deployment target for swift-api-digester.
+         Platform-specific floors match .NET 10 minimums. -->
+    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingPlatform)' == 'maccatalyst'">15.0</SwiftAppleFrameworkMinDeploymentVersion>
+    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == '' AND '$(_SwiftBindingPlatform)' == 'macos'">12.0</SwiftAppleFrameworkMinDeploymentVersion>
+    <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
+  </PropertyGroup>
+
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 0a: Detect Apple-framework target mode                          -->
   <!-- MSBuild prohibits @(Item) in PropertyGroup Conditions outside Targets  -->

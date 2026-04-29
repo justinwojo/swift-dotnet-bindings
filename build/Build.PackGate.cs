@@ -36,7 +36,27 @@ partial class Build
     const string PackGateAppleVersion = "26.2.0-packgate";
     const string PackGateFixtureFramework = "TipKit";
 
+    // Tiny custom Swift artifact compiled at gate time for the end-to-end
+    // consumer step. Single public top-level function returning a
+    // deterministic string. Kept macOS-only because the consumer runs on
+    // the host machine — no sim, no codesign, no app launch ceremony.
+    const string PackGateHelloPackModule = "HelloPack";
+    const string PackGateHelloPackTarget = "arm64-apple-macos12.0";
+    const string PackGateHelloPackModuleSuffix = "arm64-apple-macos";
+    const string PackGateHelloPackMinOs = "12.0";
+    const string PackGateHelloPackPlistPlatform = "MacOSX";
+    // Single-TFM projects: the version suffix (e.g. -macos26.2) breaks the
+    // SDK's `_SwiftBindingPlatform` detection in single-TFM mode (Sdk.props
+    // evaluates before the project body's TargetFramework is set, so the
+    // Contains check sees an empty value). Multi-TFM projects work because
+    // each inner build pre-sets TargetFramework. The SDK template uses the
+    // unsuffixed form for the same reason; we mirror it here.
+    const string PackGateConsumerTfm = "net10.0-macos";
+    const string PackGateConsumerExpected = "Hello, PackGate from Swift!";
+
     AbsolutePath PackGateScratch => RootDirectory / "artifacts" / "pack-gate";
+    AbsolutePath PackGateHelloPackSource =>
+        RootDirectory / "build" / "PackGate" / "HelloPack" / "HelloPack.swift";
 
     Target PackGate => _ => _
         .DependsOn(Compile)
@@ -182,123 +202,191 @@ partial class Build
             Log.Information("PackGate OK — verified {Slices} slice(s) across {Xcfw} xcframework(s) in {Nupkg}",
                 verifiedSlices, ExpectedXcframeworkLayout.Length, Path.GetFileName(nupkgPath));
 
-            // 6. Source xcframework slicing assertions. Packs a second fixture that
-            //    references a real multi-platform source xcframework (Nuke) and
-            //    asserts the per-RID slice subset is exact — no extras (regression
-            //    where slicing silently stops working would otherwise ship full
-            //    content under every RID), no missing required slice. Skipped when
-            //    Nuke isn't available on disk; CI is expected to run `nuke fetch`
-            //    beforehand if it wires PackGate in.
+            // 6-8. Source xcframework slicing assertions. Packs a second fixture
+            //    that references a real multi-platform source xcframework (Nuke)
+            //    and asserts the per-RID slice subset is exact — no extras
+            //    (regression where slicing silently stops working would otherwise
+            //    ship full content under every RID), no missing required slice.
+            //    Skipped when Nuke isn't available on disk; CI is expected to run
+            //    `nuke fetch` beforehand if it wires PackGate in. The consumer-run
+            //    end-to-end gate (step 9 below) is independent of Nuke and runs
+            //    either way — don't `return` from this branch.
             var nukeSource = LibrariesDir / "Nuke" / "Nuke.xcframework";
             if (!Directory.Exists(nukeSource))
             {
                 Log.Warning("PackGate: skipping source-xcfw slicing checks (run `nuke fetch` first to populate {Path})", nukeSource);
-                return;
             }
-
-            Log.Information("=== PackGate (source-xcfw): packing Nuke fixture ===");
-            var sourceFixtureDir = scratch / "source-fixture";
-            var sourceFixtureOut = scratch / "source-fixture-output";
-            sourceFixtureDir.CreateDirectory();
-            sourceFixtureOut.CreateDirectory();
-            WritePackGateSourceFixture(sourceFixtureDir, nupkgDir, nukeSource);
-            DotNetPack(s => s
-                .SetProject(sourceFixtureDir / "PackGateSourceFixture.csproj")
-                .SetConfiguration("Release")
-                .SetOutputDirectory(sourceFixtureOut)
-                .EnableNoLogo()
-                .SetVerbosity(DotNetVerbosity.quiet));
-
-            var sourceNupkgPath = Directory.GetFiles(sourceFixtureOut, "*.nupkg").FirstOrDefault()
-                ?? throw new Exception("PackGate source-xcfw produced no nupkg");
-            var sourceExtractDir = sourceFixtureOut / "extract";
-            if (Directory.Exists(sourceExtractDir)) sourceExtractDir.DeleteDirectory();
-            ZipFile.ExtractToDirectory(sourceNupkgPath, sourceExtractDir);
-
-            var sourceFailures = new List<string>();
-            var verifiedSourceSlices = 0;
-            foreach (var (rid, expectedSlices) in ExpectedSourceXcframeworkLayout)
+            else
             {
-                var xcfw = sourceExtractDir / "runtimes" / rid / "native" / "Nuke.xcframework";
-                if (!Directory.Exists(xcfw))
+                Log.Information("=== PackGate (source-xcfw): packing Nuke fixture ===");
+                var sourceFixtureDir = scratch / "source-fixture";
+                var sourceFixtureOut = scratch / "source-fixture-output";
+                sourceFixtureDir.CreateDirectory();
+                sourceFixtureOut.CreateDirectory();
+                WritePackGateSourceFixture(sourceFixtureDir, nupkgDir, nukeSource);
+                DotNetPack(s => s
+                    .SetProject(sourceFixtureDir / "PackGateSourceFixture.csproj")
+                    .SetConfiguration("Release")
+                    .SetOutputDirectory(sourceFixtureOut)
+                    .EnableNoLogo()
+                    .SetVerbosity(DotNetVerbosity.quiet));
+
+                var sourceNupkgPath = Directory.GetFiles(sourceFixtureOut, "*.nupkg").FirstOrDefault()
+                    ?? throw new Exception("PackGate source-xcfw produced no nupkg");
+                var sourceExtractDir = sourceFixtureOut / "extract";
+                if (Directory.Exists(sourceExtractDir)) sourceExtractDir.DeleteDirectory();
+                ZipFile.ExtractToDirectory(sourceNupkgPath, sourceExtractDir);
+
+                var sourceFailures = new List<string>();
+                var verifiedSourceSlices = 0;
+                foreach (var (rid, expectedSlices) in ExpectedSourceXcframeworkLayout)
                 {
-                    sourceFailures.Add($"missing source xcframework: runtimes/{rid}/native/Nuke.xcframework/");
-                    continue;
+                    var xcfw = sourceExtractDir / "runtimes" / rid / "native" / "Nuke.xcframework";
+                    if (!Directory.Exists(xcfw))
+                    {
+                        sourceFailures.Add($"missing source xcframework: runtimes/{rid}/native/Nuke.xcframework/");
+                        continue;
+                    }
+                    var actualSlices = Directory.EnumerateDirectories(xcfw)
+                        .Select(Path.GetFileName).Where(n => n != null).Cast<string>()
+                        .OrderBy(s => s, StringComparer.Ordinal).ToArray();
+                    var expected = expectedSlices.OrderBy(s => s, StringComparer.Ordinal).ToArray();
+                    if (!actualSlices.SequenceEqual(expected))
+                    {
+                        sourceFailures.Add(
+                            $"runtimes/{rid}/native/Nuke.xcframework/ slice mismatch — " +
+                            $"expected [{string.Join(", ", expected)}], got [{string.Join(", ", actualSlices)}]");
+                        continue;
+                    }
+                    verifiedSourceSlices += actualSlices.Length;
                 }
-                var actualSlices = Directory.EnumerateDirectories(xcfw)
-                    .Select(Path.GetFileName).Where(n => n != null).Cast<string>()
-                    .OrderBy(s => s, StringComparer.Ordinal).ToArray();
-                var expected = expectedSlices.OrderBy(s => s, StringComparer.Ordinal).ToArray();
-                if (!actualSlices.SequenceEqual(expected))
+
+                if (sourceFailures.Count > 0)
                 {
-                    sourceFailures.Add(
-                        $"runtimes/{rid}/native/Nuke.xcframework/ slice mismatch — " +
-                        $"expected [{string.Join(", ", expected)}], got [{string.Join(", ", actualSlices)}]");
-                    continue;
+                    Log.Error("PackGate (source-xcfw) FAILED — {Count} mismatch(es) in {Nupkg}:",
+                        sourceFailures.Count, Path.GetFileName(sourceNupkgPath));
+                    foreach (var f in sourceFailures)
+                        Log.Error("  {Detail}", f);
+                    Assert.Fail($"PackGate (source-xcfw): {sourceFailures.Count} per-RID slice mismatch(es) in {sourceNupkgPath}");
                 }
-                verifiedSourceSlices += actualSlices.Length;
+
+                Log.Information("PackGate (source-xcfw) OK — verified {Slices} slice(s) across {Rids} RID(s) in {Nupkg}",
+                    verifiedSourceSlices, ExpectedSourceXcframeworkLayout.Length, Path.GetFileName(sourceNupkgPath));
+
+                // 7. Filtered-slice NU5123 sanity. The slice-set assertion above already
+                //    guarantees no filtered slice (watchos, maccatalyst on Nuke) is in the
+                //    nupkg's runtimes/ tree. Defense-in-depth: walk the extract dir and
+                //    fail if any path mentions a filtered slice id, in case a future
+                //    layout change accidentally smuggles them in via a different path.
+                //    Long-path NU5123 from KEPT slices' swiftinterfaces is a separate
+                //    concern (zip toggle TBD per design doc); not asserted here.
+                var stalePaths = Directory.EnumerateFiles(sourceExtractDir, "*", SearchOption.AllDirectories)
+                    .Where(p => p.Contains("watchos", StringComparison.OrdinalIgnoreCase)
+                             || p.Contains("maccatalyst", StringComparison.OrdinalIgnoreCase))
+                    .Select(p => Path.GetRelativePath(sourceExtractDir, p))
+                    .ToList();
+                if (stalePaths.Count > 0)
+                    Assert.Fail($"PackGate: {stalePaths.Count} filtered-slice path(s) leaked into nupkg: {string.Join("; ", stalePaths.Take(5))}");
+
+                // 8. Consumer restore + package-shape smoke. A tiny iOS-targeting library
+                //    project PackageReferences PackGateSourceFixture.Nuke, restores it,
+                //    and builds without -r. This proves the sliced nupkg's manifest is
+                //    well-formed and restorable, but does NOT exercise per-RID native
+                //    asset selection — _ExpandNativeReferences (which picks the actual
+                //    slice for ios-arm64 vs iossimulator-arm64) is driven by an app
+                //    publish/build with a RuntimeIdentifier, not by a plain library
+                //    build. True per-RID resolution coverage would require an iOS app
+                //    consumer published with each RID; deferred as a followup since the
+                //    exact-set slice assertions (step 6) + filtered-slice walk (step 7)
+                //    already verify the on-disk layout the consumer would resolve from.
+                Log.Information("=== PackGate (source-xcfw): consumer restore + package-shape smoke ===");
+                var consumerDir = scratch / "source-consumer";
+                consumerDir.CreateDirectory();
+                WritePackGateSourceConsumer(consumerDir, nupkgDir, sourceFixtureOut);
+
+                // Clear NuGet cache for the fixture nupkg so a stale entry from a
+                // prior run doesn't shadow the freshly-packed copy.
+                var consumerCacheDir = nugetCacheDir / "packgatesourcefixture.nuke";
+                if (Directory.Exists(consumerCacheDir)) consumerCacheDir.DeleteDirectory();
+
+                DotNetRestore(s => s
+                    .SetProjectFile(consumerDir / "Consumer.csproj")
+                    .SetVerbosity(DotNetVerbosity.quiet));
+
+                DotNetBuild(s => s
+                    .SetProjectFile(consumerDir / "Consumer.csproj")
+                    .SetConfiguration("Release")
+                    .EnableNoRestore()
+                    .EnableNoLogo()
+                    .SetVerbosity(DotNetVerbosity.quiet));
+
+                Log.Information("PackGate (consumer) OK — restore + library build succeeded against sliced nupkg");
             }
 
-            if (sourceFailures.Count > 0)
-            {
-                Log.Error("PackGate (source-xcfw) FAILED — {Count} mismatch(es) in {Nupkg}:",
-                    sourceFailures.Count, Path.GetFileName(sourceNupkgPath));
-                foreach (var f in sourceFailures)
-                    Log.Error("  {Detail}", f);
-                Assert.Fail($"PackGate (source-xcfw): {sourceFailures.Count} per-RID slice mismatch(es) in {sourceNupkgPath}");
-            }
+            // 9. End-to-end consumer run. Compiles a tiny custom Swift framework,
+            //    scaffolds a fresh bindings library + console-app pair against the
+            //    just-packed nupkgs, builds the app, launches it, and asserts the
+            //    Swift round-trip string appears in stdout. This is the only gate
+            //    today that exercises the full shipping pipeline (pack -> SDK ->
+            //    template-shaped consumer -> generator -> runtime -> Swift call ->
+            //    return value back to managed code) — every prior step has stopped
+            //    at "the binding compiles."
+            //
+            //    macOS-only on purpose: we run the binary on the host machine
+            //    instead of paying for a sim launch. The unique value here is
+            //    "the pipeline glues together," which is platform-agnostic;
+            //    iOS-sim/device runtime coverage already lives in `nuke
+            //    binding-tests --sim --device`.
+            Log.Information("=== PackGate (consumer-run): building HelloPack xcframework ===");
+            var consumerRunRoot = scratch / "consumer-run";
+            consumerRunRoot.CreateDirectory();
+            var helloPackXcfw = BuildPackGateHelloPackXcframework(consumerRunRoot);
 
-            Log.Information("PackGate (source-xcfw) OK — verified {Slices} slice(s) across {Rids} RID(s) in {Nupkg}",
-                verifiedSourceSlices, ExpectedSourceXcframeworkLayout.Length, Path.GetFileName(sourceNupkgPath));
+            var bindingsDir = consumerRunRoot / "bindings";
+            var appDir = consumerRunRoot / "app";
+            bindingsDir.CreateDirectory();
+            appDir.CreateDirectory();
+            WritePackGateConsumerNuGetConfig(consumerRunRoot, nupkgDir);
+            WritePackGateConsumerLib(bindingsDir, helloPackXcfw);
+            WritePackGateConsumerApp(appDir, bindingsDir);
 
-            // 7. Filtered-slice NU5123 sanity. The slice-set assertion above already
-            //    guarantees no filtered slice (watchos, maccatalyst on Nuke) is in the
-            //    nupkg's runtimes/ tree. Defense-in-depth: walk the extract dir and
-            //    fail if any path mentions a filtered slice id, in case a future
-            //    layout change accidentally smuggles them in via a different path.
-            //    Long-path NU5123 from KEPT slices' swiftinterfaces is a separate
-            //    concern (zip toggle TBD per design doc); not asserted here.
-            var stalePaths = Directory.EnumerateFiles(sourceExtractDir, "*", SearchOption.AllDirectories)
-                .Where(p => p.Contains("watchos", StringComparison.OrdinalIgnoreCase)
-                         || p.Contains("maccatalyst", StringComparison.OrdinalIgnoreCase))
-                .Select(p => Path.GetRelativePath(sourceExtractDir, p))
-                .ToList();
-            if (stalePaths.Count > 0)
-                Assert.Fail($"PackGate: {stalePaths.Count} filtered-slice path(s) leaked into nupkg: {string.Join("; ", stalePaths.Take(5))}");
-
-            // 8. Consumer restore + package-shape smoke. A tiny iOS-targeting library
-            //    project PackageReferences PackGateSourceFixture.Nuke, restores it,
-            //    and builds without -r. This proves the sliced nupkg's manifest is
-            //    well-formed and restorable, but does NOT exercise per-RID native
-            //    asset selection — _ExpandNativeReferences (which picks the actual
-            //    slice for ios-arm64 vs iossimulator-arm64) is driven by an app
-            //    publish/build with a RuntimeIdentifier, not by a plain library
-            //    build. True per-RID resolution coverage would require an iOS app
-            //    consumer published with each RID; deferred as a followup since the
-            //    exact-set slice assertions (step 6) + filtered-slice walk (step 7)
-            //    already verify the on-disk layout the consumer would resolve from.
-            Log.Information("=== PackGate (source-xcfw): consumer restore + package-shape smoke ===");
-            var consumerDir = scratch / "source-consumer";
-            consumerDir.CreateDirectory();
-            WritePackGateSourceConsumer(consumerDir, nupkgDir, sourceFixtureOut);
-
-            // Clear NuGet cache for the fixture nupkg so a stale entry from a
-            // prior run doesn't shadow the freshly-packed copy.
-            var consumerCacheDir = nugetCacheDir / "packgatesourcefixture.nuke";
-            if (Directory.Exists(consumerCacheDir)) consumerCacheDir.DeleteDirectory();
-
-            DotNetRestore(s => s
-                .SetProjectFile(consumerDir / "Consumer.csproj")
-                .SetVerbosity(DotNetVerbosity.quiet));
-
+            Log.Information("=== PackGate (consumer-run): building app ===");
             DotNetBuild(s => s
-                .SetProjectFile(consumerDir / "Consumer.csproj")
+                .SetProjectFile(appDir / "PackGateApp.csproj")
                 .SetConfiguration("Release")
-                .EnableNoRestore()
                 .EnableNoLogo()
                 .SetVerbosity(DotNetVerbosity.quiet));
 
-            Log.Information("PackGate (consumer) OK — restore + library build succeeded against sliced nupkg");
+            var appExe = appDir / "bin" / "Release" / PackGateConsumerTfm / "osx-arm64" /
+                "PackGateApp.app" / "Contents" / "MacOS" / "PackGateApp";
+            if (!File.Exists(appExe))
+                Assert.Fail($"PackGate (consumer-run): consumer app binary not produced at {appExe}");
+
+            Log.Information("=== PackGate (consumer-run): launching consumer ===");
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = appExe,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = appDir,
+            };
+            using var consumerProc = System.Diagnostics.Process.Start(psi)
+                ?? throw new Exception($"Failed to launch consumer at {appExe}");
+            var consumerStdout = consumerProc.StandardOutput.ReadToEnd();
+            var consumerStderr = consumerProc.StandardError.ReadToEnd();
+            consumerProc.WaitForExit();
+
+            if (consumerProc.ExitCode != 0)
+                Assert.Fail(
+                    $"PackGate (consumer-run): consumer exited with code {consumerProc.ExitCode}.\n" +
+                    $"stdout:\n{consumerStdout}\nstderr:\n{consumerStderr}");
+            if (!consumerStdout.Contains(PackGateConsumerExpected, StringComparison.Ordinal))
+                Assert.Fail(
+                    $"PackGate (consumer-run): expected '{PackGateConsumerExpected}' in stdout but got:\n" +
+                    $"stdout:\n{consumerStdout}\nstderr:\n{consumerStderr}");
+
+            Log.Information("PackGate (consumer-run) OK — Swift round-trip string returned to managed code");
         });
 
     // Expected nupkg layout for the 4-TFM TipKit fixture. Keyed by NuGet RID
@@ -469,5 +557,120 @@ partial class Build
             </configuration>
             """;
         File.WriteAllText(fixtureDir / "NuGet.config", nugetConfig);
+    }
+
+    // Compile build/PackGate/HelloPack/HelloPack.swift into a macOS-only
+    // single-slice xcframework under <consumerRunRoot>/swift/. Reuses the
+    // existing CompileModuleSlice + XcodeBuild pipeline that BindingTests
+    // already drives, just without the device slice and dependency module.
+    AbsolutePath BuildPackGateHelloPackXcframework(AbsolutePath consumerRunRoot)
+    {
+        var swiftBuildDir = consumerRunRoot / "swift";
+        if (Directory.Exists(swiftBuildDir)) swiftBuildDir.DeleteDirectory();
+        var sliceDir = swiftBuildDir / "macos-arm64";
+        sliceDir.CreateDirectory();
+        var frameworkDir = sliceDir / $"{PackGateHelloPackModule}.framework";
+
+        var sdkPath = XcRun.GetSdkPath("macosx");
+        CompileModuleSlice(
+            moduleName: PackGateHelloPackModule,
+            target: PackGateHelloPackTarget,
+            sdkPath: sdkPath,
+            moduleSuffix: PackGateHelloPackModuleSuffix,
+            minOs: PackGateHelloPackMinOs,
+            plistPlatform: PackGateHelloPackPlistPlatform,
+            frameworkDir: frameworkDir,
+            sourceFiles: new[] { PackGateHelloPackSource.ToString() },
+            frameworkSearchPaths: null,
+            swiftDefines: null);
+
+        var xcframeworkPath = swiftBuildDir / $"{PackGateHelloPackModule}.xcframework";
+        if (Directory.Exists(xcframeworkPath)) xcframeworkPath.DeleteDirectory();
+        XcodeBuild.ExecuteCreateXcframework(new CreateXcframeworkSettings()
+            .AddFrameworkPath(frameworkDir)
+            .SetOutputPath(xcframeworkPath));
+        return xcframeworkPath;
+    }
+
+    static void WritePackGateConsumerNuGetConfig(AbsolutePath consumerRoot, AbsolutePath nupkgDir)
+    {
+        // Single NuGet.config at the consumer-run root — both the bindings
+        // library and the app csproj cascade into it via the standard NuGet
+        // discovery walk, so neither child project needs its own copy.
+        var nugetConfig = $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="pack-gate-local" value="{nupkgDir}" />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="pack-gate-local">
+                  <package pattern="SwiftBindings.*" />
+                </packageSource>
+                <packageSource key="nuget.org">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """;
+        File.WriteAllText(consumerRoot / "NuGet.config", nugetConfig);
+    }
+
+    static void WritePackGateConsumerLib(AbsolutePath bindingsDir, AbsolutePath helloPackXcfw)
+    {
+        // SwiftFramework points at the freshly-built HelloPack.xcframework.
+        // The SDK auto-injects the wrapper xcframework into consuming projects
+        // via GetNativeManifest, so the app csproj only needs ProjectReference.
+        var csproj = $"""
+            <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
+              <PropertyGroup>
+                <TargetFramework>{PackGateConsumerTfm}</TargetFramework>
+                <Nullable>enable</Nullable>
+                <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+                <NoWarn>$(NoWarn);CS0649;CS0114;CA1416</NoWarn>
+              </PropertyGroup>
+              <ItemGroup>
+                <SwiftFramework Include="{helloPackXcfw}" />
+              </ItemGroup>
+            </Project>
+            """;
+        File.WriteAllText(bindingsDir / "PackGateBindings.csproj", csproj);
+    }
+
+    static void WritePackGateConsumerApp(AbsolutePath appDir, AbsolutePath bindingsDir)
+    {
+        // Plain net10.0-macos console app. RuntimeIdentifier=osx-arm64 so the
+        // .app bundle has a single arch matching the wrapper xcframework slice
+        // (which we built arm64-only). EnableCodeSigning=false matches the
+        // RuntimeTestsApp.Mac pattern — there's nothing here that needs to be
+        // distributable.
+        var csproj = $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <OutputType>Exe</OutputType>
+                <TargetFramework>{PackGateConsumerTfm}</TargetFramework>
+                <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+                <Nullable>enable</Nullable>
+                <ImplicitUsings>enable</ImplicitUsings>
+                <SupportedOSPlatformVersion>13.0</SupportedOSPlatformVersion>
+                <ApplicationId>com.swiftbindings.packgate</ApplicationId>
+                <NoWarn>$(NoWarn);CA1416</NoWarn>
+              </PropertyGroup>
+              <ItemGroup>
+                <ProjectReference Include="{bindingsDir / "PackGateBindings.csproj"}" />
+              </ItemGroup>
+            </Project>
+            """;
+        File.WriteAllText(appDir / "PackGateApp.csproj", csproj);
+
+        var program = """
+            // Copyright (c) 2026 Justin Wojciechowski.
+            // Licensed under the MIT License.
+            var greeting = global::HelloPack.Functions.PackGateGreet("PackGate");
+            Console.WriteLine(greeting);
+            """;
+        File.WriteAllText(appDir / "Program.cs", program);
     }
 }
