@@ -612,10 +612,14 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ShouldEmitThunk_FrozenStructGetterAccessor_ReturnsTrue()
+        public void ShouldEmitThunk_FrozenStructGetterAccessor_ReturnsFalse()
         {
-            // Frozen struct property getters use standard swiftcc return convention —
-            // thunks work correctly for these.
+            // Frozen struct property getters are non-mutating: swiftcc lowers self into
+            // argument registers by value (x0/x1/.../d0-d3 for HFA), NOT into x20. The
+            // thunk's `mov x20, x_n` writes a pointer that the getter never reads, so
+            // the value-by-regs state is uninitialized — getters return garbage.
+            // Reject so PropertyHandler falls back to the @_cdecl wrapper, where Swift
+            // emits the correct expanded-direct ABI.
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyEnum", new TypeRecord
             {
@@ -642,6 +646,46 @@ namespace BindingsGeneration.Tests
             {
                 MakeArg(new NamedTypeSpec("Test.MyEnum"), ""),
                 MakeArg(new NamedTypeSpec("Swift.Int"), "self"),
+            };
+
+            var env = new MethodEnvironment(method, db);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenStructSetterAccessor_ReturnsTrue()
+        {
+            // Frozen struct property setters use the inout-self ABI: self pointer in x20.
+            // The thunk's `mov x20, x_n` correctly forwards the C# pinned-self pointer.
+            // Setters are not marked IsMutating in the ABI parser; MethodIsSetter
+            // (Name ends with "_Set") is the signal IsSelfTypeLowerable uses.
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyEnum", new TypeRecord
+            {
+                Kind = TypeRecordKind.Enum,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyEnum"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyEnum"),
+                MetadataAccessor = "$s4Test6MyEnumOMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            });
+            db.AddType("Test.MyStruct", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
+                MetadataAccessor = "$s4Test8MyStructVMa",
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 16,
+            });
+
+            var parentDecl = CreateStructDecl(isFrozen: true);
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: parentDecl);
+            method.IsAccessor = true;
+            method.Name = "field_Set"; // MethodIsSetter() checks Name.EndsWith("_Set")
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new TupleTypeSpec(), ""),
+                MakeArg(new NamedTypeSpec("Test.MyEnum"), "value"),
             };
 
             var env = new MethodEnvironment(method, db);
@@ -1388,11 +1432,14 @@ namespace BindingsGeneration.Tests
         [InlineData(16)]
         [InlineData(24)]
         [InlineData(32)]
-        public void ShouldEmitThunk_FrozenStructSelf_LargerThan8B_ReturnsTrue(int inlineSize)
+        public void ShouldEmitThunk_FrozenStructSelf_NonMutating_ReturnsFalse(int inlineSize)
         {
-            // >8B frozen struct self: swiftcc passes self as pointer in x20.
-            // PInvokeEmitter emits IntPtr for thunked methods. Thunk's
-            // `mov x20, x{ParameterCount}` forwards the pointer correctly.
+            // Non-mutating instance methods on frozen value-type self use swiftcc's
+            // expanded-direct self ABI: self is lowered into argument registers
+            // (x0/x1/x2 for ints, d0-d3 for HFA doubles, etc.), and x20 is unused.
+            // The thunk's `mov x20, x{ParameterCount}` writes a value the callee
+            // doesn't read — leaving the actual self registers uninitialized.
+            // The gate must reject this and route through @_cdecl wrappers instead.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             var fieldCount = inlineSize / 8;
@@ -1411,18 +1458,15 @@ namespace BindingsGeneration.Tests
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
             var env = new MethodEnvironment(method, db);
 
-            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         [Fact]
-        public void ShouldEmitThunk_FrozenStructSelf_8B_ReturnsTrue()
+        public void ShouldEmitThunk_FrozenStructSelf_NonMutating_8B_ReturnsFalse()
         {
-            // ≤8B frozen struct: IsSelfTypeLowerable accepts this (since Phase 1).
-            // Note: swiftcc passes ≤8B self by VALUE in x20, but PInvokeEmitter emits
-            // IntPtr (pointer) for thunked methods. This is safe in practice because
-            // ≤8B frozen struct methods are @inlinable, have no TBD export, and are
-            // filtered by IsSwiftCallTargetExported before reaching assembly emission.
-            // This test verifies the gate accepts the size — not calling-convention correctness.
+            // 8B non-mutating frozen struct self: swiftcc passes self by VALUE in x0
+            // (single int slot). The thunk's `mov x20, x{ParameterCount}` doesn't
+            // populate x0, so the callee reads stack residue. Gate must reject.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyStruct", new TypeRecord
@@ -1437,6 +1481,33 @@ namespace BindingsGeneration.Tests
             });
 
             var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: structDecl);
+            method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
+            var env = new MethodEnvironment(method, db);
+
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FrozenStructSelf_Mutating_LargerThan8B_ReturnsTrue()
+        {
+            // Mutating method on frozen struct: swiftcc passes self as inout pointer
+            // in x20. Thunk's `mov x20, x{ParameterCount}` forwards that pointer
+            // correctly, so thunking IS safe here.
+            var structDecl = CreateStructDecl(isFrozen: true);
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            db.AddType("Test.MyStruct", new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", "MyStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = 32,
+                AbiFieldLayout = "i,i,i,i",
+                MetadataAccessor = "$s4Test8MyStructVMa"
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Instance, parentDecl: structDecl);
+            method.IsMutating = true;
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
             var env = new MethodEnvironment(method, db);
 
@@ -1492,13 +1563,12 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void ShouldEmitThunk_FrozenStructSelf_FloatFields_32B_ReturnsTrue()
+        public void ShouldEmitThunk_FrozenStructSelf_FloatFields_32B_NonMutating_ReturnsFalse()
         {
-            // Frozen struct with mixed int/float fields, 32B (4 register slots).
-            // Field layout is irrelevant for self thunking — the thunk passes a pointer
-            // (IntPtr from PInvokeEmitter) in x20, not decomposed register values.
-            // TypeLowering.SelfLowering models this as 4 direct slots, but ThunkAssemblyEmitter
-            // never reads SelfLowering — it only does `mov x20, x{ParameterCount}`.
+            // Frozen struct with mixed int/float fields, 32B (4 register slots) — HFA-like.
+            // swiftcc lowers self into d0-d3 (or x0-x3 for ints) for non-mutating methods.
+            // The thunk's `mov x20, x{ParameterCount}` doesn't touch those registers,
+            // so self reads garbage. Gate must reject.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyStruct", new TypeRecord
@@ -1508,7 +1578,7 @@ namespace BindingsGeneration.Tests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Test.MyStruct"),
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
                 InlineSize = 32,
-                AbiFieldLayout = "i,f,i,f", // mixed int/float — worst case for register mapping
+                AbiFieldLayout = "i,f,i,f",
                 MetadataAccessor = "$s4Test8MyStructVMa"
             });
 
@@ -1516,15 +1586,15 @@ namespace BindingsGeneration.Tests
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
             var env = new MethodEnvironment(method, db);
 
-            // Accepted: self is a pointer in x20 regardless of field layout
-            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         [Fact]
-        public void ShouldEmitThunk_FrozenStructSelf_16B_FloatOnly_ReturnsTrue()
+        public void ShouldEmitThunk_FrozenStructSelf_16B_FloatOnly_NonMutating_ReturnsFalse()
         {
-            // Frozen struct with only float fields (like CGPoint {Double, Double}).
-            // Same rationale: thunk passes pointer, doesn't decompose registers.
+            // Frozen struct with only float fields (like CGPoint {Double, Double}) — HFA.
+            // swiftcc lowers self into d0/d1 for non-mutating methods. Thunk doesn't
+            // populate them, so the callee reads stack residue. Gate must reject.
             var structDecl = CreateStructDecl(isFrozen: true);
             var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
             db.AddType("Test.MyStruct", new TypeRecord
@@ -1542,7 +1612,7 @@ namespace BindingsGeneration.Tests
             method.CSSignature = new List<ArgumentDecl> { MakeArg(TupleTypeSpec.Empty, "") };
             var env = new MethodEnvironment(method, db);
 
-            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
         }
 
         #endregion

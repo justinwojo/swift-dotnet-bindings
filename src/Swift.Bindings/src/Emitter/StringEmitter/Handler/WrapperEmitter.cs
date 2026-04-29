@@ -43,6 +43,13 @@ namespace BindingsGeneration
         // Populated by EmitExistentialHeapDeclarations, consumed by EmitExistentialContainerCleanup.
         private readonly List<string> _existentialHeapNames = new();
 
+        // Tracks parameter names for Optional<generic> arguments passed under Swift @in
+        // (callee-destroyed) convention via raw CallConvSwift. Swift consumes the buffer;
+        // running the SwiftOptional's normal Dispose afterwards would call VWT Destroy on
+        // a deinitialized buffer, double-releasing class fields. Cleared per-emission.
+        // Populated by TryEmitParameterConversionViaProjection, consumed by EmitInConventionOptionalCleanup.
+        private readonly List<string> _inConventionOptionalNames = new();
+
         // Counts currently-open raw-buffer `fixed (...)` blocks. Every call to
         // EmitRawBufferFixedStart increments by the number of UnsafeRawBufferPointer
         // parameters; the paired EmitRawBufferFixedEnd decrements by the same count.
@@ -266,6 +273,7 @@ namespace BindingsGeneration
             EmitArrayOwnershipRetain(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitInConventionOptionalCleanup(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnConstructor(csWriter);
@@ -344,6 +352,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(buf);");
                 EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
+                EmitInConventionOptionalCleanup(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (*buf == IntPtr.Zero)");
                 csWriter.Indent++;
@@ -357,6 +366,7 @@ namespace BindingsGeneration
                 // Class constructors: P/Invoke returns IntPtr directly (pointer in register)
                 EmitRawBufferFixedStart(csWriter);
                 EmitPInvokeCall(csWriter);
+                EmitInConventionOptionalCleanup(csWriter);
                 EmitSwiftError(csWriter);
                 csWriter.WriteLine("if (result == IntPtr.Zero)");
                 csWriter.Indent++;
@@ -436,6 +446,7 @@ namespace BindingsGeneration
             EmitOptionalReturnBuffer(csWriter);
             EmitRawBufferFixedStart(csWriter);
             EmitPInvokeCall(csWriter);
+            EmitInConventionOptionalCleanup(csWriter);
             EmitGenericInoutWriteback(csWriter);
             EmitSwiftError(csWriter);
             EmitReturnMethod(csWriter);
@@ -592,6 +603,23 @@ namespace BindingsGeneration
             foreach (var heapName in _existentialHeapNames)
             {
                 csWriter.WriteLine($"NativeMemory.Free({heapName});");
+            }
+        }
+
+        /// <summary>
+        /// Emits DisposeAfterConsumption() calls for SwiftOptional&lt;generic&gt; parameters
+        /// passed under Swift's @in (callee-destroyed) convention. Must be called immediately
+        /// after the P/Invoke so the buffer is freed without re-running VWT Destroy on the
+        /// deinitialized contents (which would double-release class fields).
+        ///
+        /// Pairs with <see cref="_inConventionOptionalNames"/> populated in
+        /// TryEmitParameterConversionViaProjection.
+        /// </summary>
+        private void EmitInConventionOptionalCleanup(CSharpWriter csWriter)
+        {
+            foreach (var name in _inConventionOptionalNames)
+            {
+                csWriter.WriteLine($"{name}Swift.DisposeAfterConsumption();");
             }
         }
 

@@ -1,5 +1,5 @@
 {
-  "git_sha": "ce4f48a5",
+  "git_sha": "b1117053",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -530,7 +530,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5944,
+        "lines": 5945,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -933,6 +933,24 @@
       "pass": 1773,
       "fail": 0,
       "skip": 39,
+      "crash": 0
+    },
+    "macos": {
+      "pass": 1448,
+      "fail": 0,
+      "skip": 35,
+      "crash": 0
+    },
+    "maccatalyst": {
+      "pass": 1448,
+      "fail": 0,
+      "skip": 35,
+      "crash": 0
+    },
+    "tvos_simulator": {
+      "pass": 1532,
+      "fail": 0,
+      "skip": 35,
       "crash": 0
     }
   }

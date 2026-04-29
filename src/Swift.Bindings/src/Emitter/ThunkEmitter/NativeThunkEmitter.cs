@@ -572,24 +572,31 @@ public static class NativeThunkEmitter
     /// <summary>
     /// Checks if the self type can be handled by the thunk for instance methods.
     ///
-    /// ABI background: ARM64 swiftcc uses a single register (x20) for self via the
-    /// LLVM `swiftself` attribute. x21 is swifterror — NOT a self overflow register.
-    /// For value types &gt; 8B, self is passed indirectly (pointer in x20), because
-    /// x20 is a single 64-bit register that can't hold a multi-field struct value.
+    /// ABI background: ARM64 swiftcc uses x20 for self ONLY when self is passed by
+    /// indirect pointer — that is, on classes, non-frozen structs, mutating methods,
+    /// and setters (where self is inout). For non-mutating instance methods on frozen
+    /// value types, swiftcc lowers self into the regular argument registers by value:
+    ///   - HFA (≤4 same-typed FP fields): self in v0-v3 (d0-d3)
+    ///   - 1-N integer slots ≤32B: self in x0/x1/x2/x3 by value
+    ///   - ≤8B integer self: in w0/x0 (NOT x20, despite swiftself attribute)
+    /// In all of these "expanded direct" cases, x20 is unused at the entry point of
+    /// the Swift accessor/method. The thunk's `mov x20, x{ParameterCount}` writes a
+    /// pointer into x20 that the callee never reads, while leaving the value-in-regs
+    /// state uninitialized (or holding C# stack residue). The result: the accessor
+    /// returns garbage for getters and silently corrupts/no-ops for non-mutating
+    /// methods.
     ///
-    /// PInvokeEmitter always emits IntPtr for self on thunked methods (line ~639),
-    /// so cdecl passes self as a single pointer register. The thunk's
-    /// `mov x20, x{ParameterCount}` puts this pointer in x20.
+    /// Setters and mutating methods DO use x20 as an inout self pointer — `str d0,
+    /// [x20]; ret` is the canonical setter body — so the thunk's pointer-in-x20
+    /// matches what swiftcc expects. Those continue to thunk safely.
     ///
-    /// For &gt; 8B frozen structs, this is correct: Swift reads self indirectly through
-    /// the pointer. Field layout (int/float mix) is irrelevant — the thunk forwards
-    /// the pointer without decomposing the struct.
-    ///
-    /// For ≤ 8B frozen structs, there is an ABI mismatch: swiftcc expects the VALUE
-    /// in x20, but the thunk puts a pointer. In practice this is safe because ≤ 8B
-    /// frozen struct instance methods are @inlinable and not exported in the TBD, so
-    /// IsSwiftCallTargetExported() filters them before they reach assembly emission.
-    /// This gate was accepted since Phase 1 and is not modified here.
+    /// PInvokeEmitter always emits IntPtr for self on thunked methods. For the cases
+    /// covered above (mutating + setters + classes + non-frozen structs), the C#
+    /// caller pins self and passes a pointer that the thunk forwards into x20. For
+    /// non-mutating frozen-struct methods, this is fundamentally incompatible with
+    /// the Swift ABI: there is no "pointer-in-x20" entry contract to forward to.
+    /// Reject those so PropertyHandler/MethodHandler fall back to the @_cdecl wrapper
+    /// where the Swift compiler emits the correct expanded-direct ABI.
     ///
     /// Note: TypeLowering.LowerStruct() models frozen structs as multi-register direct
     /// values (for return type bridging). That lowering is NOT used for self — the
@@ -597,7 +604,8 @@ public static class NativeThunkEmitter
     /// </summary>
     private static bool IsSelfTypeLowerable(MethodEnvironment env)
     {
-        if (env.MethodDecl.MethodType == MethodType.Static || env.MethodDecl.IsConstructor)
+        var methodDecl = env.MethodDecl;
+        if (methodDecl.MethodType == MethodType.Static || methodDecl.IsConstructor)
             return true; // No self parameter
 
         if (env.ParentDecl is not TypeDecl parentType)
@@ -607,21 +615,33 @@ public static class NativeThunkEmitter
         if (env.ParentDecl is ClassDecl)
             return true;
 
-        // Non-frozen structs use pointer self — no lowering needed
+        // Non-frozen structs use indirect pointer self in x20 — no lowering needed
         if (env.ParentDecl is StructDecl structDecl && !structDecl.IsFrozen)
             return true;
 
-        // Frozen struct — verify InlineSize is available.
-        // >8B: swiftcc passes self as pointer in x20. PInvokeEmitter passes IntPtr.
-        //      Thunk's `mov x20, x{ParameterCount}` forwards the pointer. Correct.
-        // ≤8B: swiftcc passes self as value in x20, but the thunk passes IntPtr (pointer).
-        //      Accepted since Phase 1. Safe in practice: ≤8B frozen struct methods are
-        //      @inlinable, have no TBD entry, and are filtered by IsSwiftCallTargetExported.
+        // Frozen value-type self: swiftcc only places self in x20 when the method
+        // mutates self (mutating funcs, property/subscript setters). Non-mutating
+        // methods (and getters) use the expanded-direct ABI where self is passed by
+        // value across argument registers. Property/subscript setters are not marked
+        // IsMutating in the ABI parser (the funcSelfKind field is absent on setter
+        // accessor nodes) so we infer "self-by-pointer" from the explicit mutating
+        // flag OR the setter naming convention.
+        bool selfIsIndirectPointer =
+            methodDecl.IsMutating || MarshallingHelpers.MethodIsSetter(methodDecl);
+        if (env.ParentDecl is StructDecl frozenStruct && frozenStruct.IsFrozen
+            && !selfIsIndirectPointer)
+        {
+            return false;
+        }
+
+        // Mutating frozen-struct method (or setter) — verify InlineSize is available.
+        // The thunk's `mov x20, x{ParameterCount}` forwards the inout-self pointer
+        // that the C# caller pinned. Correct for any size.
         var parentSpec = new NamedTypeSpec(parentType.SwiftTypeName.ModuleQualifiedName);
         if (env.TypeDatabase.TryGetTypeRecord(parentSpec, out var record)
             && record.InlineSize.HasValue)
         {
-            return true; // InlineSize known — >8B is pointer ABI, ≤8B filtered by TBD gate
+            return true;
         }
 
         // TypeRecord not found or InlineSize unknown — conservatively reject.

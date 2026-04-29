@@ -21,6 +21,7 @@ public class Program
     static bool FlakeDetect;
     static string? ClassFilter;
     static string? ResultsPath;
+    static HashSet<string> ExcludeClasses = new(StringComparer.OrdinalIgnoreCase);
 
     static int Main(string[] args)
     {
@@ -43,6 +44,12 @@ public class Program
             else if (args[i] == "--class" && i + 1 < args.Length)
             {
                 ClassFilter = args[i + 1];
+                i++;
+            }
+            else if (args[i] == "--exclude-classes" && i + 1 < args.Length)
+            {
+                foreach (var name in args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    ExcludeClasses.Add(name.Trim());
                 i++;
             }
             else if (args[i] == "--results-path" && i + 1 < args.Length)
@@ -131,6 +138,15 @@ public class Program
                 }
 
                 allClasses = filtered;
+            }
+
+            if (ExcludeClasses.Count > 0)
+            {
+                var before = allClasses.Count;
+                allClasses = allClasses
+                    .Where(c => !ExcludeClasses.Contains(c.Name))
+                    .ToList();
+                TestLogger.Info($"Excluded {before - allClasses.Count} classes, {allClasses.Count} remaining");
             }
 
             var flakeDetect = FlakeDetect;

@@ -2122,7 +2122,10 @@ partial class Build
         {
             "simulator" => "simulator",
             "device/nativeaot" or "device" => "device",
-            _ => null // macOS — no baseline yet
+            "macos" => "macos",
+            "mac catalyst" => "maccatalyst",
+            "tvos simulator" => "tvos_simulator",
+            _ => null
         };
 
         if (platformKey == null || runtimeBaseline == null)
@@ -2131,7 +2134,15 @@ partial class Build
             return;
         }
 
-        var baselineCounts = platformKey == "simulator" ? runtimeBaseline.Simulator : runtimeBaseline.Device;
+        var baselineCounts = platformKey switch
+        {
+            "simulator" => runtimeBaseline.Simulator,
+            "device" => runtimeBaseline.Device,
+            "macos" => runtimeBaseline.MacOS,
+            "maccatalyst" => runtimeBaseline.MacCatalyst,
+            "tvos_simulator" => runtimeBaseline.TvOSSimulator,
+            _ => null,
+        };
         if (baselineCounts == null)
         {
             Log.Information("No runtime test baseline for {Platform} — skipping comparison", platform);
@@ -2174,9 +2185,15 @@ partial class Build
                     Crash = 0
                 };
 
-                var newRuntimeBaseline = platformKey == "simulator"
-                    ? runtimeBaseline with { Simulator = newCounts }
-                    : runtimeBaseline with { Device = newCounts };
+                var newRuntimeBaseline = platformKey switch
+                {
+                    "simulator" => runtimeBaseline with { Simulator = newCounts },
+                    "device" => runtimeBaseline with { Device = newCounts },
+                    "macos" => runtimeBaseline with { MacOS = newCounts },
+                    "maccatalyst" => runtimeBaseline with { MacCatalyst = newCounts },
+                    "tvos_simulator" => runtimeBaseline with { TvOSSimulator = newCounts },
+                    _ => runtimeBaseline,
+                };
 
                 var newBaseline = baseline with { RuntimeTests = newRuntimeBaseline };
                 newBaseline.Save(BaselinePath);

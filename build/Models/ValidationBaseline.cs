@@ -48,6 +48,15 @@ public record ValidationBaseline
 
         [JsonPropertyName("device")]
         public RuntimeTestsPlatformCounts? Device { get; init; }
+
+        [JsonPropertyName("macos")]
+        public RuntimeTestsPlatformCounts? MacOS { get; init; }
+
+        [JsonPropertyName("maccatalyst")]
+        public RuntimeTestsPlatformCounts? MacCatalyst { get; init; }
+
+        [JsonPropertyName("tvos_simulator")]
+        public RuntimeTestsPlatformCounts? TvOSSimulator { get; init; }
     }
 
     public record RuntimeTestsPlatformCounts

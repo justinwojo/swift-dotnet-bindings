@@ -626,6 +626,25 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         }
     }
 
+    /// <summary>
+    /// Releases the underlying buffer after the value has been consumed by a Swift
+    /// <c>@in</c> callee (callee-destroyed parameter convention). Bypasses VWT Destroy to
+    /// avoid double-release: the Swift callee already deinitialized the value, so calling
+    /// Destroy again on the moved-from buffer would re-release any class fields.
+    /// Frees the .NET-allocated memory only.
+    /// </summary>
+    public unsafe void DisposeAfterConsumption()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_payload == null) return;
+        var ptr = _payload.DangerousGetHandle();
+        // Mark the SafeHandle invalid so ReleaseHandle (and its VWT Destroy) does not run.
+        _payload.SetHandleAsInvalid();
+        if (ptr != IntPtr.Zero)
+            NativeMemory.Free((void*)ptr);
+    }
+
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
 
     /// <summary>

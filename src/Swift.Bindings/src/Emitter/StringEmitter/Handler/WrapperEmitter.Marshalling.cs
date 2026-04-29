@@ -599,6 +599,27 @@ namespace BindingsGeneration
                 {
                     projection = new OptionalProjection(optProjForHandle.InnerProjection, optProjForHandle.IsExistentialInner, useDangerousGetHandle: true);
                 }
+
+                // Raw CallConvSwift Optional<generic-param> uses Swift @in (callee-destroyed)
+                // convention. After PInvoke the buffer is deinitialized, so the SwiftOptional
+                // must skip its normal VWT Destroy to avoid double-releasing class fields.
+                //
+                // Every Swift-side wrapper path (@_cdecl, optional-pointer, async harness, opaque
+                // return, wrapper library) reads the C# buffer with `.pointee` / `.load(as:)` —
+                // copy semantics, NOT @in — so the caller still owns the value and full Dispose
+                // must run. Likewise, `inout Optional<T>` is `@inout` (caller-owned, with writeback),
+                // not callee-destroyed.
+                bool routesViaSwiftWrapper =
+                    _env.MethodDecl.UsesCdeclWrapper ||
+                    _env.MethodDecl.HasOptionalPointerWrapper ||
+                    _env.MethodDecl.UsesWrapperLibrary ||
+                    _env.MethodDecl.IsAsync ||
+                    _requiresOpaqueReturnWrapper;
+
+                if (needsGenericOptOverride && !routesViaSwiftWrapper && !argumentDecl.IsInOut)
+                {
+                    _inConventionOptionalNames.Add(csName);
+                }
             }
 
             // Accessor setter with ObjC bridge container: parameter is already IntPtr (ObjC handle).

@@ -95,6 +95,7 @@ namespace BindingsGeneration
             EmitArrayOwnershipRetain(csWriter);
             // Call P/Invoke (writes Optional<Self> into resultBuffer)
             EmitPInvokeCall(csWriter);
+            EmitInConventionOptionalCleanup(csWriter);
 
             // Write back inout generic params before error check (so mutations survive exceptions)
             EmitGenericInoutWriteback(csWriter);

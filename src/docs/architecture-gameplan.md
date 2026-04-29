@@ -46,7 +46,23 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 **Scope**:
 - **DONE**: End-to-end consumer test: `dotnet new swift-binding && dotnet build && dotnet run` actually invoking a Swift method. Today `Build.PackGate.cs` does library-build only — never runs Swift.
 - Behavior tier in `nuke validate` for 1–2 representative libs: instantiate one type, call one Swift function from a fresh consumer project. Today validation only proves bindings *compile*, not that they *run*. Library selection is an open question (Foundation + one Theme B candidate is the working assumption).
-- Populate runtime regression baselines for macOS, Mac Catalyst, and tvOS simulator. `Build.RuntimeTests.cs:2121` returns null for those today, so they aren't load-bearing as gates. All three are confirmed release targets per roadmap Theme E. (iOS simulator + iOS device baselines exist already; tvOS device is explicitly deferred per roadmap — no provisioning + physical Apple TV.) **Status**: macOS generator SIGSEGV unblocked. `Swift.Foundation.*` reference gap closed by referencing `Swift.Bindings.Apple` (multi-targeted across all four Apple TFMs) plus the `AppleIdentity.ConsumerA/B` probes (also multi-targeted) from the macOS / Catalyst / tvOS RuntimeTestsApp variants — the supplement assembly was already wired into the iOS RuntimeTestsApp; the Mac/Catalyst/tvOS variants were not, even though the generator emits the same `Swift.Foundation.Measurement<…>` references regardless of target platform. **Next blocker**: macOS runtime gates surface a real ABI-marshalling regression specific to macOS that does not reproduce on iOS simulator/device — `AbiSafetyRuntimeTests` (frozen structs with float fields, bool fields, and >8-byte structs containing nint fields) read garbage values out of @_cdecl wrappers (e.g. `LottieColorLike.R` set=1.0 reads 0.25; `LargeConfig.Width` set=10 reads e.g. `1875139712`/`1823186048` — uninitialized stack noise that varies across runs). After exactly 12 tests in that class, the runner hangs at 100% CPU on `TestLargeConfigVolume`. Pattern is consistent across runs and isolated to the AbiSafety class so far (other test classes haven't been reached due to the hang and the default 90s test-app timeout). Symbols resolve (verified via `nm -gU` on the macos-arm64 wrapper slice), so this is wrapper-emission/calling-convention drift, not a missing-export. Baselines for macOS/Catalyst/tvOS remain unpopulated until that ABI bug is rooted out — likely a separate session's worth of work in M2 or a pulled-forward M4-style emitter fix. Catalyst and tvOS simulator runs not yet attempted; they share the same emitted bindings, so the macOS finding is expected to recur.
+- **DONE**: Populate runtime regression baselines for macOS, Mac Catalyst, and tvOS simulator. `Swift.Foundation.*` reference gap closed by wiring `Swift.Bindings.Apple` (multi-targeted across all four Apple TFMs) plus the `AppleIdentity.ConsumerA/B` probes into the Mac / Catalyst / tvOS RuntimeTestsApp variants. AbiSafety frozen-struct ABI regression fixed (Session 2). Optional<generic-param> @in double-release on Mac-family Mono Interpreter fixed (Session 2). Baselines: macOS=1448, MacCatalyst=1448, TvOSSimulator=1532 (all 0 fail / 0 crash). iOS simulator (1760) and iOS device (1773) baselines were already in place; tvOS device is explicitly deferred per roadmap (no physical Apple TV).
+
+**Sessions** (2 of 3 done, 1 remaining):
+
+1. **Session 1 — Pack-gate consumer run + end-to-end consumer test** *(DONE — `c496573a`)*. Closes M2's first scope bullet.
+
+2. **Session 2 — macOS ABI fix + populate macOS / Catalyst / tvOS sim baselines** *(DONE)*
+   - **DONE**: Root-caused and fixed the `AbiSafetyRuntimeTests` frozen-struct field-read regression. The thunk's `mov x20, x{ParameterCount}` only matches swiftcc when self is passed by indirect pointer — i.e. mutating funcs, property/subscript setters, classes, non-frozen structs. Non-mutating instance methods on **frozen** value types use the expanded-direct ABI (HFA in `d0-d3`, ≤32B integer aggregates in `x0-x3`, etc.) and leave x20 untouched at entry. The thunk was forwarding a pointer into a register the callee never reads, so `LottieColorLike.R` returned stack residue, `LargeConfig.Width` came back as `1875139712`, etc. `IsSelfTypeLowerable` (`NativeThunkEmitter.cs`) now rejects non-mutating frozen-struct instance methods so `PropertyHandler` / `MethodHandler` route those through the @_cdecl wrapper instead, where the Swift compiler emits the correct expanded-direct ABI. Mutating methods + setters continue to thunk safely. Verified 37/37 AbiSafetyRuntimeTests pass on macOS.
+   - **DONE**: Root-caused and fixed the Mac-family finalizer-thread SIGSEGV. Swift inits taking `Optional<T>` of a generic parameter (e.g. `OptionalGenericHolder(stored:)`, `OptionalWrapper(value:)`) lower the parameter to `@in` (callee-destroyed) under raw CallConvSwift — confirmed via SIL dump showing `[%1: ..., destroy v**]`. The C# side allocated a SwiftOptional buffer, passed `DangerousGetHandle()`, and ran `using var` Dispose afterward. After Swift's @in init consumed the value via `copy_addr [take]`, the buffer's bits remained pointing at the moved-out class instance, so SwiftOptional's normal Dispose called VWT Destroy on the deinitialized buffer → second `swift_release` on the class field → eventual finalizer-thread SIGSEGV when GC reached the same SafeHandle. Fix: new `SwiftOptional<T>.DisposeAfterConsumption()` runtime helper that frees the .NET buffer but bypasses VWT Destroy (`SetHandleAsInvalid` on the SafeHandle so `ReleaseHandle` is suppressed). Generator wiring: `WrapperEmitter` records `_inConventionOptionalNames` for parameters that hit the `needsGenericOptOverride` path with raw CallConvSwift (skipped for @_cdecl wrappers, which use `.load(as:)` copy semantics), and `EmitInConventionOptionalCleanup` emits `{name}Swift.DisposeAfterConsumption();` immediately after each `EmitPInvokeCall`. iOS Simulator (Mono JIT) masked the bug because of different finalizer scheduling; only Mono Interpreter on Mac/Catalyst/tvOS-sim surfaced it.
+   - **DONE**: `RuntimeTestsBaseline` (`build/Models/ValidationBaseline.cs`) extended with `MacOS`, `MacCatalyst`, `TvOSSimulator` records; `Build.RuntimeTests.cs:2121` dispatch switch + auto-update logic updated for all 5 platforms. `.validation-baseline.json` seeded with macOS=1448, MacCatalyst=1448, TvOSSimulator=1532 (all 0 fail, 0 crash).
+   - **Gate (MET)**: all three platform runs green; baselines committed; M2's third scope bullet **DONE**.
+
+3. **Session 3 — Behavior-tier `nuke validate` + close M2**
+   - Resolve Open Question #2: commit to Foundation + one Theme B candidate (Alamofire is the strong default — doubles as Theme B's deep-dive target).
+   - Add behavior tier in `nuke validate`: fresh consumer project, instantiate one type, call one Swift function, assert result. Today validation only proves bindings *compile*, not that they *run*.
+   - Wire the behavior tier into the validate gate.
+   - **Gate**: M2 checkpoint sweep (`nuke binding-tests --sim --device --macos --catalyst --tvos` + `nuke validate`) clean; M2 marked DONE; checkpoint #2 reached.
 
 **Why (litmus)**: exposes binding failures earlier (real consumer surface, real platforms). Three of the supported runtime axes currently can't catch regressions — that will produce real release bugs.
 
@@ -62,6 +78,32 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 - **SwiftUICore / SwiftUI suppression parity.** `SwiftUIViewDetector` recognizes both modules as View modules, but `ValidationRuleSet:22` lists only `SwiftUI` + `Combine` without `SwiftUICore`. Suppression gates can therefore differ depending on which module a declaration references. Audit all SwiftUI suppression sites for parity; add focused tests.
 - **Highest-frequency `AnyTypeFallback` / type-resolution skip causes** that are *not* fundamentally cross-library scope. Roadmap explicitly defers cross-library dependency-graph resolution as different product scope. In-module supplement-resolution misses, alias resolution gaps, and similar single-module fixes are in scope.
 
+**Sessions** (4):
+
+1. **Session 1 — CoGater inventory pass**
+   - Catalog every handler in `SwiftWrapperPostProcessor`, `CSharpWrapperCoGater` (Steps D–G), `ProcessSuppressedProxyReferencesInDirectory`, `SimulatorOnlyMemberDetector`.
+   - For each handler, classify as either "shouldn't have emitted" (with proposed emission-time fix location: Marshaler / `PropertyHandler` / etc.) or "essential Swift compiler output normalization" (keep).
+   - Histogram each handler's hit count across validation libs to size the fix-or-keep decisions.
+   - Deliverable: `src/docs/scratch/m3-cogater-inventory.md` (deleted in M3 close per the standing rule on milestone scaffolding).
+   - **Gate**: top-N "shouldn't have emitted" classes identified with concrete emission-time fix proposals.
+
+2. **Session 2 — Stripped-wrapper emission fix (round 1)**
+   - From the inventory, fix the top 1–2 "shouldn't have emitted" classes by volume at emission time, not via post-process text rewrite.
+   - Disable the corresponding CoGater handlers; add unit tests proving the emission no longer needs stripping.
+   - **Gate**: skip count for those causes down ≥80% on validation libs; CoGater handlers removed; `nuke binding-tests --sim --device` + `nuke validate` at-or-above baseline.
+
+3. **Session 3 — Stripped-wrapper emission fix (round 2) + SwiftUICore parity**
+   - 1–2 more emission-time fixes from the inventory (continue picking by volume per Open Question #3 — top 3 by volume, or any class whose fix cost is < 1 session).
+   - Add `SwiftUICore` to `ValidationRuleSet:22` alongside `SwiftUI` + `Combine`. Audit every SwiftUI suppression site (`SwiftUIViewDetector` vs `ValidationRuleSet`) for parity. Add focused tests proving `SwiftUICore` declarations are suppressed identically.
+   - **Gate**: SwiftUICore parity tests pass; another CoGater handler removed; baselines at-or-above.
+
+4. **Session 4 — `AnyTypeFallback` reduction + close M3**
+   - Generate skip-cause histogram from `coverage-matrix.json` across all validation libs.
+   - Pick 3–5 highest-frequency causes that are *not* cross-library scope (in-module supplement-resolution misses, alias resolution gaps, similar single-module fixes). Fix each at the resolution layer (`TypeDatabase` / type XML / supplement). Per CLAUDE.md zero-regression policy, ship each with tests at the right layer.
+   - Roadmap reconciliation: update Theme A rows in `roadmap.md`.
+   - Delete `src/docs/scratch/m3-cogater-inventory.md`.
+   - **Gate**: M3 checkpoint sweep clean (`nuke binding-tests --sim --device --macos --catalyst --tvos` + `nuke validate` at-or-above; AnyTypeFallback count down meaningfully — no pre-committed number per Open Question #4); M3 marked DONE; checkpoint #3 reached.
+
 **Why (litmus)**: every fix here directly increases emitted API surface — each one is a binding that works for consumers that didn't before.
 
 **Gate**: skip count down on validation libraries (`AnyTypeFallback` is ~303 today per roadmap; M3 should put a meaningful dent in this); CoGater handlers reduced in count; SwiftUICore parity tests pass; full `nuke binding-tests --sim --device` + `nuke validate` at or above baseline (emission-time changes can affect generated calling conventions).
@@ -75,11 +117,44 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 - **`SwiftInterfaceFacts` aggregator.** One immutable facts object replaces the 17 nullable side-channel maps threaded individually through `Program.GenerateBindings` into `SwiftABIParser`'s 27-arg constructor. Existing regex parser populates it. The producer swap (SwiftSyntax) defers post-1.0; the aggregator boundary itself doesn't. Internal members, actor isolation, typed throws, availability, default args, subscript labels — all currently fragile, all silently feed real decisions.
 - **Source provenance plumbing.** Best-effort Swift `file:line:column` in diagnostics, using what the regex parser can give us. Imperfect now is better than nothing — full positions tighten when SwiftSyntax lands post-1.0. This is what makes "ALL runtime crashes are OUR BUGS" investigable instead of guesswork.
 
+**Sessions** (4):
+
+1. **Session 1 — `TypeResolver` scaffold + first strategies**
+   - Define `TypeResolver.Resolve(TypeSpec, ResolutionContext) → TypeResolutionResult { record, syntheticFallback?, skipReason?, supplementReference?, confidence, provenance }`.
+   - Define `IResolutionStrategy` plug-in interface.
+   - Migrate the 3 simplest strategies first as proof-of-shape: primitive aliases, generic params, dynamic self.
+   - Old `TryGetTypeRecord` paths kept in parallel for the rest; parity tests prove the resolver matches existing behavior on the migrated strategies.
+   - Resolver core unit tests.
+   - **Gate**: 3 strategies fully on `TypeResolver`; `nuke test` green; `nuke validate` at-or-above baseline.
+
+2. **Session 2 — Complete `TypeResolver` migration + delete duplicates**
+   - Migrate remaining strategies: Apple supplement, ObjC bridging, `Swift.Error`, existentials, pointers, metatypes, SIMD aliases.
+   - Delete the 4 duplicated extension overloads (`TryGetTypeRecord`, `GetTypeRecordOrAnyType`, `GetTypeRecordOrThrow`, `TryGetAnyTypeFallbackInfo`) and the 9-stage `TryGetTypeRecord`.
+   - Update or remove the contract-warning comments in `TypeDatabase.cs` that flagged this as the bug factory.
+   - Tests proving single-path policy (no special-case duplication).
+   - **Gate**: zero duplicate type-resolution paths; `nuke binding-tests --sim --device` + `nuke validate` at-or-above.
+
+3. **Session 3 — `SwiftInterfaceFacts` aggregator**
+   - Define an immutable `SwiftInterfaceFacts` record covering all 17 fact types currently threaded as nullable side-channel maps (internal members, actor isolation, typed throws, availability, default args, subscript labels, etc.).
+   - Existing regex parser populates it (the producer swap to SwiftSyntax stays deferred post-1.0).
+   - Replace the 17 maps in `Program.GenerateBindings`; reduce `SwiftABIParser` ctor from 27 args to `(config, facts)`.
+   - Tests covering all 17 fact types.
+   - **Gate**: ctor sig reduced; all fact-type tests pass; baselines at-or-above.
+
+4. **Session 4 — Source provenance plumbing + close M4 (1.0 candidate)**
+   - Best-effort Swift `file:line:column` extraction from the regex parser's existing match offsets.
+   - Plumb provenance through `Diagnostic`, skip messages, and `binding-report.json`.
+   - Tests proving positions appear where the parser can supply them (and gracefully degrade where it cannot).
+   - Final M4 checkpoint sweep: full `nuke binding-tests --sim --device --macos --catalyst --tvos` + `nuke validate`. Confirm baselines.
+   - **Gate**: 1.0 candidate sweep clean; M4 marked DONE; checkpoint #4 reached. Per Open Question #6, optional ~1-release-cycle soak in `swift-dotnet-packages` before shipping.
+
 **Why (litmus)**: prevents a known class of bad generated binding. Type resolution drift produces wrong bindings now. Swiftinterface side-channel drift produces wrong decisions now. Both are silent. Both compound with every new feature added.
 
 **Gate**: type resolution tests prove single-path policy (no special-case duplication); facts tests cover all 17 fact types; diagnostics surface source positions where available; full `nuke binding-tests --sim --device` + `nuke validate` at or above baseline.
 
-### Total: ~11–17 sessions
+### Total: ~14 sessions (9 remaining)
+
+Allocation: M1 (3–4, DONE) + M2 (3, 2 done / 1 remaining) + M3 (4) + M4 (4). Each subsequent `/next-session` corresponds to exactly one of the numbered sessions enumerated under its milestone above — the unit of work is the session, not "the next visible incremental step."
 
 Elapsed time is **validation-bound**, not session-stacked. Each milestone ends with a full sim + device + validate sweep (~30+ minutes of run time even when everything passes), and most milestones will surface at least one fix-and-rerun cycle. Don't sell this as compressible by stacking sessions per day — that pressures rushing the very gates this rescope is meant to protect. Realistic framing is a focused working week of execution, not a sprint.
 
