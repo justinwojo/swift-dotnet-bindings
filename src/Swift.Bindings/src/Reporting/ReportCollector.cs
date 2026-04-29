@@ -6,6 +6,15 @@ namespace BindingsGeneration;
 /// <summary>
 /// In-process collector for binding generation report data.
 /// </summary>
+/// <remarks>
+/// Member dedup is keyed on <see cref="MemberDiagnosticIdentity"/>, which is
+/// overload-stable: two distinct overloads (e.g. <c>foo(_:Int)</c> vs
+/// <c>foo(_:String)</c>) skipped for different reasons each record their own
+/// <see cref="SkippedItem"/> entry. Legacy callers that pass only
+/// <c>(kind, name, containingDecl)</c> still produce a valid identity, but
+/// without parameter labels/types — overloads collapse on those paths until
+/// the call site is migrated to a decl-aware overload.
+/// </remarks>
 public static class ReportCollector
 {
     private static readonly object Sync = new();
@@ -14,9 +23,9 @@ public static class ReportCollector
 
     private static readonly HashSet<string> EmittedTypeKeys = new(StringComparer.Ordinal);
     private static readonly HashSet<string> SkippedTypeKeys = new(StringComparer.Ordinal);
-    private static readonly HashSet<string> EmittedMemberKeys = new(StringComparer.Ordinal);
-    private static readonly HashSet<string> SkippedMemberKeys = new(StringComparer.Ordinal);
-    private static readonly HashSet<string> SynthesizedMemberKeys = new(StringComparer.Ordinal);
+    private static readonly HashSet<MemberDiagnosticIdentity> EmittedMemberIdentities = new();
+    private static readonly HashSet<MemberDiagnosticIdentity> SkippedMemberIdentities = new();
+    private static readonly HashSet<MemberDiagnosticIdentity> SynthesizedMemberIdentities = new();
 
     public static bool IsActive => SessionActive.Value && _report != null;
 
@@ -72,11 +81,11 @@ public static class ReportCollector
 
             _report.EmittedTypes = EmittedTypeKeys.Count;
             _report.SkippedTypes = SkippedTypeKeys.Count;
-            _report.EmittedMembers = EmittedMemberKeys.Count;
-            _report.SkippedMembers = SkippedMemberKeys.Count;
-            _report.SynthesizedMembers = SynthesizedMemberKeys.Count;
+            _report.EmittedMembers = EmittedMemberIdentities.Count;
+            _report.SkippedMembers = SkippedMemberIdentities.Count;
+            _report.SynthesizedMembers = SynthesizedMemberIdentities.Count;
 
-            // Compute per-kind breakdown from the keyed sets ("Kind:ContainingType:Name")
+            // Per-kind breakdown: read directly from each identity's Kind field.
             ComputePerKindCounts(_report);
 
             // Compute BridgeSummary if there are bridged views
@@ -140,48 +149,109 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Legacy entry point — builds a coarse <see cref="MemberDiagnosticIdentity"/>
+    /// from <c>(kind, name, containingDecl)</c>. Overloads with the same base
+    /// name share an identity here. Migrate to a decl-aware overload
+    /// (<see cref="RecordMemberEmitted(MethodDecl, BaseDecl?)"/> etc.) when the
+    /// caller has the full declaration in scope.
+    /// </summary>
     public static void RecordMemberEmitted(BindingItemKind kind, string name, BaseDecl? containingDecl)
+        => RecordMemberEmittedInternal(MemberDiagnosticIdentity.FromMember(kind, name, containingDecl));
+
+    /// <summary>
+    /// Decl-aware entry point — captures the full method signature so
+    /// overloaded methods record distinctly.
+    /// </summary>
+    public static void RecordMemberEmitted(MethodDecl methodDecl, BaseDecl? containingDecl = null)
     {
-        if (!SessionActive.Value || _report == null)
-            return;
-
-        lock (Sync)
-        {
-            if (_report == null)
-                return;
-
-            var key = GetMemberKey(kind, name, containingDecl);
-            if (SkippedMemberKeys.Contains(key))
-                return;
-
-            EmittedMemberKeys.Add(key);
-        }
+        ArgumentNullException.ThrowIfNull(methodDecl);
+        RecordMemberEmittedInternal(MemberDiagnosticIdentity.FromMethod(methodDecl, containingDecl));
     }
 
+    /// <summary>
+    /// Legacy entry point — see <see cref="RecordMemberEmitted(BindingItemKind, string, BaseDecl?)"/>
+    /// for overload-collapse caveats.
+    /// </summary>
     public static void RecordMemberSkipped(BindingItemKind kind, string name, BaseDecl? containingDecl, SkipReason reason, string? details = null)
+        => RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromMember(kind, name, containingDecl),
+            displayName: name,
+            containingDecl,
+            reason,
+            details);
+
+    /// <summary>
+    /// Decl-aware entry point — captures the full method signature so two
+    /// overloads of <c>foo(_ x: Int)</c> and <c>foo(_ s: String)</c> skipped
+    /// for different reasons each land in <see cref="BindingReport.SkippedItems"/>.
+    /// </summary>
+    public static void RecordMemberSkipped(MethodDecl methodDecl, SkipReason reason, string? details = null)
     {
-        if (!SessionActive.Value || _report == null)
-            return;
+        ArgumentNullException.ThrowIfNull(methodDecl);
+        RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromMethod(methodDecl),
+            displayName: methodDecl.Name,
+            methodDecl.ParentDecl,
+            reason,
+            details);
+    }
 
-        lock (Sync)
-        {
-            if (_report == null)
-                return;
+    /// <summary>
+    /// Decl-aware entry point for properties. Pass an explicit
+    /// <paramref name="accessor"/> when distinguishing per-accessor skips
+    /// (e.g. setter rejected but getter emitted).
+    /// </summary>
+    public static void RecordMemberSkipped(
+        PropertyDecl propertyDecl,
+        SkipReason reason,
+        string? details = null,
+        AccessorKind accessor = AccessorKind.None)
+    {
+        ArgumentNullException.ThrowIfNull(propertyDecl);
+        RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromProperty(propertyDecl, accessor),
+            displayName: propertyDecl.Name,
+            propertyDecl.ParentDecl,
+            reason,
+            details);
+    }
 
-            var key = GetMemberKey(kind, name, containingDecl);
-            if (EmittedMemberKeys.Contains(key) || !SkippedMemberKeys.Add(key))
-                return;
+    /// <summary>
+    /// Decl-aware entry point for subscripts. Pass
+    /// <see cref="AccessorKind.SubscriptGetter"/> /
+    /// <see cref="AccessorKind.SubscriptSetter"/> to distinguish per-accessor
+    /// skips on the same subscript shape.
+    /// </summary>
+    public static void RecordMemberSkipped(
+        SubscriptDecl subscriptDecl,
+        SkipReason reason,
+        string? details = null,
+        AccessorKind accessor = AccessorKind.None)
+    {
+        ArgumentNullException.ThrowIfNull(subscriptDecl);
+        RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromSubscript(subscriptDecl, accessor),
+            displayName: subscriptDecl.Name,
+            subscriptDecl.ParentDecl,
+            reason,
+            details);
+    }
 
-            _report.SkippedItems.Add(new SkippedItem
-            {
-                Kind = kind,
-                Name = name,
-                ContainingType = GetContainingTypeName(containingDecl),
-                Reason = reason,
-                Details = details,
-                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
-            });
-        }
+    /// <summary>
+    /// Decl-aware entry point for operators. Captures the parameter
+    /// signature from the underlying method so overloaded operators record
+    /// distinctly.
+    /// </summary>
+    public static void RecordMemberSkipped(OperatorDecl operatorDecl, SkipReason reason, string? details = null)
+    {
+        ArgumentNullException.ThrowIfNull(operatorDecl);
+        RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromOperator(operatorDecl),
+            displayName: operatorDecl.OperatorSymbol,
+            operatorDecl.ParentDecl,
+            reason,
+            details);
     }
 
     public static void RecordMemberWrapped(
@@ -196,11 +266,13 @@ public static class ReportCollector
             if (_report == null)
                 return;
 
-            // Use simple key (same as CountTypeAndMembers which counts distinct names).
-            // Overloaded methods with different mangled names share a single simple key,
-            // matching the distinct-name counting in CalculateTotals.
-            var key = GetMemberKey(kind, name, containingDecl);
-            EmittedMemberKeys.Add(key);
+            // RecordMemberWrapped intentionally uses the legacy coarse identity
+            // (no parameter info) so overloaded wrapped inits dedup to one
+            // emitted entry — matching the distinct-name counting in
+            // CalculateTotals. The WrappedItems list itself records each
+            // overload distinctly via the mangled name.
+            var identity = MemberDiagnosticIdentity.FromMember(kind, name, containingDecl);
+            EmittedMemberIdentities.Add(identity);
 
             _report.WrappedItems.Add(new WrappedItem
             {
@@ -253,7 +325,24 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>
+    /// Legacy entry point — see <see cref="RecordMemberEmitted(BindingItemKind, string, BaseDecl?)"/>
+    /// for overload-collapse caveats.
+    /// </summary>
     public static void RecordMemberSynthesized(BindingItemKind kind, string name, BaseDecl? containingDecl)
+        => RecordMemberSynthesizedInternal(MemberDiagnosticIdentity.FromMember(kind, name, containingDecl));
+
+    /// <summary>
+    /// Decl-aware entry point — captures the full method signature so
+    /// overloaded synthesized methods record distinctly.
+    /// </summary>
+    public static void RecordMemberSynthesized(MethodDecl methodDecl, BaseDecl? containingDecl = null)
+    {
+        ArgumentNullException.ThrowIfNull(methodDecl);
+        RecordMemberSynthesizedInternal(MemberDiagnosticIdentity.FromMethod(methodDecl, containingDecl));
+    }
+
+    private static void RecordMemberEmittedInternal(MemberDiagnosticIdentity identity)
     {
         if (!SessionActive.Value || _report == null)
             return;
@@ -263,11 +352,57 @@ public static class ReportCollector
             if (_report == null)
                 return;
 
-            var key = GetMemberKey(kind, name, containingDecl);
-            if (SkippedMemberKeys.Contains(key))
+            if (SkippedMemberIdentities.Contains(identity))
                 return;
 
-            SynthesizedMemberKeys.Add(key);
+            EmittedMemberIdentities.Add(identity);
+        }
+    }
+
+    private static void RecordMemberSkippedInternal(
+        MemberDiagnosticIdentity identity,
+        string displayName,
+        BaseDecl? containingDecl,
+        SkipReason reason,
+        string? details)
+    {
+        if (!SessionActive.Value || _report == null)
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+
+            if (EmittedMemberIdentities.Contains(identity) || !SkippedMemberIdentities.Add(identity))
+                return;
+
+            _report.SkippedItems.Add(new SkippedItem
+            {
+                Kind = identity.Kind,
+                Name = displayName,
+                ContainingType = GetContainingTypeName(containingDecl),
+                Reason = reason,
+                Details = details,
+                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
+            });
+        }
+    }
+
+    private static void RecordMemberSynthesizedInternal(MemberDiagnosticIdentity identity)
+    {
+        if (!SessionActive.Value || _report == null)
+            return;
+
+        lock (Sync)
+        {
+            if (_report == null)
+                return;
+
+            if (SkippedMemberIdentities.Contains(identity))
+                return;
+
+            SynthesizedMemberIdentities.Add(identity);
         }
     }
 
@@ -276,9 +411,9 @@ public static class ReportCollector
         _report = null;
         EmittedTypeKeys.Clear();
         SkippedTypeKeys.Clear();
-        EmittedMemberKeys.Clear();
-        SkippedMemberKeys.Clear();
-        SynthesizedMemberKeys.Clear();
+        EmittedMemberIdentities.Clear();
+        SkippedMemberIdentities.Clear();
+        SynthesizedMemberIdentities.Clear();
     }
 
     private static (int totalTypes, int totalMembers) CalculateTotals(ModuleDecl moduleDecl)
@@ -298,11 +433,15 @@ public static class ReportCollector
     private static void CountTypeAndMembers(TypeDecl typeDecl, ref int totalTypes, ref int totalMembers)
     {
         totalTypes++;
-        // Count distinct member names per kind, matching the deduplication in the recording
-        // HashSets (keyed by "Kind:ContainingType:Name"). Overloaded methods/constructors
-        // with the same name share a single key and should be counted once.
+        // Count distinct member names per kind. Legacy callers (those still
+        // using the (kind, name, containingDecl) overloads) collapse overloads
+        // under the coarse identity; this distinct-name count keeps the
+        // totals comparable to those legacy emitted/skipped counts. Decl-aware
+        // callers populate per-overload identities — for those paths the
+        // emitted/skipped counts can exceed the totals reported here, which
+        // is the expected outcome of the overload-stable identity fix.
         // Protocol subscripts are all recorded under the single name "subscript",
-        // so overloads share one HashSet key. Count at most 1 to match.
+        // so overloads share one HashSet key when invoked through the legacy path.
         totalMembers += typeDecl.Methods.Where(m => !m.IsAccessor).Select(m => m.Name).Distinct().Count()
                       + typeDecl.Properties.Select(p => p.Name).Distinct().Count()
                       + typeDecl.Operators.Select(o => o.Name).Distinct().Count()
@@ -321,32 +460,16 @@ public static class ReportCollector
     private static string GetTypeKey(TypeDecl typeDecl) =>
         typeDecl.SwiftTypeName.ModuleQualifiedName;
 
-    private static string GetMemberKey(BindingItemKind kind, string name, BaseDecl? containingDecl) =>
-        $"{kind}:{GetContainingTypeName(containingDecl)}:{name}";
-
     private static void ComputePerKindCounts(BindingReport report)
     {
-        foreach (var key in EmittedMemberKeys)
+        foreach (var identity in EmittedMemberIdentities)
         {
-            var kind = ParseKindFromKey(key);
-            if (kind.HasValue)
-                report.EmittedMembersByKind[kind.Value] = report.EmittedMembersByKind.GetValueOrDefault(kind.Value) + 1;
+            report.EmittedMembersByKind[identity.Kind] = report.EmittedMembersByKind.GetValueOrDefault(identity.Kind) + 1;
         }
-        foreach (var key in SkippedMemberKeys)
+        foreach (var identity in SkippedMemberIdentities)
         {
-            var kind = ParseKindFromKey(key);
-            if (kind.HasValue)
-                report.SkippedMembersByKind[kind.Value] = report.SkippedMembersByKind.GetValueOrDefault(kind.Value) + 1;
+            report.SkippedMembersByKind[identity.Kind] = report.SkippedMembersByKind.GetValueOrDefault(identity.Kind) + 1;
         }
-    }
-
-    private static BindingItemKind? ParseKindFromKey(string key)
-    {
-        var colonIdx = key.IndexOf(':');
-        if (colonIdx <= 0)
-            return null;
-        var kindStr = key.Substring(0, colonIdx);
-        return Enum.TryParse<BindingItemKind>(kindStr, out var kind) ? kind : null;
     }
 
     private static BridgeSummary ComputeBridgeSummary(BindingReport report)

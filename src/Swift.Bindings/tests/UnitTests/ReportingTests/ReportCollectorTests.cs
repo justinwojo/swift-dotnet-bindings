@@ -417,6 +417,114 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void RecordMemberSkipped_DistinctMethodOverloads_RecordEachAsSeparateSkip()
+    {
+        // Bug fix per architecture-gameplan §M1: previously RecordMemberSkipped
+        // dedup'd on "Kind:ContainingType:Name" and refused to record any skip
+        // beyond the first whenever the same triple was already in the skip-or-
+        // emit set, which collapsed all overloads of foo(...) into one entry.
+        // After the M1 identity fix, two overloads with the same base name but
+        // different parameter signatures must each appear in SkippedItems.
+        //
+        // Pre-fix behavior would have asserted Single(report.SkippedItems)
+        // here — the assertion below would have failed with one entry. That's
+        // the regression guard.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var fooInt = TestModelFactory.CreateMethod(
+            "foo",
+            parent: classDecl,
+            args: new[] { ("_", "Swift.Int") },
+            mangledName: "$s10TestModule6LoaderC3fooyySiF");
+        var fooString = TestModelFactory.CreateMethod(
+            "foo",
+            parent: classDecl,
+            args: new[] { ("_", "Swift.String") },
+            mangledName: "$s10TestModule6LoaderC3fooyySSF");
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(fooInt, SkipReason.UnsupportedSignature, "Int overload skipped");
+        ReportCollector.RecordMemberSkipped(fooString, SkipReason.UnsupportedExistential, "String overload skipped");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report!.SkippedMembers);
+        Assert.Equal(2, report.SkippedItems.Count);
+        // Both overloads share the same display name + containing type — only
+        // the reason and details (driven from the per-overload identity) tell
+        // them apart in the report list.
+        Assert.All(report.SkippedItems, item =>
+        {
+            Assert.Equal("foo", item.Name);
+            Assert.Equal("TestModule.Loader", item.ContainingType);
+        });
+        Assert.Contains(report.SkippedItems, i => i.Reason == SkipReason.UnsupportedSignature && i.Details == "Int overload skipped");
+        Assert.Contains(report.SkippedItems, i => i.Reason == SkipReason.UnsupportedExistential && i.Details == "String overload skipped");
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberSkipped_SameMethodTwice_DedupsToOneEntry()
+    {
+        // The dedup contract still holds for genuinely-equal skips: calling
+        // RecordMemberSkipped twice for the same MethodDecl with the same
+        // identity records a single SkippedItems entry. This is the safety
+        // check on the M1 identity rewrite — distinguishing overloads must
+        // not also un-dedup repeated calls for the same overload.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var foo = TestModelFactory.CreateMethod(
+            "foo",
+            parent: classDecl,
+            args: new[] { ("_", "Swift.Int") },
+            mangledName: "$s10TestModule6LoaderC3fooyySiF");
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(foo, SkipReason.UnsupportedSignature, "first call");
+        ReportCollector.RecordMemberSkipped(foo, SkipReason.UnsupportedSignature, "second call should be deduped");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(1, report!.SkippedMembers);
+        Assert.Single(report.SkippedItems);
+        Assert.Equal("first call", report.SkippedItems[0].Details);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberEmitted_DistinctMethodOverloads_BothCount()
+    {
+        // Mirror of the skip test on the emit path — overload-stable identity
+        // means the per-kind emitted count tracks each overload, not the
+        // distinct base-name count.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var fooInt = TestModelFactory.CreateMethod(
+            "foo",
+            parent: classDecl,
+            args: new[] { ("_", "Swift.Int") },
+            mangledName: "$s10TestModule6LoaderC3fooyySiF");
+        var fooString = TestModelFactory.CreateMethod(
+            "foo",
+            parent: classDecl,
+            args: new[] { ("_", "Swift.String") },
+            mangledName: "$s10TestModule6LoaderC3fooyySSF");
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberEmitted(fooInt);
+        ReportCollector.RecordMemberEmitted(fooString);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report!.EmittedMembers);
+        Assert.Equal(2, report.EmittedMembersByKind[BindingItemKind.Method]);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
     public void ReportEmitter_SummaryHeader_IsBindingGenerationSummary()
     {
         var moduleDecl = CreateModuleDecl();

@@ -342,10 +342,10 @@ namespace BindingsGeneration
                         if (!methodDecl.IsAccessor)
                         {
                             if (validationResult.IsSynthesized)
-                                ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl);
+                                ReportCollector.RecordMemberSynthesized(methodDecl);
                             else
                             {
-                                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
+                                ReportCollector.RecordMemberSkipped(methodDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
                                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details);
                             }
                         }
@@ -359,7 +359,7 @@ namespace BindingsGeneration
                         _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' with signature: {signatureKey}");
                         if (!methodDecl.IsAccessor)
                         {
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, signatureKey);
+                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, signatureKey);
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
                         }
                         continue;
@@ -372,7 +372,7 @@ namespace BindingsGeneration
                         ConstructorHandler.HasParameterlessConstructorSibling(methodDecl))
                     {
                         _logger.LogDebug($"Skipping constructor '{methodDecl.Name}': becomes parameterless after empty tuple removal, collides with existing constructor.");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl,
+                        ReportCollector.RecordMemberSkipped(methodDecl,
                             SkipReason.UnsupportedSignature, "Constructor has only empty tuple () parameters; would duplicate existing parameterless constructor.");
                         UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "empty tuple constructor collision");
                         continue;
@@ -390,7 +390,7 @@ namespace BindingsGeneration
                         {
                             // Constructors can't be renamed — skip as before
                             _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
+                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
                             continue;
                         }
@@ -434,7 +434,7 @@ namespace BindingsGeneration
                         _logger.LogWarning($"No handler found for method {methodDecl.Name}");
                         if (!methodDecl.IsAccessor)
                         {
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, methodDecl.ParentDecl, SkipReason.MissingHandler, "No method handler found.");
+                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.MissingHandler, "No method handler found.");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler);
                         }
                     }

@@ -1,5 +1,5 @@
 {
-  "git_sha": "b57940b9",
+  "git_sha": "f8eee28a",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -894,27 +894,27 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 18794,
-    "total_skipped_members": 3723,
-    "skip_rate_pct": 16.5,
+    "total_emitted_members": 18886,
+    "total_skipped_members": 4976,
+    "skip_rate_pct": 20.9,
     "skip_reasons": {
-      "ModuleInternal": 750,
-      "SynthesizedCodable": 730,
-      "UnsupportedSignature": 611,
-      "GenericProtocolConstraint": 453,
+      "UnsupportedSignature": 984,
+      "ModuleInternal": 844,
+      "SynthesizedCodable": 841,
+      "GenericProtocolConstraint": 630,
       "AnyTypeFallback": 429,
+      "DuplicateSignature": 338,
+      "UnsupportedClosure": 267,
       "EveryProtocolConformanceSkipped": 249,
-      "UnsupportedClosure": 188,
       "UnsupportedType": 177,
-      "SwiftUIConstraint": 128,
+      "SwiftUIConstraint": 146,
+      "GenericTypeCallback": 99,
+      "UnsatisfiedGenericConstraint": 91,
       "UnsupportedExistential": 90,
-      "UnsatisfiedGenericConstraint": 76,
       "SwiftUIView": 53,
-      "GenericTypeCallback": 47,
       "StaticProtocolMember": 46,
       "IndeterminatePwtShape": 26,
       "OwnedByAppleSupplement": 12,
-      "DuplicateSignature": 4,
       "UnsupportedAsyncStream": 4,
       "NonBlittableCallConvSwift": 2,
       "UnderscorePrefixInternal": 2
