@@ -3,11 +3,15 @@
        See ConsumerA.csproj for the rationale. -->
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0-ios</TargetFramework>
+    <!-- See ConsumerA.csproj for the multi-targeting rationale. -->
+    <TargetFrameworks>net10.0-ios;net10.0-maccatalyst;net10.0-tvos;net10.0-macos</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('ios'))">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('maccatalyst'))">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('macos'))">12.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('tvos'))">15.0</SupportedOSPlatformVersion>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
 

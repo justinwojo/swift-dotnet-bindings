@@ -39,6 +39,14 @@
     <ProjectReference Include="../../src/SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <!-- See RuntimeTestsApp.Mac.csproj for the rationale on Swift.Bindings.Apple
+         and the AppleIdentity probes. -->
+    <ProjectReference Include="../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../AppleIdentity.ConsumerA/AppleIdentity.ConsumerA.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../AppleIdentity.ConsumerB/AppleIdentity.ConsumerB.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
   </ItemGroup>
 
   <!-- Shared test infrastructure from RuntimeTestsApp -->

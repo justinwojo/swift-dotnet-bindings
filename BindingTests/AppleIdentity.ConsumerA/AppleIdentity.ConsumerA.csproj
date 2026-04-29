@@ -9,11 +9,19 @@
        loudly instead of surfacing as a subtle runtime crash. -->
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net10.0-ios</TargetFramework>
+    <!-- Multi-targets all four Apple TFMs so the supplement-type identity probe
+         can be referenced from RuntimeTestsApp.Mac/.MacCatalyst/.tvOS in addition
+         to the iOS RuntimeTestsApp. The probe code is platform-portable; the
+         runtime guard (OperatingSystem.IsIOSVersionAtLeast) means tests skip on
+         non-iOS, but the type references must still compile cross-platform. -->
+    <TargetFrameworks>net10.0-ios;net10.0-maccatalyst;net10.0-tvos;net10.0-macos</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <SupportedOSPlatformVersion>15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('ios'))">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('maccatalyst'))">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('macos'))">12.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('tvos'))">15.0</SupportedOSPlatformVersion>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp. -->
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
   </PropertyGroup>
