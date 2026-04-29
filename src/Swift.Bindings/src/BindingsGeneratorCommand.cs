@@ -736,31 +736,19 @@ public static class BindingsGeneratorCommand
                 compilationException = ex;
             }
 
-            var rawOutcome = SwiftWrapperCompiler.EvaluateResult(
-                compilationResult, asyncLibraryAutoWired, compilationException);
-            var (outcomeExitCode, diagnosticCode, outcomeMessage) =
-                BindingsGenerator.HandleWrapperCompilationOutcome(rawOutcome, sdkMode, compilationException, compilationResult);
-
-            if (outcomeExitCode != 0)
+            var outcome = WrapperBuildOutcome.From(
+                compilationResult, asyncLibraryAutoWired, sdkMode, compilationException);
+            outcome.LogTo(logger);
+            if (outcome.IsFatal)
             {
-                logger.LogError("{Message}", outcomeMessage);
-                context.ExitCode = outcomeExitCode;
+                context.ExitCode = outcome.ExitCode;
                 return;
             }
-            else if (diagnosticCode == "SWIFTBIND050")
-            {
-                logger.LogWarning("{Message}", outcomeMessage);
-            }
-            else if (rawOutcome == WrapperCompilationOutcome.Warning)
-            {
-                logger.LogWarning("{Message}", outcomeMessage);
-            }
 
-            // Co-gate C# bindings: suppress members targeting stripped wrapper symbols
-            if (compilationResult?.StrippedSymbols.Count > 0)
+            if (outcome.StrippedSymbols.Count > 0)
             {
                 var coGated = CSharpWrapperCoGater.ProcessDirectory(
-                    outputDirectory, compilationResult.StrippedSymbols, logger);
+                    outputDirectory, outcome.StrippedSymbols, logger);
                 if (coGated > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
             }
@@ -826,28 +814,21 @@ public static class BindingsGeneratorCommand
             // helper, so failures are always treated as Warnings (not Fatal). Surface
             // them and continue — the C# bindings are still correct on disk and the
             // user can rerun with --skip-wrapper-compilation to bypass.
-            var directRawOutcome = SwiftWrapperCompiler.EvaluateResult(
-                directResult, asyncLibraryAutoWired: false, directException);
-            var (directExitCode, directDiagnosticCode, directMessage) =
-                BindingsGenerator.HandleWrapperCompilationOutcome(directRawOutcome, sdkMode, directException, directResult);
-            if (directExitCode != 0)
+            var directOutcome = WrapperBuildOutcome.From(
+                directResult, asyncLibraryAutoWired: false, sdkMode, directException);
+            directOutcome.LogTo(logger);
+            if (directOutcome.IsFatal)
             {
-                logger.LogError("{Message}", directMessage);
-                context.ExitCode = directExitCode;
+                context.ExitCode = directOutcome.ExitCode;
                 return;
-            }
-            else if (directDiagnosticCode == "SWIFTBIND050"
-                || directRawOutcome == WrapperCompilationOutcome.Warning)
-            {
-                logger.LogWarning("{Message}", directMessage);
             }
 
             compilationResult = directResult;
 
-            if (compilationResult?.StrippedSymbols.Count > 0)
+            if (directOutcome.StrippedSymbols.Count > 0)
             {
                 var coGated = CSharpWrapperCoGater.ProcessDirectory(
-                    outputDirectory, compilationResult.StrippedSymbols, logger);
+                    outputDirectory, directOutcome.StrippedSymbols, logger);
                 if (coGated > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
             }

@@ -736,27 +736,16 @@ namespace BindingsGeneration
                 compilationException = ex;
             }
 
-            var rawOutcome = SwiftWrapperCompiler.EvaluateResult(
-                compilationResult, false, compilationException);
             // In compile-wrapper-only mode, always use SDK-mode outcome handling
-            // (downgrade fatal to warning) since this target runs within SDK builds
-            var (outcomeExitCode, diagnosticCode, outcomeMessage) =
-                HandleWrapperCompilationOutcome(rawOutcome, sdkMode: true, compilationException, compilationResult);
+            // (downgrade fatal to warning) since this target runs within SDK builds.
+            var outcome = WrapperBuildOutcome.From(
+                compilationResult, asyncLibraryAutoWired: false, sdkMode: true, compilationException);
+            outcome.LogTo(logger);
 
-            if (outcomeExitCode != 0)
-            {
-                logger.LogError("{Message}", outcomeMessage);
-            }
-            else if (diagnosticCode == "SWIFTBIND050" || rawOutcome == WrapperCompilationOutcome.Warning)
-            {
-                logger.LogWarning("{Message}", outcomeMessage);
-            }
-
-            // Co-gate C# bindings: suppress members targeting stripped wrapper symbols
-            if (compilationResult?.StrippedSymbols.Count > 0)
+            if (outcome.StrippedSymbols.Count > 0)
             {
                 var coGated = CSharpWrapperCoGater.ProcessDirectory(
-                    outputDirectory, compilationResult.StrippedSymbols, logger);
+                    outputDirectory, outcome.StrippedSymbols, logger);
                 if (coGated > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
             }
@@ -770,7 +759,7 @@ namespace BindingsGeneration
                 outputDirectory, hasWrapperXcfw, wrapperModuleName,
                 compilationResult?.SliceCount ?? 0, logger);
 
-            return outcomeExitCode;
+            return outcome.ExitCode;
         }
 
         /// <summary>
@@ -885,6 +874,7 @@ namespace BindingsGeneration
 
             // Compile bridge
             SwiftWrapperCompilationResult? compilationResult = null;
+            Exception? compilationException = null;
             try
             {
                 if (wrapperArchNormalized == "all")
@@ -932,17 +922,19 @@ namespace BindingsGeneration
             }
             catch (Exception ex)
             {
-                // Bridge compilation failure is non-fatal (SWIFTBIND052)
-                logger.LogWarning("SWIFTBIND052: SwiftUI bridge compilation failed — bridge views will throw DllNotFoundException at runtime: {Message}", ex.Message);
+                compilationException = ex;
             }
 
+            // Bridge compilation failure is non-fatal — C# bindings still load,
+            // bridge views throw DllNotFoundException at runtime.
+            var outcome = BridgeBuildOutcome.From(compilationResult, compilationException);
+            outcome.LogTo(logger);
+
             // Update binding-metadata.props with bridge compilation result
-            var hasBridgeXcfw = compilationResult?.XCFrameworkPath != null
-                && Directory.Exists(compilationResult.XCFrameworkPath);
             var bridgeModuleName = $"{moduleName}Bridge";
 
             XCFrameworkMetadataExtractor.UpdateMetadataPropsBridgeStatus(
-                outputDirectory, hasBridgeXcfw, bridgeModuleName,
+                outputDirectory, outcome.BridgeCompiled, bridgeModuleName,
                 compilationResult?.SliceCount ?? 0, logger);
 
             return 0; // Always succeed — bridge failure is non-fatal
