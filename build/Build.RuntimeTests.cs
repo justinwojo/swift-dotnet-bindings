@@ -2492,7 +2492,11 @@ partial class Build
             depProcess.WaitForExit();
 
             if (depProcess.ExitCode != 0)
-                Log.Warning("Dependency binding generation exited with code {ExitCode} (non-fatal)", depProcess.ExitCode);
+            {
+                Log.Warning("Dependency binding generation exited with code {ExitCode}", depProcess.ExitCode);
+                if (strict)
+                    throw new Exception($"Dependency binding generation exited with code {depProcess.ExitCode} (strict mode)");
+            }
 
             // Consolidate dependency CS files to root output dir
             foreach (var csFile in Directory.GetFiles(depOutputDir, "*.cs"))

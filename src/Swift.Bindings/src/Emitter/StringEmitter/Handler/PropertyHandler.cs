@@ -78,7 +78,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var propertyDecl = propertyEnv.PropertyDecl;
         void SkipProperty(SkipReason reason, string details)
         {
-            ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, reason, details);
+            ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
         }
 
         // Pipeline: property-level bound generic gates (bare generic, non-ISwiftObject, unsatisfied constraint)
@@ -120,7 +120,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             }
             EmitAsyncStreamProperty(csWriter, swiftWriter, propertyEnv, propertyDecl, context.PropertyRenames);
             propertyDecl.WasEmitted = true;
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
+            ReportCollector.RecordMemberEmitted(propertyDecl);
             return;
         }
 
@@ -773,7 +773,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         csWriter.WriteLine();
         propertyDecl.WasEmitted = true;
-        ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
+        ReportCollector.RecordMemberEmitted(propertyDecl);
     }
 
     /// <summary>
@@ -1191,7 +1191,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     {
         void SkipProperty(SkipReason reason, string details)
         {
-            ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl, reason, details);
+            ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
         }
 
         // Async methods require [UnmanagedCallersOnly] callbacks which are illegal inside
@@ -1259,7 +1259,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         propertyDecl.WasEmitted = true;
-        ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, propertyDecl.ParentDecl);
+        ReportCollector.RecordMemberEmitted(propertyDecl);
     }
 
     private void EmitAsyncStreamProperty(

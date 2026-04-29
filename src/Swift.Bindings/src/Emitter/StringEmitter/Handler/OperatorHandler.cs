@@ -135,7 +135,7 @@ namespace BindingsGeneration
             if (!IsSupportedOperator(symbol))
             {
                 _logger.LogWarning($"Operator '{symbol}' is not supported for C# emission.");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedType, "Operator symbol is not supported for C# emission.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, "Operator symbol is not supported for C# emission.");
                 return false;
             }
 
@@ -144,7 +144,7 @@ namespace BindingsGeneration
             if (parentDecl == null)
             {
                 _logger.LogWarning($"Operator '{symbol}' has no valid parent type declaration.");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedType, "Operator has no valid containing type.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, "Operator has no valid containing type.");
                 return false;
             }
 
@@ -152,7 +152,7 @@ namespace BindingsGeneration
             if (moduleDecl == null)
             {
                 _logger.LogWarning($"Operator '{symbol}' has no module declaration.");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedType, "Operator has no module declaration.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, "Operator has no module declaration.");
                 return false;
             }
 
@@ -189,7 +189,7 @@ namespace BindingsGeneration
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Operator {symbol} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedSignature, "Operator signature contains unsupported placeholder type.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "Operator signature contains unsupported placeholder type.");
                 return false;
             }
 
@@ -198,7 +198,7 @@ namespace BindingsGeneration
             if (methodDecl.CSSignature.Skip(1).Any(arg => arg.IsGeneric))
             {
                 _logger.LogWarning($"Operator '{symbol}' has generic type parameter operand — C# operators cannot be generic.");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl, SkipReason.UnsupportedSignature, "C# operators cannot have generic type parameters.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature, "C# operators cannot have generic type parameters.");
                 return false;
             }
 
@@ -217,7 +217,7 @@ namespace BindingsGeneration
                 if (hasUndeclaredRefs)
                 {
                     _logger.LogWarning($"Operator '{symbol}' on generic type requires buffer marshalling preamble — skipping.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl,
+                    ReportCollector.RecordMemberSkipped(operatorDecl,
                         SkipReason.UnsupportedSignature, "Operator on generic type requires buffer marshalling.");
                     return false;
                 }
@@ -237,7 +237,7 @@ namespace BindingsGeneration
             // Emit the operator wrapper and PInvoke
             EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper);
             EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper);
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, symbol, operatorDecl.ParentDecl);
+            ReportCollector.RecordMemberEmitted(operatorDecl);
             csWriter.WriteLine();
             return true;
         }

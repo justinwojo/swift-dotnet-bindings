@@ -46,7 +46,7 @@ namespace BindingsGeneration
                 // Skip static subscripts (not supported as indexers)
                 if (subscriptDecl.IsStatic)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.StaticProtocolMember, "Static subscripts cannot be emitted as C# indexers.");
                     continue;
                 }
@@ -55,7 +55,7 @@ namespace BindingsGeneration
                 if (MemberEmissionValidator.ReferencesUnsupportedModule(subscriptDecl.ReturnTypeSpec, typeDatabase) ||
                     subscriptDecl.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec, typeDatabase)))
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module.");
                     continue;
                 }
@@ -64,7 +64,7 @@ namespace BindingsGeneration
                 var returnTypeName = ResolveSubscriptTypeName(subscriptDecl.ReturnTypeSpec, typeDatabase, boundGenericsHandler, isParameter: false);
                 if (returnTypeName.Contains("AnyType"))
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.AnyTypeFallback, "Subscript return type resolved to AnyType.");
                     continue;
                 }
@@ -96,13 +96,13 @@ namespace BindingsGeneration
                 }
                 if (hasAnyTypeParam)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.AnyTypeFallback, "Subscript index parameter resolved to AnyType.");
                     continue;
                 }
                 if (hasComplexIndexParam)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.UnsupportedSignature, "Subscript index parameter requires conversion not supported in indexer body.");
                     continue;
                 }
@@ -111,7 +111,7 @@ namespace BindingsGeneration
                 var key = string.Join(",", paramInfos.Select(p => p.typeName));
                 if (!emittedKeys.Add(key))
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.DuplicateSignature, "Duplicate subscript signature.");
                     continue;
                 }
@@ -162,7 +162,7 @@ namespace BindingsGeneration
                 }
                 if (!allAccessorsValid)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", typeDecl,
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
                         SkipReason.UnsupportedSignature, "Subscript accessor would trigger Swift wrapper with incompatible call syntax.");
                     continue;
                 }
@@ -342,7 +342,7 @@ namespace BindingsGeneration
                 // Collect candidate for convenience int/uint overload (deferred to second pass)
                 convenienceCandidates.Add((subscriptDecl, returnTypeName, paramInfos));
 
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", typeDecl);
+                ReportCollector.RecordMemberEmitted(subscriptDecl);
             }
 
             // Second pass: emit convenience int/uint indexer overloads for nint/nuint params.

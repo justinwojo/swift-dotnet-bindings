@@ -223,6 +223,10 @@
           "type": "string",
           "description": "NuGet output directory"
         },
+        "Permissive": {
+          "type": "boolean",
+          "description": "Allow non-fatal failures in --compile-only (generator exit, dep-gen, wrapper give-up)"
+        },
         "Platform": {
           "type": "string",
           "description": "Target Apple platform (ios, macos, tvos)"

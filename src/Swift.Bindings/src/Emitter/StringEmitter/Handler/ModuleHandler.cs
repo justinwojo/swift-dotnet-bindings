@@ -163,7 +163,7 @@ namespace BindingsGeneration
                         var validationResult = pipeline.ValidateMethodEmission(methodDecl, null);
                         if (!validationResult.ShouldEmit)
                         {
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl,
+                            ReportCollector.RecordMemberSkipped(methodDecl,
                                 validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details ?? "");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details);
                             csWriter.WriteLine();
@@ -175,7 +175,7 @@ namespace BindingsGeneration
                         if (emittedMethodSignatures.Contains(signatureKey))
                         {
                             _logger.LogDebug($"Skipping duplicate free function '{methodDecl.Name}' with signature: {signatureKey}");
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.DuplicateSignature, signatureKey);
+                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, signatureKey);
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
                             csWriter.WriteLine();
                             continue;
@@ -214,7 +214,7 @@ namespace BindingsGeneration
                         else
                         {
                             _logger.LogWarning($"No handler found for method {methodDecl.Name}");
-                            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, moduleDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
+                            ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.MissingHandler, "No method handler found for top-level method.");
                             UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.MissingHandler);
                         }
                         csWriter.WriteLine();

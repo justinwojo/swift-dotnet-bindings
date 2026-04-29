@@ -21,6 +21,17 @@ partial class Build
 
     [Parameter("Fail on non-zero generator exit")] readonly bool Strict;
 
+    // --compile-only is the CI gate. By default, every catastrophic generator/wrapper
+    // failure mode in that path is fatal — generator exit, dependency-gen exit, and
+    // wrapper compilation give-up after the retry loop exhausts (note: the per-source
+    // SwiftSourceStripper count is the existing happy path, not a regression signal).
+    // --permissive opts out for local exploration where the intent is "what survives"
+    // rather than "did anything regress?". Has no effect outside the --compile-only
+    // branch (other paths already throw on their own failures). Implies --strict in
+    // compile-only mode.
+    [Parameter("Allow non-fatal failures in --compile-only (generator exit, dep-gen, wrapper give-up)")]
+    readonly bool Permissive;
+
     // --- Computed BindingTests paths ---
     AbsolutePath BtBuildDir => BindingTestsDir / ".build";
     AbsolutePath BtOutputDir => BindingTestsDir / "output";
@@ -400,7 +411,11 @@ partial class Build
             depProcess.WaitForExit();
 
             if (depProcess.ExitCode != 0)
-                Log.Warning("Dependency bindings generation exited with code {Code} (non-fatal)", depProcess.ExitCode);
+            {
+                Log.Warning("Dependency bindings generation exited with code {Code}", depProcess.ExitCode);
+                if (strict)
+                    throw new Exception($"Dependency bindings generator exited with code {depProcess.ExitCode} (strict mode)");
+            }
 
             // Move the dependency .cs file alongside the main bindings
             var depCsFile = depOutputDir / $"{DepModuleName}.cs";
@@ -502,7 +517,11 @@ partial class Build
         .After(CompileCheckBindings)
         .Executes(() => RunBuildAsyncWrapper());
 
-    void RunBuildAsyncWrapper(ApplePlatform? platformOverride = null, AbsolutePath? outputDirOverride = null)
+    // Returns true on success or no-op (no Swift wrapper files). Returns false when
+    // the swiftc retry loop exhausts attempts or finds no further strippable content.
+    // The --compile-only fail-closed gate reads this; existing callers ignore it
+    // because their downstream Tier 3 tests will surface the failure anyway.
+    bool RunBuildAsyncWrapper(ApplePlatform? platformOverride = null, AbsolutePath? outputDirOverride = null)
     {
         var platform = platformOverride ?? ResolvedPlatform;
         var outputDir = outputDirOverride ?? BtOutputDir;
@@ -518,7 +537,7 @@ partial class Build
         if (swiftFiles.Count == 0)
         {
             Log.Information("No Swift wrapper files found — skipping async wrapper build.");
-            return;
+            return true;
         }
 
         Log.Information("=== Building {Module} async wrapper ===", WrapperModule);
@@ -546,7 +565,7 @@ partial class Build
         if (cleanedFiles.Count == 0)
         {
             Log.Information("No cleaned Swift files to compile.");
-            return;
+            return true;
         }
 
         // Compile native ARM64 thunk assembly files (if any)
@@ -612,7 +631,7 @@ partial class Build
                     Log.Warning("  {Error}", line);
                 Log.Information("Continuing without wrapper library (Tier 3 tests will fail).");
                 CleanupWrapperBuild(cleanedDir);
-                return;
+                return false;
             }
 
             Log.Information("Compilation attempt {Attempt} failed — stripping broken functions...", attempt);
@@ -623,7 +642,7 @@ partial class Build
             {
                 Log.Warning("No strippable functions found. Build error may be structural.");
                 CleanupWrapperBuild(cleanedDir);
-                return;
+                return false;
             }
 
             totalStripped += strippedN;
@@ -645,6 +664,7 @@ partial class Build
         WriteXcframeworkPlist(wrapperXcfDir / "Info.plist", WrapperModule, sliceId, platform);
 
         Log.Information("{Module} async wrapper framework built successfully", WrapperModule);
+        return true;
     }
 
     // ============================================================
@@ -773,10 +793,20 @@ partial class Build
                 if (Sim || Device || Macos || Catalyst || Tvos)
                     Log.Warning("Platform flags are ignored when --compile-only is set");
 
+                // Fail-closed by default: every generator/wrapper failure mode is fatal
+                // unless --permissive opts out. --strict still works as the generator-only
+                // knob outside compile-only; here it's implied by the default.
+                bool failClosed = !Permissive;
+
                 RunBuildXcframework();
-                RunRegenerateBindings(strict: Strict);
+                RunRegenerateBindings(strict: Strict || failClosed);
                 RunCompileCheck();
-                RunBuildAsyncWrapper();
+
+                bool wrapperOk = RunBuildAsyncWrapper();
+                if (!wrapperOk && failClosed)
+                    throw new Exception(
+                        "Wrapper compilation failed (retry loop exhausted or nothing further to strip). Fail-closed in --compile-only; pass --permissive to downgrade.");
+
                 RunBuildBridge();
                 ReportBindingTestResults();
                 return;

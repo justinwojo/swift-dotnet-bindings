@@ -282,20 +282,20 @@ namespace BindingsGeneration
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, structDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
                         continue;
                     }
 
                     if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, structDecl))
                     {
-                        ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, propertyDecl.Name, structDecl);
+                        ReportCollector.RecordMemberSynthesized(propertyDecl);
                         continue;
                     }
 
                     var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, env.TypeDatabase, out var skipDetails, out _);
                     if (skipReason != null)
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, structDecl, skipReason.Value, skipDetails ?? "");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
                         continue;
                     }
 
@@ -338,7 +338,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.OperatorSymbol, structDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.OperatorSymbol}' has no C# equivalent.");
+                        ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.OperatorSymbol}' has no C# equivalent.");
                     }
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)

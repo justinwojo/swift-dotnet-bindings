@@ -409,7 +409,7 @@ namespace BindingsGeneration
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
             {
                 _logger.LogWarning($"Constructor {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType}");
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Constructor signature contains unsupported placeholder type.");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type in constructor");
                 return;
             }
@@ -534,7 +534,7 @@ namespace BindingsGeneration
             }
             PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             methodEnv.MethodDecl.WasEmitted = true;
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
+            ReportCollector.RecordMemberEmitted(methodEnv.MethodDecl);
 
             // Post-processor table: only Scope=All processors run for constructors
             var postCtx = new PostProcessorContext(csWriter, swiftWriter, methodEnv, _logger,
@@ -1114,7 +1114,7 @@ namespace BindingsGeneration
             // the Swift side on the parameter ABI. Skip the method cleanly here.
             if (!isAccessor && WrapperValidation.HasUnbridgeableAsyncThrowingClosure(methodEnv))
             {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Async-throwing closure parameter cannot be bridged (non-baseline shape or outer method is not a @_cdecl async-throws wrapper).");
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Async-throwing closure parameter cannot be bridged (non-baseline shape or outer method is not a @_cdecl async-throws wrapper).");
                 UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unbridgeable async-throwing closure");
                 return;
             }
@@ -1126,7 +1126,7 @@ namespace BindingsGeneration
                 _logger.LogWarning($"Method {methodEnv.MethodDecl.Name} has unsupported signature: ({signatureHandler.GetWrapperSignature().ParametersString()}) -> {signatureHandler.GetWrapperSignature().ReturnType} [params: {string.Join(", ", signatureHandler.GetWrapperSignature().Parameters.Select(p => $"{p.Type}:{p.Name}"))}]");
                 if (!isAccessor)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
+                    ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature, "Method signature contains unsupported placeholder type.");
                     UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "unsupported placeholder type");
                 }
                 return;
@@ -1306,11 +1306,11 @@ namespace BindingsGeneration
             methodEnv.MethodDecl.WasEmitted = true;
             if (isAccessor)
             {
-                ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
+                ReportCollector.RecordMemberSynthesized(methodEnv.MethodDecl);
             }
             else
             {
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodEnv.MethodDecl.Name, methodEnv.MethodDecl.ParentDecl);
+                ReportCollector.RecordMemberEmitted(methodEnv.MethodDecl);
             }
 
             // Post-processor table: overload generation after normal emission

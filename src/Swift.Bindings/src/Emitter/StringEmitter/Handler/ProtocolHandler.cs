@@ -123,7 +123,7 @@ namespace BindingsGeneration
                     var staticPropertyKey = propertyDecl.Name;
                     if (emittedProperties.Contains(staticPropertyKey))
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol property signature.");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, "Duplicate protocol property signature.");
                         continue;
                     }
                     emittedProperties.Add(staticPropertyKey);
@@ -133,7 +133,7 @@ namespace BindingsGeneration
                     if (staticPropertyGate.IsSkipped)
                     {
                         _logger.LogDebug($"Skipping static property '{propertyDecl.Name}' in interface {protocolDecl.Name} - {staticPropertyGate.Details}");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, staticPropertyGate.Reason!.Value, staticPropertyGate.Details!);
+                        ReportCollector.RecordMemberSkipped(propertyDecl, staticPropertyGate.Reason!.Value, staticPropertyGate.Details!);
                         continue;
                     }
 
@@ -141,7 +141,7 @@ namespace BindingsGeneration
                     EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: true);
                     staticAbstractPropertyNames.Add(propertyDecl.Name);
                     emittedInterfaceMemberCount++;
-                    ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
+                    ReportCollector.RecordMemberEmitted(propertyDecl);
                     continue;
                 }
 
@@ -150,7 +150,7 @@ namespace BindingsGeneration
                 if (emittedProperties.Contains(propertyKey))
                 {
                     _logger.LogDebug($"Skipping duplicate property '{propertyDecl.Name}' in interface {protocolDecl.Name}");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol property signature.");
+                    ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, "Duplicate protocol property signature.");
                     continue;
                 }
                 emittedProperties.Add(propertyKey);
@@ -162,7 +162,7 @@ namespace BindingsGeneration
                 {
                     skippedPropertyNames.Add(propertyDecl.Name);
                     _logger.LogDebug($"Skipping property '{propertyDecl.Name}' in interface {protocolDecl.Name} - {propertyGate.Details}");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, protocolDecl, propertyGate.Reason!.Value, propertyGate.Details!);
+                    ReportCollector.RecordMemberSkipped(propertyDecl, propertyGate.Reason!.Value, propertyGate.Details!);
                     continue;
                 }
                 if (propertyGate.IsInterfaceOnly)
@@ -190,7 +190,7 @@ namespace BindingsGeneration
 
                 EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault);
                 emittedInterfaceMemberCount++;
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, protocolDecl);
+                ReportCollector.RecordMemberEmitted(propertyDecl);
             }
 
             // Collect actually-emitted C# property names for method/property collision detection.
@@ -218,7 +218,7 @@ namespace BindingsGeneration
                 if (subscriptDecl.IsStatic)
                 {
                     _logger.LogDebug($"Skipping static subscript in interface {protocolDecl.Name} - static interface members are not supported.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
+                    ReportCollector.RecordMemberSkipped(subscriptDecl, SkipReason.StaticProtocolMember, "Static protocol members cannot be declared in C# interfaces.");
                     continue;
                 }
 
@@ -227,7 +227,7 @@ namespace BindingsGeneration
                 if (emittedSubscripts.Contains(subscriptKey))
                 {
                     _logger.LogDebug($"Skipping duplicate subscript in interface {protocolDecl.Name}");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol subscript signature.");
+                    ReportCollector.RecordMemberSkipped(subscriptDecl, SkipReason.DuplicateSignature, "Duplicate protocol subscript signature.");
                     subscriptIndex++;
                     continue;
                 }
@@ -240,14 +240,14 @@ namespace BindingsGeneration
                 {
                     skippedSubscriptIndices.Add(subscriptIndex);
                     _logger.LogDebug($"Skipping subscript in interface {protocolDecl.Name} - {subscriptGate.Details}");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Subscript, "subscript", protocolDecl, subscriptGate.Reason!.Value, subscriptGate.Details!);
+                    ReportCollector.RecordMemberSkipped(subscriptDecl, subscriptGate.Reason!.Value, subscriptGate.Details!);
                     subscriptIndex++;
                     continue;
                 }
 
                 EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl);
                 emittedInterfaceMemberCount++;
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Subscript, "subscript", protocolDecl);
+                ReportCollector.RecordMemberEmitted(subscriptDecl);
                 subscriptIndex++;
             }
 
@@ -260,7 +260,7 @@ namespace BindingsGeneration
                 // Constructors: still skipped (would need factory method synthesis on conforming types)
                 if (methodDecl.IsConstructor)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Protocol constructor requirements cannot be declared in C# interfaces.");
+                    ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.StaticProtocolMember, "Protocol constructor requirements cannot be declared in C# interfaces.");
                     continue;
                 }
 
@@ -270,7 +270,7 @@ namespace BindingsGeneration
                     var staticMethodKey = ProtocolSignatureHelper.GetMethodSignatureKey(methodDecl, env.TypeDatabase, protocolDecl);
                     if (emittedMethods.Contains(staticMethodKey))
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol method signature.");
+                        ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, "Duplicate protocol method signature.");
                         continue;
                     }
                     emittedMethods.Add(staticMethodKey);
@@ -278,7 +278,7 @@ namespace BindingsGeneration
                     var staticProjectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(methodDecl, env.TypeDatabase, protocolDecl);
                     if (!emittedCSharpKeys.Add(staticProjectedKey))
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
+                        ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
                         continue;
                     }
 
@@ -287,7 +287,7 @@ namespace BindingsGeneration
                     if (staticMethodGate.IsSkipped)
                     {
                         _logger.LogDebug($"Skipping static method '{methodDecl.Name}' in interface {protocolDecl.Name} - {staticMethodGate.Details}");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, staticMethodGate.Reason!.Value, staticMethodGate.Details!);
+                        ReportCollector.RecordMemberSkipped(methodDecl, staticMethodGate.Reason!.Value, staticMethodGate.Details!);
                         continue;
                     }
 
@@ -295,7 +295,7 @@ namespace BindingsGeneration
                     EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: true);
                     staticAbstractMethodKeys.Add(staticMethodKey);
                     emittedInterfaceMemberCount++;
-                    ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
+                    ReportCollector.RecordMemberEmitted(methodDecl);
                     continue;
                 }
 
@@ -304,7 +304,7 @@ namespace BindingsGeneration
                 if (emittedMethods.Contains(methodKey))
                 {
                     _logger.LogDebug($"Skipping duplicate method '{methodDecl.Name}' in interface {protocolDecl.Name}");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Duplicate protocol method signature.");
+                    ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, "Duplicate protocol method signature.");
                     continue;
                 }
                 emittedMethods.Add(methodKey);
@@ -324,7 +324,7 @@ namespace BindingsGeneration
                 {
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' - projected C# signature collides with already-emitted method.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
+                    ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, "Projected C# method signature collides with already-emitted method.");
                     continue;
                 }
 
@@ -335,7 +335,7 @@ namespace BindingsGeneration
                 {
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' in interface {protocolDecl.Name} - {methodGate.Details}");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, methodGate.Reason!.Value, methodGate.Details!);
+                    ReportCollector.RecordMemberSkipped(methodDecl, methodGate.Reason!.Value, methodGate.Details!);
                     continue;
                 }
 
@@ -345,7 +345,7 @@ namespace BindingsGeneration
                 {
                     skippedMethodKeys.Add(methodKey);
                     _logger.LogDebug($"Skipping method '{methodDecl.Name}' - emitted C# signature collides with already-emitted method.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, protocolDecl, SkipReason.DuplicateSignature, "Emitted C# method signature collides with already-emitted method.");
+                    ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, "Emitted C# method signature collides with already-emitted method.");
                     continue;
                 }
 
@@ -377,7 +377,7 @@ namespace BindingsGeneration
 
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault);
                 emittedInterfaceMemberCount++;
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, protocolDecl);
+                ReportCollector.RecordMemberEmitted(methodDecl);
 
                 // F1: Emit DIM (Default Interface Method) overload with narrowed nint→int params.
                 // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
@@ -389,7 +389,7 @@ namespace BindingsGeneration
             // Record operators as skipped - C# interfaces cannot have operator overloads
             foreach (var operatorDecl in protocolDecl.Operators)
             {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.Name, protocolDecl, SkipReason.StaticProtocolMember, "Protocol operator requirements cannot be declared in C# interfaces.");
+                ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.StaticProtocolMember, "Protocol operator requirements cannot be declared in C# interfaces.");
             }
 
             // Now emit the interface declaration with optional SB0004 diagnostic.

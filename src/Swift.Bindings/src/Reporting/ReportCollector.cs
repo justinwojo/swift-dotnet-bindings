@@ -170,6 +170,46 @@ public static class ReportCollector
     }
 
     /// <summary>
+    /// Decl-aware entry point for emitted properties. Pairs with
+    /// <see cref="RecordMemberSkipped(PropertyDecl, SkipReason, string?, AccessorKind)"/>
+    /// so emitted/skipped identities match when both sides use the decl-aware path.
+    /// </summary>
+    public static void RecordMemberEmitted(
+        PropertyDecl propertyDecl,
+        AccessorKind accessor = AccessorKind.None,
+        BaseDecl? containingDecl = null)
+    {
+        ArgumentNullException.ThrowIfNull(propertyDecl);
+        RecordMemberEmittedInternal(MemberDiagnosticIdentity.FromProperty(propertyDecl, accessor, containingDecl));
+    }
+
+    /// <summary>
+    /// Decl-aware entry point for emitted subscripts. Pairs with
+    /// <see cref="RecordMemberSkipped(SubscriptDecl, SkipReason, string?, AccessorKind)"/>.
+    /// Captures index parameter labels/types so overloaded subscripts record distinctly.
+    /// </summary>
+    public static void RecordMemberEmitted(
+        SubscriptDecl subscriptDecl,
+        AccessorKind accessor = AccessorKind.None,
+        BaseDecl? containingDecl = null)
+    {
+        ArgumentNullException.ThrowIfNull(subscriptDecl);
+        RecordMemberEmittedInternal(MemberDiagnosticIdentity.FromSubscript(subscriptDecl, accessor, containingDecl));
+    }
+
+    /// <summary>
+    /// Decl-aware entry point for emitted operators. Pairs with
+    /// <see cref="RecordMemberSkipped(OperatorDecl, SkipReason, string?)"/>.
+    /// Captures the underlying method's parameter signature so overloaded
+    /// operators record distinctly.
+    /// </summary>
+    public static void RecordMemberEmitted(OperatorDecl operatorDecl, BaseDecl? containingDecl = null)
+    {
+        ArgumentNullException.ThrowIfNull(operatorDecl);
+        RecordMemberEmittedInternal(MemberDiagnosticIdentity.FromOperator(operatorDecl, containingDecl));
+    }
+
+    /// <summary>
     /// Legacy entry point — see <see cref="RecordMemberEmitted(BindingItemKind, string, BaseDecl?)"/>
     /// for overload-collapse caveats.
     /// </summary>
@@ -340,6 +380,27 @@ public static class ReportCollector
     {
         ArgumentNullException.ThrowIfNull(methodDecl);
         RecordMemberSynthesizedInternal(MemberDiagnosticIdentity.FromMethod(methodDecl, containingDecl));
+    }
+
+    /// <summary>
+    /// Decl-aware entry point for synthesized properties.
+    /// </summary>
+    public static void RecordMemberSynthesized(
+        PropertyDecl propertyDecl,
+        AccessorKind accessor = AccessorKind.None,
+        BaseDecl? containingDecl = null)
+    {
+        ArgumentNullException.ThrowIfNull(propertyDecl);
+        RecordMemberSynthesizedInternal(MemberDiagnosticIdentity.FromProperty(propertyDecl, accessor, containingDecl));
+    }
+
+    /// <summary>
+    /// Decl-aware entry point for synthesized operators.
+    /// </summary>
+    public static void RecordMemberSynthesized(OperatorDecl operatorDecl, BaseDecl? containingDecl = null)
+    {
+        ArgumentNullException.ThrowIfNull(operatorDecl);
+        RecordMemberSynthesizedInternal(MemberDiagnosticIdentity.FromOperator(operatorDecl, containingDecl));
     }
 
     private static void RecordMemberEmittedInternal(MemberDiagnosticIdentity identity)

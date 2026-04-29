@@ -33,18 +33,19 @@ One target covers the compile gate and every runtime gate. Platform flags compos
 | Flag | What it does |
 |---|---|
 | *(no platform flag)* | Default: compile + run iOS Simulator (Mono JIT) — the common inner loop |
-| `--compile-only` | Compile gate only: regenerate + compile-check. No app build, no tests. Used by CI. |
+| `--compile-only` | Compile gate only: regenerate + compile-check. No app build, no tests. Used by CI. **Fail-closed by default**: generator non-zero exit, dependency-gen exit, and wrapper compilation give-up all hard-fail. |
 | `--sim` | Explicit iOS Simulator (Mono JIT) |
 | `--device` | Physical iOS device (NativeAOT) |
 | `--macos` | macOS |
 | `--catalyst` | Mac Catalyst |
 | `--tvos` | tvOS Simulator |
-| `--strict` | Fail on non-zero generator exit |
+| `--strict` | Fail on non-zero generator exit (implied by `--compile-only`'s default) |
+| `--permissive` | Opt out of `--compile-only` fail-closed gates. Local-exploration only. |
 | `--skip-regen` (~17s) | Skip binding regeneration; assumes bindings are current |
 | `--skip-build` (~5s) | Skip app build; just install + run |
 | `--class-filter NAME` | Run only one test class (Simulator path) |
 
-The compile gate (`--compile-only`) and the runtime gates are complementary: the first asks "does it compile?", the second asks "does it pass?". Generator/emitter changes want both — run `nuke binding-tests --compile-only --strict` then `nuke binding-tests --skip-regen`. For runtime-only C# changes, `nuke binding-tests --skip-regen` alone is enough.
+The compile gate (`--compile-only`) and the runtime gates are complementary: the first asks "does it compile?", the second asks "does it pass?". Generator/emitter changes want both — run `nuke binding-tests --compile-only` then `nuke binding-tests --skip-regen`. For runtime-only C# changes, `nuke binding-tests --skip-regen` alone is enough.
 
 ## Generator CLI
 

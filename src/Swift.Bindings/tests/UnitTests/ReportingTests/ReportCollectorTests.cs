@@ -525,6 +525,33 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void RecordMemberSkipped_PropertyGetterAndSetter_RecordedAsDistinctEntries()
+    {
+        // The EnumHandler.SimpleEnum migration relies on AccessorKind.Setter to
+        // distinguish setter-only skips from getter-or-property-level skips on
+        // the same property name. Pre-fix, the synthetic "{name}_set" base name
+        // carried the distinction; the M1 identity rewrite moves it onto the
+        // explicit AccessorKind field. Both per-accessor skips must produce
+        // separate SkippedItem entries.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var prop = TestModelFactory.CreateProperty("value", parent: classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(prop, SkipReason.UnsupportedSignature, "getter rejected", AccessorKind.Getter);
+        ReportCollector.RecordMemberSkipped(prop, SkipReason.UnsupportedSignature, "setter rejected", AccessorKind.Setter);
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report!.SkippedMembers);
+        Assert.Equal(2, report.SkippedItems.Count);
+        Assert.Contains(report.SkippedItems, i => i.Details == "getter rejected");
+        Assert.Contains(report.SkippedItems, i => i.Details == "setter rejected");
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
     public void ReportEmitter_SummaryHeader_IsBindingGenerationSummary()
     {
         var moduleDecl = CreateModuleDecl();

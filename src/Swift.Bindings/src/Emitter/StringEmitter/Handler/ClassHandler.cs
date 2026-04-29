@@ -245,7 +245,7 @@ namespace BindingsGeneration
                     if (classDecl.IsActor && propertyDecl.Name == "unownedExecutor")
                     {
                         _logger.LogInformation($"Skipping actor runtime property 'unownedExecutor' on {classDecl.Name}.");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, SkipReason.UnsupportedType, "Actor runtime property 'unownedExecutor' is not user-facing.");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.UnsupportedType, "Actor runtime property 'unownedExecutor' is not user-facing.");
                         continue;
                     }
 
@@ -256,20 +256,20 @@ namespace BindingsGeneration
                     if (!emittedPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{classDecl.Name}.{csPropertyName}' (static/instance collision).");
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted with different staticness.");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted with different staticness.");
                         continue;
                     }
 
                     if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, classDecl))
                     {
-                        ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, propertyDecl.Name, classDecl);
+                        ReportCollector.RecordMemberSynthesized(propertyDecl);
                         continue;
                     }
 
                     var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, env.TypeDatabase, out var skipDetails, out _);
                     if (skipReason != null)
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, classDecl, skipReason.Value, skipDetails ?? "");
+                        ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
                         continue;
                     }
 
@@ -321,7 +321,7 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.OperatorSymbol, classDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.OperatorSymbol}' has no C# equivalent.");
+                        ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.OperatorSymbol}' has no C# equivalent.");
                     }
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)

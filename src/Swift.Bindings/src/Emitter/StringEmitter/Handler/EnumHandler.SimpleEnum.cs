@@ -205,23 +205,23 @@ namespace BindingsGeneration
             foreach (var operatorDecl in enumDecl.Operators)
             {
                 if (operatorDecl.Name == "==" || operatorDecl.Name == "!=")
-                    ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, operatorDecl.Name, enumDecl);
+                    ReportCollector.RecordMemberEmitted(operatorDecl);
                 else
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.Name, enumDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.Name}' is not supported on simple enum types.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.Name}' is not supported on simple enum types.");
             }
 
             // Record constructors as emitted
             foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
+                ReportCollector.RecordMemberEmitted(methodDecl);
 
             // Record synthesized protocol conformance members — C# enums handle
             // Hashable (GetHashCode), RawRepresentable (underlying value), CaseIterable
             // (Enum.GetValues), etc. natively. These are not "skipped" — their functionality
             // is available via synthesized .NET equivalents.
             foreach (var prop in enumDecl.Properties.Where(p => !p.IsStatic && IsSynthesizedProperty(p, enumDecl)))
-                ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, prop.Name, enumDecl);
+                ReportCollector.RecordMemberSynthesized(prop);
             foreach (var method in enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType != MethodType.Static && IsSynthesizedMethod(m, enumDecl)))
-                ReportCollector.RecordMemberSynthesized(BindingItemKind.Method, method.Name, enumDecl);
+                ReportCollector.RecordMemberSynthesized(method);
 
             // Check CaseIterable conformance for AllCases property
             var hasCaseIterable = enumDecl.Conformances.Any(c => c.Protocol.Name == "CaseIterable");
@@ -423,7 +423,7 @@ namespace BindingsGeneration
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
                 if (csReturnType == null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
+                    ReportCollector.RecordMemberSkipped(methodDecl,
                         SkipReason.UnsupportedSignature, "Return type is unsupported for simple enum extension method.");
                     return;
                 }
@@ -443,7 +443,7 @@ namespace BindingsGeneration
                 var paramType = isEnumParam ? enumName : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
                 if (paramType == null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
+                    ReportCollector.RecordMemberSkipped(methodDecl,
                         SkipReason.UnsupportedSignature, $"Parameter '{param.Name}' has unsupported type for simple enum extension method.");
                     return;
                 }
@@ -554,7 +554,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
+            ReportCollector.RecordMemberEmitted(methodDecl);
         }
 
         /// <summary>
@@ -771,15 +771,16 @@ namespace BindingsGeneration
             // Record setter as skipped if present
             if (propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
             {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, $"{propertyDecl.Name}_set", enumDecl,
-                    SkipReason.UnsupportedType, "Setters on value-type enums cannot propagate mutations via extension methods.");
+                ReportCollector.RecordMemberSkipped(propertyDecl,
+                    SkipReason.UnsupportedType, "Setters on value-type enums cannot propagate mutations via extension methods.",
+                    accessor: AccessorKind.Setter);
             }
 
             // Get the getter accessor
             var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
             if (getter == null)
             {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                ReportCollector.RecordMemberSkipped(propertyDecl,
                     SkipReason.UnsupportedType, "Property has no getter accessor.");
                 return;
             }
@@ -802,7 +803,7 @@ namespace BindingsGeneration
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
                 if (csReturnType == null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                    ReportCollector.RecordMemberSkipped(propertyDecl,
                         SkipReason.UnsupportedSignature, "Property return type is unsupported for simple enum extension.");
                     return;
                 }
@@ -847,7 +848,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, enumDecl);
+            ReportCollector.RecordMemberEmitted(propertyDecl);
         }
 
         /// <summary>
@@ -878,7 +879,7 @@ namespace BindingsGeneration
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
                 if (csReturnType == null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
+                    ReportCollector.RecordMemberSkipped(methodDecl,
                         SkipReason.UnsupportedSignature, "Return type is unsupported for simple enum static method.");
                     return;
                 }
@@ -897,7 +898,7 @@ namespace BindingsGeneration
                 var paramType = isEnumParam ? enumName : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase);
                 if (paramType == null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Method, methodDecl.Name, enumDecl,
+                    ReportCollector.RecordMemberSkipped(methodDecl,
                         SkipReason.UnsupportedSignature, $"Parameter '{param.Name}' has unsupported type for simple enum static method.");
                     return;
                 }
@@ -961,7 +962,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
+            ReportCollector.RecordMemberEmitted(methodDecl);
         }
 
         /// <summary>
@@ -977,14 +978,15 @@ namespace BindingsGeneration
             // Record setter as skipped if present
             if (propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
             {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, $"{propertyDecl.Name}_set", enumDecl,
-                    SkipReason.UnsupportedType, "Setters on value-type enums cannot propagate mutations via extension methods.");
+                ReportCollector.RecordMemberSkipped(propertyDecl,
+                    SkipReason.UnsupportedType, "Setters on value-type enums cannot propagate mutations via extension methods.",
+                    accessor: AccessorKind.Setter);
             }
 
             var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
             if (getter == null)
             {
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                ReportCollector.RecordMemberSkipped(propertyDecl,
                     SkipReason.UnsupportedType, "Property has no getter accessor.");
                 return;
             }
@@ -1006,7 +1008,7 @@ namespace BindingsGeneration
                 csReturnType = GetSimpleReturnType(returnTypeSpec!, typeDatabase) ?? null!;
                 if (csReturnType == null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl,
+                    ReportCollector.RecordMemberSkipped(propertyDecl,
                         SkipReason.UnsupportedSignature, "Static property return type is unsupported for simple enum extension.");
                     return;
                 }
@@ -1044,7 +1046,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
-            ReportCollector.RecordMemberEmitted(BindingItemKind.Property, propertyDecl.Name, enumDecl);
+            ReportCollector.RecordMemberEmitted(propertyDecl);
         }
 
         /// <summary>

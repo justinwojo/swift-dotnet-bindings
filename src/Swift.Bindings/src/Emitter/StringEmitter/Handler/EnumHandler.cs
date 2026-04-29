@@ -334,20 +334,20 @@ namespace BindingsGeneration
                 if (emittedCaseConstructorNames.Contains(propertyName))
                 {
                     _logger.LogInformation($"Skipping enum property '{enumDecl.Name}.{propertyName}' because a case constructor with the same C# name is already emitted.");
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, SkipReason.DuplicateSignature, $"Enum property '{propertyName}' collides with case constructor name.");
+                    ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Enum property '{propertyName}' collides with case constructor name.");
                     continue;
                 }
 
                 if (MemberEmissionValidator.IsSynthesizedProtocolProperty(propertyDecl, enumDecl))
                 {
-                    ReportCollector.RecordMemberSynthesized(BindingItemKind.Property, propertyDecl.Name, enumDecl);
+                    ReportCollector.RecordMemberSynthesized(propertyDecl);
                     continue;
                 }
 
                 var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, env.TypeDatabase, out var skipDetails, out _);
                 if (skipReason != null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, skipReason.Value, skipDetails ?? "");
+                    ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
                     continue;
                 }
 
@@ -395,14 +395,14 @@ namespace BindingsGeneration
             foreach (var operatorDecl in enumDecl.Operators)
             {
                 if (operatorDecl.Name == "==" || operatorDecl.Name == "!=")
-                    ReportCollector.RecordMemberEmitted(BindingItemKind.Operator, operatorDecl.Name, enumDecl);
+                    ReportCollector.RecordMemberEmitted(operatorDecl);
                 else
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Operator, operatorDecl.Name, enumDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.Name}' is not supported on enum types.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.Name}' is not supported on enum types.");
             }
 
             // Record enum constructors as emitted (case constructors handle initialization)
             foreach (var methodDecl in enumDecl.Methods.Where(m => m.IsConstructor))
-                ReportCollector.RecordMemberEmitted(BindingItemKind.Method, methodDecl.Name, enumDecl);
+                ReportCollector.RecordMemberEmitted(methodDecl);
 
             ToStringHelper.EmitToStringIfDescriptionExists(csWriter, enumDecl, propertyRenames);
 
@@ -474,7 +474,7 @@ namespace BindingsGeneration
                 var skipReason = MemberEmissionValidator.CanEmitProperty(propertyDecl, typeDatabase, out var skipDetails, out _);
                 if (skipReason != null)
                 {
-                    ReportCollector.RecordMemberSkipped(BindingItemKind.Property, propertyDecl.Name, enumDecl, skipReason.Value, skipDetails ?? "");
+                    ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
                     continue;
                 }
 
