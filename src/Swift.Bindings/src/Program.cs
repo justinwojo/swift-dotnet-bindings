@@ -527,6 +527,10 @@ namespace BindingsGeneration
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
                 EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
 
+                // M3 Session 1 instrumentation: dump cogater hit counts for the inventory pass.
+                // No-op unless SWIFTBIND_DUMP_COGATER_COUNTS=1. Removed in M3 close.
+                CoGaterHitCounter.TryDump(outputDirectory, moduleName);
+
                 // Build and write the binding artifact manifest. The main generation pass
                 // owns this output directory and replaces any prior artifact wholesale —
                 // an existing binding-report.json from a pre-M1 build (no manifest) is fine
@@ -775,6 +779,10 @@ namespace BindingsGeneration
                 if (coGated.Count > 0)
                     logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
             }
+
+            // M3 Session 1 instrumentation: dump cogater hit counts for the inventory pass.
+            // No-op unless SWIFTBIND_DUMP_COGATER_COUNTS=1. Removed in M3 close.
+            CoGaterHitCounter.TryDump(outputDirectory, moduleName);
 
             // Record the wrapper phase in the binding artifact manifest. Standalone-CLI
             // invocations land in ReadModifyWrite's missing-manifest path and produce a

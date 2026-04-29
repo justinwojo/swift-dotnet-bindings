@@ -118,6 +118,7 @@ namespace BindingsGeneration
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             removedCount++;
+                            CoGaterHitCounter.Increment("PostProcessor.Pattern1_EveryProtocolBlock");
                             i = end + 1;
                             continue;
                         }
@@ -145,6 +146,7 @@ namespace BindingsGeneration
                         // produce "expected declaration" errors at swiftc time.
                         RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
+                        CoGaterHitCounter.Increment("PostProcessor.Pattern2_SilgenOrCdeclBroken");
                         i = end + 1;
                         continue;
                     }
@@ -169,6 +171,7 @@ namespace BindingsGeneration
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             RemoveTrailingWrapperPreamble(outputLines);
                             removedCount++;
+                            CoGaterHitCounter.Increment("PostProcessor.Pattern2b_MainActorBroken");
                             i = end + 1;
                             continue;
                         }
@@ -192,6 +195,7 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
+                        CoGaterHitCounter.Increment("PostProcessor.Pattern3_ExtensionBroken");
                         i = end + 1;
                         continue;
                     }
@@ -211,6 +215,7 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
+                        CoGaterHitCounter.Increment("PostProcessor.Pattern3c_PrivateSbwProtocol");
                         i = end + 1;
                         continue;
                     }
@@ -230,6 +235,7 @@ namespace BindingsGeneration
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
+                        CoGaterHitCounter.Increment("PostProcessor.Pattern4_StandaloneFunc");
                         i = end + 1;
                         continue;
                     }
@@ -277,6 +283,7 @@ namespace BindingsGeneration
                     if (replaced != outputLines[j])
                     {
                         collisionReplacements++;
+                        CoGaterHitCounter.Increment("PostProcessor.Pattern5_ModuleCollision");
                         outputLines[j] = replaced;
                     }
                 }

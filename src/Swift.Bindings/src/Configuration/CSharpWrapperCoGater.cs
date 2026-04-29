@@ -1000,6 +1000,7 @@ namespace BindingsGeneration
                         for (int j = preambleStart; j <= i; j++)
                             removals.Add(j);
                         RecordPublicDecl(publicDeclLines, i, line.TrimStart());
+                        CoGaterHitCounter.Increment("CoGater.StepD_LazyAccessors");
                         break;
                     }
                 }
@@ -1037,6 +1038,7 @@ namespace BindingsGeneration
                     for (int j = preambleStart; j <= i; j++)
                         removals.Add(j);
                     RecordPublicDecl(publicDeclLines, i, trimmed);
+                    CoGaterHitCounter.Increment("CoGater.StepE_DanglingToString");
                 }
             }
         }
@@ -1183,6 +1185,7 @@ namespace BindingsGeneration
                     for (int j = preambleStart; j <= f.BlockEnd; j++)
                         removals.Add(j);
                     RecordPublicDecl(publicDeclLines, f.DeclStart, lines[f.DeclStart].TrimStart());
+                    CoGaterHitCounter.Increment("CoGater.StepG_ThrowingClosureFacades");
                 }
             }
         }
@@ -1907,6 +1910,7 @@ namespace BindingsGeneration
                             for (int j = preambleStart; j <= blockEnd; j++)
                                 removals.Add(j);
                             RecordPublicDecl(publicDeclLines, i, trimmed);
+                            CoGaterHitCounter.Increment("CoGater.StepF_NarrowingOverloads");
                         }
                     }
                     continue;
@@ -1998,6 +2002,7 @@ namespace BindingsGeneration
                     for (int j = preambleStart; j <= methodBlockEnd; j++)
                         removals.Add(j);
                     RecordPublicDecl(publicDeclLines, i, trimmed);
+                    CoGaterHitCounter.Increment("CoGater.StepF_NarrowingOverloads");
                 }
             }
         }
@@ -2104,6 +2109,7 @@ namespace BindingsGeneration
                     bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
                     replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true, isVoidReturn, isProperty: false, propertySetter: false);
                     identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
+                    CoGaterHitCounter.Increment("ProxyCoGater.T2_UnmanagedCallback");
                     i = blockEnd + 1;
                     continue;
                 }
@@ -2142,6 +2148,7 @@ namespace BindingsGeneration
                         isVoidReturn: false, isProperty: isIfacePropertyDecl, propertySetter: ifaceHasSetter);
                     identities.Add(BuildProxyIdentity(lines, i, lineToType,
                         isIfacePropertyDecl ? BindingItemKind.Property : BindingItemKind.Method, ref proxyOrdinal));
+                    CoGaterHitCounter.Increment("ProxyCoGater.T3_InterfaceImplementation");
                 }
                 else
                 {
@@ -2174,6 +2181,7 @@ namespace BindingsGeneration
                         replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
                             isVoidReturn: false, isProperty: true, propertySetter: hasSetter);
                         identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Property, ref proxyOrdinal));
+                        CoGaterHitCounter.Increment("ProxyCoGater.T4_PublicMember");
                     }
                     else if (isEventDecl)
                     {
@@ -2185,6 +2193,7 @@ namespace BindingsGeneration
                         for (int j = preambleStart; j <= blockEnd; j++)
                             removals.Add(j);
                         identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
+                        CoGaterHitCounter.Increment("ProxyCoGater.T4_PublicMember");
                     }
                     else if (isPublicMember || isPropertyHelper)
                     {
@@ -2205,6 +2214,7 @@ namespace BindingsGeneration
                         {
                             identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
                         }
+                        CoGaterHitCounter.Increment("ProxyCoGater.T4_PublicMember");
                     }
                     else
                     {
@@ -2212,6 +2222,7 @@ namespace BindingsGeneration
                         for (int j = preambleStart; j <= blockEnd; j++)
                             removals.Add(j);
                         identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
+                        CoGaterHitCounter.Increment("ProxyCoGater.T1_StripNonPublic");
                     }
                 }
 
@@ -2308,9 +2319,12 @@ namespace BindingsGeneration
             return s_wrapFallbackPattern.Replace(content, match =>
             {
                 var proxyName = match.Groups[2].Value;
-                return suppressedProxyClassNames.Contains(proxyName)
-                    ? string.Empty
-                    : match.Value;
+                if (suppressedProxyClassNames.Contains(proxyName))
+                {
+                    CoGaterHitCounter.Increment("ProxyCoGater.DowngradeWrapFallbacks");
+                    return string.Empty;
+                }
+                return match.Value;
             });
         }
 
