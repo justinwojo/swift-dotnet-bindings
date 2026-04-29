@@ -117,7 +117,6 @@ Before M1 starts:
 1. Snapshot baselines: `validation-baseline.json`, BindingTests sim pass count, BindingTests device pass count, unit test pass count.
 2. Capture a `binding-report.json` pre/post co-gating to evidence the staleness bug M1 fixes.
 3. Verify dependent local repos are clean: `swift-dotnet-packages`, `swift-interop-repro`, wiki repo, `spm-to-xcframework`.
-4. Architecture work proceeds on a `1.0-milestones` branch (or per-milestone branches), not `main`. Main remains shippable for hotfixes.
 
 ### Agent usage
 
@@ -129,6 +128,8 @@ Architectural reasoning, bug-hunting, and judgment calls stay in main session.
 
 ### Standing rules
 
+- **Trunk-based by default.** Each session ships to `main` once gates pass. Downstream consumers only see what's published to NuGet, so "main stays shippable for hotfixes" isn't a constraint that buys anything here. Spin a short-lived feature branch only when a single semantic change genuinely cannot be coherent in one commit, and merge as a unit when done. Long-running per-milestone branches are explicitly not the default.
+- **Milestone scaffolding under `src/docs/scratch/`.** Phase-0 evidence, inventories, and other docs that exist only to inform a specific milestone live under `scratch/` and are deleted in that milestone's completion commit. They are not part of the durable docs surface.
 - **Zero-regression policy active throughout.** Per CLAUDE.md.
 - **Commit discipline**: subject + 1–3 sentences on the *why*. No "Milestone N handoff" footers. No phase-number references in code comments.
 - **Memory updates** as discoveries land — non-obvious decisions get a memory file.

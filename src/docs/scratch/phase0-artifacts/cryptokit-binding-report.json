@@ -1,0 +1,644 @@
+{
+  "ModuleName": "CryptoKit",
+  "GeneratedAt": "2026-04-28T21:57:42.73139+00:00",
+  "TotalTypes": 119,
+  "EmittedTypes": 116,
+  "SkippedTypes": 3,
+  "TotalMembers": 384,
+  "EmittedMembers": 271,
+  "SkippedMembers": 74,
+  "SynthesizedMembers": 196,
+  "EmittedMembersByKind": {
+    "Property": 167,
+    "Method": 97,
+    "Operator": 7
+  },
+  "SkippedMembersByKind": {
+    "Method": 56,
+    "Property": 4,
+    "Type": 12,
+    "Operator": 2
+  },
+  "SkippedItems": [
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.Curve25519.Signing.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.Curve25519.KeyAgreement.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Property",
+      "Name": "publicKey",
+      "ContainingType": "CryptoKit.KEMPrivateKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "Property type contains unresolvable associated type reference.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Type",
+      "Name": "KEMPrivateKeyProxy",
+      "ContainingType": "CryptoKit.KEMPrivateKey",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "isValidAuthenticationCode",
+      "ContainingType": "CryptoKit.HMAC",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "authenticationCode",
+      "ContainingType": "CryptoKit.HMAC",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "update",
+      "ContainingType": "CryptoKit.HMAC",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Routed to concrete specialization (generic parent extension).",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "finalize",
+      "ContainingType": "CryptoKit.HMAC",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Property",
+      "Name": "byteCount",
+      "ContainingType": "CryptoKit.HashedAuthenticationCode",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Accessor 'byteCount_Get' has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Property",
+      "Name": "description",
+      "ContainingType": "CryptoKit.HashedAuthenticationCode",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Accessor 'description_Get' has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.HashedAuthenticationCode",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.P256.KeyAgreement.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.P256.Signing.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "isValidSignature",
+      "ContainingType": "CryptoKit.P256.Signing.PublicKey",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "signature",
+      "ContainingType": "CryptoKit.P256.Signing.PrivateKey",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Type",
+      "Name": "ECDSASignature",
+      "ContainingType": "CryptoKit.P256.Signing",
+      "Reason": "OwnedByAppleSupplement",
+      "Details": "Type 'CryptoKit.P256.Signing.ECDSASignature' is owned by SwiftBindings.Apple; consume the supplement projection instead.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.P384.KeyAgreement.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.P384.Signing.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "isValidSignature",
+      "ContainingType": "CryptoKit.P384.Signing.PublicKey",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "signature",
+      "ContainingType": "CryptoKit.P384.Signing.PrivateKey",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Type",
+      "Name": "ECDSASignature",
+      "ContainingType": "CryptoKit.P384.Signing",
+      "Reason": "OwnedByAppleSupplement",
+      "Details": "Type 'CryptoKit.P384.Signing.ECDSASignature' is owned by SwiftBindings.Apple; consume the supplement projection instead.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.P521.KeyAgreement.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.P521.Signing.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "isValidSignature",
+      "ContainingType": "CryptoKit.P521.Signing.PublicKey",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "signature",
+      "ContainingType": "CryptoKit.P521.Signing.PrivateKey",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Type",
+      "Name": "ECDSASignature",
+      "ContainingType": "CryptoKit.P521.Signing",
+      "Reason": "OwnedByAppleSupplement",
+      "Details": "Type 'CryptoKit.P521.Signing.ECDSASignature' is owned by SwiftBindings.Apple; consume the supplement projection instead.",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Operator",
+      "Name": "==",
+      "ContainingType": "CryptoKit.Digest",
+      "Reason": "StaticProtocolMember",
+      "Details": "Protocol operator requirements cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper."
+    },
+    {
+      "Kind": "Type",
+      "Name": "DigestProxy",
+      "ContainingType": "CryptoKit.Digest",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.HPKEPublicKeySerialization",
+      "Reason": "StaticProtocolMember",
+      "Details": "Protocol constructor requirements cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper."
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEPublicKeySerializationProxy",
+      "ContainingType": "CryptoKit.HPKEPublicKeySerialization",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (ConstructorRequirements).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEDiffieHellmanPublicKeyProxy",
+      "ContainingType": "CryptoKit.HPKEDiffieHellmanPublicKey",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEKEMPublicKeyProxy",
+      "ContainingType": "CryptoKit.HPKEKEMPublicKey",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEDiffieHellmanPrivateKeyProxy",
+      "ContainingType": "CryptoKit.HPKEDiffieHellmanPrivateKey",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEKEMPrivateKeyProxy",
+      "ContainingType": "CryptoKit.HPKEKEMPrivateKey",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.HPKEDiffieHellmanPrivateKeyGeneration",
+      "Reason": "StaticProtocolMember",
+      "Details": "Protocol constructor requirements cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper."
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEDiffieHellmanPrivateKeyGenerationProxy",
+      "ContainingType": "CryptoKit.HPKEDiffieHellmanPrivateKeyGeneration",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.HPKEKEMPrivateKeyGeneration",
+      "Reason": "StaticProtocolMember",
+      "Details": "Protocol constructor requirements cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper."
+    },
+    {
+      "Kind": "Type",
+      "Name": "HPKEKEMPrivateKeyGenerationProxy",
+      "ContainingType": "CryptoKit.HPKEKEMPrivateKeyGeneration",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "deriveKey",
+      "ContainingType": "CryptoKit.HKDF",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "extract",
+      "ContainingType": "CryptoKit.HKDF",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "expand",
+      "ContainingType": "CryptoKit.HKDF",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.Insecure.SHA1Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.Insecure.MD5Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.ChaChaPoly.SealedBox",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.ChaChaPoly.Nonce",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "makeIterator",
+      "ContainingType": "CryptoKit.ChaChaPoly.Nonce",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.AES.GCM.SealedBox",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.AES.GCM.Nonce",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "makeIterator",
+      "ContainingType": "CryptoKit.AES.GCM.Nonce",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unsupported placeholder type.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SymmetricKey",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.SymmetricKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.HashFunction",
+      "Reason": "StaticProtocolMember",
+      "Details": "Protocol constructor requirements cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper."
+    },
+    {
+      "Kind": "Method",
+      "Name": "finalize",
+      "ContainingType": "CryptoKit.HashFunction",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unresolvable associated type reference.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "hash",
+      "ContainingType": "CryptoKit.HashFunction",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unresolvable associated type reference.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Type",
+      "Name": "HashFunctionProxy",
+      "ContainingType": "CryptoKit.HashFunction",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Property",
+      "Name": "publicKey",
+      "ContainingType": "CryptoKit.DiffieHellmanKeyAgreement",
+      "Reason": "UnsupportedSignature",
+      "Details": "Property type contains unresolvable associated type reference.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "sharedSecretFromKeyAgreement",
+      "ContainingType": "CryptoKit.DiffieHellmanKeyAgreement",
+      "Reason": "UnsupportedSignature",
+      "Details": "Method signature contains unresolvable associated type reference.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Type",
+      "Name": "DiffieHellmanKeyAgreementProxy",
+      "ContainingType": "CryptoKit.DiffieHellmanKeyAgreement",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SharedSecret",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "x963DerivedSymmetricKey",
+      "ContainingType": "CryptoKit.SharedSecret",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Method",
+      "Name": "hkdfDerivedSymmetricKey",
+      "ContainingType": "CryptoKit.SharedSecret",
+      "Reason": "GenericProtocolConstraint",
+      "Details": "Method has constraints on protocols with associated types or self requirements.",
+      "RecommendedWorkaround": "Use a Swift wrapper with type erasure for protocols with associated types."
+    },
+    {
+      "Kind": "Operator",
+      "Name": "==",
+      "ContainingType": "CryptoKit.MessageAuthenticationCode",
+      "Reason": "StaticProtocolMember",
+      "Details": "Protocol operator requirements cannot be declared in C# interfaces.",
+      "RecommendedWorkaround": "Static protocol members cannot be dispatched through witness tables. Use a Swift wrapper."
+    },
+    {
+      "Kind": "Type",
+      "Name": "MessageAuthenticationCodeProxy",
+      "ContainingType": "CryptoKit.MessageAuthenticationCode",
+      "Reason": "EveryProtocolConformanceSkipped",
+      "Details": "Protocol proxy skipped: EveryProtocol conformance was not emitted (no decision recorded).",
+      "RecommendedWorkaround": null
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.HPKE.Sender",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.HPKE.Recipient",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.XWingMLKEM768X25519.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.MLDSA65.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.MLDSA87.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.MLKEM768.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "init",
+      "ContainingType": "CryptoKit.MLKEM1024.PublicKey",
+      "Reason": "UnsupportedSignature",
+      "Details": "C# does not support generic constructors with method-own type parameters.",
+      "RecommendedWorkaround": "Write a Swift wrapper with a simplified signature."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SHA256Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SHA384Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SHA512Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SHA3_256Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SHA3_384Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "withUnsafeBytes",
+      "ContainingType": "CryptoKit.SHA3_512Digest",
+      "Reason": "UnsupportedClosure",
+      "Details": "Parameter 'arg0' has unsupported closure type that cannot be marshalled.",
+      "RecommendedWorkaround": "Write a Swift wrapper that converts to a supported closure shape."
+    },
+    {
+      "Kind": "Method",
+      "Name": "signature",
+      "ContainingType": "CryptoKit.SecureEnclave.P256.Signing.PrivateKey",
+      "Reason": "SwiftUIConstraint",
+      "Details": "Method signature references unsupported module (SwiftUI/Combine) in 'CryptoKit.P256.Signing.ECDSASignature'.",
+      "RecommendedWorkaround": "SwiftUI types are excluded. Use Swift wrappers to bridge SwiftUI functionality."
+    }
+  ],
+  "WrappedItems": [],
+  "BridgedViews": [],
+  "ThemeBridgedProperties": [],
+  "BridgeSummary": null
+}

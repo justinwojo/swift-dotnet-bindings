@@ -1,0 +1,19 @@
+{
+  "module": "CryptoKit",
+  "wrapperStrategyCounts": {
+    "CdeclProperty": 161,
+    "CdeclConstructor": 50,
+    "None": 38,
+    "CdeclMethod": 38,
+    "NativeThunk": 1
+  },
+  "skipReasons": {
+    "method_level_generics": 37
+  },
+  "conformanceDecisions": {
+    "emittedInSource": 1,
+    "skippedAtEmission": 1,
+    "note": "Emitted conformances are stripped by post-processor Pattern 1 (unconditional EveryProtocol removal)"
+  },
+  "silentTombstones": []
+}
