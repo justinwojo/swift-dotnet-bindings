@@ -200,9 +200,7 @@ namespace BindingsGeneration
                 {
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
-                        warning => logger.LogWarning("{Warning}", warning),
-                        moduleNameForCollision: moduleNameForCollision,
-                        nestedTypesInCollidingClass: nestedTypesInCollidingClass);
+                        warning => logger.LogWarning("{Warning}", warning));
                     totalStripped += result.StrippedBlockCount;
                     allStrippedSymbols.UnionWith(result.StrippedSymbols);
 
@@ -210,12 +208,6 @@ namespace BindingsGeneration
                     {
                         logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
                             result.StrippedBlockCount, Path.GetFileName(swiftFile));
-                    }
-
-                    if (result.ModuleNameCollisionReplacements > 0)
-                    {
-                        logger.LogInformation("  Fixed {Count} module/type name collision(s) in {File}",
-                            result.ModuleNameCollisionReplacements, Path.GetFileName(swiftFile));
                     }
 
                     if (!string.IsNullOrWhiteSpace(result.CleanedContent))
@@ -604,9 +596,7 @@ namespace BindingsGeneration
                 {
                     var content = File.ReadAllText(swiftFile);
                     var result = SwiftWrapperPostProcessor.Process(content, internalTypeNames,
-                        warning => logger.LogWarning("{Warning}", warning),
-                        moduleNameForCollision: moduleNameForCollision,
-                        nestedTypesInCollidingClass: nestedTypesInCollidingClass);
+                        warning => logger.LogWarning("{Warning}", warning));
                     totalStripped += result.StrippedBlockCount;
                     allStrippedSymbols.UnionWith(result.StrippedSymbols);
 
@@ -614,12 +604,6 @@ namespace BindingsGeneration
                     {
                         logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
                             result.StrippedBlockCount, Path.GetFileName(swiftFile));
-                    }
-
-                    if (result.ModuleNameCollisionReplacements > 0)
-                    {
-                        logger.LogInformation("  Fixed {Count} module/type name collision(s) in {File}",
-                            result.ModuleNameCollisionReplacements, Path.GetFileName(swiftFile));
                     }
 
                     // Only write files that have content left after processing

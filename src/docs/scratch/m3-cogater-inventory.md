@@ -147,16 +147,23 @@ Classifications below are inherited from the precursor `cogater-inventory.md` (w
 - **Upstream fix location**: same wrapper-emitting paths as Pattern 2.
 - **Recommendation**: deprioritise.
 
-### Pattern 5 — Module/type name collision rewrite
-- **Lines**: 248–290; regex at 258–260.
-- **Behavior**: Active when `moduleNameForCollision` is non-null (module has a public type with the same identifier). Regex `\b<moduleName>\.(\w+(?:\.\w+)*)` strips the module prefix unless the immediate child is in `nestedTypesInCollidingClass`.
-- **Classification**: **A**.
-- **Volume**: **2,003 / 10 targets / 200.3 avg per affected target — the dominant handler in the validation set.** SVGView=624, Mixpanel=402, SwiftyBeaver=322, FSPagerView=191, Valet=176, AnimatedCollectionViewLayout=153, KeychainSwift=53, Reachability=45, NVActivityIndicatorView=35, AlertToast=2.
-- **Upstream fix location**: type-reference qualification at emit time. The collision is detectable pre-emission (module name + set of public type names in the module are both available). Either:
-  - **Option A**: At every emit site that prepends `module + "."` to a type name, check whether the module name collides with a public type and emit unqualified.
-  - **Option B**: Add a single qualification-policy hook in the Swift wrapper printer (the materialisation point that turns a `TypeSpec` into source text), parametrised by the collision set computed once per module.
-  Option B is the smaller surface and is closer to where the type-printing decisions already live.
-- **Recommendation**: **Top-fix candidate #1** for Session 2 — by far the largest volume. Important: each Pattern 5 hit is a regex replacement on a single line, so the count is line-rewrites, not member-stripping. The user-facing impact is "wrapper recompilation cost + correctness exposure to regex edge cases" rather than "API surface lost." But the volume tax on the validation gate is real, and a single-emission-time fix moves it cleanly to zero.
+### Pattern 5 — Module/type name collision rewrite — RETIRED (M3 Session 2)
+- **Status**: deleted from the post-processor. Equivalent qualification logic now runs in
+  `ModuleEmitter` at the wrapper-file write boundary, calling
+  `ModuleEmissionContext.QualifyForWrapperSource` over the full Swift wrapper string (and over
+  the SwiftUI/Theme bridge files emitted out-of-band). The `nestedTypesInCollidingClass`
+  carve-out (e.g. `SwiftyBeaver.Level`) is preserved.
+- **Coverage**: `ModuleEmissionContextCollisionTests` exercises the helper; the surrounding
+  emitter tests already cover wrapper emission for collision modules (Reachability, SVGView,
+  Mixpanel, SwiftyBeaver, etc.) via the validation-target sweep.
+- **Pre-retirement volume** (Session 1 inventory, kept as historical signal): 2,003 / 10
+  targets / 200.3 avg per affected target. Top affected: SVGView=624, Mixpanel=402,
+  SwiftyBeaver=322, FSPagerView=191, Valet=176, AnimatedCollectionViewLayout=153,
+  KeychainSwift=53, Reachability=45, NVActivityIndicatorView=35, AlertToast=2.
+- **Note**: the third-party `.swiftinterface` patcher in
+  `SwiftWrapperCompiler.PrecompileCollidingModule` still uses the same regex against the
+  upstream module's interface file — that path is unchanged because we cannot alter the
+  third-party module's source, only shadow it.
 
 ### Cross-cutting filter — `ReferencesInternalType`
 - **Lines**: 500–514.

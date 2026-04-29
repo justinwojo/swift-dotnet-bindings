@@ -168,6 +168,42 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("import UIKit", swiftContent);
     }
 
+    [Fact]
+    public void EmitBridgeFiles_AppliesEmissionContextCollisionRewrite()
+    {
+        // Bridge files share the wrapper-source rewrite pass — the bridge emitter must run
+        // every Swift line through ModuleEmissionContext.QualifyForWrapperSource before
+        // writing, so collision modules see consistent prefix stripping. This test proves
+        // the wiring is hot by setting the colliding module to "DispatchQueue": the
+        // shared SBW_onMainThread helper emits `DispatchQueue.main.sync`, which the rewrite
+        // strips to `main.sync` when the helper's leading segment isn't carved out.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("DispatchQueue", nestedTypesInCollidingClass: null);
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, emissionContext: ctx);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("DispatchQueue.main.sync", swiftContent);
+        Assert.Contains("main.sync", swiftContent);
+    }
+
+    [Fact]
+    public void EmitBridgeFiles_NoCollisionContext_LeavesBridgeContentUnchanged()
+    {
+        // Sanity counterpart to EmitBridgeFiles_AppliesEmissionContextCollisionRewrite —
+        // when no collision context is set, the bridge writes verbatim and DispatchQueue
+        // qualifications survive.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("DispatchQueue.main.sync", swiftContent);
+    }
+
     #endregion
 
     #region Functional Bridge Generation (Phase 3)

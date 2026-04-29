@@ -204,7 +204,8 @@ public static class ThemeBridgeEmitter
         string moduleName,
         List<ThemeBridgeInfo> themeInfos,
         bool viewBridgeExists,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext? emissionContext = null)
     {
         if (themeInfos.Count == 0)
             return;
@@ -234,10 +235,14 @@ public static class ThemeBridgeEmitter
             return;
         }
 
+        // Apply module/type-name collision rewrite for parity with the main wrapper file
+        // (Pattern 5 used to fix this on every .swift file at compile time).
+        var qualifiedSwift = emissionContext?.QualifyForWrapperSource(swiftContent) ?? swiftContent;
+
         // Both files are either absent or auto-generated — safe to write both.
         if (swiftExists)
         {
-            File.AppendAllText(swiftPath, swiftContent);
+            File.AppendAllText(swiftPath, qualifiedSwift);
         }
         else
         {
@@ -258,7 +263,7 @@ public static class ThemeBridgeEmitter
             header.AppendLine("}");
             header.AppendLine();
 
-            File.WriteAllText(swiftPath, header.ToString() + swiftContent);
+            File.WriteAllText(swiftPath, header.ToString() + qualifiedSwift);
         }
 
         if (csExists)

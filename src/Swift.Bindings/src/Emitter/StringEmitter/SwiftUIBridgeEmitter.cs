@@ -24,7 +24,8 @@ public static partial class SwiftUIBridgeEmitter
         ILogger logger,
         ITypeDatabase? typeDatabase = null,
         ModuleDecl? moduleDecl = null,
-        string? bridgeHintsPath = null)
+        string? bridgeHintsPath = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(@namespace);
@@ -127,7 +128,9 @@ public static partial class SwiftUIBridgeEmitter
         var csContent = GenerateCSharpBridge(@namespace, moduleName, bridgeResults);
 
         var swiftPath = Path.Combine(outputDirectory, $"{@namespace}.SwiftUIBridge.swift");
-        File.WriteAllText(swiftPath, swiftContent);
+        // Apply module/type-name collision rewrite for parity with the main wrapper file
+        // (Pattern 5 used to fix this on every .swift file at compile time).
+        File.WriteAllText(swiftPath, emissionContext?.QualifyForWrapperSource(swiftContent) ?? swiftContent);
 
         var csPath = Path.Combine(outputDirectory, $"{@namespace}.SwiftUIBridge.cs");
         File.WriteAllText(csPath, csContent);

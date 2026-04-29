@@ -124,9 +124,16 @@ namespace BindingsGeneration
                     outputFile.Write(csOutput);
                 }
                 string swiftOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.Wrapper.swift");
+                // Module/type-name collision rewrite (formerly Pattern 5 in SwiftWrapperPostProcessor):
+                // when the module has a public type with the same name as the module, bare
+                // "Module.X" references resolve to the type's nested member, not the module-level
+                // X. Apply the collision-aware rewrite once at the wrapper file boundary, driven
+                // by the structurally-aware ModuleEmissionContext (knows which types are nested in
+                // the colliding class so e.g. SwiftyBeaver.Level stays qualified).
+                var swiftOutput = emissionContext.QualifyForWrapperSource(swiftStringWriter.ToString());
                 using (StreamWriter outputFile = new(swiftOutputPath))
                 {
-                    outputFile.Write(swiftStringWriter.ToString());
+                    outputFile.Write(swiftOutput);
                 }
 
                 // Write ARM64 assembly thunk file if any thunks were emitted
@@ -159,7 +166,7 @@ namespace BindingsGeneration
                 if (hasViews)
                 {
                     SwiftUIBridgeEmitter.EmitBridgeFiles(
-                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger, _typeDatabase, moduleDecl, _bridgeHintsPath);
+                        _outputDirectory, @namespace, moduleDecl.Name, collectedViews, _logger, _typeDatabase, moduleDecl, _bridgeHintsPath, emissionContext);
                 }
                 else if (!hasThemes)
                 {
@@ -172,7 +179,7 @@ namespace BindingsGeneration
                 {
                     ThemeBridgeEmitter.EmitThemeBridge(
                         _outputDirectory, @namespace, moduleDecl.Name, themeInfos,
-                        viewBridgeExists: hasViews, _logger);
+                        viewBridgeExists: hasViews, _logger, emissionContext);
                 }
             }
             else

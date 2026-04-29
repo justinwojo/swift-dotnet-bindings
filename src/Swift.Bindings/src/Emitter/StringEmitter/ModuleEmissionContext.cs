@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Text.RegularExpressions;
+
 namespace BindingsGeneration;
 
 /// <summary>
@@ -19,6 +21,79 @@ public sealed class ModuleEmissionContext
     /// Safe because unit tests disable xUnit parallelization via [Collection] attributes.
     /// </summary>
     public static ModuleEmissionContext Default { get; } = new();
+
+    // ==================== Module / Type Name Collision ====================
+
+    /// <summary>
+    /// When the current module has a public type with the same name as the module itself
+    /// (e.g. module "Reachability" containing class "Reachability"), Swift name lookup inside
+    /// the wrapper file resolves the bare module name as the type, not the module. Any
+    /// "<c>Reachability.X</c>" reference emitted into Swift wrapper source therefore means
+    /// "the nested type X of class Reachability" and fails to compile when X is actually a
+    /// module-level type. Set to the module name in that case; null otherwise.
+    /// </summary>
+    public string? ModuleNameForCollision { get; private set; }
+
+    private HashSet<string>? _nestedTypesInCollidingClass;
+    private Regex? _collisionPattern;
+
+    /// <summary>
+    /// Names of types nested inside the colliding class (e.g. <c>{"Level"}</c> for class
+    /// <c>SwiftyBeaver</c>'s nested <c>Level</c> enum). When stripping the module prefix
+    /// from "Module.X..." references, the prefix is preserved if X is in this set: the
+    /// qualification is now legitimately required to reach the class-nested type.
+    /// </summary>
+    public IReadOnlySet<string> NestedTypesInCollidingClass =>
+        _nestedTypesInCollidingClass ?? EmptyStringSet;
+
+    /// <summary>
+    /// Sets the module/type collision context (called once per module from <c>Program.cs</c>
+    /// after collision detection). Both arguments may be null when no collision exists.
+    /// </summary>
+    public void SetCollisionContext(string? moduleNameForCollision, IReadOnlySet<string>? nestedTypesInCollidingClass)
+    {
+        ModuleNameForCollision = moduleNameForCollision;
+        _nestedTypesInCollidingClass = nestedTypesInCollidingClass != null
+            ? new HashSet<string>(nestedTypesInCollidingClass, StringComparer.Ordinal)
+            : null;
+        _collisionPattern = !string.IsNullOrEmpty(moduleNameForCollision)
+            ? new Regex(@"\b" + Regex.Escape(moduleNameForCollision) + @"\.(\w+(?:\.\w+)*)", RegexOptions.Compiled)
+            : null;
+    }
+
+    /// <summary>
+    /// Returns the appropriate string for emitting <paramref name="moduleQualifiedName"/>
+    /// into Swift wrapper source. When <see cref="ModuleNameForCollision"/> is set and the
+    /// name starts with that module prefix, the prefix is stripped — except when the
+    /// next segment is in <see cref="NestedTypesInCollidingClass"/>, in which case the
+    /// qualification is preserved (the prefix now reaches a class-nested type).
+    /// Outside the collision case, the input is returned unchanged.
+    /// </summary>
+    public string QualifyForWrapperSource(string moduleQualifiedName)
+    {
+        if (string.IsNullOrEmpty(moduleQualifiedName) || _collisionPattern == null)
+            return moduleQualifiedName;
+
+        return _collisionPattern.Replace(moduleQualifiedName, match =>
+        {
+            // First captured group is the type path after the module prefix.
+            // Preserve qualification when the head segment names a type nested
+            // inside the colliding class (e.g. SwiftyBeaver.Level).
+            var firstComponent = match.Groups[1].Value;
+            var dotIdx = firstComponent.IndexOf('.');
+            var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
+            if (_nestedTypesInCollidingClass?.Contains(topLevelName) == true)
+                return match.Value;
+            return match.Groups[1].Value;
+        });
+    }
+
+    /// <summary>
+    /// Convenience overload for <see cref="SwiftTypeName"/>. Returns the appropriate
+    /// type-reference string for emission into Swift wrapper source.
+    /// </summary>
+    public string QualifyForWrapperSource(SwiftTypeName swiftTypeName) =>
+        QualifyForWrapperSource(swiftTypeName.ModuleQualifiedName);
 
     // ==================== Underscore-Prefix Suppression ====================
 

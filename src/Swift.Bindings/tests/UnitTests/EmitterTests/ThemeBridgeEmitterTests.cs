@@ -314,6 +314,54 @@ public class ThemeBridgeEmitterTests : IDisposable
     #region Swift Emission
 
     [Fact]
+    public void EmitThemeBridge_AppliesEmissionContextCollisionRewrite()
+    {
+        // Theme bridge files share the wrapper-source rewrite pass: the body content
+        // (setters/getters from GenerateSwiftThemeBridge) must run through
+        // ModuleEmissionContext.QualifyForWrapperSource before being written. This test
+        // proves the wiring is hot by setting the colliding module to "UIFont": the UIKit
+        // font setter emits `UIFont.systemFont(...)`, which the rewrite strips to
+        // `systemFont(...)` when the leading segment isn't carved out.
+        var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
+        {
+            new("MyTheme", "TestModule", "shared", new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("titleFont", ThemeBridgeEmitter.ThemePropertyKind.UIKitFont),
+            })
+        };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("UIFont", nestedTypesInCollidingClass: null);
+
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
+            viewBridgeExists: false, NullLogger.Instance, emissionContext: ctx);
+
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.DoesNotContain("UIFont.systemFont", content);
+        Assert.Contains("systemFont(ofSize:", content);
+    }
+
+    [Fact]
+    public void EmitThemeBridge_NoCollisionContext_LeavesBridgeContentUnchanged()
+    {
+        // Sanity counterpart to EmitThemeBridge_AppliesEmissionContextCollisionRewrite —
+        // when no collision context is set, the theme body writes verbatim and UIFont
+        // qualifications survive.
+        var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
+        {
+            new("MyTheme", "TestModule", "shared", new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("titleFont", ThemeBridgeEmitter.ThemePropertyKind.UIKitFont),
+            })
+        };
+
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
+            viewBridgeExists: false, NullLogger.Instance);
+
+        var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("UIFont.systemFont", content);
+    }
+
+    [Fact]
     public void EmitThemeBridge_SwiftFile_ContainsCdeclSetters()
     {
         var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>

@@ -449,6 +449,7 @@ namespace BindingsGeneration
                 // Create per-module emission context (replaces static mutable state + ResetForModule)
                 var emissionContext = new ModuleEmissionContext();
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
+                emissionContext.SetCollisionContext(moduleNameForCollision, nestedTypesInCollidingClass);
 
                 // Create concrete specialization engine and index module-local conformances
                 var specializationEngine = new ConcreteSpecializationEngine(typeDatabase, moduleName);
