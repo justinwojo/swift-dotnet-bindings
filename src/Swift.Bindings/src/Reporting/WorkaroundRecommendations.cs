@@ -56,6 +56,10 @@ public static class WorkaroundRecommendations
             "Parent type was skipped; nested declarations are unreachable until the parent is supported.",
         SkipReason.ActorIsolatedConstructor =>
             "Constructor is on a custom global-actor-isolated type. The synchronous @_cdecl wrapper cannot call into the actor's executor. Construct the type from a Swift wrapper that hops to the actor, or expose a nonisolated factory.",
+        SkipReason.MissingWrapperSymbol =>
+            "The Swift @_cdecl wrapper symbol was stripped during wrapper compilation, so the corresponding C# P/Invoke was suppressed to avoid runtime DllNotFoundException. Inspect the wrapper post-processor output for the underlying cause.",
+        SkipReason.SuppressedProxyMethodBody =>
+            "The method body referenced a proxy class whose EveryProtocol conformance was not emitted. Once the proxy can be emitted (add support for the missing requirements), the method body is restored.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -109,6 +113,10 @@ public static class WorkaroundRecommendations
             "nested type whose parent was skipped",
         SkipReason.ActorIsolatedConstructor =>
             "constructor on a custom global-actor-isolated type (synchronous wrapper unsafe)",
+        SkipReason.MissingWrapperSymbol =>
+            "P/Invoke removed because the Swift wrapper symbol was stripped during wrapper compilation",
+        SkipReason.SuppressedProxyMethodBody =>
+            "method body removed because it constructed a proxy class whose conformance was suppressed",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

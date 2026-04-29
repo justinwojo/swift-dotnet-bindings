@@ -26,6 +26,18 @@ public static class ReportEmitter
         };
         File.WriteAllText(reportPath, JsonConvert.SerializeObject(report, serializerSettings));
 
+        LogSummary(report, logger, reportPath);
+    }
+
+    /// <summary>
+    /// Logs the binding generation summary for <paramref name="report"/>. Used by the
+    /// manifest-driven write path, which writes the JSON itself and only needs the log.
+    /// </summary>
+    public static void LogSummary(BindingReport report, ILogger logger, string? reportPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(logger);
+
         var typeCoverage = GetCoverage(report.EmittedTypes, report.TotalTypes);
         var memberCoverage = GetCoverage(report.EmittedMembers, report.TotalMembers);
 
@@ -81,7 +93,8 @@ public static class ReportEmitter
             logger.LogInformation("See binding-report.json for per-item skip reasons and workaround suggestions.");
         }
 
-        logger.LogInformation("Report: {ReportPath}", reportPath);
+        if (reportPath != null)
+            logger.LogInformation("Report: {ReportPath}", reportPath);
     }
 
     private static double GetCoverage(int emitted, int total) =>

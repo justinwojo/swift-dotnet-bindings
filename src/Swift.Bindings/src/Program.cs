@@ -508,27 +508,52 @@ namespace BindingsGeneration
                 stringEmitter.EmitModule(decl, emissionContext);
 
                 var report = ReportCollector.Complete();
-                if (report != null)
-                {
-                    ReportEmitter.Emit(report, outputDirectory, logger);
-                }
                 ReportCollector.Reset();
 
                 // Co-gate method bodies that reference suppressed proxy classes.
                 // When EveryProtocol conformance is skipped, the proxy class is not emitted.
                 // Method bodies in other types that construct the proxy (existential return
                 // unwrappers, optional property getters) must also be removed.
+                IReadOnlyList<CoGatedMember> proxyCoGated = Array.Empty<CoGatedMember>();
                 if (emissionContext.SuppressedProxyClassNames.Count > 0)
                 {
-                    var proxyCoGated = CSharpWrapperCoGater.ProcessSuppressedProxyReferencesInDirectory(
+                    proxyCoGated = CSharpWrapperCoGater.ProcessSuppressedProxyReferencesInDirectory(
                         outputDirectory, emissionContext.SuppressedProxyClassNames, logger);
-                    if (proxyCoGated > 0)
+                    if (proxyCoGated.Count > 0)
                         logger.LogInformation("Suppressed {Count} method(s) referencing {ProxyCount} suppressed proxy class(es).",
-                            proxyCoGated, emissionContext.SuppressedProxyClassNames.Count);
+                            proxyCoGated.Count, emissionContext.SuppressedProxyClassNames.Count);
                 }
 
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
                 EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
+
+                // Build and write the binding artifact manifest. The main generation pass
+                // owns this output directory and replaces any prior artifact wholesale —
+                // an existing binding-report.json from a pre-M1 build (no manifest) is fine
+                // and gets overwritten. Wrapper/bridge phases use ReadModifyWrite, which
+                // rejects orphaned reports because they own only their own section.
+                if (report != null)
+                {
+                    var emissionReport = EmissionReportEmitter.BuildReport(emissionContext, moduleName);
+                    var manifest = new BindingArtifactManifest
+                    {
+                        Module = moduleName,
+                        GeneratorVersion = BindingArtifactManifestStore.GetGeneratorVersion(),
+                        Generation = GenerationSection.From(report),
+                        Emission = EmissionSection.From(emissionReport),
+                        ProxyCoGating = new ProxyCoGatingSection
+                        {
+                            Status = PhaseStatus.Success,
+                            SuppressedProxyClassCount = emissionContext.SuppressedProxyClassNames.Count,
+                            CoGatedMethods = proxyCoGated.ToList(),
+                        },
+                    };
+                    BindingArtifactManifestStore.Write(manifest, outputDirectory, logger);
+
+                    var projectedReport = BindingReportProjection.Project(manifest);
+                    var reportPath = Path.Combine(outputDirectory, BindingArtifactManifestStore.ReportFileName);
+                    ReportEmitter.LogSummary(projectedReport, logger, reportPath);
+                }
 
                 // Fixup protocol EmittedMemberCount to include inherited requirements.
                 // Must run after EmitModule (all direct counts set) and before database serialization.
@@ -742,13 +767,24 @@ namespace BindingsGeneration
                 compilationResult, asyncLibraryAutoWired: false, sdkMode: true, compilationException);
             outcome.LogTo(logger);
 
+            IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
             if (outcome.StrippedSymbols.Count > 0)
             {
-                var coGated = CSharpWrapperCoGater.ProcessDirectory(
+                coGated = CSharpWrapperCoGater.ProcessDirectory(
                     outputDirectory, outcome.StrippedSymbols, logger);
-                if (coGated > 0)
-                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
+                if (coGated.Count > 0)
+                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
             }
+
+            // Record the wrapper phase in the binding artifact manifest. Standalone-CLI
+            // invocations land in ReadModifyWrite's missing-manifest path and produce a
+            // Partial manifest (no Generation section).
+            BindingArtifactManifestStore.ReadModifyWrite(
+                outputDirectory,
+                moduleName,
+                m => m.Wrapper = WrapperSection.From(outcome, coGated),
+                logger,
+                partialReasonWhenNew: "Wrapper compile invoked standalone (compile-wrapper-only); generation phase did not run in this output directory.");
 
             // Update binding-metadata.props with wrapper compilation result
             var hasWrapperXcfw = compilationResult?.XCFrameworkPath != null
@@ -814,6 +850,17 @@ namespace BindingsGeneration
             if (bridgeFiles.Count == 0)
             {
                 logger.LogInformation("No SwiftUI bridge files found — skipping bridge compilation.");
+                BindingArtifactManifestStore.ReadModifyWrite(
+                    outputDirectory,
+                    moduleName,
+                    m => m.Bridge = new BridgeSection
+                    {
+                        Status = PhaseStatus.NoOp,
+                        BridgeCompiled = false,
+                        Message = "No SwiftUI bridge files found — bridge compilation skipped.",
+                    },
+                    logger,
+                    partialReasonWhenNew: "Bridge compile invoked standalone (compile-bridge-only); generation phase did not run in this output directory.");
                 return 0;
             }
 
@@ -929,6 +976,13 @@ namespace BindingsGeneration
             // bridge views throw DllNotFoundException at runtime.
             var outcome = BridgeBuildOutcome.From(compilationResult, compilationException);
             outcome.LogTo(logger);
+
+            BindingArtifactManifestStore.ReadModifyWrite(
+                outputDirectory,
+                moduleName,
+                m => m.Bridge = BridgeSection.From(outcome),
+                logger,
+                partialReasonWhenNew: "Bridge compile invoked standalone (compile-bridge-only); generation phase did not run in this output directory.");
 
             // Update binding-metadata.props with bridge compilation result
             var bridgeModuleName = $"{moduleName}Bridge";

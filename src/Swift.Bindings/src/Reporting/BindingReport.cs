@@ -86,6 +86,8 @@ public enum SkipReason
     IndeterminatePwtShape,
     AncestorSkipped,
     ActorIsolatedConstructor,
+    MissingWrapperSymbol,
+    SuppressedProxyMethodBody,
     Unknown,
 }
 

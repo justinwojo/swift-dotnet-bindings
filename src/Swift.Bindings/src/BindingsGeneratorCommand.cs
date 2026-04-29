@@ -745,13 +745,20 @@ public static class BindingsGeneratorCommand
                 return;
             }
 
+            IReadOnlyList<CoGatedMember> coGated = Array.Empty<CoGatedMember>();
             if (outcome.StrippedSymbols.Count > 0)
             {
-                var coGated = CSharpWrapperCoGater.ProcessDirectory(
+                coGated = CSharpWrapperCoGater.ProcessDirectory(
                     outputDirectory, outcome.StrippedSymbols, logger);
-                if (coGated > 0)
-                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
+                if (coGated.Count > 0)
+                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated.Count);
             }
+
+            BindingArtifactManifestStore.ReadModifyWrite(
+                outputDirectory,
+                resolution.ModuleName,
+                m => m.Wrapper = WrapperSection.From(outcome, coGated),
+                logger);
         }
         else if (shouldCompileWrapper && isSystemFrameworkTarget && !string.IsNullOrEmpty(directModuleName))
         {
@@ -825,13 +832,20 @@ public static class BindingsGeneratorCommand
 
             compilationResult = directResult;
 
+            IReadOnlyList<CoGatedMember> directCoGated = Array.Empty<CoGatedMember>();
             if (directOutcome.StrippedSymbols.Count > 0)
             {
-                var coGated = CSharpWrapperCoGater.ProcessDirectory(
+                directCoGated = CSharpWrapperCoGater.ProcessDirectory(
                     outputDirectory, directOutcome.StrippedSymbols, logger);
-                if (coGated > 0)
-                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", coGated);
+                if (directCoGated.Count > 0)
+                    logger.LogInformation("Suppressed {Count} C# member(s) targeting stripped wrapper symbols.", directCoGated.Count);
             }
+
+            BindingArtifactManifestStore.ReadModifyWrite(
+                outputDirectory,
+                directModuleName,
+                m => m.Wrapper = WrapperSection.From(directOutcome, directCoGated),
+                logger);
         }
 
         // Run mixed framework ObjC pipeline (after Swift bindings generated, before project emission)

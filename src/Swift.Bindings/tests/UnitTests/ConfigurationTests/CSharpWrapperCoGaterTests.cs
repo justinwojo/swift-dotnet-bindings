@@ -14,6 +14,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_StrippedPInvoke_RemovesPInvokeDeclaration()
         {
+            // The P/Invoke is a private trampoline with no public caller, so it
+            // disappears from the file but contributes nothing to the public-API
+            // skip count — the cogater only records public surface that vanished.
             var input =
                 "namespace Test {\n" +
                 "public partial class Foo {\n" +
@@ -26,12 +29,15 @@ namespace BindingsGeneration.Tests
             var result = CSharpWrapperCoGater.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_broken_ABC123", result.Content);
             Assert.DoesNotContain("SBW_broken_method", result.Content);
-            Assert.Equal(1, result.StrippedMemberCount);
+            Assert.Equal(0, result.StrippedMemberCount);
         }
 
         [Fact]
         public void Process_FullyQualifiedAttribute_DetectsCorrectly()
         {
+            // Trampoline-only stripping: detection works regardless of attribute form
+            // (fully qualified or not), but with no public caller there is no public
+            // API surface to record, so StrippedMemberCount remains 0.
             var input =
                 "public partial class Foo {\n" +
                 "    [global::System.Runtime.InteropServices.LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_eq_broken\")]\n" +
@@ -40,7 +46,7 @@ namespace BindingsGeneration.Tests
             var stripped = new HashSet<string> { "SBW_eq_broken" };
             var result = CSharpWrapperCoGater.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_eq_DEADBEEF", result.Content);
-            Assert.Equal(1, result.StrippedMemberCount);
+            Assert.Equal(0, result.StrippedMemberCount);
         }
 
         [Fact]
@@ -95,6 +101,11 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void Process_ConstructorCallingStrippedPInvoke_Removed()
         {
+            // Acceptance bar: a stripped wrapper symbol that takes out a public
+            // constructor must produce a SkippedItem keyed on the constructor
+            // (name = type name, kind = Method) — *not* on the internal P/Invoke
+            // trampoline. The trampoline disappears too, but it's implementation
+            // noise; the public report should describe what the consumer lost.
             var input =
                 "public partial class MyClass {\n" +
                 "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_init_broken\")]\n" +
@@ -112,6 +123,77 @@ namespace BindingsGeneration.Tests
             var result = CSharpWrapperCoGater.Process(input, stripped);
             Assert.DoesNotContain("PInvoke_init_ABC123", result.Content);
             Assert.DoesNotContain("public MyClass(int value)", result.Content);
+            Assert.Equal(1, result.StrippedMemberCount);
+            var member = Assert.Single(result.StrippedMembers);
+            Assert.Equal("MyClass", member.Name);
+            Assert.Equal(BindingItemKind.Method, member.Kind);
+            Assert.Equal(IdentityConfidence.Heuristic, member.Confidence);
+            Assert.DoesNotContain(result.StrippedMembers, m => m.Name.StartsWith("PInvoke_", System.StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void Process_PropertyHelperStripped_RecordsPublicProperty()
+        {
+            // Acceptance bar: when a property helper (private trampoline) is
+            // stripped in Step B and its public property forwarder follows in
+            // Step C, the report records the property — not the helper, not the
+            // P/Invoke. Helpers are filtered by the public-only Add gate.
+            var input =
+                "public partial class MyClass : ISwiftObject {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_Get_value_broken\")]\n" +
+                "    private static partial void PInvoke_value_Get_AAA(IntPtr resultPtr, IntPtr self);\n" +
+                "\n" +
+                "    private int Value_Get()\n" +
+                "    {\n" +
+                "        PInvoke_value_Get_AAA(resultPtr, selfPtr);\n" +
+                "        return result;\n" +
+                "    }\n" +
+                "\n" +
+                "    public int Value\n" +
+                "    {\n" +
+                "        get => Value_Get();\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_Get_value_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.DoesNotContain("PInvoke_value_Get_AAA", result.Content);
+            Assert.DoesNotContain("Value_Get", result.Content);
+            Assert.DoesNotContain("public int Value", result.Content);
+            Assert.Equal(1, result.StrippedMemberCount);
+            var member = Assert.Single(result.StrippedMembers);
+            Assert.Equal("Value", member.Name);
+            Assert.Equal(BindingItemKind.Property, member.Kind);
+        }
+
+        [Fact]
+        public void Process_CascadeWithTwoPublicMembers_RecordsBoth()
+        {
+            // Acceptance bar: a cascade that takes out two distinct public
+            // members must increment SkippedMembers by two. Independent
+            // constructor and method, two stripped wrapper symbols.
+            var input =
+                "public partial class MyClass {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_init_broken\")]\n" +
+                "    private static partial void PInvoke_init_AAA(IntPtr resultPtr, int value);\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_doStuff_broken\")]\n" +
+                "    private static partial void PInvoke_doStuff_BBB(IntPtr ptr, int arg);\n" +
+                "\n" +
+                "    public MyClass(int value)\n" +
+                "    {\n" +
+                "        PInvoke_init_AAA(resultPtr, value);\n" +
+                "    }\n" +
+                "\n" +
+                "    public static string DoStuff(int arg)\n" +
+                "    {\n" +
+                "        PInvoke_doStuff_BBB(resultPtr, arg);\n" +
+                "        return result;\n" +
+                "    }\n" +
+                "}\n";
+            var stripped = new HashSet<string> { "SBW_init_broken", "SBW_doStuff_broken" };
+            var result = CSharpWrapperCoGater.Process(input, stripped);
+            Assert.Equal(2, result.StrippedMemberCount);
+            Assert.Contains(result.StrippedMembers, m => m.Name == "MyClass" && m.Kind == BindingItemKind.Method);
+            Assert.Contains(result.StrippedMembers, m => m.Name == "DoStuff" && m.Kind == BindingItemKind.Method);
         }
     }
 
@@ -1273,6 +1355,33 @@ namespace BindingsGeneration.Tests
             // And no invalid replacement shapes are produced.
             Assert.DoesNotContain("get { throw", result.Content);
             Assert.DoesNotContain("set { throw", result.Content);
+        }
+
+        [Fact]
+        public void ProcessSuppressedProxy_PrivatePropertyHelper_ProjectsAsProperty()
+        {
+            // When a private property helper (Value_Get) constructs a suppressed proxy,
+            // its body is replaced with throw — but the consumer-visible breakage is the
+            // public property forwarder. The report must record `Value` as a Property,
+            // not `Value_Get` as a Method, otherwise the post-cogating report still
+            // describes the implementation, not the surface.
+            var input =
+                "public partial class MyClass {\n" +
+                "    private IFoo Value_Get()\n" +
+                "    {\n" +
+                "        return new FooProxy(handle);\n" +
+                "    }\n" +
+                "\n" +
+                "    public IFoo Value => Value_Get();\n" +
+                "}\n";
+            var suppressedProxies = new HashSet<string> { "FooProxy" };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(input, suppressedProxies);
+
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            var member = Assert.Single(result.StrippedMembers);
+            Assert.Equal("Value", member.Name);
+            Assert.Equal(BindingItemKind.Property, member.Kind);
+            Assert.DoesNotContain(result.StrippedMembers, m => m.Name.EndsWith("_Get", System.StringComparison.Ordinal));
         }
     }
 
@@ -2684,6 +2793,53 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("_wrapped_callback", result.Content);
             // The string-variant sibling survives.
             Assert.Contains("string @event", result.Content);
+        }
+    }
+
+    #endregion
+
+    #region M. ProcessDirectory write gate
+
+    public class CoGaterProcessDirectoryTests
+    {
+        [Fact]
+        public void ProcessDirectory_TrampolineOnlyChange_StillWritesFile()
+        {
+            // Regression: the write gate must be content equality, not identity count.
+            // A file whose only change is an isolated stripped trampoline (no public
+            // caller, so zero public-API identities) still has different content and
+            // must be persisted — otherwise the on-disk file references a wrapper
+            // symbol that no longer exists, and the next compile fails with DllNotFound.
+            using var temp = new TempCogaterDir();
+            var filePath = Path.Combine(temp.Path, "Foo.cs");
+            File.WriteAllText(filePath,
+                "public partial class Foo {\n" +
+                "    [LibraryImport(\"SwiftBindings\", EntryPoint = \"SBW_orphan_trampoline\")]\n" +
+                "    private static partial void PInvoke_orphan(IntPtr ptr);\n" +
+                "}\n");
+            var stripped = new HashSet<string> { "SBW_orphan_trampoline" };
+
+            var aggregate = CSharpWrapperCoGater.ProcessDirectory(temp.Path, stripped);
+
+            Assert.Empty(aggregate);
+            var written = File.ReadAllText(filePath);
+            Assert.DoesNotContain("PInvoke_orphan", written);
+            Assert.DoesNotContain("SBW_orphan_trampoline", written);
+        }
+
+        private sealed class TempCogaterDir : IDisposable
+        {
+            public string Path { get; }
+            public TempCogaterDir()
+            {
+                Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path);
+            }
+            public void Dispose()
+            {
+                try { Directory.Delete(Path, recursive: true); }
+                catch { /* test cleanup */ }
+            }
         }
     }
 

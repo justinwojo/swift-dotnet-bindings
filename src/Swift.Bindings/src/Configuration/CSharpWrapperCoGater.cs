@@ -15,12 +15,31 @@ namespace BindingsGeneration
     public static class CSharpWrapperCoGater
     {
         /// <summary>
-        /// Result of co-gating a single C# source file.
+        /// Result of co-gating a single C# source file. <see cref="StrippedMembers"/> carries
+        /// stable identities (one per member decision, never collapsed for overloads) so the
+        /// rederived <see cref="BindingReport"/> reflects post-cogating reality. Mangled symbols
+        /// are populated when the cogater path has them (P/Invoke EntryPoint); otherwise identity
+        /// is heuristic and item 4 will tighten it.
+        /// <para>
+        /// <see cref="ContentChanged"/> is the write gate — independent of identity count because
+        /// trampoline-only removals (a stripped private P/Invoke with no public caller) modify
+        /// the file without producing any public-API identity. Callers must use this flag, not
+        /// <see cref="StrippedMemberCount"/>, to decide whether to write the file back.
+        /// </para>
         /// </summary>
         public sealed class CoGatingResult
         {
             public required string Content { get; init; }
-            public required int StrippedMemberCount { get; init; }
+            public required IReadOnlyList<CoGatedMember> StrippedMembers { get; init; }
+            public required bool ContentChanged { get; init; }
+            public int StrippedMemberCount => StrippedMembers.Count;
+
+            internal static CoGatingResult Empty(string content) => new()
+            {
+                Content = content,
+                StrippedMembers = Array.Empty<CoGatedMember>(),
+                ContentChanged = false,
+            };
         }
 
         private static readonly Regex EntryPointRegex = new(
@@ -40,7 +59,7 @@ namespace BindingsGeneration
         public static CoGatingResult Process(string content, IReadOnlySet<string> strippedSymbols)
         {
             if (strippedSymbols.Count == 0 || string.IsNullOrEmpty(content))
-                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+                return CoGatingResult.Empty(content);
 
             var lines = SplitLines(content);
             var removals = new HashSet<int>();
@@ -52,7 +71,7 @@ namespace BindingsGeneration
             FindStrippedPInvokeCandidates(lines, strippedSymbols, candidatePInvokes);
 
             if (candidatePInvokes.Count == 0)
-                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+                return CoGatingResult.Empty(content);
 
             // Build line → qualified type path map. Must be computed before
             // BuildTypeProtectedMembers so both use the same qualified-path keys.
@@ -74,8 +93,13 @@ namespace BindingsGeneration
             // file-wide caller detection would false-match across scopes. Skip these entirely.
             var ambiguousNames = FindAmbiguousMethodNames(lines, candidatePInvokes.Keys);
 
-            // Apply P/Invoke removals for non-exempted, non-ambiguous names
+            // Apply P/Invoke removals for non-exempted, non-ambiguous names. P/Invoke decls
+            // are internal trampolines — track only enough to drive caller detection in
+            // Steps B–G. Identity capture happens at the public-API level once all steps
+            // have settled; consumers care which bound surface disappeared, not which
+            // generated trampoline got stripped.
             var strippedPInvokeNames = new HashSet<string>();
+            var publicDeclLines = new HashSet<int>();
             foreach (var (name, (preambleStart, declEnd)) in candidatePInvokes)
             {
                 if (exemptedNames.Contains(name) || ambiguousNames.Contains(name))
@@ -86,13 +110,13 @@ namespace BindingsGeneration
             }
 
             if (strippedPInvokeNames.Count == 0)
-                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+                return CoGatingResult.Empty(content);
 
             // Step B: Find Level 1 callers (methods/constructors calling stripped P/Invokes)
             var strippedCallerNames = new HashSet<string>();
             var callerNameToTypes = new Dictionary<string, HashSet<string>>();
             FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals,
-                lineToType, callerNameToTypes);
+                lineToType, callerNameToTypes, publicDeclLines);
 
             // Step C: Find Level 2 forwarders (properties delegating to stripped helpers).
             // SCOPE-AWARE: Only strip callers within the same type scope as the original
@@ -101,34 +125,34 @@ namespace BindingsGeneration
             // "Id_Get" are not globally unique — multiple types can have properties named "id").
             foreach (var (callerName, types) in callerNameToTypes)
             {
-                FindAndMarkCallersInScopes(lines, callerName, types, lineToType, removals);
+                FindAndMarkCallersInScopes(lines, callerName, types, lineToType, removals, publicDeclLines);
             }
 
             // Step D: Strip orphaned lazy field accessors.
             // When a _lazy_X field is stripped (Step B — it calls PInvoke_CaseByIndex),
             // the expression-bodied property "Y => _lazy_X.Value;" becomes a dangling reference.
             // FindAndMarkCallers can't catch these because expression-bodied properties have no braces.
-            StripOrphanedLazyAccessors(lines, removals, lineToType);
+            StripOrphanedLazyAccessors(lines, removals, lineToType, publicDeclLines);
 
             // Step E: Strip dangling ToString() expression-bodied methods.
             // When the Description property is stripped (Steps B-D), the generated
             // "public override string ToString() => Description;" becomes a dangling reference.
-            StripDanglingToString(lines, removals);
+            StripDanglingToString(lines, removals, publicDeclLines);
 
             // Step F: Strip orphaned narrowing overloads (int/uint → nint/nuint convenience wrappers)
             // whose delegate target was stripped. Handles single-line and multi-line indexers,
             // and expression-bodied method overloads.
-            StripOrphanedNarrowingOverloads(lines, removals, lineToType);
+            StripOrphanedNarrowingOverloads(lines, removals, lineToType, publicDeclLines);
 
             // Step G: Strip orphaned throwing-closure simplification facades.
             // ThrowingClosureSimplificationEmitter emits convenience overloads that call the
             // base overload by C# method name (not P/Invoke name), so they sit one hop outside
             // Step B's transitive closure. When the base is stripped, the facade's self-call
             // becomes CS1501/CS1503. Must run last — depends on Step B/C removals.
-            StripOrphanedThrowingClosureFacades(lines, removals, lineToType);
+            StripOrphanedThrowingClosureFacades(lines, removals, lineToType, publicDeclLines);
 
             if (removals.Count == 0)
-                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+                return CoGatingResult.Empty(content);
 
             // Build output, skipping removed lines
             var sb = new StringBuilder();
@@ -138,43 +162,64 @@ namespace BindingsGeneration
                     sb.Append(lines[i]);
             }
 
+            var identities = BuildPublicMemberIdentities(lines, publicDeclLines, lineToType);
+
             return new CoGatingResult
             {
                 Content = sb.ToString(),
-                StrippedMemberCount = strippedPInvokeNames.Count
+                StrippedMembers = identities,
+                ContentChanged = true,
             };
         }
 
         /// <summary>
         /// Processes all .cs files in a directory, removing members targeting stripped wrapper symbols.
-        /// Files are modified in-place.
+        /// Files are modified in-place. Returns the aggregate list of stripped member identities
+        /// (overload-correct: duplicates preserved across files, ordinals scoped per file).
         /// </summary>
-        public static int ProcessDirectory(string directory, IReadOnlySet<string> strippedSymbols, ILogger? logger = null)
+        public static IReadOnlyList<CoGatedMember> ProcessDirectory(string directory, IReadOnlySet<string> strippedSymbols, ILogger? logger = null)
         {
             if (strippedSymbols.Count == 0)
-                return 0;
+                return Array.Empty<CoGatedMember>();
 
             var csFiles = Directory.GetFiles(directory, "*.cs");
-            int totalStripped = 0;
+            var aggregate = new List<CoGatedMember>();
 
             foreach (var file in csFiles)
             {
                 var content = File.ReadAllText(file);
                 var result = Process(content, strippedSymbols);
-                if (result.StrippedMemberCount > 0)
+                if (!result.ContentChanged)
+                    continue;
+
+                File.WriteAllText(file, result.Content);
+
+                if (result.StrippedMemberCount == 0)
+                    continue;
+
+                var fileName = Path.GetFileName(file);
+                foreach (var member in result.StrippedMembers)
                 {
-                    File.WriteAllText(file, result.Content);
-                    totalStripped += result.StrippedMemberCount;
-                    logger?.LogInformation("  Co-gated {Count} member(s) from {File}",
-                        result.StrippedMemberCount, Path.GetFileName(file));
+                    aggregate.Add(new CoGatedMember
+                    {
+                        Name = member.Name,
+                        ContainingType = member.ContainingType,
+                        Kind = member.Kind,
+                        MangledSymbol = member.MangledSymbol,
+                        Ordinal = member.Ordinal,
+                        Confidence = member.Confidence,
+                        SourceFile = fileName,
+                    });
                 }
+                logger?.LogInformation("  Co-gated {Count} member(s) from {File}",
+                    result.StrippedMemberCount, fileName);
             }
 
-            if (totalStripped > 0)
+            if (aggregate.Count > 0)
                 logger?.LogInformation("Co-gated {Count} total P/Invoke(s) and their callers from generated C#.",
-                    totalStripped);
+                    aggregate.Count);
 
-            return totalStripped;
+            return aggregate;
         }
 
         #region Step A: P/Invoke Detection
@@ -614,7 +659,8 @@ namespace BindingsGeneration
             List<string> lines, HashSet<string> targetNames,
             HashSet<string> foundCallerNames, HashSet<int> removals,
             string?[]? lineToType = null,
-            Dictionary<string, HashSet<string>>? callerNameToTypes = null)
+            Dictionary<string, HashSet<string>>? callerNameToTypes = null,
+            HashSet<int>? publicDeclLines = null)
         {
             int i = 0;
             while (i < lines.Count)
@@ -699,6 +745,11 @@ namespace BindingsGeneration
                 int preambleStart = ScanBackwardForPreamble(lines, i);
                 for (int j = preambleStart; j <= blockEnd; j++)
                     removals.Add(j);
+
+                // Record the declaration line (not the preamble) for identity capture.
+                // Only public surface — private/internal helpers are trampolines whose
+                // names ("Value_Get", "PInvoke_*") are implementation noise to consumers.
+                RecordPublicDecl(publicDeclLines, i, trimmed);
 
                 i = blockEnd + 1;
             }
@@ -905,7 +956,8 @@ namespace BindingsGeneration
         /// "public static T Y => _lazy_X.Value;" becomes a dangling reference.
         /// These are expression-bodied (no braces), so FindAndMarkCallers can't detect them.
         /// </summary>
-        private static void StripOrphanedLazyAccessors(List<string> lines, HashSet<int> removals, string?[] lineToType)
+        private static void StripOrphanedLazyAccessors(List<string> lines, HashSet<int> removals, string?[] lineToType,
+            HashSet<int>? publicDeclLines = null)
         {
             // Collect _lazy_ field names from removed lines, scoped by containing type.
             // Two enums in the same file can share _lazy_ field names (e.g., _lazy_none, _lazy_default),
@@ -947,6 +999,7 @@ namespace BindingsGeneration
                         int preambleStart = ScanBackwardForPreamble(lines, i);
                         for (int j = preambleStart; j <= i; j++)
                             removals.Add(j);
+                        RecordPublicDecl(publicDeclLines, i, line.TrimStart());
                         break;
                     }
                 }
@@ -957,7 +1010,8 @@ namespace BindingsGeneration
         /// Strips expression-bodied ToString() methods that reference properties removed by prior steps.
         /// Pattern: "public override string ToString() => PropertyName;" where PropertyName was stripped.
         /// </summary>
-        private static void StripDanglingToString(List<string> lines, HashSet<int> removals)
+        private static void StripDanglingToString(List<string> lines, HashSet<int> removals,
+            HashSet<int>? publicDeclLines = null)
         {
             for (int i = 0; i < lines.Count; i++)
             {
@@ -982,6 +1036,7 @@ namespace BindingsGeneration
                     int preambleStart = ScanBackwardForPreamble(lines, i);
                     for (int j = preambleStart; j <= i; j++)
                         removals.Add(j);
+                    RecordPublicDecl(publicDeclLines, i, trimmed);
                 }
             }
         }
@@ -1048,7 +1103,8 @@ namespace BindingsGeneration
         }
 
         private static void StripOrphanedThrowingClosureFacades(
-            List<string> lines, HashSet<int> removals, string?[] lineToType)
+            List<string> lines, HashSet<int> removals, string?[] lineToType,
+            HashSet<int>? publicDeclLines = null)
         {
             var methods = new List<FacadeMethodInfo>();
 
@@ -1126,6 +1182,7 @@ namespace BindingsGeneration
                     int preambleStart = ScanBackwardForPreamble(lines, f.DeclStart);
                     for (int j = preambleStart; j <= f.BlockEnd; j++)
                         removals.Add(j);
+                    RecordPublicDecl(publicDeclLines, f.DeclStart, lines[f.DeclStart].TrimStart());
                 }
             }
         }
@@ -1730,7 +1787,8 @@ namespace BindingsGeneration
         /// </summary>
         private static void FindAndMarkCallersInScopes(
             List<string> lines, string methodName, HashSet<string> allowedTypes,
-            string?[] lineToType, HashSet<int> removals)
+            string?[] lineToType, HashSet<int> removals,
+            HashSet<int>? publicDeclLines = null)
         {
             int i = 0;
             while (i < lines.Count)
@@ -1771,6 +1829,7 @@ namespace BindingsGeneration
                     int preambleStart = ScanBackwardForPreamble(lines, i);
                     for (int j = preambleStart; j <= blockEnd; j++)
                         removals.Add(j);
+                    RecordPublicDecl(publicDeclLines, i, trimmed);
                 }
 
                 i = blockEnd + 1;
@@ -1785,7 +1844,8 @@ namespace BindingsGeneration
         /// - Expression-bodied methods: "Method(int x) => Method((nint)x);"
         /// Uses lineToType to scope the search to the containing type.
         /// </summary>
-        private static void StripOrphanedNarrowingOverloads(List<string> lines, HashSet<int> removals, string?[] lineToType)
+        private static void StripOrphanedNarrowingOverloads(List<string> lines, HashSet<int> removals, string?[] lineToType,
+            HashSet<int>? publicDeclLines = null)
         {
             for (int i = 0; i < lines.Count; i++)
             {
@@ -1846,6 +1906,7 @@ namespace BindingsGeneration
                             int preambleStart = ScanBackwardForPreamble(lines, i);
                             for (int j = preambleStart; j <= blockEnd; j++)
                                 removals.Add(j);
+                            RecordPublicDecl(publicDeclLines, i, trimmed);
                         }
                     }
                     continue;
@@ -1936,6 +1997,7 @@ namespace BindingsGeneration
                     int preambleStart = ScanBackwardForPreamble(lines, i);
                     for (int j = preambleStart; j <= methodBlockEnd; j++)
                         removals.Add(j);
+                    RecordPublicDecl(publicDeclLines, i, trimmed);
                 }
             }
         }
@@ -1954,7 +2016,12 @@ namespace BindingsGeneration
         public static CoGatingResult ProcessSuppressedProxyReferences(string content, IReadOnlySet<string> suppressedProxyClassNames)
         {
             if (suppressedProxyClassNames.Count == 0 || string.IsNullOrEmpty(content))
-                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+                return CoGatingResult.Empty(content);
+
+            // Capture the input verbatim so the wrap-fallback pre-pass can be detected as
+            // a content-only change downstream — files where ONLY a fallback lambda was
+            // rewritten still need to be written back even when no member is replaced.
+            var originalContent = content;
 
             // Pre-pass: downgrade GetOrCreate auto-wrap fallbacks that reference suppressed proxies
             // back to the no-fallback form. The generator emits
@@ -1969,6 +2036,8 @@ namespace BindingsGeneration
             var lines = SplitLines(content);
             var removals = new HashSet<int>();
             var replacements = new Dictionary<int, (int blockStart, int blockEnd, string indent, bool isCallback, bool isVoidReturn, bool isProperty, bool propertySetter)>();
+            var identities = new List<CoGatedMember>();
+            int proxyOrdinal = 0;
 
             // Build interface member protection (same as main co-gater)
             var lineToType = BuildLineToTypeMap(lines);
@@ -2034,6 +2103,7 @@ namespace BindingsGeneration
                     // a return statement to avoid CS0161 (not all code paths return a value).
                     bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
                     replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: true, isVoidReturn, isProperty: false, propertySetter: false);
+                    identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
                     i = blockEnd + 1;
                     continue;
                 }
@@ -2070,6 +2140,8 @@ namespace BindingsGeneration
 
                     replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
                         isVoidReturn: false, isProperty: isIfacePropertyDecl, propertySetter: ifaceHasSetter);
+                    identities.Add(BuildProxyIdentity(lines, i, lineToType,
+                        isIfacePropertyDecl ? BindingItemKind.Property : BindingItemKind.Method, ref proxyOrdinal));
                 }
                 else
                 {
@@ -2101,6 +2173,7 @@ namespace BindingsGeneration
                         var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
                         replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false,
                             isVoidReturn: false, isProperty: true, propertySetter: hasSetter);
+                        identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Property, ref proxyOrdinal));
                     }
                     else if (isEventDecl)
                     {
@@ -2111,6 +2184,7 @@ namespace BindingsGeneration
                         int preambleStart = ScanBackwardForPreamble(lines, i);
                         for (int j = preambleStart; j <= blockEnd; j++)
                             removals.Add(j);
+                        identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
                     }
                     else if (isPublicMember || isPropertyHelper)
                     {
@@ -2118,12 +2192,26 @@ namespace BindingsGeneration
                         var indent = new string(' ', declLine.Length - declLine.TrimStart().Length);
                         bool isVoidReturn = declLine.Contains(" void ", StringComparison.Ordinal);
                         replacements[i] = (braceOpenLine, blockEnd, indent, isCallback: false, isVoidReturn, isProperty: false, propertySetter: false);
+
+                        if (isPropertyHelper && !isPublicMember)
+                        {
+                            // Private property helper (Value_Get / Value_Set) backing a public
+                            // property forwarder. The helper's body is replaced with throw, so
+                            // the user-visible breakage is the public property — report THAT,
+                            // not the implementation-detail helper name.
+                            identities.Add(BuildProxyPropertyIdentityFromHelper(memberName!, i, lineToType, ref proxyOrdinal));
+                        }
+                        else
+                        {
+                            identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
+                        }
                     }
                     else
                     {
                         int preambleStart = ScanBackwardForPreamble(lines, i);
                         for (int j = preambleStart; j <= blockEnd; j++)
                             removals.Add(j);
+                        identities.Add(BuildProxyIdentity(lines, i, lineToType, BindingItemKind.Method, ref proxyOrdinal));
                     }
                 }
 
@@ -2140,7 +2228,16 @@ namespace BindingsGeneration
             StripOrphanedNarrowingOverloads(lines, removals, lineToType);
 
             if (removals.Count == 0 && replacements.Count == 0)
-                return new CoGatingResult { Content = content, StrippedMemberCount = 0 };
+            {
+                // No member-level work, but DowngradeSuppressedWrapFallbacks may still
+                // have rewritten lambdas — write the file iff that happened.
+                return new CoGatingResult
+                {
+                    Content = content,
+                    StrippedMembers = Array.Empty<CoGatedMember>(),
+                    ContentChanged = !string.Equals(content, originalContent, StringComparison.Ordinal),
+                };
+            }
 
             var sb = new StringBuilder();
             for (int j = 0; j < lines.Count; j++)
@@ -2185,11 +2282,11 @@ namespace BindingsGeneration
                 sb.Append(lines[j]);
             }
 
-            int totalAffected = removals.Count + replacements.Count;
             return new CoGatingResult
             {
                 Content = sb.ToString(),
-                StrippedMemberCount = totalAffected > 0 ? totalAffected : 1
+                StrippedMembers = identities,
+                ContentChanged = true,
             };
         }
 
@@ -2219,34 +2316,193 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Processes all .cs files in a directory, removing methods that reference suppressed proxy classes.
-        /// Files are modified in-place.
+        /// Files are modified in-place. Returns the aggregate list of cogated member identities.
         /// </summary>
-        public static int ProcessSuppressedProxyReferencesInDirectory(string directory, IReadOnlySet<string> suppressedProxyClassNames, ILogger? logger = null)
+        public static IReadOnlyList<CoGatedMember> ProcessSuppressedProxyReferencesInDirectory(string directory, IReadOnlySet<string> suppressedProxyClassNames, ILogger? logger = null)
         {
             if (suppressedProxyClassNames.Count == 0)
-                return 0;
+                return Array.Empty<CoGatedMember>();
 
             var csFiles = Directory.GetFiles(directory, "*.cs");
-            int totalStripped = 0;
+            var aggregate = new List<CoGatedMember>();
 
             foreach (var file in csFiles)
             {
                 var content = File.ReadAllText(file);
                 var result = ProcessSuppressedProxyReferences(content, suppressedProxyClassNames);
-                if (result.StrippedMemberCount > 0)
+                if (!result.ContentChanged)
+                    continue;
+
+                File.WriteAllText(file, result.Content);
+
+                if (result.StrippedMemberCount == 0)
+                    continue;
+
+                var fileName = Path.GetFileName(file);
+                foreach (var member in result.StrippedMembers)
                 {
-                    File.WriteAllText(file, result.Content);
-                    totalStripped += result.StrippedMemberCount;
-                    logger?.LogInformation("  Co-gated {Count} proxy reference(s) from {File}",
-                        result.StrippedMemberCount, Path.GetFileName(file));
+                    aggregate.Add(new CoGatedMember
+                    {
+                        Name = member.Name,
+                        ContainingType = member.ContainingType,
+                        Kind = member.Kind,
+                        MangledSymbol = member.MangledSymbol,
+                        Ordinal = member.Ordinal,
+                        Confidence = member.Confidence,
+                        SourceFile = fileName,
+                    });
                 }
+                logger?.LogInformation("  Co-gated {Count} proxy reference(s) from {File}",
+                    result.StrippedMemberCount, fileName);
             }
 
-            if (totalStripped > 0)
+            if (aggregate.Count > 0)
                 logger?.LogInformation("Co-gated {Count} total method(s) referencing suppressed proxy classes.",
-                    totalStripped);
+                    aggregate.Count);
 
-            return totalStripped;
+            return aggregate;
+        }
+
+        #endregion
+
+        #region Identity Extraction
+
+        /// <summary>
+        /// Returns the containing-type qualified path for a given line, or null when
+        /// <see cref="BuildLineToTypeMap"/> didn't resolve it.
+        /// </summary>
+        private static string? ContainingTypeAt(string?[] lineToType, int lineIndex)
+        {
+            if (lineIndex < 0 || lineIndex >= lineToType.Length)
+                return null;
+            return lineToType[lineIndex];
+        }
+
+        /// <summary>
+        /// Records a declaration line as part of the public-API surface that disappeared.
+        /// Filters out private/internal trampolines (property helpers, P/Invoke wrappers)
+        /// — these are implementation noise the consumer-facing report should not surface.
+        /// Operators are <c>public static</c> too, so the leading-token check covers them.
+        /// </summary>
+        private static void RecordPublicDecl(HashSet<int>? publicDeclLines, int declLine, string trimmedDecl)
+        {
+            if (publicDeclLines == null) return;
+            if (!trimmedDecl.StartsWith("public ", StringComparison.Ordinal)) return;
+            publicDeclLines.Add(declLine);
+        }
+
+        /// <summary>
+        /// Heuristic kind classifier for a removed declaration line. Subscript (this[…])
+        /// and Operator are detected by their distinguishing tokens; the property/method
+        /// split hinges on whether the declaration carries a parameter list before any
+        /// expression-body arrow. Constructors fall through to Method, which matches the
+        /// rest of the report (constructors are tracked as Method, not Type).
+        /// </summary>
+        private static BindingItemKind ClassifyMemberKind(string trimmed)
+        {
+            if (ContainsKeywordToken(trimmed, "operator"))
+                return BindingItemKind.Operator;
+            if (trimmed.Contains("this[", StringComparison.Ordinal))
+                return BindingItemKind.Subscript;
+
+            int parenIdx = trimmed.IndexOf('(');
+            if (parenIdx < 0)
+                return BindingItemKind.Property;
+
+            int arrowIdx = trimmed.IndexOf("=>", StringComparison.Ordinal);
+            if (arrowIdx >= 0 && parenIdx > arrowIdx)
+                return BindingItemKind.Property;
+
+            return BindingItemKind.Method;
+        }
+
+        /// <summary>
+        /// Walks the recorded public declaration line indices and produces stable identities
+        /// in source order so per-file ordinals stay deterministic across runs. Identities
+        /// are <see cref="IdentityConfidence.Heuristic"/> — no mangled symbol is available
+        /// at the C# layer (a public method has no 1:1 wrapper symbol; the wrapper that
+        /// triggered the cascade is an internal trampoline and item 4 will tighten the
+        /// link). Subscripts canonicalize to the name <c>this</c> because they have no
+        /// member identifier in C# source.
+        /// </summary>
+        private static List<CoGatedMember> BuildPublicMemberIdentities(
+            List<string> lines, HashSet<int> publicDeclLines, string?[] lineToType)
+        {
+            var identities = new List<CoGatedMember>();
+            if (publicDeclLines.Count == 0)
+                return identities;
+
+            int ordinal = 0;
+            foreach (var declLine in publicDeclLines.OrderBy(x => x))
+            {
+                if (declLine < 0 || declLine >= lines.Count)
+                    continue;
+                var trimmed = lines[declLine].TrimStart();
+                var kind = ClassifyMemberKind(trimmed);
+                var name = kind == BindingItemKind.Subscript
+                    ? "this"
+                    : ExtractMemberName(trimmed) ?? $"<unknown@{declLine}>";
+
+                identities.Add(new CoGatedMember
+                {
+                    Name = name,
+                    ContainingType = ContainingTypeAt(lineToType, declLine),
+                    Kind = kind,
+                    MangledSymbol = null,
+                    Ordinal = ordinal++,
+                    Confidence = IdentityConfidence.Heuristic,
+                });
+            }
+
+            return identities;
+        }
+
+        /// <summary>
+        /// Builds a Property identity for a proxy-suppressed *private helper*
+        /// (<c>Value_Get</c>, <c>Value_Set</c>). The helper itself is generator-internal
+        /// scaffolding; the consumer-visible surface is the public property it backs, so
+        /// the report records that public name with <see cref="BindingItemKind.Property"/>.
+        /// </summary>
+        private static CoGatedMember BuildProxyPropertyIdentityFromHelper(
+            string helperName, int declLine, string?[] lineToType, ref int ordinal)
+        {
+            int underscoreIdx = helperName.LastIndexOf('_');
+            var propertyName = underscoreIdx > 0 ? helperName.Substring(0, underscoreIdx) : helperName;
+            return new CoGatedMember
+            {
+                Name = propertyName,
+                ContainingType = ContainingTypeAt(lineToType, declLine),
+                Kind = BindingItemKind.Property,
+                MangledSymbol = null,
+                Ordinal = ordinal++,
+                Confidence = IdentityConfidence.Heuristic,
+            };
+        }
+
+        /// <summary>
+        /// Builds a heuristic-confidence identity for a proxy-suppression decision at the
+        /// given declaration line. Member name comes from <see cref="ExtractMemberName"/>;
+        /// containing type from <paramref name="lineToType"/>; mangled symbol is unavailable
+        /// at this layer (the cogater operates on generated C#, not Swift wrappers).
+        /// </summary>
+        private static CoGatedMember BuildProxyIdentity(
+            List<string> lines,
+            int declLine,
+            string?[] lineToType,
+            BindingItemKind kind,
+            ref int ordinal)
+        {
+            var trimmed = lines[declLine].TrimStart();
+            var name = ExtractMemberName(trimmed) ?? $"<unknown@{declLine}>";
+            return new CoGatedMember
+            {
+                Name = name,
+                ContainingType = ContainingTypeAt(lineToType, declLine),
+                Kind = kind,
+                MangledSymbol = null,
+                Ordinal = ordinal++,
+                Confidence = IdentityConfidence.Heuristic,
+            };
         }
 
         #endregion
