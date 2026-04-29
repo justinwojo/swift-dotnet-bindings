@@ -160,7 +160,9 @@
           "framework": "Alamofire"
         }
       ],
-      "tier": 1
+      "tier": 1,
+      "behaviorTier": true,
+      "behaviorTierMacOSScheme": "Alamofire macOS"
     },
     {
       "name": "BlinkID",

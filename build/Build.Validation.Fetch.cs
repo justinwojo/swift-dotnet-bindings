@@ -43,7 +43,7 @@ partial class Build
         {
             var version = lib.Version ?? "manual";
 
-            if (!Force && IsCached(lib.Name, version))
+            if (!Force && IsCached(lib.Name, version) && !BehaviorTierArtifactMissing(lib))
             {
                 Log.Debug("{Name}: cached ({Version})", lib.Name, version);
                 cached++;
@@ -119,6 +119,18 @@ partial class Build
         File.WriteAllText(LibrariesDir / name / ".version", version);
     }
 
+    // Behavior-tier libraries need an extra macOS xcframework that older `.version`
+    // caches don't account for. If the flag is set but the slice is missing on
+    // disk, treat the cache as a miss so BuildFromSource runs and produces it.
+    bool BehaviorTierArtifactMissing(ValidationLibrary lib)
+    {
+        if (!lib.BehaviorTier || string.IsNullOrEmpty(lib.BehaviorTierMacOSScheme))
+            return false;
+        var libDir = LibrariesDir / lib.Name;
+        return lib.Products.Any(p => !Directory.Exists(
+            libDir / ".behavior-tier" / $"{p.Framework}-macos.xcframework"));
+    }
+
     void VerifyRevision(string repository, string tag, string revision)
     {
         Log.Debug("Verifying tag {Tag}...", tag);
@@ -185,6 +197,22 @@ partial class Build
             BuildProductArchives(lib, product, buildDir, archivesDir, derivedData);
             InjectSwiftModuleInterfaces(product, archivesDir, derivedData);
             CreateProductXcframework(product, libDir, archivesDir);
+
+            // Behavior tier opt-in: build an additional single-slice macOS xcframework
+            // alongside the iOS one. The host-run consumer in `nuke validate`'s
+            // behavior tier loads this slice on macOS to invoke real Swift through
+            // P/Invoke. macOS scheme name comes from the manifest; we cannot reuse
+            // the iOS scheme (Alamofire's xcodeproj exposes "Alamofire macOS" as a
+            // distinct scheme from "Alamofire iOS"). The result lives under
+            // `<libDir>/.behavior-tier/` (see CreateProductMacOSXcframework) so
+            // Validate's sibling-xcframework auto-discovery cannot pick it up and
+            // try to resolve a macOS slice as an iOS framework dependency.
+            if (lib.BehaviorTier && !string.IsNullOrEmpty(lib.BehaviorTierMacOSScheme))
+            {
+                BuildProductMacOSArchive(lib, product, buildDir, archivesDir, derivedData);
+                InjectMacOSSwiftModuleInterface(product, archivesDir, derivedData);
+                CreateProductMacOSXcframework(product, libDir, archivesDir);
+            }
         }
 
         buildDir.DeleteDirectory();
@@ -276,6 +304,95 @@ partial class Build
                 swiftmod.Copy(fwPath / "Modules" / $"{product.Framework}.swiftmodule");
             }
         }
+    }
+
+    void BuildProductMacOSArchive(
+        ValidationLibrary lib, ValidationProduct product,
+        AbsolutePath buildDir, AbsolutePath archivesDir, AbsolutePath derivedData)
+    {
+        var sourceDir = buildDir / "source";
+        var scheme = lib.BehaviorTierMacOSScheme!;
+
+        Log.Information("  Building {Framework} (scheme: {Scheme}) - macOS [behavior tier]",
+            product.Framework, scheme);
+
+        var macSettings = new ArchiveBuildSettings()
+            .SetScheme(scheme)
+            .SetDestination("generic/platform=macOS")
+            .SetArchivePath(archivesDir / $"{product.Framework}-macos-arm64")
+            .SetDerivedDataPath(derivedData / "macos")
+            .SetLibraryDistributionDefaults()
+            .AddBuildSetting("MACOSX_DEPLOYMENT_TARGET", lib.MinMacOS)
+            // Pin to arm64 so the slice is produced for the host (CI is Apple Silicon).
+            // x86_64 macs aren't a runtime target for the behavior tier.
+            .AddBuildSetting("ARCHS", "arm64")
+            .AddBuildSetting("ONLY_ACTIVE_ARCH", "NO")
+            .SetQuiet()
+            .SetWorkingDirectory(sourceDir);
+
+        if (!string.IsNullOrEmpty(product.Project))
+            macSettings.SetProject(product.Project);
+
+        if (lib.BuildSettings != null)
+            foreach (var (key, value) in lib.BuildSettings)
+                macSettings.AddBuildSetting(key, value);
+
+        XcodeBuild.ExecuteArchiveBuild(macSettings);
+    }
+
+    void InjectMacOSSwiftModuleInterface(
+        ValidationProduct product, AbsolutePath archivesDir, AbsolutePath derivedData)
+    {
+        // Mirror of InjectSwiftModuleInterfaces but only for the macOS arm64 slice.
+        // Some Xcode versions emit the .swiftmodule contents into DerivedData rather
+        // than the archived framework; copy them across so the generator's
+        // XCFrameworkResolver finds the swiftinterface where it expects it.
+        var archivePath = archivesDir / $"{product.Framework}-macos-arm64.xcarchive";
+        var productsDir = archivePath / "Products";
+        var fwPath = productsDir.GlobDirectories($"**/{product.Framework}.framework").FirstOrDefault();
+        if (fwPath == null) return;
+
+        var modulesDir = fwPath / "Modules" / $"{product.Framework}.swiftmodule";
+        if (Directory.Exists(modulesDir)) return;
+
+        var swiftmod = (derivedData / "macos")
+            .GlobDirectories($"**/ArchiveIntermediates/**/BuildProductsPath/**/{product.Framework}.swiftmodule")
+            .FirstOrDefault();
+
+        if (swiftmod != null)
+        {
+            Log.Debug("  Injecting Swift module interfaces for {Framework} (macOS)", product.Framework);
+            (fwPath / "Modules").CreateDirectory();
+            swiftmod.Copy(fwPath / "Modules" / $"{product.Framework}.swiftmodule");
+        }
+    }
+
+    void CreateProductMacOSXcframework(
+        ValidationProduct product, AbsolutePath libDir, AbsolutePath archivesDir)
+    {
+        // Single-slice macOS xcframework consumed exclusively by the behavior tier.
+        // Lives under `<libDir>/.behavior-tier/` so Validate's sibling-xcframework
+        // discovery (which globs `<libDir>/*.xcframework` non-recursively) cannot
+        // pick it up and try to resolve it as an iOS dependency.
+        var macArchive = archivesDir / $"{product.Framework}-macos-arm64.xcarchive" / "Products";
+        var macFw = macArchive
+            .GlobDirectories($"**/{product.Framework}.framework")
+            .FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                $"{product.Framework}.framework not found in macOS archive");
+
+        Log.Information("  Creating {Framework}-macos.xcframework [behavior tier]", product.Framework);
+
+        var behaviorTierDir = libDir / ".behavior-tier";
+        behaviorTierDir.CreateDirectory();
+        var xcfwPath = behaviorTierDir / $"{product.Framework}-macos.xcframework";
+        if (Directory.Exists(xcfwPath)) ((AbsolutePath)xcfwPath).DeleteDirectory();
+
+        XcodeBuild.ExecuteCreateXcframework(new CreateXcframeworkSettings()
+            .AddFrameworkPath(macFw)
+            .SetOutputPath(xcfwPath));
+
+        Log.Information("  {Framework}-macos.xcframework built", product.Framework);
     }
 
     void CreateProductXcframework(

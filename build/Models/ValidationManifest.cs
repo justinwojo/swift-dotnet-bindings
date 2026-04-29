@@ -86,6 +86,26 @@ public record ValidationLibrary
     [JsonPropertyName("note")] public string? Note { get; init; }
     [JsonPropertyName("platformVersion")] public string? PlatformVersion { get; init; }
     [JsonPropertyName("products")] public IReadOnlyList<ValidationProduct> Products { get; init; } = [];
+
+    // Opt-in flag for the behavior tier. When true, `nuke validate` exercises a fresh
+    // consumer that instantiates one type and invokes one Swift function from this
+    // library, asserting on the round-trip return value. Today validation only proves
+    // bindings *compile*; this closes the gap for the libs we want active runtime
+    // coverage on. The fixture itself (which type, which call, expected output) lives
+    // in build/Build.BehaviorTier.cs — kept out of JSON because the assertion is C#
+    // code referencing generated types. The flag here is only the eligibility gate.
+    [JsonPropertyName("behaviorTier")] public bool BehaviorTier { get; init; }
+
+    // macOS deployment target used by the behavior tier when building the macOS slice
+    // for this library. Defaults to 12.0 (matches Swift.Bindings.Apple), which is
+    // newer than most third-party libs need but old enough to be universally
+    // satisfied — Alamofire 5.10.2's `.macOS(.v10_15)` is far below this floor.
+    [JsonPropertyName("minMacOS")] public string MinMacOS { get; init; } = "12.0";
+
+    // Per-product overrides applied at xcodebuild scheme/destination time. Behavior
+    // tier needs a macOS scheme name (Alamofire's xcodeproj exposes "Alamofire macOS"
+    // separately from the iOS scheme used by validate). Keyed by framework name.
+    [JsonPropertyName("behaviorTierMacOSScheme")] public string? BehaviorTierMacOSScheme { get; init; }
 }
 
 public record ValidationProduct

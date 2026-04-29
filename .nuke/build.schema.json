@@ -25,6 +25,7 @@
       "type": "string",
       "enum": [
         "AnalyzerTests",
+        "BehaviorTier",
         "BindingTests",
         "BuildAsyncWrapper",
         "BuildBridge",

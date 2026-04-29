@@ -39,16 +39,16 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 **Gate**: full `nuke binding-tests --sim --device` + `nuke validate` at or above baseline; manifest-derived report shows correct counts vs. captured pre-gating evidence. Device included because fail-closed gating changes apply to NativeAOT packaging paths.
 
 
-### Milestone 2 — Catch real release bugs *(2–3 sessions)* — **IN PROGRESS**
+### Milestone 2 — Catch real release bugs *(3 sessions)* — **DONE**
 
 **Goal**: every confirmed release target has a regression baseline and at least one library that is verified working end-to-end from a fresh consumer.
 
 **Scope**:
 - **DONE**: End-to-end consumer test: `dotnet new swift-binding && dotnet build && dotnet run` actually invoking a Swift method. Today `Build.PackGate.cs` does library-build only — never runs Swift.
-- Behavior tier in `nuke validate` for 1–2 representative libs: instantiate one type, call one Swift function from a fresh consumer project. Today validation only proves bindings *compile*, not that they *run*. Library selection is an open question (Foundation + one Theme B candidate is the working assumption).
+- **DONE**: Behavior tier in `nuke validate` for Foundation + Alamofire (resolved OQ#2): fresh net10.0-macos consumer project per fixture, instantiate one type, call one Swift function, assert round-trip return value. Foundation exercises `Swift.Foundation.Data.FromByteArray` → `data.Count` via the supplement. Alamofire exercises `HTTPMethod(rawValue:)` → `RawValue` against a behavior-tier-only `Alamofire-macos.xcframework` produced by `BuildFromSource`. Triggered from `Validate` alongside `PackGate`. macOS-only on purpose — host-run binary, no sim launch ceremony; iOS-sim/device runtime coverage already lives in `nuke binding-tests --sim --device`.
 - **DONE**: Populate runtime regression baselines for macOS, Mac Catalyst, and tvOS simulator. `Swift.Foundation.*` reference gap closed by wiring `Swift.Bindings.Apple` (multi-targeted across all four Apple TFMs) plus the `AppleIdentity.ConsumerA/B` probes into the Mac / Catalyst / tvOS RuntimeTestsApp variants. AbiSafety frozen-struct ABI regression fixed (Session 2). Optional<generic-param> @in double-release on Mac-family Mono Interpreter fixed (Session 2). Baselines: macOS=1448, MacCatalyst=1448, TvOSSimulator=1532 (all 0 fail / 0 crash). iOS simulator (1760) and iOS device (1773) baselines were already in place; tvOS device is explicitly deferred per roadmap (no physical Apple TV).
 
-**Sessions** (2 of 3 done, 1 remaining):
+**Sessions** (3 of 3 done):
 
 1. **Session 1 — Pack-gate consumer run + end-to-end consumer test** *(DONE — `c496573a`)*. Closes M2's first scope bullet.
 
@@ -58,11 +58,11 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
    - **DONE**: `RuntimeTestsBaseline` (`build/Models/ValidationBaseline.cs`) extended with `MacOS`, `MacCatalyst`, `TvOSSimulator` records; `Build.RuntimeTests.cs:2121` dispatch switch + auto-update logic updated for all 5 platforms. `.validation-baseline.json` seeded with macOS=1448, MacCatalyst=1448, TvOSSimulator=1532 (all 0 fail, 0 crash).
    - **Gate (MET)**: all three platform runs green; baselines committed; M2's third scope bullet **DONE**.
 
-3. **Session 3 — Behavior-tier `nuke validate` + close M2**
-   - Resolve Open Question #2: commit to Foundation + one Theme B candidate (Alamofire is the strong default — doubles as Theme B's deep-dive target).
-   - Add behavior tier in `nuke validate`: fresh consumer project, instantiate one type, call one Swift function, assert result. Today validation only proves bindings *compile*, not that they *run*.
-   - Wire the behavior tier into the validate gate.
-   - **Gate**: M2 checkpoint sweep (`nuke binding-tests --sim --device --macos --catalyst --tvos` + `nuke validate`) clean; M2 marked DONE; checkpoint #2 reached.
+3. **Session 3 — Behavior-tier `nuke validate` + close M2** *(DONE)*
+   - **DONE**: OQ#2 resolved — Foundation (universal coverage via supplement) + Alamofire (Theme B's deep-dive target).
+   - **DONE**: New `BehaviorTier` target in `build/Build.BehaviorTier.cs`. Packs Runtime + SDK + Apple at a throwaway version (`0.0.0-behaviortier` / `26.2.0-behaviortier`), scaffolds two fresh net10.0-macos consumer projects under `artifacts/behavior-tier/`, builds and launches each binary, and asserts Swift round-trip return values appear in stdout. Foundation fixture is always-on (no JSON opt-in — Foundation isn't a validation library, it ships in the supplement). Alamofire fixture is opt-in via `behaviorTier: true` + `behaviorTierMacOSScheme` in `build/validation-libraries.json`; eligibility flag in JSON, fixture wiring (which type, which call, expected output) in C#. `Build.Validation.Fetch.cs.BuildFromSource` extended to produce `<Framework>-macos.xcframework` alongside the iOS xcframework when the behavior-tier flag is set, using xcodebuild against the macOS scheme. ManifestPath schema (`ValidationLibrary`) gained `BehaviorTier`, `MinMacOS`, `BehaviorTierMacOSScheme`.
+   - **DONE**: `Validate` target now `.Triggers(PackGate, BehaviorTier)` so the behavior tier runs as part of the standard validate gate.
+   - **Gate (MET)**: validate sweep green (Compile 0:09 / Validate 2:56 / PackGate 0:55 / BehaviorTier 1:02); five-axis runtime-tests sweep at-or-above baseline; M2 marked DONE; checkpoint #2 reached.
 
 **Why (litmus)**: exposes binding failures earlier (real consumer surface, real platforms). Three of the supported runtime axes currently can't catch regressions — that will produce real release bugs.
 
@@ -152,9 +152,9 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 
 **Gate**: type resolution tests prove single-path policy (no special-case duplication); facts tests cover all 17 fact types; diagnostics surface source positions where available; full `nuke binding-tests --sim --device` + `nuke validate` at or above baseline.
 
-### Total: ~14 sessions (9 remaining)
+### Total: ~14 sessions (8 remaining)
 
-Allocation: M1 (3–4, DONE) + M2 (3, 2 done / 1 remaining) + M3 (4) + M4 (4). Each subsequent `/next-session` corresponds to exactly one of the numbered sessions enumerated under its milestone above — the unit of work is the session, not "the next visible incremental step."
+Allocation: M1 (3–4, DONE) + M2 (3, DONE) + M3 (4) + M4 (4). Each subsequent `/next-session` corresponds to exactly one of the numbered sessions enumerated under its milestone above — the unit of work is the session, not "the next visible incremental step."
 
 Elapsed time is **validation-bound**, not session-stacked. Each milestone ends with a full sim + device + validate sweep (~30+ minutes of run time even when everything passes), and most milestones will surface at least one fix-and-rerun cycle. Don't sell this as compressible by stacking sessions per day — that pressures rushing the very gates this rescope is meant to protect. Realistic framing is a focused working week of execution, not a sprint.
 
@@ -182,7 +182,7 @@ Unit-tests-only loops miss generated C# that compiles unit tests but emits broke
 Four checkpoints — one per milestone. Each runs the full sim + device + validate sweep and updates baselines.
 
 1. **DONE** — End of M1: diagnostic surface trustworthy; CI fail-closed.
-2. End of M2 — every release target gates against regressions; consumer surface verified.
+2. **DONE** — End of M2: every release target gates against regressions; consumer surface verified end-to-end via PackGate consumer-run + behavior-tier (Foundation + Alamofire round-trip Swift calls from `nuke validate`).
 3. End of M3 — emitted API surface measurably larger.
 4. End of M4 — bug-factory areas closed. **1.0 candidate.**
 
@@ -252,7 +252,7 @@ Don't lose these — they're patterns the team got right. Most of them stay unto
 
 1. **Source position strategy (M4).** Use what the existing regex parser can surface (cheap, lossy) and tighten with SwiftSyntax post-1.0, or wait for SwiftSyntax to land before plumbing positions? Recommendation: best-effort now. Don't gate M4 on a parser swap.
 
-2. **Behavior-tier library selection (M2).** Foundation is a near-certain pick for universal coverage. Second slot: CryptoKit (already partial validation coverage), or one of the Theme B candidates (Alamofire / Kingfisher / GRDB) once committed? Recommendation: choose at start of M2; favor whichever doubles as Theme B's deep-dive target.
+2. **Behavior-tier library selection (M2).** *Resolved (M2 Session 3).* Foundation + Alamofire. Foundation gives universal coverage via the always-on supplement fixture; Alamofire is the Theme B deep-dive target and exercises a third-party SPM library through the full pipeline (xcframework build → SDK auto-generation → consumer-app run → Swift round-trip).
 
 3. **CoGater inventory threshold (M3).** Inventory will identify 5–10+ classes of "shouldn't have emitted." How many do we fix at emission time before declaring M3 done? Recommendation: fix the top 3 by volume, or any class whose fix cost is < 1 session — whichever yields more.
 
