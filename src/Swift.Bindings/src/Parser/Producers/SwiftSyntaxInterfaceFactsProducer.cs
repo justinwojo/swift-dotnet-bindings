@@ -17,8 +17,16 @@ namespace BindingsGeneration.Producers;
 /// (tools/SwiftInterfaceParser, built by `nuke compile`) with `--input &lt;path&gt;`,
 /// reads JSON from stdout, and converts it into a <see cref="PartialSwiftInterfaceFacts"/>.
 /// <para/>
-/// Session 1 covers <see cref="InterfaceFactKind.MainActorTypes"/> +
-/// <see cref="InterfaceFactKind.MainActorTypePositions"/> only. Subsequent sessions extend
+/// Session 2 covers <see cref="InterfaceFactKind.MainActorTypes"/>,
+/// <see cref="InterfaceFactKind.MainActorTypePositions"/>, the actor isolation cluster
+/// (<see cref="InterfaceFactKind.ActorIsolatedMembers"/>,
+/// <see cref="InterfaceFactKind.MainActorIsolatedMembers"/>,
+/// <see cref="InterfaceFactKind.NonisolatedMembers"/>,
+/// <see cref="InterfaceFactKind.CustomActorTypes"/>,
+/// <see cref="InterfaceFactKind.CustomActorIsolatorMap"/>), the availability cluster
+/// (<see cref="InterfaceFactKind.AvailabilityAnnotations"/>,
+/// <see cref="InterfaceFactKind.AvailabilityAnnotationPositions"/>), and
+/// <see cref="InterfaceFactKind.TypedThrowsErrors"/>. Subsequent sessions extend
 /// coverage; <see cref="ProducerResult.CoveredFacts"/> carries the host binary's declared
 /// coverage so the aggregator merges per-fact correctly during the migration window.
 /// <para/>
@@ -196,6 +204,30 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             MainActorTypePositions = covered.Contains(InterfaceFactKind.MainActorTypePositions)
                 ? ConvertPositions(parsed.Facts.MainActorTypePositions)
                 : null,
+            ActorIsolatedMembers = covered.Contains(InterfaceFactKind.ActorIsolatedMembers)
+                ? new HashSet<string>(parsed.Facts.ActorIsolatedMembers ?? new List<string>())
+                : null,
+            MainActorIsolatedMembers = covered.Contains(InterfaceFactKind.MainActorIsolatedMembers)
+                ? new HashSet<string>(parsed.Facts.MainActorIsolatedMembers ?? new List<string>())
+                : null,
+            NonisolatedMembers = covered.Contains(InterfaceFactKind.NonisolatedMembers)
+                ? new HashSet<string>(parsed.Facts.NonisolatedMembers ?? new List<string>())
+                : null,
+            CustomActorTypes = covered.Contains(InterfaceFactKind.CustomActorTypes)
+                ? new HashSet<string>(parsed.Facts.CustomActorTypes ?? new List<string>())
+                : null,
+            CustomActorIsolatorMap = covered.Contains(InterfaceFactKind.CustomActorIsolatorMap)
+                ? new Dictionary<string, string>(parsed.Facts.CustomActorIsolatorMap ?? new Dictionary<string, string>())
+                : null,
+            AvailabilityAnnotations = covered.Contains(InterfaceFactKind.AvailabilityAnnotations)
+                ? ConvertAvailabilityAnnotations(parsed.Facts.AvailabilityAnnotations)
+                : null,
+            AvailabilityAnnotationPositions = covered.Contains(InterfaceFactKind.AvailabilityAnnotationPositions)
+                ? ConvertPositions(parsed.Facts.AvailabilityAnnotationPositions)
+                : null,
+            TypedThrowsErrors = covered.Contains(InterfaceFactKind.TypedThrowsErrors)
+                ? new Dictionary<string, string>(parsed.Facts.TypedThrowsErrors ?? new Dictionary<string, string>())
+                : null,
         };
 
         // Defense-in-depth: if a producer claims coverage but ships null payload, that's a
@@ -220,6 +252,31 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         return result;
     }
 
+    private static Dictionary<string, List<AvailabilityAnnotation>> ConvertAvailabilityAnnotations(
+        Dictionary<string, List<AvailabilityAnnotationJson>>? input)
+    {
+        var result = new Dictionary<string, List<AvailabilityAnnotation>>();
+        if (input is null) return result;
+        foreach (var kv in input)
+        {
+            var list = new List<AvailabilityAnnotation>(kv.Value.Count);
+            foreach (var a in kv.Value)
+            {
+                list.Add(new AvailabilityAnnotation(
+                    a.Platform,
+                    a.IntroducedVersion,
+                    a.DeprecatedVersion,
+                    a.ObsoletedVersion,
+                    a.IsUnconditionallyDeprecated,
+                    a.IsUnconditionallyUnavailable,
+                    a.Message,
+                    a.Renamed));
+            }
+            result[kv.Key] = list;
+        }
+        return result;
+    }
+
     private static void ValidateCoverageAgainstPayload(HashSet<InterfaceFactKind> covered, InterfaceFactsJsonPayload payload)
     {
         // Each covered fact MUST have a non-null payload entry. Empty is fine, null is a bug.
@@ -227,6 +284,22 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             throw new InvalidOperationException("SwiftInterfaceParser declared MainActorTypes coverage but emitted null facts.mainActorTypes.");
         if (covered.Contains(InterfaceFactKind.MainActorTypePositions) && payload.MainActorTypePositions is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared MainActorTypePositions coverage but emitted null facts.mainActorTypePositions.");
+        if (covered.Contains(InterfaceFactKind.ActorIsolatedMembers) && payload.ActorIsolatedMembers is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ActorIsolatedMembers coverage but emitted null facts.actorIsolatedMembers.");
+        if (covered.Contains(InterfaceFactKind.MainActorIsolatedMembers) && payload.MainActorIsolatedMembers is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared MainActorIsolatedMembers coverage but emitted null facts.mainActorIsolatedMembers.");
+        if (covered.Contains(InterfaceFactKind.NonisolatedMembers) && payload.NonisolatedMembers is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared NonisolatedMembers coverage but emitted null facts.nonisolatedMembers.");
+        if (covered.Contains(InterfaceFactKind.CustomActorTypes) && payload.CustomActorTypes is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared CustomActorTypes coverage but emitted null facts.customActorTypes.");
+        if (covered.Contains(InterfaceFactKind.CustomActorIsolatorMap) && payload.CustomActorIsolatorMap is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared CustomActorIsolatorMap coverage but emitted null facts.customActorIsolatorMap.");
+        if (covered.Contains(InterfaceFactKind.AvailabilityAnnotations) && payload.AvailabilityAnnotations is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared AvailabilityAnnotations coverage but emitted null facts.availabilityAnnotations.");
+        if (covered.Contains(InterfaceFactKind.AvailabilityAnnotationPositions) && payload.AvailabilityAnnotationPositions is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared AvailabilityAnnotationPositions coverage but emitted null facts.availabilityAnnotationPositions.");
+        if (covered.Contains(InterfaceFactKind.TypedThrowsErrors) && payload.TypedThrowsErrors is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared TypedThrowsErrors coverage but emitted null facts.typedThrowsErrors.");
     }
 
     // Deserialization options live on InterfaceFactsJsonContext (source-generated) — see

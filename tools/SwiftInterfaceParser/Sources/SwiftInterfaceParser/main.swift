@@ -8,8 +8,10 @@ import Foundation
 /// this binary, parses its JSON stdout, and merges per-fact via
 /// `InterfaceFactsAggregator`.
 ///
-/// Session 1 emits only `mainActorTypes` and `mainActorTypePositions`. The contract
-/// is byte-equal parity with the regex producer (`SwiftInterfaceAccessParser`)
+/// Session 2 covers MainActor* + the actor isolation cluster (5 facts) +
+/// availability annotations (2 facts) + typed throws — 8 newly migrated facts on
+/// top of the 2 from Session 1, for a running total of 10/24. The contract is
+/// byte-equal parity with the regex producer (`SwiftInterfaceAccessParser`)
 /// across the validation corpus — that's what gates flipping the default in M2 S3.
 ///
 /// CLI:
@@ -58,13 +60,38 @@ guard let source = String(data: data, encoding: .utf8) else {
     exit(2)
 }
 
-let (types, positions) = MainActorWalker.parse(filePath: path, source: source)
+let (mainActorTypes, mainActorPositions) = MainActorWalker.parse(filePath: path, source: source)
+let actorIsolation = ActorIsolationWalker.parse(filePath: path, source: source)
+let availability = AvailabilityWalker.parse(filePath: path, source: source)
+let typedThrows = ThrowsWalker.parse(filePath: path, source: source)
 
 let output = ParserOutput(
-    coveredFacts: ["MainActorTypes", "MainActorTypePositions"],
+    coveredFacts: [
+        "MainActorTypes",
+        "MainActorTypePositions",
+        // Actor isolation cluster (M2 S2).
+        "ActorIsolatedMembers",
+        "MainActorIsolatedMembers",
+        "NonisolatedMembers",
+        "CustomActorTypes",
+        "CustomActorIsolatorMap",
+        // Availability cluster (M2 S2).
+        "AvailabilityAnnotations",
+        "AvailabilityAnnotationPositions",
+        // Typed throws (M2 S2).
+        "TypedThrowsErrors",
+    ],
     facts: Facts(
-        mainActorTypes: types,
-        mainActorTypePositions: positions
+        mainActorTypes: mainActorTypes,
+        mainActorTypePositions: mainActorPositions,
+        actorIsolatedMembers: actorIsolation.actorIsolatedMembers,
+        mainActorIsolatedMembers: actorIsolation.mainActorIsolatedMembers,
+        nonisolatedMembers: actorIsolation.nonisolatedMembers,
+        customActorTypes: actorIsolation.customActorTypes,
+        customActorIsolatorMap: actorIsolation.customActorIsolatorMap,
+        availabilityAnnotations: availability.availabilityAnnotations,
+        availabilityAnnotationPositions: availability.availabilityAnnotationPositions,
+        typedThrowsErrors: typedThrows
     )
 )
 
