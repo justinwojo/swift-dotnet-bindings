@@ -264,9 +264,14 @@ namespace BindingsGeneration
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} public type names from swiftinterface", publicTypeNames.Count);
 
-                var mainActorTypes = TryParseSwiftInterface("@MainActor types",
-                    () => SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath),
-                    () => new HashSet<string>(), logger, ref parseFailures);
+                var (mainActorTypes, mainActorTypePositions) = TryParseSwiftInterface(
+                    "@MainActor types",
+                    () => {
+                        var set = SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath, out var pos);
+                        return (set, pos);
+                    },
+                    () => (new HashSet<string>(), new Dictionary<string, SourcePosition>()),
+                    logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} @MainActor type names from swiftinterface", mainActorTypes.Count);
 
                 var customActorTypes = TryParseSwiftInterface("custom actor types",
@@ -299,9 +304,14 @@ namespace BindingsGeneration
                     () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} marker protocol conformance entries from swiftinterface", markerProtocolConformances.Count);
 
-                var availabilityAnnotations = TryParseSwiftInterface("availability annotations",
-                    () => SwiftInterfaceAccessParser.GetAvailabilityAnnotations(swiftInterfacePath),
-                    () => new Dictionary<string, List<AvailabilityAnnotation>>(), logger, ref parseFailures);
+                var (availabilityAnnotations, availabilityAnnotationPositions) = TryParseSwiftInterface(
+                    "availability annotations",
+                    () => {
+                        var dict = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(swiftInterfacePath, out var pos);
+                        return (dict, pos);
+                    },
+                    () => (new Dictionary<string, List<AvailabilityAnnotation>>(), new Dictionary<string, SourcePosition>()),
+                    logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} availability annotation entries from swiftinterface", availabilityAnnotations.Count);
 
                 var defaultParameterValues = TryParseSwiftInterface("default parameter values",
@@ -324,9 +334,14 @@ namespace BindingsGeneration
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} variadic member keys from swiftinterface", variadicMembers.Count);
 
-                var conventionCProtocols = TryParseSwiftInterface("convention(c) protocols",
-                    () => SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(swiftInterfacePath),
-                    () => new HashSet<string>(), logger, ref parseFailures);
+                var (conventionCProtocols, conventionCProtocolPositions) = TryParseSwiftInterface(
+                    "convention(c) protocols",
+                    () => {
+                        var set = SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(swiftInterfacePath, out var pos);
+                        return (set, pos);
+                    },
+                    () => (new HashSet<string>(), new Dictionary<string, SourcePosition>()),
+                    logger, ref parseFailures);
                 if (conventionCProtocols.Count > 0)
                     logger.LogInformation("Detected {Count} protocol(s) with @convention(c)/@convention(block) closure parameters: {Names}", conventionCProtocols.Count, string.Join(", ", conventionCProtocols));
 
@@ -366,6 +381,9 @@ namespace BindingsGeneration
                     VariadicMembers = variadicMembers,
                     ConventionCProtocols = conventionCProtocols,
                     HiddenRequirementProtocols = hiddenRequirementProtocols,
+                    MainActorTypePositions = mainActorTypePositions,
+                    AvailabilityAnnotationPositions = availabilityAnnotationPositions,
+                    ConventionCProtocolPositions = conventionCProtocolPositions,
                 };
             }
 

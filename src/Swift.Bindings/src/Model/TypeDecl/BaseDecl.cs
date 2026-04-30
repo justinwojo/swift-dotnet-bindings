@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration
@@ -47,5 +48,14 @@ namespace BindingsGeneration
         /// Null when not provided or no annotations exist.
         /// </summary>
         public List<AvailabilityAnnotation>? AvailabilityAnnotations { get; set; }
+
+        /// <summary>
+        /// Best-effort source position from the swiftinterface regex parser. Null when
+        /// the parser had no offset for this decl — ABI-JSON-only facts, synthesized
+        /// decls, and dependency modules without a swiftinterface input never carry a
+        /// fabricated position. Surfaced in <c>binding-report.json</c> via
+        /// <see cref="SkippedItem.Position"/> when the decl is skipped.
+        /// </summary>
+        public SourcePosition? Position { get; set; }
     }
 }

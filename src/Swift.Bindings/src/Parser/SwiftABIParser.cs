@@ -310,6 +310,46 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Sets the best-effort source position on a type declaration from swiftinterface
+        /// data. Tries the qualified type path against the qualified-path-keyed maps first
+        /// (<c>@MainActor</c>, <c>@available</c>). Convention-c is keyed by short protocol
+        /// name, so the short-name fallback is restricted to <see cref="ProtocolDecl"/> and
+        /// looks up <em>only</em> <see cref="SwiftInterfaceFacts.ConventionCProtocolPositions"/>
+        /// — never the qualified-path maps. That prevents a nested <c>Outer.Foo</c> from
+        /// latching onto a top-level <c>Foo</c> entry via short-name collision. Leaves
+        /// <see cref="BaseDecl.Position"/> null when no map has a hit — best-effort, no
+        /// fabricated positions.
+        /// </summary>
+        private void ApplyPosition(TypeDecl typeDecl)
+        {
+            var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
+            if (_facts.MainActorTypePositions.TryGetValue(qualifiedPath, out var pos) ||
+                _facts.AvailabilityAnnotationPositions.TryGetValue(qualifiedPath, out pos))
+            {
+                typeDecl.Position = pos;
+                return;
+            }
+            if (typeDecl is ProtocolDecl &&
+                _facts.ConventionCProtocolPositions.TryGetValue(typeDecl.Name, out pos))
+            {
+                typeDecl.Position = pos;
+            }
+        }
+
+        /// <summary>
+        /// Sets the best-effort source position on a member declaration from swiftinterface
+        /// data. Uses the same <c>TypePath.printedName</c> key as
+        /// <see cref="ApplyMemberAvailability"/>.
+        /// </summary>
+        private void ApplyMemberPosition(BaseDecl decl, TypeDecl parentTypeDecl, string printedName)
+        {
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            var pos = _facts.TryGetPosition(key);
+            if (pos is { } p)
+                decl.Position = p;
+        }
+
+        /// <summary>
         /// Reads accessor-level introduced-version fields from an ABI JSON accessor node
         /// and returns them as AvailabilityAnnotation entries. Returns null when the accessor
         /// has no tighter version than its parent property.
@@ -1056,6 +1096,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyPosition(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -1116,6 +1157,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyPosition(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -1263,6 +1305,7 @@ namespace BindingsGeneration
             if (parentDecl is TypeDecl enumParentType)
             {
                 ApplyMemberAvailability(enumCaseDecl, enumParentType, enumCaseDecl.Name);
+                ApplyMemberPosition(enumCaseDecl, enumParentType, enumCaseDecl.Name);
             }
 
             return enumCaseDecl;
@@ -1330,6 +1373,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyPosition(decl);
             PopulateDocumentation(decl, node);
             return decl;
         }
@@ -1483,6 +1527,7 @@ namespace BindingsGeneration
                 decl.IsModuleInternal = true;
             ApplyActorIsolation(decl);
             ApplyAvailability(decl);
+            ApplyPosition(decl);
             PopulateDocumentation(decl, node);
 
             // Mark protocols whose methods have @convention(c)/@convention(block) closure parameters
@@ -1624,6 +1669,7 @@ namespace BindingsGeneration
             {
                 ApplyMemberActorIsolation(methodDecl, parentType, node.PrintedName);
                 ApplyMemberAvailability(methodDecl, parentType, node.PrintedName);
+                ApplyMemberPosition(methodDecl, parentType, node.PrintedName);
             }
             else if (parentDecl is ModuleDecl)
             {
@@ -1636,6 +1682,10 @@ namespace BindingsGeneration
                 // Free function availability: keyed by bare printedName in swiftinterface
                 if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
                     methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
+                // Free function position uses the same bare-printedName key the parser
+                // emitted under FreeFunctionLine.
+                if (_facts.AvailabilityAnnotationPositions.TryGetValue(node.PrintedName, out var freeFuncPos))
+                    methodDecl.Position = freeFuncPos;
             }
 
             // Actor-isolated instance methods are effectively async from outside the actor —
@@ -1843,7 +1893,8 @@ namespace BindingsGeneration
                 UnderlyingMethod = methodDecl,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
-                AvailabilityAnnotations = methodDecl.AvailabilityAnnotations
+                AvailabilityAnnotations = methodDecl.AvailabilityAnnotations,
+                Position = methodDecl.Position,
             };
             PopulateDocumentation(operatorDecl, node);
             return operatorDecl;
@@ -2068,6 +2119,7 @@ namespace BindingsGeneration
             {
                 ApplyPropertyActorIsolation(decl, propParentType);
                 ApplyMemberAvailability(decl, propParentType, sanitizedName);
+                ApplyMemberPosition(decl, propParentType, sanitizedName);
             }
             // Propagate the property's availability to its accessor MethodDecls so the
             // private *_Get/*_Set backing methods emit [SupportedOSPlatform] attributes
@@ -2170,6 +2222,7 @@ namespace BindingsGeneration
             if (parentDecl is TypeDecl subscriptParentType)
             {
                 ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName);
+                ApplyMemberPosition(decl, subscriptParentType, node.PrintedName);
             }
             // Propagate subscript availability to accessor MethodDecls (same rationale as
             // CreatePropertyDecl — backing accessors referencing newer-SDK types need matching

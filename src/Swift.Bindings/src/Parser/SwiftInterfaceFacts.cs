@@ -122,6 +122,39 @@ namespace BindingsGeneration
         /// <c>RealityFoundation.MaterialFunction.__linkSPI</c>).</summary>
         public required Dictionary<string, HashSet<string>> HiddenRequirementProtocols { get; init; }
 
+        /// <summary>Best-effort source positions for entries in <see cref="MainActorTypes"/>.
+        /// Key matches the entry in <see cref="MainActorTypes"/>; missing keys mean the parser
+        /// could not attribute the fact to a specific match offset — callers should treat
+        /// that as <c>null</c> rather than fabricating a position.</summary>
+        public required Dictionary<string, SourcePosition> MainActorTypePositions { get; init; }
+
+        /// <summary>Best-effort source positions for entries in
+        /// <see cref="AvailabilityAnnotations"/>. Key matches the dictionary key in
+        /// <see cref="AvailabilityAnnotations"/> (qualified type path or
+        /// "TypePath.printedName"); missing keys mean no position was extractable.</summary>
+        public required Dictionary<string, SourcePosition> AvailabilityAnnotationPositions { get; init; }
+
+        /// <summary>Best-effort source positions for entries in
+        /// <see cref="ConventionCProtocols"/>. Key matches the protocol name; the position
+        /// points at the protocol declaration line that triggered the convention-c
+        /// detection. Missing keys mean no position was extractable.</summary>
+        public required Dictionary<string, SourcePosition> ConventionCProtocolPositions { get; init; }
+
+        /// <summary>
+        /// Best-effort lookup helper. Searches every position dictionary on this facts
+        /// instance for <paramref name="key"/> and returns the first hit. Used by skip-
+        /// emission sites that have a fact key but don't know which producer created it.
+        /// Returns <c>null</c> when no position is recorded — that's the "best-effort"
+        /// signal: facts derived from ABI JSON or synthesized decls have no source line.
+        /// </summary>
+        public SourcePosition? TryGetPosition(string key)
+        {
+            if (MainActorTypePositions.TryGetValue(key, out var p)) return p;
+            if (AvailabilityAnnotationPositions.TryGetValue(key, out p)) return p;
+            if (ConventionCProtocolPositions.TryGetValue(key, out p)) return p;
+            return null;
+        }
+
         /// <summary>The "no swiftinterface" sentinel — every collection empty. Hand this to
         /// <see cref="SwiftABIParser"/> when no swiftinterface is available (dependency
         /// modules, test fixtures); behavior is identical to passing <c>null</c> for each
@@ -155,6 +188,9 @@ namespace BindingsGeneration
             VariadicMembers = new HashSet<string>(),
             ConventionCProtocols = new HashSet<string>(),
             HiddenRequirementProtocols = new Dictionary<string, HashSet<string>>(),
+            MainActorTypePositions = new Dictionary<string, SourcePosition>(),
+            AvailabilityAnnotationPositions = new Dictionary<string, SourcePosition>(),
+            ConventionCProtocolPositions = new Dictionary<string, SourcePosition>(),
         };
     }
 }

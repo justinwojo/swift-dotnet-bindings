@@ -25,16 +25,17 @@ public class SwiftInterfaceFactsTests
     #region Structural / drift-loud tests
 
     [Fact]
-    public void Empty_ContainsTwentyOneRequiredCollections()
+    public void Empty_PopulatesEveryRequiredCollection()
     {
         // Drift-loud guard: if a field is added to SwiftInterfaceFacts without updating Empty,
         // either compilation fails (required init property) or this count check trips.
+        // 21 fact maps + 3 best-effort source-position maps (M4 Session 4) = 24.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(21, properties.Count);
+        Assert.Equal(24, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)
@@ -272,6 +273,9 @@ public class SwiftInterfaceFactsTests
     [InlineData(nameof(SwiftInterfaceFacts.VariadicMembers))]
     [InlineData(nameof(SwiftInterfaceFacts.ConventionCProtocols))]
     [InlineData(nameof(SwiftInterfaceFacts.HiddenRequirementProtocols))]
+    [InlineData(nameof(SwiftInterfaceFacts.MainActorTypePositions))]
+    [InlineData(nameof(SwiftInterfaceFacts.AvailabilityAnnotationPositions))]
+    [InlineData(nameof(SwiftInterfaceFacts.ConventionCProtocolPositions))]
     public void EachField_HasRequiredInitProperty(string propertyName)
     {
         // Each of the 21 fields must be a `required init` property — adding a new field without

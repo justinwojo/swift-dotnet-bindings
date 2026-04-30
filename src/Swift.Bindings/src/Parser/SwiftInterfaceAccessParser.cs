@@ -234,8 +234,20 @@ public static class SwiftInterfaceAccessParser
     /// Type names use dot-qualified paths (e.g., "Outer.Inner" for nested types).
     /// </summary>
     public static HashSet<string> GetMainActorTypes(string swiftInterfacePath)
+        => GetMainActorTypes(swiftInterfacePath, out _);
+
+    /// <summary>
+    /// Best-effort provenance overload of <see cref="GetMainActorTypes(string)"/>.
+    /// <paramref name="positions"/> is keyed identically to the returned set (qualified
+    /// type path) and points at the line/column of the type declaration that carried
+    /// the <c>@MainActor</c> annotation. Lines and columns are 1-based.
+    /// </summary>
+    public static HashSet<string> GetMainActorTypes(
+        string swiftInterfacePath,
+        out Dictionary<string, SourcePosition> positions)
     {
         var result = new HashSet<string>();
+        positions = new Dictionary<string, SourcePosition>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
@@ -246,8 +258,9 @@ public static class SwiftInterfaceAccessParser
         int braceDepth = 0;
         bool pendingMainActor = false;
 
-        foreach (var line in lines)
+        for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
+            var line = lines[lineIndex];
             var trimmed = line.TrimStart();
 
             var (openBraces, closeBraces) = CountBraces(line);
@@ -284,6 +297,9 @@ public static class SwiftInterfaceAccessParser
                 {
                     var qualifiedPath = string.Join(".", typeStack.Reverse().Select(t => t.Name));
                     result.Add(qualifiedPath);
+                    int leading = line.Length - trimmed.Length;
+                    int column = leading + typeMatch.Index + 1;
+                    positions[qualifiedPath] = new SourcePosition(swiftInterfacePath, lineIndex + 1, column);
                 }
             }
 
@@ -1017,8 +1033,21 @@ public static class SwiftInterfaceAccessParser
     /// conformance failures.
     /// </summary>
     public static HashSet<string> GetProtocolsWithConventionClosures(string swiftInterfacePath)
+        => GetProtocolsWithConventionClosures(swiftInterfacePath, out _);
+
+    /// <summary>
+    /// Best-effort provenance overload of
+    /// <see cref="GetProtocolsWithConventionClosures(string)"/>. <paramref name="positions"/>
+    /// is keyed by protocol name and points at the protocol declaration line that triggered
+    /// detection (not the convention-c reference line itself — the protocol header is the
+    /// natural target for diagnostics about that protocol). Lines and columns are 1-based.
+    /// </summary>
+    public static HashSet<string> GetProtocolsWithConventionClosures(
+        string swiftInterfacePath,
+        out Dictionary<string, SourcePosition> positions)
     {
         var result = new HashSet<string>();
+        positions = new Dictionary<string, SourcePosition>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
@@ -1044,9 +1073,11 @@ public static class SwiftInterfaceAccessParser
         int braceDepth = 0;
         string? currentProtocol = null;
         int protocolBraceDepth = -1;
+        SourcePosition currentProtocolPos = default;
 
-        foreach (var line in lines)
+        for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
+            var line = lines[lineIndex];
             var trimmed = line.TrimStart();
 
             // Track protocol declarations
@@ -1060,6 +1091,9 @@ public static class SwiftInterfaceAccessParser
                 {
                     currentProtocol = protoMatch.Groups[1].Value;
                     protocolBraceDepth = braceDepth;
+                    int leading = line.Length - trimmed.Length;
+                    int column = leading + protoMatch.Index + 1;
+                    currentProtocolPos = new SourcePosition(swiftInterfacePath, lineIndex + 1, column);
                 }
                 braceDepth = newDepth;
                 continue;
@@ -1083,6 +1117,7 @@ public static class SwiftInterfaceAccessParser
                 if (trimmed.Contains("@convention(c)") || trimmed.Contains("@convention(block)"))
                 {
                     result.Add(currentProtocol);
+                    positions[currentProtocol] = currentProtocolPos;
                     continue;
                 }
 
@@ -1099,6 +1134,7 @@ public static class SwiftInterfaceAccessParser
                         if (Regex.IsMatch(trimmed, $@"\b{Regex.Escape(alias)}\b"))
                         {
                             result.Add(currentProtocol);
+                            positions[currentProtocol] = currentProtocolPos;
                             break;
                         }
                     }
@@ -3325,8 +3361,26 @@ public static class SwiftInterfaceAccessParser
     /// </summary>
     public static Dictionary<string, List<AvailabilityAnnotation>> GetAvailabilityAnnotations(
         string swiftInterfacePath)
+        => GetAvailabilityAnnotations(swiftInterfacePath, out _);
+
+    /// <summary>
+    /// Best-effort provenance overload of <see cref="GetAvailabilityAnnotations(string)"/>.
+    /// <paramref name="positions"/> is keyed identically to the returned dictionary —
+    /// qualified type path or "TypePath.printedName" — and points at the declaration line
+    /// whose <c>@available</c> annotation produced the entry. Lines and columns are
+    /// 1-based; the column advances past leading inline annotations
+    /// (<c>@available(...) public func foo()</c>) so it lands on the declaration keyword
+    /// (<c>public</c>) rather than the <c>@</c>. Multi-line member signatures point at
+    /// the closing-line where the tracker observes the completion, not the opening
+    /// keyword line — that imprecision is within the best-effort budget and tightens
+    /// when SwiftSyntax replaces the regex parser post-1.0.
+    /// </summary>
+    public static Dictionary<string, List<AvailabilityAnnotation>> GetAvailabilityAnnotations(
+        string swiftInterfacePath,
+        out Dictionary<string, SourcePosition> positions)
     {
         var result = new Dictionary<string, List<AvailabilityAnnotation>>();
+        positions = new Dictionary<string, SourcePosition>();
 
         if (!File.Exists(swiftInterfacePath))
             return result;
@@ -3334,9 +3388,16 @@ public static class SwiftInterfaceAccessParser
         var lines = File.ReadAllLines(swiftInterfacePath);
         var tracker = new SwiftInterfaceContextTracker();
 
-        foreach (var line in lines)
+        for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
+            var line = lines[lineIndex];
             var trimmed = line.TrimStart();
+            int leading = line.Length - trimmed.Length;
+            // Advance past inline `@xxx(...)` annotations on the decl line so the column
+            // lands on the actual declaration keyword (`public`, `func`, etc.), matching
+            // the @MainActor and @convention(c) parsers which use regex-match offsets.
+            int column = leading + SkipLeadingAnnotations(trimmed) + 1;
+            var pos = new SourcePosition(swiftInterfacePath, lineIndex + 1, column);
             var kind = tracker.ProcessLine(trimmed, line);
 
             switch (kind)
@@ -3348,6 +3409,12 @@ public static class SwiftInterfaceAccessParser
                     {
                         var key = tracker.QualifiedTypePath;
                         AddAnnotations(result, key, annotations);
+                        // First-position-wins: stacked @available clauses across multiple
+                        // declarations of the same key (e.g. extension members) keep the
+                        // earliest decl line so the diagnostic points at the first source
+                        // the parser saw, not the last one.
+                        if (!positions.ContainsKey(key))
+                            positions[key] = pos;
                     }
                     tracker.ConsumePendingAnnotations();
                     break;
@@ -3377,6 +3444,8 @@ public static class SwiftInterfaceAccessParser
                             {
                                 var key = tracker.BuildMemberKey(caseName);
                                 AddAnnotations(result, key, annotations);
+                                if (!positions.ContainsKey(key))
+                                    positions[key] = pos;
                             }
                         }
                     }
@@ -3390,6 +3459,8 @@ public static class SwiftInterfaceAccessParser
                             {
                                 var key = tracker.BuildMemberKey(printedName);
                                 AddAnnotations(result, key, annotations);
+                                if (!positions.ContainsKey(key))
+                                    positions[key] = pos;
                             }
                         }
                     }
@@ -3408,6 +3479,8 @@ public static class SwiftInterfaceAccessParser
                         if (annotations.Count > 0)
                         {
                             AddAnnotations(result, freeFuncName, annotations);
+                            if (!positions.ContainsKey(freeFuncName))
+                                positions[freeFuncName] = pos;
                         }
                     }
                     tracker.ConsumePendingAnnotations();
@@ -3599,6 +3672,45 @@ public static class SwiftInterfaceAccessParser
         }
 
         return annotations;
+    }
+
+    /// <summary>
+    /// Returns the number of characters at the start of a left-trimmed line that are
+    /// occupied by leading <c>@xxx</c> or <c>@xxx(...)</c> attribute annotations and the
+    /// whitespace separating them from the declaration keyword. Used to advance source
+    /// positions past inline annotations so they land on the decl token.
+    /// </summary>
+    private static int SkipLeadingAnnotations(string trimmed)
+    {
+        int i = 0;
+        while (i < trimmed.Length && trimmed[i] == '@')
+        {
+            int j = i + 1;
+            // Attribute identifiers can be qualified (`@_Concurrency.MainActor`,
+            // `@Module.Actor`), so the scanner accepts dot-separated components.
+            while (j < trimmed.Length && (char.IsLetterOrDigit(trimmed[j]) || trimmed[j] == '_' || trimmed[j] == '.'))
+                j++;
+            if (j < trimmed.Length && trimmed[j] == '(')
+            {
+                int depth = 1;
+                int p = j + 1;
+                while (p < trimmed.Length && depth > 0)
+                {
+                    if (trimmed[p] == '(') depth++;
+                    else if (trimmed[p] == ')') depth--;
+                    p++;
+                }
+                // Unbalanced parens (shouldn't happen in well-formed swiftinterface):
+                // bail out without advancing past this annotation.
+                if (depth > 0)
+                    return i;
+                j = p;
+            }
+            while (j < trimmed.Length && char.IsWhiteSpace(trimmed[j]))
+                j++;
+            i = j;
+        }
+        return i;
     }
 
     /// <summary>

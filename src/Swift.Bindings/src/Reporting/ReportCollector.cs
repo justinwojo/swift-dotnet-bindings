@@ -123,10 +123,18 @@ public static class ReportCollector
         }
     }
 
-    public static void RecordTypeSkipped(TypeDecl typeDecl, SkipReason reason, string? details = null)
+    public static void RecordTypeSkipped(
+        TypeDecl typeDecl,
+        SkipReason reason,
+        string? details = null,
+        SourcePosition? position = null)
     {
         if (!SessionActive.Value || _report == null)
             return;
+
+        // Best-effort: when the caller did not supply an explicit override, fall back to
+        // whatever swiftinterface position the parser stamped on the decl.
+        position ??= typeDecl.Position;
 
         lock (Sync)
         {
@@ -145,6 +153,7 @@ public static class ReportCollector
                 Reason = reason,
                 Details = details,
                 RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
+                Position = position,
             });
         }
     }
@@ -213,20 +222,34 @@ public static class ReportCollector
     /// Legacy entry point — see <see cref="RecordMemberEmitted(BindingItemKind, string, BaseDecl?)"/>
     /// for overload-collapse caveats.
     /// </summary>
-    public static void RecordMemberSkipped(BindingItemKind kind, string name, BaseDecl? containingDecl, SkipReason reason, string? details = null)
+    public static void RecordMemberSkipped(
+        BindingItemKind kind,
+        string name,
+        BaseDecl? containingDecl,
+        SkipReason reason,
+        string? details = null,
+        SourcePosition? position = null)
         => RecordMemberSkippedInternal(
             MemberDiagnosticIdentity.FromMember(kind, name, containingDecl),
             displayName: name,
             containingDecl,
             reason,
-            details);
+            details,
+            // Legacy entry: caller passes the containing decl, not the member, so the best
+            // available source is the parent's position (member-line positions belong on the
+            // member decl itself, which this entry doesn't have access to).
+            position ?? containingDecl?.Position);
 
     /// <summary>
     /// Decl-aware entry point — captures the full method signature so two
     /// overloads of <c>foo(_ x: Int)</c> and <c>foo(_ s: String)</c> skipped
     /// for different reasons each land in <see cref="BindingReport.SkippedItems"/>.
     /// </summary>
-    public static void RecordMemberSkipped(MethodDecl methodDecl, SkipReason reason, string? details = null)
+    public static void RecordMemberSkipped(
+        MethodDecl methodDecl,
+        SkipReason reason,
+        string? details = null,
+        SourcePosition? position = null)
     {
         ArgumentNullException.ThrowIfNull(methodDecl);
         RecordMemberSkippedInternal(
@@ -234,7 +257,8 @@ public static class ReportCollector
             displayName: methodDecl.Name,
             methodDecl.ParentDecl,
             reason,
-            details);
+            details,
+            position ?? methodDecl.Position);
     }
 
     /// <summary>
@@ -246,7 +270,8 @@ public static class ReportCollector
         PropertyDecl propertyDecl,
         SkipReason reason,
         string? details = null,
-        AccessorKind accessor = AccessorKind.None)
+        AccessorKind accessor = AccessorKind.None,
+        SourcePosition? position = null)
     {
         ArgumentNullException.ThrowIfNull(propertyDecl);
         RecordMemberSkippedInternal(
@@ -254,7 +279,8 @@ public static class ReportCollector
             displayName: propertyDecl.Name,
             propertyDecl.ParentDecl,
             reason,
-            details);
+            details,
+            position ?? propertyDecl.Position);
     }
 
     /// <summary>
@@ -267,7 +293,8 @@ public static class ReportCollector
         SubscriptDecl subscriptDecl,
         SkipReason reason,
         string? details = null,
-        AccessorKind accessor = AccessorKind.None)
+        AccessorKind accessor = AccessorKind.None,
+        SourcePosition? position = null)
     {
         ArgumentNullException.ThrowIfNull(subscriptDecl);
         RecordMemberSkippedInternal(
@@ -275,7 +302,8 @@ public static class ReportCollector
             displayName: subscriptDecl.Name,
             subscriptDecl.ParentDecl,
             reason,
-            details);
+            details,
+            position ?? subscriptDecl.Position);
     }
 
     /// <summary>
@@ -283,7 +311,11 @@ public static class ReportCollector
     /// signature from the underlying method so overloaded operators record
     /// distinctly.
     /// </summary>
-    public static void RecordMemberSkipped(OperatorDecl operatorDecl, SkipReason reason, string? details = null)
+    public static void RecordMemberSkipped(
+        OperatorDecl operatorDecl,
+        SkipReason reason,
+        string? details = null,
+        SourcePosition? position = null)
     {
         ArgumentNullException.ThrowIfNull(operatorDecl);
         RecordMemberSkippedInternal(
@@ -291,7 +323,8 @@ public static class ReportCollector
             displayName: operatorDecl.OperatorSymbol,
             operatorDecl.ParentDecl,
             reason,
-            details);
+            details,
+            position ?? operatorDecl.Position);
     }
 
     public static void RecordMemberWrapped(
@@ -425,7 +458,8 @@ public static class ReportCollector
         string displayName,
         BaseDecl? containingDecl,
         SkipReason reason,
-        string? details)
+        string? details,
+        SourcePosition? position = null)
     {
         if (!SessionActive.Value || _report == null)
             return;
@@ -446,6 +480,7 @@ public static class ReportCollector
                 Reason = reason,
                 Details = details,
                 RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
+                Position = position,
             });
         }
     }

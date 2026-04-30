@@ -112,7 +112,7 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
 
 **Gate (MET)**: CoGater handlers reduced (Pattern 5 retired; Pattern 2 deferred as wrapper-eligibility work); SwiftUICore parity landed; `AnyTypeFallback` histogram decomposed — 614 hits decompose entirely into deferred / out-of-scope buckets per Session 4. No in-scope reduction surface remained, so the skip count holds at 614 by data, not by laxity (Open Question #4 *resolved*: count allowed to stay where the histogram dictates). Full `nuke binding-tests --sim --device --macos --catalyst --tvos` + `nuke validate` confirmed at or above baseline.
 
-### Milestone 4 — Reduce bug-factory areas *(3–5 sessions)*
+### Milestone 4 — Reduce bug-factory areas *(3–5 sessions)* *(DONE)*
 
 **Goal**: areas where the codebase silently produces wrong bindings under drift get a single source of truth.
 
@@ -145,20 +145,20 @@ If **no**, defer to post-1.0. The pre-1.0 audits surfaced ~150K LOC of architect
    - Tests covering all 17 fact types.
    - **Gate**: ctor sig reduced; all fact-type tests pass; baselines at-or-above.
 
-4. **Session 4 — Source provenance plumbing + close M4 (1.0 candidate)**
+4. **Session 4 — Source provenance plumbing + close M4 (1.0 candidate)** *(DONE)*
    - Best-effort Swift `file:line:column` extraction from the regex parser's existing match offsets.
    - Plumb provenance through `Diagnostic`, skip messages, and `binding-report.json`.
    - Tests proving positions appear where the parser can supply them (and gracefully degrade where it cannot).
    - Final M4 checkpoint sweep: full `nuke binding-tests --sim --device --macos --catalyst --tvos` + `nuke validate`. Confirm baselines.
-   - **Gate**: 1.0 candidate sweep clean; M4 marked DONE; checkpoint #4 reached. Per Open Question #6, optional ~1-release-cycle soak in `swift-dotnet-packages` before shipping.
+   - **Gate (MET)**: `SourcePosition` value type populated for `@MainActor`, `@available`, and `@convention(c)` facts (parallel position dictionaries on `SwiftInterfaceFacts`; ABI-only signals stay null — no fabricated positions). `SkippedItem.Position` serializes as a structured field on `binding-report.json`; `RecordTypeSkipped`/`RecordMemberSkipped` accept an optional `SourcePosition`. Final 1.0-candidate sweep clean — `nuke compile` / `nuke test` / `nuke validate` (at-or-above baseline) / `nuke binding-tests --sim --device --macos --catalyst --tvos` (1760 / 1773 / 1448 / 1448 / 1532 — all five at baseline). M4 marked DONE; checkpoint #4 reached. Per Open Question #6, optional ~1-release-cycle soak in `swift-dotnet-packages` before shipping.
 
 **Why (litmus)**: prevents a known class of bad generated binding. Type resolution drift produces wrong bindings now. Swiftinterface side-channel drift produces wrong decisions now. Both are silent. Both compound with every new feature added.
 
 **Gate**: type resolution tests prove single-path policy (no special-case duplication); facts tests cover all 17 fact types; diagnostics surface source positions where available; full `nuke binding-tests --sim --device` + `nuke validate` at or above baseline.
 
-### Total: ~14 sessions (4 remaining — all M4)
+### Total: ~14 sessions (0 remaining — all milestones DONE)
 
-Allocation: M1 (3–4, DONE) + M2 (3, DONE) + M3 (4, DONE) + M4 (4). Each subsequent `/next-session` corresponds to exactly one of the numbered sessions enumerated under its milestone above — the unit of work is the session, not "the next visible incremental step."
+Allocation: M1 (3–4, DONE) + M2 (3, DONE) + M3 (4, DONE) + M4 (4, DONE). Each `/next-session` corresponded to exactly one of the numbered sessions enumerated under its milestone above — the unit of work was the session, not "the next visible incremental step."
 
 Elapsed time is **validation-bound**, not session-stacked. Each milestone ends with a full sim + device + validate sweep (~30+ minutes of run time even when everything passes), and most milestones will surface at least one fix-and-rerun cycle. Don't sell this as compressible by stacking sessions per day — that pressures rushing the very gates this rescope is meant to protect. Realistic framing is a focused working week of execution, not a sprint.
 
@@ -188,7 +188,7 @@ Four checkpoints — one per milestone. Each runs the full sim + device + valida
 1. **DONE** — End of M1: diagnostic surface trustworthy; CI fail-closed.
 2. **DONE** — End of M2: every release target gates against regressions; consumer surface verified end-to-end via PackGate consumer-run + behavior-tier (Foundation + Alamofire round-trip Swift calls from `nuke validate`).
 3. **DONE** — End of M3: post-emission text rewriters reduced (Pattern 5 retired, Pattern 2 deferral surfaced as wrapper-eligibility work); SwiftUICore parity landed; `AnyTypeFallback` histogram decomposed and reconciled — no in-scope reduction surface remains.
-4. End of M4 — bug-factory areas closed. **1.0 candidate.**
+4. **DONE** — End of M4: bug-factory areas closed (`TypeResolver` central seam, `SwiftInterfaceFacts` aggregator, best-effort source provenance). **1.0 candidate.**
 
 ### Phase 0 setup — **DONE**
 

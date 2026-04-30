@@ -102,6 +102,15 @@ public sealed class SkippedItem
     public required SkipReason Reason { get; init; }
     public string? Details { get; init; }
     public string? RecommendedWorkaround { get; init; }
+
+    /// <summary>
+    /// Best-effort source position tying the skip back to the swiftinterface line/column
+    /// the parser saw. Null when the fact came from ABI JSON, a synthesized decl, or a
+    /// dependency module without a swiftinterface input — the parser does not fabricate
+    /// positions in those cases. Serialized as a structured field on
+    /// <c>binding-report.json</c> rather than buried in <see cref="Details"/>.
+    /// </summary>
+    public SourcePosition? Position { get; init; }
 }
 
 /// <summary>
