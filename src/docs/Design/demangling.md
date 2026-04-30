@@ -56,3 +56,7 @@ public interface ISwiftSymbol {
 
 Obviously this could be done as an abstract class instead of interface,
 but the actual implementation is immaterial.
+
+## See Also
+
+- [demangling-replacement-spike.md](demangling-replacement-spike.md) — investigation into replacing this with a `swift-symbolgraph-extract`-based producer. Outcome: NO-GO. Records why the obvious-looking replacement does not work, so the next person doesn't re-derive it from scratch.
