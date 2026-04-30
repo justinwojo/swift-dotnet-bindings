@@ -376,9 +376,36 @@ Per gameplan Open Question #3: target the top ~3 by volume, or any class whose f
 
 The 99.2% concentration is the gate-clearing argument for Session 2: pick #1, do it cleanly, run validate, get a real volume reduction. Session 3 picks #2 + #3 together (or splits across two sessions if Pattern 2's sub-cause decomposition reveals layered fixes).
 
+# Pattern 2 retirement — M3 Session 3 finding (2026-04-29)
+
+**Sub-cause split** (decomposition counter landed in `SwiftWrapperPostProcessor.ClassifyPattern2Cause`):
+
+| Sub-cause | Hits | % |
+|---|---:|---:|
+| `Pattern2.InternalType` | 374 | 99.7% |
+| `Pattern2.NSInvocation` | 1 | 0.3% |
+| `Pattern2.EveryProtocolPlaceholder` | 0 | 0% |
+| `Pattern2.LoadAsClosure` | 0 | 0% |
+
+Pattern 2b is 1/1 `InternalType` (StripePaymentSheet).
+
+**Conclusion**: Pattern 2 is essentially a single-cause handler — internal-type body references. The "(a)/(g) safety net" framing in the original inventory turned out to be wrong: those sub-causes have already been neutralised at emission time and contribute zero volume. The real handler is just the regex strip when a wrapper body names a type listed in `internalTypeNames`.
+
+**Why pure emission-time suppression fails**: an attempt to gate `MemberValidationPipeline.ValidateMethodEmission` / `ValidatePropertyEmission` on "signature reaches `internalTypeNames`" produces a 4-library compile-gate regression (CryptoSwift, SkeletonView, NVActivityIndicatorView, XMLCoder). Root cause: `@usableFromInline internal` types — XMLCoder's `BoolBox`/`FloatBox`/`StringBox`/etc. — are flagged `IsModuleInternal=true` (so they appear in `internalTypeNames`) **and** are emitted to C# as public classes (per `ClassHandler` line 672, with a CallConvSwift metadata fallback). Suppressing methods/properties on those types breaks `IBox` / `ISimpleBox` interface conformance with CS0535 errors. The post-processor can strip the @_cdecl wrapper after-the-fact while leaving the C# class intact; an emission-time gate cannot distinguish "internal-and-emitted-to-C#" from "internal-and-not-emitted" without additional plumbing.
+
+**Right fix layer**: wrapper-eligibility, not emission. `MethodWrapperEmitter.ShouldEmitWrapper` (and the `ConstructorWrapperEmitter` / `PropertyWrapperEmitter` peers) should refuse to emit a `@_cdecl` wrapper when the wrapper signature reaches an internal type. When the wrapper is rejected, the existing fallback at `MethodHandler.cs:928–933` keeps the original mangled Swift symbol and emits the C# P/Invoke under `CallConvSwift` — and `@usableFromInline internal` symbols are exported in the dylib's ABI, so this works at runtime as well as at the compile gate.
+
+**Why this isn't a < 1-session change**: the static `ShouldEmitWrapper` family takes only `MethodEnvironment`, which doesn't carry `InternalTypeNames`. Plumbing it requires either:
+- adding an `InternalTypeNames` property on `MethodEnvironment` and threading it through ~13 source-side construction sites (and ~44 test sites — most of which can take the default empty set); or
+- attaching the set to `ModuleDecl` (cleaner reach but mixes emission state into the model layer).
+
+Neither change is invasive in lines, but the secondary risk surface — the wrapper-eligibility decision flips from "post-process strip" to "no @_cdecl, fall back to CallConvSwift" — needs at least one BindingTests fixture for an `@usableFromInline internal` type to make sure the runtime path (CallConvSwift on the original mangled symbol) actually works on iOS sim and device. That's the proof obligation behind a wrapper-eligibility move, and it's M3-Session-4-shaped scope, not Session-3-shaped.
+
+**Status**: Pattern 2 stays for now. The sub-cause counter is retained until M3 close (it's the telemetry that justified the deferral). The retire-Pattern-2 task moves into the M3 close commit's "what was tried, what was deferred" notes, and the actual move-to-wrapper-eligibility work is queued for either M3 Session 4 or a follow-up.
+
 # Open items handed to Session 2
 
-1. **Pattern 2 sub-cause decomposition counter.** Session 2's first 10 minutes: split the existing `Pattern2_SilgenOrCdeclBroken` counter into `Pattern2.EveryProtocolPlaceholder` / `Pattern2.LoadAsClosure` / `Pattern2.InternalType` / `Pattern2.NSInvocation`, re-run validate, and *only then* pick which emission gate to harden. This decomposition is in scope for #2 and prevents premature commitment to the wrong emission layer.
+1. ~~**Pattern 2 sub-cause decomposition counter.**~~ Done — see "Pattern 2 retirement" section above. Counter landed; volume confirmed dominated by `InternalType` (99.7%); retire-at-emission attempt produced regressions; right layer is wrapper-eligibility, deferred.
 2. **Pattern 5 nested-type carve-out parity.** When implementing the emission-time qualification policy, ensure `nestedTypesInCollidingClass` semantics are preserved (SwiftyBeaver.Level case). The existing post-process is the oracle.
 3. **Suppressed-proxy emission order.** Before starting #3, scope whether `emissionContext.SuppressedProxyClassNames` is fully populated by the time every `new …Proxy(` site emits. If not, decide between a defer-queue and a two-pass strategy in scoping, not implementation.
 4. **SimDetector volume.** Get one production-pack measurement (a Stripe-family lib or any library that triggers dual-input ABI) for Rule D + `FilterThunkAssembly` + Rule C volume before committing #3 of M3 (Session 3) to `SwiftUICore` parity vs SimDetector restructure. The current zeros are validate artifacts, not ground truth.
