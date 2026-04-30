@@ -13,10 +13,36 @@ namespace BindingsGeneration;
 /// <see cref="IResolutionStrategy"/> plug-ins.
 /// </summary>
 /// <remarks>
-/// M4 Session 1 introduces the resolver alongside the legacy paths and
-/// migrates the three simplest strategies (dynamic self, generic parameters,
-/// primitive aliases). Subsequent M4 sessions migrate the remaining strategies
-/// and delete the duplicated extension overloads.
+/// <para>M4 Session 1 stood up the resolver alongside the legacy 9-stage
+/// branching with three migrated strategies. M4 Session 2 completes the
+/// migration: every legacy stage now lives behind an
+/// <see cref="IResolutionStrategy"/> plug-in and the four duplicated
+/// <see cref="TypeDatabaseExtensions"/> overloads are reduced to thin
+/// projections over a single resolver call.</para>
+/// <para>Dispatch order mirrors the legacy stage order so observable
+/// resolution does not shift. Three intentional consolidations close drift
+/// the legacy paths carried:</para>
+/// <list type="number">
+/// <item><see cref="BareGenericGuardStrategy"/> applies the bare-generic
+/// short-circuit on every entry point (previously only in
+/// <c>GetTypeRecordOrAnyType</c>).</item>
+/// <item><see cref="SwiftAnyAnyObjectStrategy"/> classifies <c>Swift.Any</c> /
+/// <c>Swift.AnyObject</c> as intentional resolutions on every entry point
+/// (previously they reached <see cref="TypeDatabaseExtensions.AnyType"/> via
+/// different code paths and showed up as "missing-from-database" fallback in
+/// <c>TryGetAnyTypeFallbackInfo</c>).</item>
+/// <item><c>IsTypeProcessed(NamedTypeSpec)</c> now projects from the same
+/// resolver call as <c>TryGetTypeRecord(NamedTypeSpec)</c>. The legacy
+/// implementation called <c>ITypeDatabase.IsTypeProcessed(SwiftTypeName)</c>
+/// directly, which only walked module DB / module-alias / Apple-umbrella
+/// paths and disagreed with <c>TryGetTypeRecord</c> on supplement-owned
+/// identities (e.g., <c>Foundation.Locale.Language</c>),
+/// <see cref="MetatypeStrategy">metatypes</see>, bare generics, and
+/// <c>Swift.Any</c> / <c>Swift.AnyObject</c>. Under the single-path policy
+/// the four entry-point overloads are projections of one resolver decision,
+/// so a type the resolver claims is a type the rest of the generator can
+/// marshal — and is therefore "processed".</item>
+/// </list>
 /// </remarks>
 public sealed class TypeResolver
 {
@@ -28,15 +54,33 @@ public sealed class TypeResolver
     }
 
     /// <summary>
-    /// Default resolver wiring used by the legacy entry points. Carries the
-    /// three Session-1 strategies in dispatch order; later sessions extend
-    /// the registration with the remaining strategies.
+    /// Default resolver wiring used by the <see cref="TypeDatabaseExtensions"/>
+    /// entry points. Strategies dispatch in the listed order; the first match
+    /// wins, mirroring the short-circuit of the retired legacy stage chain.
     /// </summary>
     public static TypeResolver Default { get; } = new(new IResolutionStrategy[]
     {
         new DynamicSelfStrategy(),
         new GenericParameterStrategy(),
         new PrimitiveAliasStrategy(),
+        // Metatype must precede Existential. A metatype expressed in nested
+        // NamedTypeSpec form (outer "Foundation" + InnerType chain ending in
+        // "Type") leaves the outer name without a dot, which the legacy
+        // existential heuristic would otherwise classify as a missing-binding
+        // fallback. The legacy TryGetAnyTypeFallbackInfo path used the
+        // metatype-first ordering for this reason; the resolver adopts it
+        // uniformly so the classification is consistent across every entry
+        // point.
+        new MetatypeStrategy(),
+        new ExistentialStrategy(),
+        new SwiftAnyAnyObjectStrategy(),
+        new PointerStrategy(),
+        new UnsupportedAppleModuleStrategy(),
+        new BareGenericGuardStrategy(),
+        new BoundGenericSimdAliasStrategy(),
+        new AppleSupplementStrategy(),
+        new DatabaseLookupStrategy(),
+        new ObjCBridgingStrategy(),
     });
 
     /// <summary>
@@ -83,7 +127,6 @@ public sealed class TypeResolver
             return result;
 
         throw new InvalidOperationException(
-            $"No resolution strategy produced a TypeRecord for TypeSpec '{typeSpec}'. The legacy " +
-            "fall-through path should still cover this case until M4 Session 2 completes the migration.");
+            $"No resolution strategy produced a TypeRecord for TypeSpec '{typeSpec}'.");
     }
 }

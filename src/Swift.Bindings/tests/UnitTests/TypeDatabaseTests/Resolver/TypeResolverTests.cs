@@ -170,18 +170,53 @@ public class TypeResolverTests
     }
 
     [Fact]
-    public void Default_RegistersSession1StrategiesInOrderAtHeadOfList()
+    public void Default_RegistersFullStrategyChainInDispatchOrder()
     {
-        // Session 1 registers these three strategies first, in this order.
-        // Future sessions append additional strategies; assert the prefix
-        // rather than the full list so this test does not have to be edited
-        // every time a new strategy is migrated.
+        // The dispatch order is correctness-sensitive — Metatype must precede
+        // Existential (otherwise nested-form metatypes get classified as
+        // existential fallback), AppleSupplement must precede DatabaseLookup
+        // (so Apple supplement projections take priority over any incidental
+        // module DB entry of the same name), and BareGenericGuard must precede
+        // BoundGenericSimdAlias (the bare guard fires only when no generic args
+        // are present, so the ordering matters only in tandem with SIMD's
+        // bound-generic claim contract). Pin the full sequence so a regression
+        // surfaces here and not as a parity test failure two screens away.
         var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
 
-        var expectedPrefix = new[] { "DynamicSelf", "GenericParameter", "PrimitiveAlias" };
-        Assert.True(names.Length >= expectedPrefix.Length,
-            $"Default strategy list shorter than expected. Got: [{string.Join(", ", names)}]");
-        Assert.Equal(expectedPrefix, names.Take(expectedPrefix.Length).ToArray());
+        Assert.Equal(new[]
+        {
+            "DynamicSelf",
+            "GenericParameter",
+            "PrimitiveAlias",
+            "Metatype",
+            "Existential",
+            "SwiftAnyAnyObject",
+            "Pointer",
+            "UnsupportedAppleModule",
+            "BareGenericGuard",
+            "BoundGenericSimdAlias",
+            "AppleSupplement",
+            "DatabaseLookup",
+            "ObjCBridging",
+        }, names);
+    }
+
+    [Theory]
+    [InlineData("Metatype", "Existential")]              // legacy GetTypeRecordOrThrow + TryGetAnyTypeFallbackInfo ordering
+    [InlineData("AppleSupplement", "DatabaseLookup")]    // supplement projections win over incidental DB entries
+    [InlineData("BareGenericGuard", "BoundGenericSimdAlias")] // bare guard short-circuits before SIMD bound-generic claim
+    [InlineData("SwiftAnyAnyObject", "Pointer")]         // Swift.Any/AnyObject claimed before pointer fallback
+    public void Default_RelativeOrdering_HoldsForCorrectnessCriticalPairs(string earlier, string later)
+    {
+        var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
+
+        var earlierIndex = Array.IndexOf(names, earlier);
+        var laterIndex = Array.IndexOf(names, later);
+
+        Assert.True(earlierIndex >= 0, $"Strategy '{earlier}' missing from Default. Got: [{string.Join(", ", names)}]");
+        Assert.True(laterIndex >= 0, $"Strategy '{later}' missing from Default. Got: [{string.Join(", ", names)}]");
+        Assert.True(earlierIndex < laterIndex,
+            $"Expected '{earlier}' (index {earlierIndex}) to precede '{later}' (index {laterIndex}).");
     }
 
     [Fact]

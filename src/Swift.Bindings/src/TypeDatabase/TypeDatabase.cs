@@ -333,9 +333,12 @@ namespace BindingsGeneration
             // INVARIANT: currentlyGeneratingModule is always null on this path. The
             // main generator never rebuilds the supplement through TryGetTypeRecord —
             // supplement regeneration uses the dedicated AppleTypesCsEmitter pipeline,
-            // which never flows through this helper. If the two paths ever merge, the
-            // TypeOwnerRegistry Level-5 (Local) fall-through would need a real module
-            // name to avoid a silent cross-module/supplement identity mismatch.
+            // which never flows through this helper. The NamedTypeSpec resolver
+            // (AppleSupplementStrategy) carries the same null today via
+            // ResolutionContext.CurrentlyGeneratingModule, so behavior matches; if a
+            // future caller starts threading a real module name in, both surfaces need
+            // to honor it for the TypeOwnerRegistry Level-5 (Local) fall-through to
+            // stay consistent.
             if (AppleSupplementResolver.TryResolve(swiftTypeName, currentlyGeneratingModule: null, out var supplementRecord))
             {
                 AppleSupplementReferences.Record(swiftTypeName.ModuleQualifiedName);

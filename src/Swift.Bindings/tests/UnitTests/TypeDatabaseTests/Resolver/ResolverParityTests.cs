@@ -137,4 +137,170 @@ public class ResolverParityTests
         Assert.False(resolved);
         Assert.Null(resolverResult);
     }
+
+    // -------------------------------------------------------------------------
+    // M4 Session 2: parity for the strategies migrated in this session.
+    // The legacy entry points are now thin shims over the resolver, so each
+    // pair of asserts proves that the entry-point projection matches a direct
+    // resolver call. Together they prove the four overloads carry no
+    // independent logic — the single-path policy.
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("any Swift.Encoder")]   // existential
+    [InlineData("Swift.Any")]            // Swift.Any short-circuit
+    [InlineData("Swift.AnyObject")]      // Swift.AnyObject short-circuit
+    [InlineData("Swift.OpaquePointer")]  // pointer
+    [InlineData("Foundation.Decimal.Type")] // metatype
+    [InlineData("SwiftUI.View")]         // unsupported Apple module
+    [InlineData("Swift.Dictionary")]     // bare-generic guard
+    [InlineData("UIKit.UIView")]         // ObjC bridging
+    [InlineData("Foundation.Locale.Language")] // Apple supplement-owned identity
+    public void EntryPoints_AgreeWithResolverDirect(string typeName)
+    {
+        var db = MakeDbWithSwiftDouble();
+        var spec = new NamedTypeSpec(typeName);
+        var ctx = new ResolutionContext(db);
+
+        TypeResolver.Default.TryResolve(spec, ctx, out var direct);
+
+        var orAnyType = db.GetTypeRecordOrAnyType(spec);
+        var hasRecord = db.TryGetTypeRecord(spec, out var record);
+        var processed = db.IsTypeProcessed(spec);
+
+        Assert.NotNull(direct);
+        Assert.NotNull(direct!.Record);
+        Assert.Equal(direct.Record, orAnyType);
+        Assert.True(hasRecord);
+        Assert.Equal(direct.Record, record);
+        Assert.True(processed);
+    }
+
+    [Fact]
+    public void IsTypeProcessed_NowAgreesWithTryGetTypeRecordOnSupplementOwnedIdentity()
+    {
+        // Pin the single-path widening called out in TypeResolver.Default's
+        // docstring: legacy IsTypeProcessed(NamedTypeSpec) only consulted the
+        // module DB / module-alias / Apple-umbrella paths, so supplement-owned
+        // identities like Foundation.Locale.Language disagreed with
+        // TryGetTypeRecord (which DID call AppleSupplementResolver). The
+        // resolver-based shim aligns the two — anything the resolver claims
+        // is, by definition, processed.
+        var db = MakeDbWithSwiftDouble();
+        var spec = new NamedTypeSpec("Foundation.Locale.Language");
+
+        Assert.True(db.IsTypeProcessed(spec));
+        Assert.True(db.TryGetTypeRecord(spec, out var record));
+        Assert.NotNull(record);
+        Assert.Equal("Foundation.Locale.Language", record!.SwiftTypeName.ModuleQualifiedName);
+    }
+
+    [Fact]
+    public void EntryPoints_AgreeWithResolverDirect_BoundSimd3()
+    {
+        // Bound-generic SIMD3<Float> goes through BoundGenericSimdAliasStrategy,
+        // which depends on simd.simd_float3 being present in the database. The
+        // [InlineData] form can't carry generic parameters, so this case is a
+        // standalone Fact; the assertions match EntryPoints_AgreeWithResolverDirect.
+        var db = MakeDbWithSwiftDouble();
+        var simdModule = new ModuleTypeDatabase("simd", "/tmp/simd.dylib");
+        var aliasName = SwiftTypeName.FromModuleQualifiedName("simd.simd_float3");
+        simdModule.RegisterType(aliasName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System.Numerics", "Vector3"),
+            SwiftTypeName = aliasName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+            Kind = TypeRecordKind.Struct,
+        });
+        db.AddModuleDatabase(simdModule);
+
+        var spec = new NamedTypeSpec("Swift.SIMD3", new TypeSpec[]
+        {
+            new NamedTypeSpec("Swift.Float"),
+        });
+        var ctx = new ResolutionContext(db);
+
+        TypeResolver.Default.TryResolve(spec, ctx, out var direct);
+
+        var orAnyType = db.GetTypeRecordOrAnyType(spec);
+        var hasRecord = db.TryGetTypeRecord(spec, out var record);
+        var processed = db.IsTypeProcessed(spec);
+
+        Assert.NotNull(direct);
+        Assert.NotNull(direct!.Record);
+        Assert.Equal("simd.simd_float3", direct.Record!.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal(direct.Record, orAnyType);
+        Assert.True(hasRecord);
+        Assert.Equal(direct.Record, record);
+        Assert.True(processed);
+    }
+
+    [Fact]
+    public void Existential_FallbackInfoFlowsThroughResolver()
+    {
+        // The existential strategy is the only Session-2 strategy that sets
+        // SyntheticFallback. The shim entry point reads it directly, so the
+        // existential fallback message must round-trip without any legacy
+        // re-classification logic.
+        var db = MakeDbWithSwiftDouble();
+        var spec = new NamedTypeSpec("any Swift.Encoder");
+
+        var fallback = db.TryGetAnyTypeFallbackInfo(spec, out var info);
+
+        Assert.True(fallback);
+        Assert.NotNull(info);
+        Assert.Equal("Existential type fallback", info!.Value.Reason);
+    }
+
+    [Theory]
+    [InlineData("Swift.OpaquePointer")]
+    [InlineData("Foundation.Decimal.Type")]
+    [InlineData("SwiftUI.View")]
+    [InlineData("Swift.Dictionary")]
+    [InlineData("UIKit.UIView")]
+    [InlineData("Swift.Any")]
+    [InlineData("Swift.AnyObject")]
+    public void IntentionalResolutions_AreNotFallback(string typeName)
+    {
+        // Every resolution that produces a real record without setting
+        // SyntheticFallback must NOT show up as a fallback diagnostic. This
+        // is the contract that closes the legacy "Type is missing from the
+        // type database" drift for Swift.Any and friends.
+        var db = MakeDbWithSwiftDouble();
+        var spec = new NamedTypeSpec(typeName);
+
+        var fallback = db.TryGetAnyTypeFallbackInfo(spec, out var info);
+
+        Assert.False(fallback);
+        Assert.Null(info);
+    }
+
+    [Fact]
+    public void SinglePathPolicy_LegacyEntryPointsBodiesAreResolverCalls()
+    {
+        // Single-path policy: the four legacy NamedTypeSpec overloads must
+        // collapse into resolver calls. A type that the resolver cannot claim
+        // must reach the canonical "missing from database" / throw / false
+        // failure modes — there must be no leftover inline branch making a
+        // separate decision. The "Made.Up.Type" identity below misses every
+        // strategy in the chain (no DB record, not ObjC, not Apple-unsupported,
+        // not a metatype, …) and exercises the failure surface of each
+        // overload. "MissingType" name is deliberate — anything ending in
+        // ".Type" would route through MetatypeStrategy.
+        var db = MakeDbWithSwiftDouble();
+        var spec = new NamedTypeSpec("MadeUp.MissingIdentity");
+        var ctx = new ResolutionContext(db);
+
+        Assert.False(TypeResolver.Default.TryResolve(spec, ctx, out _));
+
+        Assert.False(db.IsTypeProcessed(spec));
+        Assert.False(db.TryGetTypeRecord(spec, out var maybeRecord));
+        Assert.Null(maybeRecord);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, db.GetTypeRecordOrAnyType(spec));
+        Assert.Throws<Exception>(() => db.GetTypeRecordOrThrow(spec));
+        Assert.True(db.TryGetAnyTypeFallbackInfo(spec, out var fallback));
+        Assert.NotNull(fallback);
+        Assert.Equal("Type is missing from the type database", fallback!.Value.Reason);
+    }
 }

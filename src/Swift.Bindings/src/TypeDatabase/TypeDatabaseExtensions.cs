@@ -39,45 +39,25 @@ public static class TypeDatabaseExtensions
     /// <summary>
     /// Determines whether the specified Swift type has been processed.
     /// </summary>
-    /// <param name="typeDatabase">The type database.</param>
-    /// <param name="typeSpec">The Swift type specification.</param>
-    /// <returns>True if the type has been processed; otherwise, false.</returns>
+    /// <remarks>
+    /// Single-path policy: this overload now agrees with
+    /// <see cref="TryGetTypeRecord(ITypeDatabase, NamedTypeSpec, out TypeRecord)"/>
+    /// across the entire <see cref="TypeResolver.Default"/> chain. The legacy
+    /// stage chain only consulted the module DB / module-alias / Apple-umbrella
+    /// paths, which made <c>IsTypeProcessed</c> disagree with
+    /// <c>TryGetTypeRecord</c> on supplement-owned identities (e.g.,
+    /// <c>Foundation.Locale.Language</c>) and on metatype / bare-generic /
+    /// <c>Swift.Any</c>-style consolidations the resolver claims as intentional
+    /// resolutions. The user-visible effect is in
+    /// <c>ModuleProcessor</c>'s cross-module property gate: properties whose
+    /// type the resolver can marshal (because the supplement projection or
+    /// fallback record exists) are no longer skipped with a "type should have
+    /// been processed in a previous module but was not found" warning.
+    /// </remarks>
     public static bool IsTypeProcessed(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
-        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
-        // route through TypeResolver. Treat the type as processed only when the
-        // resolver produced a real TypeRecord — a skip-style outcome (Record is null)
-        // must fall through to the legacy stages, parity with the other entry points.
-        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
-            && resolved.Record is not null)
-            return true;
-
-        // Existential types (any X) are handled separately, not processed as regular types
-        if (IsExistentialTypeName(typeSpec))
-        {
-            return true;
-        }
-
-        // Pointer types are always mapped to IntPtr
-        if (IsPointerType(typeSpec))
-        {
-            return true;
-        }
-
-        // Unsupported Apple modules (SwiftUI, XCTest, etc.) are considered processed (→ AnyType)
-        if (IsUnsupportedAppleModule(typeSpec))
-            return true;
-
-        // Bound-generic SIMD aliases resolve via the alias map (e.g., Swift.SIMD3<Swift.Float>).
-        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out _))
-            return true;
-
-        var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        if (typeDatabase.IsTypeProcessed(typeName))
-            return true;
-
-        // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
-        return IsObjCModuleType(typeSpec);
+        return TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
+            && resolved.Record is not null;
     }
 
     /// <summary>
@@ -105,61 +85,13 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrAnyType(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
-        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
-        // route through TypeResolver instead of the legacy inline checks.
         if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
             && resolved.Record is not null)
         {
             return resolved.Record;
         }
 
-        // Existential types (any X) return AnyType
-        if (IsExistentialTypeName(typeSpec))
-        {
-            return AnyType;
-        }
-
-        // Pointer types are always mapped to IntPtr
-        if (IsPointerType(typeSpec))
-        {
-            return IntPtrType;
-        }
-
-        // Metatype types (Foundation.Decimal.Type) have no C# equivalent.
-        // Without this guard, the nested flattening in CreateObjCBridgedTypeRecord
-        // produces invalid names like "Foundation.DecimalType" (CS0234).
-        if (WrapperValidation.IsMetatypeType(typeSpec))
-        {
-            return AnyType;
-        }
-
-        // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
-        // get mapped to AnyType so members referencing them are gracefully suppressed.
-        // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
-        if (IsUnsupportedAppleModule(typeSpec))
-        {
-            if (!typeSpec.ContainsGenericParameters)
-            {
-                var registeredName = SwiftTypeName.FromTypeSpec(typeSpec);
-                if (typeDatabase.TryGetTypeRecord(registeredName, out var registeredRecord))
-                    return registeredRecord;
-            }
-            return AnyType;
-        }
-
-        // Guard: known-generic types used without type arguments produce bare
-        // C# types like "SwiftDictionary" (CS0305). Return AnyType to trigger skip.
-        if (!typeSpec.ContainsGenericParameters && IsKnownGenericType(typeSpec.Name))
-            return AnyType;
-
-        // Bound-generic SIMD aliases: Swift.SIMD3<Swift.Float> → simd.simd_float3, etc.
-        // Swift stdlib SIMD generics map to C simd module typedefs with different ABI layouts.
-        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
-            return aliasRecord;
-
-        // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
-        var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        return typeDatabase.GetTypeRecordOrAnyType(typeName);
+        return AnyType;
     }
 
     /// <summary>
@@ -205,8 +137,6 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type record was found; otherwise, false.</returns>
     public static bool TryGetTypeRecord(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(returnValue: true)] out TypeRecord? record)
     {
-        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
-        // route through TypeResolver instead of the legacy inline checks.
         if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
             && resolved.Record is not null)
         {
@@ -214,95 +144,7 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
-        // Existential types (any X) return AnyType
-        if (IsExistentialTypeName(typeSpec))
-        {
-            record = AnyType;
-            return true;
-        }
-
-        // Swift.Any and Swift.AnyObject are special protocol types with no concrete C# equivalent.
-        // They are module-qualified so they don't match IsExistentialTypeName, and they aren't in
-        // the type database. Map them to AnyType so members using them are gracefully skipped.
-        if (typeSpec.Name is "Swift.Any" or "Swift.AnyObject")
-        {
-            record = AnyType;
-            return true;
-        }
-
-        // Pointer types are always mapped to IntPtr
-        if (IsPointerType(typeSpec))
-        {
-            record = IntPtrType;
-            return true;
-        }
-
-        // Metatype types (Foundation.Decimal.Type) have no C# equivalent
-        if (WrapperValidation.IsMetatypeType(typeSpec))
-        {
-            record = AnyType;
-            return true;
-        }
-
-        // Types from unsupported Apple framework modules (SwiftUI, XCTest, Combine, etc.)
-        // get mapped to AnyType so members referencing them are gracefully suppressed.
-        // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
-        if (IsUnsupportedAppleModule(typeSpec))
-        {
-            if (!typeSpec.ContainsGenericParameters)
-            {
-                var registeredName = SwiftTypeName.FromTypeSpec(typeSpec);
-                if (typeDatabase.TryGetTypeRecord(registeredName, out var registeredRecord))
-                {
-                    record = registeredRecord;
-                    return true;
-                }
-            }
-            record = AnyType;
-            return true;
-        }
-
-        // Bound-generic SIMD aliases: Swift.SIMD3<Swift.Float> → simd.simd_float3, etc.
-        // Must resolve here too (not only GetTypeRecordOrAnyType) — return/parameter mapping
-        // paths call TryGetTypeRecord directly and would otherwise miss the alias.
-        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
-        {
-            record = aliasRecord;
-            return true;
-        }
-
-        var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        if (typeDatabase.TryGetTypeRecord(typeName, out record))
-            return true;
-
-        // SwiftBindings.Apple supplement: pulled in before the ObjC synthetic fallback
-        // so a Swift-only Apple type (e.g. Foundation.Locale.Language) resolves to its
-        // managed projection in SwiftBindings.Apple rather than being force-bridged to
-        // an ObjC class that does not exist. Records the identity so the csproj emitter
-        // can add the PackageReference only for consumers that actually touch a supplement
-        // type.
-        //
-        // INVARIANT: currentlyGeneratingModule is always null on this path. The main
-        // generator never rebuilds the supplement through this helper — supplement
-        // regeneration uses the dedicated AppleTypesCsEmitter pipeline, which never
-        // flows through here. Mirrors the same contract in
-        // TypeDatabase.ModuleTypeDatabase.TryGetTypeRecord; if the two paths ever
-        // merge, both call sites need a real module name to keep the TypeOwnerRegistry
-        // Level-5 (Local) fall-through correct.
-        if (AppleSupplementResolver.TryResolve(typeName, currentlyGeneratingModule: null, out var supplementRecord))
-        {
-            AppleSupplementReferences.Record(typeName.ModuleQualifiedName);
-            record = supplementRecord;
-            return true;
-        }
-
-        // ObjC class types get synthetic ObjCBridged records (DB-first to allow explicit overrides)
-        if (IsObjCModuleType(typeSpec))
-        {
-            record = CreateObjCBridgedTypeRecord(typeName);
-            return true;
-        }
-
+        record = null;
         return false;
     }
 
@@ -314,61 +156,13 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrThrow(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
-        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
-        // route through TypeResolver instead of the legacy inline checks.
         if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
             && resolved.Record is not null)
         {
             return resolved.Record;
         }
 
-        // Metatype types (Foundation.Decimal.Type) have no C# equivalent.
-        if (WrapperValidation.IsMetatypeType(typeSpec))
-        {
-            return AnyType;
-        }
-
-        // Existential types (any X) return AnyType
-        if (IsExistentialTypeName(typeSpec))
-        {
-            return AnyType;
-        }
-
-        // Swift.Any and Swift.AnyObject are special protocol types with no concrete C# equivalent
-        if (typeSpec.Name is "Swift.Any" or "Swift.AnyObject")
-        {
-            return AnyType;
-        }
-
-        // Pointer types are always mapped to IntPtr
-        if (IsPointerType(typeSpec))
-        {
-            return IntPtrType;
-        }
-
-        // Unsupported Apple modules (SwiftUI, XCTest, etc.) → AnyType
-        // Exception: registered non-generic types with C# ISwiftObject stubs resolve normally.
-        if (IsUnsupportedAppleModule(typeSpec))
-        {
-            if (!typeSpec.ContainsGenericParameters)
-            {
-                var registeredName = SwiftTypeName.FromTypeSpec(typeSpec);
-                if (typeDatabase.TryGetTypeRecord(registeredName, out var registeredRecord))
-                    return registeredRecord;
-            }
-            return AnyType;
-        }
-
-        // Bound-generic SIMD aliases: Swift.SIMD2/3/4<Swift.Float> → simd.simd_floatN.
-        // Without this short-circuit, the bare name "Swift.SIMD2" is not in the TypeDatabase
-        // (SIMD is a Swift stdlib generic with no direct TypeRecord) and GetTypeRecordOrThrow
-        // would throw. Mirrors the same guard in GetTypeRecordOrAnyType / TryGetTypeRecord.
-        if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
-            return aliasRecord;
-
-        // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
-        var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        return typeDatabase.GetTypeRecordOrThrow(typeName);
+        throw new Exception($"Type {SwiftTypeName.FromTypeSpec(typeSpec).ModuleQualifiedName} not found in database.");
     }
 
     /// <summary>
@@ -430,63 +224,29 @@ public static class TypeDatabaseExtensions
     /// </summary>
     public static bool TryGetAnyTypeFallbackInfo(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(true)] out AnyTypeFallbackInfo? fallbackInfo)
     {
-        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias resolutions are
-        // intentional, not fallbacks. The resolver short-circuits to false on a hit so the
-        // legacy fallback heuristics never re-classify these types as "missing from database".
-        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
-            && resolved.Record is not null
-            && resolved.SyntheticFallback is null)
+        // The resolver carries fallback intent inline: a strategy that produced a real
+        // record but tagged it with SyntheticFallback wants the degradation surfaced
+        // (e.g., the existential strategy). A strategy that produced a record without
+        // a fallback tag is an intentional resolution. No claim at all means the type
+        // is genuinely missing from every resolution path.
+        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved))
         {
-            fallbackInfo = null;
-            return false;
-        }
+            if (resolved.SyntheticFallback is not null)
+            {
+                fallbackInfo = resolved.SyntheticFallback;
+                return true;
+            }
 
-        // Metatype types are intentionally mapped to AnyType, not a fallback
-        if (WrapperValidation.IsMetatypeType(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        if (IsExistentialTypeName(typeSpec))
-        {
-            fallbackInfo = new AnyTypeFallbackInfo(
-                "Existential type fallback",
-                typeSpec.ToString());
-            return true;
-        }
-
-        // Pointer types are fully handled (mapped to IntPtr), not a fallback
-        if (IsPointerType(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        // Unsupported Apple modules are intentionally mapped to AnyType, not a fallback
-        if (IsUnsupportedAppleModule(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        // ObjC framework types are handled via synthetic ObjCBridged records, not a fallback
-        if (IsObjCModuleType(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
-        if (typeDatabase.TryGetTypeRecord(typeName, out _))
-        {
-            fallbackInfo = null;
-            return false;
+            if (resolved.Record is not null)
+            {
+                fallbackInfo = null;
+                return false;
+            }
         }
 
         fallbackInfo = new AnyTypeFallbackInfo(
             "Type is missing from the type database",
-            typeName.ModuleQualifiedName);
+            SwiftTypeName.FromTypeSpec(typeSpec).ModuleQualifiedName);
         return true;
     }
 
@@ -633,7 +393,7 @@ public static class TypeDatabaseExtensions
     /// Types with explicit name remappings in the registry are resolved first;
     /// remaining types use module→namespace mapping + nested name flattening.
     /// </summary>
-    private static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
+    internal static TypeRecord CreateObjCBridgedTypeRecord(SwiftTypeName swiftTypeName)
     {
         // Check registry for explicit name remapping (Foundation Swift names → .NET ObjC names)
         if (AppleFrameworkRegistry.TryGetNetTypeName(swiftTypeName.ModuleQualifiedName, out var netName))
@@ -744,7 +504,7 @@ public static class TypeDatabaseExtensions
     /// Determines whether the specified NamedTypeSpec is from an Apple framework module
     /// that has no .NET iOS binding equivalent (SwiftUI, XCTest, Combine, etc.).
     /// </summary>
-    private static bool IsUnsupportedAppleModule(NamedTypeSpec typeSpec)
+    internal static bool IsUnsupportedAppleModule(NamedTypeSpec typeSpec)
     {
         if (!typeSpec.HasModule())
             return false;
@@ -755,7 +515,7 @@ public static class TypeDatabaseExtensions
     /// Determines whether the specified SwiftTypeName represents an ObjC class type.
     /// Mirrors <see cref="IsObjCModuleType"/> but for the SwiftTypeName path.
     /// </summary>
-    private static bool IsObjCClassSwiftType(SwiftTypeName swiftTypeName)
+    internal static bool IsObjCClassSwiftType(SwiftTypeName swiftTypeName)
     {
         // Foundation typealiases to stdlib primitives (parity with IsObjCModuleType)
         if (MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(swiftTypeName.ModuleQualifiedName))
@@ -781,9 +541,9 @@ public static class TypeDatabaseExtensions
         "Swift.Dictionary", "Swift.Array", "Swift.Set", "Swift.Optional", "Swift.Result"
     };
 
-    private static bool IsKnownGenericType(string name) => KnownGenericTypes.Contains(name);
+    internal static bool IsKnownGenericType(string name) => KnownGenericTypes.Contains(name);
 
-    private static bool IsPointerType(NamedTypeSpec typeSpec)
+    internal static bool IsPointerType(NamedTypeSpec typeSpec)
     {
         return typeSpec.Name is "Swift.OpaquePointer" or "Swift.UnsafePointer"
             or "Swift.UnsafeMutablePointer" or "Swift.UnsafeRawPointer"
@@ -797,7 +557,7 @@ public static class TypeDatabaseExtensions
     /// </summary>
     /// <param name="typeSpec">The type specification.</param>
     /// <returns><c>true</c> if this is an existential type name; otherwise, <c>false</c>.</returns>
-    private static bool IsExistentialTypeName(NamedTypeSpec typeSpec)
+    internal static bool IsExistentialTypeName(NamedTypeSpec typeSpec)
     {
         // Check if the TypeSpec has the IsAny flag set (set by TypeSpecParser when "any" prefix is parsed)
         // This is the primary way existential types are detected (e.g., "any Swift.Encoder" -> IsAny=true, Name="Swift.Encoder")

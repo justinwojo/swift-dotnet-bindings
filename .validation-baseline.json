@@ -1,5 +1,5 @@
 {
-  "git_sha": "f3ba815f",
+  "git_sha": "a17a6930",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -110,7 +110,7 @@
       "RoomPlan": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10368,
+        "lines": 10360,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
