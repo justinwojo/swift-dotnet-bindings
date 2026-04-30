@@ -22,7 +22,7 @@ Same bar as v1:
 Litmus status of each item:
 
 - **`libswiftDemangle`** *(M1 — pending redesign)*: was framed as eliminating ~5,800 LOC of hand-ported demangler. The pre-implementation audit found the public C API of `libswiftDemangle.dylib` cannot satisfy the existing structured `IReduction` contract; whether any reshaped version of M1 still passes the litmus is part of the open redesign decision. See `scratch/m1-redesign-proposal.md`.
-- **SwiftSyntax producer** *(M2 — passes)*: retires ~4.2k LOC of regex parsing (`SwiftInterfaceAccessParser.cs`, 4,223 lines as of this commit) plus 14 dictionary-shaped facts on `SwiftInterfaceFacts` whose values are inferred by string heuristics today. This is the surface the v1/v2 docs flagged as the largest "silent wrong binding" risk. M4 deliberately shaped `SwiftInterfaceFacts` so this swap can land incrementally.
+- **SwiftSyntax producer** *(M2 — passes)*: retires ~4.2k LOC of regex parsing (`SwiftInterfaceAccessParser.cs`, 4,223 lines as of this commit) plus the 24 required fact fields on `SwiftInterfaceFacts` whose values are inferred by string heuristics today. This is the surface the v1/v2 docs flagged as the largest "silent wrong binding" risk. M4 deliberately shaped `SwiftInterfaceFacts` so this swap can land incrementally.
 
 Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md` until something pulls them forward.
 
@@ -74,7 +74,7 @@ Original rationale (now conditional on M1 being redesigned):
 
 ### Milestone 2 — SwiftSyntax producer behind `SwiftInterfaceFacts` *(3–5 sessions)*
 
-**Goal**: ~4.2k LOC of regex parsing in `SwiftInterfaceAccessParser.cs` (4,223 lines as of this commit) replaced by a Swift host program that uses SwiftSyntax to populate the same `SwiftInterfaceFacts` aggregator M4 introduced.
+**Goal**: ~4.2k LOC of regex parsing in `SwiftInterfaceAccessParser.cs` (4,223 lines as of this commit) replaced by a Swift host program that uses SwiftSyntax to populate the same `SwiftInterfaceFacts` aggregator M4 introduced (24 required fact fields as of M2 Session 1).
 
 **Scope**:
 - New Swift host program ("`SwiftInterfaceParser`" or similar) built via SPM, distributed alongside the generator.
@@ -153,9 +153,9 @@ Inherited from v1 verbatim. Notably:
 
 1. **Demangler dylib provenance.** *(superseded — see `scratch/m1-redesign-proposal.md`)* The original recommendation was "system first (`/usr/lib/swift/libswiftDemangle.dylib`), toolchain fallback (`xcrun --find swift`)". The audit found `/usr/lib/swift/libswiftDemangle.dylib` does not exist on the verified host; `libswiftDemangle.dylib` lives only at toolchain-derived paths (`/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libswiftDemangle.dylib` and `/Library/Developer/CommandLineTools/usr/lib/libswiftDemangle.dylib`). If M1 redesigns to use this dylib, the probe order should be toolchain-first; system path is not reliable.
 
-2. **SwiftSyntax host program distribution.** Vendor pre-built binaries in the NuGet package (one slice per Apple host platform), or build-on-first-use from sources shipped alongside? Recommendation: vendor, mirroring how we ship xcframework slices — first-run UX matters and SPM resolution at first invocation has failed for users before.
+2. **SwiftSyntax host program distribution.** *(resolved)* Vendor pre-built binaries in the NuGet package, **one binary per macOS host architecture** (arm64 and x86_64; the parser only ever runs on macOS — never iOS/tvOS/Catalyst slices). M2 Session 1 ships the host-arch binary only; a universal `lipo` binary is the M2 Session 2+ TODO. Mirrors how we ship xcframework slices today, with the simplification that swift-syntax 601.0.x links statically into the executable, so distribution is a single Mach-O per arch (no sidecar dylibs).
 
-3. **SwiftSyntax version pinning.** Track the host Swift toolchain's bundled SwiftSyntax, or pin a specific tag? Recommendation: pin a tag and bump deliberately. The Swift toolchain ships SwiftSyntax versions tied to its release cadence; we want to control when we adopt new node shapes.
+3. **SwiftSyntax version pinning.** *(resolved)* M2 Session 1 pins **swift-syntax 601.0.1**, declared in `tools/SwiftInterfaceParser/Package.swift`. Verified compatible with the host toolchain (Apple Swift 6.2.3). Bump only deliberately, in a session dedicated to adopting new node shapes — do NOT track the host toolchain's bundled SwiftSyntax.
 
 4. **Fact batching order in M2.** Resolved at session boundaries — pick the next batch by *drift risk*, not by code locality. The facts whose regex patterns have the most special cases are the ones most likely to be wrong now.
 

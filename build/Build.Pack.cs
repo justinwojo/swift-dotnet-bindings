@@ -41,6 +41,21 @@ partial class Build
             Log.Information("=== Packing SwiftBindings v{Version} (Apple supplement v{AppleVersion}) ===",
                 Version, appleVersion);
 
+            // Hard-fail when the SwiftInterfaceParser binary is missing. CompileSwiftInterfaceParser
+            // logs a warning and returns silently when xcrun can't find the swift toolchain (so a
+            // dev without Xcode isn't blocked from running .NET-only targets), but a Pack run that
+            // ships an SDK without the host binary advertises `--interface-facts-producer swift-syntax`
+            // as supported when it isn't. Either skip Pack or fail loudly — the SDK's contract
+            // is to ship the binary alongside the generator.
+            var stagedBinary = SwiftInterfaceParserStagingDir / "SwiftInterfaceParser";
+            if (!File.Exists(stagedBinary))
+            {
+                throw new System.InvalidOperationException(
+                    $"Pack: expected SwiftInterfaceParser binary at '{stagedBinary}' but it is missing. " +
+                    "Run `nuke compile` on a macOS host with the Swift toolchain installed " +
+                    "(Xcode or the Command Line Tools) before packing.");
+            }
+
             using var scope = new VersionScope(Version!, RootDirectory, AppleVersion);
 
             // 1. Runtime

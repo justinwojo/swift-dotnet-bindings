@@ -269,6 +269,15 @@ public class CliOptions
         description: "Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)",
         getDefaultValue: () => 1);
 
+    public Option<string> InterfaceFactsProducer { get; } = new(
+        aliases: new[] { "--interface-facts-producer" },
+        description: "Producer used to extract supplementary facts from .swiftinterface files. " +
+                     "'regex' (default) uses the legacy SwiftInterfaceAccessParser; 'swift-syntax' " +
+                     "shells out to the SwiftInterfaceParser host binary (built by `nuke compile`) " +
+                     "for the migrated subset of facts and falls back to the regex producer for the " +
+                     "rest. Default REMAINS regex through M2 Sessions 1-2; flips in M2 Session 3.",
+        getDefaultValue: () => "regex");
+
     public Option<bool> Help { get; } = new(aliases: new[] { "-h", "--help" }, "Display a help message.");
 
     /// <summary>
@@ -325,6 +334,7 @@ public class CliOptions
             ValidateAppleTypesManifest,
             AppleTypesManifestWriteBack,
             AppleSupplementPrototypeDir,
+            InterfaceFactsProducer,
             Config,
             Verbose,
             Help,

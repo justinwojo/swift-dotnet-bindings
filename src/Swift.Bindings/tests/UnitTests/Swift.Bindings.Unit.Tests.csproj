@@ -20,6 +20,11 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <!-- xunit 2.9.x lacks Assert.Skip (added in xunit3); SkippableFact provides
+         [SkippableFact]/[SkippableTheory] + Xunit.Skip.IfNot for runtime skips.
+         Used by InterfaceFactsProducerParityTests when the SwiftInterfaceParser
+         host binary isn't built. -->
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
   </ItemGroup>
 </Project>
 

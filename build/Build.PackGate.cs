@@ -74,6 +74,18 @@ partial class Build
 
             Log.Information("=== PackGate: packing fixture at {Version} ===", PackGateVersion);
 
+            // Hard-fail guard parity with Pack: the SDK ships SwiftInterfaceParser; if it's
+            // missing the gate would silently certify a packaging shape that doesn't actually
+            // ship the host binary. Run `nuke compile` on a Darwin host with the Swift toolchain.
+            var stagedBinary = SwiftInterfaceParserStagingDir / "SwiftInterfaceParser";
+            if (!File.Exists(stagedBinary))
+            {
+                throw new System.InvalidOperationException(
+                    $"PackGate: expected SwiftInterfaceParser binary at '{stagedBinary}' but it is missing. " +
+                    "Run `nuke compile` on a macOS host with the Swift toolchain installed " +
+                    "(Xcode or the Command Line Tools) before exercising the pack gate.");
+            }
+
             using var scope = new VersionScope(PackGateVersion, RootDirectory, PackGateAppleVersion);
 
             // 1. Publish generator to src/Swift.Bindings.Sdk/tools/net10.0/any/ so

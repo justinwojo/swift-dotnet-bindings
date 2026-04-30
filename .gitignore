@@ -231,6 +231,11 @@ src/Swift.Bindings.Sdk/tools/*
 !src/Swift.Bindings.Sdk/tools/apple-types-manifest/
 src/Swift.Bindings.Sdk/bin/
 
+# SwiftInterfaceParser SPM build output (rebuilt by `nuke compile`).
+# Sources live in tools/SwiftInterfaceParser/{Package.swift,Sources/}; .build/ is
+# entirely throwaway resolution + binary output.
+tools/SwiftInterfaceParser/.build/
+
 # Nuke build temp artifacts
 .nuke/temp/
 

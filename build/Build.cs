@@ -85,8 +85,13 @@ partial class Build : NukeBuild
     ApplePlatform ResolvedPlatform => ApplePlatform.FromName(Platform);
 
     // --- Core targets ---
+    // Compile depends on CompileSwiftInterfaceParser so the M2 SwiftSyntax host binary is
+    // present in the Sdk pack staging tree by the time `nuke pack` runs. The dependency is
+    // Darwin-gated (the SwiftInterfaceParser target is `OnlyWhenStatic(IsMacOS)`); on
+    // non-Apple hosts it's a no-op and Compile remains pure .NET. See Build.SwiftInterfaceParser.cs.
     Target Compile => _ => _
         .After(Clean)
+        .DependsOn(CompileSwiftInterfaceParser)
         .Executes(() =>
         {
             DotNetBuild(s => s

@@ -5,6 +5,7 @@
 using System.CommandLine.Invocation;
 using Microsoft.Extensions.Logging;
 using BindingsGeneration.ObjC;
+using BindingsGeneration.Producers;
 
 namespace BindingsGeneration;
 
@@ -75,6 +76,7 @@ public static class BindingsGeneratorCommand
         var appleTypesManifestWriteBack = parseResult.GetValueForOption(options.AppleTypesManifestWriteBack);
         var appleSupplementPrototypeDir = parseResult.GetValueForOption(options.AppleSupplementPrototypeDir);
         var configPath = parseResult.GetValueForOption(options.Config);
+        var interfaceFactsProducer = parseResult.GetValueForOption(options.InterfaceFactsProducer) ?? "regex";
         var verbose = parseResult.GetValueForOption(options.Verbose);
         var help = parseResult.GetValueForOption(options.Help);
 
@@ -593,7 +595,8 @@ public static class BindingsGeneratorCommand
         symbolGraph = BindingsGenerator.ResolveSymbolGraphPath(symbolGraph, noDocs, resolution, outputDirectory, logger, platformInfo: platformInfo);
 
         var depModuleNames = GetDependencyModuleNamesForSwiftImports(resolvedDependencies);
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase);
+        var factsAggregator = BuildInterfaceFactsAggregator(interfaceFactsProducer, logger);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator);
         if (!success)
         {
             context.ExitCode = 1;
@@ -1246,6 +1249,49 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
+        Console.WriteLine("  --interface-facts-producer  'regex' (default) or 'swift-syntax'. The latter routes MainActor* facts through the SwiftInterfaceParser host binary.");
         Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
+    }
+
+    /// <summary>
+    /// Construct the <see cref="InterfaceFactsAggregator"/> from the CLI flag.
+    /// <list type="bullet">
+    /// <item><c>regex</c> (default): single-producer aggregator. Behavior is byte-equal to the
+    /// pre-M2 inline parsing flow.</item>
+    /// <item><c>swift-syntax</c>: SwiftSyntax producer prepended to the regex producer. The
+    /// SwiftSyntax producer covers only its migrated subset (Session 1: MainActorTypes +
+    /// MainActorTypePositions); the regex producer fills the remaining facts.</item>
+    /// </list>
+    /// Unknown values throw — silent fallback would defeat the explicit-switch design.
+    /// </summary>
+    private static InterfaceFactsAggregator BuildInterfaceFactsAggregator(string flag, ILogger logger)
+    {
+        return flag switch
+        {
+            "regex" => new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
+            {
+                new RegexInterfaceFactsProducer(),
+            }),
+            "swift-syntax" => BuildSwiftSyntaxAggregator(logger),
+            _ => throw new ArgumentException(
+                $"Unknown --interface-facts-producer value '{flag}'. Expected 'regex' or 'swift-syntax'."),
+        };
+    }
+
+    private static InterfaceFactsAggregator BuildSwiftSyntaxAggregator(ILogger logger)
+    {
+        var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary();
+        if (binaryPath is null)
+        {
+            throw new InvalidOperationException(
+                "SwiftSyntaxInterfaceFactsProducer: could not locate SwiftInterfaceParser binary. " +
+                "Run `nuke compile` (Darwin only) or set SWIFT_INTERFACE_PARSER_PATH.");
+        }
+        logger.LogInformation("Using SwiftSyntax interface facts producer at: {Path}", binaryPath);
+        return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
+        {
+            new SwiftSyntaxInterfaceFactsProducer(binaryPath),
+            new RegexInterfaceFactsProducer(),
+        });
     }
 }

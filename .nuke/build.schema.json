@@ -33,6 +33,7 @@
         "Clean",
         "Compile",
         "CompileCheckBindings",
+        "CompileSwiftInterfaceParser",
         "Fetch",
         "Pack",
         "PackGate",
