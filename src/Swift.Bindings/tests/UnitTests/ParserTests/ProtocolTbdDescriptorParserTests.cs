@@ -352,7 +352,8 @@ public class ProtocolTbdDescriptorParserTests
             filePath,
             new TypeDatabase(),
             CreateDemanglingResults(tbdSymbols),
-            NullLogger<SwiftABIParser>.Instance);
+            NullLogger<SwiftABIParser>.Instance,
+            SwiftInterfaceFacts.Empty);
 
         return new ParserFixture(parser, filePath);
     }

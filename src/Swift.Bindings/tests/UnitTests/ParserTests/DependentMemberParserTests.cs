@@ -116,7 +116,8 @@ public class DependentMemberParserTests
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
-            NullLogger.Instance);
+            NullLogger.Instance,
+            SwiftInterfaceFacts.Empty);
 
         // Clean up temp file after parser reads it
         File.Delete(filePath);

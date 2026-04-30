@@ -1233,12 +1233,16 @@ public class SwiftABIParserRuntimeTests
         var filePath = Path.GetTempFileName();
         File.WriteAllText(filePath, JsonConvert.SerializeObject(root));
 
+        var facts = availabilityAnnotations is null
+            ? SwiftInterfaceFacts.Empty
+            : SwiftInterfaceFacts.Empty with { AvailabilityAnnotations = availabilityAnnotations };
+
         var parser = new SwiftABIParser(
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
             NullLogger.Instance,
-            availabilityAnnotations: availabilityAnnotations);
+            facts);
 
         return new ParserFixture(parser, filePath);
     }

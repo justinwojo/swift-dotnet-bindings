@@ -169,7 +169,7 @@ namespace BindingsGeneration
         /// 4. "SPIAccessControl" in declAttributes (@_spi types — only visible to SPI consumers,
         ///    not part of the public API surface)
         /// 5. Supplementary swiftinterface data for @inlinable internal WITH AccessControl
-        ///    (handled separately via _internalMemberKeys)
+        ///    (handled separately via SwiftInterfaceFacts.InternalMemberKeys)
         /// </summary>
         private static bool IsNodeModuleInternal(Node node)
         {
@@ -227,13 +227,13 @@ namespace BindingsGeneration
         {
             var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
 
-            if (_mainActorTypes != null && _mainActorTypes.Contains(qualifiedPath))
+            if (_facts.MainActorTypes.Contains(qualifiedPath))
                 typeDecl.IsMainActorIsolated = true;
 
-            if (_customActorTypes != null && _customActorTypes.Contains(qualifiedPath))
+            if (_facts.CustomActorTypes.Contains(qualifiedPath))
                 typeDecl.IsCustomActor = true;
 
-            if (_customActorIsolatorMap != null && _customActorIsolatorMap.TryGetValue(qualifiedPath, out var isolatorName))
+            if (_facts.CustomActorIsolatorMap.TryGetValue(qualifiedPath, out var isolatorName))
             {
                 typeDecl.IsCustomActorIsolated = true;
                 typeDecl.CustomActorIsolatorName = isolatorName;
@@ -251,23 +251,17 @@ namespace BindingsGeneration
             var key = $"{qualifiedPath}.{printedName}";
             var shortKey = $"{parentTypeDecl.Name}.{printedName}";
 
-            if (_actorIsolatedMembers != null)
-            {
-                if (_actorIsolatedMembers.Contains(key))
-                    methodDecl.IsActorIsolated = true;
-                else if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
-                    methodDecl.IsActorIsolated = true;
-            }
+            if (_facts.ActorIsolatedMembers.Contains(key))
+                methodDecl.IsActorIsolated = true;
+            else if (shortKey != key && _facts.ActorIsolatedMembers.Contains(shortKey))
+                methodDecl.IsActorIsolated = true;
 
             // Set @MainActor-specific flag (subset of IsActorIsolated)
-            if (_mainActorIsolatedMembers != null)
-            {
-                if (_mainActorIsolatedMembers.Contains(key) ||
-                    (shortKey != key && _mainActorIsolatedMembers.Contains(shortKey)))
-                    methodDecl.IsMainActorIsolated = true;
-            }
+            if (_facts.MainActorIsolatedMembers.Contains(key) ||
+                (shortKey != key && _facts.MainActorIsolatedMembers.Contains(shortKey)))
+                methodDecl.IsMainActorIsolated = true;
 
-            if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
+            if (_facts.NonisolatedMembers.Contains(key))
                 methodDecl.IsNonisolated = true;
         }
 
@@ -281,23 +275,17 @@ namespace BindingsGeneration
             var key = $"{qualifiedPath}.{propertyDecl.Name}";
             var shortKey = $"{parentTypeDecl.Name}.{propertyDecl.Name}";
 
-            if (_actorIsolatedMembers != null)
-            {
-                if (_actorIsolatedMembers.Contains(key))
-                    propertyDecl.IsActorIsolated = true;
-                else if (shortKey != key && _actorIsolatedMembers.Contains(shortKey))
-                    propertyDecl.IsActorIsolated = true;
-            }
+            if (_facts.ActorIsolatedMembers.Contains(key))
+                propertyDecl.IsActorIsolated = true;
+            else if (shortKey != key && _facts.ActorIsolatedMembers.Contains(shortKey))
+                propertyDecl.IsActorIsolated = true;
 
             // Set @MainActor-specific flag (subset of IsActorIsolated)
-            if (_mainActorIsolatedMembers != null)
-            {
-                if (_mainActorIsolatedMembers.Contains(key) ||
-                    (shortKey != key && _mainActorIsolatedMembers.Contains(shortKey)))
-                    propertyDecl.IsMainActorIsolated = true;
-            }
+            if (_facts.MainActorIsolatedMembers.Contains(key) ||
+                (shortKey != key && _facts.MainActorIsolatedMembers.Contains(shortKey)))
+                propertyDecl.IsMainActorIsolated = true;
 
-            if (_nonisolatedMembers != null && _nonisolatedMembers.Contains(key))
+            if (_facts.NonisolatedMembers.Contains(key))
                 propertyDecl.IsNonisolated = true;
         }
 
@@ -306,9 +294,8 @@ namespace BindingsGeneration
         /// </summary>
         private void ApplyAvailability(TypeDecl typeDecl)
         {
-            if (_availabilityAnnotations == null) return;
             var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
-            if (_availabilityAnnotations.TryGetValue(qualifiedPath, out var annotations))
+            if (_facts.AvailabilityAnnotations.TryGetValue(qualifiedPath, out var annotations))
                 typeDecl.AvailabilityAnnotations = annotations;
         }
 
@@ -317,9 +304,8 @@ namespace BindingsGeneration
         /// </summary>
         private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName)
         {
-            if (_availabilityAnnotations == null) return;
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (_availabilityAnnotations.TryGetValue(key, out var annotations))
+            if (_facts.AvailabilityAnnotations.TryGetValue(key, out var annotations))
                 decl.AvailabilityAnnotations = annotations;
         }
 
@@ -395,9 +381,8 @@ namespace BindingsGeneration
         /// </summary>
         private void ApplyMemberDefaultValues(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
         {
-            if (_defaultParameterValues == null) return;
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!_defaultParameterValues.TryGetValue(key, out var defaultValues))
+            if (!_facts.DefaultParameterValues.TryGetValue(key, out var defaultValues))
                 return;
             // Apply to arguments (skip i=0, the return type)
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -414,8 +399,7 @@ namespace BindingsGeneration
         /// </summary>
         private void ApplyFreeFunctionDefaultValues(MethodDecl methodDecl, string printedName)
         {
-            if (_defaultParameterValues == null) return;
-            if (!_defaultParameterValues.TryGetValue(printedName, out var defaultValues))
+            if (!_facts.DefaultParameterValues.TryGetValue(printedName, out var defaultValues))
                 return;
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -432,17 +416,15 @@ namespace BindingsGeneration
         /// </summary>
         private void ApplyMemberAutoclosureFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
         {
-            if (_autoclosureParameters == null) return;
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!_autoclosureParameters.TryGetValue(key, out var flags))
+            if (!_facts.AutoclosureParameters.TryGetValue(key, out var flags))
                 return;
             ApplyAutoclosureFlagsToSignature(methodDecl, flags);
         }
 
         private void ApplyFreeFunctionAutoclosureFlags(MethodDecl methodDecl, string printedName)
         {
-            if (_autoclosureParameters == null) return;
-            if (!_autoclosureParameters.TryGetValue(printedName, out var flags))
+            if (!_facts.AutoclosureParameters.TryGetValue(printedName, out var flags))
                 return;
             ApplyAutoclosureFlagsToSignature(methodDecl, flags);
         }
@@ -469,9 +451,8 @@ namespace BindingsGeneration
         /// </summary>
         private bool IsUnavailableFromSwiftInterface(TypeDecl parentTypeDecl, string printedName)
         {
-            if (_availabilityAnnotations == null) return false;
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            return _availabilityAnnotations.TryGetValue(key, out var annotations)
+            return _facts.AvailabilityAnnotations.TryGetValue(key, out var annotations)
                 && annotations.Any(a => a.IsUnconditionallyUnavailable && a.Platform == null);
         }
 
@@ -482,9 +463,8 @@ namespace BindingsGeneration
         /// </summary>
         private bool IsTypeUnavailableFromSwiftInterface(TypeDecl typeDecl)
         {
-            if (_availabilityAnnotations == null) return false;
             var key = BuildTypeQualifiedPath(typeDecl);
-            return _availabilityAnnotations.TryGetValue(key, out var annotations)
+            return _facts.AvailabilityAnnotations.TryGetValue(key, out var annotations)
                 && annotations.Any(a => a.IsUnconditionallyUnavailable && a.Platform == null);
         }
 
@@ -494,11 +474,11 @@ namespace BindingsGeneration
         /// </summary>
         private bool IsInternalFromPublicTypeNames(TypeDecl typeDecl)
         {
-            if (_publicTypeNames == null || _publicTypeNames.Count == 0)
+            if (_facts.PublicTypeNames.Count == 0)
                 return false;
 
             var qualifiedPath = BuildTypeQualifiedPath(typeDecl);
-            return !_publicTypeNames.Contains(qualifiedPath);
+            return !_facts.PublicTypeNames.Contains(qualifiedPath);
         }
 
         /// <summary>
@@ -523,18 +503,18 @@ namespace BindingsGeneration
         /// </summary>
         private bool IsInternalFromSwiftInterface(string parentTypeName, string printedName, Node? node)
         {
-            if (_internalMemberKeys == null || _internalMemberKeys.Count == 0)
+            if (_facts.InternalMemberKeys.Count == 0)
                 return false;
 
             var key = $"{parentTypeName}.{printedName}";
-            if (!_internalMemberKeys.Contains(key))
+            if (!_facts.InternalMemberKeys.Contains(key))
                 return false;
 
             // Both internal and public swiftinterface sets contain this key. If the ABI node
             // itself lacks the Inlinable attribute, it cannot be @inlinable internal or
             // @usableFromInline internal (those are caught in IsNodeModuleInternal Layers 1/2),
             // so it must be a plain-public overload — defer to public.
-            if (_publicMemberNames != null && _publicMemberNames.Contains(key) && node != null)
+            if (_facts.PublicMemberNames.Contains(key) && node != null)
             {
                 bool nodeHasInlinable = node.DeclAttributes != null &&
                     Array.IndexOf(node.DeclAttributes, "Inlinable") != -1;
@@ -553,7 +533,7 @@ namespace BindingsGeneration
         /// </summary>
         private bool IsInternalFromPublicMemberNames(BaseDecl parentDecl, string printedName)
         {
-            if (_publicMemberNames == null || _publicMemberNames.Count == 0)
+            if (_facts.PublicMemberNames.Count == 0)
                 return false;
 
             if (parentDecl is TypeDecl typeDecl)
@@ -563,208 +543,41 @@ namespace BindingsGeneration
                     return false;
 
                 var key = $"{typeDecl.Name}.{printedName}";
-                return !_publicMemberNames.Contains(key);
+                return !_facts.PublicMemberNames.Contains(key);
             }
 
             // Module-level (free functions/variables): bare printedName
-            return !_publicMemberNames.Contains(printedName);
+            return !_facts.PublicMemberNames.Contains(printedName);
         }
 
         /// <summary>
-        /// Optional set of internal member keys from swiftinterface parsing.
-        /// Keys are formatted as "TypeName.printedName" (e.g., "AES.encrypt(block:)").
-        /// Used to detect @inlinable internal members that can't be distinguished
-        /// from @inlinable public in the ABI JSON alone.
+        /// Aggregate of every supplementary fact extracted from the public swiftinterface.
+        /// Replaces 21 individually-threaded nullable side-channel maps with a single
+        /// drift-loud hand-off. Always non-null; use <see cref="SwiftInterfaceFacts.Empty"/>
+        /// when no swiftinterface is available.
         /// </summary>
-        private readonly HashSet<string>? _internalMemberKeys;
+        private readonly SwiftInterfaceFacts _facts;
 
         /// <summary>
-        /// Optional dictionary mapping "TypeName.printedName" keys to lists of internal
-        /// parameter names from swiftinterface parsing. Used to populate PrivateName on
-        /// ArgumentDecl so that generated C# uses meaningful parameter names instead of arg0/arg1.
-        /// </summary>
-        private readonly Dictionary<string, List<string>>? _parameterNames;
-
-        /// <summary>
-        /// Optional doc comments from symbol graph, keyed by USR.
+        /// Optional doc comments from symbol graph, keyed by USR. Sourced separately from
+        /// the swiftinterface, so it is not part of <see cref="_facts"/>.
         /// </summary>
         private readonly Dictionary<string, DocComment>? _docComments;
-
-        /// <summary>
-        /// Optional typed throws error types from swiftinterface parsing.
-        /// Keys are "TypeName.printedName" or "printedName" (free functions).
-        /// Values are fully-qualified Swift error type names (e.g., "SwiftBindingsTestLib.ParseError").
-        /// </summary>
-        private readonly Dictionary<string, string>? _typedThrowsErrors;
-
-        /// <summary>
-        /// Optional enum case parameter labels from swiftinterface parsing.
-        /// Keys are "TypeName.caseName" (e.g., "Shape.circle").
-        /// Values are lists of labels (null entries for unlabeled parameters).
-        /// </summary>
-        private readonly Dictionary<string, List<string?>>? _enumCaseLabels;
-
-        /// <summary>
-        /// Optional string enum raw values from swiftinterface parsing.
-        /// Keys are "TypeName.caseName" (e.g., "HttpMethod.get").
-        /// Values are the string raw value literals (e.g., "GET").
-        /// </summary>
-        private readonly Dictionary<string, string>? _enumCaseRawValues;
-
-        /// <summary>
-        /// Optional set of public type names from swiftinterface parsing.
-        /// Types NOT in this set (when non-null and non-empty) are internal to the module.
-        /// </summary>
-        private readonly HashSet<string>? _publicTypeNames;
-
-        /// <summary>
-        /// Optional set of type names annotated with @MainActor from swiftinterface parsing.
-        /// </summary>
-        private readonly HashSet<string>? _mainActorTypes;
-
-        /// <summary>
-        /// Optional set of type names declared with the 'actor' keyword from swiftinterface parsing.
-        /// </summary>
-        private readonly HashSet<string>? _customActorTypes;
-
-        /// <summary>
-        /// Optional map from qualified type path → matched actor short name for types
-        /// annotated with a custom global actor (e.g.,
-        /// <c>{ "ImagePipeline" → "ImagePipelineActor" }</c> for
-        /// <c>@ImagePipelineActor class ImagePipeline</c>). Distinct from
-        /// <see cref="_customActorTypes"/>, which holds the <c>actor X { }</c> keyword form.
-        /// Members on these types implicitly inherit the actor's isolation. The value
-        /// (the actor's leaf identifier) is propagated to <see cref="TypeDecl.CustomActorIsolatorName"/>
-        /// for SWIFTBIND022 diagnostics and skip-reason logging; synchronous constructors
-        /// on these types are wholesale-skipped and async constructors are rewritten as
-        /// <c>static Task&lt;T&gt; CreateAsync(...)</c> factories — no <c>assumeIsolated</c>
-        /// hop is emitted.
-        /// </summary>
-        private readonly IReadOnlyDictionary<string, string>? _customActorIsolatorMap;
-
-        /// <summary>
-        /// Optional set of "TypeName.memberName" keys for actor-isolated members (both @MainActor and custom actors).
-        /// </summary>
-        private readonly HashSet<string>? _actorIsolatedMembers;
-
-        /// <summary>
-        /// Optional set of "TypeName.memberName" keys for @MainActor-isolated members only (subset of _actorIsolatedMembers).
-        /// Used to distinguish @MainActor from custom actor isolation when setting IsMainActorIsolated.
-        /// </summary>
-        private readonly HashSet<string>? _mainActorIsolatedMembers;
-
-        /// <summary>
-        /// Optional set of "TypeName.memberName" keys for nonisolated members.
-        /// </summary>
-        private readonly HashSet<string>? _nonisolatedMembers;
-
-        /// <summary>
-        /// Optional availability annotations from swiftinterface parsing.
-        /// Keys are qualified type paths or "TypePath.printedName" for members.
-        /// </summary>
-        private readonly Dictionary<string, List<AvailabilityAnnotation>>? _availabilityAnnotations;
-
-        /// <summary>
-        /// Optional default parameter value expressions from swiftinterface parsing.
-        /// Keys are "QualifiedType.printedName". Values are index-aligned lists of
-        /// raw Swift default expressions (null for params without defaults).
-        /// </summary>
-        private readonly Dictionary<string, List<string?>>? _defaultParameterValues;
-
-        /// <summary>
-        /// Optional @autoclosure parameter flags from swiftinterface parsing.
-        /// Keys are "QualifiedType.printedName". Values are index-aligned lists of
-        /// booleans indicating which parameters have @autoclosure.
-        /// </summary>
-        private readonly Dictionary<string, List<bool>>? _autoclosureParameters;
-        private readonly HashSet<string>? _publicMemberNames;
-
-        /// <summary>
-        /// Optional set of "TypeName.printedName" keys for members with variadic parameters
-        /// from swiftinterface parsing. The ABI JSON represents variadic params as Array&lt;T&gt;,
-        /// making them indistinguishable from regular array params. @_cdecl wrappers can't call
-        /// variadic methods correctly — passing [T] where T... is expected causes compilation error.
-        /// </summary>
-        private readonly HashSet<string>? _variadicMembers;
-
-        /// <summary>
-        /// Optional subscript parameter labels from swiftinterface parsing.
-        /// Keys are "TypeName.subscript(label1:label2:)" (e.g., "AES.subscript(bitAt:)").
-        /// Values are lists of external labels (e.g., ["bitAt"]).
-        /// </summary>
-        private readonly Dictionary<string, List<string>>? _subscriptLabels;
-
-        /// <summary>
-        /// Optional set of protocol names whose methods have @convention(c) or @convention(block)
-        /// closure parameters. Detected from swiftinterface cross-reference since ABI JSON lacks
-        /// convention attributes on TypeFunc nodes.
-        /// </summary>
-        private readonly HashSet<string>? _conventionCProtocols;
-
-        /// <summary>
-        /// Optional map of protocol name to the underscore-prefixed requirement names declared
-        /// in the swiftinterface protocol body that have no matching default in any same-module
-        /// extension. The parser consults this and only sets
-        /// <c>HasUnsatisfiedHiddenRequirements</c> when at least one of those names is also
-        /// missing from the protocol's parsed ABI children — i.e. <c>swift-api-digester</c>
-        /// stripped it from the JSON, leaving no way to satisfy the witness from generated
-        /// code. Used by the EveryProtocol emitter to skip otherwise-unsatisfiable
-        /// conformances (e.g. <c>RealityFoundation.MaterialFunction.__linkSPI</c>).
-        /// </summary>
-        private readonly Dictionary<string, HashSet<string>>? _hiddenRequirementProtocols;
 
         public SwiftABIParser(
             string filePath,
             ITypeDatabase typeDatabase,
             DemanglingResults demangledTbd,
             ILogger logger,
-            HashSet<string>? internalMemberKeys = null,
-            Dictionary<string, List<string>>? parameterNames = null,
-            Dictionary<string, DocComment>? docComments = null,
-            Dictionary<string, string>? typedThrowsErrors = null,
-            Dictionary<string, List<string?>>? enumCaseLabels = null,
-            Dictionary<string, string>? enumCaseRawValues = null,
-            HashSet<string>? publicTypeNames = null,
-            HashSet<string>? mainActorTypes = null,
-            HashSet<string>? customActorTypes = null,
-            HashSet<string>? actorIsolatedMembers = null,
-            HashSet<string>? nonisolatedMembers = null,
-            Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null,
-            Dictionary<string, List<string?>>? defaultParameterValues = null,
-            Dictionary<string, List<bool>>? autoclosureParameters = null,
-            HashSet<string>? publicMemberNames = null,
-            Dictionary<string, List<string>>? subscriptLabels = null,
-            HashSet<string>? mainActorIsolatedMembers = null,
-            HashSet<string>? variadicMembers = null,
-            HashSet<string>? conventionCProtocols = null,
-            IReadOnlyDictionary<string, string>? customActorIsolatorMap = null,
-            Dictionary<string, HashSet<string>>? hiddenRequirementProtocols = null)
+            SwiftInterfaceFacts facts,
+            Dictionary<string, DocComment>? docComments = null)
         {
             _filePath = filePath;
             _typeDatabase = typeDatabase;
             _demangledTbd = demangledTbd;
             _logger = logger;
-            _internalMemberKeys = internalMemberKeys;
-            _parameterNames = parameterNames;
+            _facts = facts;
             _docComments = docComments;
-            _typedThrowsErrors = typedThrowsErrors;
-            _enumCaseLabels = enumCaseLabels;
-            _enumCaseRawValues = enumCaseRawValues;
-            _publicTypeNames = publicTypeNames;
-            _mainActorTypes = mainActorTypes;
-            _customActorTypes = customActorTypes;
-            _actorIsolatedMembers = actorIsolatedMembers;
-            _nonisolatedMembers = nonisolatedMembers;
-            _availabilityAnnotations = availabilityAnnotations;
-            _defaultParameterValues = defaultParameterValues;
-            _autoclosureParameters = autoclosureParameters;
-            _publicMemberNames = publicMemberNames;
-            _subscriptLabels = subscriptLabels;
-            _mainActorIsolatedMembers = mainActorIsolatedMembers;
-            _variadicMembers = variadicMembers;
-            _conventionCProtocols = conventionCProtocols;
-            _customActorIsolatorMap = customActorIsolatorMap;
-            _hiddenRequirementProtocols = hiddenRequirementProtocols;
 
             string jsonContent = File.ReadAllText(_filePath);
             _moduleRoot = JsonConvert.DeserializeObject<ABIRootNode>(jsonContent) ?? throw new InvalidOperationException("Invalid ABI structure.");
@@ -1056,8 +869,7 @@ namespace BindingsGeneration
                     // Comparing names — not just protocol identity — keeps us from
                     // suppressing valid proxies whenever the swiftinterface happens to
                     // declare a __-name.
-                    if (_hiddenRequirementProtocols != null &&
-                        _hiddenRequirementProtocols.TryGetValue(decl.Name, out var swiftinterfaceUnderscored) &&
+                    if (_facts.HiddenRequirementProtocols.TryGetValue(decl.Name, out var swiftinterfaceUnderscored) &&
                         swiftinterfaceUnderscored.Count > 0)
                     {
                         var abiUnderscored = new HashSet<string>(StringComparer.Ordinal);
@@ -1414,13 +1226,13 @@ namespace BindingsGeneration
             }
 
             // Apply parameter labels from swiftinterface if available
-            if (_enumCaseLabels != null && enumCaseDecl.AssociatedValues.Count > 0 && parentDecl is TypeDecl parentType)
+            if (enumCaseDecl.AssociatedValues.Count > 0 && parentDecl is TypeDecl parentType)
             {
                 // Build fully-qualified type path matching the parser's dot-joined key format
                 // e.g., "OrderContainer.Status.caseName" for nested enum Status inside OrderContainer
                 var typePath = BuildTypeQualifiedPath(parentType);
                 var key = $"{typePath}.{enumCaseDecl.Name}";
-                if (_enumCaseLabels.TryGetValue(key, out var labels))
+                if (_facts.EnumCaseLabels.TryGetValue(key, out var labels))
                 {
                     for (int i = 0; i < Math.Min(labels.Count, enumCaseDecl.AssociatedValues.Count); i++)
                     {
@@ -1434,11 +1246,11 @@ namespace BindingsGeneration
             }
 
             // Apply string raw values from swiftinterface if available
-            if (_enumCaseRawValues != null && parentDecl is TypeDecl rawValueParent)
+            if (parentDecl is TypeDecl rawValueParent)
             {
                 var typePath = BuildTypeQualifiedPath(rawValueParent);
                 var rawKey = $"{typePath}.{enumCaseDecl.Name}";
-                if (_enumCaseRawValues.TryGetValue(rawKey, out var rawValue))
+                if (_facts.EnumCaseRawValues.TryGetValue(rawKey, out var rawValue))
                 {
                     enumCaseDecl.RawValue = rawValue;
                 }
@@ -1674,7 +1486,7 @@ namespace BindingsGeneration
             PopulateDocumentation(decl, node);
 
             // Mark protocols whose methods have @convention(c)/@convention(block) closure parameters
-            if (_conventionCProtocols != null && _conventionCProtocols.Contains(decl.Name))
+            if (_facts.ConventionCProtocols.Contains(decl.Name))
                 decl.HasConventionCClosureParameters = true;
 
             return decl;
@@ -1791,14 +1603,14 @@ namespace BindingsGeneration
             }
 
             // Look up typed throws error type from swiftinterface data
-            if (methodDecl.Throws && _typedThrowsErrors != null)
+            if (methodDecl.Throws)
             {
                 // Try type-scoped key first (e.g., "TypedThrowingParser.parse(_:)")
                 var throwsScopedKey = $"{parentDecl.Name}.{node.PrintedName}";
-                if (!_typedThrowsErrors.TryGetValue(throwsScopedKey, out var errorTypeName))
+                if (!_facts.TypedThrowsErrors.TryGetValue(throwsScopedKey, out var errorTypeName))
                 {
                     // Try module-level key (free functions, e.g., "parseNumber(_:)")
-                    _typedThrowsErrors.TryGetValue(node.PrintedName, out errorTypeName);
+                    _facts.TypedThrowsErrors.TryGetValue(node.PrintedName, out errorTypeName);
                 }
 
                 if (errorTypeName != null)
@@ -1817,13 +1629,12 @@ namespace BindingsGeneration
             {
                 // Free functions: check if the function itself is actor-isolated.
                 // The actorIsolatedMembers set uses bare printedName for free functions.
-                if (_actorIsolatedMembers != null && _actorIsolatedMembers.Contains(node.PrintedName))
+                if (_facts.ActorIsolatedMembers.Contains(node.PrintedName))
                     methodDecl.IsActorIsolated = true;
-                if (_mainActorIsolatedMembers != null && _mainActorIsolatedMembers.Contains(node.PrintedName))
+                if (_facts.MainActorIsolatedMembers.Contains(node.PrintedName))
                     methodDecl.IsMainActorIsolated = true;
                 // Free function availability: keyed by bare printedName in swiftinterface
-                if (_availabilityAnnotations != null &&
-                    _availabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
+                if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
                     methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
             }
 
@@ -1863,15 +1674,12 @@ namespace BindingsGeneration
 
             // Look up internal parameter names from swiftinterface data
             List<string>? internalParamNames = null;
-            if (_parameterNames != null)
+            // Try type-scoped key first (e.g., "Dog.speak(_:_:)")
+            var paramScopedKey = $"{parentDecl.Name}.{node.PrintedName}";
+            if (!_facts.ParameterNames.TryGetValue(paramScopedKey, out internalParamNames))
             {
-                // Try type-scoped key first (e.g., "Dog.speak(_:_:)")
-                var scopedKey = $"{parentDecl.Name}.{node.PrintedName}";
-                if (!_parameterNames.TryGetValue(scopedKey, out internalParamNames))
-                {
-                    // Try module-level key (free functions, e.g., "sumTwo(_:_:)")
-                    _parameterNames.TryGetValue(node.PrintedName, out internalParamNames);
-                }
+                // Try module-level key (free functions, e.g., "sumTwo(_:_:)")
+                _facts.ParameterNames.TryGetValue(node.PrintedName, out internalParamNames);
             }
 
             // Install a fresh opaque-parameter capture for this method. CreateTypeSpec
@@ -1926,18 +1734,16 @@ namespace BindingsGeneration
             // indistinguishable from regular array params. The swiftinterface shows the actual
             // "..." syntax. @_cdecl wrappers can't call variadic methods correctly — passing
             // [T] where T... is expected causes a compilation error.
-            // Primary source: swiftinterface _variadicMembers set.
+            // Primary source: swiftinterface VariadicMembers set.
             // Fallback: demangler's FunctionReduction (when the demangler succeeds).
-            if (_variadicMembers != null)
+            // Use BuildTypeQualifiedPath for nested types (e.g., "DisposeBag.DisposableBuilder")
+            var variadicScopedKey = parentDecl is TypeDecl varParentType
+                ? $"{BuildTypeQualifiedPath(varParentType)}.{node.PrintedName}"
+                : node.PrintedName;
+            if (_facts.VariadicMembers.Contains(variadicScopedKey) ||
+                _facts.VariadicMembers.Contains(node.PrintedName))
             {
-                // Use BuildTypeQualifiedPath for nested types (e.g., "DisposeBag.DisposableBuilder")
-                var varScopedKey = parentDecl is TypeDecl varParentType
-                    ? $"{BuildTypeQualifiedPath(varParentType)}.{node.PrintedName}"
-                    : node.PrintedName;
-                if (_variadicMembers.Contains(varScopedKey) || _variadicMembers.Contains(node.PrintedName))
-                {
-                    methodDecl.HasVariadicParameter = true;
-                }
+                methodDecl.HasVariadicParameter = true;
             }
             if (!methodDecl.HasVariadicParameter &&
                 functionReduction?.Function?.ParameterList is TupleTypeSpec paramTuple)
@@ -2379,19 +2185,19 @@ namespace BindingsGeneration
             // ABI JSON may not encode all label variations for subscripts (e.g., "subscript(_:)"
             // when the actual declaration is "subscript(bitAt:)"). Cross-reference labels from
             // the swiftinterface to fix the parameter names.
-            if (_subscriptLabels != null && indexParameters.Count > 0 && parentDecl is TypeDecl subscriptLabelParentType)
+            if (indexParameters.Count > 0 && parentDecl is TypeDecl subscriptLabelParentType)
             {
                 var typePath = BuildTypeQualifiedPath(subscriptLabelParentType);
 
                 // Try matching by ABI printed name first (may be correct for some subscripts)
                 var abiKey = $"{typePath}.{node.PrintedName}";
-                if (!_subscriptLabels.TryGetValue(abiKey, out var labels))
+                if (!_facts.SubscriptLabels.TryGetValue(abiKey, out var labels))
                 {
                     // ABI key didn't match — search for a subscript with matching parameter count.
                     // For ambiguous cases (multiple subscripts with the same param count),
                     // we can't definitively match, so we only apply when there's exactly one match.
                     var prefix = $"{typePath}.subscript(";
-                    var candidates = _subscriptLabels
+                    var candidates = _facts.SubscriptLabels
                         .Where(kv => kv.Key.StartsWith(prefix) && kv.Value.Count == indexParameters.Count)
                         .ToList();
 

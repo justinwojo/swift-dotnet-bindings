@@ -180,7 +180,8 @@ namespace BindingsGeneration
                         var depDemangledTbd = Demangling.DemanglingResults.FromTbd(dep.TbdPath, loggerFactory);
                         var depParser = new SwiftABIParser(
                             dep.AbiJsonPath, typeDatabase, depDemangledTbd,
-                            loggerFactory.CreateLogger<SwiftABIParser>());
+                            loggerFactory.CreateLogger<SwiftABIParser>(),
+                            SwiftInterfaceFacts.Empty);
                         var depModuleName = depParser.GetModuleName();
                         var depParseResult = depParser.ParseModule();
 
@@ -220,33 +221,15 @@ namespace BindingsGeneration
             // Parse the TBD file
             Demangling.DemanglingResults demangledTbdFile = Demangling.DemanglingResults.FromTbd(tbdPath, loggerFactory);
 
-            // Parse swiftinterface for internal member detection and parameter names (supplementary data)
-            HashSet<string>? internalMemberKeys = null;
-            Dictionary<string, List<string>>? parameterNames = null;
-            Dictionary<string, string>? typedThrowsErrors = null;
-            Dictionary<string, List<string?>>? enumCaseLabels = null;
-            Dictionary<string, string>? enumCaseRawValues = null;
-            HashSet<string>? publicTypeNames = null;
-            HashSet<string>? mainActorTypes = null;
-            HashSet<string>? customActorTypes = null;
-            Dictionary<string, string>? customActorIsolatorMap = null;
-            HashSet<string>? actorIsolatedMembers = null;
-            HashSet<string>? mainActorIsolatedMembers = null;
-            HashSet<string>? nonisolatedMembers = null;
-            Dictionary<string, List<string>>? markerProtocolConformances = null;
-            Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null;
-            Dictionary<string, List<string?>>? defaultParameterValues = null;
-            Dictionary<string, List<bool>>? autoclosureParameters = null;
-            Dictionary<string, List<string>>? subscriptLabels = null;
-            HashSet<string>? variadicMembers = null;
-            HashSet<string>? conventionCProtocols = null;
-            Dictionary<string, HashSet<string>>? hiddenRequirementProtocols = null;
-            HashSet<string>? publicMemberNames = null;
+            // Parse swiftinterface into a single SwiftInterfaceFacts aggregate. Each fact
+            // is its own TryParseSwiftInterface call so a per-fact regex failure degrades to
+            // an empty collection and bindings still generate with reduced metadata.
+            SwiftInterfaceFacts facts = SwiftInterfaceFacts.Empty;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
                 int parseFailures = 0;
 
-                (internalMemberKeys, publicMemberNames) = TryParseSwiftInterface(
+                var (internalMemberKeys, publicMemberNames) = TryParseSwiftInterface(
                     "internal members",
                     () => {
                         var keys = SwiftInterfaceAccessParser.GetInternalMembers(swiftInterfacePath, out var pubMembers);
@@ -256,47 +239,47 @@ namespace BindingsGeneration
                     logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} internal member keys and {PublicCount} public member names from swiftinterface", internalMemberKeys.Count, publicMemberNames.Count);
 
-                parameterNames = TryParseSwiftInterface("parameter names",
+                var parameterNames = TryParseSwiftInterface("parameter names",
                     () => SwiftInterfaceAccessParser.GetParameterNames(swiftInterfacePath),
                     () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} parameter name entries from swiftinterface", parameterNames.Count);
 
-                typedThrowsErrors = TryParseSwiftInterface("typed throws",
+                var typedThrowsErrors = TryParseSwiftInterface("typed throws",
                     () => SwiftInterfaceAccessParser.GetTypedThrowsErrors(swiftInterfacePath),
                     () => new Dictionary<string, string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} typed throws entries from swiftinterface", typedThrowsErrors.Count);
 
-                enumCaseLabels = TryParseSwiftInterface("enum case labels",
+                var enumCaseLabels = TryParseSwiftInterface("enum case labels",
                     () => SwiftInterfaceAccessParser.GetEnumCaseLabels(swiftInterfacePath),
                     () => new Dictionary<string, List<string?>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} enum case label entries from swiftinterface", enumCaseLabels.Count);
 
-                enumCaseRawValues = TryParseSwiftInterface("enum raw values",
+                var enumCaseRawValues = TryParseSwiftInterface("enum raw values",
                     () => SwiftInterfaceAccessParser.GetEnumRawValues(swiftInterfacePath),
                     () => new Dictionary<string, string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} enum case raw value entries from swiftinterface", enumCaseRawValues.Count);
 
-                publicTypeNames = TryParseSwiftInterface("public type names",
+                var publicTypeNames = TryParseSwiftInterface("public type names",
                     () => SwiftInterfaceAccessParser.GetPublicTypeNames(swiftInterfacePath),
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} public type names from swiftinterface", publicTypeNames.Count);
 
-                mainActorTypes = TryParseSwiftInterface("@MainActor types",
+                var mainActorTypes = TryParseSwiftInterface("@MainActor types",
                     () => SwiftInterfaceAccessParser.GetMainActorTypes(swiftInterfacePath),
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} @MainActor type names from swiftinterface", mainActorTypes.Count);
 
-                customActorTypes = TryParseSwiftInterface("custom actor types",
+                var customActorTypes = TryParseSwiftInterface("custom actor types",
                     () => SwiftInterfaceAccessParser.GetCustomActorTypes(swiftInterfacePath),
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} custom actor type names from swiftinterface", customActorTypes.Count);
 
-                customActorIsolatorMap = TryParseSwiftInterface("custom-actor-isolated types",
+                var customActorIsolatorMap = TryParseSwiftInterface("custom-actor-isolated types",
                     () => SwiftInterfaceAccessParser.GetCustomActorIsolatorMap(swiftInterfacePath, customActorTypes),
                     () => new Dictionary<string, string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} custom-actor-isolated type names from swiftinterface", customActorIsolatorMap.Count);
 
-                (actorIsolatedMembers, mainActorIsolatedMembers) = TryParseSwiftInterface(
+                var (actorIsolatedMembers, mainActorIsolatedMembers) = TryParseSwiftInterface(
                     "actor-isolated members",
                     () => {
                         var members = SwiftInterfaceAccessParser.GetActorIsolatedMembers(swiftInterfacePath, customActorTypes, out var mainActorOut);
@@ -306,48 +289,48 @@ namespace BindingsGeneration
                     logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} actor-isolated member keys ({MainActorCount} @MainActor) from swiftinterface", actorIsolatedMembers.Count, mainActorIsolatedMembers.Count);
 
-                nonisolatedMembers = TryParseSwiftInterface("nonisolated members",
+                var nonisolatedMembers = TryParseSwiftInterface("nonisolated members",
                     () => SwiftInterfaceAccessParser.GetNonisolatedMembers(swiftInterfacePath),
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} nonisolated member keys from swiftinterface", nonisolatedMembers.Count);
 
-                markerProtocolConformances = TryParseSwiftInterface("marker protocol conformances",
+                var markerProtocolConformances = TryParseSwiftInterface("marker protocol conformances",
                     () => SwiftInterfaceAccessParser.GetMarkerProtocolConformances(swiftInterfacePath),
                     () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} marker protocol conformance entries from swiftinterface", markerProtocolConformances.Count);
 
-                availabilityAnnotations = TryParseSwiftInterface("availability annotations",
+                var availabilityAnnotations = TryParseSwiftInterface("availability annotations",
                     () => SwiftInterfaceAccessParser.GetAvailabilityAnnotations(swiftInterfacePath),
                     () => new Dictionary<string, List<AvailabilityAnnotation>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} availability annotation entries from swiftinterface", availabilityAnnotations.Count);
 
-                defaultParameterValues = TryParseSwiftInterface("default parameter values",
+                var defaultParameterValues = TryParseSwiftInterface("default parameter values",
                     () => SwiftInterfaceAccessParser.GetDefaultParameterValues(swiftInterfacePath),
                     () => new Dictionary<string, List<string?>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} default parameter value entries from swiftinterface", defaultParameterValues.Count);
 
-                autoclosureParameters = TryParseSwiftInterface("@autoclosure parameters",
+                var autoclosureParameters = TryParseSwiftInterface("@autoclosure parameters",
                     () => SwiftInterfaceAccessParser.GetAutoclosureParameters(swiftInterfacePath),
                     () => new Dictionary<string, List<bool>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} @autoclosure parameter entries from swiftinterface", autoclosureParameters.Count);
 
-                subscriptLabels = TryParseSwiftInterface("subscript labels",
+                var subscriptLabels = TryParseSwiftInterface("subscript labels",
                     () => SwiftInterfaceAccessParser.GetSubscriptLabels(swiftInterfacePath),
                     () => new Dictionary<string, List<string>>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} subscript label entries from swiftinterface", subscriptLabels.Count);
 
-                variadicMembers = TryParseSwiftInterface("variadic members",
+                var variadicMembers = TryParseSwiftInterface("variadic members",
                     () => SwiftInterfaceAccessParser.GetVariadicMembers(swiftInterfacePath),
                     () => new HashSet<string>(), logger, ref parseFailures);
                 logger.LogInformation("Loaded {Count} variadic member keys from swiftinterface", variadicMembers.Count);
 
-                conventionCProtocols = TryParseSwiftInterface("convention(c) protocols",
+                var conventionCProtocols = TryParseSwiftInterface("convention(c) protocols",
                     () => SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures(swiftInterfacePath),
                     () => new HashSet<string>(), logger, ref parseFailures);
                 if (conventionCProtocols.Count > 0)
                     logger.LogInformation("Detected {Count} protocol(s) with @convention(c)/@convention(block) closure parameters: {Names}", conventionCProtocols.Count, string.Join(", ", conventionCProtocols));
 
-                hiddenRequirementProtocols = TryParseSwiftInterface("hidden-requirement protocols",
+                var hiddenRequirementProtocols = TryParseSwiftInterface("hidden-requirement protocols",
                     () => SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(swiftInterfacePath),
                     () => new Dictionary<string, HashSet<string>>(), logger, ref parseFailures);
                 if (hiddenRequirementProtocols.Count > 0)
@@ -355,6 +338,35 @@ namespace BindingsGeneration
 
                 if (parseFailures > 0)
                     logger.LogWarning("{Count} swiftinterface parsing pass(es) failed and were skipped. Bindings will be generated with reduced metadata.", parseFailures);
+
+                // Single hand-off — every required field comes from a TryParseSwiftInterface
+                // call above, so adding a fact (or forgetting to populate one) is a compile
+                // error. This is the drift-loud guarantee that replaces 21 individually-threaded
+                // nullable parameters.
+                facts = new SwiftInterfaceFacts
+                {
+                    InternalMemberKeys = internalMemberKeys,
+                    PublicMemberNames = publicMemberNames,
+                    ParameterNames = parameterNames,
+                    TypedThrowsErrors = typedThrowsErrors,
+                    EnumCaseLabels = enumCaseLabels,
+                    EnumCaseRawValues = enumCaseRawValues,
+                    PublicTypeNames = publicTypeNames,
+                    MainActorTypes = mainActorTypes,
+                    CustomActorTypes = customActorTypes,
+                    CustomActorIsolatorMap = customActorIsolatorMap,
+                    ActorIsolatedMembers = actorIsolatedMembers,
+                    MainActorIsolatedMembers = mainActorIsolatedMembers,
+                    NonisolatedMembers = nonisolatedMembers,
+                    MarkerProtocolConformances = markerProtocolConformances,
+                    AvailabilityAnnotations = availabilityAnnotations,
+                    DefaultParameterValues = defaultParameterValues,
+                    AutoclosureParameters = autoclosureParameters,
+                    SubscriptLabels = subscriptLabels,
+                    VariadicMembers = variadicMembers,
+                    ConventionCProtocols = conventionCProtocols,
+                    HiddenRequirementProtocols = hiddenRequirementProtocols,
+                };
             }
 
             // Parse symbol graph for doc comments (supplementary data)
@@ -373,7 +385,7 @@ namespace BindingsGeneration
             }
 
             // Initialize the Swift ABI parser
-            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), internalMemberKeys, parameterNames, docComments, typedThrowsErrors, enumCaseLabels, enumCaseRawValues, publicTypeNames, mainActorTypes, customActorTypes, actorIsolatedMembers, nonisolatedMembers, availabilityAnnotations, defaultParameterValues, autoclosureParameters, publicMemberNames, subscriptLabels, mainActorIsolatedMembers, variadicMembers, conventionCProtocols, customActorIsolatorMap, hiddenRequirementProtocols);
+            var swiftParser = new SwiftABIParser(swiftAbiPath, typeDatabase, demangledTbdFile, loggerFactory.CreateLogger<SwiftABIParser>(), facts, docComments);
             var moduleName = swiftParser.GetModuleName();
             var frameworkName = InferFrameworkName(dylibPath, moduleName);
             var namespaceResolver = new NamespacePatternResolver(namespacePattern, frameworkName);
@@ -418,10 +430,10 @@ namespace BindingsGeneration
                 // publicTypeNames are dot-qualified (e.g., "_InternalType"); underscore suppression
                 // uses module-qualified names (e.g., "Module._InternalType"). Normalize by prepending module.
                 HashSet<string>? keepUnderscoreTypes = null;
-                if (publicTypeNames != null)
+                if (facts.PublicTypeNames.Count > 0)
                 {
                     keepUnderscoreTypes = new HashSet<string>();
-                    foreach (var name in publicTypeNames)
+                    foreach (var name in facts.PublicTypeNames)
                     {
                         if (name.StartsWith("_") || name.Contains("._"))
                             keepUnderscoreTypes.Add($"{moduleName}.{name}");
@@ -505,7 +517,7 @@ namespace BindingsGeneration
                 AppleSupplementReferences.Reset();
 
                 // Emit the C# bindings
-                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, markerProtocolConformances);
+                var stringEmitter = new StringEmitter(outputDirectory, typeDatabase, loggerFactory, namespaceResolver, bridgeHintsPath, facts.MarkerProtocolConformances);
                 stringEmitter.EmitModule(decl, emissionContext);
 
                 var report = ReportCollector.Complete();

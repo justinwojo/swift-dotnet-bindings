@@ -146,7 +146,8 @@ public class OpaqueParameterSynthesisTests
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
-            NullLogger.Instance);
+            NullLogger.Instance,
+            SwiftInterfaceFacts.Empty);
 
         File.Delete(filePath);
 

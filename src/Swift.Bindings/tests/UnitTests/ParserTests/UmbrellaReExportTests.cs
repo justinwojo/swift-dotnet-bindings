@@ -171,7 +171,8 @@ public class UmbrellaReExportTests
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
-            NullLogger.Instance);
+            NullLogger.Instance,
+            SwiftInterfaceFacts.Empty);
 
         return new ParserFixture(parser, filePath);
     }

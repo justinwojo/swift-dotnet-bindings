@@ -240,7 +240,8 @@ public class ActorMetadataParserTests
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
-            logger);
+            logger,
+            SwiftInterfaceFacts.Empty);
 
         return new ParserFixture(parser, filePath);
     }

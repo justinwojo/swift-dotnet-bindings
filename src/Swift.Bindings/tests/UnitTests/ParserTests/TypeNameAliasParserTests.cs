@@ -133,7 +133,8 @@ public class TypeNameAliasParserTests
             filePath,
             new TypeDatabase(),
             CreateEmptyDemanglingResults(),
-            NullLogger.Instance);
+            NullLogger.Instance,
+            SwiftInterfaceFacts.Empty);
 
         File.Delete(filePath);
 
