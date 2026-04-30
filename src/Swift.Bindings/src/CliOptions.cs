@@ -272,11 +272,16 @@ public class CliOptions
     public Option<string> InterfaceFactsProducer { get; } = new(
         aliases: new[] { "--interface-facts-producer" },
         description: "Producer used to extract supplementary facts from .swiftinterface files. " +
-                     "'regex' (default) uses the legacy SwiftInterfaceAccessParser; 'swift-syntax' " +
-                     "shells out to the SwiftInterfaceParser host binary (built by `nuke compile`) " +
-                     "for the migrated subset of facts and falls back to the regex producer for the " +
-                     "rest. Default REMAINS regex through M2 Sessions 1-2; flips in M2 Session 3.",
-        getDefaultValue: () => "regex");
+                     "'auto' (default, M2 S3): uses 'swift-syntax' on Darwin when the host binary is " +
+                     "locatable, falls back to 'regex' on non-Darwin or when the binary is missing. " +
+                     "'swift-syntax': shells out to the SwiftInterfaceParser host binary (built by " +
+                     "`nuke compile`) for the full 24-fact set. Hard-fails on any host-binary " +
+                     "invocation or deserialization error — the SwiftSyntax producer is the audit's " +
+                     "drift-signal, and silently falling back to regex would mask migration bugs. " +
+                     "Hard-fails on non-Darwin where the binary cannot run. 'regex': legacy " +
+                     "SwiftInterfaceAccessParser only — kept available for one release cycle for " +
+                     "parity diffing and emergency rollback. Removed in M2 S4.",
+        getDefaultValue: () => "auto");
 
     public Option<bool> Help { get; } = new(aliases: new[] { "-h", "--help" }, "Display a help message.");
 

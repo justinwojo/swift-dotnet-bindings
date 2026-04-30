@@ -37,6 +37,14 @@ import SwiftParser
 ///    bare-no-modifier. We mirror — both public/open AND no-modifier (protocol
 ///    requirement) members emit. The regex's logic also covers extension-internal
 ///    members.
+///
+/// 6. **Type-scope push gate**: regex's tracker (line 3136) only pushes a type
+///    scope when `TypeDeclRegex` (public|internal|open + optional final) matches
+///    AND the body's `{` is on the same source line. Non-matching shapes such as
+///    `public indirect enum` or split-line bodies do NOT push, so their members
+///    end up keyed at module scope. Mirror via `enterTypeScope`/`leaveTypeScope`.
+///    Extension push is gated on same-line `{` and a `[\w.]+` extended-type
+///    capture (regex `ExtensionDeclRegex`).
 final class ThrowsWalker: SyntaxVisitor {
     let filePath: String
     let converter: SourceLocationConverter
@@ -52,6 +60,10 @@ final class ThrowsWalker: SyntaxVisitor {
     }
     private var scopeStack: [Scope] = []
 
+    /// Parallel stack: each visited type/extension records whether it actually
+    /// pushed a frame on `scopeStack`. Mirrors the regex tracker's gated push.
+    private var scopePushed: [Bool] = []
+
     init(filePath: String, source: String) {
         self.filePath = filePath
         self.converter = SourceLocationConverter(fileName: filePath, tree: Parser.parse(source: source))
@@ -65,43 +77,59 @@ final class ThrowsWalker: SyntaxVisitor {
         return walker.typedThrowsErrors
     }
 
-    // MARK: - Type declarations (push simple name)
+    // MARK: - Type declarations (gated push)
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        scopeStack.append(Scope(name: node.name.text))
-        return .visitChildren
+        return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
+                              keyword: node.classKeyword,
+                              leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: ClassDeclSyntax) { _ = scopeStack.popLast() }
+    override func visitPost(_ node: ClassDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        scopeStack.append(Scope(name: node.name.text))
-        return .visitChildren
+        return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
+                              keyword: node.structKeyword,
+                              leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: StructDeclSyntax) { _ = scopeStack.popLast() }
+    override func visitPost(_ node: StructDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        scopeStack.append(Scope(name: node.name.text))
-        return .visitChildren
+        return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
+                              keyword: node.enumKeyword,
+                              leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: EnumDeclSyntax) { _ = scopeStack.popLast() }
+    override func visitPost(_ node: EnumDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-        scopeStack.append(Scope(name: node.name.text))
-        return .visitChildren
+        return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
+                              keyword: node.protocolKeyword,
+                              leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: ProtocolDeclSyntax) { _ = scopeStack.popLast() }
+    override func visitPost(_ node: ProtocolDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        scopeStack.append(Scope(name: node.name.text))
-        return .visitChildren
+        return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
+                              keyword: node.actorKeyword,
+                              leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: ActorDeclSyntax) { _ = scopeStack.popLast() }
+    override func visitPost(_ node: ActorDeclSyntax) { leaveTypeScope() }
 
     /// Extensions: push LAST-component of the qualified type as the simple name.
     /// Mirrors the regex's `qualifiedName.Substring(LastIndexOf('.') + 1)` at
     /// line 3151-3152 — typed throws uses simple name, NOT first-stripped path.
+    /// Push gated on same-line `{` AND extended-type matching `[\w.]+`.
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
+                                         leftBrace: node.memberBlock.leftBrace,
+                                         converter: converter) else {
+            scopePushed.append(false)
+            return .visitChildren
+        }
         let qualified = node.extendedType.trimmedDescription
+        guard RegexShape.isWordOrDotOnly(qualified) else {
+            scopePushed.append(false)
+            return .visitChildren
+        }
         let simple: String
         if let lastDot = qualified.lastIndex(of: ".") {
             simple = String(qualified[qualified.index(after: lastDot)...])
@@ -109,9 +137,31 @@ final class ThrowsWalker: SyntaxVisitor {
             simple = qualified
         }
         scopeStack.append(Scope(name: simple))
+        scopePushed.append(true)
         return .visitChildren
     }
-    override func visitPost(_ node: ExtensionDeclSyntax) { _ = scopeStack.popLast() }
+    override func visitPost(_ node: ExtensionDeclSyntax) { leaveTypeScope() }
+
+    private func enterTypeScope(name: String,
+                                modifiers: DeclModifierListSyntax,
+                                keyword: TokenSyntax,
+                                leftBrace: TokenSyntax) -> SyntaxVisitorContinueKind {
+        if RegexShape.matchesTypeDeclShape(modifiers),
+           RegexShape.isWordIdentifier(name),
+           RegexShape.opensOnSameLine(keyword: keyword, leftBrace: leftBrace, converter: converter) {
+            scopeStack.append(Scope(name: name))
+            scopePushed.append(true)
+        } else {
+            scopePushed.append(false)
+        }
+        return .visitChildren
+    }
+
+    private func leaveTypeScope() {
+        if let pushed = scopePushed.popLast(), pushed {
+            _ = scopeStack.popLast()
+        }
+    }
 
     // MARK: - Member declarations
 

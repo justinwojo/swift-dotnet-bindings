@@ -18,8 +18,9 @@ namespace BindingsGeneration.Tests;
 /// .swiftinterface inputs through the regex producer and the SwiftSyntax producer
 /// and asserts every fact SwiftSyntax covers comes out byte-equal.
 /// <para/>
-/// Session 2 covers MainActor* + the actor isolation cluster (5 facts) +
-/// availability annotations (2 facts) + typed throws — 10 facts total.
+/// Session 3 brings SwiftSyntax to 100% fact coverage (24/24) — every fact this
+/// test exercises is now produced by SwiftSyntax. The remaining role of the regex
+/// producer is the per-release rollback / parity diff path; M2 S4 retires it.
 /// <para/>
 /// SKIP BEHAVIOR: when the SwiftInterfaceParser host binary isn't built, every
 /// fact in the test class is skipped instead of failing — `dotnet test` is a no-op
@@ -262,6 +263,306 @@ public class InterfaceFactsProducerParityTests
                 "public func plain() -> Swift.Int\n" },
         };
 
+    /// <summary>Public-type-name collection corpus.</summary>
+    public static IEnumerable<object[]> PublicTypeNamesCorpus =>
+        new[]
+        {
+            new object[] { "TopLevelStruct",
+                "public struct Foo {}\n" },
+            new object[] { "TopLevelMixedAccess",
+                "public struct A {}\n" +
+                "internal struct B {}\n" +
+                "public class C {}\n" },
+            new object[] { "NestedTypes",
+                "public struct Outer {\n" +
+                "  public enum Inner {\n" +
+                "    case fast\n" +
+                "  }\n" +
+                "}\n" },
+            new object[] { "GenericStripped",
+                "public class Box<T> {}\n" },
+            new object[] { "FinalClass",
+                "public final class Locked {}\n" },
+            new object[] { "OpenClass",
+                "open class Base {}\n" },
+            new object[] { "ProtocolsAndActors",
+                "public protocol P {}\n" +
+                "public actor A {}\n" },
+            new object[] { "InternalScope_PublicNestedKept",
+                "public class Outer {\n" +
+                "  internal class Hidden {\n" +
+                "    public class Sub {}\n" +
+                "  }\n" +
+                "}\n" },
+            // Regex `TypeDeclRegex` requires `(public|internal|open) (final )? (class|struct|enum|actor|protocol)`.
+            // `public indirect enum` has `indirect` between access and the type keyword, so the
+            // tracker does NOT push `Tree` onto its scope stack. Inner `Inner` should therefore
+            // emit at module scope as `Inner`, NOT `Tree.Inner`.
+            new object[] { "IndirectEnumScopeNotPushed",
+                "public indirect enum Tree {\n" +
+                "  public class Inner {}\n" +
+                "}\n" },
+        };
+
+    /// <summary>Marker-protocol conformance corpus.</summary>
+    public static IEnumerable<object[]> MarkerProtocolCorpus =>
+        new[]
+        {
+            new object[] { "EmptyConformance",
+                "extension Swift.Int : SnapKit.ConstraintOffsetTarget { }\n" },
+            new object[] { "MultiProtocol",
+                "extension Foo.Bar : Some.Proto1, Other.Proto2 { }\n" },
+            new object[] { "BodyExtensionExcluded",
+                "extension Foo : Bar {\n" +
+                "  public func extra() {}\n" +
+                "}\n" },
+            new object[] { "PlainExtensionNoConformance",
+                "extension Foo {}\n" },
+            // `ConformanceExtensionRegex` is `extension\s+([\w.]+)\s*:\s*([\w.,\s]+)\s*\{` — the
+            // brace must follow directly after the inheritance list with only whitespace, so
+            // any `where` clause forces the regex to fail and the extension is NOT a marker
+            // conformance.
+            new object[] { "WhereClauseExcluded",
+                "extension Foo : Proto where T : Bar { }\n" },
+            // The capture groups `[\w.]+` reject `<`, so `extension Foo<T> : Proto { }` does
+            // not match the marker-conformance regex.
+            new object[] { "GenericTypeExcluded",
+                "extension Foo<T> : Proto { }\n" },
+        };
+
+    /// <summary>Enum-case labels + raw values corpus.</summary>
+    public static IEnumerable<object[]> EnumFactsCorpus =>
+        new[]
+        {
+            new object[] { "BasicAssoc",
+                "public enum Shape {\n" +
+                "  case circle(radius: Double)\n" +
+                "}\n" },
+            new object[] { "UnlabeledAssoc",
+                "public enum Item {\n" +
+                "  case raw(Int)\n" +
+                "}\n" },
+            new object[] { "NoAssoc",
+                "public enum Status {\n" +
+                "  case ok\n" +
+                "}\n" },
+            new object[] { "RawString",
+                "public enum HttpMethod : String {\n" +
+                "  case get = \"GET\"\n" +
+                "  case post = \"POST\"\n" +
+                "}\n" },
+            new object[] { "ExtensionFirstDot",
+                "public enum Foo {}\n" +
+                "extension Mod.Foo {\n" +
+                "  case extended(label: Int)\n" +
+                "}\n" },
+            // `EnumCaseRegex.Match(line)` returns the FIRST `case <name>(` on the line, so
+            // `case a, b(Int)` is anchored on `a` (no parens, no match) and emits NOTHING for
+            // associated values — even though SwiftSyntax could see `b(Int)` independently.
+            // Walker must mirror by inspecting only `elements.first`.
+            new object[] { "GroupedFirstElementOnly",
+                "public enum Mixed {\n" +
+                "  case a, b(Int)\n" +
+                "}\n" },
+            // `EnumCaseRawValueRegex.Match(line)` is similarly first-only — `case a = \"A\", b = \"B\"`
+            // emits a raw value entry only for `a`.
+            new object[] { "GroupedRawValuesFirstOnly",
+                "public enum Mixed : String {\n" +
+                "  case a = \"A\", b = \"B\"\n" +
+                "}\n" },
+            // `public indirect enum Tree { case node(Tree) }` fails `TypeDeclRegex`'s strict
+            // shape (`indirect` between access and `enum`), so the tracker does NOT push
+            // `Tree` onto the scope stack. With no scope, the walker must skip the case
+            // emission entirely (regex parser's `typeStack.Count > 0` guard).
+            new object[] { "IndirectEnumNoCaseEmission",
+                "public indirect enum Tree {\n" +
+                "  case node(left: Tree, right: Tree)\n" +
+                "}\n" },
+        };
+
+    /// <summary>Subscript-labels corpus.</summary>
+    public static IEnumerable<object[]> SubscriptLabelsCorpus =>
+        new[]
+        {
+            new object[] { "ExternalLabel",
+                "public struct AES {\n" +
+                "  public subscript(bitAt index: Swift.Int) -> Swift.Int { get }\n" +
+                "}\n" },
+            new object[] { "SingleNameNoLabel",
+                "public struct Bag {\n" +
+                "  public subscript(index: Swift.Int) -> Swift.Int { get }\n" +
+                "}\n" },
+            new object[] { "UnderscoreUnlabeled",
+                "public struct Bag {\n" +
+                "  public subscript(_ index: Swift.Int) -> Swift.Int { get }\n" +
+                "}\n" },
+            new object[] { "ExtensionFirstDotNesting",
+                "public struct Outer { public struct Signing {} }\n" +
+                "extension Mod.Outer.Signing {\n" +
+                "  public subscript(bitAt index: Swift.Int) -> Swift.Int { get }\n" +
+                "}\n" },
+            // `public indirect enum` fails `TypeDeclRegex`'s strict shape, so the tracker
+            // never pushes `E` onto the scope stack. Module-level subscripts are skipped
+            // (`typeStack.Count > 0` guard), so this corpus entry must produce zero subscript
+            // facts on both producers.
+            new object[] { "IndirectEnumScopeNotPushed_NoSubscript",
+                "public indirect enum E {\n" +
+                "  public subscript(_ i: Swift.Int) -> Swift.Int { get }\n" +
+                "}\n" },
+        };
+
+    /// <summary>Parameter-names + signature-fact corpus (defaults / autoclosure / variadic).</summary>
+    public static IEnumerable<object[]> SignatureCorpus =>
+        new[]
+        {
+            new object[] { "FreeFunctionLabels",
+                "public func add(x: Swift.Int, y: Swift.Int) -> Swift.Int\n" },
+            new object[] { "MethodWithDefault",
+                "public class C {\n" +
+                "  public func choose(_ first: Swift.Int = 1, second: Swift.Int = 2) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "AutoclosureFlag",
+                "public class C {\n" +
+                "  public func lazy(_ thunk: @autoclosure () -> Swift.Int) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "VariadicTrailing",
+                "public class C {\n" +
+                "  public func sum(_ values: Swift.Int...) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "ExtensionLastDotKey",
+                "extension Mod.Outer.Target {\n" +
+                "  public func emit(label x: Swift.Int) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "InternalParamNames_AnyAccess",
+                "internal class Hidden {\n" +
+                "  internal func helper(label internalName: Swift.Int)\n" +
+                "}\n" },
+            new object[] { "InitWithDefault",
+                "public struct Reader {\n" +
+                "  public init(buffer: Swift.String = \"\") \n" +
+                "}\n" },
+            // Nested-type parameterNames key uses ONLY the immediate parent (top-of-stack),
+            // NOT the full nesting chain. Regex emits `KeyWrap.wrap(_:using:)` (typeStack.Peek()),
+            // and the ABI consumer looks up by `parentDecl.Name + "." + printedName`. This
+            // diverges from defaults/autoclosure/variadic, which use the full chain
+            // (`AES.KeyWrap.wrap(_:using:)`). CryptoKit shape: `enum AES { struct KeyWrap { ... } }`
+            // with `func wrap(_ keyToWrap: K, using kek: K)` — must yield internal name `kek`,
+            // not the label `using`.
+            new object[] { "NestedTypeParamNames_ImmediateParentKey",
+                "public enum AES {\n" +
+                "  public struct KeyWrap {\n" +
+                "    public static func wrap(_ keyToWrap: Swift.Int, using kek: Swift.Int) -> Swift.Int\n" +
+                "  }\n" +
+                "}\n" },
+        };
+
+    /// <summary>Member-collection corpus: internal + public member keys.</summary>
+    public static IEnumerable<object[]> MemberCollectionCorpus =>
+        new[]
+        {
+            new object[] { "InternalFunc_PeekOnlyPrefix",
+                "public class Outer {\n" +
+                "  public class Inner {\n" +
+                "    @inlinable internal func helper() {}\n" +
+                "  }\n" +
+                "}\n" },
+            new object[] { "PublicFreeFunc_BareKey",
+                "public func tlMain()\n" },
+            new object[] { "PublicMethod_TypePrefix",
+                "public struct S {\n" +
+                "  public func ping() -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "ExtensionLastDot",
+                "extension CryptoSwift.AES {\n" +
+                "  public func encrypt() -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "BackticksStrippedFromVar",
+                "public struct KeywordTest {\n" +
+                "  public var `operator`: Swift.Int { get }\n" +
+                "}\n" },
+            new object[] { "InternalSetIsPublic",
+                "public struct V {\n" +
+                "  public internal(set) var counter: Swift.Int { get set }\n" +
+                "}\n" },
+            // Operator funcs (`==`, `+`, `<`, ...) — name token has `binaryOperator` /
+            // `prefixOperator` / `postfixOperator` kind whose `.text` is the symbol literal.
+            // Regex `(\w+)` capture rejects these; walker mirrors via Unicode word-class gate.
+            new object[] { "OperatorFuncSkipped",
+                "public struct V {\n" +
+                "  public static func == (lhs: V, rhs: V) -> Swift.Bool\n" +
+                "  public static func + (lhs: V, rhs: V) -> V\n" +
+                "}\n" },
+            // Backtick-escaped function name. `BroadPublicFuncRegex`/`AnyFuncRegex` capture is
+            // bare `(\w+)`, no `\\?` wrapper, so a leading backtick character makes `\w` fail.
+            // Walker matches by NOT stripping backticks before the identifier-name check.
+            new object[] { "PublicBacktickFuncSkipped",
+                "public struct V {\n" +
+                "  public func `class`() -> Swift.Int\n" +
+                "}\n" },
+            // `BroadPublicVarRegex` accepts `\\?` (so it captures the inner word), but
+            // `InternalVarRegex` is bare `(\w+)` with no backtick wrapper. So `internal var
+            // \\`class\\`: Int` does NOT contribute to internalMemberKeys. Walker must
+            // suppress the internal emission for backtick-escaped var names.
+            new object[] { "InternalBacktickVarSkipped",
+                "public struct V {\n" +
+                "  @inlinable internal var `class`: Swift.Int { get }\n" +
+                "}\n" },
+            // `public indirect enum` fails the gated scope push, so members inside its body
+            // are keyed at MODULE scope. `walk()` therefore emits as `walk()` with no
+            // `Tree.` prefix in publicMemberNames — matching the regex tracker which never
+            // pushed `Tree` onto its scope stack.
+            new object[] { "IndirectEnumMembersFreeKeyed",
+                "public indirect enum Tree {\n" +
+                "  public func walk() -> Swift.Int\n" +
+                "}\n" },
+        };
+
+    /// <summary>Protocol-level facts corpus: convention(c) + hidden requirements.</summary>
+    public static IEnumerable<object[]> ProtocolFactsCorpus =>
+        new[]
+        {
+            new object[] { "DirectConventionC",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol HasCallback {\n" +
+                "  func install(_ cb: @convention(c) () -> Void)\n" +
+                "}\n" },
+            new object[] { "AliasResolvesConvention",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public typealias FTS5TokenCallback = @convention(c) (Swift.Int) -> Void\n" +
+                "public protocol UsesAlias {\n" +
+                "  func install(_ cb: FTS5TokenCallback)\n" +
+                "}\n" },
+            new object[] { "BareProtocolNoConvention",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol Plain {\n" +
+                "  func tick()\n" +
+                "}\n" },
+            new object[] { "HiddenRequirementUnsatisfied",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol HasSecret {\n" +
+                "  var __secret: Swift.Int { get }\n" +
+                "}\n" },
+            new object[] { "HiddenRequirementSatisfied",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol HasSecret {\n" +
+                "  var __secret: Swift.Int { get }\n" +
+                "}\n" +
+                "extension HasSecret {\n" +
+                "  public var __secret: Swift.Int { 0 }\n" +
+                "}\n" },
+            // The regex's `ConventionTypeAliasRegex` scans EVERY line in the file, including
+            // typealiases inside nested types. The walker's previous `tree.statements`-only
+            // scan missed nested aliases; now uses a recursive `ConventionAliasCollector`.
+            new object[] { "NestedConventionAlias",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public enum Outer {\n" +
+                "  public typealias Callback = @convention(c) (Swift.Int) -> Void\n" +
+                "}\n" +
+                "public protocol UsesNested {\n" +
+                "  func install(_ cb: Outer.Callback)\n" +
+                "}\n" },
+        };
+
     [SkippableTheory]
     [MemberData(nameof(MainActorCorpus))]
     public void RegexAndSwiftSyntaxProducers_ProduceIdenticalMainActorFacts(string label, string swiftInterface)
@@ -382,6 +683,177 @@ public class InterfaceFactsProducerParityTests
         Assert.Null(result.Facts.TypedThrowsErrors);
     }
 
+    [SkippableTheory]
+    [MemberData(nameof(PublicTypeNamesCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalPublicTypeNames(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.PublicTypeNames, swiftSyntax.CoveredFacts);
+            AssertSetParity(label, "PublicTypeNames",
+                regex.Facts.PublicTypeNames, swiftSyntax.Facts.PublicTypeNames);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(MarkerProtocolCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalMarkerProtocolConformances(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.MarkerProtocolConformances, swiftSyntax.CoveredFacts);
+            AssertStringListDictParity(label, "MarkerProtocolConformances",
+                regex.Facts.MarkerProtocolConformances, swiftSyntax.Facts.MarkerProtocolConformances);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(EnumFactsCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalEnumFacts(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.EnumCaseLabels, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.EnumCaseRawValues, swiftSyntax.CoveredFacts);
+            AssertNullableStringListDictParity(label, "EnumCaseLabels",
+                regex.Facts.EnumCaseLabels, swiftSyntax.Facts.EnumCaseLabels);
+            AssertStringDictParity(label, "EnumCaseRawValues",
+                regex.Facts.EnumCaseRawValues, swiftSyntax.Facts.EnumCaseRawValues);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(SubscriptLabelsCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalSubscriptLabels(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.SubscriptLabels, swiftSyntax.CoveredFacts);
+            AssertStringListDictParity(label, "SubscriptLabels",
+                regex.Facts.SubscriptLabels, swiftSyntax.Facts.SubscriptLabels);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(SignatureCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalSignatureFacts(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ParameterNames, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.DefaultParameterValues, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.AutoclosureParameters, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.VariadicMembers, swiftSyntax.CoveredFacts);
+
+            AssertStringListDictParity(label, "ParameterNames",
+                regex.Facts.ParameterNames, swiftSyntax.Facts.ParameterNames);
+            AssertNullableStringListDictParity(label, "DefaultParameterValues",
+                regex.Facts.DefaultParameterValues, swiftSyntax.Facts.DefaultParameterValues);
+            AssertBoolListDictParity(label, "AutoclosureParameters",
+                regex.Facts.AutoclosureParameters, swiftSyntax.Facts.AutoclosureParameters);
+            AssertSetParity(label, "VariadicMembers",
+                regex.Facts.VariadicMembers, swiftSyntax.Facts.VariadicMembers);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(MemberCollectionCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalMemberCollection(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.InternalMemberKeys, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.PublicMemberNames, swiftSyntax.CoveredFacts);
+
+            AssertSetParity(label, "InternalMemberKeys",
+                regex.Facts.InternalMemberKeys, swiftSyntax.Facts.InternalMemberKeys);
+            AssertSetParity(label, "PublicMemberNames",
+                regex.Facts.PublicMemberNames, swiftSyntax.Facts.PublicMemberNames);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(ProtocolFactsCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalProtocolFacts(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ConventionCProtocols, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.ConventionCProtocolPositions, swiftSyntax.CoveredFacts);
+            Assert.Contains(InterfaceFactKind.HiddenRequirementProtocols, swiftSyntax.CoveredFacts);
+
+            AssertSetParity(label, "ConventionCProtocols",
+                regex.Facts.ConventionCProtocols, swiftSyntax.Facts.ConventionCProtocols);
+            AssertPositionsParity(label, "ConventionCProtocolPositions",
+                regex.Facts.ConventionCProtocolPositions, swiftSyntax.Facts.ConventionCProtocolPositions);
+            AssertHiddenRequirementParity(label,
+                regex.Facts.HiddenRequirementProtocols, swiftSyntax.Facts.HiddenRequirementProtocols);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [SkippableFact]
     public void Aggregator_WithSwiftSyntaxThenRegex_RoutesMigratedFactsToSwiftSyntax()
     {
@@ -476,6 +948,98 @@ public class InterfaceFactsProducerParityTests
                 $"[{label}] {factName}['{key}'] Line diverged. regex={r.Line} swift-syntax={s.Line}");
             Assert.True(r.Column == s.Column,
                 $"[{label}] {factName}['{key}'] Column diverged. regex={r.Column} swift-syntax={s.Column}");
+        }
+    }
+
+    private static void AssertStringListDictParity(
+        string label, string factName,
+        Dictionary<string, List<string>>? regexDict, Dictionary<string, List<string>>? swiftSyntaxDict)
+    {
+        Assert.NotNull(regexDict);
+        Assert.NotNull(swiftSyntaxDict);
+        Assert.True(regexDict!.Count == swiftSyntaxDict!.Count,
+            $"[{label}] {factName} count diverged. regex={regexDict.Count} swift-syntax={swiftSyntaxDict.Count}\n  regex keys: {Join(regexDict.Keys)}\n  swift keys: {Join(swiftSyntaxDict.Keys)}");
+        foreach (var key in regexDict.Keys)
+        {
+            Assert.True(swiftSyntaxDict.ContainsKey(key),
+                $"[{label}] {factName}: swift-syntax missing key '{key}'");
+            var r = regexDict[key];
+            var s = swiftSyntaxDict[key];
+            Assert.True(r.Count == s.Count,
+                $"[{label}] {factName}['{key}'] length diverged. regex={r.Count} swift-syntax={s.Count}\n  regex: {Join(r)}\n  swift: {Join(s)}");
+            for (int i = 0; i < r.Count; i++)
+            {
+                Assert.True(r[i] == s[i],
+                    $"[{label}] {factName}['{key}'][{i}] diverged. regex='{r[i]}' swift-syntax='{s[i]}'");
+            }
+        }
+    }
+
+    private static void AssertNullableStringListDictParity(
+        string label, string factName,
+        Dictionary<string, List<string?>>? regexDict, Dictionary<string, List<string?>>? swiftSyntaxDict)
+    {
+        Assert.NotNull(regexDict);
+        Assert.NotNull(swiftSyntaxDict);
+        Assert.True(regexDict!.Count == swiftSyntaxDict!.Count,
+            $"[{label}] {factName} count diverged. regex={regexDict.Count} swift-syntax={swiftSyntaxDict.Count}\n  regex keys: {Join(regexDict.Keys)}\n  swift keys: {Join(swiftSyntaxDict.Keys)}");
+        foreach (var key in regexDict.Keys)
+        {
+            Assert.True(swiftSyntaxDict.ContainsKey(key),
+                $"[{label}] {factName}: swift-syntax missing key '{key}'");
+            var r = regexDict[key];
+            var s = swiftSyntaxDict[key];
+            Assert.True(r.Count == s.Count,
+                $"[{label}] {factName}['{key}'] length diverged. regex={r.Count} swift-syntax={s.Count}");
+            for (int i = 0; i < r.Count; i++)
+            {
+                Assert.True(r[i] == s[i],
+                    $"[{label}] {factName}['{key}'][{i}] diverged. regex='{r[i] ?? "<null>"}' swift-syntax='{s[i] ?? "<null>"}'");
+            }
+        }
+    }
+
+    private static void AssertBoolListDictParity(
+        string label, string factName,
+        Dictionary<string, List<bool>>? regexDict, Dictionary<string, List<bool>>? swiftSyntaxDict)
+    {
+        Assert.NotNull(regexDict);
+        Assert.NotNull(swiftSyntaxDict);
+        Assert.True(regexDict!.Count == swiftSyntaxDict!.Count,
+            $"[{label}] {factName} count diverged. regex={regexDict.Count} swift-syntax={swiftSyntaxDict.Count}");
+        foreach (var key in regexDict.Keys)
+        {
+            Assert.True(swiftSyntaxDict.ContainsKey(key),
+                $"[{label}] {factName}: swift-syntax missing key '{key}'");
+            var r = regexDict[key];
+            var s = swiftSyntaxDict[key];
+            Assert.True(r.Count == s.Count,
+                $"[{label}] {factName}['{key}'] length diverged. regex={r.Count} swift-syntax={s.Count}");
+            for (int i = 0; i < r.Count; i++)
+            {
+                Assert.True(r[i] == s[i],
+                    $"[{label}] {factName}['{key}'][{i}] diverged. regex={r[i]} swift-syntax={s[i]}");
+            }
+        }
+    }
+
+    private static void AssertHiddenRequirementParity(
+        string label,
+        Dictionary<string, HashSet<string>>? regexDict,
+        Dictionary<string, HashSet<string>>? swiftSyntaxDict)
+    {
+        Assert.NotNull(regexDict);
+        Assert.NotNull(swiftSyntaxDict);
+        Assert.True(regexDict!.Count == swiftSyntaxDict!.Count,
+            $"[{label}] HiddenRequirementProtocols count diverged. regex={regexDict.Count} swift-syntax={swiftSyntaxDict.Count}\n  regex keys: {Join(regexDict.Keys)}\n  swift keys: {Join(swiftSyntaxDict.Keys)}");
+        foreach (var key in regexDict.Keys)
+        {
+            Assert.True(swiftSyntaxDict.ContainsKey(key),
+                $"[{label}] HiddenRequirementProtocols: swift-syntax missing key '{key}'");
+            var r = regexDict[key];
+            var s = swiftSyntaxDict[key];
+            Assert.True(r.SetEquals(s),
+                $"[{label}] HiddenRequirementProtocols['{key}'] diverged.\n  regex:        {Join(r)}\n  swift-syntax: {Join(s)}");
         }
     }
 

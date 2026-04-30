@@ -76,7 +76,7 @@ public static class BindingsGeneratorCommand
         var appleTypesManifestWriteBack = parseResult.GetValueForOption(options.AppleTypesManifestWriteBack);
         var appleSupplementPrototypeDir = parseResult.GetValueForOption(options.AppleSupplementPrototypeDir);
         var configPath = parseResult.GetValueForOption(options.Config);
-        var interfaceFactsProducer = parseResult.GetValueForOption(options.InterfaceFactsProducer) ?? "regex";
+        var interfaceFactsProducer = parseResult.GetValueForOption(options.InterfaceFactsProducer) ?? "auto";
         var verbose = parseResult.GetValueForOption(options.Verbose);
         var help = parseResult.GetValueForOption(options.Help);
 
@@ -1249,18 +1249,24 @@ public static class BindingsGeneratorCommand
         Console.WriteLine("  --apple-sdk-min-ios / --apple-sdk-min-maccatalyst / --apple-sdk-min-tvos / --apple-sdk-min-macos  Optional per-platform floors.");
         Console.WriteLine();
         Console.WriteLine($"  --config             Optional. Path to config file. Default: {BindingsGenerator.DefaultConfigFileName}");
-        Console.WriteLine("  --interface-facts-producer  'regex' (default) or 'swift-syntax'. The latter routes MainActor* facts through the SwiftInterfaceParser host binary.");
+        Console.WriteLine("  --interface-facts-producer  'auto' (default, M2 S3), 'swift-syntax', or 'regex'. 'auto' picks swift-syntax on Darwin when the host binary is present, else regex.");
         Console.WriteLine("  -v, --verbose        Verbosity level. 0 = No logging, 1 = General information, 2 = Debugging information. (default: 1)");
     }
 
     /// <summary>
     /// Construct the <see cref="InterfaceFactsAggregator"/> from the CLI flag.
     /// <list type="bullet">
-    /// <item><c>regex</c> (default): single-producer aggregator. Behavior is byte-equal to the
-    /// pre-M2 inline parsing flow.</item>
-    /// <item><c>swift-syntax</c>: SwiftSyntax producer prepended to the regex producer. The
-    /// SwiftSyntax producer covers only its migrated subset (Session 1: MainActorTypes +
-    /// MainActorTypePositions); the regex producer fills the remaining facts.</item>
+    /// <item><c>auto</c> (default, M2 S3): on Darwin, attempts to locate the SwiftInterfaceParser
+    /// host binary; if present, prepends the SwiftSyntax producer to the regex fallback. On
+    /// non-Darwin or when the binary cannot be located, transparently degrades to regex-only.
+    /// This is the cross-platform-safe path — Linux CI builds keep working without the
+    /// SwiftSyntax host binary.</item>
+    /// <item><c>swift-syntax</c>: hard-requires the host binary. Hard-fails on non-Darwin or
+    /// when the binary cannot be located. Used by parity tests and developers who want to
+    /// detect a missing-binary regression rather than silently fall back.</item>
+    /// <item><c>regex</c>: legacy single-producer aggregator. Behavior is byte-equal to the
+    /// pre-M2 inline parsing flow. Kept available through M2 S4 for parity diffing and
+    /// emergency rollback.</item>
     /// </list>
     /// Unknown values throw — silent fallback would defeat the explicit-switch design.
     /// </summary>
@@ -1268,18 +1274,63 @@ public static class BindingsGeneratorCommand
     {
         return flag switch
         {
+            "auto" => BuildAutoAggregator(logger),
             "regex" => new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
             {
                 new RegexInterfaceFactsProducer(),
             }),
             "swift-syntax" => BuildSwiftSyntaxAggregator(logger),
             _ => throw new ArgumentException(
-                $"Unknown --interface-facts-producer value '{flag}'. Expected 'regex' or 'swift-syntax'."),
+                $"Unknown --interface-facts-producer value '{flag}'. Expected 'auto', 'swift-syntax', or 'regex'."),
         };
+    }
+
+    /// <summary>
+    /// 'auto' mode: cross-platform-safe wiring. Prefers the SwiftSyntax host binary on Darwin
+    /// when present; transparently falls back to regex-only on non-Darwin or when the binary
+    /// can't be located. Logs the chosen path so consumers can see which producer ran.
+    /// </summary>
+    private static InterfaceFactsAggregator BuildAutoAggregator(ILogger logger)
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            logger.LogInformation("--interface-facts-producer=auto: non-Darwin host, using regex producer only.");
+            return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
+            {
+                new RegexInterfaceFactsProducer(),
+            });
+        }
+
+        var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary();
+        if (binaryPath is null)
+        {
+            logger.LogInformation(
+                "--interface-facts-producer=auto: SwiftInterfaceParser host binary not found; falling back to regex producer. " +
+                "Run `nuke compile` to build the host binary, or set SWIFT_INTERFACE_PARSER_PATH.");
+            return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
+            {
+                new RegexInterfaceFactsProducer(),
+            });
+        }
+
+        logger.LogInformation("--interface-facts-producer=auto: using SwiftSyntax producer at {Path} (regex producer is fallback).", binaryPath);
+        return new InterfaceFactsAggregator(new IInterfaceFactsProducer[]
+        {
+            new SwiftSyntaxInterfaceFactsProducer(binaryPath),
+            new RegexInterfaceFactsProducer(),
+        });
     }
 
     private static InterfaceFactsAggregator BuildSwiftSyntaxAggregator(ILogger logger)
     {
+        if (!OperatingSystem.IsMacOS())
+        {
+            throw new InvalidOperationException(
+                "--interface-facts-producer=swift-syntax requires Darwin (macOS): the SwiftInterfaceParser " +
+                "host binary is built only for Darwin. Use --interface-facts-producer=auto for " +
+                "cross-platform-safe selection, or 'regex' to force the legacy producer.");
+        }
+
         var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary();
         if (binaryPath is null)
         {

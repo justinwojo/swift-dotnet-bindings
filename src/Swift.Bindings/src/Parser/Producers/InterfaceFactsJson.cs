@@ -109,6 +109,52 @@ internal sealed class InterfaceFactsJsonPayload
     // Session 2 — typed throws.
     [JsonPropertyName("typedThrowsErrors")]
     public Dictionary<string, string>? TypedThrowsErrors { get; set; }
+
+    // Session 3 — type & member collection.
+    [JsonPropertyName("publicTypeNames")]
+    public List<string>? PublicTypeNames { get; set; }
+
+    [JsonPropertyName("internalMemberKeys")]
+    public List<string>? InternalMemberKeys { get; set; }
+
+    [JsonPropertyName("publicMemberNames")]
+    public List<string>? PublicMemberNames { get; set; }
+
+    [JsonPropertyName("markerProtocolConformances")]
+    public Dictionary<string, List<string>>? MarkerProtocolConformances { get; set; }
+
+    // Session 3 — enum facts.
+    [JsonPropertyName("enumCaseLabels")]
+    public Dictionary<string, List<string?>>? EnumCaseLabels { get; set; }
+
+    [JsonPropertyName("enumCaseRawValues")]
+    public Dictionary<string, string>? EnumCaseRawValues { get; set; }
+
+    // Session 3 — signature facts.
+    [JsonPropertyName("parameterNames")]
+    public Dictionary<string, List<string>>? ParameterNames { get; set; }
+
+    [JsonPropertyName("defaultParameterValues")]
+    public Dictionary<string, List<string?>>? DefaultParameterValues { get; set; }
+
+    [JsonPropertyName("autoclosureParameters")]
+    public Dictionary<string, List<bool>>? AutoclosureParameters { get; set; }
+
+    [JsonPropertyName("subscriptLabels")]
+    public Dictionary<string, List<string>>? SubscriptLabels { get; set; }
+
+    [JsonPropertyName("variadicMembers")]
+    public List<string>? VariadicMembers { get; set; }
+
+    // Session 3 — protocol-level facts.
+    [JsonPropertyName("conventionCProtocols")]
+    public List<string>? ConventionCProtocols { get; set; }
+
+    [JsonPropertyName("conventionCProtocolPositions")]
+    public Dictionary<string, SourcePositionJson>? ConventionCProtocolPositions { get; set; }
+
+    [JsonPropertyName("hiddenRequirementProtocols")]
+    public Dictionary<string, List<string>>? HiddenRequirementProtocols { get; set; }
 }
 
 internal sealed class SourcePositionJson

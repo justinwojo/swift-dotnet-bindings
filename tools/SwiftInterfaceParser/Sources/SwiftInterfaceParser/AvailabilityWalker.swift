@@ -246,14 +246,19 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// PublicFuncRegex shape: `(public|open) final? (static|class)? mutating? func`.
-    /// Order is fixed; any modifier outside the pattern or in the wrong slot fails.
+    /// CRITICAL PARITY DETAIL: the regex is UNANCHORED — `Match` scans the line for
+    /// the access keyword and checks the ALLOWED-AFTER sequence up to `func`. Any
+    /// modifiers BEFORE the access keyword (`@MainActor`, `nonisolated`, `final`,
+    /// `weak`, `dynamic`, attributes that survive into the modifier list, …) are
+    /// invisible to the regex because it didn't see them at the access keyword.
+    /// Once the access keyword is found, modifiers AFTER it must follow the strict
+    /// pattern — anything outside that sequence (e.g., `nonisolated` between
+    /// `public` and `func`) breaks the match. We mirror by ignoring everything up
+    /// to and including the first `public`/`open` modifier and validating the tail.
     private func matchesPublicFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
+        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
         var current = iter.next()
-        guard let access = current,
-              (access.name.text == "public" || access.name.text == "open"),
-              access.detail == nil else { return false }
-        current = iter.next()
         if let mod = current, mod.name.text == "final", mod.detail == nil {
             current = iter.next()
         }
@@ -267,13 +272,11 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// PublicInitRegex shape: `(public|open) convenience? init`.
+    /// Same unanchored-match parity rule as `matchesPublicFuncShape`.
     private func matchesPublicInitShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
+        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
         var current = iter.next()
-        guard let access = current,
-              (access.name.text == "public" || access.name.text == "open"),
-              access.detail == nil else { return false }
-        current = iter.next()
         if let mod = current, mod.name.text == "convenience", mod.detail == nil {
             current = iter.next()
         }
@@ -281,14 +284,11 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// PublicVarRegex shape: `(public|open) ((private|internal|public)\(set\))?
-    /// final? (static|class)? (var|let)`.
+    /// final? (static|class)? (var|let)`. Same unanchored-match parity rule.
     private func matchesPublicVarShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
+        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
         var current = iter.next()
-        guard let access = current,
-              (access.name.text == "public" || access.name.text == "open"),
-              access.detail == nil else { return false }
-        current = iter.next()
         // Optional setter-restriction: e.g., `private(set)`.
         if let mod = current,
            (mod.name.text == "private" || mod.name.text == "internal" || mod.name.text == "public"),
@@ -309,17 +309,32 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// Tracker also requires the line to contain `{` (line 125: `openBraces > 0`),
     /// which we mirror by checking that the type-keyword and `{` are on the same
     /// source line. Mirrors the regex's same-line gating.
+    ///
+    /// Same unanchored-match parity rule as `matchesPublicFuncShape` — modifiers
+    /// before access (`final public class TipGroup`, `@objc public class Foo`, …)
+    /// are tolerated because the regex doesn't see them.
     private func matchesPublicTypeShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
+        guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
         var current = iter.next()
-        guard let access = current,
-              (access.name.text == "public" || access.name.text == "internal" || access.name.text == "open"),
-              access.detail == nil else { return false }
-        current = iter.next()
         if let mod = current, mod.name.text == "final", mod.detail == nil {
             current = iter.next()
         }
         return current == nil
+    }
+
+    /// Iterator helper: consume modifiers until we find one whose `name.text` is in
+    /// `accessTexts` AND whose `detail` is nil. Returns `true` and leaves the iterator
+    /// positioned just after the access modifier; `false` if no matching access
+    /// modifier exists in the list. Mirrors the regex's unanchored search for the
+    /// access keyword in the line.
+    private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
+        while let mod = iter.next() {
+            if accessTexts.contains(mod.name.text) && mod.detail == nil {
+                return true
+            }
+        }
+        return false
     }
 
     /// True iff the type's keyword and its body's opening `{` are on the same
@@ -332,13 +347,11 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     /// Subscript regex shape: `(public|open) static? subscript`.
+    /// Same unanchored-match parity rule as `matchesPublicFuncShape`.
     private func matchesPublicSubscriptShape(_ modifiers: DeclModifierListSyntax) -> Bool {
         var iter = modifiers.makeIterator()
+        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
         var current = iter.next()
-        guard let access = current,
-              (access.name.text == "public" || access.name.text == "open"),
-              access.detail == nil else { return false }
-        current = iter.next()
         if let mod = current, mod.name.text == "static", mod.detail == nil {
             current = iter.next()
         }
@@ -409,7 +422,11 @@ final class AvailabilityWalker: SyntaxVisitor {
                                 attributes: AttributeListSyntax,
                                 keyword: TokenSyntax,
                                 leftBrace: TokenSyntax) -> SyntaxVisitorContinueKind {
+        // `PublicTypeDeclRegex` ends in bare `(\w+)` — backtick-escaped names
+        // (`public struct \`class\``) miss the regex capture, so SwiftSyntax must
+        // also skip pushing them.
         if matchesPublicTypeShape(modifiers),
+           RegexShape.isWordIdentifier(name),
            typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
             let qualified = pushTypeScope(name: name)
             scopePushed.append(true)
@@ -491,6 +508,13 @@ final class AvailabilityWalker: SyntaxVisitor {
             return .visitChildren
         }
         let qualified = node.extendedType.trimmedDescription
+        // `ExtensionDeclRegex` captures only `[\w.]+` for the extended type —
+        // backtick-escaped or otherwise non-word/dot extension targets fail the
+        // capture and never push.
+        guard RegexShape.isWordOrDotOnly(qualified) else {
+            extensionScopePushed.append(false)
+            return .visitChildren
+        }
         let stripped: String
         if let firstDot = qualified.firstIndex(of: ".") {
             stripped = String(qualified[qualified.index(after: firstDot)...])
@@ -540,6 +564,12 @@ final class AvailabilityWalker: SyntaxVisitor {
         guard matchesPublicFuncShape(node.modifiers) else {
             return .skipChildren
         }
+        // `PublicFuncRegex` ends in bare `(\w+)\s*(?:<[^>]*>\s*)?\(` — operator
+        // funcs (`==`, `+`, …) and backtick-escaped names fail the `\w+` capture
+        // and never key into the result.
+        guard RegexShape.isWordIdentifier(node.name.text) else {
+            return .skipChildren
+        }
         let printed = buildPrintedName(funcName: node.name.text, params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.funcKeyword)
@@ -571,6 +601,11 @@ final class AvailabilityWalker: SyntaxVisitor {
         // `(\w+)` after `var`/`let`. Mirror.
         guard let firstBinding = node.bindings.first,
               let identifier = firstBinding.pattern.as(IdentifierPatternSyntax.self) else {
+            return .skipChildren
+        }
+        // `PublicVarRegex` ends in bare `(\w+)` — backtick-escaped names
+        // (`public var \`class\``) fail the capture and never key into the result.
+        guard RegexShape.isWordIdentifier(identifier.identifier.text) else {
             return .skipChildren
         }
         let key = memberKey(printedName: identifier.identifier.text)

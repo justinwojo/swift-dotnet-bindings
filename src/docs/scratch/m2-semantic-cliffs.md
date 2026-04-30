@@ -219,6 +219,38 @@ compiler bug. Documented for completeness.
 
 ---
 
+## Cliff #12 — `RegexShape.opensOnSameLine` is keyword-to-`{`, regex matches the full pattern-to-`{`
+
+**Where**: `RegexShape.swift` — `opensOnSameLine(keyword:leftBrace:converter:)`,
+used by every type-decl walker (Availability / EnumFacts / SubscriptLabels /
+PublicTypeNames / MemberCollection / SignatureFacts / Throws / MainActor /
+ActorIsolation).
+
+**Regex behavior**: `TypeDeclRegex` / `PublicTypeDeclRegex` / `ExtensionDeclRegex`
+all match a single line. The `openBraces > 0` gate in
+`SwiftInterfaceContextTracker.cs` requires the access modifier + optional `final`
++ type keyword + name + `{` to *all* appear on the same source line. Splitting
+the access modifier from the type keyword (`public\nclass Foo {`) means the
+regex cannot match `TypeDeclRegex` on either line, so neither line pushes a scope.
+
+**SwiftSyntax could see it**: the walker's `opensOnSameLine` only checks line
+equality between the type keyword and `{`. For `public\nclass Foo {`, `class`
+and `{` share a line, so the SwiftSyntax walker pushes the scope while the regex
+producer does not.
+
+**Why low-impact**: canonical `.swiftinterface` output never splits the access
+modifier from the `class`/`struct`/`enum`/`actor`/`protocol` keyword onto a
+separate line — the Swift compiler always emits the full declaration head on
+one line. The 122-library validation corpus, BindingTests fixtures, and unit
+parity tests all pass green; the divergence is unobservable in practice.
+Documented in Codex session `019dddde-98e4-7c10-a20b-f591c4047aef` (rounds 6/7)
+as a persistent residual that does not block the M2 S3 default flip.
+
+**Resolution**: M2 S4 retires the regex producer; the parity question becomes
+moot once SwiftSyntax is the only producer. No action needed in S3.
+
+---
+
 ## Notes for M2 S3 (default flip)
 
 When the SwiftSyntax producer becomes the default in M2 S3, none of the above

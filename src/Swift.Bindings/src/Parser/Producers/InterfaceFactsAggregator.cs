@@ -101,7 +101,20 @@ public sealed class InterfaceFactsAggregator
         {
             if (!r.CoveredFacts.Contains(kind)) continue;
             var value = getter(r.Facts);
-            if (value is not null) return value;
+            // Defense-in-depth: a producer that declares coverage MUST ship a non-null
+            // payload. Empty is fine ("I covered it, found nothing"); null is incoherent.
+            // The SwiftSyntax producer already validates this internally, but we re-check
+            // at the aggregator boundary to catch any future producer that wires up
+            // coverage without populating the payload — silent-fallthrough would mask
+            // migration bugs (codex review M2 S3 finding C).
+            if (value is null)
+            {
+                throw new InvalidOperationException(
+                    $"InterfaceFactsAggregator: producer declared coverage of '{kind}' but " +
+                    "emitted a null payload. This is a producer-side bug — empty collections " +
+                    "are the correct way to signal 'covered but found nothing'.");
+            }
+            return value;
         }
         return fallback;
     }

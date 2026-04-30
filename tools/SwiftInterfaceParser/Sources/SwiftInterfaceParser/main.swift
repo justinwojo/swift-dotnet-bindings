@@ -8,11 +8,11 @@ import Foundation
 /// this binary, parses its JSON stdout, and merges per-fact via
 /// `InterfaceFactsAggregator`.
 ///
-/// Session 2 covers MainActor* + the actor isolation cluster (5 facts) +
-/// availability annotations (2 facts) + typed throws — 8 newly migrated facts on
-/// top of the 2 from Session 1, for a running total of 10/24. The contract is
-/// byte-equal parity with the regex producer (`SwiftInterfaceAccessParser`)
-/// across the validation corpus — that's what gates flipping the default in M2 S3.
+/// Session 3 lights up the remaining 14 facts (type collection, enum facts,
+/// signature facts, subscript labels, protocol facts), bringing SwiftSyntax to
+/// 100% fact coverage (24/24). The contract is byte-equal parity with the regex
+/// producer (`SwiftInterfaceAccessParser`) across the validation corpus — that
+/// gates flipping the default in M2 S3.
 ///
 /// CLI:
 ///   SwiftInterfaceParser --input <path-to-swiftinterface>
@@ -65,6 +65,15 @@ let actorIsolation = ActorIsolationWalker.parse(filePath: path, source: source)
 let availability = AvailabilityWalker.parse(filePath: path, source: source)
 let typedThrows = ThrowsWalker.parse(filePath: path, source: source)
 
+// Session 3 walkers.
+let publicTypeNames = PublicTypeNamesWalker.parse(filePath: path, source: source)
+let memberCollection = MemberCollectionWalker.parse(filePath: path, source: source)
+let markerProtocolConformances = MarkerProtocolWalker.parse(filePath: path, source: source)
+let enumFacts = EnumFactsWalker.parse(filePath: path, source: source)
+let signatureFacts = SignatureFactsWalker.parse(filePath: path, source: source)
+let subscriptLabels = SubscriptLabelsWalker.parse(filePath: path, source: source)
+let protocolFacts = ProtocolFactsWalker.parse(filePath: path, source: source)
+
 let output = ParserOutput(
     coveredFacts: [
         "MainActorTypes",
@@ -80,6 +89,24 @@ let output = ParserOutput(
         "AvailabilityAnnotationPositions",
         // Typed throws (M2 S2).
         "TypedThrowsErrors",
+        // Session 3 — type & member collection.
+        "PublicTypeNames",
+        "InternalMemberKeys",
+        "PublicMemberNames",
+        "MarkerProtocolConformances",
+        // Session 3 — enum facts.
+        "EnumCaseLabels",
+        "EnumCaseRawValues",
+        // Session 3 — signature facts.
+        "ParameterNames",
+        "DefaultParameterValues",
+        "AutoclosureParameters",
+        "SubscriptLabels",
+        "VariadicMembers",
+        // Session 3 — protocol-level facts.
+        "ConventionCProtocols",
+        "ConventionCProtocolPositions",
+        "HiddenRequirementProtocols",
     ],
     facts: Facts(
         mainActorTypes: mainActorTypes,
@@ -91,7 +118,21 @@ let output = ParserOutput(
         customActorIsolatorMap: actorIsolation.customActorIsolatorMap,
         availabilityAnnotations: availability.availabilityAnnotations,
         availabilityAnnotationPositions: availability.availabilityAnnotationPositions,
-        typedThrowsErrors: typedThrows
+        typedThrowsErrors: typedThrows,
+        publicTypeNames: publicTypeNames,
+        internalMemberKeys: memberCollection.internalMemberKeys,
+        publicMemberNames: memberCollection.publicMemberNames,
+        markerProtocolConformances: markerProtocolConformances,
+        enumCaseLabels: enumFacts.labels,
+        enumCaseRawValues: enumFacts.rawValues,
+        parameterNames: signatureFacts.parameterNames,
+        defaultParameterValues: signatureFacts.defaultParameterValues,
+        autoclosureParameters: signatureFacts.autoclosureParameters,
+        subscriptLabels: subscriptLabels,
+        variadicMembers: signatureFacts.variadicMembers,
+        conventionCProtocols: protocolFacts.conventionCProtocols,
+        conventionCProtocolPositions: protocolFacts.conventionCProtocolPositions,
+        hiddenRequirementProtocols: protocolFacts.hiddenRequirementProtocols
     )
 )
 

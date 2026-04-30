@@ -1,5 +1,5 @@
 {
-  "git_sha": "bee49ef9",
+  "git_sha": "58b96a1c",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -145,28 +145,28 @@
       "TipKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9686,
+        "lines": 9676,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8615,
+        "lines": 8605,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9686,
+        "lines": 9676,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7861,
+        "lines": 7851,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -264,21 +264,21 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 97089,
+        "lines": 97139,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4524,
+        "lines": 4547,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59443,
+        "lines": 58809,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -292,7 +292,7 @@
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50497,
+        "lines": 49273,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -306,7 +306,7 @@
       "Mixpanel": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9756,
+        "lines": 9456,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -404,7 +404,7 @@
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6641,
+        "lines": 6677,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -544,7 +544,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17435,
+        "lines": 17453,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -558,7 +558,7 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8637,
+        "lines": 8487,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -579,7 +579,7 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4034,
+        "lines": 4080,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -600,7 +600,7 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3791,
+        "lines": 3776,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -614,7 +614,7 @@
       "AnimatedCollectionViewLayout": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3238,
+        "lines": 3256,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -873,37 +873,37 @@
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 28,
-        "lines": 27145,
+        "lines": 27167,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 8303,
+        "lines": 8315,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "YouTubePlayerKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 32308,
+        "lines": 31708,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 19872,
-    "total_skipped_members": 6171,
+    "total_emitted_members": 19881,
+    "total_skipped_members": 6162,
     "skip_rate_pct": 23.7,
     "skip_reasons": {
       "UnsupportedSignature": 1130,
-      "ModuleInternal": 851,
       "SynthesizedCodable": 841,
+      "ModuleInternal": 841,
       "DuplicateSignature": 761,
       "GenericProtocolConstraint": 630,
-      "AnyTypeFallback": 614,
+      "AnyTypeFallback": 615,
       "UnsupportedClosure": 267,
       "EveryProtocolConformanceSkipped": 250,
       "MissingWrapperSymbol": 238,

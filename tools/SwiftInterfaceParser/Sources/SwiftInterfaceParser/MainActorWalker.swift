@@ -44,6 +44,15 @@ import SwiftParser
 ///    text we parse, but the `extension Mod.Type { … }` form needs special
 ///    handling: we strip the leading module component (matching
 ///    `ExtensionDeclRegex` behavior in the regex parser).
+///
+/// 6. **Type-scope push gate**: regex's tracker only pushes a type scope when
+///    `TypeDeclRegex` (public|internal|open + optional final) matches AND the
+///    body's `{` is on the same source line. Names must satisfy the regex's
+///    `(\w+)` capture (no backtick-escaped names). Non-matching shapes such as
+///    `public indirect enum` or split-line bodies do NOT push, so nested types
+///    inside them lose the outer prefix — matching the regex tracker exactly.
+///    Extension push is additionally gated on same-line `{` AND a `[\w.]+`
+///    extended-type capture.
 final class MainActorWalker: SyntaxVisitor {
     let filePath: String
     let converter: SourceLocationConverter
@@ -52,6 +61,10 @@ final class MainActorWalker: SyntaxVisitor {
     private(set) var mainActorTypePositions: [String: SourcePositionJson] = [:]
 
     private var scopeStack: [String] = []
+
+    /// Parallel stack: each visited type/extension records whether it actually
+    /// pushed a frame on `scopeStack`. Mirrors the regex tracker's gated push.
+    private var scopePushed: [Bool] = []
 
     init(filePath: String, source: String) {
         self.filePath = filePath
@@ -69,40 +82,55 @@ final class MainActorWalker: SyntaxVisitor {
     // MARK: - Type declarations we care about
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers, attributes: node.attributes)
+        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers,
+                             attributes: node.attributes,
+                             keyword: node.classKeyword,
+                             leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: ClassDeclSyntax) {
-        scopeStack.removeLast()
-    }
+    override func visitPost(_ node: ClassDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers, attributes: node.attributes)
+        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers,
+                             attributes: node.attributes,
+                             keyword: node.structKeyword,
+                             leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: StructDeclSyntax) {
-        scopeStack.removeLast()
-    }
+    override func visitPost(_ node: StructDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: EnumDeclSyntax) -> SyntaxVisitorContinueKind {
-        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers, attributes: node.attributes)
+        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers,
+                             attributes: node.attributes,
+                             keyword: node.enumKeyword,
+                             leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: EnumDeclSyntax) {
-        scopeStack.removeLast()
-    }
+    override func visitPost(_ node: EnumDeclSyntax) { leaveTypeScope() }
 
     override func visit(_ node: ProtocolDeclSyntax) -> SyntaxVisitorContinueKind {
-        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers, attributes: node.attributes)
+        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers,
+                             attributes: node.attributes,
+                             keyword: node.protocolKeyword,
+                             leftBrace: node.memberBlock.leftBrace)
     }
-    override func visitPost(_ node: ProtocolDeclSyntax) {
-        scopeStack.removeLast()
-    }
+    override func visitPost(_ node: ProtocolDeclSyntax) { leaveTypeScope() }
 
     // MARK: - Scope-only declarations (no emit, but track nesting)
 
     /// Extension nesting matches the regex parser's `typeStack` push for extensions.
     /// `extension Mod.Type` strips the leading module component to get the type path
-    /// — matches `SwiftInterfaceAccessParser.GetMainActorTypes` lines 308-318.
+    /// — matches `SwiftInterfaceAccessParser.GetMainActorTypes` lines 308-318. Push
+    /// gated on same-line `{` AND a `[\w.]+` extended-type capture.
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
+                                         leftBrace: node.memberBlock.leftBrace,
+                                         converter: converter) else {
+            scopePushed.append(false)
+            return .visitChildren
+        }
         let qualified = extendedTypeName(node.extendedType)
+        guard RegexShape.isWordOrDotOnly(qualified) else {
+            scopePushed.append(false)
+            return .visitChildren
+        }
         let stripped: String
         if let firstDot = qualified.firstIndex(of: ".") {
             stripped = String(qualified[qualified.index(after: firstDot)...])
@@ -110,24 +138,25 @@ final class MainActorWalker: SyntaxVisitor {
             stripped = qualified
         }
         scopeStack.append(stripped)
+        scopePushed.append(true)
         return .visitChildren
     }
 
-    override func visitPost(_ node: ExtensionDeclSyntax) {
-        scopeStack.removeLast()
-    }
+    override func visitPost(_ node: ExtensionDeclSyntax) { leaveTypeScope() }
 
     /// Actor declarations participate in MainActorTypes only when their access modifier
     /// is `internal` — the regex parser's `ActorDeclRegex` suppresses public/open actors
     /// but lets internal actors fall through into emission. Always push the scope so
     /// nested types resolve correctly.
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers, attributes: node.attributes, isActor: true)
+        return enterTypeDecl(name: node.name.text, modifiers: node.modifiers,
+                             attributes: node.attributes,
+                             keyword: node.actorKeyword,
+                             leftBrace: node.memberBlock.leftBrace,
+                             isActor: true)
     }
 
-    override func visitPost(_ node: ActorDeclSyntax) {
-        scopeStack.removeLast()
-    }
+    override func visitPost(_ node: ActorDeclSyntax) { leaveTypeScope() }
 
     // MARK: - Helpers
 
@@ -135,14 +164,27 @@ final class MainActorWalker: SyntaxVisitor {
         name: String,
         modifiers: DeclModifierListSyntax,
         attributes: AttributeListSyntax,
+        keyword: TokenSyntax,
+        leftBrace: TokenSyntax,
         isActor: Bool = false
     ) -> SyntaxVisitorContinueKind {
+        // Gated scope push: the regex tracker only pushes when TypeDeclRegex
+        // matches (public|internal|open + optional final), the name is a valid
+        // `\w+` identifier, and the body's `{` is on the same source line.
+        guard RegexShape.matchesTypeDeclShape(modifiers),
+              RegexShape.isWordIdentifier(name),
+              RegexShape.opensOnSameLine(keyword: keyword, leftBrace: leftBrace, converter: converter) else {
+            scopePushed.append(false)
+            return .visitChildren
+        }
         scopeStack.append(name)
+        scopePushed.append(true)
 
         guard hasMainActorAttribute(attributes) else { return .visitChildren }
 
         guard let accessKeyword = firstAccessModifier(modifiers) else {
-            // Regex requires public/internal/open — match that.
+            // Regex requires public/internal/open — match that. (matchesTypeDeclShape
+            // already enforced this; this is a belt-and-suspenders fallback.)
             return .visitChildren
         }
 
@@ -166,6 +208,12 @@ final class MainActorWalker: SyntaxVisitor {
             column: location.column
         )
         return .visitChildren
+    }
+
+    private func leaveTypeScope() {
+        if let pushed = scopePushed.popLast(), pushed {
+            _ = scopeStack.popLast()
+        }
     }
 
     private func hasMainActorAttribute(_ attributes: AttributeListSyntax) -> Bool {

@@ -40,9 +40,9 @@ struct ParserOutput: Encodable {
 /// but nullable fields prevent silent data loss if `coveredFacts` and the
 /// `facts` payload disagree.
 ///
-/// Session 2 covers MainActor* + the actor isolation cluster + availability + typed throws.
-/// Field names are lowerCamelCase to match System.Text.Json's default
-/// `PropertyNamingPolicy.CamelCase` on the .NET side.
+/// Session 3 brings SwiftSyntax to 100% fact coverage (24/24). Field names are
+/// lowerCamelCase to match System.Text.Json's default `PropertyNamingPolicy.CamelCase`
+/// on the .NET side.
 struct Facts: Encodable {
     var mainActorTypes: [String]?
     var mainActorTypePositions: [String: SourcePositionJson]?
@@ -60,6 +60,28 @@ struct Facts: Encodable {
 
     // Typed throws.
     var typedThrowsErrors: [String: String]?
+
+    // Session 3 — type & member collection.
+    var publicTypeNames: [String]?
+    var internalMemberKeys: [String]?
+    var publicMemberNames: [String]?
+    var markerProtocolConformances: [String: [String]]?
+
+    // Session 3 — enum facts.
+    var enumCaseLabels: [String: [String?]]?
+    var enumCaseRawValues: [String: String]?
+
+    // Session 3 — signature facts.
+    var parameterNames: [String: [String]]?
+    var defaultParameterValues: [String: [String?]]?
+    var autoclosureParameters: [String: [Bool]]?
+    var subscriptLabels: [String: [String]]?
+    var variadicMembers: [String]?
+
+    // Session 3 — protocol-level facts.
+    var conventionCProtocols: [String]?
+    var conventionCProtocolPositions: [String: SourcePositionJson]?
+    var hiddenRequirementProtocols: [String: [String]]?
 }
 
 struct SourcePositionJson: Encodable {

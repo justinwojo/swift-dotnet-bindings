@@ -17,18 +17,24 @@ namespace BindingsGeneration.Producers;
 /// (tools/SwiftInterfaceParser, built by `nuke compile`) with `--input &lt;path&gt;`,
 /// reads JSON from stdout, and converts it into a <see cref="PartialSwiftInterfaceFacts"/>.
 /// <para/>
-/// Session 2 covers <see cref="InterfaceFactKind.MainActorTypes"/>,
-/// <see cref="InterfaceFactKind.MainActorTypePositions"/>, the actor isolation cluster
-/// (<see cref="InterfaceFactKind.ActorIsolatedMembers"/>,
-/// <see cref="InterfaceFactKind.MainActorIsolatedMembers"/>,
-/// <see cref="InterfaceFactKind.NonisolatedMembers"/>,
-/// <see cref="InterfaceFactKind.CustomActorTypes"/>,
-/// <see cref="InterfaceFactKind.CustomActorIsolatorMap"/>), the availability cluster
-/// (<see cref="InterfaceFactKind.AvailabilityAnnotations"/>,
-/// <see cref="InterfaceFactKind.AvailabilityAnnotationPositions"/>), and
-/// <see cref="InterfaceFactKind.TypedThrowsErrors"/>. Subsequent sessions extend
-/// coverage; <see cref="ProducerResult.CoveredFacts"/> carries the host binary's declared
-/// coverage so the aggregator merges per-fact correctly during the migration window.
+/// Session 3 brings SwiftSyntax to 100% fact coverage (24/24): MainActor*, the
+/// actor isolation cluster, availability cluster, typed throws, type-and-member
+/// collection (<see cref="InterfaceFactKind.PublicTypeNames"/>,
+/// <see cref="InterfaceFactKind.InternalMemberKeys"/>,
+/// <see cref="InterfaceFactKind.PublicMemberNames"/>,
+/// <see cref="InterfaceFactKind.MarkerProtocolConformances"/>), enum facts
+/// (<see cref="InterfaceFactKind.EnumCaseLabels"/>,
+/// <see cref="InterfaceFactKind.EnumCaseRawValues"/>), signature facts
+/// (<see cref="InterfaceFactKind.ParameterNames"/>,
+/// <see cref="InterfaceFactKind.DefaultParameterValues"/>,
+/// <see cref="InterfaceFactKind.AutoclosureParameters"/>,
+/// <see cref="InterfaceFactKind.SubscriptLabels"/>,
+/// <see cref="InterfaceFactKind.VariadicMembers"/>), and protocol-level facts
+/// (<see cref="InterfaceFactKind.ConventionCProtocols"/>,
+/// <see cref="InterfaceFactKind.ConventionCProtocolPositions"/>,
+/// <see cref="InterfaceFactKind.HiddenRequirementProtocols"/>).
+/// <see cref="ProducerResult.CoveredFacts"/> carries the host binary's declared coverage
+/// so the aggregator merges per-fact correctly during the migration window.
 /// <para/>
 /// FAILURE BEHAVIOR: any of (binary missing, non-zero exit, malformed JSON, schema mismatch,
 /// unknown fact name in coveredFacts) is a HARD ERROR — surfaced as
@@ -228,6 +234,56 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             TypedThrowsErrors = covered.Contains(InterfaceFactKind.TypedThrowsErrors)
                 ? new Dictionary<string, string>(parsed.Facts.TypedThrowsErrors ?? new Dictionary<string, string>())
                 : null,
+
+            // Session 3 — type & member collection.
+            PublicTypeNames = covered.Contains(InterfaceFactKind.PublicTypeNames)
+                ? new HashSet<string>(parsed.Facts.PublicTypeNames ?? new List<string>())
+                : null,
+            InternalMemberKeys = covered.Contains(InterfaceFactKind.InternalMemberKeys)
+                ? new HashSet<string>(parsed.Facts.InternalMemberKeys ?? new List<string>())
+                : null,
+            PublicMemberNames = covered.Contains(InterfaceFactKind.PublicMemberNames)
+                ? new HashSet<string>(parsed.Facts.PublicMemberNames ?? new List<string>())
+                : null,
+            MarkerProtocolConformances = covered.Contains(InterfaceFactKind.MarkerProtocolConformances)
+                ? ConvertListDict(parsed.Facts.MarkerProtocolConformances)
+                : null,
+
+            // Session 3 — enum facts.
+            EnumCaseLabels = covered.Contains(InterfaceFactKind.EnumCaseLabels)
+                ? ConvertListDict(parsed.Facts.EnumCaseLabels)
+                : null,
+            EnumCaseRawValues = covered.Contains(InterfaceFactKind.EnumCaseRawValues)
+                ? new Dictionary<string, string>(parsed.Facts.EnumCaseRawValues ?? new Dictionary<string, string>())
+                : null,
+
+            // Session 3 — signature facts.
+            ParameterNames = covered.Contains(InterfaceFactKind.ParameterNames)
+                ? ConvertListDict(parsed.Facts.ParameterNames)
+                : null,
+            DefaultParameterValues = covered.Contains(InterfaceFactKind.DefaultParameterValues)
+                ? ConvertListDict(parsed.Facts.DefaultParameterValues)
+                : null,
+            AutoclosureParameters = covered.Contains(InterfaceFactKind.AutoclosureParameters)
+                ? ConvertListDict(parsed.Facts.AutoclosureParameters)
+                : null,
+            SubscriptLabels = covered.Contains(InterfaceFactKind.SubscriptLabels)
+                ? ConvertListDict(parsed.Facts.SubscriptLabels)
+                : null,
+            VariadicMembers = covered.Contains(InterfaceFactKind.VariadicMembers)
+                ? new HashSet<string>(parsed.Facts.VariadicMembers ?? new List<string>())
+                : null,
+
+            // Session 3 — protocol-level facts.
+            ConventionCProtocols = covered.Contains(InterfaceFactKind.ConventionCProtocols)
+                ? new HashSet<string>(parsed.Facts.ConventionCProtocols ?? new List<string>())
+                : null,
+            ConventionCProtocolPositions = covered.Contains(InterfaceFactKind.ConventionCProtocolPositions)
+                ? ConvertPositions(parsed.Facts.ConventionCProtocolPositions)
+                : null,
+            HiddenRequirementProtocols = covered.Contains(InterfaceFactKind.HiddenRequirementProtocols)
+                ? ConvertHiddenRequirements(parsed.Facts.HiddenRequirementProtocols)
+                : null,
         };
 
         // Defense-in-depth: if a producer claims coverage but ships null payload, that's a
@@ -248,6 +304,38 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         foreach (var kv in input)
         {
             result[kv.Key] = new SourcePosition(kv.Value.FilePath, kv.Value.Line, kv.Value.Column);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Converts a wire-shape `Dictionary&lt;string, List&lt;T&gt;&gt;` to a fresh dictionary
+    /// (so the consumer sees a private, non-aliased copy). Used for fact dictionaries
+    /// whose values are lists.
+    /// </summary>
+    private static Dictionary<string, List<T>> ConvertListDict<T>(Dictionary<string, List<T>>? input)
+    {
+        var result = new Dictionary<string, List<T>>();
+        if (input is null) return result;
+        foreach (var kv in input)
+        {
+            result[kv.Key] = new List<T>(kv.Value);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Converts the wire-shape JSON list-of-strings dictionary into the
+    /// `Dictionary&lt;string, HashSet&lt;string&gt;&gt;` shape expected by
+    /// <see cref="PartialSwiftInterfaceFacts.HiddenRequirementProtocols"/>.
+    /// </summary>
+    private static Dictionary<string, HashSet<string>> ConvertHiddenRequirements(Dictionary<string, List<string>>? input)
+    {
+        var result = new Dictionary<string, HashSet<string>>();
+        if (input is null) return result;
+        foreach (var kv in input)
+        {
+            result[kv.Key] = new HashSet<string>(kv.Value);
         }
         return result;
     }
@@ -300,6 +388,42 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             throw new InvalidOperationException("SwiftInterfaceParser declared AvailabilityAnnotationPositions coverage but emitted null facts.availabilityAnnotationPositions.");
         if (covered.Contains(InterfaceFactKind.TypedThrowsErrors) && payload.TypedThrowsErrors is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared TypedThrowsErrors coverage but emitted null facts.typedThrowsErrors.");
+
+        // Session 3 — type & member collection.
+        if (covered.Contains(InterfaceFactKind.PublicTypeNames) && payload.PublicTypeNames is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared PublicTypeNames coverage but emitted null facts.publicTypeNames.");
+        if (covered.Contains(InterfaceFactKind.InternalMemberKeys) && payload.InternalMemberKeys is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared InternalMemberKeys coverage but emitted null facts.internalMemberKeys.");
+        if (covered.Contains(InterfaceFactKind.PublicMemberNames) && payload.PublicMemberNames is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared PublicMemberNames coverage but emitted null facts.publicMemberNames.");
+        if (covered.Contains(InterfaceFactKind.MarkerProtocolConformances) && payload.MarkerProtocolConformances is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared MarkerProtocolConformances coverage but emitted null facts.markerProtocolConformances.");
+
+        // Session 3 — enum facts.
+        if (covered.Contains(InterfaceFactKind.EnumCaseLabels) && payload.EnumCaseLabels is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared EnumCaseLabels coverage but emitted null facts.enumCaseLabels.");
+        if (covered.Contains(InterfaceFactKind.EnumCaseRawValues) && payload.EnumCaseRawValues is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared EnumCaseRawValues coverage but emitted null facts.enumCaseRawValues.");
+
+        // Session 3 — signature facts.
+        if (covered.Contains(InterfaceFactKind.ParameterNames) && payload.ParameterNames is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ParameterNames coverage but emitted null facts.parameterNames.");
+        if (covered.Contains(InterfaceFactKind.DefaultParameterValues) && payload.DefaultParameterValues is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared DefaultParameterValues coverage but emitted null facts.defaultParameterValues.");
+        if (covered.Contains(InterfaceFactKind.AutoclosureParameters) && payload.AutoclosureParameters is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared AutoclosureParameters coverage but emitted null facts.autoclosureParameters.");
+        if (covered.Contains(InterfaceFactKind.SubscriptLabels) && payload.SubscriptLabels is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared SubscriptLabels coverage but emitted null facts.subscriptLabels.");
+        if (covered.Contains(InterfaceFactKind.VariadicMembers) && payload.VariadicMembers is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared VariadicMembers coverage but emitted null facts.variadicMembers.");
+
+        // Session 3 — protocol-level facts.
+        if (covered.Contains(InterfaceFactKind.ConventionCProtocols) && payload.ConventionCProtocols is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ConventionCProtocols coverage but emitted null facts.conventionCProtocols.");
+        if (covered.Contains(InterfaceFactKind.ConventionCProtocolPositions) && payload.ConventionCProtocolPositions is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ConventionCProtocolPositions coverage but emitted null facts.conventionCProtocolPositions.");
+        if (covered.Contains(InterfaceFactKind.HiddenRequirementProtocols) && payload.HiddenRequirementProtocols is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared HiddenRequirementProtocols coverage but emitted null facts.hiddenRequirementProtocols.");
     }
 
     // Deserialization options live on InterfaceFactsJsonContext (source-generated) — see
