@@ -337,16 +337,18 @@ namespace BindingsGeneration
                 specializationEngine.IndexModuleConformances(decl);
                 emissionContext.SpecializationEngine = specializationEngine;
 
-                // Parse protocol names first — needed by both protocol and foreign extension paths
-                var protocolNames = !string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath)
-                    ? SwiftInterfaceAccessParser.GetProtocolNames(swiftInterfacePath)
-                    : new HashSet<string>();
+                // Protocol names, protocol-extension methods, and foreign-type extension members
+                // all come from the producer-aggregated SwiftInterfaceFacts. The aggregator
+                // already routed each fact through whichever producer (regex or SwiftSyntax)
+                // covers it; downstream phases consume facts.* directly so the choice of
+                // producer is transparent here.
+                var protocolNames = facts.ProtocolNames;
 
-                // Parse protocol extension methods from swiftinterface and inject onto conforming types
+                // Inject protocol extension methods onto conforming types.
                 ProtocolExtensionDefaultsIndex? extensionDefaultsIndex = null;
                 if (protocolNames.Count > 0)
                 {
-                    var extensionMethods = SwiftInterfaceAccessParser.GetProtocolExtensionMethods(swiftInterfacePath!, protocolNames);
+                    var extensionMethods = facts.ProtocolExtensionMethods;
                     if (extensionMethods.Count > 0)
                     {
                         // Build extension defaults index BEFORE injection — used by validator to allow
@@ -368,12 +370,13 @@ namespace BindingsGeneration
                     emissionContext.ExtensionDefaultsIndex = extensionDefaultsIndex;
                 }
 
-                // Parse foreign type extension members and process them
-                if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
+                // Foreign type extension members are partitioned from facts.ExtensionMemberCandidates
+                // using the parsed module's name + own type set; the partitioning lives on facts so
+                // both producers feed it identical inputs.
+                if (facts.ExtensionMemberCandidates.Count > 0)
                 {
                     var moduleTypeNames = new HashSet<string>(decl.Types.Select(t => t.Name));
-                    var foreignExtensions = SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers(
-                        swiftInterfacePath, protocolNames, moduleTypeNames, moduleName);
+                    var foreignExtensions = facts.ResolveForeignExtensions(moduleName, moduleTypeNames);
                     if (foreignExtensions.Count > 0)
                     {
                         ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(

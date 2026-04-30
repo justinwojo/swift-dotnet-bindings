@@ -82,6 +82,11 @@ struct Facts: Encodable {
     var conventionCProtocols: [String]?
     var conventionCProtocolPositions: [String: SourcePositionJson]?
     var hiddenRequirementProtocols: [String: [String]]?
+
+    // M2 S4 — non-fact methods migrated behind the producer abstraction.
+    var protocolNames: [String]?
+    var protocolExtensionMethods: [String: [ProtocolExtensionMethodInfo]]?
+    var extensionMemberCandidates: [ExtensionMemberCandidateInfo]?
 }
 
 struct SourcePositionJson: Encodable {
@@ -101,4 +106,40 @@ struct AvailabilityAnnotationJson: Encodable {
     let isUnconditionallyUnavailable: Bool
     let message: String?
     let renamed: String?
+}
+
+/// Wire shape for `ProtocolExtensionMethodDecl`. Mirrors the model's required
+/// fields. `protocolQualifiedName` is excluded from the wire because it's
+/// redundant with the dictionary key — the .NET-side conversion fills it from
+/// the key when materializing the decl.
+struct ProtocolExtensionMethodInfo: Encodable {
+    let methodName: String
+    let rawSignature: String
+    let printedName: String
+    let returnsSelf: Bool
+    let isMainActorIsolated: Bool
+    let isStatic: Bool
+    let isProperty: Bool
+    let hasSetter: Bool
+    let isDeprecated: Bool
+    let isMutating: Bool
+    let whereConstraints: [String]
+}
+
+/// Wire shape for `ExtensionMemberCandidate`. Same payload as
+/// `ProtocolExtensionMethodInfo` plus the verbatim `extendedTypeName` (no
+/// module-context partitioning happens host-side).
+struct ExtensionMemberCandidateInfo: Encodable {
+    let extendedTypeName: String
+    let methodName: String
+    let rawSignature: String
+    let printedName: String
+    let returnsSelf: Bool
+    let isMainActorIsolated: Bool
+    let isStatic: Bool
+    let isProperty: Bool
+    let hasSetter: Bool
+    let isDeprecated: Bool
+    let isMutating: Bool
+    let whereConstraints: [String]
 }

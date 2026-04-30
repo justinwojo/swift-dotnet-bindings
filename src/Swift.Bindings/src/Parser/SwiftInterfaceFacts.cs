@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System;
+using System.Collections.Generic;
+
 namespace BindingsGeneration
 {
     /// <summary>
@@ -140,6 +143,29 @@ namespace BindingsGeneration
         /// detection. Missing keys mean no position was extractable.</summary>
         public required Dictionary<string, SourcePosition> ConventionCProtocolPositions { get; init; }
 
+        /// <summary>Names of every <c>public</c> / <c>open</c> protocol declared in this
+        /// module's swiftinterface. Unqualified (e.g., "KFOptionSetter"). Drives same-module
+        /// protocol-extension classification in
+        /// <see cref="ResolveForeignExtensions"/> and <see cref="ProtocolExtensionMethods"/>.
+        /// </summary>
+        public required HashSet<string> ProtocolNames { get; init; }
+
+        /// <summary>Per-protocol direct-extension members keyed by the verbatim extension
+        /// target (e.g. "Mod.MyProto" or unqualified "MyProto"). Each member is a default
+        /// implementation provided in an <c>extension MyProto { ... }</c> block. Direct
+        /// members only — declarations inside nested types within the extension body
+        /// are excluded.</summary>
+        public required Dictionary<string, List<ProtocolExtensionMethodDecl>> ProtocolExtensionMethods { get; init; }
+
+        /// <summary>Flat list of every direct member from every <c>extension X { ... }</c>
+        /// block, module-context-free. Foreign-type-extension partitioning is deferred to
+        /// <see cref="ResolveForeignExtensions"/> because <c>moduleTypeNames</c> is only
+        /// available after the ABI parse. Same shape as
+        /// <see cref="ProtocolExtensionMethods"/>'s value list, but keyed off
+        /// <see cref="ExtensionMemberCandidate.ExtendedTypeName"/> instead of by
+        /// protocol.</summary>
+        public required List<ExtensionMemberCandidate> ExtensionMemberCandidates { get; init; }
+
         /// <summary>
         /// Best-effort lookup helper. Searches every position dictionary on this facts
         /// instance for <paramref name="key"/> and returns the first hit. Used by skip-
@@ -153,6 +179,84 @@ namespace BindingsGeneration
             if (AvailabilityAnnotationPositions.TryGetValue(key, out p)) return p;
             if (ConventionCProtocolPositions.TryGetValue(key, out p)) return p;
             return null;
+        }
+
+        /// <summary>
+        /// Partitions <see cref="ExtensionMemberCandidates"/> into a foreign-type-extension
+        /// dictionary using the same first-dot rule as the legacy
+        /// <c>SwiftInterfaceAccessParser.GetForeignTypeExtensionMembers</c>:
+        /// <list type="bullet">
+        /// <item>Qualified extension target (<c>Mod.X</c>) is foreign when the first segment
+        /// is not <paramref name="moduleName"/>.</item>
+        /// <item>Unqualified extension target (<c>X</c>) is foreign when neither
+        /// <paramref name="moduleTypeNames"/> nor <see cref="ProtocolNames"/> contains it.</item>
+        /// <item>Protocol extensions (target appears in <see cref="ProtocolNames"/>) are
+        /// excluded — they are surfaced via <see cref="ProtocolExtensionMethods"/>.</item>
+        /// </list>
+        /// Result key is the verbatim <see cref="ExtensionMemberCandidate.ExtendedTypeName"/>;
+        /// values are <see cref="ProtocolExtensionMethodDecl"/> instances with
+        /// <c>ProtocolQualifiedName</c> set to the same key.
+        /// </summary>
+        public Dictionary<string, List<ProtocolExtensionMethodDecl>> ResolveForeignExtensions(
+            string moduleName, ISet<string> moduleTypeNames)
+        {
+            var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
+            foreach (var candidate in ExtensionMemberCandidates)
+            {
+                var qualified = candidate.ExtendedTypeName;
+                var firstDotIdx = qualified.IndexOf('.');
+                var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
+
+                // Protocol extensions are NOT foreign — surfaced via ProtocolExtensionMethods.
+                if (ProtocolNames.Contains(typePath))
+                    continue;
+
+                bool isForeign;
+                if (firstDotIdx >= 0)
+                {
+                    var modulePrefix = qualified.Substring(0, firstDotIdx);
+                    isForeign = !string.Equals(modulePrefix, moduleName, StringComparison.Ordinal);
+                }
+                else
+                {
+                    isForeign = !moduleTypeNames.Contains(typePath) && !ProtocolNames.Contains(typePath);
+                }
+
+                if (!isForeign)
+                    continue;
+
+                if (!result.TryGetValue(qualified, out var list))
+                {
+                    list = new List<ProtocolExtensionMethodDecl>();
+                    result[qualified] = list;
+                }
+                list.Add(CandidateToDecl(candidate, qualified));
+            }
+            return result;
+        }
+
+        /// <summary>1:1 conversion from the candidate row to the decl shape downstream
+        /// emitters expect. The only field that changes is the type-side key
+        /// (<see cref="ExtensionMemberCandidate.ExtendedTypeName"/> →
+        /// <see cref="ProtocolExtensionMethodDecl.ProtocolQualifiedName"/>).</summary>
+        internal static ProtocolExtensionMethodDecl CandidateToDecl(
+            ExtensionMemberCandidate candidate, string qualifiedName)
+        {
+            return new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = qualifiedName,
+                MethodName = candidate.MethodName,
+                RawSignature = candidate.RawSignature,
+                PrintedName = candidate.PrintedName,
+                ReturnsSelf = candidate.ReturnsSelf,
+                IsMainActorIsolated = candidate.IsMainActorIsolated,
+                IsStatic = candidate.IsStatic,
+                IsProperty = candidate.IsProperty,
+                HasSetter = candidate.HasSetter,
+                IsDeprecated = candidate.IsDeprecated,
+                IsMutating = candidate.IsMutating,
+                WhereConstraints = new List<string>(candidate.WhereConstraints),
+            };
         }
 
         /// <summary>The "no swiftinterface" sentinel — every collection empty. Hand this to
@@ -191,6 +295,9 @@ namespace BindingsGeneration
             MainActorTypePositions = new Dictionary<string, SourcePosition>(),
             AvailabilityAnnotationPositions = new Dictionary<string, SourcePosition>(),
             ConventionCProtocolPositions = new Dictionary<string, SourcePosition>(),
+            ProtocolNames = new HashSet<string>(),
+            ProtocolExtensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>(),
         };
     }
 }

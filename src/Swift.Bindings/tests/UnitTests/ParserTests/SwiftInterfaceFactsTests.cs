@@ -29,13 +29,14 @@ public class SwiftInterfaceFactsTests
     {
         // Drift-loud guard: if a field is added to SwiftInterfaceFacts without updating Empty,
         // either compilation fails (required init property) or this count check trips.
-        // 21 fact maps + 3 best-effort source-position maps (M4 Session 4) = 24.
+        // 21 fact maps + 3 best-effort source-position maps + 3 M2 S4 non-fact migrations
+        // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) = 27.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(24, properties.Count);
+        Assert.Equal(27, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)
@@ -53,8 +54,10 @@ public class SwiftInterfaceFactsTests
     [Fact]
     public void Empty_AllFieldsAreCollectionTypes()
     {
-        // Each fact field must be a HashSet<...> or Dictionary<...,...> — concrete collection
-        // types that Program.GenerateBindings can populate without interface conversions.
+        // Each fact field must be a HashSet<...>, Dictionary<...,...>, or List<...> — concrete
+        // collection types that Program.GenerateBindings can populate without interface
+        // conversions. List entered the mix in M2 S4 to back ExtensionMemberCandidates, which
+        // is order-sensitive (regex producer walks the file top-to-bottom).
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null);
@@ -62,8 +65,8 @@ public class SwiftInterfaceFactsTests
         foreach (var prop in properties)
         {
             var typeName = prop.PropertyType.Name;
-            Assert.True(typeName.StartsWith("HashSet") || typeName.StartsWith("Dictionary"),
-                $"{prop.Name} is {prop.PropertyType.FullName}; expected HashSet or Dictionary.");
+            Assert.True(typeName.StartsWith("HashSet") || typeName.StartsWith("Dictionary") || typeName.StartsWith("List"),
+                $"{prop.Name} is {prop.PropertyType.FullName}; expected HashSet, Dictionary, or List.");
         }
     }
 
@@ -276,9 +279,12 @@ public class SwiftInterfaceFactsTests
     [InlineData(nameof(SwiftInterfaceFacts.MainActorTypePositions))]
     [InlineData(nameof(SwiftInterfaceFacts.AvailabilityAnnotationPositions))]
     [InlineData(nameof(SwiftInterfaceFacts.ConventionCProtocolPositions))]
+    [InlineData(nameof(SwiftInterfaceFacts.ProtocolNames))]
+    [InlineData(nameof(SwiftInterfaceFacts.ProtocolExtensionMethods))]
+    [InlineData(nameof(SwiftInterfaceFacts.ExtensionMemberCandidates))]
     public void EachField_HasRequiredInitProperty(string propertyName)
     {
-        // Each of the 21 fields must be a `required init` property — adding a new field without
+        // Each fact field must be a `required init` property — adding a new field without
         // updating Empty (or removing one without updating consumers) fails compilation.
         var prop = typeof(SwiftInterfaceFacts).GetProperty(propertyName);
         Assert.NotNull(prop);
@@ -291,6 +297,203 @@ public class SwiftInterfaceFactsTests
             .Any(t => t == typeof(System.Runtime.CompilerServices.IsExternalInit)),
             $"{propertyName} should be init-only (immutable record property).");
     }
+
+    #endregion
+
+    #region ResolveForeignExtensions partition tests
+
+    [Fact]
+    public void ResolveForeignExtensions_QualifiedSameModule_IsExcluded()
+    {
+        // `Mod.LocalType` when moduleName="Mod" is owned by this module — not foreign.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("Mod.LocalType", "ping"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod", new HashSet<string> { "LocalType" });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_QualifiedForeignModule_IsIncluded()
+    {
+        // `UIKit.UIView` when moduleName="Mod" is foreign — module prefix mismatches.
+        // Result key is the verbatim ExtendedTypeName.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("UIKit.UIView", "addBorder"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod", new HashSet<string>());
+
+        var entry = Assert.Single(result);
+        Assert.Equal("UIKit.UIView", entry.Key);
+        var decl = Assert.Single(entry.Value);
+        Assert.Equal("UIKit.UIView", decl.ProtocolQualifiedName);
+        Assert.Equal("addBorder", decl.MethodName);
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_UnqualifiedOwnedType_IsExcluded()
+    {
+        // `MyType` (no dot) when moduleTypeNames contains it — owned, not foreign.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("MyType", "doStuff"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod",
+            new HashSet<string> { "MyType" });
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_UnqualifiedUnknownType_IsIncluded()
+    {
+        // `Stranger` (no dot) — not in moduleTypeNames, not a protocol — treated as foreign.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("Stranger", "act"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod", new HashSet<string>());
+
+        var entry = Assert.Single(result);
+        Assert.Equal("Stranger", entry.Key);
+        Assert.Equal("Stranger", entry.Value[0].ProtocolQualifiedName);
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_UnqualifiedProtocol_IsExcluded()
+    {
+        // `MyProto` (no dot) listed in ProtocolNames — surfaced via ProtocolExtensionMethods,
+        // never as a foreign-type extension.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ProtocolNames = new HashSet<string> { "MyProto" },
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("MyProto", "describe"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod", new HashSet<string>());
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_QualifiedProtocol_IsExcluded()
+    {
+        // `Mod.MyProto` where the typePath segment ("MyProto") matches a ProtocolNames entry —
+        // even though it's qualified, the protocol-exclusion check uses typePath after the
+        // first dot. This is the same behavior as the legacy regex producer.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ProtocolNames = new HashSet<string> { "MyProto" },
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("Mod.MyProto", "describe"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod", new HashSet<string>());
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_GroupsCandidates_BySameExtendedTypeName()
+    {
+        // Multiple candidates on the same foreign type accumulate under a single dictionary
+        // entry, in source order.
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("UIKit.UIView", "first"),
+                MakeCandidate("UIKit.UIView", "second"),
+                MakeCandidate("UIKit.UILabel", "third"),
+            },
+        };
+
+        var result = facts.ResolveForeignExtensions("Mod", new HashSet<string>());
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal(new[] { "first", "second" },
+            result["UIKit.UIView"].Select(d => d.MethodName).ToArray());
+        Assert.Equal(new[] { "third" },
+            result["UIKit.UILabel"].Select(d => d.MethodName).ToArray());
+    }
+
+    [Fact]
+    public void ResolveForeignExtensions_CandidateToDecl_PreservesEveryField()
+    {
+        // The 1:1 candidate→decl conversion must carry every behavioral field through.
+        // Drift-loud guard: if a field is added to ExtensionMemberCandidate without updating
+        // CandidateToDecl, this assertion fails.
+        var candidate = new ExtensionMemberCandidate
+        {
+            ExtendedTypeName = "Foreign.Type",
+            MethodName = "exotic",
+            RawSignature = "public mutating func exotic<T>() async throws -> Self where T : Bound",
+            PrintedName = "exotic()",
+            ReturnsSelf = true,
+            IsMainActorIsolated = true,
+            IsStatic = true,
+            IsProperty = false,
+            HasSetter = false,
+            IsDeprecated = true,
+            IsMutating = true,
+            WhereConstraints = new List<string> { "T : Bound" },
+        };
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate> { candidate },
+        };
+
+        var decl = facts.ResolveForeignExtensions("Mod", new HashSet<string>())["Foreign.Type"][0];
+
+        Assert.Equal("Foreign.Type", decl.ProtocolQualifiedName);
+        Assert.Equal(candidate.MethodName, decl.MethodName);
+        Assert.Equal(candidate.RawSignature, decl.RawSignature);
+        Assert.Equal(candidate.PrintedName, decl.PrintedName);
+        Assert.Equal(candidate.ReturnsSelf, decl.ReturnsSelf);
+        Assert.Equal(candidate.IsMainActorIsolated, decl.IsMainActorIsolated);
+        Assert.Equal(candidate.IsStatic, decl.IsStatic);
+        Assert.Equal(candidate.IsProperty, decl.IsProperty);
+        Assert.Equal(candidate.HasSetter, decl.HasSetter);
+        Assert.Equal(candidate.IsDeprecated, decl.IsDeprecated);
+        Assert.Equal(candidate.IsMutating, decl.IsMutating);
+        Assert.Equal(candidate.WhereConstraints, decl.WhereConstraints);
+        // Defensive copy — mutating the source must not contaminate the decl.
+        candidate.WhereConstraints.Add("INTRUDER");
+        Assert.DoesNotContain("INTRUDER", decl.WhereConstraints);
+    }
+
+    private static ExtensionMemberCandidate MakeCandidate(string extendedTypeName, string methodName) =>
+        new()
+        {
+            ExtendedTypeName = extendedTypeName,
+            MethodName = methodName,
+            RawSignature = $"public func {methodName}()",
+            PrintedName = $"{methodName}()",
+        };
 
     #endregion
 

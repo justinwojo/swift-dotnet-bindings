@@ -2053,6 +2053,280 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
+    /// Parses a .swiftinterface file and returns the direct member declarations of every
+    /// extension block as a flat list. Module-context-free: callers (or
+    /// <see cref="SwiftInterfaceFacts.ResolveForeignExtensions"/>) decide which candidates
+    /// are foreign-type extensions vs same-module type extensions vs protocol extensions
+    /// using the first-dot rule, <c>protocolNames</c>, and <c>moduleTypeNames</c>.
+    /// <para/>
+    /// "Direct member" means func/var declared at the extension body's outer brace level —
+    /// members of nested types declared inside the extension body are NOT emitted (matches
+    /// the foreign-extension nested-type fix in
+    /// <see cref="GetForeignTypeExtensionMembers"/>; the same direct-only semantics apply
+    /// to protocol extensions for parity with the SwiftSyntax host's tree traversal).
+    /// </summary>
+    public static List<ExtensionMemberCandidate> GetExtensionMemberCandidates(string swiftInterfacePath)
+    {
+        var result = new List<ExtensionMemberCandidate>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+
+        var typeStack = new Stack<(string Name, int Depth)>();
+        int braceDepth = 0;
+        string? currentExtension = null; // verbatim extension target (e.g., "UIKit.UIView", "Mod.MyProto", "MyType")
+        int currentExtensionDepth = -1;
+        List<string> currentWhereConstraints = new();
+        bool pendingMainActor = false;
+        bool pendingDeprecated = false;
+        string? continuationLine = null;
+        bool continuationMainActor = false;
+        bool continuationDeprecated = false;
+        // Track property setter scope: when inside a var's brace block, look for "set" or "nonmutating set"
+        string? pendingPropertyLine = null;
+        bool pendingPropertyMainActor = false;
+        bool pendingPropertyDeprecated = false;
+        int propertyBraceDepth = -1;
+        bool propertyHasSetter = false;
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+
+            // Handle multi-line signature continuation
+            if (continuationLine != null)
+            {
+                continuationLine += " " + trimmed;
+                if (!HasUnmatchedOpenParen(continuationLine))
+                {
+                    var completeLine = continuationLine;
+                    var wasMainActor = continuationMainActor;
+                    var wasDeprecated = continuationDeprecated;
+                    continuationLine = null;
+                    continuationMainActor = false;
+                    continuationDeprecated = false;
+                    if (currentExtension != null)
+                    {
+                        ProcessExtensionMemberCandidate(completeLine, currentExtension,
+                            currentWhereConstraints, wasMainActor, wasDeprecated, false, result);
+                    }
+                }
+                continue;
+            }
+
+            // Skip #if / #endif lines
+            if (trimmed.StartsWith("#if ") || trimmed.StartsWith("#endif") || trimmed.StartsWith("#else"))
+                continue;
+
+            var (openBraces, closeBraces) = CountBraces(line);
+
+            // Check for @MainActor and @available(*, deprecated) annotations
+            bool hasMainActor = pendingMainActor || MainActorAnnotationRegex.IsMatch(trimmed);
+            bool hasDeprecated = pendingDeprecated || DeprecatedAnnotationRegex.IsMatch(trimmed);
+            pendingMainActor = false;
+            pendingDeprecated = false;
+
+            // Pending annotation (attribute on its own line, no declaration)
+            if ((hasMainActor || hasDeprecated) && !TypeDeclRegex.IsMatch(trimmed) &&
+                !ExtensionFuncRegex.IsMatch(trimmed) && !ExtensionVarRegex.IsMatch(trimmed) &&
+                openBraces == 0)
+            {
+                pendingMainActor = hasMainActor;
+                pendingDeprecated = hasDeprecated;
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                continue;
+            }
+
+            // Handle property setter detection: track "set" inside property brace block
+            if (pendingPropertyLine != null)
+            {
+                if (trimmed == "set" || trimmed == "nonmutating set" ||
+                    trimmed.StartsWith("set ") || trimmed.StartsWith("nonmutating set") ||
+                    trimmed == "@objc set" || trimmed.StartsWith("@objc set"))
+                {
+                    propertyHasSetter = true;
+                }
+
+                var newDepth = braceDepth + openBraces - closeBraces;
+                if (newDepth <= propertyBraceDepth)
+                {
+                    ProcessExtensionMemberCandidate(pendingPropertyLine, currentExtension!,
+                        currentWhereConstraints, pendingPropertyMainActor, pendingPropertyDeprecated,
+                        propertyHasSetter, result);
+                    pendingPropertyLine = null;
+                    propertyBraceDepth = -1;
+                    propertyHasSetter = false;
+                }
+
+                braceDepth += openBraces - closeBraces;
+                while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+                    typeStack.Pop();
+                if (currentExtension != null && braceDepth <= currentExtensionDepth)
+                {
+                    currentExtension = null;
+                    currentExtensionDepth = -1;
+                    currentWhereConstraints = new();
+                }
+                continue;
+            }
+
+            // Check for extension declarations (always enter — module-context-free)
+            bool pushedScope = false;
+            var extMatch = ExtensionDeclRegex.Match(trimmed);
+            if (extMatch.Success && openBraces > 0)
+            {
+                var qualifiedName = extMatch.Groups[1].Value;
+                var firstDotIdx = qualifiedName.IndexOf('.');
+                var typePath = firstDotIdx >= 0 ? qualifiedName.Substring(firstDotIdx + 1) : qualifiedName;
+                typeStack.Push((typePath, braceDepth));
+                pushedScope = true;
+
+                currentExtension = qualifiedName;
+                currentExtensionDepth = braceDepth;
+                currentWhereConstraints = ParseWhereConstraints(trimmed);
+            }
+
+            // Track type declarations (class/struct/enum/actor/protocol)
+            if (!pushedScope)
+            {
+                var typeMatch = TypeDeclRegex.Match(trimmed);
+                if (typeMatch.Success && openBraces > 0)
+                {
+                    typeStack.Push((typeMatch.Groups[1].Value, braceDepth));
+                    pushedScope = true;
+                }
+            }
+
+            // Skip nested-type members within an extension body — direct extension members only.
+            bool insideNestedType = currentExtension != null
+                && typeStack.Count > 0
+                && typeStack.Peek().Depth > currentExtensionDepth;
+
+            if (!pushedScope && currentExtension != null && !insideNestedType)
+            {
+                if (ExtensionFuncRegex.IsMatch(trimmed))
+                {
+                    if (HasUnmatchedOpenParen(trimmed))
+                    {
+                        continuationLine = trimmed;
+                        continuationMainActor = hasMainActor;
+                        continuationDeprecated = hasDeprecated;
+                    }
+                    else
+                    {
+                        ProcessExtensionMemberCandidate(trimmed, currentExtension,
+                            currentWhereConstraints, hasMainActor, hasDeprecated, false, result);
+                    }
+                }
+                else if (ExtensionVarRegex.IsMatch(trimmed))
+                {
+                    if (openBraces > 0)
+                    {
+                        pendingPropertyLine = trimmed;
+                        pendingPropertyMainActor = hasMainActor;
+                        pendingPropertyDeprecated = hasDeprecated;
+                        propertyBraceDepth = braceDepth;
+                        propertyHasSetter = false;
+                        if (trimmed.Contains(" set") && (trimmed.Contains("{ get set }") ||
+                            trimmed.Contains("{get set}") || trimmed.Contains("{ get set}")))
+                        {
+                            propertyHasSetter = true;
+                        }
+                        if (closeBraces >= openBraces)
+                        {
+                            ProcessExtensionMemberCandidate(trimmed, currentExtension,
+                                currentWhereConstraints, hasMainActor, hasDeprecated,
+                                propertyHasSetter, result);
+                            pendingPropertyLine = null;
+                            propertyBraceDepth = -1;
+                            propertyHasSetter = false;
+                        }
+                    }
+                    else
+                    {
+                        ProcessExtensionMemberCandidate(trimmed, currentExtension,
+                            currentWhereConstraints, hasMainActor, hasDeprecated, false, result);
+                    }
+                }
+            }
+
+            braceDepth += openBraces - closeBraces;
+
+            while (typeStack.Count > 0 && braceDepth <= typeStack.Peek().Depth)
+            {
+                typeStack.Pop();
+            }
+            if (currentExtension != null && braceDepth <= currentExtensionDepth)
+            {
+                currentExtension = null;
+                currentExtensionDepth = -1;
+                currentWhereConstraints = new();
+            }
+        }
+
+        return result;
+    }
+
+    private static void ProcessExtensionMemberCandidate(
+        string line, string extendedTypeName,
+        List<string> whereConstraints, bool isMainActorIsolated, bool isDeprecated,
+        bool hasSetter,
+        List<ExtensionMemberCandidate> result)
+    {
+        var funcMatch = ExtensionFuncRegex.Match(line);
+        if (funcMatch.Success)
+        {
+            var methodName = funcMatch.Groups[1].Value;
+            var printedName = ExtractPrintedName(line, methodName);
+            bool isStatic = line.Contains("static func ");
+            bool returnsSelf = DetectSelfReturn(line);
+            bool isMutating = line.Contains("mutating func ");
+
+            result.Add(new ExtensionMemberCandidate
+            {
+                ExtendedTypeName = extendedTypeName,
+                MethodName = methodName,
+                RawSignature = line,
+                PrintedName = printedName,
+                ReturnsSelf = returnsSelf,
+                IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
+                IsStatic = isStatic,
+                IsMutating = isMutating,
+                IsProperty = false,
+                IsDeprecated = isDeprecated || DeprecatedAnnotationRegex.IsMatch(line),
+                WhereConstraints = new List<string>(whereConstraints),
+            });
+            return;
+        }
+
+        var varMatch = ExtensionVarRegex.Match(line);
+        if (varMatch.Success)
+        {
+            var propertyName = varMatch.Groups[1].Value;
+            bool isStatic = line.Contains("static var ") || line.Contains("static let ");
+
+            result.Add(new ExtensionMemberCandidate
+            {
+                ExtendedTypeName = extendedTypeName,
+                MethodName = propertyName,
+                RawSignature = line,
+                PrintedName = propertyName,
+                ReturnsSelf = false,
+                IsMainActorIsolated = isMainActorIsolated || MainActorAnnotationRegex.IsMatch(line),
+                IsStatic = isStatic,
+                IsProperty = true,
+                IsDeprecated = isDeprecated || DeprecatedAnnotationRegex.IsMatch(line),
+                HasSetter = hasSetter,
+                WhereConstraints = new List<string>(whereConstraints),
+            });
+        }
+    }
+
+    /// <summary>
     /// Detects whether a function signature returns Self.
     /// Looks for "-> Self" at the end of the signature (after the last ")").
     /// </summary>

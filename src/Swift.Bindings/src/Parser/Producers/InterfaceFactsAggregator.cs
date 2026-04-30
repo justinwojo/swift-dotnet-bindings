@@ -87,6 +87,9 @@ public sealed class InterfaceFactsAggregator
             MainActorTypePositions = Pick(results, InterfaceFactKind.MainActorTypePositions, p => p.MainActorTypePositions, empty.MainActorTypePositions),
             AvailabilityAnnotationPositions = Pick(results, InterfaceFactKind.AvailabilityAnnotationPositions, p => p.AvailabilityAnnotationPositions, empty.AvailabilityAnnotationPositions),
             ConventionCProtocolPositions = Pick(results, InterfaceFactKind.ConventionCProtocolPositions, p => p.ConventionCProtocolPositions, empty.ConventionCProtocolPositions),
+            ProtocolNames = Pick(results, InterfaceFactKind.ProtocolNames, p => p.ProtocolNames, empty.ProtocolNames),
+            ProtocolExtensionMethods = Pick(results, InterfaceFactKind.ProtocolExtensionMethods, p => p.ProtocolExtensionMethods, empty.ProtocolExtensionMethods),
+            ExtensionMemberCandidates = Pick(results, InterfaceFactKind.ExtensionMemberCandidates, p => p.ExtensionMemberCandidates, empty.ExtensionMemberCandidates),
         };
     }
 

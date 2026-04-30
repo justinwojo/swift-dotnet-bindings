@@ -136,6 +136,27 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             () => SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(swiftInterfacePath),
             () => new Dictionary<string, HashSet<string>>());
 
+        // M2 S4 — non-fact methods migrated behind the producer abstraction.
+        var protocolNames = TryParse("protocol names", logger, ref parseFailures,
+            () => SwiftInterfaceAccessParser.GetProtocolNames(swiftInterfacePath),
+            () => new HashSet<string>());
+
+        // ExtensionMemberCandidates is the module-context-free flat list. Both the regex
+        // path and the SwiftSyntax host produce it from the same direct-extension-members
+        // walk so SwiftInterfaceFacts.ResolveForeignExtensions has identical input on both
+        // sides; downstream parity is gated on this list, not on the partitioned dict.
+        var extensionMemberCandidates = TryParse("extension member candidates", logger, ref parseFailures,
+            () => SwiftInterfaceAccessParser.GetExtensionMemberCandidates(swiftInterfacePath),
+            () => new List<ExtensionMemberCandidate>());
+
+        // ProtocolExtensionMethods is derived from the same candidate list using the
+        // first-dot-stripped name lookup against protocolNames. This deliberately routes
+        // through the candidate walk (direct members only) instead of the legacy
+        // GetProtocolExtensionMethods so the regex producer parity-matches the host.
+        var protocolExtensionMethods = TryParse("protocol extension methods", logger, ref parseFailures,
+            () => DeriveProtocolExtensionMethods(extensionMemberCandidates, protocolNames),
+            () => new Dictionary<string, List<ProtocolExtensionMethodDecl>>());
+
         if (parseFailures > 0)
             logger.LogWarning("{Count} swiftinterface parsing pass(es) failed and were skipped (regex producer). Bindings will be generated with reduced metadata.", parseFailures);
 
@@ -165,8 +186,35 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             MainActorTypePositions = mainActorTypePositions,
             AvailabilityAnnotationPositions = availabilityAnnotationPositions,
             ConventionCProtocolPositions = conventionCProtocolPositions,
+            ProtocolNames = protocolNames,
+            ProtocolExtensionMethods = protocolExtensionMethods,
+            ExtensionMemberCandidates = extensionMemberCandidates,
         };
         return new ProducerResult(partial, new HashSet<InterfaceFactKind>(InterfaceFactKindHelpers.AllFactKinds));
+    }
+
+    private static Dictionary<string, List<ProtocolExtensionMethodDecl>> DeriveProtocolExtensionMethods(
+        List<ExtensionMemberCandidate> candidates,
+        HashSet<string> protocolNames)
+    {
+        var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
+        if (protocolNames.Count == 0)
+            return result;
+        foreach (var candidate in candidates)
+        {
+            var qualified = candidate.ExtendedTypeName;
+            var firstDotIdx = qualified.IndexOf('.');
+            var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
+            if (!protocolNames.Contains(typePath))
+                continue;
+            if (!result.TryGetValue(qualified, out var list))
+            {
+                list = new List<ProtocolExtensionMethodDecl>();
+                result[qualified] = list;
+            }
+            list.Add(SwiftInterfaceFacts.CandidateToDecl(candidate, qualified));
+        }
+        return result;
     }
 
     private static T TryParse<T>(string description, ILogger logger, ref int parseFailures, Func<T> action, Func<T> fallback)

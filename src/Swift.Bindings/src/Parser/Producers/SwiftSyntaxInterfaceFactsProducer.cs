@@ -284,6 +284,17 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             HiddenRequirementProtocols = covered.Contains(InterfaceFactKind.HiddenRequirementProtocols)
                 ? ConvertHiddenRequirements(parsed.Facts.HiddenRequirementProtocols)
                 : null,
+
+            // M2 S4 — non-fact methods migrated behind the producer abstraction.
+            ProtocolNames = covered.Contains(InterfaceFactKind.ProtocolNames)
+                ? new HashSet<string>(parsed.Facts.ProtocolNames ?? new List<string>())
+                : null,
+            ProtocolExtensionMethods = covered.Contains(InterfaceFactKind.ProtocolExtensionMethods)
+                ? ConvertProtocolExtensionMethods(parsed.Facts.ProtocolExtensionMethods)
+                : null,
+            ExtensionMemberCandidates = covered.Contains(InterfaceFactKind.ExtensionMemberCandidates)
+                ? ConvertExtensionMemberCandidates(parsed.Facts.ExtensionMemberCandidates)
+                : null,
         };
 
         // Defense-in-depth: if a producer claims coverage but ships null payload, that's a
@@ -336,6 +347,63 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         foreach (var kv in input)
         {
             result[kv.Key] = new HashSet<string>(kv.Value);
+        }
+        return result;
+    }
+
+    private static Dictionary<string, List<ProtocolExtensionMethodDecl>> ConvertProtocolExtensionMethods(
+        Dictionary<string, List<ProtocolExtensionMethodJson>>? input)
+    {
+        var result = new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
+        if (input is null) return result;
+        foreach (var kv in input)
+        {
+            var list = new List<ProtocolExtensionMethodDecl>(kv.Value.Count);
+            foreach (var m in kv.Value)
+            {
+                list.Add(new ProtocolExtensionMethodDecl
+                {
+                    ProtocolQualifiedName = kv.Key,
+                    MethodName = m.MethodName,
+                    RawSignature = m.RawSignature,
+                    PrintedName = m.PrintedName,
+                    ReturnsSelf = m.ReturnsSelf,
+                    IsMainActorIsolated = m.IsMainActorIsolated,
+                    IsStatic = m.IsStatic,
+                    IsProperty = m.IsProperty,
+                    HasSetter = m.HasSetter,
+                    IsDeprecated = m.IsDeprecated,
+                    IsMutating = m.IsMutating,
+                    WhereConstraints = new List<string>(m.WhereConstraints),
+                });
+            }
+            result[kv.Key] = list;
+        }
+        return result;
+    }
+
+    private static List<ExtensionMemberCandidate> ConvertExtensionMemberCandidates(
+        List<ExtensionMemberCandidateJson>? input)
+    {
+        var result = new List<ExtensionMemberCandidate>();
+        if (input is null) return result;
+        foreach (var c in input)
+        {
+            result.Add(new ExtensionMemberCandidate
+            {
+                ExtendedTypeName = c.ExtendedTypeName,
+                MethodName = c.MethodName,
+                RawSignature = c.RawSignature,
+                PrintedName = c.PrintedName,
+                ReturnsSelf = c.ReturnsSelf,
+                IsMainActorIsolated = c.IsMainActorIsolated,
+                IsStatic = c.IsStatic,
+                IsProperty = c.IsProperty,
+                HasSetter = c.HasSetter,
+                IsDeprecated = c.IsDeprecated,
+                IsMutating = c.IsMutating,
+                WhereConstraints = new List<string>(c.WhereConstraints),
+            });
         }
         return result;
     }
@@ -424,6 +492,14 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             throw new InvalidOperationException("SwiftInterfaceParser declared ConventionCProtocolPositions coverage but emitted null facts.conventionCProtocolPositions.");
         if (covered.Contains(InterfaceFactKind.HiddenRequirementProtocols) && payload.HiddenRequirementProtocols is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared HiddenRequirementProtocols coverage but emitted null facts.hiddenRequirementProtocols.");
+
+        // M2 S4 — non-fact methods migrated behind the producer abstraction.
+        if (covered.Contains(InterfaceFactKind.ProtocolNames) && payload.ProtocolNames is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ProtocolNames coverage but emitted null facts.protocolNames.");
+        if (covered.Contains(InterfaceFactKind.ProtocolExtensionMethods) && payload.ProtocolExtensionMethods is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ProtocolExtensionMethods coverage but emitted null facts.protocolExtensionMethods.");
+        if (covered.Contains(InterfaceFactKind.ExtensionMemberCandidates) && payload.ExtensionMemberCandidates is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared ExtensionMemberCandidates coverage but emitted null facts.extensionMemberCandidates.");
     }
 
     // Deserialization options live on InterfaceFactsJsonContext (source-generated) — see

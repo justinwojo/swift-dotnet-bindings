@@ -563,6 +563,223 @@ public class InterfaceFactsProducerParityTests
                 "}\n" },
         };
 
+    /// <summary>Protocol-names corpus (M2 S4). Mirrors `ProtocolDeclRegex` shape:
+    /// <c>(?:public|open)\s+protocol\s+(\w+)</c>. Internal protocols, modifier-prefixed
+    /// protocols, and backtick-escaped names are excluded by the regex; SwiftSyntax must
+    /// match.</summary>
+    public static IEnumerable<object[]> ProtocolNamesCorpus =>
+        new[]
+        {
+            new object[] { "PublicProtocol",
+                "public protocol Foo {}\n" },
+            new object[] { "OpenProtocol",
+                "open protocol Bar {}\n" },
+            new object[] { "InternalProtocolExcluded",
+                "internal protocol Hidden {}\n" },
+            new object[] { "MultipleProtocols",
+                "public protocol A {}\n" +
+                "open protocol B {}\n" +
+                "internal protocol C {}\n" },
+            new object[] { "NestedPublicProtocol",
+                "public class Outer {\n" +
+                "  public protocol Inner {}\n" +
+                "}\n" },
+            // Backtick-escaped names fail the regex's `(\w+)` capture (Unicode word class).
+            new object[] { "BacktickedNameExcluded",
+                "public protocol `class` {}\n" },
+            // The regex's `(?:public|open)\s+protocol` shape rejects any modifier between
+            // the access keyword and `protocol`. Note that `public final protocol` is
+            // semantically illegal in Swift but exercises the modifier-shape gate.
+            new object[] { "ModifierBeforeProtocolRejectedShape",
+                "@available(iOS 17.0, *)\n" +
+                "public protocol Available {}\n" },
+        };
+
+    /// <summary>Extension-member-candidate corpus (M2 S4). Exercises every shape the
+    /// regex producer's `GetExtensionMemberCandidates` walker fires on, plus shapes it
+    /// deliberately rejects.</summary>
+    public static IEnumerable<object[]> ExtensionMemberCandidatesCorpus =>
+        new[]
+        {
+            new object[] { "PublicFunc",
+                "extension Mod.Type {\n" +
+                "  public func ping() -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "PublicVar_GetSet",
+                "extension Mod.Type {\n" +
+                "  public var counter: Swift.Int { get set }\n" +
+                "}\n" },
+            new object[] { "PublicVar_GetOnly",
+                "extension Mod.Type {\n" +
+                "  public var label: Swift.String { get }\n" +
+                "}\n" },
+            // `nonmutating set` flips HasSetter (regex matches `nonmutating set` line).
+            new object[] { "NonmutatingSet",
+                "extension Mod.Type {\n" +
+                "  public var name: Swift.String {\n" +
+                "    get\n" +
+                "    nonmutating set\n" +
+                "  }\n" +
+                "}\n" },
+            // Mixed multi-line accessor: tokens follow the opening `{` on the same source line,
+            // with `set` on a later line. Regex captures the full first trimmed line
+            // (`public var x: Swift.Int { get`); SwiftSyntax must clip
+            // `accessorBlock.description` at the first newline rather than dropping the
+            // whole body and re-stamping just `{`.
+            new object[] { "MixedMultilineAccessor",
+                "extension Mod.Type {\n" +
+                "  public var x: Swift.Int { get\n" +
+                "    set\n" +
+                "  }\n" +
+                "}\n" },
+            new object[] { "StaticFunc",
+                "extension Mod.Type {\n" +
+                "  public static func make() -> Mod.Type\n" +
+                "}\n" },
+            new object[] { "MutatingFunc",
+                "extension Mod.Type {\n" +
+                "  public mutating func clear()\n" +
+                "}\n" },
+            // `@available(*, deprecated, ...)` flips IsDeprecated (regex matches the same-line attr).
+            new object[] { "DeprecatedFunc",
+                "extension Mod.Type {\n" +
+                "  @available(*, deprecated, message: \"use newAPI\")\n" +
+                "  public func legacy()\n" +
+                "}\n" },
+            // Generic method `func foo<T>(...)` — RawSignature must contain "func foo<".
+            new object[] { "GenericFunc",
+                "extension Mod.Type {\n" +
+                "  public func transform<T>(_ value: T) -> T\n" +
+                "}\n" },
+            // Where-constraint on the extension flows into WhereConstraints.
+            new object[] { "ExtensionWhereConstraint",
+                "extension Mod.Type where Self : SomeMod.Bound {\n" +
+                "  public func conditional()\n" +
+                "}\n" },
+            // Multi-component where with two constraints.
+            new object[] { "ExtensionWhereTwoConstraints",
+                "extension Mod.Type where Self : SomeMod.A, Self : SomeMod.B {\n" +
+                "  public func twoBound()\n" +
+                "}\n" },
+            // Throws / typed-throws / async — signature substrings drive consumer behavior.
+            new object[] { "ThrowingFunc",
+                "extension Mod.Type {\n" +
+                "  public func unsafe() throws -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "TypedThrowsFunc",
+                "extension Mod.Type {\n" +
+                "  public func parse() throws(Mod.E) -> Swift.Int\n" +
+                "}\n" },
+            new object[] { "AsyncFunc",
+                "extension Mod.Type {\n" +
+                "  public func waitFor() async -> Swift.Int\n" +
+                "}\n" },
+            // Returns Self — DetectSelfReturn parity (regex's `EndsWith("-> Self")`).
+            new object[] { "ReturnsSelf",
+                "extension Mod.Type {\n" +
+                "  public func clone() -> Self\n" +
+                "}\n" },
+            // Nested type members in extension are NOT direct — must be skipped.
+            new object[] { "NestedTypeMembersExcluded",
+                "extension Mod.Type {\n" +
+                "  public func direct()\n" +
+                "  public struct Nested {\n" +
+                "    public func nestedMember()\n" +
+                "  }\n" +
+                "}\n" },
+            // `let` is excluded — `ExtensionVarRegex` uses literal `var`.
+            new object[] { "LetExcluded",
+                "extension Mod.Type {\n" +
+                "  public let constant: Swift.Int = 0\n" +
+                "}\n" },
+            // `init`, `subscript` are not collected by the candidate walker.
+            new object[] { "InitAndSubscriptExcluded",
+                "extension Mod.Type {\n" +
+                "  public init()\n" +
+                "  public subscript(i: Swift.Int) -> Swift.Int { get }\n" +
+                "}\n" },
+            // Operator funcs fail `(\w+)` capture.
+            new object[] { "OperatorFuncExcluded",
+                "extension Mod.Type {\n" +
+                "  public static func == (lhs: Mod.Type, rhs: Mod.Type) -> Swift.Bool\n" +
+                "}\n" },
+            // Backtick-escaped property name fails `(\w+)` capture (regex parser path).
+            new object[] { "BacktickedVarExcluded",
+                "extension Mod.Type {\n" +
+                "  public var `class`: Swift.Int { get }\n" +
+                "}\n" },
+            // Multiple extensions of the same type — both contribute candidates in source order.
+            new object[] { "MultipleExtensionsSameType",
+                "extension Mod.Type {\n" +
+                "  public func first()\n" +
+                "}\n" +
+                "extension Mod.Type {\n" +
+                "  public func second()\n" +
+                "}\n" },
+            // Unqualified extension target — partitioning happens .NET-side, but the candidate
+            // is captured verbatim (no module-prefix transformation).
+            new object[] { "UnqualifiedExtensionTarget",
+                "extension Type {\n" +
+                "  public func bare()\n" +
+                "}\n" },
+            // `#if`/`#endif` lines are skipped — both producers must collect the same members.
+            new object[] { "IfBranchSkipped",
+                "extension Mod.Type {\n" +
+                "  #if SOMETHING\n" +
+                "  public func conditional()\n" +
+                "  #endif\n" +
+                "  public func always()\n" +
+                "}\n" },
+        };
+
+    /// <summary>ProtocolExtensionMethods derivation corpus (M2 S4). Verifies the dictionary
+    /// derived from `ExtensionMemberCandidates` + `ProtocolNames` parity-matches between
+    /// producers (both producers route through the same first-dot-stripped lookup).</summary>
+    public static IEnumerable<object[]> ProtocolExtensionMethodsCorpus =>
+        new[]
+        {
+            // Qualified extension target on a same-file public protocol — first dot strips
+            // the module prefix, so `Mod.MyProto` resolves to `MyProto` ∈ ProtocolNames.
+            new object[] { "QualifiedExtensionTargetsProtocol",
+                "public protocol MyProto {}\n" +
+                "extension Mod.MyProto {\n" +
+                "  public func defaulted()\n" +
+                "}\n" },
+            // Unqualified extension target on a same-file public protocol.
+            new object[] { "UnqualifiedExtensionTargetsProtocol",
+                "public protocol MyProto {}\n" +
+                "extension MyProto {\n" +
+                "  public func defaulted()\n" +
+                "}\n" },
+            // Extension on a non-protocol — should NOT appear in ProtocolExtensionMethods.
+            new object[] { "ExtensionOnTypeNotProtocol",
+                "public protocol MyProto {}\n" +
+                "extension Mod.SomeType {\n" +
+                "  public func added()\n" +
+                "}\n" },
+            // Mixed: one protocol extension and one type extension. Only the protocol one appears.
+            new object[] { "MixedProtocolAndType",
+                "public protocol MyProto {}\n" +
+                "extension Mod.MyProto {\n" +
+                "  public func protoMember()\n" +
+                "}\n" +
+                "extension Mod.OtherType {\n" +
+                "  public func typeMember()\n" +
+                "}\n" },
+            // No protocols — protocolNames is empty, so no derivations even from extensions.
+            new object[] { "NoProtocols",
+                "extension Mod.OnlyType {\n" +
+                "  public func only()\n" +
+                "}\n" },
+            // Two members on the same protocol-target extension — list ordering preserved.
+            new object[] { "MultipleMembersSameProtocol",
+                "public protocol MyProto {}\n" +
+                "extension Mod.MyProto {\n" +
+                "  public func first()\n" +
+                "  public func second()\n" +
+                "}\n" },
+        };
+
     [SkippableTheory]
     [MemberData(nameof(MainActorCorpus))]
     public void RegexAndSwiftSyntaxProducers_ProduceIdenticalMainActorFacts(string label, string swiftInterface)
@@ -854,6 +1071,69 @@ public class InterfaceFactsProducerParityTests
         }
     }
 
+    [SkippableTheory]
+    [MemberData(nameof(ProtocolNamesCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalProtocolNames(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ProtocolNames, swiftSyntax.CoveredFacts);
+            AssertSetParity(label, "ProtocolNames",
+                regex.Facts.ProtocolNames, swiftSyntax.Facts.ProtocolNames);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(ExtensionMemberCandidatesCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalExtensionMemberCandidates(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ExtensionMemberCandidates, swiftSyntax.CoveredFacts);
+            AssertExtensionCandidatesParity(label,
+                regex.Facts.ExtensionMemberCandidates, swiftSyntax.Facts.ExtensionMemberCandidates);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [SkippableTheory]
+    [MemberData(nameof(ProtocolExtensionMethodsCorpus))]
+    public void RegexAndSwiftSyntaxProducers_ProduceIdenticalProtocolExtensionMethods(string label, string swiftInterface)
+    {
+        var binaryPath = ResolveBinaryOrSkip(label);
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var regex = new RegexInterfaceFactsProducer().Produce(path, NullLogger.Instance);
+            var swiftSyntax = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance);
+
+            Assert.Contains(InterfaceFactKind.ProtocolExtensionMethods, swiftSyntax.CoveredFacts);
+            AssertProtocolExtensionMethodsParity(label,
+                regex.Facts.ProtocolExtensionMethods, swiftSyntax.Facts.ProtocolExtensionMethods);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [SkippableFact]
     public void Aggregator_WithSwiftSyntaxThenRegex_RoutesMigratedFactsToSwiftSyntax()
     {
@@ -1067,6 +1347,121 @@ public class InterfaceFactsProducerParityTests
             }
         }
     }
+
+    /// <summary>Compares two flat candidate lists element-wise. Every field is asserted
+    /// byte-equal — the SwiftSyntax walker filters attributes to the access-modifier
+    /// source line so its <c>RawSignature</c> matches the regex producer's
+    /// <c>RawSignature = trimmed</c> capture exactly. Earlier-line attributes are dropped
+    /// from both producers' RawSignature (regex via <c>pendingMainActor</c>/
+    /// <c>pendingDeprecated</c> booleans, SwiftSyntax via the same-line filter).</summary>
+    private static void AssertExtensionCandidatesParity(
+        string label,
+        List<ExtensionMemberCandidate>? regexList,
+        List<ExtensionMemberCandidate>? swiftSyntaxList)
+    {
+        Assert.NotNull(regexList);
+        Assert.NotNull(swiftSyntaxList);
+        Assert.True(regexList!.Count == swiftSyntaxList!.Count,
+            $"[{label}] ExtensionMemberCandidates count diverged. regex={regexList.Count} swift-syntax={swiftSyntaxList.Count}\n  regex: {Join(regexList.Select(c => $"{c.ExtendedTypeName}.{c.PrintedName}"))}\n  swift: {Join(swiftSyntaxList.Select(c => $"{c.ExtendedTypeName}.{c.PrintedName}"))}");
+
+        for (int i = 0; i < regexList.Count; i++)
+        {
+            var r = regexList[i];
+            var s = swiftSyntaxList[i];
+            AssertCandidatesEqual(label, $"[{i}]", r, s);
+        }
+    }
+
+    private static void AssertCandidatesEqual(string label, string idx,
+        ExtensionMemberCandidate r, ExtensionMemberCandidate s)
+    {
+        Assert.True(r.ExtendedTypeName == s.ExtendedTypeName,
+            $"[{label}]{idx} ExtendedTypeName diverged. regex='{r.ExtendedTypeName}' swift-syntax='{s.ExtendedTypeName}'");
+        Assert.True(r.MethodName == s.MethodName,
+            $"[{label}]{idx} MethodName diverged. regex='{r.MethodName}' swift-syntax='{s.MethodName}'");
+        Assert.True(r.PrintedName == s.PrintedName,
+            $"[{label}]{idx} PrintedName diverged. regex='{r.PrintedName}' swift-syntax='{s.PrintedName}'");
+        Assert.True(r.ReturnsSelf == s.ReturnsSelf,
+            $"[{label}]{idx} ReturnsSelf diverged. regex={r.ReturnsSelf} swift-syntax={s.ReturnsSelf}");
+        Assert.True(r.IsMainActorIsolated == s.IsMainActorIsolated,
+            $"[{label}]{idx} IsMainActorIsolated diverged. regex={r.IsMainActorIsolated} swift-syntax={s.IsMainActorIsolated}");
+        Assert.True(r.IsStatic == s.IsStatic,
+            $"[{label}]{idx} IsStatic diverged. regex={r.IsStatic} swift-syntax={s.IsStatic}");
+        Assert.True(r.IsProperty == s.IsProperty,
+            $"[{label}]{idx} IsProperty diverged. regex={r.IsProperty} swift-syntax={s.IsProperty}");
+        Assert.True(r.HasSetter == s.HasSetter,
+            $"[{label}]{idx} HasSetter diverged. regex={r.HasSetter} swift-syntax={s.HasSetter}");
+        Assert.True(r.IsDeprecated == s.IsDeprecated,
+            $"[{label}]{idx} IsDeprecated diverged. regex={r.IsDeprecated} swift-syntax={s.IsDeprecated}");
+        Assert.True(r.IsMutating == s.IsMutating,
+            $"[{label}]{idx} IsMutating diverged. regex={r.IsMutating} swift-syntax={s.IsMutating}");
+
+        Assert.True(r.WhereConstraints.Count == s.WhereConstraints.Count,
+            $"[{label}]{idx} WhereConstraints count diverged. regex={r.WhereConstraints.Count} swift-syntax={s.WhereConstraints.Count}\n  regex: {Join(r.WhereConstraints)}\n  swift: {Join(s.WhereConstraints)}");
+        for (int j = 0; j < r.WhereConstraints.Count; j++)
+        {
+            Assert.True(r.WhereConstraints[j] == s.WhereConstraints[j],
+                $"[{label}]{idx} WhereConstraints[{j}] diverged. regex='{r.WhereConstraints[j]}' swift-syntax='{s.WhereConstraints[j]}'");
+        }
+
+        Assert.True(r.RawSignature == s.RawSignature,
+            $"[{label}]{idx} RawSignature diverged.\n  regex='{r.RawSignature}'\n  swift='{s.RawSignature}'");
+    }
+
+    /// <summary>Compares two ProtocolExtensionMethods dictionaries. Keys must match;
+    /// per-key value lists are compared element-wise via the same field-equality rules
+    /// as <see cref="AssertExtensionCandidatesParity"/>.</summary>
+    private static void AssertProtocolExtensionMethodsParity(
+        string label,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>>? regexDict,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>>? swiftSyntaxDict)
+    {
+        Assert.NotNull(regexDict);
+        Assert.NotNull(swiftSyntaxDict);
+        Assert.True(regexDict!.Count == swiftSyntaxDict!.Count,
+            $"[{label}] ProtocolExtensionMethods count diverged. regex={regexDict.Count} swift-syntax={swiftSyntaxDict.Count}\n  regex keys: {Join(regexDict.Keys)}\n  swift keys: {Join(swiftSyntaxDict.Keys)}");
+
+        foreach (var key in regexDict.Keys)
+        {
+            Assert.True(swiftSyntaxDict.ContainsKey(key),
+                $"[{label}] ProtocolExtensionMethods: swift-syntax missing key '{key}'");
+            var rList = regexDict[key];
+            var sList = swiftSyntaxDict[key];
+            Assert.True(rList.Count == sList.Count,
+                $"[{label}] ProtocolExtensionMethods['{key}'] count diverged. regex={rList.Count} swift-syntax={sList.Count}");
+
+            for (int i = 0; i < rList.Count; i++)
+            {
+                var rDecl = rList[i];
+                var sDecl = sList[i];
+                Assert.True(rDecl.ProtocolQualifiedName == sDecl.ProtocolQualifiedName,
+                    $"[{label}] ProtocolExtensionMethods['{key}'][{i}] ProtocolQualifiedName diverged. regex='{rDecl.ProtocolQualifiedName}' swift='{sDecl.ProtocolQualifiedName}'");
+                AssertCandidatesEqual(label, $"['{key}'][{i}]",
+                    DeclToCandidate(rDecl), DeclToCandidate(sDecl));
+            }
+        }
+    }
+
+    /// <summary>Reverse of <c>SwiftInterfaceFacts.CandidateToDecl</c> — strips
+    /// <see cref="ProtocolExtensionMethodDecl.ProtocolQualifiedName"/> back to
+    /// <see cref="ExtensionMemberCandidate.ExtendedTypeName"/> so we can reuse the
+    /// candidate parity assertion on the decl form.</summary>
+    private static ExtensionMemberCandidate DeclToCandidate(ProtocolExtensionMethodDecl decl) =>
+        new()
+        {
+            ExtendedTypeName = decl.ProtocolQualifiedName,
+            MethodName = decl.MethodName,
+            RawSignature = decl.RawSignature,
+            PrintedName = decl.PrintedName,
+            ReturnsSelf = decl.ReturnsSelf,
+            IsMainActorIsolated = decl.IsMainActorIsolated,
+            IsStatic = decl.IsStatic,
+            IsProperty = decl.IsProperty,
+            HasSetter = decl.HasSetter,
+            IsDeprecated = decl.IsDeprecated,
+            IsMutating = decl.IsMutating,
+            WhereConstraints = new List<string>(decl.WhereConstraints),
+        };
 
     private static string ResolveBinaryOrSkip(string label)
     {

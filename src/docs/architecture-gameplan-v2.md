@@ -1,12 +1,12 @@
 # Architecture Gameplan v2 — Post-1.0 Round 1
 
-**Status**: M2 (SwiftSyntax producer) is plan-of-record and in flight; Session 4 closes it. M1 as originally specified (a P/Invoke swap into `libswiftDemangle.dylib` with byte-equal parity tests) was rejected after a pre-implementation audit and is replaced by **M3 — Demangler Track Redesign**, a kill-gate spike followed by conditional migration, sequenced after M2.
+**Status**: M2 (SwiftSyntax producer) is **DONE** in substance — Sessions 1–4 all shipped. The SwiftSyntax host is the default producer, every fact and the three remaining non-fact methods are migrated, and the regex producer remains reachable for parity testing only. Deleting the regex parser is a future cleanup task gated on one published release cycle of `swift-dotnet-packages`. Active work moves to **M3 — Demangler Track Redesign**, a kill-gate spike followed by conditional migration. M1 as originally specified (a P/Invoke swap into `libswiftDemangle.dylib` with byte-equal parity tests) was rejected after a pre-implementation audit and is replaced by M3.
 
 **Companion docs**:
 - `architecture-gameplan.md` — the 1.0 plan (DONE).
 - `Future/post-1.0-architecture-roadmap.md` — the remaining post-1.0 inventory.
 
-**Decision**: v2 ships two architectural changes. (1) SwiftSyntax producer behind `SwiftInterfaceFacts` (M2, in flight). (2) Demangler track redesigned around `swift-symbolgraph-extract` (M3, post-M2, gated by a 1-session spike).
+**Decision**: v2 ships two architectural changes. (1) SwiftSyntax producer behind `SwiftInterfaceFacts` (M2, **DONE**). (2) Demangler track redesigned around `swift-symbolgraph-extract` (M3, post-M2, gated by a 1-session spike).
 
 This track is independent of `roadmap.md` (coverage / skip / library themes); both progress in parallel.
 
@@ -20,7 +20,7 @@ Same bar as v1:
 
 Status of each item:
 
-- **SwiftSyntax producer (M2 — passes, in flight)**: retires ~4.2k LOC of regex parsing in `SwiftInterfaceAccessParser.cs` (4,223 lines as of this commit) plus the regex-inferred fact dictionaries on `SwiftInterfaceFacts`. The parent docs flagged this as the single largest "silent wrong binding" risk surface. M4 deliberately shaped `SwiftInterfaceFacts` so this swap can land incrementally.
+- **SwiftSyntax producer (M2 — passes, DONE)**: SwiftSyntax host is the default producer for every fact and every previously-regex-only inference. The regex producer is parity-test-only and queued for deletion one release cycle out. The parent docs flagged this as the single largest "silent wrong binding" risk surface. M4 deliberately shaped `SwiftInterfaceFacts` so this swap could land incrementally.
 - **Demangler track (M3 — passes conditionally on spike)**: in scope only if the M3 spike confirms `swift-symbolgraph-extract` + a small forward suffix mangler can fully replace the managed demangler. Pass → retires ~5,800 LOC of hand-ported demangler. Fail → the demangler swap returns to `Future/post-1.0-architecture-roadmap.md` and v2 closes after M2.
 
 Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md` until something pulls them forward.
@@ -31,7 +31,7 @@ Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md`
 
 Original v2 placed `libswiftDemangle` first and SwiftSyntax second. The redesign reversed this:
 
-1. **M2 is in flight and has high-confidence delivery.** Sessions 1–3 have shipped; Session 4 closes the milestone. Finishing locks in the regex retirement before opening a new track.
+1. **M2 is complete in substance.** Sessions 1–4 all shipped; the SwiftSyntax host is the production producer. Deleting the regex parser is a future cleanup task, not a milestone deliverable — gated on one release cycle to give downstream consumers a window to surface any divergence parity tests didn't catch.
 2. **M3 opens with a kill-gate spike.** One session answers a yes/no question. Pass → migrate. Fail → drop. This protects against burning 4–5 sessions on a milestone whose viability isn't yet proven.
 3. **M3's migration cost lives in declaration-mapping work, not in vendoring upstream compiler source.** Symbol-graph JSON is Apple's documented, versioned, DocC-grade interchange format — AI-maintainable across toolchain bumps in a way the rejected `libswiftDemangle` shapes were not.
 
@@ -39,7 +39,7 @@ Original v2 placed `libswiftDemangle` first and SwiftSyntax second. The redesign
 
 ## Milestones
 
-### Milestone 2 — SwiftSyntax producer behind `SwiftInterfaceFacts` *(3–5 sessions; in flight, S4 remaining)*
+### Milestone 2 — SwiftSyntax producer behind `SwiftInterfaceFacts` *(4 sessions; **DONE**)*
 
 **Goal**: ~4.2k LOC of regex parsing in `SwiftInterfaceAccessParser.cs` (4,223 lines as of this commit) replaced by a Swift host program that uses SwiftSyntax to populate the same `SwiftInterfaceFacts` aggregator M4 introduced (24 required fact fields as of M2 Session 1).
 
@@ -58,7 +58,7 @@ Original v2 placed `libswiftDemangle` first and SwiftSyntax second. The redesign
 1. **Session 1 — Swift host program scaffold + first fact**. SPM package, build integration, JSON contract, one fact migrated end-to-end (`MainActorTypePositions`), `IInterfaceFactsProducer` seam, parity test. **Gate**: parity green for the migrated fact; baselines at-or-above; regex producer remains default. **(DONE)**
 2. **Session 2 — Migrate fact batch (round 1)**. Migrate ~7–8 facts by drift risk. Maintain parity tests. **Gate**: parity green; baselines at-or-above. **(DONE)**
 3. **Session 3 — Migrate fact batch (round 2) + flip default**. Remaining facts; flip default to SwiftSyntax; regex producer behind a flag for one release cycle. **Gate**: full sweep at-or-above baseline with SwiftSyntax default; parity tests still green. **(DONE)**
-4. **Session 4 — Retire regex parser + close v2-M2**. Delete `SwiftInterfaceAccessParser.cs` and the regex code path. Remove `RegexProducer` strategy and producer-selection flag. Tighten `SourcePosition` invariants. **Gate (target)**: `nuke compile` / `nuke test` / `nuke validate` / `nuke binding-tests --sim --device --macos --catalyst --tvos` all at-or-above baseline. M2 marked DONE.
+4. **Session 4 — Migrate the last 3 non-fact methods + close v2-M2**. Migrate `GetProtocolNames`, `GetProtocolExtensionMethods`, and `GetForeignTypeExtensionMembers` into the facts pipeline behind new `ProtocolNames`, `ProtocolExtensionMethods`, and `ExtensionMemberCandidates` fact kinds. SwiftSyntax host gains `ProtocolNamesWalker` and `ExtensionsWalker`; .NET side gains `ExtensionMemberCandidate` model and `SwiftInterfaceFacts.ResolveForeignExtensions` partition helper. Byte-equal parity tests cover all three new fact kinds. Regex producer kept in-tree as parity oracle, scheduled for deletion one release cycle later (post-cleanup, not a milestone). **Gate**: `nuke validate` 122/122 ok, `nuke binding-tests` 1760 pass, unit suite 10570 pass. **(DONE)**
 
 ### Milestone 3 — Demangler Track Redesign *(1 spike + 3–5 conditional sessions; sequenced after M2)*
 
@@ -137,7 +137,7 @@ Only proceeds if the spike passes. 3–5 sessions.
 
 **Status**: not committed. Revisit after the M3 Session 1 spike result. If L migrates, H is optional ongoing insurance during transition. If L is dropped, H becomes the consolation deliverable to close the demangler track.
 
-### Total: M2 = 3–5 sessions (S4 remaining); M3 = 1 spike + 0 or 3–5 conditional = 1 to 6 sessions
+### Total: M2 = 4 sessions (DONE); M3 = 1 spike + 0 or 3–5 conditional = 1 to 6 sessions
 
 Same elapsed-time framing as v1 — validation-bound, not session-stacked. Each milestone ends with a full sweep; expect at least one fix-and-rerun cycle per milestone.
 
@@ -154,7 +154,7 @@ Same validation tiers, agent usage, and standing rules as v1. See `architecture-
 
 Two checkpoints — one per milestone. Each runs the full sim + device + validate sweep and updates baselines.
 
-1. End of M2: SwiftSyntax is the producer; regex parser deleted.
+1. End of M2 *(DONE in substance)*: SwiftSyntax is the default producer behind `IInterfaceFactsProducer`; regex producer kept as a parity oracle for one published release cycle of `swift-dotnet-packages`, then deleted.
 2. End of M3 *(conditional on spike pass)*: symbol-graph producer is the source of truth for demangling; managed port retired.
 
 If the M3 spike fails, M3 closes immediately without a checkpoint and the demangler swap returns to `Future/post-1.0-architecture-roadmap.md`.

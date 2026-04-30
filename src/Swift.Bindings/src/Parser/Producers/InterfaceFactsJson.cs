@@ -20,6 +20,8 @@ namespace BindingsGeneration.Producers;
 [JsonSerializable(typeof(InterfaceFactsJsonPayload))]
 [JsonSerializable(typeof(SourcePositionJson))]
 [JsonSerializable(typeof(AvailabilityAnnotationJson))]
+[JsonSerializable(typeof(ProtocolExtensionMethodJson))]
+[JsonSerializable(typeof(ExtensionMemberCandidateJson))]
 internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 {
 }
@@ -155,6 +157,98 @@ internal sealed class InterfaceFactsJsonPayload
 
     [JsonPropertyName("hiddenRequirementProtocols")]
     public Dictionary<string, List<string>>? HiddenRequirementProtocols { get; set; }
+
+    // M2 S4 — non-fact methods migrated behind the producer abstraction.
+    [JsonPropertyName("protocolNames")]
+    public List<string>? ProtocolNames { get; set; }
+
+    [JsonPropertyName("protocolExtensionMethods")]
+    public Dictionary<string, List<ProtocolExtensionMethodJson>>? ProtocolExtensionMethods { get; set; }
+
+    [JsonPropertyName("extensionMemberCandidates")]
+    public List<ExtensionMemberCandidateJson>? ExtensionMemberCandidates { get; set; }
+}
+
+/// <summary>Wire shape for <see cref="ProtocolExtensionMethodDecl"/>. Mirrors the
+/// model's required fields. <c>protocolQualifiedName</c> is excluded from the wire
+/// because it's redundant with the dictionary key — the .NET-side conversion fills
+/// it from the key when materializing the decl.</summary>
+internal sealed class ProtocolExtensionMethodJson
+{
+    [JsonPropertyName("methodName")]
+    public string MethodName { get; set; } = string.Empty;
+
+    [JsonPropertyName("rawSignature")]
+    public string RawSignature { get; set; } = string.Empty;
+
+    [JsonPropertyName("printedName")]
+    public string PrintedName { get; set; } = string.Empty;
+
+    [JsonPropertyName("returnsSelf")]
+    public bool ReturnsSelf { get; set; }
+
+    [JsonPropertyName("isMainActorIsolated")]
+    public bool IsMainActorIsolated { get; set; }
+
+    [JsonPropertyName("isStatic")]
+    public bool IsStatic { get; set; }
+
+    [JsonPropertyName("isProperty")]
+    public bool IsProperty { get; set; }
+
+    [JsonPropertyName("hasSetter")]
+    public bool HasSetter { get; set; }
+
+    [JsonPropertyName("isDeprecated")]
+    public bool IsDeprecated { get; set; }
+
+    [JsonPropertyName("isMutating")]
+    public bool IsMutating { get; set; }
+
+    [JsonPropertyName("whereConstraints")]
+    public List<string> WhereConstraints { get; set; } = new();
+}
+
+/// <summary>Wire shape for <see cref="ExtensionMemberCandidate"/>. Same payload as
+/// <see cref="ProtocolExtensionMethodJson"/> plus the verbatim
+/// <c>extendedTypeName</c> (no module-context partitioning happens host-side).</summary>
+internal sealed class ExtensionMemberCandidateJson
+{
+    [JsonPropertyName("extendedTypeName")]
+    public string ExtendedTypeName { get; set; } = string.Empty;
+
+    [JsonPropertyName("methodName")]
+    public string MethodName { get; set; } = string.Empty;
+
+    [JsonPropertyName("rawSignature")]
+    public string RawSignature { get; set; } = string.Empty;
+
+    [JsonPropertyName("printedName")]
+    public string PrintedName { get; set; } = string.Empty;
+
+    [JsonPropertyName("returnsSelf")]
+    public bool ReturnsSelf { get; set; }
+
+    [JsonPropertyName("isMainActorIsolated")]
+    public bool IsMainActorIsolated { get; set; }
+
+    [JsonPropertyName("isStatic")]
+    public bool IsStatic { get; set; }
+
+    [JsonPropertyName("isProperty")]
+    public bool IsProperty { get; set; }
+
+    [JsonPropertyName("hasSetter")]
+    public bool HasSetter { get; set; }
+
+    [JsonPropertyName("isDeprecated")]
+    public bool IsDeprecated { get; set; }
+
+    [JsonPropertyName("isMutating")]
+    public bool IsMutating { get; set; }
+
+    [JsonPropertyName("whereConstraints")]
+    public List<string> WhereConstraints { get; set; } = new();
 }
 
 internal sealed class SourcePositionJson

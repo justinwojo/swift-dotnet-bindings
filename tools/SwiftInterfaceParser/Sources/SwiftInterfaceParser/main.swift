@@ -74,6 +74,42 @@ let signatureFacts = SignatureFactsWalker.parse(filePath: path, source: source)
 let subscriptLabels = SubscriptLabelsWalker.parse(filePath: path, source: source)
 let protocolFacts = ProtocolFactsWalker.parse(filePath: path, source: source)
 
+// M2 S4 — non-fact methods migrated behind the producer abstraction.
+let protocolNames = ProtocolNamesWalker.parse(filePath: path, source: source)
+let extensionMemberCandidates = ExtensionsWalker.parse(filePath: path, source: source)
+
+// Derive protocolExtensionMethods from candidates + protocolNames using the
+// first-dot-stripped lookup. Mirrors `RegexInterfaceFactsProducer.DeriveProtocolExtensionMethods`
+// so both producers parity-match on this dict shape.
+var protocolExtensionMethods: [String: [ProtocolExtensionMethodInfo]] = [:]
+let protocolNameSet = Set(protocolNames)
+if !protocolNameSet.isEmpty {
+    for candidate in extensionMemberCandidates {
+        let qualified = candidate.extendedTypeName
+        let typePath: String
+        if let firstDot = qualified.firstIndex(of: ".") {
+            typePath = String(qualified[qualified.index(after: firstDot)...])
+        } else {
+            typePath = qualified
+        }
+        guard protocolNameSet.contains(typePath) else { continue }
+        let info = ProtocolExtensionMethodInfo(
+            methodName: candidate.methodName,
+            rawSignature: candidate.rawSignature,
+            printedName: candidate.printedName,
+            returnsSelf: candidate.returnsSelf,
+            isMainActorIsolated: candidate.isMainActorIsolated,
+            isStatic: candidate.isStatic,
+            isProperty: candidate.isProperty,
+            hasSetter: candidate.hasSetter,
+            isDeprecated: candidate.isDeprecated,
+            isMutating: candidate.isMutating,
+            whereConstraints: candidate.whereConstraints
+        )
+        protocolExtensionMethods[qualified, default: []].append(info)
+    }
+}
+
 let output = ParserOutput(
     coveredFacts: [
         "MainActorTypes",
@@ -107,6 +143,10 @@ let output = ParserOutput(
         "ConventionCProtocols",
         "ConventionCProtocolPositions",
         "HiddenRequirementProtocols",
+        // M2 S4 — non-fact methods migrated behind the producer abstraction.
+        "ProtocolNames",
+        "ProtocolExtensionMethods",
+        "ExtensionMemberCandidates",
     ],
     facts: Facts(
         mainActorTypes: mainActorTypes,
@@ -132,7 +172,10 @@ let output = ParserOutput(
         variadicMembers: signatureFacts.variadicMembers,
         conventionCProtocols: protocolFacts.conventionCProtocols,
         conventionCProtocolPositions: protocolFacts.conventionCProtocolPositions,
-        hiddenRequirementProtocols: protocolFacts.hiddenRequirementProtocols
+        hiddenRequirementProtocols: protocolFacts.hiddenRequirementProtocols,
+        protocolNames: protocolNames,
+        protocolExtensionMethods: protocolExtensionMethods,
+        extensionMemberCandidates: extensionMemberCandidates
     )
 )
 
