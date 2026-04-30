@@ -1,7 +1,9 @@
 # Post-1.0 Architecture Roadmap
 
 **Status**: Reference inventory — work to schedule after 1.0 ships.
-**Companion doc**: `src/docs/architecture-gameplan.md` (the 1.0 plan).
+**Companion docs**:
+- `src/docs/architecture-gameplan.md` — the 1.0 plan (DONE).
+- `src/docs/architecture-gameplan-v2.md` — round 1 of post-1.0 (`libswiftDemangle` swap + SwiftSyntax producer, both graduated from this doc).
 
 The pre-1.0 audits surfaced ~150K LOC of architecture debt. The four milestones in the gameplan address only the parts that move 1.0 quality. The rest is real, but it improves *maintainability*, not *bindings*. It belongs after 1.0 ships.
 
@@ -21,15 +23,14 @@ When picking up post-1.0 work, re-run the test. Priorities can change as 1.0 rev
 
 ---
 
-## Early post-1.0 candidates
+## Graduated to v2
 
-The two highest-ROI items in the inventory below — the ones worth scheduling first if 1.0 lands cleanly:
+The two highest-ROI items in this inventory have moved to `src/docs/architecture-gameplan-v2.md`:
 
-1. **`libswiftDemangle` swap.** Smallest, most isolated, fully reversible (keep managed port behind `IDemangler` as fallback). Apple's dylib is already on disk; we just don't link it. Net: ~5,800 LOC deleted, drift surface eliminated. Do this first.
+1. **`libswiftDemangle` swap** — v2 Milestone 1.
+2. **SwiftSyntax producer behind `SwiftInterfaceFacts`** — v2 Milestone 2.
 
-2. **SwiftSyntax producer behind `SwiftInterfaceFacts`.** Bigger commitment — adds a Swift host program as a new build artifact and new toolchain dep — but it's the largest single source of "silent wrong binding" risk in the codebase (36 regex patterns + 23 nullable side-channel maps + known data-loss cases). The aggregator boundary lands in M4 of the 1.0 plan specifically to make this swap incremental rather than big-bang.
-
-The rest of the inventory below is genuine improvement but doesn't have the same risk-reduction or ROI density as these two.
+The rest of the inventory below is genuine improvement but doesn't have the same risk-reduction or ROI density.
 
 ---
 
@@ -46,10 +47,6 @@ The rest of the inventory below is genuine improvement but doesn't have the same
 - **Projection-only Marshaler.** Promote `IProjectionVisitor<T>` to be the only dispatcher; decompose `ClosureHandler` (2,051 LOC), `BoundGenericsHandler` (1,682 LOC), `ExistentialHandler`. Mechanical decomposition; correctness unchanged.
 
 - **Type IR underneath `TypeResolver`.** `TypeId` (declaring-module path + nested-decl spine + interned mangled symbol). `TypeRef = TypeId × Args[]`. The `TypeResolver` seam (M4 of the gameplan) is the load-bearing piece for 1.0; the IR underneath is post-1.0.
-
-- **SwiftSyntax producer behind `SwiftInterfaceFacts`.** Replace 4,066 LOC of regex (`SwiftInterfaceAccessParser.cs`) with a Swift host program. The aggregator boundary (M4 of the gameplan) is what 1.0 needs; the producer swap can happen any time after.
-
-- **`libswiftDemangle` swap behind `IDemangler`.** ~5,800 LOC of hand-port replaced with native P/Invoke. Drift-prone but currently works.
 
 - **Strangle post-emission text rewriters (full).** M3 of the gameplan fixes the top causes at emission time. The full subsystem strangle (single `EmissionFeasibilityProbe` consulting per-slice ABI / suppressed proxy refs / etc., retiring `CSharpWrapperCoGater`, `SwiftWrapperPostProcessor`, `ProcessSuppressedProxyReferencesInDirectory`, `SimulatorOnlyMemberDetector`) is post-1.0.
 
