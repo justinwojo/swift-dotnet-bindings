@@ -22,6 +22,7 @@ public static class ValidationRuleSet
     private static readonly HashSet<string> UnsupportedConstraintModules = new(StringComparer.Ordinal)
     {
         "SwiftUI",
+        "SwiftUICore",
         "Combine",
     };
 

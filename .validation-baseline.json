@@ -1,5 +1,5 @@
 {
-  "git_sha": "4a1bfbef",
+  "git_sha": "e9ebabb9",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -40,7 +40,7 @@
       "FamilyControls": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1418,
+        "lines": 1427,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -145,28 +145,28 @@
       "TipKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9677,
+        "lines": 9686,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8606,
+        "lines": 8615,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9677,
+        "lines": 9686,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7852,
+        "lines": 7861,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -439,14 +439,14 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 66774,
+        "lines": 66783,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 31967,
+        "lines": 31976,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -544,7 +544,7 @@
       "Parchment": {
         "compile": "ok",
         "errors": 0,
-        "lines": 17430,
+        "lines": 17435,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -866,21 +866,21 @@
       "AlertToast": {
         "compile": "ok",
         "errors": 0,
-        "lines": 162,
+        "lines": 171,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RichTextKit": {
         "compile": "known_errors",
         "errors": 28,
-        "lines": 27136,
+        "lines": 27145,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
         "compile": "known_errors",
         "errors": 2,
-        "lines": 8294,
+        "lines": 8303,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -895,20 +895,20 @@
   },
   "skip_metrics": {
     "total_emitted_members": 19872,
-    "total_skipped_members": 6074,
-    "skip_rate_pct": 23.4,
+    "total_skipped_members": 6171,
+    "skip_rate_pct": 23.7,
     "skip_reasons": {
       "UnsupportedSignature": 1130,
       "ModuleInternal": 851,
       "SynthesizedCodable": 841,
-      "DuplicateSignature": 759,
+      "DuplicateSignature": 761,
       "GenericProtocolConstraint": 630,
-      "AnyTypeFallback": 603,
+      "AnyTypeFallback": 614,
       "UnsupportedClosure": 267,
-      "EveryProtocolConformanceSkipped": 249,
+      "EveryProtocolConformanceSkipped": 250,
       "MissingWrapperSymbol": 238,
+      "SwiftUIConstraint": 229,
       "UnsupportedType": 182,
-      "SwiftUIConstraint": 146,
       "UnsupportedExistential": 108,
       "GenericTypeCallback": 99,
       "UnsatisfiedGenericConstraint": 97,

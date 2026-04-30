@@ -694,6 +694,10 @@
       "unsupported": true
     },
     {
+      "module": "SwiftUICore",
+      "unsupported": true
+    },
+    {
       "module": "TipKit",
       "unsupported": true
     },

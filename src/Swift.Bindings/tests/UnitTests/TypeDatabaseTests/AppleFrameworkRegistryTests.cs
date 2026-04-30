@@ -86,6 +86,7 @@ public class AppleFrameworkRegistryTests
 
     [Theory]
     [InlineData("SwiftUI", true)]
+    [InlineData("SwiftUICore", true)]
     [InlineData("XCTest", true)]
     [InlineData("Combine", true)]
     [InlineData("_Concurrency", true)]
@@ -569,7 +570,7 @@ public class AppleFrameworkRegistryTests
     {
         var expectedModules = new[]
         {
-            "SwiftUI", "XCTest", "Combine", "_Concurrency",
+            "SwiftUI", "SwiftUICore", "XCTest", "Combine", "_Concurrency",
             "Observation", "WidgetKit", "AppIntents", "Charts", "TipKit",
         };
 
@@ -1029,6 +1030,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("CoreFoundation", true)]
     [InlineData("CoreGraphics", false)]     // CG is handled via XML database, not registry module set
     [InlineData("SwiftUI", true)]          // Unsupported but still a known Apple module
+    [InlineData("SwiftUICore", true)]      // SwiftUICore is the internal split-out, also known
     [InlineData("StripePayments", false)]  // Third-party
     [InlineData("Alamofire", false)]       // Third-party
     [InlineData("MyCustomLib", false)]     // Unknown

@@ -178,6 +178,7 @@ public static partial class SwiftUIBridgeEmitter
         // Filter out standard imports that are already emitted
         imports.Remove("UIKit");
         imports.Remove("SwiftUI");
+        imports.Remove("SwiftUICore");
         imports.Remove(moduleName);
 
         return imports;

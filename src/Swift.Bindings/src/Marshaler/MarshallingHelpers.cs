@@ -497,7 +497,7 @@ namespace BindingsGeneration
             if (dotIdx > 0)
             {
                 var module = classDecl.DirectSuperclassName.Substring(0, dotIdx);
-                if (module is "SwiftUI" or "XCTest" or "Combine" or "_Concurrency"
+                if (module is "SwiftUI" or "SwiftUICore" or "XCTest" or "Combine" or "_Concurrency"
                     or "Observation" or "WidgetKit" or "AppIntents" or "Charts" or "TipKit")
                     return "Foundation.NSObject";
             }

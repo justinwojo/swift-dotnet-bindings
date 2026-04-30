@@ -67,7 +67,7 @@ namespace BindingsGeneration
 
             if (GenericTypeEmitter.TryGetUnsupportedConstraint(classDecl, out var unsupportedConstraint))
             {
-                var reason = unsupportedConstraint.Module == "SwiftUI"
+                var reason = unsupportedConstraint.Module is "SwiftUI" or "SwiftUICore"
                     ? SkipReason.SwiftUIConstraint
                     : unsupportedConstraint.Module == "Combine"
                         ? SkipReason.CombineFramework

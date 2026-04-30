@@ -41,6 +41,34 @@ public class TypeSkipPrePassTests
     }
 
     [Fact]
+    public void Run_GenericParentWithSwiftUICoreConstraint_MarksAsSwiftUIConstraint()
+    {
+        // SwiftUICore is the internal split-out of SwiftUI in newer SDKs. It must be
+        // suppressed identically — same skip reason, same propagation behavior — so
+        // that downstream gates and the cogater inventory don't see drift between
+        // SwiftUI.View and SwiftUICore.View.
+        var moduleDecl = BuildModuleWithSwiftUIConstrainedGenericAndNested("SwiftUICore.View");
+
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            TypeSkipPrePass.Run(moduleDecl, new EmptyTypeDatabase());
+
+            Assert.True(ReportCollector.IsTypeSkipped("TestModule.Parent"));
+            Assert.True(ReportCollector.IsTypeSkipped("TestModule.Parent.Nested"));
+            var report = ReportCollector.Complete();
+            Assert.NotNull(report);
+            var parentSkip = report!.SkippedItems
+                .First(s => s.Kind == BindingItemKind.Type && s.Name == "Parent");
+            Assert.Equal(SkipReason.SwiftUIConstraint, parentSkip.Reason);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
     public void Run_NoUnsupportedConstraints_LeavesDescendantsUnmarked()
     {
         // Negative case: when the parent passes all skip predicates, no propagation
@@ -61,7 +89,8 @@ public class TypeSkipPrePassTests
         }
     }
 
-    private static ModuleDecl BuildModuleWithSwiftUIConstrainedGenericAndNested()
+    private static ModuleDecl BuildModuleWithSwiftUIConstrainedGenericAndNested(
+        string constraintModuleQualifiedName = "SwiftUI.View")
     {
         var moduleDecl = new ModuleDecl
         {
@@ -76,7 +105,7 @@ public class TypeSkipPrePassTests
             AvailabilityAnnotations = null
         };
 
-        var swiftUIConstraint = SwiftTypeName.FromModuleQualifiedName("SwiftUI.View");
+        var swiftUIConstraint = SwiftTypeName.FromModuleQualifiedName(constraintModuleQualifiedName);
         var genericParam = new GenericArgumentDecl(
             TypeName: "T",
             SugaredTypeName: "T",

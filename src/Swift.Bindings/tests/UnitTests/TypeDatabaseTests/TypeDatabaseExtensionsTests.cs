@@ -1482,10 +1482,13 @@ public class TypeDatabaseExtensionsTests
     [Theory]
     [InlineData("Combine.Publisher")]
     [InlineData("XCTest.XCTestCase")]
+    [InlineData("SwiftUICore.View")]
     public async Task GetTypeRecordOrAnyType_UnsupportedAppleModule_ReturnsAnyType(string typeName)
     {
-        // Types from unsupported Apple modules (Combine, XCTest) without C# stubs
-        // must resolve to AnyType so that members referencing them are suppressed.
+        // Types from unsupported Apple modules (Combine, XCTest, SwiftUICore) without
+        // C# stubs must resolve to AnyType so that members referencing them are
+        // suppressed. SwiftUICore is the internal split-out of SwiftUI in newer SDKs
+        // and must be gated identically to SwiftUI through Path A.
         var typeDatabase = new TypeDatabase();
         var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftUIDatabase.xml");
         if (File.Exists(dbPath))

@@ -77,7 +77,7 @@ public static class TypeSkipPrePass
         // Condition 1: unsupported generic constraint (SwiftUI, Combine).
         if (GenericTypeEmitter.TryGetUnsupportedConstraint(typeDecl, out var unsupportedConstraint))
         {
-            var reason = unsupportedConstraint.Module == "SwiftUI"
+            var reason = unsupportedConstraint.Module is "SwiftUI" or "SwiftUICore"
                 ? SkipReason.SwiftUIConstraint
                 : unsupportedConstraint.Module == "Combine"
                     ? SkipReason.CombineFramework

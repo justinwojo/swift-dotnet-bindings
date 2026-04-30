@@ -975,6 +975,15 @@ public class MemberEmissionValidatorTests
     }
 
     [Fact]
+    public void ReferencesUnsupportedModule_SwiftUICoreType_AlwaysReturnsTrue()
+    {
+        // SwiftUICore is the internal split-out of SwiftUI in newer SDKs and must be
+        // suppressed identically to SwiftUI. Without parity here, member signatures
+        // referencing e.g. SwiftUICore.View leak past the gate and fail to compile.
+        Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(new NamedTypeSpec("SwiftUICore.View")));
+    }
+
+    [Fact]
     public void ReferencesUnsupportedModule_CombineType_AlwaysReturnsTrue()
     {
         Assert.True(MemberEmissionValidator.ReferencesUnsupportedModule(new NamedTypeSpec("Combine.Publisher")));
