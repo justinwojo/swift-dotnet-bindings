@@ -44,17 +44,13 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type has been processed; otherwise, false.</returns>
     public static bool IsTypeProcessed(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
-        // DynamicSelf (Self return type) is always considered processed
-        if (typeSpec.IsDynamicSelf)
-        {
+        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
+        // route through TypeResolver. Treat the type as processed only when the
+        // resolver produced a real TypeRecord — a skip-style outcome (Record is null)
+        // must fall through to the legacy stages, parity with the other entry points.
+        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
+            && resolved.Record is not null)
             return true;
-        }
-
-        // Generic type parameters are handled as AnyType (considered "processed")
-        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
-        {
-            return true;
-        }
 
         // Existential types (any X) are handled separately, not processed as regular types
         if (IsExistentialTypeName(typeSpec))
@@ -74,10 +70,6 @@ public static class TypeDatabaseExtensions
 
         // Bound-generic SIMD aliases resolve via the alias map (e.g., Swift.SIMD3<Swift.Float>).
         if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out _))
-            return true;
-
-        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double).
-        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out _))
             return true;
 
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
@@ -113,17 +105,12 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrAnyType(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
-        // DynamicSelf (Self return type) maps to AnyType
-        if (typeSpec.IsDynamicSelf)
+        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
+        // route through TypeResolver instead of the legacy inline checks.
+        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
+            && resolved.Record is not null)
         {
-            return AnyType;
-        }
-
-        // Generic type parameters (τ_0_0, T, Element, etc.) should return AnyType
-        // since their concrete types aren't known at binding generation time
-        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
-        {
-            return AnyType;
+            return resolved.Record;
         }
 
         // Existential types (any X) return AnyType
@@ -169,13 +156,6 @@ public static class TypeDatabaseExtensions
         // Swift stdlib SIMD generics map to C simd module typedefs with different ABI layouts.
         if (TryResolveBoundGenericAlias(typeDatabase, typeSpec, out var aliasRecord))
             return aliasRecord;
-
-        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double).
-        // The SwiftTypeName overload below would otherwise miss this and fall through to
-        // CreateObjCBridgedTypeRecord, producing a synthetic class record that breaks
-        // generic translation (Optional<TimeInterval> → SwiftOptional<AnyType>).
-        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out var aliasPrimitive))
-            return aliasPrimitive;
 
         // ObjC types are handled in the SwiftTypeName overload (DB-first, synthetic second)
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
@@ -225,17 +205,12 @@ public static class TypeDatabaseExtensions
     /// <returns>True if the type record was found; otherwise, false.</returns>
     public static bool TryGetTypeRecord(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(returnValue: true)] out TypeRecord? record)
     {
-        // DynamicSelf (Self return type) maps to AnyType
-        if (typeSpec.IsDynamicSelf)
+        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
+        // route through TypeResolver instead of the legacy inline checks.
+        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
+            && resolved.Record is not null)
         {
-            record = AnyType;
-            return true;
-        }
-
-        // Generic type parameters return AnyType
-        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
-        {
-            record = AnyType;
+            record = resolved.Record;
             return true;
         }
 
@@ -296,12 +271,6 @@ public static class TypeDatabaseExtensions
             return true;
         }
 
-        // Foundation typealiases to stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double)
-        // resolve to the underlying primitive's TypeRecord so downstream code sees a real struct
-        // record and not the synthetic ObjCBridged class record from IsObjCModuleType.
-        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out record))
-            return true;
-
         var typeName = SwiftTypeName.FromTypeSpec(typeSpec);
         if (typeDatabase.TryGetTypeRecord(typeName, out record))
             return true;
@@ -345,18 +314,12 @@ public static class TypeDatabaseExtensions
     /// <returns>The type record.</returns>
     public static TypeRecord GetTypeRecordOrThrow(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec)
     {
-        // DynamicSelf (Self return type) maps to AnyType — it represents the runtime type
-        // of the receiver, which is unknown at binding generation time.
-        // This explicit guard prevents breakage if IsExistentialTypeName heuristic changes.
-        if (typeSpec.IsDynamicSelf)
+        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias strategies
+        // route through TypeResolver instead of the legacy inline checks.
+        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
+            && resolved.Record is not null)
         {
-            return AnyType;
-        }
-
-        // Generic type parameters return AnyType (they can't be resolved to concrete types)
-        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
-        {
-            return AnyType;
+            return resolved.Record;
         }
 
         // Metatype types (Foundation.Decimal.Type) have no C# equivalent.
@@ -467,15 +430,12 @@ public static class TypeDatabaseExtensions
     /// </summary>
     public static bool TryGetAnyTypeFallbackInfo(this ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(true)] out AnyTypeFallbackInfo? fallbackInfo)
     {
-        // DynamicSelf (Self return type) is intentionally mapped to AnyType — not a fallback.
-        if (typeSpec.IsDynamicSelf)
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        // Generic type parameters (T, τ_0_0, Element, etc.) are expected and should not be marked as unsupported.
-        if (TypeSpecHelpers.IsGenericTypeParameter(typeSpec.Name))
+        // M4 Session 1: dynamic-self / generic-parameter / primitive-alias resolutions are
+        // intentional, not fallbacks. The resolver short-circuits to false on a hit so the
+        // legacy fallback heuristics never re-classify these types as "missing from database".
+        if (TypeResolver.Default.TryResolve(typeSpec, new ResolutionContext(typeDatabase), out var resolved)
+            && resolved.Record is not null
+            && resolved.SyntheticFallback is null)
         {
             fallbackInfo = null;
             return false;
@@ -512,13 +472,6 @@ public static class TypeDatabaseExtensions
 
         // ObjC framework types are handled via synthetic ObjCBridged records, not a fallback
         if (IsObjCModuleType(typeSpec))
-        {
-            fallbackInfo = null;
-            return false;
-        }
-
-        // Foundation typealiases to stdlib primitives resolve via the underlying primitive's record.
-        if (TryResolvePrimitiveTypeAlias(typeDatabase, typeSpec, out _))
         {
             fallbackInfo = null;
             return false;
@@ -785,28 +738,6 @@ public static class TypeDatabaseExtensions
         // but exclude known value types (structs/enums) from those modules
         return AppleFrameworkRegistry.IsAutoBridgeModule(typeSpec.Module)
             && !AppleFrameworkRegistry.IsKnownValueType(typeSpec.Name);
-    }
-
-    /// <summary>
-    /// Resolves Foundation typealiases that target stdlib primitives (e.g., Foundation.TimeInterval → Swift.Double)
-    /// by looking up the underlying primitive's TypeRecord. This keeps these aliases as first-class resolved
-    /// types instead of being routed to synthetic ObjCBridged records or "missing from type database" fallbacks.
-    /// </summary>
-    private static bool TryResolvePrimitiveTypeAlias(ITypeDatabase typeDatabase, NamedTypeSpec typeSpec, [NotNullWhen(true)] out TypeRecord? record)
-    {
-        record = null;
-        if (!MarshallingHelpers.TypeAliasToCSPrimitive.ContainsKey(typeSpec.Name))
-            return false;
-
-        var underlying = MarshallingHelpers.TypeAliasToCSPrimitive[typeSpec.Name] switch
-        {
-            "double" => SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
-            _ => null
-        };
-        if (underlying is null)
-            return false;
-
-        return typeDatabase.TryGetTypeRecord(underlying, out record);
     }
 
     /// <summary>

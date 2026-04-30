@@ -1,0 +1,318 @@
+// Copyright (c) 2026 Justin Wojciechowski.
+// Licensed under the MIT License.
+
+#nullable enable
+
+using System.Diagnostics.CodeAnalysis;
+using Xunit;
+
+namespace BindingsGeneration.Tests;
+
+/// <summary>
+/// Resolver-core contract: dispatch order, skip-reason propagation,
+/// argument validation, and the throw-shape of <see cref="TypeResolver.Resolve"/>.
+/// </summary>
+public class TypeResolverTests
+{
+    private sealed class FixedStrategy : IResolutionStrategy
+    {
+        private readonly Func<TypeSpec, ResolutionContext, TypeResolutionResult> _factory;
+        private readonly Func<TypeSpec, bool> _claims;
+        public int InvocationCount { get; private set; }
+
+        public FixedStrategy(string name, Func<TypeSpec, bool> claims, Func<TypeSpec, ResolutionContext, TypeResolutionResult> factory)
+        {
+            Name = name;
+            _claims = claims;
+            _factory = factory;
+        }
+
+        public string Name { get; }
+
+        public bool TryResolve(TypeSpec typeSpec, ResolutionContext context, [NotNullWhen(true)] out TypeResolutionResult? result)
+        {
+            InvocationCount++;
+            if (_claims(typeSpec))
+            {
+                result = _factory(typeSpec, context);
+                return true;
+            }
+            result = null;
+            return false;
+        }
+    }
+
+    private static TypeRecord MakeRecord(string fqName) => new()
+    {
+        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Tests", fqName),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Tests.{fqName}"),
+        MetadataAccessor = string.Empty,
+        Flags = TypeRecordFlags.Frozen,
+        Kind = TypeRecordKind.Struct,
+    };
+
+    [Fact]
+    public void TryResolve_FirstMatchingStrategyWins()
+    {
+        var first = MakeRecord("First");
+        var second = MakeRecord("Second");
+
+        var firstStrategy = new FixedStrategy(
+            "First",
+            _ => true,
+            (_, _) => new TypeResolutionResult(first));
+        var secondStrategy = new FixedStrategy(
+            "Second",
+            _ => true,
+            (_, _) => new TypeResolutionResult(second));
+
+        var resolver = new TypeResolver(new IResolutionStrategy[] { firstStrategy, secondStrategy });
+        var resolved = resolver.TryResolve(new NamedTypeSpec("X"), new ResolutionContext(new TypeDatabase()), out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result);
+        Assert.Same(first, result!.Record);
+        Assert.Equal(1, firstStrategy.InvocationCount);
+        Assert.Equal(0, secondStrategy.InvocationCount);
+    }
+
+    [Fact]
+    public void TryResolve_FallsThroughWhenStrategyDeclines()
+    {
+        var match = MakeRecord("Match");
+
+        var skipping = new FixedStrategy("Skip", _ => false, (_, _) => throw new InvalidOperationException());
+        var matching = new FixedStrategy("Match", _ => true, (_, _) => new TypeResolutionResult(match));
+
+        var resolver = new TypeResolver(new IResolutionStrategy[] { skipping, matching });
+        var resolved = resolver.TryResolve(new NamedTypeSpec("X"), new ResolutionContext(new TypeDatabase()), out var result);
+
+        Assert.True(resolved);
+        Assert.Same(match, result!.Record);
+        Assert.Equal(1, skipping.InvocationCount);
+        Assert.Equal(1, matching.InvocationCount);
+    }
+
+    [Fact]
+    public void TryResolve_NoMatchReturnsFalse()
+    {
+        var resolver = new TypeResolver(Array.Empty<IResolutionStrategy>());
+
+        var resolved = resolver.TryResolve(new NamedTypeSpec("X"), new ResolutionContext(new TypeDatabase()), out var result);
+
+        Assert.False(resolved);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void Resolve_ThrowsWhenNoStrategyMatches()
+    {
+        var resolver = new TypeResolver(Array.Empty<IResolutionStrategy>());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            resolver.Resolve(new NamedTypeSpec("X"), new ResolutionContext(new TypeDatabase())));
+    }
+
+    [Fact]
+    public void Resolve_ThrowsWhenStrategyClaimsButProducesNoRecord()
+    {
+        // Skip-style outcomes (Record == null) must not satisfy the
+        // "resolve or throw" contract — callers that hard-require a record
+        // expect an exception, not a skip envelope.
+        var skipping = new FixedStrategy(
+            "Skipping",
+            _ => true,
+            (_, _) => new TypeResolutionResult(Record: null, SkipReason: "deferred"));
+
+        var resolver = new TypeResolver(new[] { skipping });
+
+        Assert.Throws<InvalidOperationException>(() =>
+            resolver.Resolve(new NamedTypeSpec("X"), new ResolutionContext(new TypeDatabase())));
+    }
+
+    [Fact]
+    public void TryResolve_PropagatesSkipReasonAndProvenance()
+    {
+        var skipping = new FixedStrategy(
+            "Skipping",
+            _ => true,
+            (_, _) => new TypeResolutionResult(
+                Record: null,
+                SkipReason: "intentional-skip",
+                Provenance: new ResolutionProvenance("strategy:Skipping")));
+
+        var resolver = new TypeResolver(new[] { skipping });
+        var resolved = resolver.TryResolve(new NamedTypeSpec("X"), new ResolutionContext(new TypeDatabase()), out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result);
+        Assert.Null(result!.Record);
+        Assert.False(result.IsResolved);
+        Assert.Equal("intentional-skip", result.SkipReason);
+        Assert.Equal("strategy:Skipping", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void Constructor_NullStrategies_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => new TypeResolver(null!));
+    }
+
+    [Fact]
+    public void TryResolve_NullArgs_Throws()
+    {
+        var resolver = new TypeResolver(Array.Empty<IResolutionStrategy>());
+
+        Assert.Throws<ArgumentNullException>(() =>
+            resolver.TryResolve(null!, new ResolutionContext(new TypeDatabase()), out _));
+        Assert.Throws<ArgumentNullException>(() =>
+            resolver.TryResolve(new NamedTypeSpec("X"), null!, out _));
+    }
+
+    [Fact]
+    public void Default_RegistersSession1StrategiesInOrderAtHeadOfList()
+    {
+        // Session 1 registers these three strategies first, in this order.
+        // Future sessions append additional strategies; assert the prefix
+        // rather than the full list so this test does not have to be edited
+        // every time a new strategy is migrated.
+        var names = TypeResolver.Default.Strategies.Select(s => s.Name).ToArray();
+
+        var expectedPrefix = new[] { "DynamicSelf", "GenericParameter", "PrimitiveAlias" };
+        Assert.True(names.Length >= expectedPrefix.Length,
+            $"Default strategy list shorter than expected. Got: [{string.Join(", ", names)}]");
+        Assert.Equal(expectedPrefix, names.Take(expectedPrefix.Length).ToArray());
+    }
+
+    [Fact]
+    public void DynamicSelfStrategy_ResolvesSelfToAnyType()
+    {
+        var strategy = new DynamicSelfStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Self"),
+            new ResolutionContext(new TypeDatabase()),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, result!.Record);
+        Assert.Equal("strategy:DynamicSelf", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void DynamicSelfStrategy_DoesNotMatchUnrelatedType()
+    {
+        var strategy = new DynamicSelfStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Foundation.NSObject"),
+            new ResolutionContext(new TypeDatabase()),
+            out var result);
+
+        Assert.False(resolved);
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData("τ_0_0")]
+    [InlineData("τ_1_0")]
+    [InlineData("T")]
+    [InlineData("U")]
+    [InlineData("T0")]
+    public void GenericParameterStrategy_ResolvesGenericNamesToAnyType(string name)
+    {
+        var strategy = new GenericParameterStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec(name),
+            new ResolutionContext(new TypeDatabase()),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, result!.Record);
+        Assert.Equal("strategy:GenericParameter", result.Provenance!.Source);
+    }
+
+    [Theory]
+    [InlineData("Element")] // Long conventional name — not classified as a generic param by the helper.
+    [InlineData("Foundation.Locale")]
+    [InlineData("Self.Hello")]
+    public void GenericParameterStrategy_DoesNotMatchLongerNames(string name)
+    {
+        var strategy = new GenericParameterStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec(name),
+            new ResolutionContext(new TypeDatabase()),
+            out var result);
+
+        Assert.False(resolved);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void PrimitiveAliasStrategy_ResolvesTimeIntervalToDouble()
+    {
+        // Foundation.TimeInterval is the only registered alias today (Swift.Double).
+        // Load the SwiftDatabase so the underlying primitive lookup succeeds.
+        var typeDatabase = LoadDatabaseWithSwiftDouble();
+        var strategy = new PrimitiveAliasStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Foundation.TimeInterval"),
+            new ResolutionContext(typeDatabase),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.Record);
+        Assert.Equal("Swift.Double", result.Record!.SwiftTypeName.ModuleQualifiedName);
+        Assert.Equal("strategy:PrimitiveAlias", result.Provenance!.Source);
+    }
+
+    [Fact]
+    public void PrimitiveAliasStrategy_FallsThroughWhenUnderlyingMissing()
+    {
+        // Without Swift.Double loaded the strategy must DECLINE — semantics
+        // identical to the legacy TryResolvePrimitiveTypeAlias helper.
+        var strategy = new PrimitiveAliasStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Foundation.TimeInterval"),
+            new ResolutionContext(new TypeDatabase()),
+            out var result);
+
+        Assert.False(resolved);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void PrimitiveAliasStrategy_DoesNotMatchUnknownAlias()
+    {
+        var strategy = new PrimitiveAliasStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Foundation.NotARealAlias"),
+            new ResolutionContext(LoadDatabaseWithSwiftDouble()),
+            out var result);
+
+        Assert.False(resolved);
+        Assert.Null(result);
+    }
+
+    private static TypeDatabase LoadDatabaseWithSwiftDouble()
+    {
+        var db = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Swift", "/tmp/Swift.dylib");
+        var name = SwiftTypeName.FromModuleQualifiedName("Swift.Double");
+        module.RegisterType(name, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+            SwiftTypeName = name,
+            MetadataAccessor = "$sSd",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
+        db.AddModuleDatabase(module);
+        return db;
+    }
+}
