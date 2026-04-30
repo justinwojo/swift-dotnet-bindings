@@ -1,11 +1,13 @@
 # Architecture Gameplan v2 — Post-1.0 Round 1
 
-**Status**: Plan of record for the first post-1.0 architecture track.
+> **DOC STATUS: M1 IS PENDING REDESIGN.** A pre-implementation audit found that Milestone 1 as written below is not deliverable — the public C API of `libswiftDemangle.dylib` does not expose what M1 needs from it. M1's "Why this order", litmus-pass claim, and end-of-M1 checkpoint are all conditional on a redesign decision that has not yet been made. See `scratch/m1-redesign-proposal.md`. M2 (SwiftSyntax producer) is unaffected and remains plan-of-record. The original M1 text is preserved below for context, with a more detailed banner inside the M1 section.
+
+**Status**: Plan of record for M2. M1 paused pending user decision (see banner above).
 **Companion docs**:
 - `architecture-gameplan.md` — the 1.0 plan (DONE).
 - `Future/post-1.0-architecture-roadmap.md` — the remaining post-1.0 inventory.
 
-**Decision**: The next two architecture items are the highest-ROI candidates pulled forward from the post-1.0 roadmap: a native `libswiftDemangle` swap, then a SwiftSyntax producer behind the `SwiftInterfaceFacts` aggregator that M4 landed.
+**Decision**: The next two architecture items were *intended* to be (1) a native `libswiftDemangle` swap and (2) a SwiftSyntax producer behind the `SwiftInterfaceFacts` aggregator that M4 landed. Item (1) is paused; item (2) stands.
 
 This track is independent of `roadmap.md` (coverage / skip / library themes); both progress in parallel.
 
@@ -17,10 +19,10 @@ Same bar as v1:
 
 > Will this either expose a real binding failure earlier, prevent a known class of bad generated binding, or increase valid emitted API surface?
 
-Both items below pass:
+Litmus status of each item:
 
-- **`libswiftDemangle`** eliminates ~5,800 LOC of hand-ported demangler — a known drift surface against the Swift compiler's mangling. Today it works; the moment Swift adds a new mangling node we silently produce wrong names.
-- **SwiftSyntax producer** retires 4,066 LOC of regex parsing (`SwiftInterfaceAccessParser.cs`) plus 23 nullable side-channel maps' worth of string heuristics. This is the single largest "silent wrong binding" risk surface in the codebase. M4 deliberately shaped `SwiftInterfaceFacts` so this swap can land incrementally.
+- **`libswiftDemangle`** *(M1 — pending redesign)*: was framed as eliminating ~5,800 LOC of hand-ported demangler. The pre-implementation audit found the public C API of `libswiftDemangle.dylib` cannot satisfy the existing structured `IReduction` contract; whether any reshaped version of M1 still passes the litmus is part of the open redesign decision. See `scratch/m1-redesign-proposal.md`.
+- **SwiftSyntax producer** *(M2 — passes)*: retires ~4.2k LOC of regex parsing (`SwiftInterfaceAccessParser.cs`, 4,223 lines as of this commit) plus 14 dictionary-shaped facts on `SwiftInterfaceFacts` whose values are inferred by string heuristics today. This is the surface the v1/v2 docs flagged as the largest "silent wrong binding" risk. M4 deliberately shaped `SwiftInterfaceFacts` so this swap can land incrementally.
 
 Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md` until something pulls them forward.
 
@@ -28,16 +30,20 @@ Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md`
 
 ## Why this order
 
-`libswiftDemangle` first, SwiftSyntax second. Two reasons:
+The original ordering placed `libswiftDemangle` first, SwiftSyntax second. With M1 paused, **v2 currently starts at M2**; M1's reordering or removal is part of the open redesign decision. The original rationale is preserved below for context.
+
+Original rationale (now conditional on M1 being redesigned):
 
 1. **Reversibility**. Apple's dylib is already on disk; we just don't link it. Hide the swap behind `IDemangler`, keep the managed port as a fallback strategy, and the entire migration is a feature flag away from rollback. SwiftSyntax adds a Swift host program as a new build artifact and a new toolchain dep — that's a much bigger commitment.
-2. **ROI density per session**. The demangler swap is concentrated work — one interface, one P/Invoke surface, one parity test. SwiftSyntax migrates 23 fact dictionaries one at a time and gates each on parity against the regex parser. Front-loading the smaller win keeps the v2 track shipping value early even if SwiftSyntax stretches.
+2. **ROI density per session**. The demangler swap is concentrated work — one interface, one P/Invoke surface, one parity test. SwiftSyntax migrates fact-dictionaries one at a time and gates each on parity against the regex parser. Front-loading the smaller win keeps the v2 track shipping value early even if SwiftSyntax stretches.
 
 ---
 
 ## v2 Plan: Two Milestones
 
 ### Milestone 1 — `libswiftDemangle` swap *(1–2 sessions)*
+
+> **STATUS: REDESIGN PENDING — do not implement.** A pre-implementation audit found that the public C API of `libswiftDemangle.dylib` does not expose AST traversal (it returns display strings only), the dylib path proposed below does not exist on macOS, and the cited `swift_demangle` export name is wrong. As a result, a single `IDemangler` interface satisfied by both managed and native strategies is not deliverable in the shape this section describes, and "byte-equal parity" between the two has no operational definition without first writing a printer for the managed port. See `scratch/m1-redesign-proposal.md` for the four options under consideration (sidecar / reverse-parser / drop-M1 / split) and the worker recommendation. The original scope is preserved verbatim below for context only.
 
 **Goal**: ~5,800 LOC of hand-ported demangler replaced by a P/Invoke into Apple's `libswiftDemangle.dylib`, behind a single `IDemangler` seam.
 
@@ -68,7 +74,7 @@ Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md`
 
 ### Milestone 2 — SwiftSyntax producer behind `SwiftInterfaceFacts` *(3–5 sessions)*
 
-**Goal**: 4,066 LOC of regex parsing in `SwiftInterfaceAccessParser.cs` replaced by a Swift host program that uses SwiftSyntax to populate the same `SwiftInterfaceFacts` aggregator M4 introduced.
+**Goal**: ~4.2k LOC of regex parsing in `SwiftInterfaceAccessParser.cs` (4,223 lines as of this commit) replaced by a Swift host program that uses SwiftSyntax to populate the same `SwiftInterfaceFacts` aggregator M4 introduced.
 
 **Scope**:
 - New Swift host program ("`SwiftInterfaceParser`" or similar) built via SPM, distributed alongside the generator.
@@ -110,9 +116,9 @@ Items that don't pass the test stay in `Future/post-1.0-architecture-roadmap.md`
 
 **Why (litmus)**: prevents a known class of bad generated binding. The regex parser is correctness-fragile by construction; SwiftSyntax is the Swift compiler's own parsing front-end.
 
-### Total: ~5–7 sessions
+### Total: M2 = 3–5 sessions; M1 TBD pending redesign
 
-Allocation: M1 (1–2) + M2 (3–5). Same elapsed-time framing as v1 — validation-bound, not session-stacked. Each milestone ends with a full sweep; expect at least one fix-and-rerun cycle per milestone.
+Original allocation was M1 (1–2) + M2 (3–5) = ~5–7 sessions, but M1 is paused. **Current active allocation is M2 only** until the M1 redesign decision (see `scratch/m1-redesign-proposal.md`) lands. Same elapsed-time framing as v1 — validation-bound, not session-stacked. Each milestone ends with a full sweep; expect at least one fix-and-rerun cycle per milestone.
 
 ---
 
@@ -127,7 +133,7 @@ Same validation tiers, agent usage, and standing rules as v1. See `architecture-
 
 Two checkpoints — one per milestone. Each runs the full sim + device + validate sweep and updates baselines.
 
-1. End of M1: `libswiftDemangle` is the default; managed port reachable behind a flag.
+1. End of M1 *(pending redesign)*: original target was "`libswiftDemangle` is the default; managed port reachable behind a flag." That target is conditional on M1's redesign; see `scratch/m1-redesign-proposal.md`.
 2. End of M2: SwiftSyntax is the producer; regex parser deleted.
 
 ---
@@ -145,7 +151,7 @@ Inherited from v1 verbatim. Notably:
 
 ## Open Questions
 
-1. **Demangler dylib provenance.** Use `/usr/lib/swift/libswiftDemangle.dylib` (system Swift), the toolchain-bundled dylib via `xcrun --find swift`, or both with a probe order? Recommendation: system first, toolchain fallback. The system dylib's API surface has been stable for years and avoids requiring a full Xcode install at runtime.
+1. **Demangler dylib provenance.** *(superseded — see `scratch/m1-redesign-proposal.md`)* The original recommendation was "system first (`/usr/lib/swift/libswiftDemangle.dylib`), toolchain fallback (`xcrun --find swift`)". The audit found `/usr/lib/swift/libswiftDemangle.dylib` does not exist on the verified host; `libswiftDemangle.dylib` lives only at toolchain-derived paths (`/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libswiftDemangle.dylib` and `/Library/Developer/CommandLineTools/usr/lib/libswiftDemangle.dylib`). If M1 redesigns to use this dylib, the probe order should be toolchain-first; system path is not reliable.
 
 2. **SwiftSyntax host program distribution.** Vendor pre-built binaries in the NuGet package (one slice per Apple host platform), or build-on-first-use from sources shipped alongside? Recommendation: vendor, mirroring how we ship xcframework slices — first-run UX matters and SPM resolution at first invocation has failed for users before.
 
