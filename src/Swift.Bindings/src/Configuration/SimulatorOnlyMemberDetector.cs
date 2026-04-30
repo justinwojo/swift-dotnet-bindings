@@ -353,7 +353,6 @@ namespace BindingsGeneration
                             output.Add("#endif");
 
                             guardedCount++;
-                            CoGaterHitCounter.Increment("SimDetector.RuleD_ApplyGuards");
                             i = blockEnd + 1;
                             continue;
                         }
@@ -448,7 +447,6 @@ namespace BindingsGeneration
 
                     if (simOnly.MatchesThunkBlock(blockText))
                     {
-                        CoGaterHitCounter.Increment("SimDetector.FilterThunkAssembly");
                         removedCount++;
                         i = blockEnd + 1;
                         continue;

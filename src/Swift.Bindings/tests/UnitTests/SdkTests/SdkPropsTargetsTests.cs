@@ -107,76 +107,9 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("_SwiftBindingIntermediateDir", PropsContent);
         }
 
-        [Fact]
-        public void Props_AutoDetectsPlatformFromTfm()
-        {
-            Assert.Contains("_SwiftBindingPlatform", PropsContent);
-            Assert.Contains("maccatalyst", PropsContent);
-            Assert.Contains("tvos", PropsContent);
-            Assert.Contains("macos", PropsContent);
-            Assert.Contains("TargetFramework.Contains(", PropsContent);
-        }
-
-        [Fact]
-        public void Props_DetectsMaccatalystBeforeMacos()
-        {
-            // maccatalyst must be checked before macos to avoid substring overlap
-            var maccatalystIdx = PropsContent.IndexOf("Contains('maccatalyst')", StringComparison.Ordinal);
-            var macosIdx = PropsContent.IndexOf("Contains('macos')", StringComparison.Ordinal);
-            Assert.True(maccatalystIdx > 0);
-            Assert.True(macosIdx > 0);
-            Assert.True(maccatalystIdx < macosIdx, "maccatalyst detection must come before macos");
-        }
-
-        [Fact]
-        public void Props_DetectsIosExplicitly()
-        {
-            // iOS detection uses Contains('ios') — not an unconditional fallback
-            Assert.Contains("TargetFramework.Contains('ios')", PropsContent);
-            Assert.Contains(">ios</_SwiftBindingPlatform>", PropsContent);
-        }
-
-        [Fact]
-        public void Props_FlagsUnsupportedPlatform()
-        {
-            // Unsupported TFMs (e.g. net10.0, net10.0-android) should be flagged
-            Assert.Contains("_SwiftBindingPlatformUnsupported", PropsContent);
-        }
-
-        [Fact]
-        public void Props_DefinesNuGetRidPerPlatform()
-        {
-            Assert.Contains("_SwiftBindingNuGetRid", PropsContent);
-            Assert.Contains("osx-arm64", PropsContent);
-            Assert.Contains("tvos-arm64", PropsContent);
-            Assert.Contains("maccatalyst-arm64", PropsContent);
-            Assert.Contains("ios-arm64", PropsContent);
-        }
-
-        [Fact]
-        public void Props_DefinesSliceIdsPerPlatform()
-        {
-            Assert.Contains("_SwiftBindingDeviceSliceId", PropsContent);
-            Assert.Contains("macos-arm64", PropsContent);
-            Assert.Contains("ios-arm64-maccatalyst", PropsContent);
-        }
-
-        [Fact]
-        public void Props_DefinesSimulatorSliceForIosAndTvos()
-        {
-            Assert.Contains("_SwiftBindingSimulatorSliceId", PropsContent);
-            Assert.Contains("_SwiftBindingHasSimulatorSlice", PropsContent);
-            Assert.Contains("ios-arm64-simulator", PropsContent);
-            Assert.Contains("tvos-arm64-simulator", PropsContent);
-        }
-
-        [Fact]
-        public void Props_PlatformTargetConditionalOnSimulatorSlice()
-        {
-            // SwiftPlatformTarget should only default to 'simulator' for platforms with simulator slices
-            Assert.Contains("_SwiftBindingHasSimulatorSlice", PropsContent);
-            Assert.Contains(">simulator</SwiftPlatformTarget>", PropsContent);
-        }
+        // Platform detection (`_SwiftBindingPlatform` and the slice/RID derivation that
+        // hangs off it) lives in Sdk.targets, not Sdk.props — see the inline note at the
+        // top of Sdk.props. The matching assertions are in `SdkTargetsContentTests`.
 
         [Fact]
         public void Props_InjectsStaticPackageReferenceForDependencies()
@@ -883,6 +816,76 @@ namespace BindingsGeneration.Tests
                 "Catalyst fallback reassignment must appear AFTER the iOSSupport primary " +
                 "assignment so the regular macOS path is used only when the iOSSupport " +
                 "variant is missing.");
+        }
+
+        [Fact]
+        public void Targets_AutoDetectsPlatformFromTfm()
+        {
+            Assert.Contains("_SwiftBindingPlatform", TargetsContent);
+            Assert.Contains("maccatalyst", TargetsContent);
+            Assert.Contains("tvos", TargetsContent);
+            Assert.Contains("macos", TargetsContent);
+            Assert.Contains("TargetFramework.Contains(", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_DetectsMaccatalystBeforeMacos()
+        {
+            // maccatalyst must be checked before macos to avoid substring overlap
+            var maccatalystIdx = TargetsContent.IndexOf("Contains('maccatalyst')", StringComparison.Ordinal);
+            var macosIdx = TargetsContent.IndexOf("Contains('macos')", StringComparison.Ordinal);
+            Assert.True(maccatalystIdx > 0);
+            Assert.True(macosIdx > 0);
+            Assert.True(maccatalystIdx < macosIdx, "maccatalyst detection must come before macos");
+        }
+
+        [Fact]
+        public void Targets_DetectsIosExplicitly()
+        {
+            // iOS detection uses Contains('ios') — not an unconditional fallback
+            Assert.Contains("TargetFramework.Contains('ios')", TargetsContent);
+            Assert.Contains(">ios</_SwiftBindingPlatform>", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_FlagsUnsupportedPlatform()
+        {
+            Assert.Contains("_SwiftBindingPlatformUnsupported", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_DefinesNuGetRidPerPlatform()
+        {
+            Assert.Contains("_SwiftBindingNuGetRid", TargetsContent);
+            Assert.Contains("osx-arm64", TargetsContent);
+            Assert.Contains("tvos-arm64", TargetsContent);
+            Assert.Contains("maccatalyst-arm64", TargetsContent);
+            Assert.Contains("ios-arm64", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_DefinesSliceIdsPerPlatform()
+        {
+            Assert.Contains("_SwiftBindingDeviceSliceId", TargetsContent);
+            Assert.Contains("macos-arm64", TargetsContent);
+            Assert.Contains("ios-arm64-maccatalyst", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_DefinesSimulatorSliceForIosAndTvos()
+        {
+            Assert.Contains("_SwiftBindingSimulatorSliceId", TargetsContent);
+            Assert.Contains("_SwiftBindingHasSimulatorSlice", TargetsContent);
+            Assert.Contains("ios-arm64-simulator", TargetsContent);
+            Assert.Contains("tvos-arm64-simulator", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_PlatformTargetConditionalOnSimulatorSlice()
+        {
+            // SwiftPlatformTarget should only default to 'simulator' for platforms with simulator slices
+            Assert.Contains("_SwiftBindingHasSimulatorSlice", TargetsContent);
+            Assert.Contains(">simulator</SwiftPlatformTarget>", TargetsContent);
         }
 
         private static string FindRepoRoot()

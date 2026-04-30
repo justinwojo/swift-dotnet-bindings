@@ -8,17 +8,30 @@ This doc covers longer-term themes, blocked items, and lower-priority ideas. Liv
 
 ## Theme A: Skip Reduction *(low priority)*
 
-Skip rate is 16.5%. The remaining ~1,519 skips (after "Not Worth Addressing") are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
+Skip rate is 23.7% (per current `.validation-baseline.json`). The remaining skips are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
 
 | Item | Remaining skips | Effort | Why low priority |
 |------|----------------:|--------|-----------------|
 | **Unsupported signatures** (associated types, bare generics) | ~611 | Very high | Swift patterns with no C# equivalent |
-| **AnyTypeFallback** (cross-library types) | ~429 | Very high | Needs full dependency graph resolution — different product scope |
+| **AnyTypeFallback** (post-M3 decomposition, see below) | ~614 | Very high | Surface is fully architecturally-deferred: PAT classification + by-design Swift `Any` + ObjC protocols + cross-library |
 | **UnsupportedClosure** (multi-blocker methods) | ~188 | High | Reduced via setter-only closure properties and the async-closure bridge (throwing 0–3 args with primitive returns plus zero-arg `Foundation.Data` return; non-throwing 0–3 args with primitive returns only). Remaining are generic params, nested closures, and async-closure shapes outside the supported arg/return matrix (e.g., arg-bearing `Data` returns, non-throwing `Data` returns). |
 | **UnsatisfiedGenericConstraint** (remaining) | ~76 | High | Fundamental type system constraints, not relaxable gates |
 | **Result<T,E> parameter direction** | blocked | Medium | Needs native payload synthesis for C#-created instances |
 | **Multi-protocol generic compositions** | blocked | High | Needs full existential composition in @_cdecl wrapper |
 | **Value-type generic conformers** | blocked | High | Requires non-AnyObject transport through @_cdecl boundary |
+
+### AnyTypeFallback decomposition (M3 Session 4)
+
+`nuke validate`'s 614 AnyTypeFallback hits split cleanly into four categories. The histogram was the M3 Session 4 deliverable; the conclusion is that the surface is fully out-of-scope per existing roadmap exclusions:
+
+| Sub-cause | Hits | Why deferred |
+|---|---:|---|
+| M9 gate: method generic-arg AnyType in protocol context (PAT) | 399 | RxSwift/GRDB/Swinject PATs — same root as "Generic protocol constraints / PATs" in *Not Worth Addressing*. Architecturally blocked by associated-type erasure. |
+| Bare AnyType properties / `[Any]` / `Optional<Any>` / `[Any: T]` | ~119 | Swift `Any` is a runtime existential with no useful C# representation; `object` would silently lose round-trip identity. Same root as "Unsupported existential" in *Not Worth Addressing*. |
+| Subscript return / index AnyType (PAT-shaped) | 62 | GRDB.Row, MusicItemCollection<T>, WeatherKit forecasts, RxSwift.Reactive, XMLCoder.KeyedStorage, TipKit.Tips.Event.Donation. PAT-shaped subscripts where the return type is an associated type or generic parameter. |
+| Optional existential inner protocol not in TypeDatabase | 18 | 8 are bare `Optional<Any>` (Swinject Storage×5, ObjectMapper Map×2, Mixpanel.MixpanelFlagVariant); 10 are pure-ObjC delegate protocols (Foundation.URLSessionDelegate, UIKit.UITextFieldDelegate, UIKit.UIPopoverPresentationControllerDelegate, UIKit.UIPopoverPresentationControllerSourceItem, PassKit.PKAddPaymentPassViewControllerDelegate). Both ObjC and pure-`Any` are filtered by `GetEffectiveProtocols` → `object` → property skip. ObjC protocol bridging is post-1.0 surface. |
+
+In-scope surface (single-module supplement-resolution gaps, alias gaps): **0 measurable hits**. The original ~303 / ~429 figures cited in the gameplan and earlier roadmap rows pre-date the M9 gate (which surfaced 399 PAT classifications cleanly); the increase is bookkeeping, not regression.
 
 ---
 
@@ -73,6 +86,7 @@ Drafts: [`Future/upstream-bug-reports-draft.md`](Future/upstream-bug-reports-dra
 | **Wrapper-helper path dynamic PWT resolution** | Swift wrapper side still fail-closed for Self-requirement / associated-type protocols. Not triggered by any current validation library. |
 | **Multi-PAT existential boxing** | A type conforming to 2+ PAT protocols cannot box through the `object` fallback because the `typeof(object)` dictionary key is ambiguous. Guarded to fail explicitly (`InvalidCastException`) rather than silently select the wrong witness table. Extremely rare in practice. |
 | **tvOS device runner** | Requires provisioning profile + physical Apple TV. Generator, SDK, runtime, and build infra already support tvOS; only the `nuke runtime-tests-tvos-device` Nuke target and deployment mechanism are missing. |
+| **Pattern 2 retirement (wrapper-eligibility)** | `SwiftWrapperPostProcessor.Pattern2_SilgenOrCdeclBroken` strips broken `@_silgen_name`/`@_cdecl` wrapper bodies after-the-fact. M3-S3 sub-cause counter showed 99.7% of hits are `Pattern2.InternalType` — wrapper signatures that reach `internalTypeNames`. A naive emission-time gate (`MemberValidationPipeline`) regressed 4 libraries (CryptoSwift/SkeletonView/NVActivityIndicatorView/XMLCoder) because `@usableFromInline internal` types like XMLCoder's `BoolBox`/`FloatBox` are flagged internal yet emitted as public C# classes. Right fix layer is wrapper-eligibility (`MethodWrapperEmitter.ShouldEmitWrapper` / `ConstructorWrapperEmitter` / `PropertyWrapperEmitter`): refuse the `@_cdecl` wrapper when its signature reaches an internal type, then `MethodHandler.cs:928–933` falls back to the original Swift symbol under `CallConvSwift`. Plumbing requires either threading `InternalTypeNames` through `MethodEnvironment` (~13 source-side construction sites + ~44 test sites) or attaching the set to `ModuleDecl`. Proof obligation: BindingTests fixture for an `@usableFromInline internal` type so the runtime path is exercised on iOS sim + device. Not < 1-session scope; deferred. |
 
 ---
 

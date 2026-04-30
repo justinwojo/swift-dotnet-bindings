@@ -106,7 +106,6 @@ namespace BindingsGeneration
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             removedCount++;
-                            CoGaterHitCounter.Increment("PostProcessor.Pattern1_EveryProtocolBlock");
                             i = end + 1;
                             continue;
                         }
@@ -123,8 +122,9 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    var subCause = ClassifyPattern2Cause(lines, i, end, body, internalTypeNames, onSafetyNetWarning);
-                    if (subCause is not null)
+                    if (IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning) ||
+                        ReferencesInternalType(body, internalTypeNames) ||
+                        ReferencesSwiftUnavailableType(body))
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         // The wrapper emitters write a "// Comment\n@available(...)\n" preamble
@@ -133,8 +133,6 @@ namespace BindingsGeneration
                         // produce "expected declaration" errors at swiftc time.
                         RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
-                        CoGaterHitCounter.Increment("PostProcessor.Pattern2_SilgenOrCdeclBroken");
-                        CoGaterHitCounter.Increment("PostProcessor.Pattern2." + subCause);
                         i = end + 1;
                         continue;
                     }
@@ -152,14 +150,13 @@ namespace BindingsGeneration
                         int end = FindBlockEnd(lines, i + 1);
                         var body = ScanBlockBody(lines, i + 1, end);
 
-                        var subCause = ClassifyPattern2Cause(lines, i + 1, end, body, internalTypeNames, onSafetyNetWarning);
-                        if (subCause is not null)
+                        if (IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning) ||
+                            ReferencesInternalType(body, internalTypeNames) ||
+                            ReferencesSwiftUnavailableType(body))
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                             RemoveTrailingWrapperPreamble(outputLines);
                             removedCount++;
-                            CoGaterHitCounter.Increment("PostProcessor.Pattern2b_MainActorBroken");
-                            CoGaterHitCounter.Increment("PostProcessor.Pattern2b." + subCause);
                             i = end + 1;
                             continue;
                         }
@@ -183,7 +180,6 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
-                        CoGaterHitCounter.Increment("PostProcessor.Pattern3_ExtensionBroken");
                         i = end + 1;
                         continue;
                     }
@@ -203,7 +199,6 @@ namespace BindingsGeneration
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         removedCount++;
-                        CoGaterHitCounter.Increment("PostProcessor.Pattern3c_PrivateSbwProtocol");
                         i = end + 1;
                         continue;
                     }
@@ -223,7 +218,6 @@ namespace BindingsGeneration
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
                         RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
-                        CoGaterHitCounter.Increment("PostProcessor.Pattern4_StandaloneFunc");
                         i = end + 1;
                         continue;
                     }
@@ -274,46 +268,6 @@ namespace BindingsGeneration
             for (int j = start; j <= end && j < lines.Count; j++)
                 sb.Append(lines[j]);
             return sb.ToString();
-        }
-
-        /// <summary>
-        /// Classifies the reason a Pattern 2 (@_silgen_name / @_cdecl) block needs stripping,
-        /// or returns null if the block is fine. Used to decompose the umbrella Pattern 2 hit
-        /// counter into sub-cause buckets so M3 can size the dominant emission gate.
-        /// </summary>
-        private static string? ClassifyPattern2Cause(
-            IReadOnlyList<string> lines,
-            int start,
-            int end,
-            string body,
-            HashSet<string>? internalTypeNames,
-            Action<string>? onSafetyNetWarning)
-        {
-            // (a) EveryProtocol() placeholder body — checked first so it dominates over a
-            // coincidental internal-type reference inside the same body.
-            if (body.Contains("EveryProtocol()") &&
-                !body.Contains("Get_EveryProtocol_") && !body.Contains("SetVtable") &&
-                !body.Contains("Set_vtable") && !body.Contains("_vtable") &&
-                !body.Contains("SBW_CreateEveryProtocol") && !body.Contains("SBW_ReleaseEveryProtocol") &&
-                !body.Contains("SBW_GetMetadata_EveryProtocol"))
-            {
-                return "EveryProtocolPlaceholder";
-            }
-
-            // (g) closure type in `.load(as: @escaping)` / `.load(as: @Sendable)` metatype context.
-            if (body.Contains(".load(as: @escaping") || body.Contains(".load(as: @Sendable"))
-            {
-                onSafetyNetWarning?.Invoke($"Line ~{start}: .load(as: @escaping) closure in metatype context (should be prevented by CanConvertToCdecl)");
-                return "LoadAsClosure";
-            }
-
-            if (ReferencesInternalType(body, internalTypeNames))
-                return "InternalType";
-
-            if (ReferencesSwiftUnavailableType(body))
-                return "NSInvocation";
-
-            return null;
         }
 
         /// <summary>
