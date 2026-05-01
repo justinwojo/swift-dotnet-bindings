@@ -38,18 +38,28 @@
     <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('tvos'))">15.0</SupportedOSPlatformVersion>
   </PropertyGroup>
 
-  <!-- Runtime dependency: ProjectReference becomes a PackageReference in the generated
-       nuspec. The <Version> metadata overrides NuGet's default of taking the referenced
-       project's PackageVersion (which would emit an unbounded min-only dep) and instead
-       stamps the bounded range. VersionScope rewrites $(SwiftRuntimePackageVersionRange)
-       to the real bounded range at pack time so the shipped nupkg declares Runtime at
-       [MAJOR.MINOR.PATCH,MAJOR.(MINOR+1).0) — no drift risk vs. the SDK-side range in
-       Sdk.props because both stamps go through VersionScope. -->
+  <!-- Runtime dependency: ProjectReference becomes a packed dep in the supplement nuspec.
+       NuGet's _GetProjectReferenceVersions calls _GetProjectVersion on Swift.Runtime, which
+       returns the bare $(PackageVersion) (e.g. "0.9.0") and emits an unbounded min-only dep.
+       <Version>/<VersionOverride> metadata on <ProjectReference> is NOT read by this code
+       path — verified against NuGet.Build.Tasks.Pack.targets — so we rewrite the resolved
+       _ProjectReferencesWithVersions item after _GetProjectReferenceVersions to stamp the
+       bounded range $(SwiftRuntimePackageVersionRange). VersionScope sets the property to
+       [MAJOR.MINOR.PATCH,MAJOR.(MINOR+1).0) at pack time, so the shipped nupkg declares
+       Runtime at the matching range — no drift risk vs. the SDK-side range in Sdk.props
+       because both stamps go through VersionScope. -->
   <ItemGroup>
-    <ProjectReference Include="../Swift.Runtime/src/Swift.Runtime.csproj">
-      <Version>$(SwiftRuntimePackageVersionRange)</Version>
-    </ProjectReference>
+    <ProjectReference Include="../Swift.Runtime/src/Swift.Runtime.csproj" />
   </ItemGroup>
+  <Target Name="_StampSwiftRuntimePackedVersionRange"
+          AfterTargets="_GetProjectReferenceVersions"
+          Condition="'$(NuspecFile)' == '' and '$(SwiftRuntimePackageVersionRange)' != ''">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="'%(Filename)' == 'Swift.Runtime'">
+        <ProjectVersion>$(SwiftRuntimePackageVersionRange)</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
 
   <!-- NuGet pack items -->
   <ItemGroup>

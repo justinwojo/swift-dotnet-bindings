@@ -115,6 +115,15 @@ partial class Build
                     .SetVerbosity(DotNetVerbosity.quiet));
             }
 
+            // 2b. Assert the Apple supplement nuspec declares Runtime at the bounded range
+            // (e.g. [0.0.0-packgate,0.1.0)) rather than the bare min-only version. NuGet's
+            // _GetProjectReferenceVersions ignores <Version>/<VersionOverride> on
+            // ProjectReference items, so the supplement csproj has to override the resolved
+            // _ProjectReferencesWithVersions item — easy to break, silent failure mode (the
+            // packed dep just becomes unbounded). This catches it the moment the nuspec is
+            // produced.
+            AssertSupplementBoundsRuntimeRange(nupkgDir, PackGateVersion, PackGateAppleVersion);
+
             // 3. Clear NuGet caches for SwiftBindings.* so the throwaway-version packages
             // aren't shadowed by a stale entry from a previous pack-gate run.
             Log.Information("  [3/5] Clearing NuGet cache");
@@ -684,5 +693,102 @@ partial class Build
             Console.WriteLine(greeting);
             """;
         File.WriteAllText(appDir / "Program.cs", program);
+    }
+
+    // Opens the just-packed Apple supplement nupkg, reads its nuspec, and asserts every
+    // Apple TFM group carries exactly one SwiftBindings.Runtime dependency stamped at the
+    // bounded range built from the runtime version. The packed nuspec is the only place
+    // this is observable: unit tests can pin the csproj override target, but the actual
+    // NuGet pack pipeline is what produces the dep declaration, so we verify the output.
+    //
+    // Both the per-group dep count AND the exact range string matter: a future regression
+    // could drop the dep from three of the four TFM groups, or stamp a different range
+    // shape (e.g. `[v,)` unbounded-upper, or a wider ceiling than RuntimeVersionRange.Build
+    // produces). A loose 'starts-with-[' check would let those slip through.
+    static void AssertSupplementBoundsRuntimeRange(
+        AbsolutePath nupkgDir, string runtimeVersion, string appleVersion)
+    {
+        // Mirrors the four <TargetFrameworks> entries in Swift.Bindings.Apple.csproj. NuGet
+        // emits one <group> per TFM with a normalized OS-version suffix (e.g. "26.0"); we
+        // match by prefix to stay decoupled from whichever Apple TFM the host SDK pins.
+        string[] expectedTfmPrefixes =
+        {
+            "net10.0-ios",
+            "net10.0-maccatalyst",
+            "net10.0-macos",
+            "net10.0-tvos",
+        };
+
+        var supplementPath = nupkgDir / $"SwiftBindings.Apple.{appleVersion}.nupkg";
+        if (!File.Exists(supplementPath))
+            Assert.Fail($"PackGate: expected supplement nupkg at {supplementPath}, but it was not produced.");
+
+        using var archive = ZipFile.OpenRead(supplementPath);
+        var nuspecEntry = archive.Entries.FirstOrDefault(e =>
+            e.FullName.Equals("SwiftBindings.Apple.nuspec", StringComparison.OrdinalIgnoreCase))
+            ?? throw new Exception($"PackGate: SwiftBindings.Apple.nuspec missing from {supplementPath}");
+        using var reader = new StreamReader(nuspecEntry.Open());
+        var nuspec = reader.ReadToEnd();
+
+        var doc = System.Xml.Linq.XDocument.Parse(nuspec);
+        var ns = doc.Root!.GetDefaultNamespace();
+
+        // Compare against the canonical bounded range with whitespace stripped — NuGet
+        // sometimes inserts a space after the comma during nuspec serialization, so both
+        // "[0.9.0,0.10.0)" and "[0.9.0, 0.10.0)" are accepted; anything else is a regression.
+        var expectedRange = BindingsGeneration.RuntimeVersionRange.Build(runtimeVersion);
+        var expectedNormalized = StripWhitespace(expectedRange);
+
+        var groups = doc.Descendants(ns + "group").ToList();
+        var seenPrefixes = new HashSet<string>();
+        foreach (var group in groups)
+        {
+            var tfm = (string?)group.Attribute("targetFramework") ?? "";
+            var matchedPrefix = expectedTfmPrefixes.FirstOrDefault(p =>
+                tfm.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            if (matchedPrefix is null)
+            {
+                Assert.Fail(
+                    $"PackGate: supplement nuspec has unexpected <group targetFramework=\"{tfm}\">. " +
+                    $"Expected one of: {string.Join(", ", expectedTfmPrefixes)}. Path: {supplementPath}");
+                return; // Assert.Fail throws — annotate for nullable analysis.
+            }
+            seenPrefixes.Add(matchedPrefix);
+
+            var deps = group.Elements(ns + "dependency")
+                .Where(d => (string?)d.Attribute("id") == "SwiftBindings.Runtime")
+                .ToList();
+            if (deps.Count != 1)
+            {
+                Assert.Fail(
+                    $"PackGate: supplement nuspec group '{tfm}' has {deps.Count} " +
+                    $"SwiftBindings.Runtime entries, expected exactly 1. Path: {supplementPath}");
+            }
+
+            var version = (string?)deps[0].Attribute("version") ?? "";
+            if (!string.Equals(StripWhitespace(version), expectedNormalized, StringComparison.Ordinal))
+            {
+                Assert.Fail(
+                    $"PackGate: supplement nuspec group '{tfm}' declares Runtime as '{version}', " +
+                    $"expected '{expectedRange}'. This is the regression where " +
+                    $"_GetProjectReferenceVersions writes the bare $(PackageVersion) of " +
+                    $"Swift.Runtime instead of the $(SwiftRuntimePackageVersionRange) override. " +
+                    $"Path: {supplementPath}");
+            }
+        }
+
+        var missing = expectedTfmPrefixes.Where(p => !seenPrefixes.Contains(p)).ToList();
+        if (missing.Count > 0)
+        {
+            Assert.Fail(
+                $"PackGate: supplement nuspec is missing dependency groups for TFM(s): " +
+                $"{string.Join(", ", missing)}. Path: {supplementPath}");
+        }
+
+        Log.Information("  Apple supplement nuspec: Runtime dep is '{Range}' across {Count} TFM group(s)",
+            expectedRange, groups.Count);
+
+        static string StripWhitespace(string s) =>
+            new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
     }
 }
