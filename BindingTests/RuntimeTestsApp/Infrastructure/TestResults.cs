@@ -276,7 +276,8 @@ public class SkipAttribute : Attribute
 ///
 /// The reason MUST reference either:
 /// - A Mono-specific RuntimeLimitations.Limitation (MonoCallConvSwiftJitAssertion,
-///   MonoAsyncSafeHandleLifetime, or NonBlittableCallConvSwiftRejection)
+///   MonoSetInsertDoneBlocking, MonoAsyncSafeHandleLifetime, or
+///   NonBlittableCallConvSwiftRejection)
 /// - A specific generator bug that only manifests on Mono (prefixed with "Generator bug:")
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
@@ -295,8 +296,8 @@ public class SkipOnSimulatorAttribute : Attribute
 /// Skipped on device, runs on simulator. The reason is visible in test output.
 ///
 /// The reason MUST reference either:
-/// - A NativeAOT-specific RuntimeLimitations.Limitation (NativeAotFloatStructParam,
-///   NativeAotFloatStructReturn, or NonBlittableCallConvSwiftRejection)
+/// - A NativeAOT-applicable RuntimeLimitations.Limitation (currently only
+///   NonBlittableCallConvSwiftRejection — the registry has no NativeAOT-only entries)
 /// - A specific generator bug that only manifests on NativeAOT (prefixed with "Generator bug:")
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]

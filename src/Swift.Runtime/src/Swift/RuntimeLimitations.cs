@@ -8,19 +8,17 @@ namespace Swift;
 /// <summary>
 /// Exhaustive, queryable registry of every known upstream .NET runtime limitation
 /// affecting Swift interop. Each entry maps to a confirmed upstream bug documented
-/// in src/docs/Future/upstream-bug-reports-draft.md.
+/// in src/docs/Future/upstream-issues-README.md and the per-issue files alongside it.
 ///
 /// Key principle: this registry is exhaustive. If a runtime crash doesn't match
 /// a registered limitation, it is definitively a generator bug.
-/// MONO-JIT-FINDINGS.md proved 100% of suspected "Mono bugs" were generator bugs.
-/// This registry codifies that lesson.
 /// </summary>
 public static class RuntimeLimitations
 {
     /// <summary>
     /// Exhaustive enum of every known upstream runtime limitation.
     /// Each value maps to a confirmed upstream bug with a reproduction
-    /// and workaround documented in upstream-bug-reports-draft.md.
+    /// and workaround documented in src/docs/Future/upstream-issues-README.md.
     /// </summary>
     internal enum Limitation
     {
@@ -42,27 +40,21 @@ public static class RuntimeLimitations
         NonBlittableCallConvSwiftRejection,
 
         /// <summary>
-        /// NativeAOT: Custom struct float/double fields placed in GPR (x0-x7) instead of
-        /// FPR (d0-d7) when passed as parameters via CallConvSwift on ARM64.
-        /// System framework types (CGRect, CGPoint) are exempt.
-        /// Upstream: Issue 5. Status: Unfixed.
-        /// Workaround: @_cdecl wrapper decomposes struct into individual scalar parameters.
+        /// Mono: <c>Set.insert</c> via CallConvSwift triggers
+        /// "Cannot transition thread from STARTING with DONE_BLOCKING" abort inside
+        /// the Mono CallConvSwift trampoline.
+        /// Upstream: Issue 3. Status: Unfixed. NativeAOT confirmed NOT affected.
+        /// Workaround: @_cdecl Swift wrapper performs the insert on the Swift side.
         /// </summary>
-        NativeAotFloatStructParam,
-
-        /// <summary>
-        /// NativeAOT: Custom struct float/double return values read from GPR instead of FPR.
-        /// On Mono, float struct returns may SIGSEGV.
-        /// Upstream: Issue 6. Status: Unfixed.
-        /// Workaround: @_cdecl wrapper returns scalar, or SwiftIndirectResult bypasses registers.
-        /// </summary>
-        NativeAotFloatStructReturn,
+        MonoSetInsertDoneBlocking,
 
         /// <summary>
         /// Mono: SafeHandle/SwiftSelf lifetime not preserved across async P/Invoke
         /// suspension points. GC can collect the SafeHandle while Swift async operation
         /// is in flight, causing SIGSEGV.
-        /// Upstream: Issue 3. Status: Unfixed. NativeAOT confirmed NOT affected.
+        /// Upstream: tracking-issue comment item (no standalone bug filing — see
+        /// src/docs/Future/upstream-issues-README.md § "Tracking-issue comment").
+        /// NativeAOT confirmed NOT affected.
         /// Workaround: DangerousGetHandle() + explicit Arc.Retain/Release, or
         /// @_cdecl wrapper accepting UnsafeMutableRawPointer.
         /// </summary>
@@ -92,16 +84,12 @@ public static class RuntimeLimitations
             // Not affected on desktop CoreCLR (no Swift interop P/Invokes).
             Limitation.NonBlittableCallConvSwiftRejection => isMono || isNativeAot,
 
-            // Issue 5: NativeAOT-only (float struct params in GPR)
-            Limitation.NativeAotFloatStructParam => isNativeAot,
+            // Issue 3: Mono-only (Set.insert DONE_BLOCKING in CallConvSwift trampoline)
+            Limitation.MonoSetInsertDoneBlocking => isMono,
 
-            // Issue 6: NativeAOT-only (float struct return from GPR)
-            // Note: Mono has the inverse bug (SIGSEGV on float struct return)
-            // but the workaround (@_cdecl) handles both, so we only register
-            // the NativeAOT side as the canonical limitation.
-            Limitation.NativeAotFloatStructReturn => isNativeAot,
-
-            // Issue 3: Mono-only (SafeHandle async lifetime)
+            // Tracking-comment item: Mono-only (SafeHandle async lifetime).
+            // Not a numbered upstream issue — supportability question on the Swift
+            // interop tracking issue, not a confirmed runtime bug filing.
             Limitation.MonoAsyncSafeHandleLifetime => isMono,
 
             _ => false,
@@ -125,20 +113,15 @@ public static class RuntimeLimitations
                 "CallConvSwift P/Invoke on both Mono (marshal.c:3729) and NativeAOT " +
                 "(SwiftPhysicalLowering.cs:215) (upstream Issue 2). Workaround: @_cdecl wrapper.",
 
-            Limitation.NativeAotFloatStructParam =>
-                "NativeAOT places custom struct float/double param fields in GPR instead of FPR " +
-                "on ARM64. System types (CGRect) exempt (upstream Issue 5). " +
-                "Workaround: @_cdecl wrapper with scalar decomposition.",
-
-            Limitation.NativeAotFloatStructReturn =>
-                "NativeAOT reads custom struct float/double return from GPR instead of FPR on ARM64. " +
-                "On Mono, float struct returns may SIGSEGV (upstream Issue 6). " +
-                "Workaround: @_cdecl wrapper or SwiftIndirectResult.",
+            Limitation.MonoSetInsertDoneBlocking =>
+                "Mono CallConvSwift trampoline aborts with 'Cannot transition thread from STARTING " +
+                "with DONE_BLOCKING' when calling Swift Set.insert. NativeAOT not affected " +
+                "(upstream Issue 3). Workaround: @_cdecl Swift wrapper performs the insert.",
 
             Limitation.MonoAsyncSafeHandleLifetime =>
                 "Mono GC can collect SafeHandle across async P/Invoke suspension point, causing " +
-                "SIGSEGV. NativeAOT not affected (upstream Issue 3). " +
-                "Workaround: DangerousGetHandle() + Arc.Retain/Release.",
+                "SIGSEGV. NativeAOT not affected. Tracking-issue comment item — not a numbered " +
+                "upstream filing. Workaround: DangerousGetHandle() + Arc.Retain/Release.",
 
             _ => $"Unknown runtime limitation: {limitation}",
         };

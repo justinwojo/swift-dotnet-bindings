@@ -62,10 +62,12 @@ public class RuntimeLimitationsTests
     }
 
     [Fact]
-    public void RegistryContainsExactlyFiveUpstreamBugs()
+    public void RegistryContainsExactlyFourLimitations()
     {
+        // Three numbered upstream issues (1, 2, 3 — see upstream-issues-README.md)
+        // plus the SafeHandle async tracking-issue comment item.
         var all = RuntimeLimitations.GetAllLimitations();
-        Assert.Equal(5, all.Count);
+        Assert.Equal(4, all.Count);
     }
 
     [Fact]
@@ -74,8 +76,7 @@ public class RuntimeLimitationsTests
         var all = RuntimeLimitations.GetAllLimitations();
         Assert.Contains(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion, all);
         Assert.Contains(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection, all);
-        Assert.Contains(RuntimeLimitations.Limitation.NativeAotFloatStructParam, all);
-        Assert.Contains(RuntimeLimitations.Limitation.NativeAotFloatStructReturn, all);
+        Assert.Contains(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking, all);
         Assert.Contains(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime, all);
     }
 
@@ -102,11 +103,8 @@ public class RuntimeLimitationsTests
             RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection),
             "Non-blittable rejection is Mono+NativeAOT only, not desktop CoreCLR");
         Assert.False(RuntimeLimitations.IsAffected(
-            RuntimeLimitations.Limitation.NativeAotFloatStructParam),
-            "NativeAOT float param is iOS device only, not desktop CoreCLR");
-        Assert.False(RuntimeLimitations.IsAffected(
-            RuntimeLimitations.Limitation.NativeAotFloatStructReturn),
-            "NativeAOT float return is iOS device only, not desktop CoreCLR");
+            RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking),
+            "Mono Set.insert DONE_BLOCKING is iOS simulator only, not desktop CoreCLR");
         Assert.False(RuntimeLimitations.IsAffected(
             RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime),
             "Mono async SafeHandle is iOS simulator only, not desktop CoreCLR");
@@ -120,8 +118,7 @@ public class RuntimeLimitationsTests
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "jit-info.c:918")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "marshal.c:3729")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructParam), "GPR instead of FPR")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructReturn), "GPR instead of FPR")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking), "DONE_BLOCKING")]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "SafeHandle")]
     public void DescribeContainsKeyDiagnosticInfo(
         string limitationName, string expectedSubstring)
@@ -131,18 +128,32 @@ public class RuntimeLimitationsTests
         Assert.Contains(expectedSubstring, description, StringComparison.OrdinalIgnoreCase);
     }
 
+    // Issue numbers map to upstream-issues-README.md filings: 1 = Mono JIT async assert,
+    // 2 = non-blittable CallConvSwift, 3 = Mono Set.insert DONE_BLOCKING. The SafeHandle
+    // async lifetime is intentionally excluded — it's a tracking-issue comment item, not
+    // a numbered filing — and is covered separately by DescribeMarksTrackingCommentItem.
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Issue 1")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Issue 2")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructParam), "Issue 5")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructReturn), "Issue 6")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "Issue 3")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking), "Issue 3")]
     public void DescribeReferencesUpstreamIssueNumber(
         string limitationName, string expectedIssueRef)
     {
         var limitation = Enum.Parse<RuntimeLimitations.Limitation>(limitationName);
         var description = RuntimeLimitations.Describe(limitation);
         Assert.Contains(expectedIssueRef, description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DescribeMarksTrackingCommentItem()
+    {
+        // SafeHandle async lifetime is not a numbered upstream filing; the registry
+        // describes it as a tracking-issue comment item. Pin that wording so future
+        // edits don't accidentally re-promote it to a numbered issue.
+        var description = RuntimeLimitations.Describe(
+            RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime);
+        Assert.Contains("Tracking-issue comment", description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Issue 3", description, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -245,8 +256,7 @@ public class RuntimeLimitationsTests
     [Theory]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoCallConvSwiftJitAssertion), "Workaround")]
     [InlineData(nameof(RuntimeLimitations.Limitation.NonBlittableCallConvSwiftRejection), "Workaround")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructParam), "Workaround")]
-    [InlineData(nameof(RuntimeLimitations.Limitation.NativeAotFloatStructReturn), "Workaround")]
+    [InlineData(nameof(RuntimeLimitations.Limitation.MonoSetInsertDoneBlocking), "Workaround")]
     [InlineData(nameof(RuntimeLimitations.Limitation.MonoAsyncSafeHandleLifetime), "Workaround")]
     public void DescribeIncludesWorkaround(
         string limitationName, string expectedSubstring)
