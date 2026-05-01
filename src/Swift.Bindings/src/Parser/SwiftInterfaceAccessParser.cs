@@ -76,9 +76,15 @@ public static class SwiftInterfaceAccessParser
         @"nonisolated\s+(?:public|open|final|var|let|func|static|class)",
         RegexOptions.Compiled);
 
-    // Regex for public/open func declarations (for member-level actor isolation detection)
+    // Regex for public/open func declarations (for member-level actor isolation detection).
+    // The name capture also accepts operator characters so static-func operator
+    // declarations (e.g. `public static func == (lhs: …, rhs: …) -> Bool`) feed the
+    // member-availability pipeline. Without the operator branch, retroactive Equatable
+    // conformances declared in availability-gated extensions never propagate the
+    // extension's @available floor onto the operator decl, and the @_cdecl equality
+    // wrapper compiles at the type's lower @available than the conformance requires.
     private static readonly Regex PublicFuncRegex = new(
-        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        @"(?:public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+|[/=\-+!*%<>&|^~?.]+)\s*(?:<[^>]*>\s*)?\(",
         RegexOptions.Compiled);
 
     // Regex for public/open var/let declarations (for member-level actor isolation detection)
@@ -2718,12 +2724,23 @@ public static class SwiftInterfaceAccessParser
         // Extract external labels from parameter list
         var labels = new List<string>();
         var parts = SplitParameters(paramStr);
+        // Operator functions never carry argument labels at the call site
+        // (Swift writes `a == b`, not `a ==(lhs: b, rhs: …)`), so the ABI's
+        // printedName always uses "_" for every operator parameter regardless
+        // of the source's `lhs`/`rhs` names. Mirror that to keep this parser's
+        // member key alignable with the ABI parser's lookup.
+        bool funcIsOperator = IsOperatorName(funcName);
         foreach (var part in parts)
         {
             var trimPart = part.Trim();
             // Pattern: "externalLabel internalName: Type" or "_ internalName: Type" or "name: Type"
             var colonIdx = trimPart.IndexOf(':');
             if (colonIdx < 0) continue;
+            if (funcIsOperator)
+            {
+                labels.Add("_");
+                continue;
+            }
             var beforeColon = trimPart.Substring(0, colonIdx).Trim();
             // Split by whitespace — first token is the external label
             var words = beforeColon.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -2737,6 +2754,24 @@ public static class SwiftInterfaceAccessParser
             return $"{funcName}()";
 
         return $"{funcName}({string.Join(":", labels)}:)";
+    }
+
+    /// <summary>
+    /// True iff <paramref name="funcName"/> consists entirely of Swift operator
+    /// characters (`/=-+!*%&lt;&gt;&amp;|^~?.`). Operator functions take a fixed
+    /// set of unlabeled positional parameters at the ABI level — the parser must
+    /// erase any source-side `lhs`/`rhs` labels so the resulting printedName
+    /// matches the ABI JSON ("==(_:_:)" not "==(lhs:rhs:)").
+    /// </summary>
+    private static bool IsOperatorName(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        foreach (var c in s)
+        {
+            if (!"/=-+!*%<>&|^~?.".Contains(c))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>

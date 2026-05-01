@@ -753,6 +753,9 @@ public class EveryProtocolEmitter
         if (IsClassBoundProtocol(protocolDecl))
             return true;
 
+        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
+            return true;
+
         if (InheritsCaseIterable(protocolDecl))
             return true;
 
@@ -948,6 +951,18 @@ public class EveryProtocolEmitter
             return;
         }
 
+        // Skip protocols that name a concrete class in their inheritance list
+        // (e.g. RealityKit.EntityGestureRecognizer : UIKit.UIGestureRecognizer).
+        // Such a declaration constrains Self to be a subclass of that class —
+        // EveryProtocol is a plain Swift class and inherits no UIKit / AppKit
+        // / Foundation classes, so the conformance cannot type-check.
+        if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: requires class superclass EveryProtocol cannot inherit");
+            RecordSkip("ClassSuperclassRequired");
+            return;
+        }
+
         // Skip protocols whose genericSig constrains Self (τ_0_0) to conform to a protocol
         // that EveryProtocol can't satisfy — either from a known ObjC module or a previously
         // skipped protocol from the same module.
@@ -991,6 +1006,19 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has constructor requirements");
             RecordSkip("ConstructorRequirements");
+            return;
+        }
+
+        // Skip protocols whose method signatures contain noncopyable parameters or return types.
+        // The EveryProtocol trampoline forwards into the C# vtable via `inout` pointers, which
+        // requires copying the value into a local var. Noncopyable types (~Copyable) cannot be
+        // copied, so the generated trampoline fails to type-check ("copy of noncopyable typed
+        // value"). Forwarding noncopyable values across the C# boundary needs a richer protocol
+        // — for now, skip the conformance so the C# proxy class is suppressed.
+        if (HasNoncopyableMember(protocolDecl))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: has noncopyable parameter or return type");
+            RecordSkip("NoncopyableParamOrReturn");
             return;
         }
 
@@ -2542,6 +2570,72 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Checks whether the protocol's inheritance list (transitively) names a
+    /// concrete class. A Swift declaration of the form
+    /// <c>protocol P : SomeClass</c> constrains Self to be (a subclass of)
+    /// SomeClass; EveryProtocol is a plain Swift class with no UIKit / AppKit
+    /// / Foundation lineage, so any class superclass requirement makes the
+    /// synthesized <c>extension EveryProtocol: P</c> unsatisfiable. The check
+    /// resolves each inherited entry against the type database and reports
+    /// <c>true</c> on a <see cref="TypeRecordKind.Class"/> hit; intra-module
+    /// protocol transitivity is followed when <paramref name="allProtocols"/>
+    /// is supplied.
+    /// </summary>
+    internal static bool HasClassSuperclassRequirement(
+        ProtocolDecl protocolDecl,
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        return HasClassSuperclassRequirementRecursive(
+            protocolDecl, typeDatabase, allProtocols,
+            new HashSet<string>(StringComparer.Ordinal));
+    }
+
+    private static bool HasClassSuperclassRequirementRecursive(
+        ProtocolDecl protocolDecl,
+        ITypeDatabase typeDatabase,
+        IReadOnlyList<ProtocolDecl>? allProtocols,
+        HashSet<string> visited)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return false;
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var simpleName = GetSimpleName(inherited.Name);
+
+            // Trivial marker / stdlib entries that are not concrete classes.
+            if (simpleName is "AnyObject" or "Sendable" or "Escapable" or "Copyable"
+                or "SendableMetatype" or "Error")
+                continue;
+
+            // The ABI parser records superclass conformances alongside protocol
+            // conformances in InheritedProtocols. Resolve through the type
+            // database — a class entry returns Kind == Class.
+            if (typeDatabase.TryGetTypeRecord(inherited, out var record) &&
+                record.Kind == TypeRecordKind.Class)
+            {
+                return true;
+            }
+
+            if (allProtocols != null)
+            {
+                var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                    p.Name == simpleName || p.Name == inherited.Name ||
+                    p.SwiftTypeName?.ToString() == inherited.Name);
+                if (inheritedDecl != null &&
+                    HasClassSuperclassRequirementRecursive(inheritedDecl, typeDatabase, allProtocols, visited))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a protocol's genericSig constrains Self (τ_0_0) to conform to a protocol
     /// that EveryProtocol can't satisfy. Covers three cases:
     /// 1. Constraint from a known ObjC module (UIKit, AppKit, Foundation) — requires NSObject
@@ -2604,11 +2698,23 @@ public class EveryProtocolEmitter
 
     /// <summary>
     /// Parses constraint protocol names from a genericSig string.
-    /// Extracts types after "τ_0_0 : " markers (Self constraints).
+    /// Extracts types after Self / τ_0_0 markers (Self constraints).
+    /// swift-api-digester uses both spellings: protocol declarations carry
+    /// <c>&lt;Self : Foo&gt;</c> while bound generic signatures use the
+    /// substituted form <c>&lt;τ_0_0 : Foo&gt;</c>. The <c>Self.Member</c>
+    /// dotted form is intentionally excluded — that targets an associated
+    /// type, not Self itself.
     /// </summary>
     private static IEnumerable<string> ParseGenericSigConstraints(string sig)
     {
-        var marker = "τ_0_0 : ";
+        foreach (var c in ExtractConstraints(sig, "τ_0_0 : "))
+            yield return c;
+        foreach (var c in ExtractConstraints(sig, "Self : "))
+            yield return c;
+    }
+
+    private static IEnumerable<string> ExtractConstraints(string sig, string marker)
+    {
         int idx = 0;
         while (idx < sig.Length)
         {
@@ -2660,6 +2766,50 @@ public class EveryProtocolEmitter
                 if (inheritedDecl != null && InheritsCaseIterableRecursive(inheritedDecl, allProtocols, visited))
                     return true;
             }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true if any instance method, property accessor, or subscript on the protocol
+    /// has a noncopyable parameter or return type. The EveryProtocol trampoline uses inout
+    /// pointers via a local-var copy, which the compiler rejects for ~Copyable types.
+    /// Suppressing the entire conformance avoids generating ill-formed Swift in the wrapper.
+    /// </summary>
+    internal bool HasNoncopyableMember(ProtocolDecl protocolDecl)
+    {
+        bool IsNoncopyable(TypeSpec? spec)
+        {
+            if (spec == null || spec.IsEmptyTuple) return false;
+            return WrapperValidation.IsNonCopyableType(spec, _typeDatabase, protocolDecl.ModuleDecl);
+        }
+
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsConstructor || method.MethodType == MethodType.Static) continue;
+            foreach (var param in method.CSSignature.Skip(1))
+            {
+                if (IsNoncopyable(param.SwiftTypeSpec)) return true;
+            }
+            var returnSpec = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+            if (IsNoncopyable(returnSpec)) return true;
+        }
+
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (property.IsStatic) continue;
+            if (IsNoncopyable(property.SwiftTypeSpec)) return true;
+        }
+
+        foreach (var subscript in protocolDecl.Subscripts)
+        {
+            if (subscript.IsStatic) continue;
+            foreach (var idx in subscript.IndexParameters)
+            {
+                if (IsNoncopyable(idx.SwiftTypeSpec)) return true;
+            }
+            if (IsNoncopyable(subscript.ReturnTypeSpec)) return true;
         }
 
         return false;

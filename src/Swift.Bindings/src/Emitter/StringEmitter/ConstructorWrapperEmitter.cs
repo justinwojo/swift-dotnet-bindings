@@ -511,7 +511,8 @@ public static class ConstructorWrapperEmitter
         if (isGenericClassParent)
         {
             protocolName = EmitConstructorProtocolAndConformance(
-                swiftWriter, methodDecl, symbolName, moduleQualifiedSwiftName, isFailable, throws);
+                swiftWriter, methodDecl, symbolName, moduleQualifiedSwiftName, isFailable, throws,
+                parentTypeDecl!);
         }
 
         // Build the call expression.
@@ -692,13 +693,17 @@ public static class ConstructorWrapperEmitter
     /// </summary>
     private static string EmitConstructorProtocolAndConformance(
         SwiftWriter swiftWriter, MethodDecl methodDecl, string symbolName,
-        string moduleQualifiedName, bool isFailable, bool throws)
+        string moduleQualifiedName, bool isFailable, bool throws,
+        TypeDecl parentTypeDecl)
     {
         var memberDecl = GenericProtocolEmitter.BuildConstructorMemberDeclaration(
             methodDecl, methodDecl.ModuleDecl!, isFailable, throws);
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            methodDecl.AvailabilityAnnotations, parentTypeDecl);
         return GenericProtocolEmitter.EmitProtocolAndConformance(
             swiftWriter, "CI", symbolName, memberDecl, moduleQualifiedName,
-            protocolConstraint: "AnyObject");
+            protocolConstraint: "AnyObject",
+            extensionAvailability: extensionAvailability);
     }
 
     /// <summary>
@@ -914,7 +919,7 @@ public static class ConstructorWrapperEmitter
             else
             {
                 // Concrete param → pass through directly
-                var (cdeclParam, reconstruction, _) = CdeclParamMapper.Map(arg, label, env, false);
+                var (cdeclParam, reconstruction, callExpr) = CdeclParamMapper.Map(arg, label, env, false);
                 // For the protocol, use the Swift type
                 var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
                 protocolParams.Add($"{paramPrefix}: {swiftType}");
@@ -922,8 +927,10 @@ public static class ConstructorWrapperEmitter
 
                 if (reconstruction != null)
                 {
-                    // In @_cdecl, reconstruct the C param; pass reconstructed value to protocol
-                    cdeclCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}Val");
+                    // Use CdeclParamMapper's actual call expression — the local-variable suffix
+                    // varies (Val vs Opt for Optional<BlittablePrimitive>); hardcoding "Val"
+                    // drifts when the mapper picks a different name.
+                    cdeclCallArgs.Add(callExpr);
                 }
                 else
                 {
@@ -970,6 +977,16 @@ public static class ConstructorWrapperEmitter
         var throwsClause = throws ? " throws" : "";
         var failableQ = isFailable ? "?" : "";
 
+        // Compute availability up-front so the protocol, conformance extension, and @_cdecl
+        // wrapper all share the same floor. The protocol's static method signature can name
+        // availability-gated types (e.g. SpatialForceFalloff at iOS 18+); without the matching
+        // @available on the protocol, Swift rejects the signature when the deployment target
+        // is older than the referenced API.
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            env.MethodDecl.AvailabilityAnnotations, parentTypeDecl);
+        var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            extensionAvailability, "");
+
         // Emit protocol declaration
         swiftWriter.WriteLine();
         string protocolMethodDecl;
@@ -983,7 +1000,7 @@ public static class ConstructorWrapperEmitter
         }
 
         swiftWriter.WriteLines($$"""
-            private protocol {{protocolName}} {
+            {{extensionAvailPrefix}}private protocol {{protocolName}} {
                 {{protocolMethodDecl}}
             }
             """);
@@ -1050,8 +1067,16 @@ public static class ConstructorWrapperEmitter
         // Build extension implementation
         var extensionBody = string.Join("\n        ", extensionLines);
 
+        // When the constructor itself constrains the parent's generic param via a same-type
+        // requirement (e.g. SampledAnimation.init(jointNames:) requires Value == JointTransforms),
+        // the conformance extension must inherit that constraint. Without it, Self(…) inside the
+        // factory body fails Swift type-checking because the unconstrained extension can't see
+        // the specialized init.
+        var extensionWhereClause = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
+            env.MethodDecl, parentTypeDecl);
+
         swiftWriter.WriteLines($$"""
-            extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
+            {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}}{{extensionWhereClause}} {
                 static func {{factoryMethodName}}({{protocolParamString}}){{throwsClause}}{{(isClass ? $" -> UnsafeMutableRawPointer{(isFailable ? "?" : "")}" : "")}} {
                     {{extensionBody}}
                 }

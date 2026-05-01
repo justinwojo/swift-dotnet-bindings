@@ -1041,8 +1041,9 @@ public class SwiftInterfaceAccessParserTests
         try
         {
             var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
-            Assert.True(result.ContainsKey("MyCollection.subscript(index:)"));
-            var annotations = result["MyCollection.subscript(index:)"];
+            // Single-name subscript params carry no call-site label, so the ABI key uses `_:`.
+            Assert.True(result.ContainsKey("MyCollection.subscript(_:)"));
+            var annotations = result["MyCollection.subscript(_:)"];
             Assert.Contains(annotations, a => a.Platform == "iOS" && a.IntroducedVersion == "14.0");
         }
         finally { File.Delete(path); }

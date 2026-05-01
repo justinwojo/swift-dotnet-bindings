@@ -1320,7 +1320,7 @@ public class TypeHandlersOutputTests
                 conformance.Protocol,
                 new TypeRecord
                 {
-                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module.Name}", conformance.Protocol.Name),
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module.Name, $"I{conformance.Protocol.Name}"),
                     SwiftTypeName = conformance.Protocol,
                     MetadataAccessor = string.Empty,
                     Flags = TypeRecordFlags.None,

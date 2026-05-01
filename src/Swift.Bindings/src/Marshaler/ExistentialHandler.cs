@@ -506,17 +506,19 @@ public class ExistentialHandler
             if (firstProtocol.GenericParameters.Count > 0)
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
 
-            var interfaceName = NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: firstProtocol.Module);
+            var firstProtocolTypeName = SwiftTypeName.FromTypeSpec(firstProtocol);
+            var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(firstProtocolTypeName, _typeDatabase);
+            var interfaceName = NameProvider.GetInterfaceName(firstProtocol.NameWithoutModule, moduleName: emissionModule);
 
-            // Cross-module protocol reference: qualify with module namespace.
-            // When module A references a protocol from module B, C# needs "B.IProtocol"
-            // because the type lives in namespace B, not namespace A.
+            // Cross-module protocol reference: qualify with the resolved emission namespace
+            // (umbrella fallback aware) so umbrella-qualified ABI shapes that resolve to a
+            // dep module emit `<DepModule>.IProtocol` instead of bare `IProtocol`.
             if (!string.IsNullOrEmpty(CurrentModuleName) &&
-                !string.IsNullOrEmpty(firstProtocol.Module) &&
-                firstProtocol.Module != CurrentModuleName &&
-                firstProtocol.Module != "Swift")
+                !string.IsNullOrEmpty(emissionModule) &&
+                emissionModule != CurrentModuleName &&
+                emissionModule != "Swift")
             {
-                interfaceName = $"{firstProtocol.Module}.{interfaceName}";
+                interfaceName = $"{emissionModule}.{interfaceName}";
             }
 
             return interfaceName;
@@ -697,16 +699,18 @@ public class ExistentialHandler
         // If filtering leaves only 1 protocol, return its interface name directly
         if (protocols.Count == 1)
         {
-            var interfaceName = NameProvider.GetInterfaceName(protocols[0].NameWithoutModule, moduleName: protocols[0].Module);
+            var firstProtocolTypeName = SwiftTypeName.FromTypeSpec(protocols[0]);
+            var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(firstProtocolTypeName, _typeDatabase);
+            var interfaceName = NameProvider.GetInterfaceName(protocols[0].NameWithoutModule, moduleName: emissionModule);
 
-            // Cross-module protocol reference: qualify with module namespace.
-            // Same logic as GetPublicExistentialType single-protocol path (lines 354-360).
+            // Cross-module protocol reference: qualify with the resolved emission namespace.
+            // Same logic as GetPublicExistentialType single-protocol path.
             if (!string.IsNullOrEmpty(CurrentModuleName) &&
-                !string.IsNullOrEmpty(protocols[0].Module) &&
-                protocols[0].Module != CurrentModuleName &&
-                protocols[0].Module != "Swift")
+                !string.IsNullOrEmpty(emissionModule) &&
+                emissionModule != CurrentModuleName &&
+                emissionModule != "Swift")
             {
-                interfaceName = $"{protocols[0].Module}.{interfaceName}";
+                interfaceName = $"{emissionModule}.{interfaceName}";
             }
 
             return interfaceName;
@@ -721,8 +725,23 @@ public class ExistentialHandler
         var names = protocols.Select(p => p.NameWithoutModule).ToList();
         var compositionName = "I" + string.Join("And", names);
 
-        // Collect for later emission via the per-conductor scoped collector
-        var parentInterfaces = protocols.Select(p => NameProvider.GetInterfaceName(p.NameWithoutModule, moduleName: p.Module)).ToList();
+        // Collect for later emission via the per-conductor scoped collector. Use the
+        // resolved emission namespace so umbrella-qualified parents pick up the
+        // cross-module qualification (matches the single-protocol path above).
+        var parentInterfaces = protocols.Select(p =>
+        {
+            var pTypeName = SwiftTypeName.FromTypeSpec(p);
+            var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(pTypeName, _typeDatabase);
+            var raw = NameProvider.GetInterfaceName(p.NameWithoutModule, moduleName: emissionModule);
+            if (!string.IsNullOrEmpty(CurrentModuleName) &&
+                !string.IsNullOrEmpty(emissionModule) &&
+                emissionModule != CurrentModuleName &&
+                emissionModule != "Swift")
+            {
+                raw = $"{emissionModule}.{raw}";
+            }
+            return raw;
+        }).ToList();
         _compositionCollector?.TryAdd(compositionName, parentInterfaces);
 
         return compositionName;

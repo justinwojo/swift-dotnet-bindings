@@ -153,7 +153,9 @@ public class SwiftInterfaceContextTrackerTests
     [Fact]
     public void ExtractMemberPrintedName_Subscript()
     {
-        Assert.Equal("subscript(key:)", SwiftInterfaceContextTracker.ExtractMemberPrintedName(
+        // Single-name parameters carry no call-site label; the ABI key uses `_:` to mirror
+        // how callers write `obj[arg]` (no label even though the source spells `key:`).
+        Assert.Equal("subscript(_:)", SwiftInterfaceContextTracker.ExtractMemberPrintedName(
             "  public subscript(key: String) -> Int { get }"));
         Assert.Equal("subscript(row:column:)", SwiftInterfaceContextTracker.ExtractMemberPrintedName(
             "  public subscript(row row: Int, column col: Int) -> Double { get set }"));

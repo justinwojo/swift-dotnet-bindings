@@ -967,8 +967,16 @@ public static class MethodWrapperEmitter
 
         // Emit extension
         var extensionBody = string.Join("\n        ", extensionBodyLines);
+        // Conformance extensions need the same `@available` floor as the wrapped API:
+        // Swift checks the extension declaration against the deployment target, not the
+        // @_cdecl below it. Without this the wrapper compile fails with
+        // "X is only available in iOS Y or newer".
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            methodDecl.AvailabilityAnnotations, parentTypeDecl);
+        var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            extensionAvailability, "");
         swiftWriter.WriteLines($$"""
-            extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
+            {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}} {
                 static func {{dispatchMethodName}}({{string.Join(", ", protocolParams)}}){{throwsClause}}{{protocolReturnType}} {
                     {{extensionBody}}
                 }
@@ -1445,8 +1453,11 @@ public static class MethodWrapperEmitter
         string symbolName, string moduleQualifiedSwiftName)
     {
         var methodSig = BuildProtocolMethodDeclaration(methodDecl, env);
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            methodDecl.AvailabilityAnnotations, env.ParentDecl);
         GenericProtocolEmitter.EmitProtocolAndConformance(
-            swiftWriter, "P", symbolName, methodSig, moduleQualifiedSwiftName);
+            swiftWriter, "P", symbolName, methodSig, moduleQualifiedSwiftName,
+            extensionAvailability: extensionAvailability);
     }
 
     /// <summary>

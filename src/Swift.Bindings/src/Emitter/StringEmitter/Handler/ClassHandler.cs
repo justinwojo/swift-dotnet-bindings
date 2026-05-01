@@ -182,7 +182,7 @@ namespace BindingsGeneration
                     // recursive ProtocolConformances chain we walk for dedup.
                     var baseName = classDecl.CrossModuleSuperclassCSharpName!;
                     var baseInterfaces = ProtocolConformanceHelper.GetCrossModuleInheritedInterfaces(
-                        classDecl.CrossModuleSuperclassRecord!, env.TypeDatabase);
+                        classDecl.CrossModuleSuperclassRecord!, env.TypeDatabase, moduleDecl.Name);
 
                     var derivedInterfaces = new List<string> { baseName };
                     foreach (var iface in interfaces)
@@ -1199,9 +1199,14 @@ namespace BindingsGeneration
             // back to class instances (NOT assumingMemoryBound which is for structs).
             // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_classDecl, false);
-            // Carry availability from the class (and any nested ancestors) so the wrapper
-            // compiles when the type is gated behind an OS version.
-            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, _classDecl);
+            // Carry availability from the `==` operator (so retroactive Equatable conformances
+            // like RealityFoundation.TextureResource — class is iOS 13+, Equatable is iOS 18+ —
+            // get the operator's @available floor, not just the class's), merged with the class's
+            // ancestors so nested availability still flows through.
+            var equalityOperator = _classDecl.Operators
+                .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
+            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                equalityOperator?.AvailabilityAnnotations, _classDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""

@@ -635,7 +635,20 @@ namespace BindingsGeneration
                 return;
 
             var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
-            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
+            // Walk every case's @available so cases added in newer SDKs (e.g.
+            // ModelDebugOptionsComponent.VisualizationMode.clearcoatNormal at iOS 18 in an
+            // iOS 14 enum) lift the wrapper's floor — referencing them under the enum's
+            // own iOS 14 floor is a swiftc availability error.
+            List<AvailabilityAnnotation>? caseAnnotations = null;
+            foreach (var simpleCase in simpleCases)
+            {
+                if (simpleCase.AvailabilityAnnotations is { Count: > 0 } caseAvail)
+                {
+                    caseAnnotations ??= new List<AvailabilityAnnotation>();
+                    caseAnnotations.AddRange(caseAvail);
+                }
+            }
+            var availability = WrapperEmitterHelpers.MergeAvailability(caseAnnotations, enumDecl);
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             var sb = new System.Text.StringBuilder();

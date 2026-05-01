@@ -923,6 +923,49 @@ public class TypeDatabaseTests
         }
 
         [Fact]
+        public async System.Threading.Tasks.Task LoadModuleDatabaseFromFile_DepDb_ParticipatesInUmbrellaFallback()
+        {
+            // Apple-framework dep threading: when GenerateAppleFrameworkTarget passes a
+            // dep's emitted database (e.g. RealityFoundationDatabase.xml) as
+            // --module-database to the primary RealityKit run, the file-loaded module
+            // must participate in the same umbrella fallback that an in-process
+            // AddModuleDatabase'd module participates in. This pins that the
+            // file-load path and the in-process path reach the same lookup state —
+            // breaking it would silently re-introduce the 29 cross-module CS0234s
+            // Session 1 fixed even though the threading change in Build.Validation.cs
+            // remained intact.
+            var tempXml = Path.Combine(
+                Path.GetTempPath(),
+                $"RealityFoundationDatabase_{Guid.NewGuid():N}.xml");
+            File.WriteAllText(tempXml, """
+                <swifttypedatabase version="1.0" moduleName="RealityFoundation" modulePath="/fake/RealityFoundation.dylib">
+                  <entities>
+                    <entity managedTypeName="Entity" managedNameSpace="RealityFoundation">
+                      <typedeclaration module="RealityFoundation" name="Entity" mangledName="" frozen="false" requiresMemoryManagement="true" kind="class" />
+                    </entity>
+                  </entities>
+                </swifttypedatabase>
+                """);
+            try
+            {
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(tempXml);
+
+                // Lookup with the umbrella-qualified name (the form RealityKit's ABI JSON prints).
+                var umbrellaName = SwiftTypeName.FromModuleQualifiedName("RealityKit.Entity");
+                Assert.True(typeDatabase.TryGetTypeRecord(umbrellaName, out var record),
+                    "File-loaded RealityFoundation DB must resolve umbrella-qualified RealityKit.Entity.");
+                Assert.NotNull(record);
+                Assert.Equal("RealityFoundation", record!.SwiftTypeName.Module);
+                Assert.Equal("Entity", record.CSharpTypeName.Name);
+            }
+            finally
+            {
+                File.Delete(tempXml);
+            }
+        }
+
+        [Fact]
         public void GetBuiltInDatabases_NullPlatform_IncludesAllOptionalDatabases()
         {
             var databases = BindingsGenerator.GetBuiltInDatabases(platform: null);

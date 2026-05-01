@@ -637,9 +637,13 @@ namespace BindingsGeneration
             // redeclaration errors when multiple types share the same simple name.
             // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_structDecl, false);
-            // Carry availability from the struct (and any nested ancestors) so the wrapper
-            // compiles when the type is gated behind an OS version (e.g., iOS 16.4+).
-            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, _structDecl);
+            // Carry availability from the `==` operator (so retroactive Equatable conformances
+            // get the operator's @available floor, not just the struct's), merged with any
+            // nested ancestor availability.
+            var equalityOperator = _structDecl.Operators
+                .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
+            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                equalityOperator?.AvailabilityAnnotations, _structDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""
@@ -857,7 +861,7 @@ internal static class ProtocolConformanceHelper
                 if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                     continue;
 
-                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module);
+                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module, moduleName);
                 if (emitted.Add(iface))
                 {
                     interfaces.Add(iface);
@@ -895,8 +899,9 @@ internal static class ProtocolConformanceHelper
                         // The concrete type provides itself as the type argument
                         if (protocolDecl.HasSelfRequirement)
                         {
+                            var resolvedSelfModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
                             var baseName = NameProvider.GetInterfaceName(conformance.Protocol.Name,
-                                typeNameWithGenerics, conformance.Protocol.Module);
+                                typeNameWithGenerics, resolvedSelfModule, moduleName);
                             var genericIface = $"{baseName}<{typeNameWithGenerics}>";
                             if (emitted.Add(genericIface))
                             {
@@ -908,7 +913,8 @@ internal static class ProtocolConformanceHelper
                     }
                 }
 
-                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module);
+                var resolvedModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
+                var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, resolvedModule, moduleName);
                 if (emitted.Add(iface))
                 {
                     interfaces.Add(iface);
@@ -953,7 +959,8 @@ internal static class ProtocolConformanceHelper
         /// </summary>
         public static HashSet<string> GetCrossModuleInheritedInterfaces(
             TypeRecord parentRecord,
-            ITypeDatabase typeDatabase)
+            ITypeDatabase typeDatabase,
+            string currentModuleName = "")
         {
             var result = new HashSet<string>(StringComparer.Ordinal);
             var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -975,7 +982,8 @@ internal static class ProtocolConformanceHelper
                         // Equatable is special-cased to IEquatable<T>: the parent's instantiation is
                         // IEquatable<ParentType>, distinct from the derived class's IEquatable<DerivedType>,
                         // so we only filter the parent's exact instantiation.
-                        var iface = NameProvider.GetInterfaceName(protocolName.Name, parentName, protocolName.Module);
+                        var resolvedProtocolModule = ResolveProtocolEmissionModule(protocolName, typeDatabase);
+                        var iface = NameProvider.GetInterfaceName(protocolName.Name, parentName, resolvedProtocolModule, currentModuleName);
                         result.Add(iface);
                     }
                 }
@@ -1023,7 +1031,8 @@ internal static class ProtocolConformanceHelper
                 protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
                 continue;
 
-            var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module);
+            var resolvedProtocolModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
+            var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, resolvedProtocolModule, moduleName);
             var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
             // Skip empty conformance symbols — an empty string would crash at runtime
@@ -1080,7 +1089,8 @@ internal static class ProtocolConformanceHelper
                 continue;
             if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
                 continue;
-            var ifaceName = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, conformance.Protocol.Module);
+            var resolvedConformanceModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
+            var ifaceName = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, resolvedConformanceModule, moduleName);
 
             // Qualify nested protocol interfaces for module-level registration.
             // A nested protocol has 3+ parts in its ModuleQualifiedName (Module.Parent.Protocol).
@@ -1129,6 +1139,35 @@ internal static class ProtocolConformanceHelper
                 break; // No need to keep counting
         }
         return count;
+    }
+
+    /// <summary>
+    /// Returns the module name to use when emitting a protocol's C# interface reference.
+    /// Apple's `@_exported import` umbrellas (e.g. RealityKit re-exporting RealityFoundation)
+    /// cause the protocol's mangled name to encode the umbrella module, so
+    /// <c>conformance.Protocol.Module</c> reads as the umbrella ("RealityKit") rather than the
+    /// declaring module ("RealityFoundation"). The TypeDatabase's umbrella fallback resolves
+    /// the lookup to the source module's record, whose <see cref="CSharpTypeName.Namespace"/>
+    /// is what the rest of the emitter (classes, structs, enums) already qualifies with.
+    /// Mirroring that here keeps the inheritance list consistent with member type references.
+    /// </summary>
+    internal static string ResolveProtocolEmissionModule(TypeConformance conformance, ITypeDatabase typeDatabase)
+        => ResolveProtocolEmissionModule(conformance.Protocol, typeDatabase);
+
+    /// <summary>
+    /// Overload for any code path that names a protocol via a <see cref="SwiftTypeName"/>
+    /// (generic parameter constraints, witness-table lookups, existential lists). Same
+    /// umbrella-fallback semantics as the <see cref="TypeConformance"/> variant.
+    /// </summary>
+    internal static string ResolveProtocolEmissionModule(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
+    {
+        if (typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+        {
+            var ns = record.CSharpTypeName.Namespace;
+            if (!string.IsNullOrEmpty(ns))
+                return ns;
+        }
+        return protocolTypeName.Module;
     }
 
     internal static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)

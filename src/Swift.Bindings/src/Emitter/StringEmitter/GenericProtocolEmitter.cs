@@ -39,6 +39,7 @@ internal static class GenericProtocolEmitter
     /// <param name="memberDeclaration">The protocol member declaration (e.g., "func foo() -> Int", "var name: String { get }").</param>
     /// <param name="moduleQualifiedName">The module-qualified Swift type name for the conformance extension.</param>
     /// <param name="protocolConstraint">Optional protocol constraint (e.g., "AnyObject" for class-only protocols).</param>
+    /// <param name="extensionAvailability">Optional merged availability annotations applied to the conformance extension. Conformance extensions are top-level decls and don't inherit the enclosing type's availability.</param>
     /// <returns>The generated protocol name (e.g., "_SBW_P_A1B2C3D4").</returns>
     internal static string EmitProtocolAndConformance(
         SwiftWriter swiftWriter,
@@ -46,17 +47,20 @@ internal static class GenericProtocolEmitter
         string symbolName,
         string memberDeclaration,
         string moduleQualifiedName,
-        string? protocolConstraint = null)
+        string? protocolConstraint = null,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
     {
         var protocolName = GetProtocolName(prefix, symbolName);
         var constraintClause = protocolConstraint != null ? $": {protocolConstraint} " : "";
+        var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            extensionAvailability, string.Empty);
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             private protocol {{protocolName}}{{constraintClause}} {
                 {{memberDeclaration}}
             }
-            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 
         return protocolName;

@@ -166,8 +166,14 @@ public static class GenericTypeEmitter
                             continue;
                     }
 
-                    // Convert Swift protocol name to C# interface name
-                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
+                    // Convert Swift protocol name to C# interface name. Use the resolved
+                    // emission namespace (umbrella fallback) so a `RealityKit`-qualified
+                    // ABI conformance pointing at a `RealityFoundation` protocol record
+                    // is emitted as `RealityFoundation.IProtocol`, not bare `IProtocol`.
+                    var resolvedConstraintModule = typeDatabase != null
+                        ? ProtocolConformanceHelper.ResolveProtocolEmissionModule(conformance.ConformanceTarget, typeDatabase)
+                        : conformance.ConformanceTarget.Module;
+                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: resolvedConstraintModule, currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
                     paramConstraints.Add(interfaceName);
                 }
             }

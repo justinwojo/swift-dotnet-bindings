@@ -348,9 +348,16 @@ public static class ProtocolExtensionEmitter
                 return;
             }
 
+            // Lift the wrapper's @available floor to also satisfy the protocol-extension's
+            // own @available — protocol-extension methods inherited from a protocol introduced
+            // in a newer SDK (e.g., iOS 18 EntityCollection.insert(_:beforeIndex:) on an iOS 13
+            // ChildCollection) need that floor or wrapper compile fails.
+            var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
+
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
-                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, isThrows, typeDatabase, ctx);
+                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, isThrows, typeDatabase, ctx,
+                protocolAvailability);
 
             // Build synthetic MethodDecl preserving ClosureTypeSpec
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
@@ -362,8 +369,13 @@ public static class ProtocolExtensionEmitter
         }
         else
         {
+            // Lift the wrapper's @available floor to also satisfy the protocol-extension's
+            // own @available — see closure path comment above.
+            var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
+
             // Non-closure method: existing path
-            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, typeDatabase, ctx);
+            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, typeDatabase, ctx,
+                protocolAvailability);
 
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows);
@@ -1221,7 +1233,8 @@ public static class ProtocolExtensionEmitter
         string symbolName,
         bool isThrows,
         ITypeDatabase typeDatabase,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? protocolAvailability = null)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
         var isGenericConforming = conformingType.IsGeneric;
@@ -1322,7 +1335,7 @@ public static class ProtocolExtensionEmitter
         // ActionType : EntityAction, both iOS 18+) that the host wrapper module — built
         // at the framework's deployment target — doesn't satisfy. Emit the strictest
         // per-platform introduced version walking the conforming type's ancestor chain.
-        EmitProtocolExtAvailabilityLines(conformingType, ctx);
+        EmitProtocolExtAvailabilityLines(conformingType, ctx, protocolAvailability);
         ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
         {
@@ -1440,7 +1453,8 @@ public static class ProtocolExtensionEmitter
         List<string> methodLevelGenerics,
         bool isThrows,
         ITypeDatabase typeDatabase,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? protocolAvailability = null)
     {
         var typeName = conformingType.SwiftTypeName.ModuleQualifiedName;
         var isGenericConforming = conformingType.IsGeneric;
@@ -1549,7 +1563,7 @@ public static class ProtocolExtensionEmitter
 
         // Emit the wrapper function
         ctx.AddProtocolExtWrapperLine("");
-        EmitProtocolExtAvailabilityLines(conformingType, ctx);
+        EmitProtocolExtAvailabilityLines(conformingType, ctx, protocolAvailability);
         ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
         {
@@ -2096,14 +2110,47 @@ public static class ProtocolExtensionEmitter
     /// type's ancestor chain so the top-level <c>@_silgen_name</c> wrapper can reference
     /// availability-gated types and constraints. Mirrors the @_cdecl path which already runs
     /// availability through <see cref="WrapperEmitterHelpers.EmitSwiftAvailability"/>.
+    /// <paramref name="extraAvailability"/> carries the @available floor of the protocol whose
+    /// extension supplied the wrapper body — without it, a wrapper for an iOS-13 conforming
+    /// type calling an iOS-18 protocol-extension method (e.g. RealityFoundation
+    /// Entity.ChildCollection.insert(_:beforeIndex:) inherited from EntityCollection at iOS 18)
+    /// would carry only the conforming type's lower floor and fail wrapper compile.
     /// </summary>
-    private static void EmitProtocolExtAvailabilityLines(TypeDecl conformingType, ModuleEmissionContext ctx)
+    private static void EmitProtocolExtAvailabilityLines(
+        TypeDecl conformingType,
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? extraAvailability = null)
     {
-        var availability = WrapperEmitterHelpers.MergeAvailability(memberAnnotations: null, parentDecl: conformingType);
+        var availability = WrapperEmitterHelpers.MergeAvailability(memberAnnotations: extraAvailability, parentDecl: conformingType);
         foreach (var key in WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(availability))
         {
             ctx.AddProtocolExtWrapperLine($"@available({key}, *)");
         }
+    }
+
+    /// <summary>
+    /// Resolves a protocol TypeDecl from <paramref name="moduleDecl"/> by qualified name
+    /// (e.g. "RealityFoundation.EntityCollection") and returns its @available annotations.
+    /// Returns null when the protocol isn't owned by this module — protocol extensions
+    /// from foreign modules are out of scope here.
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation>? LookupProtocolAvailability(
+        ModuleDecl moduleDecl, string protocolQualifiedName)
+    {
+        var dotIdx = protocolQualifiedName.LastIndexOf('.');
+        var unqualifiedName = dotIdx >= 0 ? protocolQualifiedName.Substring(dotIdx + 1) : protocolQualifiedName;
+        return FindProtocol(moduleDecl.Types, unqualifiedName)?.AvailabilityAnnotations;
+    }
+
+    private static ProtocolDecl? FindProtocol(IEnumerable<TypeDecl> types, string unqualifiedName)
+    {
+        foreach (var type in types)
+        {
+            if (type is ProtocolDecl pd && pd.Name == unqualifiedName) return pd;
+            var nested = FindProtocol(type.Types, unqualifiedName);
+            if (nested != null) return nested;
+        }
+        return null;
     }
 
     /// <summary>

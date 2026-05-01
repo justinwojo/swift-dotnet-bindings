@@ -411,7 +411,7 @@ public class TypeHandlerHelpersTests
         var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
             conformances, "TestModule", "Widget", typeDatabase);
 
-        Assert.Contains("typeof(IRenderable)", result);
+        Assert.Contains("typeof(OtherModule.IRenderable)", result);
         Assert.Contains("\"$s10TestModule6WidgetVOtherModuleRenderableMc\"", result);
     }
 
@@ -498,7 +498,7 @@ public class TypeHandlerHelpersTests
         var result = ProtocolConformanceHelper.GenerateProtocolConformanceDictionaryEntries(
             conformances, "TestModule", "Item", typeDatabase);
 
-        Assert.Contains("typeof(ITaggable)", result);
+        Assert.Contains("typeof(OtherModule.ITaggable)", result);
     }
 
     [Fact]
@@ -1216,7 +1216,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, $"I{name}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.HasAssociatedTypes,
@@ -1246,7 +1246,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, $"I{name}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -1277,7 +1277,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, $"I{name}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -1365,7 +1365,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName($"{module}.BaseMarker"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", "IBaseMarker"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, "IBaseMarker"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.BaseMarker"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,
@@ -1380,7 +1380,7 @@ public class TypeHandlerHelpersTests
             SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName($"Swift.{module}", $"I{name}"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, $"I{name}"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.None,

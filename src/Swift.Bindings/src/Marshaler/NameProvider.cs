@@ -325,8 +325,16 @@ public static class NameProvider
     /// Provides the name of the interface based on a protocol name.
     /// </summary>
     /// <param name="protocolName">The protocol name.</param>
+    /// <param name="typeName">The C# type name including generic parameters (used by Equatable).</param>
+    /// <param name="moduleName">The protocol's source module.</param>
+    /// <param name="currentModuleName">
+    /// The consumer module emitting the reference. When supplied and different from
+    /// <paramref name="moduleName"/>, the result is qualified with the protocol's namespace
+    /// so cross-module protocol references (e.g. RealityKit referring to RealityFoundation.IEvent)
+    /// resolve through the C# namespace path that matches how cross-module classes are emitted.
+    /// </param>
     /// <returns>The name of the interface.</returns>
-    public static string GetInterfaceName(string protocolName, string typeName = "", string moduleName = "")
+    public static string GetInterfaceName(string protocolName, string typeName = "", string moduleName = "", string currentModuleName = "")
     {
         var specialCases = new Dictionary<string, string>
         {
@@ -350,7 +358,21 @@ public static class NameProvider
         if (_systemCollisionNames.Contains(protocolName))
             return $"ISwift{protocolName}";
 
-        return $"I{protocolName}";
+        var interfaceName = $"I{protocolName}";
+
+        // Cross-module qualification: when a binding references a protocol declared in another
+        // module (umbrella re-export, dep DB), the bare `IFoo` is unresolvable in C#. Mirror
+        // the cross-module namespace path that classes/structs already follow.
+        // Swift stdlib is brought in via `using Swift;` so it never needs explicit qualification.
+        if (!string.IsNullOrEmpty(moduleName) &&
+            !string.IsNullOrEmpty(currentModuleName) &&
+            moduleName != currentModuleName &&
+            moduleName != "Swift")
+        {
+            return $"{moduleName}.{interfaceName}";
+        }
+
+        return interfaceName;
     }
 
     /// <summary>

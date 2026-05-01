@@ -309,7 +309,7 @@ public static class SubscriptWrapperEmitter
         if (isGenericParent)
         {
             protocolName = EmitGetterProtocolAndConformance(
-                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName);
+                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName, parentTypeDecl!);
         }
 
         // Emit the @_cdecl function
@@ -488,7 +488,7 @@ public static class SubscriptWrapperEmitter
         if (isGenericParent)
         {
             protocolName = EmitSetterProtocolAndConformance(
-                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName);
+                swiftWriter, subscriptDecl, symbolName, moduleQualifiedName, parentTypeDecl!);
         }
 
         // Emit the @_cdecl function
@@ -707,7 +707,7 @@ public static class SubscriptWrapperEmitter
     /// </summary>
     private static string EmitGetterProtocolAndConformance(
         SwiftWriter swiftWriter, SubscriptDecl subscriptDecl, string symbolName,
-        string moduleQualifiedName)
+        string moduleQualifiedName, TypeDecl parentTypeDecl)
     {
         var protocolName = $"_SBW_SG_{EmitterUtility.DeterministicHash8(symbolName)}";
         var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
@@ -722,12 +722,20 @@ public static class SubscriptWrapperEmitter
         }
         var indexParamString = string.Join(", ", indexParams);
 
+        // Conformance extensions are top-level decls and don't inherit the enclosing
+        // type's availability. Merge member + parent-chain annotations so the extension
+        // type-checks against the deployment target.
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            subscriptDecl.AvailabilityAnnotations, parentTypeDecl);
+        var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            extensionAvailability, string.Empty);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             private protocol {{protocolName}} {
                 subscript({{indexParamString}}) -> {{returnSwiftType}} { get }
             }
-            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 
         return protocolName;
@@ -738,7 +746,7 @@ public static class SubscriptWrapperEmitter
     /// </summary>
     private static string EmitSetterProtocolAndConformance(
         SwiftWriter swiftWriter, SubscriptDecl subscriptDecl, string symbolName,
-        string moduleQualifiedName)
+        string moduleQualifiedName, TypeDecl parentTypeDecl)
     {
         var protocolName = $"_SBW_SS_{EmitterUtility.DeterministicHash8(symbolName)}";
         var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
@@ -753,12 +761,20 @@ public static class SubscriptWrapperEmitter
         }
         var indexParamString = string.Join(", ", indexParams);
 
+        // Conformance extensions are top-level decls and don't inherit the enclosing
+        // type's availability. Merge member + parent-chain annotations so the extension
+        // type-checks against the deployment target.
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            subscriptDecl.AvailabilityAnnotations, parentTypeDecl);
+        var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            extensionAvailability, string.Empty);
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             private protocol {{protocolName}} {
                 subscript({{indexParamString}}) -> {{returnSwiftType}} { get set }
             }
-            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 
         return protocolName;

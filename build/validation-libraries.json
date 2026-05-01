@@ -74,6 +74,31 @@
       "tier": 1
     },
     {
+      "name": "RealityKit",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "RealityKit",
+          "dependencies": ["RealityFoundation"]
+        }
+      ],
+      "tier": 1
+    },
+    {
+      "name": "RealityFoundation",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "RealityFoundation"
+        }
+      ],
+      "tier": 1
+    },
+    {
       "name": "RoomPlan",
       "mode": "apple-framework",
       "platformVersion": "26.2",

@@ -126,7 +126,14 @@ internal class MethodMarshalPlanBuilder
                     continue;
 
                 var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
-                var protocolName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
+                // Use the resolved emission namespace (umbrella fallback) so the PWT
+                // generic argument matches the actual emitted interface namespace.
+                var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(
+                    conformance.ConformanceTarget, _env.TypeDatabase);
+                var protocolName = NameProvider.GetInterfaceName(
+                    conformance.ConformanceTarget.Name,
+                    moduleName: emissionModule,
+                    currentModuleName: _env.MethodDecl.ModuleDecl?.Name ?? "");
                 lines.Add($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
             }
         }

@@ -279,7 +279,13 @@ public class PInvokeHelperContext
 
                 if (isResolvable)
                 {
-                    interfaceName = NameProvider.GetInterfaceName(target.Name, moduleName: target.Module);
+                    // Use the resolved record's namespace (umbrella fallback) so an
+                    // umbrella-qualified ABI target whose record lives in a dep module
+                    // emits the correct cross-module qualification.
+                    var emissionModule = !string.IsNullOrEmpty(record.CSharpTypeName.Namespace)
+                        ? record.CSharpTypeName.Namespace
+                        : target.Module;
+                    interfaceName = NameProvider.GetInterfaceName(target.Name, moduleName: emissionModule, currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
                 }
                 else
                 {

@@ -167,7 +167,16 @@ namespace BindingsGeneration
                     if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
                         continue;
 
-                    var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: conformance.ConformanceTarget.Module);
+                    // Resolve emission namespace via the umbrella fallback so a
+                    // method-level constraint on a protocol re-exported through an
+                    // umbrella module (e.g. `where T : RealityKit.IEvent` in ABI)
+                    // emits the dep-module qualification.
+                    var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(
+                        conformance.ConformanceTarget, _env.TypeDatabase);
+                    var interfaceName = NameProvider.GetInterfaceName(
+                        conformance.ConformanceTarget.Name,
+                        moduleName: emissionModule,
+                        currentModuleName: _env.MethodDecl.ModuleDecl?.Name ?? "");
                     paramConstraints.Add(interfaceName);
                 }
 

@@ -450,7 +450,17 @@ internal sealed class SwiftInterfaceContextTracker
 
     private static string ExtractSubscriptPrintedName(string line)
     {
-        // subscript(key: KeyType) → "subscript(_:)" style
+        // Mirrors the ABI JSON's printedName for a SubscriptDecl: subscripts have NO
+        // call-site label by default (`obj[val]`), so a single-name parameter like
+        // `subscript(key: KeyType)` keys as `subscript(_:)` — NOT `subscript(key:)`.
+        // Only a two-name parameter where the first isn't `_` carries an external
+        // label: `subscript(bitAt index: Int)` → `subscript(bitAt:)`. Mismatch with
+        // ABI keys causes the availability fact lookup
+        // (`SwiftABIParser.ApplyMemberAvailability`) to miss, leaving the subscript
+        // wrapper with only the parent type's @available floor and breaking
+        // wrapper-compile when the subscript itself is declared in a higher-floor
+        // extension (e.g. RealityFoundation.Entity at iOS 13 with a subscript in an
+        // iOS 18 extension).
         var parenStart = line.IndexOf('(');
         if (parenStart < 0) return "subscript()";
         int depth = 0, parenEnd = parenStart;
@@ -467,13 +477,21 @@ internal sealed class SwiftInterfaceContextTracker
         {
             var trimParam = param.Trim();
             var colonIdx = trimParam.IndexOf(':');
-            if (colonIdx > 0)
+            if (colonIdx <= 0)
             {
-                var label = trimParam.Substring(0, colonIdx).Trim().Split(' ')[0];
-                labels.Add(label == "_" ? "_:" : $"{label}:");
+                labels.Add("_:");
+                continue;
+            }
+            var beforeColon = trimParam.Substring(0, colonIdx).Trim();
+            var words = beforeColon.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length >= 2 && words[0] != "_")
+            {
+                labels.Add($"{words[0]}:");
             }
             else
+            {
                 labels.Add("_:");
+            }
         }
         return $"subscript({string.Join("", labels)})";
     }

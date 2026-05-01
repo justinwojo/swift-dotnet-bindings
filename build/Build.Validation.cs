@@ -168,11 +168,21 @@ partial class Build
                 BuildGeneratorIfChanged(outputBase);
 
             // --- Determine which targets have declared dependencies ---
+            // Apple-framework targets resolve cross-module qualifications via dep
+            // module databases threaded inline by GenerateAppleFrameworkTarget; their
+            // C# compile gate is standalone (sibling-framework CS0234s filtered by
+            // CountNonTransitiveCsErrors). Skip them here so they don't fall into the
+            // cascading-dep gate, which expects a built DLL for each dep — apple-
+            // framework deps are system frameworks resolved at runtime, not user-built
+            // assemblies, so the cascade has nothing to wait on.
             var hasDeps = new HashSet<string>(StringComparer.Ordinal);
             foreach (var lib in manifest.Libraries)
+            {
+                if (lib.Mode == "apple-framework") continue;
                 foreach (var prod in lib.Products)
                     if (prod.Dependencies is { Count: > 0 })
                         hasDeps.Add(prod.Framework);
+            }
 
             // --- Build framework-to-library-name mapping ---
             var fwToLib = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -206,7 +216,7 @@ partial class Build
             await Task.WhenAll(sortedTargets.Select(async target =>
             {
                 await semaphore.WaitAsync();
-                try { await Task.Run(() => GenerateTarget(target, outputBase, results)); }
+                try { await Task.Run(() => GenerateTarget(target, outputBase, results, manifest)); }
                 finally { semaphore.Release(); }
             }));
 
@@ -650,11 +660,11 @@ partial class Build
     // ============================================================
 
     void GenerateTarget(ValidationTarget target, AbsolutePath outputBase,
-        ConcurrentDictionary<string, TargetResult> results)
+        ConcurrentDictionary<string, TargetResult> results, ValidationManifest manifest)
     {
         if (target.Mode == "apple-framework")
         {
-            GenerateAppleFrameworkTarget(target, outputBase, results);
+            GenerateAppleFrameworkTarget(target, outputBase, results, manifest);
             return;
         }
 
@@ -740,7 +750,7 @@ partial class Build
     // ============================================================
 
     void GenerateAppleFrameworkTarget(ValidationTarget target, AbsolutePath outputBase,
-        ConcurrentDictionary<string, TargetResult> results)
+        ConcurrentDictionary<string, TargetResult> results, ValidationManifest manifest)
     {
         var outdir = outputBase / target.Name;
         var result = GetOrCreateResult(results, target.Name);
@@ -839,6 +849,50 @@ partial class Build
                 return;
             }
 
+            // Step 3b: generate dep module databases inline.
+            //
+            // Strategy (a) from the Session 1 plan: each apple-framework target produces
+            // its own deps' module database XMLs as a prelude inside its own outdir
+            // (.deps/<DepModule>/<DepModule>Database.xml), then threads them into the
+            // primary generator via --module-database. This is deterministic under Phase
+            // 3a parallelism — every dependent self-contains its dep DB generation, no
+            // cross-task ordering is required, and a `--filter` that excludes the dep
+            // still works because we don't rely on the dep target running.
+            //
+            // The trade-off vs strategy (b) (topological scheduling) is duplicated work
+            // when both dep and dependent are in the same run: the dep generates fully
+            // as its own target AND inline as a prelude here. Acceptable for Session 1 —
+            // the inline pass uses --skip-wrapper-compilation + --sdk-mode so it only
+            // runs the parser + emitter (cheap) and skips wrapper compile + csproj.
+            var depDatabasePaths = new List<AbsolutePath>();
+            var depDbFailures = new List<string>();
+            if (target.Dependencies.Count > 0)
+            {
+                foreach (var depFwName in target.Dependencies)
+                {
+                    var (depDb, depFailure) = GenerateAppleFrameworkDependencyDatabase(
+                        depFwName, sdkPath, platform, outdir, manifest);
+                    if (depDb != null)
+                        depDatabasePaths.Add(depDb);
+                    else if (depFailure != null)
+                        depDbFailures.Add($"{depFwName}: {depFailure}");
+                }
+            }
+
+            // A declared apple-framework dep that fails to produce its module DB must
+            // fail the primary target — running the generator without the dep DB
+            // silently regresses cross-module qualification and the CS error filter
+            // hides the resulting CS0234s as "transitive sibling-framework noise."
+            // Fail-closed so the breakage surfaces in the validation summary.
+            if (depDbFailures.Count > 0)
+            {
+                result.Gen = "fail";
+                result.GenVerbose = "Dep DB generation failed:\n  " +
+                    string.Join("\n  ", depDbFailures);
+                FinishAppleFrameworkGenerate(target, outdir, result, genStart, genOutputLines: null);
+                return;
+            }
+
             // Step 4: invoke the generator in direct mode. No --sdk-mode (we WANT the
             // csproj + wrapper xcframework emitted) and no --skip-wrapper-compilation
             // (the wrapper compiles inline so Phase 3b can be a no-op for this mode).
@@ -860,6 +914,8 @@ partial class Build
                 genArgs.Add($"--platform-version {target.PlatformVersion}");
             if (!string.IsNullOrWhiteSpace(target.NamespacePattern))
                 genArgs.Add($"--namespace-pattern \"{target.NamespacePattern}\"");
+            foreach (var depDbPath in depDatabasePaths)
+                genArgs.Add($"--module-database \"{depDbPath}\"");
             genArgs.Add($"-o \"{outdir}\"");
             genArgs.Add($"-v {verbosity}");
 
@@ -896,6 +952,139 @@ partial class Build
         }
 
         FinishAppleFrameworkGenerate(target, outdir, result, genStart, genOutputLines);
+    }
+
+    // ============================================================
+    // Phase 3a (apple-framework mode): generate a dependency's module
+    // database XML as a prelude to the dependent's primary generation.
+    // ============================================================
+    //
+    // Apple `@_implementationOnly` umbrella re-exports (e.g. RealityKit re-exports
+    // RealityFoundation.Entity as RealityKit.Entity) require the dep's TypeRecords
+    // to be loaded into the dependent's TypeDatabase so the umbrella fallback in
+    // TryGetTypeRecordInternal can rewrite the qualification. xcframework mode
+    // already handles this via --framework-dependency + ABI-JSON parsing; apple-
+    // framework mode resolves SDK frameworks directly via xcrun and never had a
+    // dep-loading path. This helper is that path.
+    //
+    // Outputs land in <primaryOutdir>/.deps/<DepModule>/. The dep generator runs
+    // with --skip-wrapper-compilation (we only need the XML, not a built dylib)
+    // and --sdk-mode (no csproj — the dep isn't shipping from this validation
+    // run, only its database is being consumed). Returns the emitted
+    // <DepModule>Database.xml path, or null on failure.
+    /// <summary>
+    /// Generates the dep's module database for cross-module umbrella resolution.
+    /// Returns (Path: db, Error: null) on success, (Path: null, Error: reason) on failure.
+    /// A non-null error is a declared-dep failure — the caller fails the primary
+    /// target so the breakage surfaces in the validation summary instead of being
+    /// silently absorbed by the CS error filter.
+    /// </summary>
+    (AbsolutePath? Path, string? Error) GenerateAppleFrameworkDependencyDatabase(
+        string depFrameworkModule, string sdkPath, ApplePlatform platform,
+        AbsolutePath primaryOutdir, ValidationManifest manifest)
+    {
+        var depOutdir = primaryOutdir / ".deps" / depFrameworkModule;
+        var dbPath = depOutdir / $"{depFrameworkModule}Database.xml";
+
+        if (Directory.Exists(depOutdir))
+            ((AbsolutePath)depOutdir).DeleteDirectory();
+        Directory.CreateDirectory(depOutdir);
+
+        var (depSwiftinterface, depTbd, _) = ResolveAppleFrameworkPaths(sdkPath, platform, depFrameworkModule);
+        if (!File.Exists(depSwiftinterface) || !File.Exists(depTbd))
+        {
+            var reason = "swiftinterface or tbd missing in SDK";
+            Log.Warning("  Dep {Dep}: {Reason} — skipping dep DB generation", depFrameworkModule, reason);
+            return (null, reason);
+        }
+
+        // Look up dep's manifest entry so dep generation honors the dep's own
+        // platform-version / namespace-pattern, not the dependent's. Without this
+        // a dep configured with a different namespace pattern would emit
+        // TypeRecords whose CSharpTypeName.Namespace mismatches what the
+        // dependent's emitter expects after umbrella rewrite.
+        var depEntry = manifest.Libraries
+            .Where(l => l.Mode == "apple-framework")
+            .SelectMany(l => l.Products.Select(p => (Library: l, Product: p)))
+            .FirstOrDefault(t => t.Product.Framework == depFrameworkModule);
+
+        // swift-api-digester for the dep's ABI JSON
+        var depAbiJson = depOutdir / $"{depFrameworkModule}.abi.json";
+        var digesterTarget = platform.SimulatorTarget;
+        var digesterArgs = new List<string>
+        {
+            "swift-api-digester",
+            "-dump-sdk",
+            "-module", depFrameworkModule,
+            "-target", digesterTarget,
+            "-sdk", $"\"{sdkPath}\"",
+        };
+        if (platform.Name == "maccatalyst")
+        {
+            digesterArgs.Add("-F");
+            digesterArgs.Add($"\"{sdkPath}/System/iOSSupport/System/Library/Frameworks\"");
+            digesterArgs.Add("-F");
+            digesterArgs.Add($"\"{sdkPath}/System/Library/Frameworks\"");
+        }
+        digesterArgs.Add("-o");
+        digesterArgs.Add($"\"{depAbiJson}\"");
+
+        var digesterProc = ProcessTasks.StartProcess("xcrun", string.Join(" ", digesterArgs),
+            workingDirectory: depOutdir, logOutput: false);
+        digesterProc.AssertWaitForExit();
+        if (digesterProc.ExitCode != 0 || !File.Exists(depAbiJson))
+        {
+            var reason = $"swift-api-digester failed (exit {digesterProc.ExitCode})";
+            Log.Warning("  Dep {Dep}: {Reason} — failing dep DB generation",
+                depFrameworkModule, reason);
+            return (null, reason);
+        }
+
+        // Generator pass: --skip-wrapper-compilation skips swiftc, --sdk-mode skips
+        // csproj emission. We only need the <Module>Database.xml output, which
+        // Program.cs writes via ModuleDatabaseEmitter at the end of generation.
+        var verbosity = Verbose ? "1" : "0";
+        var depLib = $@"\@rpath/{depFrameworkModule}.framework/{depFrameworkModule}";
+        var depPlatformVersion = depEntry.Library?.PlatformVersion;
+        var depNamespacePattern = depEntry.Product?.NamespacePattern;
+        var genArgs = new List<string>
+        {
+            $"\"{GeneratorDll}\"",
+            $"-a \"{depAbiJson}\"",
+            $"-d \"{depTbd}\"",
+            $"-t \"{depTbd}\"",
+            $"-s \"{depSwiftinterface}\"",
+            $"-l \"{depLib}\"",
+            $"--platform {platform.Name}",
+            "--skip-wrapper-compilation",
+            "--sdk-mode",
+        };
+        if (platform.HasSimulatorPlistVariant && platform.Name != "maccatalyst")
+            genArgs.Add("--platform-target simulator");
+        if (!string.IsNullOrWhiteSpace(depPlatformVersion))
+            genArgs.Add($"--platform-version {depPlatformVersion}");
+        if (!string.IsNullOrWhiteSpace(depNamespacePattern))
+            genArgs.Add($"--namespace-pattern \"{depNamespacePattern}\"");
+        genArgs.Add($"-o \"{depOutdir}\"");
+        genArgs.Add($"-v {verbosity}");
+
+        var genProc = ProcessTasks.StartProcess("dotnet", string.Join(" ", genArgs),
+            workingDirectory: depOutdir, logOutput: false);
+        genProc.AssertWaitForExit();
+        if (genProc.ExitCode != 0 || !File.Exists(dbPath))
+        {
+            var reason = $"generator failed (exit {genProc.ExitCode}, db={File.Exists(dbPath)})";
+            Log.Warning("  Dep {Dep}: {Reason} — failing dep DB generation",
+                depFrameworkModule, reason);
+            if (Verbose)
+            {
+                var tail = string.Join("\n", genProc.Output.Select(o => o.Text).TakeLast(5));
+                Log.Debug("    dep generator output tail:\n{Tail}", tail);
+            }
+            return (null, reason);
+        }
+
+        return (dbPath, null);
     }
 
     void FinishAppleFrameworkGenerate(ValidationTarget target, AbsolutePath outdir,
@@ -1427,7 +1616,7 @@ partial class Build
         // sandbox. Filter those transitive CS0234 errors so real emitter bugs (e.g.,
         // RoomPlan's simd.simd_float3<float> — CS0246/CS0305) remain visible.
         if (target.Mode == "apple-framework")
-            csErrors = CountNonTransitiveCsErrors(buildOutput);
+            csErrors = CountNonTransitiveCsErrors(buildOutput, target.Name);
 
         // Detect non-CS build failures (e.g., NETSDK1004, MSB errors)
         if (buildExit != 0 && csErrors == 0)
@@ -1943,19 +2132,126 @@ $"""
         return result;
     }
 
-    // Count CS errors excluding transitive framework-binding misses. CS0234 with
-    // message "does not exist in the namespace 'Swift'" (e.g., Swift.Foundation,
-    // Swift.CoreLocation) fires when an apple-framework binding references another
-    // framework's binding that the validation sandbox doesn't build. Those errors
-    // are not generator bugs — they're expected side-effects of compiling one
-    // framework in isolation. Real emitter bugs (CS0246/CS0305 etc.) still count.
-    static int CountNonTransitiveCsErrors(string buildOutput)
+    // Count CS errors excluding transitive framework-binding misses. Apple-framework
+    // bindings reference types from sibling framework bindings (Swift.Foundation,
+    // RealityFoundation.Entity, ARKit.ARRaycastQueryTarget, …) that aren't present in
+    // the validation sandbox — a single framework is compiled in isolation, so the
+    // C# compiler reports the unresolvable namespace. Those errors are expected
+    // side-effects of standalone compilation, not generator bugs. Real emitter bugs
+    // (CS0246/CS0305 etc. against types the framework declares itself, plus CS0535
+    // missing-implementation diagnostics) remain visible.
+    //
+    // Filter shapes:
+    //   * CS0234 "does not exist in the namespace 'X'" — bare unresolved reference
+    //     into a sibling apple framework's namespace.
+    //   * CS0246 "type or namespace name 'X' could not be found" — the sibling
+    //     namespace itself is unknown (no using/reference in the validation csproj).
+    // X must be the umbrella module's own namespace (apple-framework registry hit)
+    // for the filter to apply, so generator bugs that produce arbitrary unresolved
+    // identifiers stay counted.
+    static int CountNonTransitiveCsErrors(string buildOutput, string? currentTargetName = null)
     {
         return buildOutput.Split('\n')
             .Where(l => l.Contains("error CS"))
-            .Where(l => !(l.Contains("error CS0234") && l.Contains("namespace 'Swift'")))
+            .Where(l => !IsTransitiveSiblingFrameworkError(l, currentTargetName))
             .Distinct()
             .Count();
+    }
+
+    static readonly Regex _cs0234NamespaceRegex = new(
+        @"error CS0234.*namespace '([^']+)'", RegexOptions.Compiled);
+    static readonly Regex _cs0246IdentifierRegex = new(
+        @"error CS0246.*type or namespace name '([^']+)'", RegexOptions.Compiled);
+
+    static bool IsTransitiveSiblingFrameworkError(string line, string? currentTargetName = null)
+    {
+        // Legacy shape: pre-umbrella-threading bindings emitted Swift.Foundation /
+        // Swift.CoreLocation references. Those CS0234s remain part of the filter so
+        // older targets keep clean.
+        if (line.Contains("error CS0234") && line.Contains("namespace 'Swift'"))
+            return true;
+
+        var ns0234 = _cs0234NamespaceRegex.Match(line);
+        if (ns0234.Success
+            && IsKnownAppleFrameworkNamespace(ns0234.Groups[1].Value)
+            && !IsCurrentTargetNamespace(ns0234.Groups[1].Value, currentTargetName))
+            return true;
+
+        var id0246 = _cs0246IdentifierRegex.Match(line);
+        if (id0246.Success
+            && IsKnownAppleFrameworkNamespace(id0246.Groups[1].Value)
+            && !IsCurrentTargetNamespace(id0246.Groups[1].Value, currentTargetName))
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// A CS0234/CS0246 against the namespace of the framework currently being validated
+    /// is a real generator bug (e.g. an emitted reference like `RealityKit.IEvent` inside
+    /// the RealityKit binding itself), not a transitive sibling-framework miss. Allow it
+    /// to count even though the namespace is in the apple-framework registry.
+    /// </summary>
+    static bool IsCurrentTargetNamespace(string namespaceCandidate, string? currentTargetName)
+    {
+        if (string.IsNullOrEmpty(currentTargetName))
+            return false;
+        var name = namespaceCandidate;
+        if (name.StartsWith("Swift.", StringComparison.Ordinal))
+            name = name.Substring("Swift.".Length);
+        // Apple-framework target names carry a "@platform" suffix (e.g. "Foundation@macos")
+        // while the emitted C# namespace is the bare module (e.g. "Foundation"). Strip the
+        // suffix so non-iOS runs don't fall through to the sibling-framework noise filter.
+        var bareTarget = currentTargetName;
+        var atIdx = bareTarget.IndexOf('@');
+        if (atIdx >= 0)
+            bareTarget = bareTarget.Substring(0, atIdx);
+        return string.Equals(name, bareTarget, StringComparison.Ordinal);
+    }
+
+    static bool IsKnownAppleFrameworkNamespace(string namespaceCandidate)
+    {
+        // Match the umbrella module's own namespace, including Swift.<Module> shapes
+        // generated for compiled bindings.
+        var name = namespaceCandidate;
+        if (name.StartsWith("Swift.", StringComparison.Ordinal))
+            name = name.Substring("Swift.".Length);
+        return _appleFrameworkModules.Value.Contains(name);
+    }
+
+    static readonly Lazy<HashSet<string>> _appleFrameworkModules = new(LoadAppleFrameworkModules);
+
+    static HashSet<string> LoadAppleFrameworkModules()
+    {
+        var modules = new HashSet<string>(StringComparer.Ordinal);
+        var jsonPath = Path.Combine(
+            NukeBuild.RootDirectory, "src", "Swift.Bindings", "src", "Data", "apple-frameworks.json");
+        if (!File.Exists(jsonPath))
+            return modules;
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(jsonPath));
+            if (doc.RootElement.TryGetProperty("frameworks", out var frameworks)
+                && frameworks.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var fw in frameworks.EnumerateArray())
+                {
+                    if (fw.TryGetProperty("module", out var m)
+                        && m.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        modules.Add(m.GetString()!);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Filter degrades to "no apple-framework matches" — generator-bug detection
+            // remains correct, just noisier with sibling-framework noise.
+        }
+
+        return modules;
     }
 
     // ============================================================

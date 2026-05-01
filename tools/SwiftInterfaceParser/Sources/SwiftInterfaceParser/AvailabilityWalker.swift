@@ -564,10 +564,16 @@ final class AvailabilityWalker: SyntaxVisitor {
         guard matchesPublicFuncShape(node.modifiers) else {
             return .skipChildren
         }
-        // `PublicFuncRegex` ends in bare `(\w+)\s*(?:<[^>]*>\s*)?\(` — operator
-        // funcs (`==`, `+`, …) and backtick-escaped names fail the `\w+` capture
-        // and never key into the result.
-        guard RegexShape.isWordIdentifier(node.name.text) else {
+        // PublicFuncRegex now also matches operator-character runs (`==`, `+`, …)
+        // so static-func operator declarations propagate the enclosing extension's
+        // @available floor onto the operator's MethodDecl. Without this the @_cdecl
+        // equality wrapper for retroactive Equatable conformances (e.g.
+        // RealityFoundation.TextureResource — class is iOS 13+, Equatable is
+        // iOS 18+) compiles at the type's lower @available than the conformance
+        // requires. Backtick-escaped identifier names (`var \`class\``) still miss
+        // the regex's `\w+` capture and are skipped.
+        guard RegexShape.isWordIdentifier(node.name.text) ||
+              RegexShape.isOperatorIdentifier(node.name.text) else {
             return .skipChildren
         }
         let printed = buildPrintedName(funcName: node.name.text, params: node.signature.parameterClause)
@@ -661,8 +667,17 @@ final class AvailabilityWalker: SyntaxVisitor {
     private func buildPrintedName(funcName: String, params: FunctionParameterClauseSyntax) -> String {
         let paramList = params.parameters
         if paramList.isEmpty { return "\(funcName)()" }
+        // Operators have no argument labels at the call site — the ABI printedName
+        // uses `_` for every parameter (`==(_:_:)`, not `==(lhs:rhs:)`). Mirror the
+        // C# regex parser's `IsOperatorName` substitution so the SwiftSyntax-produced
+        // key matches the ABI lookup key.
+        let funcIsOperator = RegexShape.isOperatorIdentifier(funcName)
         var labels: [String] = []
         for param in paramList {
+            if funcIsOperator {
+                labels.append("_")
+                continue
+            }
             let firstName = param.firstName.text
             if firstName.isEmpty { continue }
             labels.append(firstName)
@@ -672,17 +687,27 @@ final class AvailabilityWalker: SyntaxVisitor {
     }
 
     private func buildPrintedNameForSubscript(params: FunctionParameterClauseSyntax) -> String {
+        // Mirrors the ABI JSON's printedName for a SubscriptDecl. Subscripts are called
+        // bracket-style (`obj[val]`) with NO label by default, so a single-name parameter
+        // like `subscript(key: KeyType)` keys as `subscript(_:)`. Only a two-name param
+        // where the first isn't `_` carries an external label:
+        // `subscript(bitAt index: Int)` → `subscript(bitAt:)`. SwiftSyntax exposes the
+        // first/second name distinction via `firstName`/`secondName` so we can detect
+        // the two-name case directly. Without this substitution, the parser-emitted key
+        // (`subscript(entityPath:)`) won't match the ABI lookup key (`subscript(_:)`),
+        // and `ApplyMemberAvailability` silently drops the extension's @available floor.
         let paramList = params.parameters
         if paramList.isEmpty { return "subscript()" }
         var labels: [String] = []
         for param in paramList {
-            // Subscript labels: external label or `_`.
-            // Same first-name semantics as funcs.
             let firstName = param.firstName.text
-            if firstName.isEmpty { continue }
-            labels.append(firstName)
+            let secondName = param.secondName?.text
+            if let secondName, !secondName.isEmpty, firstName != "_" {
+                labels.append(firstName)
+            } else {
+                labels.append("_")
+            }
         }
-        if labels.isEmpty { return "subscript()" }
         return "subscript(\(labels.map { "\($0):" }.joined()))"
     }
 

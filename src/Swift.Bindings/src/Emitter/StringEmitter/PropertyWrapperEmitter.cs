@@ -332,7 +332,7 @@ public static class PropertyWrapperEmitter
         if (isGenericClassParent)
         {
             protocolName = EmitGetterProtocolAndConformance(
-                swiftWriter, propertyDecl, symbolName, moduleQualifiedName);
+                swiftWriter, propertyDecl, symbolName, moduleQualifiedName, parentTypeDecl!);
         }
 
         // Emit the @_cdecl function
@@ -354,10 +354,20 @@ public static class PropertyWrapperEmitter
         // A struct getter declared as `mutating get { ... }` cannot be invoked on a `let`-bound
         // copy. Bind `obj` as `var` for that case so the call site `obj.{property}` compiles.
         // Class getters and noncopyable structs handle reconstruction differently and are unaffected.
-        bool isMutatingGetter = !isClass
+        // The ABI digester drops the `mutating` attribute on accessors, so for struct properties
+        // with both get and set we conservatively bind as `var` — non-frozen Swift structs use
+        // `_modify`-flavored accessors that require mutable self even on the read path
+        // (e.g. RealityKit ARView.Environment.sceneUnderstanding declares `mutating get`).
+        // The generator's IsMutating signal isn't always populated, so we widen the trigger
+        // to "settable struct property" — false positives become harmless `var was never
+        // mutated` warnings, never compile errors.
+        bool hasGetMutating = !isClass
             && propertyDecl.Accessors
                 .OfType<GetAccessorDecl>()
                 .FirstOrDefault()?.Method.IsMutating == true;
+        bool hasSetterOnStruct = !isClass
+            && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
+        bool isMutatingGetter = hasGetMutating || hasSetterOnStruct;
         if (!isStatic)
         {
             if (isGenericClassParent && protocolName != null)
@@ -608,7 +618,7 @@ public static class PropertyWrapperEmitter
         if (isGenericClassParent)
         {
             protocolName = EmitSetterProtocolAndConformance(
-                swiftWriter, propertyDecl, symbolName, moduleQualifiedName);
+                swiftWriter, propertyDecl, symbolName, moduleQualifiedName, parentTypeDecl!);
         }
 
         // Emit the @_cdecl function
@@ -1005,8 +1015,14 @@ public static class PropertyWrapperEmitter
             """);
 
         var extensionBody = string.Join("\n        ", bodyLines);
+        // Conformance extensions need the same `@available` floor as the wrapped property:
+        // Swift type-checks the extension against the deployment target, not the @_cdecl below.
+        var getExtensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
+        var getExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            getExtensionAvailability, "");
         swiftWriter.WriteLines($$"""
-            extension {{moduleQualifiedName}}: {{protocolName}} {
+            {{getExtensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {
                 static func {{getMethodName}}({{string.Join(", ", protocolParams)}}){{protocolReturnType}} {
                     {{extensionBody}}
                 }
@@ -1053,12 +1069,16 @@ public static class PropertyWrapperEmitter
     /// Delegates to <see cref="GenericProtocolEmitter"/> for the shared protocol+conformance pattern.
     /// </summary>
     private static string EmitGetterProtocolAndConformance(
-        SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName)
+        SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName,
+        TypeDecl parentTypeDecl)
     {
         var memberDecl = GenericProtocolEmitter.BuildPropertyGetterMemberDeclaration(
             propertyDecl.Name, propertyDecl.SwiftTypeSpec);
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
         return GenericProtocolEmitter.EmitProtocolAndConformance(
-            swiftWriter, "PG", symbolName, memberDecl, moduleQualifiedName);
+            swiftWriter, "PG", symbolName, memberDecl, moduleQualifiedName,
+            extensionAvailability: extensionAvailability);
     }
 
     /// <summary>
@@ -1213,8 +1233,12 @@ public static class PropertyWrapperEmitter
             """);
 
         var extensionBody = string.Join("\n        ", bodyLines);
+        var setExtensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
+        var setExtensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            setExtensionAvailability, "");
         swiftWriter.WriteLines($$"""
-            extension {{moduleQualifiedName}}: {{protocolName}} {
+            {{setExtensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {
                 static func {{setMethodName}}({{string.Join(", ", protocolParams)}}) {
                     {{extensionBody}}
                 }
@@ -1277,17 +1301,26 @@ public static class PropertyWrapperEmitter
     }
 
     private static string EmitSetterProtocolAndConformance(
-        SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName)
+        SwiftWriter swiftWriter, PropertyDecl propertyDecl, string symbolName, string moduleQualifiedName,
+        TypeDecl parentTypeDecl)
     {
         var protocolName = $"_SBW_PS_{EmitterUtility.DeterministicHash8(symbolName)}";
         var propertySwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+
+        // Conformance extensions are top-level decls and don't inherit the enclosing
+        // type's availability. Merge member + parent-chain annotations so the extension
+        // type-checks against the deployment target.
+        var extensionAvailability = WrapperEmitterHelpers.MergeAvailability(
+            propertyDecl.AvailabilityAnnotations, parentTypeDecl);
+        var extensionAvailPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(
+            extensionAvailability, string.Empty);
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
             private protocol {{protocolName}} {
                 var {{propertyDecl.Name}}: {{propertySwiftType}} { get set }
             }
-            extension {{moduleQualifiedName}}: {{protocolName}} {}
+            {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}
             """);
 
         return protocolName;

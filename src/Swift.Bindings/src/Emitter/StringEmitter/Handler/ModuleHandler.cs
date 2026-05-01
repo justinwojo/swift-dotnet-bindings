@@ -697,6 +697,10 @@ namespace BindingsGeneration
                 // EveryProtocol can't provide NSObject methods (isEqual:, hash, etc.).
                 // Pure AnyObject class-bound protocols are allowed (EveryProtocol is a class).
                 .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols))
+                // Skip protocols whose inheritance names a concrete class (e.g.
+                // `protocol P : UIGestureRecognizer`). EveryProtocol is a plain
+                // Swift class and cannot satisfy a class superclass constraint.
+                .Where(p => !EveryProtocolEmitter.HasClassSuperclassRequirement(p, typeDatabase, protocols))
                 // Skip CaseIterable — requires compiler-synthesized allCases. Transitive check.
                 .Where(p => !EveryProtocolEmitter.InheritsCaseIterable(p, protocols))
                 // Skip protocols that inherit from protocols with associated types or Self requirements.

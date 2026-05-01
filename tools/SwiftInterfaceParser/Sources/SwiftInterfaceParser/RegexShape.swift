@@ -42,6 +42,23 @@ enum RegexShape {
         return true
     }
 
+    /// Mirrors the operator-character branch of the updated PublicFuncRegex —
+    /// captures one or more Swift operator characters: `/=-+!*%<>&|^~?.`.
+    /// Used for static-func operator declarations (`==`, `+=`, …) so the
+    /// availability key flows for retroactive Equatable conformances.
+    static func isOperatorIdentifier(_ s: String) -> Bool {
+        if s.isEmpty { return false }
+        for scalar in s.unicodeScalars {
+            switch scalar {
+            case "/", "=", "-", "+", "!", "*", "%", "<", ">", "&", "|", "^", "~", "?", ".":
+                continue
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
     /// Mirrors a regex `[\w.]+` capture — every character in `s` must be either
     /// `.` or a Unicode word character (see `isWordIdentifier`).
     ///
