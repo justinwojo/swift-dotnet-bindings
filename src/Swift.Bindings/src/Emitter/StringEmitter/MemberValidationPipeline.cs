@@ -339,6 +339,31 @@ public class MemberValidationPipeline
             }
         }
 
+        // P8 (concrete-side mirror): Optional existential whose inner protocol is not in
+        // the TypeDatabase. ExistentialHandler.GetPublicExistentialType falls back to
+        // "object", which means we can't faithfully marshal
+        // SwiftOptional<ExistentialContainer> into a meaningful C# nullable type. The
+        // protocol-side equivalent lives in MemberGateEvaluator.EvaluateProperty (also
+        // tagged P8) — both paths must agree, otherwise the conforming class skips the
+        // property while the protocol interface still declares it as `object?` and we
+        // get CS0535.
+        //
+        // PropertyHandler.cs:227-238 has an inline copy of this same check that catches
+        // it during emission; centralizing it here means the inline guard is now a
+        // belt-and-braces backstop rather than the sole authoritative gate. New callers
+        // of ValidatePropertyEmission inherit the protection automatically.
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        if (existentialHandler.IsOptionalExistential(propertyDecl.SwiftTypeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(propertyDecl.SwiftTypeSpec);
+            if (innerProtocolList != null &&
+                existentialHandler.GetPublicExistentialType(innerProtocolList) == "object")
+            {
+                return ValidationResult.Skip(SkipReason.AnyTypeFallback,
+                    "Optional existential inner protocol not in TypeDatabase — falls back to object.");
+            }
+        }
+
         return ValidationResult.Emit;
     }
 

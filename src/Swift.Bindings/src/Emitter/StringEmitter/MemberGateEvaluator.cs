@@ -114,6 +114,27 @@ public class MemberGateEvaluator
                 return GateResult.SoftSkip(SoftGateFlags.HasClosureProperty);
         }
 
+        // P8: Optional existential whose inner protocol is not in the TypeDatabase.
+        // Without a projected protocol type, ExistentialHandler.GetPublicExistentialType
+        // falls back to "object" — we can't faithfully marshal SwiftOptional<ExistentialContainer>
+        // into a meaningful C# nullable type. PropertyHandler skips such properties on the
+        // conforming class side; the protocol interface MUST agree, otherwise concrete
+        // types fail CS0535 (interface declares the property as `object?`, conforming
+        // class has no implementation because it skipped it).
+        // This is the protocol-side mirror of the existing skip in
+        // PropertyHandler.cs (isOptionalExistential branch).
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        if (existentialHandler.IsOptionalExistential(property.SwiftTypeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(property.SwiftTypeSpec);
+            if (innerProtocolList != null &&
+                existentialHandler.GetPublicExistentialType(innerProtocolList) == "object")
+            {
+                return GateResult.Skipped(SkipReason.AnyTypeFallback,
+                    "Optional existential inner protocol not in TypeDatabase — falls back to object.");
+            }
+        }
+
         return GateResult.Pass;
     }
 
@@ -333,6 +354,23 @@ public class MemberGateEvaluator
             ReferencesInternalModuleType(property.SwiftTypeSpec, _typeDatabase, resolvedModuleName))
             return GateResult.Skipped(SkipReason.ModuleInternal,
                 $"Property type references internal type in '{property.SwiftTypeSpec}'.");
+
+        // Optional existential whose inner protocol is not in the TypeDatabase falls
+        // back to "object" — we can't faithfully marshal SwiftOptional<ExistentialContainer>
+        // into a meaningful C# nullable type. Mirrors the same gate in EvaluateProperty
+        // so concrete classes and the protocol interface agree on skipping (otherwise
+        // CS0535: interface emits the property as object?, conforming class skips it).
+        var existentialHandler = new ExistentialHandler(_typeDatabase);
+        if (existentialHandler.IsOptionalExistential(property.SwiftTypeSpec))
+        {
+            var innerProtocolList = existentialHandler.UnwrapOptionalExistential(property.SwiftTypeSpec);
+            if (innerProtocolList != null &&
+                existentialHandler.GetPublicExistentialType(innerProtocolList) == "object")
+            {
+                return GateResult.Skipped(SkipReason.AnyTypeFallback,
+                    "Optional existential inner protocol not in TypeDatabase — falls back to object.");
+            }
+        }
 
         return GateResult.Pass;
     }

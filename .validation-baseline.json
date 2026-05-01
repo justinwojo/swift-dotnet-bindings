@@ -1,5 +1,5 @@
 {
-  "git_sha": "080750d5",
+  "git_sha": "c92dcad2",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -104,6 +104,20 @@
         "compile": "ok",
         "errors": 0,
         "lines": 32801,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "RealityKit": {
+        "compile": "skip",
+        "errors": 0,
+        "lines": 7767,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
+      "RealityFoundation": {
+        "compile": "known_errors",
+        "errors": 41,
+        "lines": 173400,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -264,7 +278,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 97139,
+        "lines": 97143,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -488,7 +502,7 @@
       "Swinject": {
         "compile": "ok",
         "errors": 0,
-        "lines": 5490,
+        "lines": 5428,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -894,31 +908,31 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 19881,
-    "total_skipped_members": 6162,
-    "skip_rate_pct": 23.7,
+    "total_emitted_members": 22411,
+    "total_skipped_members": 6605,
+    "skip_rate_pct": 22.8,
     "skip_reasons": {
-      "UnsupportedSignature": 1130,
-      "SynthesizedCodable": 841,
-      "ModuleInternal": 841,
-      "DuplicateSignature": 761,
-      "GenericProtocolConstraint": 630,
-      "AnyTypeFallback": 615,
-      "UnsupportedClosure": 267,
-      "EveryProtocolConformanceSkipped": 250,
+      "UnsupportedSignature": 1201,
+      "SynthesizedCodable": 905,
+      "DuplicateSignature": 848,
+      "ModuleInternal": 843,
+      "AnyTypeFallback": 679,
+      "GenericProtocolConstraint": 655,
+      "EveryProtocolConformanceSkipped": 289,
+      "UnsupportedClosure": 281,
       "MissingWrapperSymbol": 238,
-      "SwiftUIConstraint": 229,
-      "UnsupportedType": 182,
-      "UnsupportedExistential": 108,
+      "SwiftUIConstraint": 237,
+      "UnsupportedType": 213,
+      "UnsupportedExistential": 125,
+      "UnsatisfiedGenericConstraint": 108,
       "GenericTypeCallback": 99,
-      "UnsatisfiedGenericConstraint": 97,
-      "StaticProtocolMember": 73,
-      "SuppressedProxyMethodBody": 55,
+      "StaticProtocolMember": 74,
+      "SuppressedProxyMethodBody": 61,
       "SwiftUIView": 53,
-      "IndeterminatePwtShape": 26,
+      "IndeterminatePwtShape": 27,
       "OwnedByAppleSupplement": 12,
+      "NonBlittableCallConvSwift": 6,
       "UnsupportedAsyncStream": 4,
-      "NonBlittableCallConvSwift": 3,
       "UnderscorePrefixInternal": 2
     }
   },

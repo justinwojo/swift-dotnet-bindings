@@ -673,6 +673,34 @@ public class MemberValidationPipelineTests
             Assert.DoesNotContain("constrained-extension", staticResult.Details);
     }
 
+    [Fact]
+    public void ValidatePropertyEmission_OptionalExistentialUnknownProtocol_ReturnsSkip()
+    {
+        // P8 (concrete-side): pipeline-level mirror of the gate in
+        // MemberGateEvaluator.EvaluateProperty. PropertyHandler.Emit routes through
+        // ValidatePropertyEmission, NOT through MemberGateEvaluator, so the
+        // existential "object" fallback must be caught here too — otherwise the
+        // protocol interface emits `object?` while the conforming class still
+        // gets skipped via the inline PropertyHandler check, leaving CS0535
+        // covered only by the inline backstop. This test pins the centralized
+        // pipeline gate as the authoritative concrete-side skip.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        // Build `(any UnknownProto)?` — Swift.Optional<any UnknownProto>
+        var unknownProtocol = new NamedTypeSpec("UnknownModule.UnknownProto") { IsAny = true };
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(unknownProtocol);
+
+        var property = CreateProperty("entity", optionalType);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.AnyTypeFallback, result.Reason);
+        Assert.Contains("Optional existential", result.Details);
+    }
+
     private static StructDecl BuildBareStructDecl(string typeName, bool isGeneric)
     {
         var decl = new StructDecl

@@ -93,7 +93,8 @@
       "platforms": ["ios"],
       "products": [
         {
-          "framework": "RealityFoundation"
+          "framework": "RealityFoundation",
+          "knownErrors": 41
         }
       ],
       "tier": 1

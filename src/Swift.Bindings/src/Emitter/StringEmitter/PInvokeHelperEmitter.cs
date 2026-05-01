@@ -279,13 +279,63 @@ public class PInvokeHelperContext
 
                 if (isResolvable)
                 {
-                    // Use the resolved record's namespace (umbrella fallback) so an
-                    // umbrella-qualified ABI target whose record lives in a dep module
-                    // emits the correct cross-module qualification.
-                    var emissionModule = !string.IsNullOrEmpty(record.CSharpTypeName.Namespace)
-                        ? record.CSharpTypeName.Namespace
-                        : target.Module;
-                    interfaceName = NameProvider.GetInterfaceName(target.Name, moduleName: emissionModule, currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
+                    // Well-known runtime protocols need split handling. Their TypeRecords
+                    // remap CSharpTypeName to a runtime struct (e.g. Swift.Error →
+                    // Swift.Foundation.AnyError), so the synthetic "I{Target.Name}" form
+                    // has no relationship with record.CSharpTypeName.Namespace.
+                    //
+                    // Marker protocols (Sendable/Copyable/Escapable/SendableMetatype/
+                    // BitwiseCopyable) are filtered upstream by IsMarkerProtocol and never
+                    // reach this branch, so the only members of IsWellKnownRuntimeProtocol
+                    // that can show up here are Swift.Error and _Concurrency.Actor.
+                    //
+                    // Swift.Error: emit bare "IError" — Alamofire-style modules that
+                    //   declare their own 'public protocol Error' provide a usable
+                    //   IError interface in the consumer module, so PWT extraction
+                    //   `ProtocolWitnessTable.GetOrThrowAuto<TFailure, IError>()`
+                    //   resolves. Using target.Module="Swift" tells GetInterfaceName
+                    //   to suppress cross-module qualification (Swift is implicitly
+                    //   imported), producing the bare "IError" form.
+                    //
+                    // Other well-known runtime protocols (e.g. _Concurrency.Actor):
+                    //   no projected I-prefix counterpart exists, and synthesizing
+                    //   "_Concurrency.IActor" would produce a CS0246. Route to the
+                    //   unresolved list so HasIndeterminatePwtShape skip-gates the
+                    //   containing type, matching the no-witness-table treatment in
+                    //   MethodValidationGates.IsProtocolAvailableForConstraint.
+                    if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
+                    {
+                        if (target.ModuleQualifiedName == "Swift.Error")
+                        {
+                            interfaceName = NameProvider.GetInterfaceName(
+                                target.Name,
+                                moduleName: target.Module,
+                                currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
+                        }
+                        else
+                        {
+                            unresolved.Add(new UnresolvedPwtConstraint(
+                                GenericParamIndex: i,
+                                GenericParamCsName: csName,
+                                ProtocolName: target.Name,
+                                ProtocolModuleQualifiedName: target.ModuleQualifiedName,
+                                Reason: "metadata-only well-known runtime protocol has no projected interface"));
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        // Use the resolved record's namespace (umbrella fallback) so an
+                        // umbrella-qualified ABI target whose record lives in a dep module
+                        // emits the correct cross-module qualification.
+                        var emissionModule = !string.IsNullOrEmpty(record.CSharpTypeName.Namespace)
+                            ? record.CSharpTypeName.Namespace
+                            : target.Module;
+                        interfaceName = NameProvider.GetInterfaceName(
+                            target.Name,
+                            moduleName: emissionModule,
+                            currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
+                    }
                 }
                 else
                 {

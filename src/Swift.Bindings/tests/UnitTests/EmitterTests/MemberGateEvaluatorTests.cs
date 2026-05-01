@@ -182,6 +182,53 @@ public class MemberGateEvaluatorTests
         Assert.Equal(GateDisposition.Emit, result.Disposition);
     }
 
+    [Fact]
+    public void EvaluateProperty_OptionalExistentialUnknownProtocol_ReturnsSkip()
+    {
+        // P8 regression: protocol interface MUST agree with concrete-class skip when
+        // the inner protocol of an optional existential is not in the type database
+        // and falls back to "object". Without this gate, the protocol emits
+        // `object?` while the conforming class skips the property, producing CS0535.
+        var typeDatabase = CreateTypeDatabase();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+
+        // Build `(any UnknownProto)?` — Swift.Optional<any UnknownProto>
+        var unknownProtocol = new NamedTypeSpec("UnknownModule.UnknownProto") { IsAny = true };
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(unknownProtocol);
+
+        var property = CreateProperty("entity", optionalType);
+        var protocolDecl = CreateProtocolDecl("HasEntity");
+
+        var result = evaluator.EvaluateProperty(property, CreateModuleDecl("TestModule"), protocolDecl);
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.AnyTypeFallback, result.Reason);
+        Assert.Contains("Optional existential", result.Details);
+    }
+
+    [Fact]
+    public void EvaluatePropertyHardGates_OptionalExistentialUnknownProtocol_ReturnsSkip()
+    {
+        // Concrete-side mirror of the P8 gate: even outside a protocol context, an
+        // optional existential whose inner protocol is unknown cannot be marshalled
+        // into a meaningful nullable C# type. This gate keeps PropertyHandler's
+        // concrete-class skip in sync with the protocol gate above.
+        var typeDatabase = CreateTypeDatabase();
+        var evaluator = new MemberGateEvaluator(typeDatabase);
+
+        var unknownProtocol = new NamedTypeSpec("UnknownModule.UnknownProto") { IsAny = true };
+        var optionalType = new NamedTypeSpec("Swift.Optional");
+        optionalType.GenericParameters.Add(unknownProtocol);
+
+        var property = CreateProperty("entity", optionalType);
+
+        var result = evaluator.EvaluatePropertyHardGates(property, CreateModuleDecl("TestModule"));
+
+        Assert.True(result.IsSkipped);
+        Assert.Equal(SkipReason.AnyTypeFallback, result.Reason);
+    }
+
     #endregion
 
     #region EvaluateMethod Tests

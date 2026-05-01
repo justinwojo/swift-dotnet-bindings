@@ -535,6 +535,90 @@ public class PInvokeHelperEmitterTests
     }
 
     [Fact]
+    public void Emit_GenericClass_SwiftErrorRemappedConstraint_DoesNotEmitRemappedNamespace()
+    {
+        // Swift.Error has a TypeRecord that remaps CSharpTypeName to
+        // (Swift.Foundation, AnyError) — a runtime struct, not a generated interface.
+        // The umbrella-aware emission path must NOT use record.CSharpTypeName.Namespace
+        // for these well-known runtime protocols, because there is no
+        // 'Swift.Foundation.IError' interface — only Alamofire-style modules that
+        // declare their own 'Error' protocol provide a usable I-prefixed interface.
+        // Falling back to target.Module ("Swift") so cross-module qualification is
+        // suppressed (NameProvider.GetInterfaceName treats moduleName="Swift" as
+        // the implicit-import path) is what made Alamofire's
+        // 'ProtocolWitnessTable.GetOrThrowAuto<TFailure, IError>()' resolve again.
+        var moduleDecl = CreateModuleDecl("Alamofire");
+        var classDecl = CreateConstrainedGenericClass(
+            moduleDecl,
+            "DataResponse",
+            paramConstraints: new[]
+            {
+                System.Array.Empty<(string Module, string Protocol)>(),
+                new[] { ("Swift", "Error") },
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithRemappedProtocol(
+                swiftModule: "Swift",
+                swiftProtocolName: "Error",
+                csNamespace: "Swift.Foundation",
+                csTypeName: "AnyError",
+                descriptorSymbol: "$ss5ErrorMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
+
+        var entry = Assert.Single(ctx.PwtEntries);
+        Assert.True(entry.IsResolvable);
+        // The bug: Session 1's emission path produced "Swift.Foundation.IError"
+        // (synthesizing 'I' + Target.Name and qualifying with the remapped C#
+        // namespace). The fix produces a bare "IError" instead — same shape as
+        // the pre-Session-1 output that Alamofire's own 'public interface IError'
+        // satisfies in the consuming module.
+        Assert.DoesNotContain("Swift.Foundation", entry.ResolvableInterfaceName);
+        Assert.Equal("IError", entry.ResolvableInterfaceName);
+    }
+
+    [Fact]
+    public void Emit_GenericClass_ConcurrencyActorConstraint_RoutesToUnresolvedNotIActor()
+    {
+        // _Concurrency.Actor is in IsWellKnownRuntimeProtocol but is NOT filtered
+        // by IsMarkerProtocol (its simple name is "Actor", not Sendable/Copyable/
+        // Escapable/SendableMetatype/BitwiseCopyable). Without split handling the
+        // emitter would synthesize "_Concurrency.IActor" — an interface that does
+        // not exist anywhere — producing CS0246 in the generated binding. The fix
+        // routes such metadata-only well-known runtime protocols into the
+        // UnresolvedPwtConstraints list so HasIndeterminatePwtShape skip-gates the
+        // containing type (consistent with how
+        // MethodValidationGates.IsProtocolAvailableForConstraint handles them).
+        var moduleDecl = CreateModuleDecl("SomeActorLib");
+        var classDecl = CreateConstrainedGenericClass(
+            moduleDecl,
+            "ActorBox",
+            paramConstraints: new[]
+            {
+                new[] { ("_Concurrency", "Actor") },
+            });
+        var typeDb = new ConstrainedGenericMockTypeDatabase()
+            .WithProtocol("_Concurrency", "Actor", "$ss5ActorMp");
+
+        var ctx = PInvokeHelperContext.CreateIfGeneric(classDecl, typeDb)!;
+
+        // The constraint must NOT appear as a resolvable PWT entry — synthesizing
+        // "_Concurrency.IActor" or any I-prefixed form is a CS0246 waiting to
+        // happen.
+        Assert.Empty(ctx.PwtEntries);
+        Assert.True(ctx.HasIndeterminatePwtShape);
+        var unresolved = Assert.Single(ctx.UnresolvedPwtConstraints);
+        Assert.Equal("Actor", unresolved.ProtocolName);
+        Assert.Equal("_Concurrency.Actor", unresolved.ProtocolModuleQualifiedName);
+        // Pin the specific Reason so the metadata-only well-known runtime path
+        // stays distinguishable from the generic "protocol not in TypeDatabase"
+        // and "PAT/Self-requirement missing descriptor" unresolved buckets.
+        Assert.Equal(
+            "metadata-only well-known runtime protocol has no projected interface",
+            unresolved.Reason);
+    }
+
+    [Fact]
     public void Emit_GenericNonFrozenStruct_MultipleConstraintsLexOrder_OrderedAlphabetically()
     {
         // runtime-metadata.md: PWTs for a single generic param are emitted in
@@ -1262,6 +1346,33 @@ public class PInvokeHelperEmitterTests
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, protocolName),
                 SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "",
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol,
+                ProtocolDescriptorSymbol = descriptorSymbol
+            };
+            return this;
+        }
+
+        /// <summary>
+        /// Registers a protocol whose C# representation is remapped to a different
+        /// namespace/name than the Swift module-qualified name (e.g. Swift.Error →
+        /// Swift.Foundation.AnyError). The Swift target keeps its module-qualified
+        /// key for lookups, while CSharpTypeName carries the remapped namespace+name.
+        /// </summary>
+        public ConstrainedGenericMockTypeDatabase WithRemappedProtocol(
+            string swiftModule,
+            string swiftProtocolName,
+            string csNamespace,
+            string csTypeName,
+            string? descriptorSymbol = null,
+            TypeRecordFlags flags = TypeRecordFlags.None)
+        {
+            var swiftTypeNameKey = SwiftTypeName.FromModuleQualifiedName($"{swiftModule}.{swiftProtocolName}");
+            _types[swiftTypeNameKey.ModuleQualifiedName] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, csTypeName),
+                SwiftTypeName = swiftTypeNameKey,
                 MetadataAccessor = "",
                 Flags = flags,
                 Kind = TypeRecordKind.Protocol,
