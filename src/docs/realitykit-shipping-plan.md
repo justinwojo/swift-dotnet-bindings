@@ -6,11 +6,12 @@
 - `RealityKit`: 29 × CS0234 (cross-module type qualification — references to `RealityKit.Entity` / `RealityFoundation.Entity` / `ARKit.ARRaycastQueryTarget` / `Swift.SIMD3` that don't resolve).
 - `RealityFoundation`: skipped (compile-gated on `RealityKit`).
 
-**Status (Session 1 done)**:
-- `RealityKit`: **1 × CS0535** (`EntityTranslationGestureRecognizer` does not implement `IEntityGestureRecognizer.Entity`). All 29 cross-module `CS0234`s are gone. The remaining error is a same-module impedance mismatch where the protocol interface emits `object?` for the unsupported `any HasCollision?` existential property but the conforming class skips the property entirely. Surfaced (not introduced) by Session 1 — covered by Session 2 portfolio hardening.
-- `RealityFoundation`: **43 errors** (well under the ~78 estimate). Breakdown matches the expected buckets: ~68 `CS0315` (Bucket #5), ~8 `CS0111`+`CS0102` (Bucket #7), ~2 `CS1750` (Misc), plus a small tail of additional cross-module shapes (`CS0426`/`CS0314`/residual `CS0234`/`CS0246`).
-- Phase 3a apple-framework targets now generate dep DBs ahead of the primary; the apple-framework worker is dep-aware.
-- Next: **Session 2** (portfolio hardening — full-portfolio regression sweep, plus the lingering `CS0535` and any residual cross-module shapes).
+**Status (Session 2 done)**:
+- `RealityKit`: **0 errors** — CS0535 retired by adding the protocol-side optional-existential gate (`MemberGateEvaluator` P8) symmetric to the concrete-class skip (`MemberValidationPipeline` P8).
+- `RealityFoundation`: **41 errors** (annotated as `knownErrors: 41`). Backlog matches the expected Sessions 3-5 buckets: CS0315 (Bucket #5), CS0111/CS0102 (Bucket #7), CS1750 (Misc).
+- Alamofire regression from Session 1 fixed: `PInvokeHelperEmitter` now distinguishes Swift.Error (keeps bare `IError` emission) from metadata-only runtime protocols like `_Concurrency.Actor` (routes to `UnresolvedPwtConstraints`).
+- `nuke validate`: 129/129 overall passed; skip rate 22.8% (down from 23.7%).
+- Next: **Session 3** (Bucket #7 + Misc — dedupe member emission + `default(T)` literal).
 
 A throwaway dep-order-reversal experiment (now reverted) proved that once `RealityFoundation` is generated against an actually-loaded `RealityKit` module DB, **90 hidden errors in `RealityFoundation` surface**. Those 90 are the real backlog. The 29 surface errors on `RealityKit` are all qualification-resolution failures rooted in the same dep-threading gap.
 
@@ -96,7 +97,7 @@ A high-level `/codex-review` of *this plan itself* (before Session 1 starts) is 
 
 ---
 
-## Session 2 — Bucket #6 portfolio hardening
+## Session 2 — Bucket #6 portfolio hardening ✅ completed (commit a64fd07a)
 
 **Goal**: catch and fix any cross-portfolio regressions Session 1's threading change surfaced.
 

@@ -464,6 +464,15 @@ namespace BindingsGeneration
                 : NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (methodDecl.ParentDecl as TypeDecl)?.Name,
                     parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
+            // Build the set of generic parameter names visible in this method's scope —
+            // both the parent type's params (e.g. `Value` from `class FromToByAction<Value>`)
+            // and the method's own params. swift-api-digester emits the source-level name
+            // ("Value") in kGenericTypeParam.printedName for compiled .swiftmodules, NOT the
+            // ABI-canonical `τ_0_0` form, so IsGenericTypeParameter alone misses these. The
+            // set is used to collapse `Optional<Value>` onto bare `Value` for overload-key
+            // dedup (RealityFoundation FromToByAction CS0111 trigger).
+            var parentGenericNames = CollectVisibleGenericParamNames(methodDecl);
+
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -484,6 +493,18 @@ namespace BindingsGeneration
                     optionalClosureSpec.GenericParameters[0] is ClosureTypeSpec)
                 {
                     typeSpecForKey = optionalClosureSpec.GenericParameters[0];
+                }
+                // Optional<GenericParam> and bare GenericParam collapse to the same overload
+                // for reference-constrained T (and the compiler emits CS0111 for unconstrained
+                // T too — `Foo<T>(T)` and `Foo<T>(T?)` would conflict for `T = string`). Unwrap
+                // the Optional layer when its element is a generic-param reference visible in
+                // this method's scope.
+                if (typeSpecForKey is NamedTypeSpec optGenericSpec &&
+                    optGenericSpec.Name == "Swift.Optional" &&
+                    optGenericSpec.GenericParameters.Count == 1 &&
+                    IsGenericParamReference(optGenericSpec.GenericParameters[0], parentGenericNames))
+                {
+                    typeSpecForKey = optGenericSpec.GenericParameters[0];
                 }
                 string paramType;
                 try
@@ -528,6 +549,56 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Collects the names of every generic parameter visible inside <paramref name="methodDecl"/> —
+        /// both the method's own generic parameters and any walked-up parent type parameters
+        /// (struct/class generics + their enclosing nested-type chain). Both the ABI-canonical
+        /// (<c>τ_0_0</c>) and source-level sugared (<c>Value</c>, <c>Element</c>) names are
+        /// included, since swift-api-digester emits either depending on the surrounding
+        /// declaration shape. Used to recognise <c>Optional&lt;GenericParam&gt;</c> for the
+        /// overload-identity unwrap in <see cref="GetProjectedCSharpMethodKey"/>.
+        /// </summary>
+        internal static HashSet<string> CollectVisibleGenericParamNames(MethodDecl methodDecl)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            void Add(GenericArgumentDecl g)
+            {
+                if (!string.IsNullOrEmpty(g.TypeName)) names.Add(g.TypeName);
+                if (!string.IsNullOrEmpty(g.SugaredTypeName)) names.Add(g.SugaredTypeName);
+            }
+
+            foreach (var g in methodDecl.GenericParameters)
+                Add(g);
+
+            // Walk every enclosing TypeDecl — nested generic types contribute their parameters
+            // (e.g. `Outer<A>.Inner<B>` exposes both A and B inside Inner's methods).
+            BaseDecl? cursor = methodDecl.ParentDecl;
+            while (cursor is TypeDecl td)
+            {
+                foreach (var g in td.GenericParameters)
+                    Add(g);
+                cursor = td.ParentDecl;
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="typeSpec"/> is a NamedTypeSpec whose name refers to
+        /// a generic parameter visible in the method's scope. Combines the explicit
+        /// <paramref name="visibleGenericNames"/> set (collected from parent + method generic
+        /// parameters) with the heuristic <see cref="TypeSpecHelpers.IsGenericTypeParameter(string)"/>
+        /// recogniser (catches τ_*_* even when the parent decl wasn't fully populated, e.g. for
+        /// detached test fixtures).
+        /// </summary>
+        private static bool IsGenericParamReference(TypeSpec typeSpec, HashSet<string> visibleGenericNames)
+        {
+            if (typeSpec is not NamedTypeSpec named)
+                return false;
+            if (visibleGenericNames.Contains(named.Name))
+                return true;
+            return TypeSpecHelpers.IsGenericTypeParameter(named.Name);
+        }
+
+        /// <summary>
         /// Applies a collision disambiguation suffix to a projected C# method key.
         /// The key format is "MethodName(type1,type2,...)" — the suffix is inserted
         /// before the opening parenthesis (e.g., "Foo(int)" → "Foo2(int)").
@@ -554,6 +625,15 @@ namespace BindingsGeneration
         {
             if (typeSpecForKey is NamedTypeSpec namedSpec)
             {
+                // Optional<GenericParam> and bare GenericParam produce the same dedup key.
+                // Reference-constrained generics treat T? and T as the same overload (CS0111).
+                // TypeProjectionFactory returns null for unresolved generic params, so the DB
+                // fallback yields different names (SwiftOptional vs AnyType) without this branch.
+                if (namedSpec.Name == "Swift.Optional" && namedSpec.GenericParameters.Count == 1 &&
+                    TypeSpecHelpers.IsGenericTypeParameter(namedSpec.GenericParameters[0]))
+                {
+                    return NormalizeContainerForOverloadKey(namedSpec.GenericParameters[0], typeDatabase);
+                }
                 // Array<T>, ArraySlice<T>, and Set<T> all project to IEnumerable<T> as parameters.
                 // Project the element type so keys match regardless of container
                 // (e.g., ArraySlice<UInt8> and Array<UInt8> both → IEnumerable<byte>).

@@ -27,7 +27,22 @@ public static class SwiftDefaultValueMapper
     /// <param name="swiftExpr">The raw Swift default expression (e.g., "10", "true", ".mid", "nil").</param>
     /// <param name="paramTypeSpec">The TypeSpec of the parameter (used for nil/enum resolution).</param>
     /// <param name="typeDatabase">The type database for enum/type resolution.</param>
-    public static string? TryMapToCSharpDefault(string swiftExpr, TypeSpec paramTypeSpec, ITypeDatabase typeDatabase)
+    /// <param name="visibleGenericNames">
+    /// Optional set of generic-parameter names visible in the surrounding method's scope —
+    /// both ABI-canonical (<c>τ_0_0</c>) and source-level sugared (<c>Value</c>, <c>Element</c>).
+    /// When supplied, an unconstrained-T <c>nil</c> default with a sugared name maps to
+    /// <c>default</c> instead of falling through to <c>null</c> (which would be CS1750).
+    /// Callers that have a <see cref="MethodDecl"/> should pass
+    /// <c>BaseHandler.CollectVisibleGenericParamNames(methodDecl)</c>; the heuristic
+    /// <see cref="TypeSpecHelpers.IsGenericTypeParameter"/> still catches the canonical
+    /// names when this is null (which keeps the unit-test surface and detached fixtures
+    /// working without a parent decl).
+    /// </param>
+    public static string? TryMapToCSharpDefault(
+        string swiftExpr,
+        TypeSpec paramTypeSpec,
+        ITypeDatabase typeDatabase,
+        IReadOnlySet<string>? visibleGenericNames = null)
     {
         if (string.IsNullOrWhiteSpace(swiftExpr))
             return null;
@@ -36,7 +51,7 @@ public static class SwiftDefaultValueMapper
 
         // nil → null (reference types) or default (value types / SwiftOptional)
         if (expr == "nil")
-            return MapNil(paramTypeSpec, typeDatabase);
+            return MapNil(paramTypeSpec, typeDatabase, visibleGenericNames);
 
         // Bool literals
         if (expr == "true") return "true";
@@ -62,7 +77,7 @@ public static class SwiftDefaultValueMapper
 
         // .none on Optional type → nil
         if (expr == ".none" && IsOptionalType(paramTypeSpec))
-            return MapNil(paramTypeSpec, typeDatabase);
+            return MapNil(paramTypeSpec, typeDatabase, visibleGenericNames);
 
         // Enum dot syntax: .caseName
         if (expr.StartsWith("."))
@@ -76,8 +91,25 @@ public static class SwiftDefaultValueMapper
         return null;
     }
 
-    private static string? MapNil(TypeSpec paramTypeSpec, ITypeDatabase typeDatabase)
+    private static string? MapNil(
+        TypeSpec paramTypeSpec,
+        ITypeDatabase typeDatabase,
+        IReadOnlySet<string>? visibleGenericNames)
     {
+        // Unconstrained generic parameters: `null` is illegal as a default for an unconstrained
+        // C# type parameter (CS1750). The `default` literal infers the right zero value from
+        // context (T? → null when T is reference; default(Nullable<T>) → no value when T is
+        // value). Detect both bare generic-param refs (`T`, `τ_0_0`, sugared `Value`) and
+        // Optional<GenericParam>. The sugared-name path requires the caller-supplied
+        // visibleGenericNames set; without it we fall back to the heuristic-only recogniser
+        // which still catches τ_*_* and the single-letter conventions.
+        if (IsGenericParameterRef(paramTypeSpec, visibleGenericNames))
+            return "default";
+        if (paramTypeSpec is NamedTypeSpec optNamed && optNamed.Name == "Swift.Optional" &&
+            optNamed.GenericParameters.Count == 1 &&
+            IsGenericParameterRef(optNamed.GenericParameters[0], visibleGenericNames))
+            return "default";
+
         // Optional types → null
         if (IsOptionalType(paramTypeSpec))
             return "null";
@@ -92,6 +124,14 @@ public static class SwiftDefaultValueMapper
 
         // Default fallback for value types
         return "default";
+    }
+
+    private static bool IsGenericParameterRef(TypeSpec typeSpec, IReadOnlySet<string>? visibleGenericNames)
+    {
+        if (typeSpec is NamedTypeSpec named && visibleGenericNames is not null &&
+            visibleGenericNames.Contains(named.Name))
+            return true;
+        return TypeSpecHelpers.IsGenericTypeParameter(typeSpec);
     }
 
     private static bool IsOptionalType(TypeSpec typeSpec)

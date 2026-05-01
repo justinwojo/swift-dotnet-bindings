@@ -1,5 +1,5 @@
 {
-  "git_sha": "c92dcad2",
+  "git_sha": "a64fd07a",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -116,8 +116,8 @@
       },
       "RealityFoundation": {
         "compile": "known_errors",
-        "errors": 41,
-        "lines": 173400,
+        "errors": 36,
+        "lines": 173277,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,13 +908,13 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 22411,
-    "total_skipped_members": 6605,
+    "total_emitted_members": 22408,
+    "total_skipped_members": 6608,
     "skip_rate_pct": 22.8,
     "skip_reasons": {
       "UnsupportedSignature": 1201,
       "SynthesizedCodable": 905,
-      "DuplicateSignature": 848,
+      "DuplicateSignature": 851,
       "ModuleInternal": 843,
       "AnyTypeFallback": 679,
       "GenericProtocolConstraint": 655,

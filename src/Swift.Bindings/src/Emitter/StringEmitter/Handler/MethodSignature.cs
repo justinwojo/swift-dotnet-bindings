@@ -777,14 +777,18 @@ namespace BindingsGeneration
             if (args.Count != _parameters.Count)
                 return; // Defensive — counts should match
 
-            // Map each parameter's default
+            // Map each parameter's default. Pass the surrounding method's visible generic-parameter
+            // names so the mapper recognises sugared unconstrained-T defaults (e.g. `nil` on
+            // `value: Value? = nil`) and emits `default` instead of `null` (CS1750).
+            var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(_env.MethodDecl);
             var mappedDefaults = new string?[_parameters.Count];
             for (int i = 0; i < args.Count; i++)
             {
                 if (args[i].HasDefaultArg && args[i].SwiftDefaultExpression != null)
                 {
                     mappedDefaults[i] = SwiftDefaultValueMapper.TryMapToCSharpDefault(
-                        args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, _env.TypeDatabase);
+                        args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, _env.TypeDatabase,
+                        visibleGenericNames);
                 }
             }
 

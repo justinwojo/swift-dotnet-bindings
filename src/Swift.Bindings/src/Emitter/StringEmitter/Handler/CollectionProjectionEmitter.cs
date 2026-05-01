@@ -102,7 +102,8 @@ internal static class CollectionProjectionEmitter
         ILogger logger,
         SwiftWriter? swiftWriter = null,
         ModuleEmissionContext? moduleCtx = null,
-        PInvokeHelperContext? pinvokeHelperContext = null)
+        PInvokeHelperContext? pinvokeHelperContext = null,
+        IReadOnlySet<string>? alreadyEmittedMembers = null)
     {
         var backing = TryFindBacking(structDecl, typeDatabase);
         if (backing is null)
@@ -110,7 +111,7 @@ internal static class CollectionProjectionEmitter
 
         if (backing.Kind == BackingKind.ArrayProperty)
         {
-            EmitArrayBackedMembers(csWriter, structDecl, backing, propertyRenames, logger);
+            EmitArrayBackedMembers(csWriter, structDecl, backing, propertyRenames, logger, alreadyEmittedMembers);
             return;
         }
 
@@ -125,7 +126,8 @@ internal static class CollectionProjectionEmitter
 
         EmitWitnessBackedMembers(
             csWriter, swiftWriter, moduleCtx, pinvokeHelperContext,
-            structDecl, typeNameWithGenerics, backing, typeDatabase, logger);
+            structDecl, typeNameWithGenerics, backing, typeDatabase, logger,
+            alreadyEmittedMembers);
     }
 
     private static void EmitArrayBackedMembers(
@@ -133,16 +135,24 @@ internal static class CollectionProjectionEmitter
         StructDecl structDecl,
         BackingInfo backing,
         IReadOnlyDictionary<string, string>? propertyRenames,
-        ILogger logger)
+        ILogger logger,
+        IReadOnlySet<string>? alreadyEmittedMembers)
     {
         var prop = backing.ArrayProperty!;
         var elementCsName = backing.ElementCsName;
         var backingCsName = NameProvider.GetFinalMemberName(
             NameProvider.GetPropertyName(prop.Name, structDecl.Name), propertyRenames);
 
-        csWriter.WriteLine();
-        csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c>.</summary>");
-        csWriter.WriteLine($"public int Count => {backingCsName}.Count;");
+        // Skip Count when the property handler already emitted it (e.g., Swift `count: Int`
+        // surfaces as a regular C# property before this projection runs — RealityFoundation
+        // MeshBuffer<TElement> hits this). Without the gate the duplicate produces CS0102.
+        bool emitCount = alreadyEmittedMembers is null || !alreadyEmittedMembers.Contains("Count");
+        if (emitCount)
+        {
+            csWriter.WriteLine();
+            csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c>.</summary>");
+            csWriter.WriteLine($"public int Count => {backingCsName}.Count;");
+        }
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>Element access — projection of Swift <c>subscript(_:)</c>.</summary>");
         csWriter.WriteLine($"public {elementCsName} this[int index] => {backingCsName}[index];");
@@ -153,8 +163,8 @@ internal static class CollectionProjectionEmitter
         csWriter.WriteLine();
 
         logger.LogInformation(
-            "Emitted Collection projection (array-backed) on '{TypeName}' backed by property '{Backing}'.",
-            structDecl.Name, prop.Name);
+            "Emitted Collection projection (array-backed) on '{TypeName}' backed by property '{Backing}' (Count emitted: {EmitCount}).",
+            structDecl.Name, prop.Name, emitCount);
     }
 
     private static void EmitWitnessBackedMembers(
@@ -166,8 +176,10 @@ internal static class CollectionProjectionEmitter
         string typeNameWithGenerics,
         BackingInfo backing,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        IReadOnlySet<string>? alreadyEmittedMembers)
     {
+        bool emitCount = alreadyEmittedMembers is null || !alreadyEmittedMembers.Contains("Count");
         var elementCsName = backing.ElementCsName;
 
         // Symbol naming — deterministic hash on the full type identity so a rebuild with
@@ -213,39 +225,44 @@ internal static class CollectionProjectionEmitter
         });
 
         // C# body — Count dispatches to the count wrapper, subscript to the subscript
-        // wrapper, enumerator iterates through the projected indexer.
-        csWriter.WriteLine();
-        csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c>.</summary>");
-        csWriter.WriteLine("public int Count");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("get");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine($"var __parentMeta = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
-        csWriter.WriteLine("var __success = false;");
-        csWriter.WriteLine("_payload.DangerousAddRef(ref __success);");
-        csWriter.WriteLine("try");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine($"var __count = {pinvokeHelperContext.HelperClassName}.{pinvokeCountName}(__parentMeta.Handle, _payload.DangerousGetHandle());");
-        csWriter.WriteLine("return checked((int)__count);");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.WriteLine("finally");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-        csWriter.WriteLine("if (__success)");
-        csWriter.Indent++;
-        csWriter.WriteLine("_payload.DangerousRelease();");
-        csWriter.Indent--;
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.WriteLine();
+        // wrapper, enumerator iterates through the projected indexer. Count is gated by
+        // `alreadyEmittedMembers` so a Swift `count: Int` property already emitted by
+        // PropertyHandler doesn't collide (CS0102 — see MeshBuffer<TElement> on RealityFoundation).
+        if (emitCount)
+        {
+            csWriter.WriteLine();
+            csWriter.WriteLine("/// <summary>Number of elements — projection of Swift <c>Collection.count</c>.</summary>");
+            csWriter.WriteLine("public int Count");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var __parentMeta = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
+            csWriter.WriteLine("var __success = false;");
+            csWriter.WriteLine("_payload.DangerousAddRef(ref __success);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var __count = {pinvokeHelperContext.HelperClassName}.{pinvokeCountName}(__parentMeta.Handle, _payload.DangerousGetHandle());");
+            csWriter.WriteLine("return checked((int)__count);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (__success)");
+            csWriter.Indent++;
+            csWriter.WriteLine("_payload.DangerousRelease();");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
 
         EmitWitnessIndexerBody(
             csWriter, structDecl, typeNameWithGenerics, elementCsName,

@@ -157,13 +157,26 @@ namespace BindingsGeneration
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
 
-                var emittedPropertyNames = new HashSet<string>();
+                // `seenPropertyNames` is the duplicate-collision detector — once a name has been
+                // visited (whether it ended up emitted, synthesized away, or skipped) further
+                // PropertyDecl entries with the same C# name are dropped to keep the iteration
+                // idempotent.
+                //
+                // `actuallyEmittedPropertyNames` is the set we hand to downstream emitters that
+                // need to know which member names actually surfaced on the class — synthesized
+                // and skipped properties are excluded so a downstream dedup (Collection
+                // projection's `Count`) doesn't suppress its own member when no real property
+                // was emitted to take its place. Without this split a `count: Int` that fails
+                // CanEmitProperty would silently strip both the property and the projection's
+                // `Count`, leaving `IReadOnlyList<TElement>.Count` unimplemented (CS0535).
+                var seenPropertyNames = new HashSet<string>();
+                var actuallyEmittedPropertyNames = new HashSet<string>();
                 foreach (PropertyDecl propertyDecl in structDecl.Properties)
                 {
                     // Use post-rename name for consistency with the propertyNames collision set below.
                     var csPropertyName = NameProvider.GetFinalMemberName(
                         NameProvider.GetPropertyName(propertyDecl.Name, structDecl.Name), propertyRenames);
-                    if (!emittedPropertyNames.Add(csPropertyName))
+                    if (!seenPropertyNames.Add(csPropertyName))
                     {
                         _logger.LogInformation($"Skipping duplicate property '{structDecl.Name}.{csPropertyName}'.");
                         ReportCollector.RecordMemberSkipped(propertyDecl, SkipReason.DuplicateSignature, $"Property '{csPropertyName}' already emitted.");
@@ -187,6 +200,7 @@ namespace BindingsGeneration
                     {
                         var propertyEnv = propertyHandler.Marshal(propertyDecl, env.TypeDatabase);
                         propertyHandler.Emit(csWriter, swiftWriter, propertyEnv, conductor, childContext);
+                        actuallyEmittedPropertyNames.Add(csPropertyName);
                     }
                     else
                         _logger.LogWarning($"No handler found for field {propertyDecl.Name}");
@@ -258,7 +272,8 @@ namespace BindingsGeneration
                     CollectionProjectionEmitter.EmitMembers(csWriter, structDecl, typeNameWithGenerics, env.TypeDatabase, propertyRenames, _logger,
                         swiftWriter: swiftWriter,
                         moduleCtx: context.GetEmissionContext(),
-                        pinvokeHelperContext: pinvokeHelperContext);
+                        pinvokeHelperContext: pinvokeHelperContext,
+                        alreadyEmittedMembers: actuallyEmittedPropertyNames);
 
                 var emissionCtx = context.GetEmissionContext();
                 emissionCtx?.PushTypeNesting(typeNameWithGenerics);

@@ -274,6 +274,60 @@ public class BaseHandlerDedupTests
         };
     }
 
+    /// <summary>
+    /// Builds a method whose <see cref="MethodDecl.ParentDecl"/> is a generic StructDecl
+    /// carrying a single generic parameter with the given <paramref name="sugaredName"/> and
+    /// <paramref name="canonicalName"/>. Used to exercise the source-level (sugared) generic
+    /// parameter recogniser path inside <c>BaseHandler.CollectVisibleGenericParamNames</c>.
+    /// </summary>
+    private static MethodDecl CreateMethodInGenericType(
+        string name, TypeSpec paramType, string sugaredName, string canonicalName)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var parentStruct = new StructDecl
+        {
+            Name = "Container",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
+            MangledName = "$sTestModuleContainer",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            IsFrozen = false,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl(
+                    TypeName: canonicalName,
+                    SugaredTypeName: sugaredName,
+                    GenericConformances: new List<GenericParameterConformance>(),
+                    AssosiatedTypeConformances: new List<GenericParameterConformance>())
+            }
+        };
+
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = "$sTest",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty), // return type (void)
+                CreateArgDecl(paramType), // parameter
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentStruct,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
     private static ArgumentDecl CreateArgDecl(TypeSpec typeSpec)
     {
         return new ArgumentDecl
@@ -425,6 +479,54 @@ public class BaseHandlerDedupTests
         var key2 = InvokeGetProjectedCSharpMethodKey(method2, typeDatabase);
 
         Assert.NotEqual(key1, key2);
+    }
+
+    // RealityFoundation FromToByAction<Value>: ctor(from: Value?, to: Value, …) and
+    // ctor(to: Value, by: Value, …) trigger CS0111 once their default-trimmed overloads
+    // collapse together. C# treats T? and T as the same overload for reference-constrained
+    // generics, so the projected dedup key MUST collapse Optional<GenericParam> onto the
+    // bare GenericParam form. Without this, NormalizeContainerForOverloadKey returns
+    // "Swift.SwiftOptional" for Optional<τ_0_0> vs "Swift.AnyType" for bare τ_0_0 and
+    // dedup misses the collision. swift-api-digester emits the ABI-canonical τ_*_* form
+    // for kGenericTypeParam — that's the shape the parser produces today.
+    [Theory]
+    [InlineData("τ_0_0")]
+    [InlineData("τ_1_2")]
+    [InlineData("T")]
+    public void GetProjectedCSharpMethodKey_OptionalGenericParam_SameKeyAsBareGenericParam(string genericName)
+    {
+        var typeDatabase = new DedupTypeDatabase();
+        var bare = CreateMethod("doSomething", new NamedTypeSpec(genericName));
+        var optional = CreateMethod("doSomething", new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(genericName)));
+
+        var bareKey = InvokeGetProjectedCSharpMethodKey(bare, typeDatabase);
+        var optionalKey = InvokeGetProjectedCSharpMethodKey(optional, typeDatabase);
+
+        Assert.Equal(bareKey, optionalKey);
+    }
+
+    // Sugared generic parameter names: swift-api-digester emits the source-level form
+    // (`Value`, `Element`) inside the method's TypeSpec when the parent TypeDecl is
+    // compiled (not synthesised). The dedup key must still collapse Optional<Value> onto
+    // bare Value, but TypeSpecHelpers.IsGenericTypeParameter cannot recognise multi-char
+    // sugared names by heuristic alone — CollectVisibleGenericParamNames pulls them from
+    // the parent's GenericArgumentDecl. Test fixture: a TypeDecl<Value> with a method
+    // taking Value vs Optional<Value>.
+    [Theory]
+    [InlineData("Value", "τ_0_0")]
+    [InlineData("Element", "τ_0_0")]
+    public void GetProjectedCSharpMethodKey_OptionalSugaredGenericParam_SameKeyAsBareSugaredGenericParam(
+        string sugaredName, string canonicalName)
+    {
+        var typeDatabase = new DedupTypeDatabase();
+        var bare = CreateMethodInGenericType("doSomething", new NamedTypeSpec(sugaredName), sugaredName, canonicalName);
+        var optional = CreateMethodInGenericType("doSomething",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec(sugaredName)), sugaredName, canonicalName);
+
+        var bareKey = InvokeGetProjectedCSharpMethodKey(bare, typeDatabase);
+        var optionalKey = InvokeGetProjectedCSharpMethodKey(optional, typeDatabase);
+
+        Assert.Equal(bareKey, optionalKey);
     }
 
     #endregion

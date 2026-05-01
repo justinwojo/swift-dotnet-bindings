@@ -623,6 +623,9 @@ public static class DefaultParameterOverloadEmitter
             : NameProvider.GetPublicMethodName(overloadDecl.Name, overloadDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning, parentTypeName: (overloadDecl.ParentDecl as TypeDecl)?.Name,
                 parameterCount: overloadDecl.CSSignature.Skip(1).Count(a => !IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
+        // Mirror IHandler.GetProjectedCSharpMethodKey: collect parent + method generic
+        // names so Optional<GenericParam> collapses onto the bare GenericParam form.
+        var parentGenericNames = BaseHandler.CollectVisibleGenericParamNames(overloadDecl);
         var paramTypes = new List<string>();
         for (int i = 1; i < overloadDecl.CSSignature.Count; i++)
         {
@@ -643,6 +646,17 @@ public static class DefaultParameterOverloadEmitter
                 optionalClosureSpec.GenericParameters[0] is ClosureTypeSpec)
             {
                 typeSpecForKey = optionalClosureSpec.GenericParameters[0];
+            }
+            // Optional<GenericParam> → bare GenericParam (mirrors IHandler.GetProjectedCSharpMethodKey).
+            // Without this, a default-trimmed ctor overload and an explicit ctor with the same
+            // post-trim shape produce different keys and the cross-pass dedup misses.
+            if (typeSpecForKey is NamedTypeSpec optGenericSpec &&
+                optGenericSpec.Name == "Swift.Optional" &&
+                optGenericSpec.GenericParameters.Count == 1 &&
+                optGenericSpec.GenericParameters[0] is NamedTypeSpec optGenericInner &&
+                (parentGenericNames.Contains(optGenericInner.Name) || TypeSpecHelpers.IsGenericTypeParameter(optGenericInner.Name)))
+            {
+                typeSpecForKey = optGenericInner;
             }
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpecForKey, new ProjectionContext
@@ -933,6 +947,10 @@ public static class DefaultParameterOverloadEmitter
         if (args.Count == 0) return false;
 
         bool foundAnyDefault = false;
+        // Surface generic-parameter names visible in the method scope so a `nil` default on a
+        // sugared unconstrained-T (e.g. `Value?`) maps to `default` and counts as mappable
+        // — same threading as MethodSignature.ResolveDefaultValues.
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
 
         // Walk backward through trailing defaults
         for (int i = args.Count - 1; i >= 0; i--)
@@ -946,7 +964,8 @@ public static class DefaultParameterOverloadEmitter
             if (args[i].SwiftDefaultExpression == null)
                 return false;
             var mapped = SwiftDefaultValueMapper.TryMapToCSharpDefault(
-                args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, typeDatabase);
+                args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, typeDatabase,
+                visibleGenericNames);
             if (mapped == null)
                 return false;
         }

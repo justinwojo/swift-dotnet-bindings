@@ -36,6 +36,82 @@ public class SwiftDefaultValueMapperTests
         Assert.Equal("default", result);
     }
 
+    // CS1750: `T value = null` is illegal for an unconstrained type parameter — even when
+    // the call-site type is a reference type, the compiler can't prove it from the decl.
+    // `default` is the universal escape hatch (gives null for reference T, default(T) for
+    // value T). RealityFoundation `FromToByAction.init(from:to:timing:isAdditive:)` triggers
+    // this with `from: Value? = nil` where Value is a generic param. swift-api-digester
+    // emits the ABI-canonical `τ_0_0` form for kGenericTypeParam, so that's the shape
+    // SwiftDefaultValueMapper actually sees in the parsed TypeSpec — these inline data sets
+    // mirror the names IsGenericTypeParameter recognizes today.
+    [Theory]
+    [InlineData("T")]
+    [InlineData("U")]
+    [InlineData("τ_0_0")]
+    [InlineData("τ_1_2")]
+    public void Nil_BareUnconstrainedGenericParam_ReturnsDefault(string genericName)
+    {
+        var typeSpec = MakeNamedType(genericName);
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("nil", typeSpec, new EmptyTypeDatabase());
+        Assert.Equal("default", result);
+    }
+
+    [Theory]
+    [InlineData("T")]
+    [InlineData("τ_0_0")]
+    [InlineData("τ_0_1")]
+    public void Nil_OptionalUnconstrainedGenericParam_ReturnsDefault(string genericName)
+    {
+        var typeSpec = MakeOptionalType(genericName);
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("nil", typeSpec, new EmptyTypeDatabase());
+        Assert.Equal("default", result);
+    }
+
+    // Sugared (source-level) generic parameter names — `Value`, `Element`, `Wrapped` etc. are
+    // emitted by swift-api-digester for compiled .swiftmodule decls. The heuristic
+    // IsGenericTypeParameter recogniser does not match multi-character source names, so the
+    // mapper relies on the caller-supplied `visibleGenericNames` set (collected via
+    // BaseHandler.CollectVisibleGenericParamNames at the call site). Without it we'd fall
+    // through to `null` and hit CS1750 at compile time. RealityFoundation's BindableValue<T>
+    // happens to use the canonical `T` name, but other libraries (and FromToByAction's `Value`
+    // generic param visible in `[OriginalSwiftType("Value")]` attributes) use sugared names.
+    [Theory]
+    [InlineData("Value")]
+    [InlineData("Element")]
+    [InlineData("Wrapped")]
+    public void Nil_BareSugaredGenericParam_WithVisibleNames_ReturnsDefault(string sugaredName)
+    {
+        var typeSpec = MakeNamedType(sugaredName);
+        var visible = new HashSet<string> { sugaredName };
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("nil", typeSpec, new EmptyTypeDatabase(), visible);
+        Assert.Equal("default", result);
+    }
+
+    [Theory]
+    [InlineData("Value")]
+    [InlineData("Element")]
+    public void Nil_OptionalSugaredGenericParam_WithVisibleNames_ReturnsDefault(string sugaredName)
+    {
+        var typeSpec = MakeOptionalType(sugaredName);
+        var visible = new HashSet<string> { sugaredName };
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("nil", typeSpec, new EmptyTypeDatabase(), visible);
+        Assert.Equal("default", result);
+    }
+
+    // Without the visibleGenericNames set, a sugared name is indistinguishable from a regular
+    // type identifier — the mapper falls through and (since the type isn't in the database)
+    // returns the value-type fallback `default`. The behavioral guarantee here is "the caller
+    // must provide visibleGenericNames to disambiguate"; this test pins the no-context shape
+    // so a future refactor doesn't accidentally start guessing.
+    [Fact]
+    public void Nil_BareSugaredGenericParam_WithoutVisibleNames_FallsThroughToValueDefault()
+    {
+        var typeSpec = MakeNamedType("Value");
+        var result = SwiftDefaultValueMapper.TryMapToCSharpDefault("nil", typeSpec, new EmptyTypeDatabase());
+        // No type record + no generic-name match → value-type default fallback.
+        Assert.Equal("default", result);
+    }
+
     #endregion
 
     #region Bool literals
