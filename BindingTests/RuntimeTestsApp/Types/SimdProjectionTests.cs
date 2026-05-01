@@ -46,7 +46,7 @@ public class SimdProjectionTests : TestBase
         AssertFloatEqual(4.0f, v.Y, "MakeFloat2.Y");
     }
 
-    [Skip("SIMD runtime support is follow-up work: SwiftMarshal.MarshalFromSwift<Vector2> has no TypeMetadata for System.Numerics.Vector2. Generator emission (compile gate) is verified green; runtime TypeMetadata registration + by-value ABI marshalling for SIMD2/3/4 ship after Session 1.")]
+    [Skip("Vector2 TypeMetadata is now registered (SBW_simd_float2_GetMetadata), but the direct by-value ABI for SIMD2<Float> still truncates input — only 4 bytes cross the cdecl boundary instead of the full 8-byte value. Generic-arg path (BlittableElementBuffer<Vector2> via metadata pointer) works; direct by-value ABI fix is the remaining blocker.")]
     public void TestEchoFloat2RoundTrips()
     {
         var input = new Vector2(1.5f, 2.5f);
@@ -67,7 +67,7 @@ public class SimdProjectionTests : TestBase
 
     #region simd_float3 → Vector3
 
-    [Skip("SIMD runtime support is follow-up work: Vector3 has no TypeMetadata registered. Also note the 16-byte Swift simd_float3 vs 12-byte System.Numerics.Vector3 layout mismatch — the padding lane needs an explicit ABI adapter. Ships after Session 1.")]
+    [Skip("Vector3 TypeMetadata is now registered (SBW_simd_float3_GetMetadata), but the direct by-value return-by-register path still hits the 16-byte Swift simd_float3 vs 12-byte System.Numerics.Vector3 layout mismatch — the padding lane needs an explicit ABI adapter. Generic-arg path (BlittableElementBuffer<Vector3> via metadata pointer) works because Swift sees a 16-byte slot.")]
     public void TestMakeFloat3ReturnsVector3()
     {
         Vector3 v = TestLibFunctions.MakeFloat3(1.0f, 2.0f, 3.0f);
@@ -76,7 +76,7 @@ public class SimdProjectionTests : TestBase
         AssertFloatEqual(3.0f, v.Z, "MakeFloat3.Z");
     }
 
-    [Skip("SIMD runtime support is follow-up work (Vector3 TypeMetadata + simd_float3 padding). Ships after Session 1.")]
+    [Skip("Vector3 TypeMetadata is now registered, but the direct by-value Swift ABI still bounces off the simd_float3 16-byte vs Vector3 12-byte layout mismatch. Generic-arg path works via metadata pointer.")]
     public void TestEchoFloat3RoundTrips()
     {
         var input = new Vector3(7.0f, 8.0f, 9.0f);
@@ -98,7 +98,6 @@ public class SimdProjectionTests : TestBase
 
     #region simd_float4 → Vector4
 
-    [Skip("SIMD runtime support is follow-up work: Vector4 has no TypeMetadata registered for SwiftMarshal. Ships after Session 1.")]
     public void TestMakeFloat4ReturnsVector4()
     {
         Vector4 v = TestLibFunctions.MakeFloat4(1.0f, 2.0f, 3.0f, 4.0f);
@@ -108,7 +107,7 @@ public class SimdProjectionTests : TestBase
         AssertFloatEqual(4.0f, v.W, "MakeFloat4.W");
     }
 
-    [Skip("SIMD runtime support is follow-up work (Vector4 TypeMetadata). Ships after Session 1.")]
+    [Skip("Vector4 TypeMetadata is now registered (SBW_simd_float4_GetMetadata), but the direct by-value SIMD4<Float> input ABI still truncates to the first lane on cdecl. Generic-arg path works via metadata pointer.")]
     public void TestEchoFloat4RoundTrips()
     {
         var input = new Vector4(10.0f, 20.0f, 30.0f, 40.0f);
@@ -119,7 +118,7 @@ public class SimdProjectionTests : TestBase
         AssertFloatEqual(40.0f, output.W, "EchoFloat4.W survives round-trip");
     }
 
-    [Skip("SIMD4<Float> by-value ABI truncates — only 4 bytes cross instead of 16. Runtime-level calling-convention fix ships after Session 1.")]
+    [Skip("SIMD4<Float> by-value ABI truncates — only 4 bytes cross instead of 16. Runtime-level calling-convention fix is the remaining blocker (Vector4 TypeMetadata is registered).")]
     public void TestSumFloat4PreservesFieldValues()
     {
         var input = new Vector4(1.0f, 2.0f, 3.0f, 4.0f);
@@ -160,7 +159,7 @@ public class SimdProjectionTests : TestBase
         AssertFloatEqual(7.0f, output.M44, "EchoFloat4x4.M44 survives");
     }
 
-    [Skip("Vector4 return-by-value has no TypeMetadata registered for SwiftMarshal. Ships after Session 1.")]
+    [Skip("Vector4 TypeMetadata is now registered, but this test composes simd_float4x4 by-value input (matrix transposition issue) and Vector4 return — see TestEchoFloat4x4RoundTrips for the column-major adapter.")]
     public void TestDiagonalFloat4x4ReadsColumnMajorDiagonal()
     {
         // Build a 4x4 with a recognizable diagonal from 4 column vectors.
@@ -190,7 +189,7 @@ public class SimdProjectionTests : TestBase
         AssertNotNull(holder, "TransformHolder constructs with SIMD properties");
     }
 
-    [Skip("Vector3 property getter has no TypeMetadata for SwiftMarshal. Ships after Session 1.")]
+    [Skip("Vector3 TypeMetadata is now registered, but property getter still returns simd_float3 (16 bytes) into Vector3 (12 bytes) — same layout mismatch as direct return-by-value. Padding-aware ABI adapter is the remaining blocker.")]
     public void TestTransformHolderPositionPropertyRoundTrips()
     {
         var position = new Vector3(1.0f, 2.0f, 3.0f);
@@ -203,7 +202,7 @@ public class SimdProjectionTests : TestBase
         AssertFloatEqual(3.0f, readBack.Z, "Position.Z round-trips through property getter");
     }
 
-    [Skip("Vector4 property getter has no TypeMetadata for SwiftMarshal. Ships after Session 1.")]
+    [Skip("Vector4 TypeMetadata is registered and free-function Vector4 returns work (see TestMakeFloat4ReturnsVector4), but the struct-property getter dispatch path returns zeros — distinct from the by-value parameter issue. Likely a Swift-method-on-self (witness or direct dispatch) ABI gap for SIMD return types.")]
     public void TestTransformHolderColorPropertyRoundTrips()
     {
         var position = new Vector3(0.0f, 0.0f, 0.0f);

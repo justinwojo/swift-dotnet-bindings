@@ -129,11 +129,23 @@ namespace BindingsGeneration
             // and falls through to AnyType for the sugared form. Resolve here so the
             // SwiftObjectHelper<T> fallback below emits SwiftObjectHelper<TSignedType>
             // instead of SwiftObjectHelper<global::Swift.AnyType>.
-            if (csharpType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName
-                && typeSpec is NamedTypeSpec sugaredMetadataParam
-                && TryGetGenericTypeParameterName(sugaredMetadataParam.Name, out var resolvedMetadataName, genericParams))
+            bool isBareGenericParam = false;
+            if (typeSpec is NamedTypeSpec maybeBareParam
+                && TryGetGenericTypeParameterName(maybeBareParam.Name, out var resolvedMetadataName, genericParams))
             {
                 csharpType = resolvedMetadataName;
+                isBareGenericParam = true;
+            }
+
+            // Bare generic parameter: the enclosing type's where-clause may not seed
+            // ISwiftObject (relaxed for blittable instantiations like
+            // VerificationResult<TSignedType> / MeshBuffer<Vector3>). Use the
+            // unconstrained metadata accessor — it works for ISwiftObject T and for
+            // primitives/SIMD/blittable T alike.
+            if (isBareGenericParam)
+            {
+                csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>();");
+                return;
             }
 
             // Check if it's a primitive type with known metadata

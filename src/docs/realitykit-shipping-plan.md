@@ -6,12 +6,12 @@
 - `RealityKit`: 29 × CS0234 (cross-module type qualification — references to `RealityKit.Entity` / `RealityFoundation.Entity` / `ARKit.ARRaycastQueryTarget` / `Swift.SIMD3` that don't resolve).
 - `RealityFoundation`: skipped (compile-gated on `RealityKit`).
 
-**Status (Session 2 done)**:
-- `RealityKit`: **0 errors** — CS0535 retired by adding the protocol-side optional-existential gate (`MemberGateEvaluator` P8) symmetric to the concrete-class skip (`MemberValidationPipeline` P8).
-- `RealityFoundation`: **41 errors** (annotated as `knownErrors: 41`). Backlog matches the expected Sessions 3-5 buckets: CS0315 (Bucket #5), CS0111/CS0102 (Bucket #7), CS1750 (Misc).
-- Alamofire regression from Session 1 fixed: `PInvokeHelperEmitter` now distinguishes Swift.Error (keeps bare `IError` emission) from metadata-only runtime protocols like `_Concurrency.Actor` (routes to `UnresolvedPwtConstraints`).
-- `nuke validate`: 129/129 overall passed; skip rate 22.8% (down from 23.7%).
-- Next: **Session 3** (Bucket #7 + Misc — dedupe member emission + `default(T)` literal).
+**Status (Session 3 done)**:
+- `RealityKit`: **0 errors**.
+- `RealityFoundation`: **36 errors** (annotated as `knownErrors: 36`, down from 41). Bucket #7 (CS0111 dup ctors, CS0102 dup `Count`) and Misc (CS1750 unconstrained-T default) eliminated for the targeted patterns. Remaining: 24 × CS0315 boxing (Bucket #5, Session 4 scope) + 12 structural (CS0426/CS0246/CS0234, deferred). The "drop of 10" estimate in the original plan over-counted because dependency-project errors were being double-tallied.
+- Dedup keys (`BaseHandler.GetProjectedCSharpMethodKey` + `DefaultParameterOverloadEmitter.GetProjectedOverloadKey`) now collapse `Optional<GenericParam>` onto the bare param form via a shared `CollectVisibleGenericParamNames` walk; `SwiftDefaultValueMapper.MapNil` returns `default` for unconstrained generic-T (canonical τ_*_* and sugared "Value"/"Element" alike); `CollectionProjectionEmitter.Count` is gated on whether `PropertyHandler` actually emitted a `Count` property.
+- `nuke validate`: 129/129 overall passed; baseline rolled.
+- Next: **Session 4** (Bucket #5 — relax `ISwiftObject` constraint for blittable-T generics, ~24 × CS0315).
 
 A throwaway dep-order-reversal experiment (now reverted) proved that once `RealityFoundation` is generated against an actually-loaded `RealityKit` module DB, **90 hidden errors in `RealityFoundation` surface**. Those 90 are the real backlog. The 29 surface errors on `RealityKit` are all qualification-resolution failures rooted in the same dep-threading gap.
 
@@ -112,7 +112,7 @@ If Session 1 happens to land with zero portfolio regressions, this session colla
 
 ---
 
-## Session 3 — Bucket #7 + Misc: dedupe member emission + `default(T)` literal
+## Session 3 — Bucket #7 + Misc: dedupe member emission + `default(T)` literal ✅ completed (commit 50e3ebc6)
 
 **Goal**: 8 dedup errors + 2 default-literal errors gone.
 

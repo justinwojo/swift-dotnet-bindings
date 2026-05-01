@@ -142,6 +142,12 @@ namespace BindingsGeneration
         /// Builds the where clause for generic constraints.
         /// Only emits constraints for method-own generic parameters (not type-inherited ones).
         /// Type-level constraints are already declared on the containing type.
+        /// ISwiftObject is seeded whenever the Swift param declares any non-Sendable protocol
+        /// conformance — even ones filtered from the C# constraint list — because the
+        /// descriptor-symbol PWT path still emits <c>ProtocolWitnessTable.GetOrThrowAuto&lt;T,…&gt;</c>
+        /// calls that require <c>T : ISwiftObject</c>. Dropped only for genuinely
+        /// unconstrained params so blittable instantiations (Vector3, float, …) compile.
+        /// Mirrors <see cref="GenericTypeEmitter.GetWhereClause"/>.
         /// </summary>
         /// <returns>The where clause string, or empty string if no constraints.</returns>
         private string BuildWhereClause()
@@ -158,7 +164,10 @@ namespace BindingsGeneration
                     continue;
 
                 var csName = csNameInfo.TypeParameter;
-                var paramConstraints = new List<string> { "ISwiftObject" };
+                // Collect surviving protocol constraints; ISwiftObject seeding decision
+                // happens after based on whether the Swift param has ANY non-Sendable
+                // protocol conformance (filtered or otherwise).
+                var paramConstraints = new List<string>();
 
                 foreach (var conformance in param.GenericConformances)
                 {
@@ -180,6 +189,11 @@ namespace BindingsGeneration
                     paramConstraints.Add(interfaceName);
                 }
 
+                bool hasAnyProtocolConformance = HasAnyNonMarkerProtocolConformance(param);
+                if (paramConstraints.Count == 0 && !hasAnyProtocolConformance)
+                    continue;
+
+                paramConstraints.Insert(0, "ISwiftObject");
                 constraints.Add($"where {csName} : {string.Join(", ", paramConstraints)}");
             }
 
@@ -187,6 +201,39 @@ namespace BindingsGeneration
                 ? "    " + string.Join("\n    ", constraints)
                 : "";
         }
+
+        /// <summary>
+        /// Returns true if the generic param has any non-marker Swift protocol conformance.
+        /// Stdlib marker protocols (<c>Swift.Sendable</c>, <c>Swift.Copyable</c>,
+        /// <c>Swift.Escapable</c>, <c>Swift.SendableMetatype</c>, <c>Swift.BitwiseCopyable</c>)
+        /// carry no runtime witness table, so they never drive a PWT lookup. Used by
+        /// <see cref="BuildWhereClause"/> to determine whether the ISwiftObject seed must
+        /// remain even when no constraint survives projection.
+        /// </summary>
+        private static bool HasAnyNonMarkerProtocolConformance(GenericArgumentDecl param)
+        {
+            foreach (var conformance in param.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+                if (IsStdlibMarkerProtocol(conformance.ConformanceTarget))
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Stdlib marker protocols carry no runtime witness table — the Swift compiler
+        /// does not pass them as PWT args to type metadata accessors. Module-qualified
+        /// to avoid misidentifying a same-name app/framework protocol as a marker.
+        /// Kept in sync with <c>PInvokeHelperEmitter.IsStdlibMarkerProtocol</c> and
+        /// <c>ExistentialHandler.IsMarkerProtocol</c>.
+        /// </summary>
+        private static bool IsStdlibMarkerProtocol(SwiftTypeName protocolTypeName) =>
+            protocolTypeName.Module == "Swift" &&
+            protocolTypeName.Name is "Sendable" or "Escapable" or "Copyable"
+                                  or "SendableMetatype" or "BitwiseCopyable";
 
         /// <summary>
         /// Emits [Obsolete] with custom DiagnosticId for methods with unmitigated JIT risks or missing exported symbols.

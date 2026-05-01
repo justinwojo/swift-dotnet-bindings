@@ -101,7 +101,19 @@ public static class GenericTypeEmitter
 
     /// <summary>
     /// Gets the where clause constraints for a generic type declaration.
-    /// Each generic parameter gets an ISwiftObject constraint, plus any protocol constraints.
+    /// Each generic parameter gets an ISwiftObject constraint when the underlying Swift
+    /// generic param declares ANY non-Sendable protocol conformance — even one whose
+    /// projection is filtered out of the C# constraint list (associated types, Self
+    /// requirements, Self-method-typed protocols, cross-module unregistered protocols).
+    /// PWT lookup via <c>ProtocolWitnessTable.GetOrThrowAuto&lt;T, IFoo&gt;</c> requires
+    /// <c>T : ISwiftObject</c>, and the descriptor-symbol path still emits PWT calls
+    /// for filtered conformances even though they don't appear in the C# where clause.
+    ///
+    /// The ISwiftObject seed is only dropped when the Swift param truly carries zero
+    /// protocol conformances — buffer-style generics like RealityFoundation's
+    /// <c>MeshBuffer&lt;TElement&gt;</c>. That makes blittable instantiations
+    /// (<c>Vector3</c>, <c>float</c>, <c>uint</c>) compile at the call site instead of
+    /// failing CS0315.
     /// </summary>
     /// <param name="typeDecl">The type declaration.</param>
     /// <param name="typeDatabase">Optional type database for checking protocol capabilities.</param>
@@ -119,16 +131,22 @@ public static class GenericTypeEmitter
             var param = ownParams[i];
             var typeParamName = NameProvider.GetCSharpGenericParameterName(param, i);
 
-            // Build list of constraints for this parameter
-            var paramConstraints = new List<string> { "ISwiftObject" };
+            // Collect protocol conformance constraints first; ISwiftObject is seeded only
+            // if at least one protocol survives filtering (see method summary above).
+            var paramConstraints = new List<string>();
 
             // Add protocol conformance constraints
             foreach (var conformance in param.GenericConformances)
             {
                 if (conformance.Kind == ConformanceKind.Protocol)
                 {
-                    // Skip Sendable as it doesn't have a C# equivalent
-                    if (conformance.ConformanceTarget.Name == "Sendable")
+                    // Skip stdlib marker protocols (Swift.Sendable, Swift.Copyable,
+                    // Swift.Escapable, Swift.SendableMetatype, Swift.BitwiseCopyable).
+                    // They carry no runtime witness table and have no useful C# constraint
+                    // shape — emitting them as ISwiftObject-derived interfaces would
+                    // re-introduce CS0315 for blittable instantiations. Module-qualified
+                    // so a same-name app/framework protocol is NOT mistaken for a marker.
+                    if (IsStdlibMarkerProtocol(conformance.ConformanceTarget))
                         continue;
 
                     // Skip constraints from unsupported framework modules (e.g. SwiftUI.View).
@@ -178,14 +196,26 @@ public static class GenericTypeEmitter
                 }
             }
 
-            constraints.Add($"{typeParamName} : {string.Join(", ", paramConstraints)}");
+            // Seed ISwiftObject when the Swift param carries ANY non-Sendable protocol
+            // conformance — including ones filtered from the C# constraint list (associated
+            // types, Self-requirement, etc.) because the descriptor-symbol PWT path still
+            // emits `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>` calls for them, which
+            // require `T : ISwiftObject`. Drop the seed only when there are zero protocol
+            // conformances at all, so unconstrained generics accept blittable args
+            // (Vector3, float, uint, …) instead of failing CS0315 at call sites.
+            bool hasAnyProtocolConformance = HasAnyNonMarkerProtocolConformance(param);
+            if (paramConstraints.Count > 0 || hasAnyProtocolConformance)
+            {
+                paramConstraints.Insert(0, "ISwiftObject");
+                constraints.Add($"{typeParamName} : {string.Join(", ", paramConstraints)}");
+            }
         }
 
         if (constraints.Count == 0)
             return string.Empty;
 
         // Each type parameter needs its own 'where' clause in C#
-        // e.g., "where T0 : ISwiftObject where T1 : ISwiftObject"
+        // e.g., "where T0 : ISwiftObject, IFoo where T1 : ISwiftObject, IBar"
         return string.Join(" ", constraints.Select(c => $"where {c}"));
     }
 
@@ -222,6 +252,42 @@ public static class GenericTypeEmitter
 
     private static bool IsUnsupportedConstraintModule(string moduleName) =>
         ValidationRuleSet.IsUnsupportedConstraintModule(moduleName);
+
+    /// <summary>
+    /// Returns true when the generic param declares at least one non-marker Swift
+    /// protocol conformance. Stdlib marker protocols (<c>Swift.Sendable</c>,
+    /// <c>Swift.Copyable</c>, <c>Swift.Escapable</c>, <c>Swift.SendableMetatype</c>,
+    /// <c>Swift.BitwiseCopyable</c>) have no runtime witness table, so they never
+    /// drive a PWT lookup. Used by <see cref="GetWhereClause"/> to decide whether
+    /// the <c>ISwiftObject</c> seed must be retained even when every conformance is
+    /// filtered out of the C# constraint list — filtered non-marker conformances
+    /// still emit PWT lookups via the descriptor-symbol path and those calls
+    /// require <c>T : ISwiftObject</c>.
+    /// </summary>
+    private static bool HasAnyNonMarkerProtocolConformance(GenericArgumentDecl param)
+    {
+        foreach (var conformance in param.GenericConformances)
+        {
+            if (conformance.Kind != ConformanceKind.Protocol)
+                continue;
+            if (IsStdlibMarkerProtocol(conformance.ConformanceTarget))
+                continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Stdlib marker protocols carry no runtime witness table — the Swift compiler
+    /// does not pass them as PWT args to type metadata accessors. Module-qualified
+    /// to avoid misidentifying a same-name app/framework protocol as a marker.
+    /// Kept in sync with <c>PInvokeHelperEmitter.IsStdlibMarkerProtocol</c> and
+    /// <c>ExistentialHandler.IsMarkerProtocol</c>.
+    /// </summary>
+    private static bool IsStdlibMarkerProtocol(SwiftTypeName protocolTypeName) =>
+        protocolTypeName.Module == "Swift" &&
+        protocolTypeName.Name is "Sendable" or "Escapable" or "Copyable"
+                              or "SendableMetatype" or "BitwiseCopyable";
 
     /// <summary>
     /// Returns true if the module is unsupported for constraint and member-level filtering.

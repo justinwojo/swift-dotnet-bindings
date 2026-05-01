@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import Foundation
+import simd
 
 // MARK: - Swift Concurrency Interop Hook
 //
@@ -413,6 +414,43 @@ public func sbw_dateGetMetadata() -> UnsafeMutableRawPointer {
 @_cdecl("SBW_Decimal_GetMetadata")
 public func sbw_decimalGetMetadata() -> UnsafeMutableRawPointer {
     unsafeBitCast(Decimal.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+// MARK: - simd Type Metadata
+//
+// simd_float2/3/4 and simd_quatf are Clang-imported value types whose metadata
+// descriptors are local symbols (not exported from any system library), the same
+// pattern as CGPoint/CGRect/CGSize. These @_cdecl wrappers expose the metadata
+// for the canonical Swift counterparts of System.Numerics.Vector2/3/4 and
+// Quaternion (mapped through BoundGenericSimdAliases for SIMD2/3/4<Float>, and
+// directly through SimdDatabase.xml for simd_quatf). Required for generic types
+// instantiated with SIMD args (e.g. RealityKit.MeshBuffer<Vector3>) so the
+// metadata accessor can produce TypeMetadata for the inner argument at runtime.
+
+/// Returns the type metadata pointer for simd_float2 (System.Numerics.Vector2).
+@_cdecl("SBW_simd_float2_GetMetadata")
+public func sbw_simdFloat2GetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(simd_float2.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for simd_float3 (System.Numerics.Vector3).
+/// Note: simd_float3 has 16-byte stride (4 floats with the last word as padding)
+/// to match the Vector3 ABI, not 12 bytes.
+@_cdecl("SBW_simd_float3_GetMetadata")
+public func sbw_simdFloat3GetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(simd_float3.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for simd_float4 (System.Numerics.Vector4).
+@_cdecl("SBW_simd_float4_GetMetadata")
+public func sbw_simdFloat4GetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(simd_float4.self as Any.Type, to: UnsafeMutableRawPointer.self)
+}
+
+/// Returns the type metadata pointer for simd_quatf (System.Numerics.Quaternion).
+@_cdecl("SBW_simd_quatf_GetMetadata")
+public func sbw_simdQuatfGetMetadata() -> UnsafeMutableRawPointer {
+    unsafeBitCast(simd_quatf.self as Any.Type, to: UnsafeMutableRawPointer.self)
 }
 
 // MARK: - Foundation.Measurement Generic Metadata

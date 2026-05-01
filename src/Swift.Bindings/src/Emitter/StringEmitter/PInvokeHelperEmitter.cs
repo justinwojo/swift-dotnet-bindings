@@ -245,8 +245,9 @@ public class PInvokeHelperContext
                 // Marker protocols have no runtime witness tables and do NOT add an
                 // argument to the metadata accessor. Mirrors the existing
                 // ExistentialHandler.IsMarkerProtocol filter and the parser-side filter
-                // in SwiftABIParser.cs:1247.
-                if (IsMarkerProtocol(target.Name))
+                // in SwiftABIParser.cs:1247. Module-qualified so a same-name app or
+                // framework protocol is NOT mistaken for a stdlib marker.
+                if (IsStdlibMarkerProtocol(target))
                     continue;
 
                 // Conformance must be a known protocol in the type database to be
@@ -284,8 +285,9 @@ public class PInvokeHelperContext
                     // Swift.Foundation.AnyError), so the synthetic "I{Target.Name}" form
                     // has no relationship with record.CSharpTypeName.Namespace.
                     //
-                    // Marker protocols (Sendable/Copyable/Escapable/SendableMetatype/
-                    // BitwiseCopyable) are filtered upstream by IsMarkerProtocol and never
+                    // Stdlib marker protocols (Swift.Sendable/Copyable/Escapable/
+                    // SendableMetatype/BitwiseCopyable) are filtered upstream by
+                    // IsStdlibMarkerProtocol (module-qualified) and never
                     // reach this branch, so the only members of IsWellKnownRuntimeProtocol
                     // that can show up here are Swift.Error and _Concurrency.Actor.
                     //
@@ -382,15 +384,18 @@ public class PInvokeHelperContext
     }
 
     /// <summary>
-    /// Marker protocols (Sendable, Copyable, Escapable, BitwiseCopyable, etc.) have
-    /// no runtime witness table — the Swift compiler does not pass them as PWT args
-    /// to the type metadata accessor. Aligned with
-    /// <c>ExistentialHandler.IsMarkerProtocol</c> and the parser-side filter in
-    /// <c>SwiftABIParser</c>.
+    /// Stdlib marker protocols (<c>Swift.Sendable</c>, <c>Swift.Copyable</c>,
+    /// <c>Swift.Escapable</c>, <c>Swift.SendableMetatype</c>,
+    /// <c>Swift.BitwiseCopyable</c>) have no runtime witness table — the Swift
+    /// compiler does not pass them as PWT args to the type metadata accessor.
+    /// Module-qualified to avoid misidentifying a same-name app/framework protocol
+    /// as a marker. Aligned with <c>ExistentialHandler.IsMarkerProtocol</c> and the
+    /// parser-side filter in <c>SwiftABIParser</c>.
     /// </summary>
-    private static bool IsMarkerProtocol(string simpleName) =>
-        simpleName is "Sendable" or "Escapable" or "Copyable"
-                   or "SendableMetatype" or "BitwiseCopyable";
+    private static bool IsStdlibMarkerProtocol(SwiftTypeName protocolTypeName) =>
+        protocolTypeName.Module == "Swift" &&
+        protocolTypeName.Name is "Sendable" or "Escapable" or "Copyable"
+                              or "SendableMetatype" or "BitwiseCopyable";
 
     /// <summary>
     /// Builds a qualified type name by walking the parent type chain.
@@ -444,12 +449,18 @@ public class PInvokeHelperContext
     /// <summary>
     /// Gets the argument list for passing type metadata to the helper class methods.
     /// Passes TypeMetadata.Handle (IntPtr) to match the IntPtr parameter type.
+    /// Uses the unconstrained <see cref="TypeMetadata.GetTypeMetadataOrThrow{T}"/> rather
+    /// than <c>SwiftObjectHelper&lt;T&gt;.GetTypeMetadata()</c> so the generator can relax
+    /// <c>where T : ISwiftObject</c> on generic params with no protocol constraints
+    /// (blittable instantiations like <c>MeshBuffer&lt;Vector3&gt;</c>) without breaking
+    /// PWT-helper dispatch. Same caching semantics — both paths populate
+    /// <c>TypeMetadata.Cache</c> keyed by <c>typeof(T)</c>.
     /// </summary>
-    /// <returns>A list of argument strings like "SwiftObjectHelper&lt;T0&gt;.GetTypeMetadata().Handle".</returns>
+    /// <returns>A list of argument strings like "TypeMetadata.GetTypeMetadataOrThrow&lt;T0&gt;().Handle".</returns>
     public IReadOnlyList<string> GetMetadataArgumentList()
     {
         return GenericTypeParameters
-            .Select(t => $"SwiftObjectHelper<{t}>.GetTypeMetadata().Handle")
+            .Select(t => $"TypeMetadata.GetTypeMetadataOrThrow<{t}>().Handle")
             .ToList();
     }
 
@@ -507,18 +518,29 @@ public class PInvokeHelperContext
     /// <summary>
     /// Returns the argument list for the **type metadata accessor** P/Invoke call site,
     /// in the order matching <see cref="GetTypeMetadataAccessorParameterDeclarations"/>.
+    /// The per-type-parameter metadata expression uses the unconstrained
+    /// <see cref="TypeMetadata.GetTypeMetadataOrThrow{T}"/> rather than
+    /// <c>SwiftObjectHelper&lt;T&gt;.GetTypeMetadata()</c> — the latter requires
+    /// <c>T : ISwiftObject</c> and would not compile when the generator relaxes the
+    /// constraint for a parameter with no protocol conformances (so blittable
+    /// instantiations like <c>MeshBuffer&lt;Vector3&gt;</c> compile). The unconstrained
+    /// helper resolves both ISwiftObject types (via reflection / static-virtual fallback)
+    /// and registered foreign value types (CoreGraphics, SIMD, Foundation UUID/Decimal).
     /// For each PWT entry the expression is one of:
     /// <list type="bullet">
     /// <item>Resolvable: <c>ProtocolWitnessTable.GetOrThrowAuto&lt;T0, IDescribable&gt;().Handle</c></item>
     /// <item>Unresolvable: <c>{HelperClassName}.Get{Protocol}PWT(SwiftObjectHelper&lt;T0&gt;.GetTypeMetadata()).Handle</c></item>
     /// </list>
+    /// PWT entries continue to use <c>SwiftObjectHelper</c> / <c>GetOrThrowAuto</c> because
+    /// they only fire when the param HAS a protocol constraint — which always pairs with
+    /// the retained <c>ISwiftObject</c> seed in the where clause.
     /// </summary>
     public IReadOnlyList<string> GetTypeMetadataAccessorArgumentList()
     {
         var args = new List<string>();
 
         foreach (var t in GenericTypeParameters)
-            args.Add($"SwiftObjectHelper<{t}>.GetTypeMetadata().Handle");
+            args.Add($"TypeMetadata.GetTypeMetadataOrThrow<{t}>().Handle");
 
         foreach (var entry in PwtEntries)
         {
@@ -532,8 +554,16 @@ public class PInvokeHelperContext
                 EmitDynamicPwtHelperIfNeeded(entry);
                 var discriminator = GetProtocolNameDiscriminator(entry);
                 var helperMethodName = $"Get{entry.ProtocolName}{discriminator}PWT";
+                // Source TypeMetadata via the unconstrained helper. The dynamic PWT
+                // helper accepts a plain TypeMetadata value, so any provider works —
+                // we avoid SwiftObjectHelper<T> here so the call site compiles even
+                // when the surrounding type's where clause has dropped the
+                // ISwiftObject seed (a generic param can survive in PwtEntries via a
+                // descriptor-symbol path while its only protocol conformance is
+                // filtered out of the where clause for being a Self requirement
+                // / associated-type protocol).
                 args.Add(
-                    $"{HelperClassName}.{helperMethodName}(SwiftObjectHelper<{entry.GenericParamCsName}>.GetTypeMetadata()).Handle");
+                    $"{HelperClassName}.{helperMethodName}(TypeMetadata.GetTypeMetadataOrThrow<{entry.GenericParamCsName}>()).Handle");
             }
         }
 

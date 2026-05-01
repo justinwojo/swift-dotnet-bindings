@@ -726,7 +726,10 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        Assert.Contains("public partial class ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable where T : ISwiftObject", csOutput);
+        // T has no protocol conformances, so the ISwiftObject seed is dropped — blittable
+        // instantiations like ValueProviderStorage<float> compile at the call site.
+        Assert.Contains("public partial class ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
+        Assert.DoesNotContain("ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable where", csOutput);
         Assert.Contains("public static unsafe ValueProviderStorage<T> Boxed(T value0)", csOutput);
         Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
         Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);

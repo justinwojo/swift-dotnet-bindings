@@ -1091,9 +1091,12 @@ public class MethodMarshalPlanBuilderTests
     }
 
     [Fact]
-    public void PInvokeCall_NonCdeclGenericClassConstructor_UsesSwiftObjectHelper()
+    public void PInvokeCall_NonCdeclGenericClassConstructor_UsesUnconstrainedTypeMetadataAccessor()
     {
-        // Non-@_cdecl constructors (silgen_name path) should still use per-param metadata
+        // Non-@_cdecl constructors (silgen_name path) should still use per-param metadata.
+        // The metadata source is the unconstrained TypeMetadata.GetTypeMetadataOrThrow<T>()
+        // (not SwiftObjectHelper<T>), so call sites compile when the surrounding generic's
+        // where clause has dropped the ISwiftObject seed for blittable instantiations.
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("GenericCache", moduleDecl);
         classDecl.GenericParameters = new List<GenericArgumentDecl>
@@ -1130,8 +1133,10 @@ public class MethodMarshalPlanBuilderTests
         var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
         var plan = BuildPlan(env, wrapperSig, pInvokeSig);
 
-        // Non-@_cdecl should use per-param metadata
-        Assert.Contains("SwiftObjectHelper", plan.PInvokeCallStatement);
+        // Non-@_cdecl should use per-param metadata. Source is the unconstrained helper
+        // so the call site compiles when the type's where clause has no ISwiftObject seed.
+        Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<T>", plan.PInvokeCallStatement);
+        Assert.DoesNotContain("SwiftObjectHelper<T>", plan.PInvokeCallStatement);
     }
 
     private static ModuleDecl CreateModuleDecl()

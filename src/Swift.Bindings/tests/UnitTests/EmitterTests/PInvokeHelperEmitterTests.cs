@@ -502,7 +502,13 @@ public class PInvokeHelperEmitterTests
         Assert.Equal("IntPtr tDescribablePWT", parameters[1]);
 
         var args = ctx.GetTypeMetadataAccessorArgumentList();
-        Assert.Equal("SwiftObjectHelper<T>.GetTypeMetadata().Handle", args[0]);
+        // The per-type-parameter metadata expression uses the unconstrained
+        // TypeMetadata.GetTypeMetadataOrThrow<T>() helper rather than
+        // SwiftObjectHelper<T>.GetTypeMetadata() — the latter requires
+        // T : ISwiftObject and would not compile when the generator relaxes the
+        // constraint for params with no protocol conformances (e.g. blittable
+        // instantiations like MeshBuffer<Vector3>).
+        Assert.Equal("TypeMetadata.GetTypeMetadataOrThrow<T>().Handle", args[0]);
         Assert.Equal(
             "ProtocolWitnessTable.GetOrThrowAuto<T, IDescribable>().Handle",
             args[1]);
@@ -740,11 +746,14 @@ public class PInvokeHelperEmitterTests
         Assert.Equal("/tmp/TestModule.dylib", entry.LibraryPath);
 
         // Triggers EmitDynamicPwtHelperIfNeeded — the call site expression must
-        // route through the dynamic helper method on the P/Invoke class.
+        // route through the dynamic helper method on the P/Invoke class. The
+        // TypeMetadata source uses the unconstrained TypeMetadata.GetTypeMetadataOrThrow<T>()
+        // (not SwiftObjectHelper<T>) so the call compiles when the surrounding
+        // type's where clause has dropped the ISwiftObject seed.
         var args = ctx.GetTypeMetadataAccessorArgumentList();
         Assert.Equal(2, args.Count);
         Assert.Equal(
-            "Wrapper_PInvoke.GetAnyInterpolatablePWT(SwiftObjectHelper<T>.GetTypeMetadata()).Handle",
+            "Wrapper_PInvoke.GetAnyInterpolatablePWT(TypeMetadata.GetTypeMetadataOrThrow<T>()).Handle",
             args[1]);
 
         // The helper class must contain exactly one cached descriptor + one cache

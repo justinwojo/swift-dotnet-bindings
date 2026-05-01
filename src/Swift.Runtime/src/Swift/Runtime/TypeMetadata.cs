@@ -5,6 +5,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -468,6 +469,27 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             }
         }
 
+        // Handle System.Numerics SIMD struct types (Vector2, Vector3, Vector4, Quaternion).
+        // These are blittable C# structs that map to Swift simd_float2/3/4 and simd_quatf
+        // (from the simd module) — the canonical projection for Swift.SIMD2/3/4<Float> and
+        // Swift.simd_quatf via BoundGenericSimdAliases. Like CoreGraphics types, the
+        // underlying simd_floatN are Clang-imported into Swift, so their metadata
+        // descriptors are local symbols only reachable through @_cdecl wrappers in
+        // SwiftBindingsRuntime. Generic types instantiated with these (e.g. RealityKit's
+        // MeshBuffer<Vector3>, UnsafeForceEffectBuffer<Quaternion>) need this branch so
+        // the metadata accessor for the outer generic can resolve TypeMetadata for the
+        // SIMD-typed argument at runtime.
+        if (type == typeof(Vector2) || type == typeof(Vector3) ||
+            type == typeof(Vector4) || type == typeof(Quaternion))
+        {
+            if (TryGetNumericsMetadata(type, out var numericsMetadata))
+            {
+                cache.GetOrAdd(type, _ => numericsMetadata.Value);
+                result = numericsMetadata;
+                return true;
+            }
+        }
+
         // Simple C# enums: metadata is registered by the generated module initializer
         // via TypeMetadata.RegisterMetadata() + P/Invoke to the @_cdecl metadata wrapper.
         // If the enum was generated with the new pipeline, its metadata is already in the cache
@@ -600,6 +622,72 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
                    EntryPoint = "SBW_Decimal_GetMetadata")]
         public static extern IntPtr Decimal_GetMetadata();
+    }
+
+    /// <summary>
+    /// Attempts to get type metadata for System.Numerics SIMD struct types via SwiftBindingsRuntime.
+    /// Maps Vector2/3/4 and Quaternion to their Swift simd_float2/3/4 and simd_quatf
+    /// counterparts. The Swift types are Clang-imported, so their metadata descriptors are
+    /// local symbols accessible only through @_cdecl wrappers.
+    /// </summary>
+    static bool TryGetNumericsMetadata(Type type, [NotNullWhen(true)] out TypeMetadata? result)
+    {
+        try
+        {
+            IntPtr metadataPtr;
+            if (type == typeof(Vector2))
+                metadataPtr = NumericsNativeMethods.SimdFloat2_GetMetadata();
+            else if (type == typeof(Vector3))
+                metadataPtr = NumericsNativeMethods.SimdFloat3_GetMetadata();
+            else if (type == typeof(Vector4))
+                metadataPtr = NumericsNativeMethods.SimdFloat4_GetMetadata();
+            else if (type == typeof(Quaternion))
+                metadataPtr = NumericsNativeMethods.SimdQuatf_GetMetadata();
+            else
+            {
+                result = null;
+                return false;
+            }
+
+            if (metadataPtr != IntPtr.Zero)
+            {
+                result = FromHandle(metadataPtr);
+                return true;
+            }
+        }
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+
+        result = null;
+        return false;
+    }
+
+    /// <summary>
+    /// P/Invoke declarations for System.Numerics SIMD type metadata accessors
+    /// in SwiftBindingsRuntime. Each maps to a Clang-imported Swift simd type:
+    /// Vector2 ↔ simd_float2, Vector3 ↔ simd_float3, Vector4 ↔ simd_float4,
+    /// Quaternion ↔ simd_quatf. Layout is bit-compatible (16-byte stride for
+    /// Vector3 matches Swift's simd_float3 4-element padding).
+    /// </summary>
+    static class NumericsNativeMethods
+    {
+        private const string LibraryName = "SwiftBindingsRuntime";
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_simd_float2_GetMetadata")]
+        public static extern IntPtr SimdFloat2_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_simd_float3_GetMetadata")]
+        public static extern IntPtr SimdFloat3_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_simd_float4_GetMetadata")]
+        public static extern IntPtr SimdFloat4_GetMetadata();
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+                   EntryPoint = "SBW_simd_quatf_GetMetadata")]
+        public static extern IntPtr SimdQuatf_GetMetadata();
     }
 
     /// <summary>

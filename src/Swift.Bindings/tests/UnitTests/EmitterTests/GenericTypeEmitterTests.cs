@@ -71,23 +71,26 @@ public class GenericTypeEmitterTests
     }
 
     [Fact]
-    public void GetWhereClause_ReturnsISwiftObjectConstraint_ForGenericType()
+    public void GetWhereClause_ReturnsEmpty_ForGenericTypeWithNoProtocolConformances()
     {
+        // Box<T> with no protocol conformance: ISwiftObject seed is dropped so blittable
+        // instantiations like Box<Vector3> / Box<float> compile at the call site.
         var typeDecl = CreateGenericStruct("Box", 1);
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T : ISwiftObject", result);
+        Assert.Equal(string.Empty, result);
     }
 
     [Fact]
-    public void GetWhereClause_ReturnsMultipleConstraints_ForMultipleGenericParams()
+    public void GetWhereClause_ReturnsEmpty_ForMultipleGenericParamsWithNoConformances()
     {
+        // Pair<T, U> with no protocol conformance: no where clause for either param.
         var typeDecl = CreateGenericStruct("Pair", 2);
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T : ISwiftObject where U : ISwiftObject", result);
+        Assert.Equal(string.Empty, result);
     }
 
     [Fact]
@@ -103,23 +106,88 @@ public class GenericTypeEmitterTests
     }
 
     [Fact]
+    public void GetWhereClause_SeedsISwiftObject_OnlyWhenProtocolConformanceSurvives()
+    {
+        // When at least one protocol conformance survives filtering, ISwiftObject is
+        // seeded first because PWT lookups (ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>)
+        // require T : ISwiftObject.
+        var typeDecl = CreateGenericStructWithConstraints("Container", new List<string> { "Swift.Equatable" });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        // Order matters: ISwiftObject must come first so callers can read it as the
+        // primary constraint.
+        var iswiftIndex = result.IndexOf("ISwiftObject", StringComparison.Ordinal);
+        var iequatableIndex = result.IndexOf("IEquatable", StringComparison.Ordinal);
+        Assert.True(iswiftIndex >= 0);
+        Assert.True(iequatableIndex >= 0);
+        Assert.True(iswiftIndex < iequatableIndex);
+    }
+
+    [Fact]
     public void GetWhereClause_SkipsSendableConstraint()
     {
+        // Sendable is the only conformance and gets filtered out -> the surviving list
+        // is empty so no where clause is emitted.
         var typeDecl = CreateGenericStructWithConstraints("AsyncBox", new List<string> { "Swift.Sendable" });
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.DoesNotContain("Sendable", result);
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Theory]
+    [InlineData("Swift.Copyable")]
+    [InlineData("Swift.Escapable")]
+    [InlineData("Swift.SendableMetatype")]
+    [InlineData("Swift.BitwiseCopyable")]
+    public void GetWhereClause_DropsISwiftObjectSeed_ForMarkerOnlyConstraint(string markerProtocol)
+    {
+        // Stdlib marker protocols carry no runtime witness table — the Swift compiler
+        // does not pass them as PWT args. So a generic param constrained only by a
+        // marker has no descriptor-symbol PWT lookup and the ISwiftObject seed must
+        // NOT be retained; otherwise blittable instantiations like MeshBuffer<Vector3>
+        // would re-trigger CS0315 even though no witness table is needed.
+        var typeDecl = CreateGenericStructWithConstraints("MarkerBox", new List<string> { markerProtocol });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Theory]
+    [InlineData("MyApp.Copyable")]
+    [InlineData("MyApp.Sendable")]
+    [InlineData("MyApp.Escapable")]
+    [InlineData("MyApp.BitwiseCopyable")]
+    public void GetWhereClause_KeepsISwiftObjectSeed_ForSameNameNonStdlibProtocol(string nonStdlibProtocol)
+    {
+        // A real app/framework protocol that happens to share a simple name with a
+        // stdlib marker (Swift.Copyable etc.) is NOT a marker — it has a real witness
+        // table and the descriptor-symbol PWT path will still emit a lookup. The
+        // ISwiftObject seed must be retained so that lookup compiles. Module-qualified
+        // marker detection is the guard against false-positive stripping.
+        var typeDecl = CreateGenericStructWithConstraints("ConstrainedBox", new List<string> { nonStdlibProtocol });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        Assert.Contains("ISwiftObject", result);
     }
 
     [Fact]
-    public void GetWhereClause_SkipsUnsupportedSwiftUIConstraint()
+    public void GetWhereClause_KeepsISwiftObjectSeed_WhenAllProtocolConformancesAreFiltered()
     {
+        // SwiftUI.View is filtered out as an unsupported framework constraint, so it
+        // doesn't surface in the C# constraint list. The Swift param still declares a
+        // non-Sendable conformance though, and the descriptor-symbol PWT lookup path
+        // can still emit `ProtocolWitnessTable.GetOrThrowAuto<T, …>` calls — so the
+        // ISwiftObject seed must remain even though no projected interface survives.
+        // (The type itself is gated separately via TryGetUnsupportedConstraint.)
         var typeDecl = CreateGenericStructWithConstraints("UIBox", new List<string> { "SwiftUI.View" });
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl);
 
-        Assert.Equal("where T : ISwiftObject", result);
+        Assert.Contains("ISwiftObject", result);
         Assert.DoesNotContain("ISwiftView", result);
     }
 
@@ -147,13 +215,60 @@ public class GenericTypeEmitterTests
     }
 
     [Fact]
-    public void GetFullTypeSignature_ReturnsNameWithWhereClause_ForGenericType()
+    public void GetFullTypeSignature_ReturnsNameWithoutWhereClause_ForGenericTypeWithNoConformances()
     {
+        // Generic params without protocol conformances no longer get a defensive
+        // ISwiftObject seed; the type signature is just the bare name + params.
         var typeDecl = CreateGenericStruct("Box", 1);
 
         var result = GenericTypeEmitter.GetFullTypeSignature(typeDecl);
 
-        Assert.Equal("Box<T> where T : ISwiftObject", result);
+        Assert.Equal("Box<T>", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_MixedParams_OnlyConstrainedParamGetsClause()
+    {
+        // Pair<T, U> with T : Equatable and U with no conformance — only T should get
+        // an emitted where clause. U's clause is dropped so call sites can pass blittable
+        // values (Vector3, float, …) for U while still satisfying T's constraint.
+        var typeConformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                ConformanceKind.Protocol),
+        };
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", typeConformances, new List<GenericParameterConformance>()),
+            new GenericArgumentDecl("τ_0_1", "U", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+        };
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var typeDecl = new StructDecl
+        {
+            Name = "MixedPair",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.MixedPair"),
+            MangledName = "$s10TestModule9MixedPairV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule9MixedPairVMa",
+            GenericParameters = genericParams,
+        };
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl);
+
+        // T survives → emitted with ISwiftObject + IEquatable<>. U dropped.
+        Assert.Contains("where T : ISwiftObject", result);
+        Assert.Contains("IEquatable", result);
+        Assert.DoesNotContain("where U", result);
+        Assert.DoesNotContain("U : ISwiftObject", result);
     }
 
     [Fact]
@@ -201,7 +316,7 @@ public class GenericTypeEmitterTests
     #region Cross-Module Constraint Stripping Tests
 
     [Fact]
-    public void GetWhereClause_StdlibDecodableConstraint_IsStripped()
+    public void GetWhereClause_StdlibDecodableConstraint_IsStrippedButISwiftObjectRemains()
     {
         var typeDecl = CreateGenericStructWithConstraintsAndModule("RequestInterceptor", "Alamofire",
             new List<string> { "Swift.Decodable" });
@@ -209,12 +324,17 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
 
+        // The cross-module unregistered protocol is filtered out of the projected
+        // C# constraint list, but the Swift param still carries a non-Sendable
+        // conformance. The ISwiftObject seed must stay because PWT lookups for
+        // filtered conformances still emit through the descriptor-symbol path —
+        // dropping the seed would break call sites with CS0314.
         Assert.DoesNotContain("Decodable", result);
         Assert.Contains("ISwiftObject", result);
     }
 
     [Fact]
-    public void GetWhereClause_StdlibErrorConstraint_IsStripped()
+    public void GetWhereClause_StdlibErrorConstraint_IsStrippedButISwiftObjectRemains()
     {
         var typeDecl = CreateGenericStructWithConstraintsAndModule("ErrorWrapper", "Alamofire",
             new List<string> { "Swift.Error" });
@@ -222,7 +342,10 @@ public class GenericTypeEmitterTests
 
         var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
 
-        Assert.DoesNotContain("Error", result);
+        // Same as the Decodable case above: the unregistered cross-module protocol
+        // is filtered, but the underlying Swift conformance keeps the ISwiftObject
+        // seed alive so descriptor-symbol PWT lookups continue to compile.
+        Assert.DoesNotContain("IError", result);
         Assert.Contains("ISwiftObject", result);
     }
 
