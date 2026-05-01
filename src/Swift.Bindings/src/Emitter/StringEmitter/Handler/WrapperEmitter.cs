@@ -681,7 +681,10 @@ namespace BindingsGeneration
             var cleanup = _syncPlan?.IndirectResultMethod?.CleanupCode;
             if (cleanup != null)
             {
-                csWriter.WriteLine(cleanup);
+                foreach (var line in cleanup.Split('\n'))
+                {
+                    csWriter.WriteLine(line.TrimEnd('\r'));
+                }
             }
         }
 

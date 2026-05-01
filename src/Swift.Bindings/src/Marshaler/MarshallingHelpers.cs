@@ -364,6 +364,45 @@ namespace BindingsGeneration
             return true;
         }
 
+        /// <summary>
+        /// True for non-cdecl sync returns of multi-element tuples where every top-level element
+        /// is a bare generic type parameter. Such tuples are uniformly address-only in Swift's
+        /// ABI and use split @out registers — one per element (x0, x1, …) rather than a single
+        /// x8 SwiftIndirectResult register. The P/Invoke must declare N IntPtr result params,
+        /// the wrapper must allocate per-element buffers, and the read site must marshal each
+        /// element separately and synthesize the tuple.
+        ///
+        /// Mixed tuples (e.g., (T, Int) → (@out T, Int)) and tuples whose elements are bound
+        /// generics returned direct (Array&lt;T&gt;, UnsafePointer&lt;T&gt;, etc.) use a different
+        /// lowering and are NOT handled by this branch. They fall through to the legacy
+        /// SwiftIndirectResult fallback. The narrow gate trades coverage for safety: only the
+        /// fully bare-generic shape is provably uniform-@out across Swift's ABI rules.
+        ///
+        /// Excluded paths:
+        ///   - @_cdecl wrappers (use a single resultPtr buffer the wrapper writes into).
+        ///   - Native thunks (use AAPCS64 hidden x8 register for struct return buffers).
+        ///   - Wrapper-library indirection (declared with explicit indirect-result shapes).
+        ///   - Async methods (use callback flattening, not indirect result).
+        ///   - Constructors (use _payload SafeHandle).
+        ///   - Empty/single-element tuples (Swift collapses single element to bare type).
+        ///   - Any tuple element that is not a bare generic type parameter.
+        /// </summary>
+        public static bool IsMultiElementGenericTupleIndirectReturn(MethodEnvironment env)
+        {
+            if (env.MethodDecl.IsConstructor) return false;
+            if (env.MethodDecl.IsAsync) return false;
+            if (env.MethodDecl.UsesCdeclWrapper) return false;
+            if (env.MethodDecl.UsesNativeThunk) return false;
+            if (env.MethodDecl.UsesWrapperLibrary) return false;
+
+            var returnType = env.MethodDecl.CSSignature.First();
+            if (returnType.SwiftTypeSpec is not TupleTypeSpec tupleSpec) return false;
+            if (tupleSpec.IsEmptyTuple) return false;
+            if (tupleSpec.Elements.Count < 2) return false;
+
+            return env.TupleHandler.AllElementsAreBareGenericTypeParameter(tupleSpec);
+        }
+
         public static bool IsTypeFrozen(TypeRecord typeRecord)
         {
             return (typeRecord.Flags & TypeRecordFlags.Frozen) != 0;

@@ -2,7 +2,7 @@
 
 This doc covers longer-term themes, blocked items, and lower-priority ideas. Live baseline counts live in `.validation-baseline.json`; per-library status lives with each package.
 
-> **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 7 confirmed upstream .NET runtime bugs (see `Blocked` section below + memory `feedback_mono_jit_blame.md`). If a crash doesn't match one of these, it's our bug.
+> **Every skipped test is guilty until proven innocent.** 102/102 tests previously blamed on Mono JIT were proven to be generator/runtime bugs in our code. There are exactly 4 confirmed upstream .NET runtime issues — Issue 1 (Mono bug), Issue 2 (Mono+NativeAOT feature request), Issue 3 (Mono tracking-issue comment), Issue 9 (Mono bug); see `Blocked` section below + memory `feedback_mono_jit_blame.md`. If a crash doesn't match one of these, it's our bug. (Note: three previously-listed entries — custom-struct float/double-in-GPR, integer-struct-≥24B SIGSEGV, multi-type-parameter generic SIGSEGV — were proven not to be runtime bugs by the 2026-04-30 fact-check + `@frozen` rebuild; see Theme C below.)
 
 ---
 
@@ -59,14 +59,21 @@ Once stable, the `nuke binding-tests` flags (`--macos --catalyst --tvos`) that a
 
 ---
 
-## Theme C: Upstream Bug Reports + Repro Repo *(ready to file)*
+## Theme C: Upstream Bug Reports + Repro Repo *(ready to file 1/2/9; close 5/6/7/8)*
 
-Repro repo cleaned up with README, .gitignore, clean git history. 8 draft bug reports (Issues 1, 2, 3, 5, 6, 7, 8, 9) polished with correct versions, GitHub URLs, specific repro class references, and filing checklist. Issues 2, 3, 5, 6, 7, 8, 9 re-verified on .NET SDK 10.0.103 + Xcode 26.2 (2026-04-26).
+Repro repo cleaned up with README, .gitignore, clean git history. 8 draft bug reports (Issues 1, 2, 3, 5, 6, 7, 8, 9) polished with correct versions, GitHub URLs, specific repro class references, and filing checklist. Issues 2, 3, 5, 6, 7, 8, 9 re-verified on .NET SDK 10.0.103 + Xcode 26.2 (2026-04-26). 2026-04-30 fact-check pass (Codex independent review + direct disassembly verification of `libswiftCore.dylib` and the repro framework) reclassified the filing strategy. The 2026-04-30 `@frozen` rebuild then resolved Issues 5/6/7 entirely — see the per-issue `2026-04-30 rebuild result` blocks in the draft for evidence.
+
+Filing status after the 2026-04-30 rebuild:
+- **File as new issues:** Issue 1 (bug), Issue 2 (feature request, with minor source-pointer corrections), Issue 9 (bug).
+- **Post as tracking-issue comment:** Issue 3 (tightened wording, upgrade example to `DangerousAddRef`).
+- **Close / do not file:** Issues 5, 6, 7, 8.
+  - **5/6/7:** resilience mismatch. The repro library was built with `-enable-library-evolution` and the public structs were not `@frozen`, so Swift consumed a pointer in `x0` and read fields via `ldr d0, [x0]` / `ldp d0, d1, [x0]` / `ldp x8, x9, [x0]`. .NET correctly passed the first field directly. After marking `Struct1Double`/`Struct2Doubles`/`Struct4Doubles`/`InnerPair`/`NestedRect`/`Struct3Ints`/`Struct4Ints` as `@frozen` and rebuilding, every previously-failing case returns the expected value on both Mono Sim and NativeAOT device. `CGRect` always worked because it is `So6CGRectV` (imported C struct on the platform direct-passing path), not because of "system framework HFA" handling. Issue 6 is merged into Issue 5 as the single-`double` minimal-repro subsection.
+  - **8:** wrong P/Invoke shape on our side. Multi-result tuple returns use `(x0=res1, x1=res2, x2=pay1, x3=pay2, x4=Tmeta, x5=Umeta)`, not `(x8=SwiftIndirectResult, x0=pay1, x1=Tmeta, x2=Umeta, …)`. Generator now emits the correct N-`@out`-register shape for fully bare-generic multi-element tuple returns (e.g., `pair<T, U> -> (T, U)`); mixed shapes (e.g., `(T, Int)`, `(Array<T>, T)`) still fall through to the legacy path — see *Lower Priority*.
 
 Remaining steps:
-1. **Issue 1**: rewrite the minimal repro — the original `swift_getExistentialTypeMetadata` direct P/Invoke now passes; the `!ji->async` assertion still fires but only as a secondary crash during stack unwinding from a separate native SIGSEGV. New repro must trigger via a P/Invoke that itself crashes natively.
-2. Publish repro repo to GitHub (`justinwojo/swift-interop-repro` — currently local only, no remote)
-3. File the 8 issues on dotnet/runtime
+1. **Issue 1**: rewrite the minimal repro to use a deliberately-crashing `CallConvSwift` callee so Mono walks the stack and trips `!ji->async` during unwinding. The original `swift_getExistentialTypeMetadata` direct P/Invoke now passes.
+2. Publish repro repo to GitHub (`justinwojo/swift-interop-repro` — currently local only, no remote).
+3. File Issues 1, 2, 9 on dotnet/runtime; post Issue 3 as a tracking-issue comment; close Issues 5, 6, 7, 8 in our internal tracker.
 
 Drafts: [`Future/upstream-bug-reports-draft.md`](Future/upstream-bug-reports-draft.md)
 
@@ -86,23 +93,26 @@ Drafts: [`Future/upstream-bug-reports-draft.md`](Future/upstream-bug-reports-dra
 | **Wrapper-helper path dynamic PWT resolution** | Swift wrapper side still fail-closed for Self-requirement / associated-type protocols. Not triggered by any current validation library. |
 | **Multi-PAT existential boxing** | A type conforming to 2+ PAT protocols cannot box through the `object` fallback because the `typeof(object)` dictionary key is ambiguous. Guarded to fail explicitly (`InvalidCastException`) rather than silently select the wrong witness table. Extremely rare in practice. |
 | **tvOS device runner** | Requires provisioning profile + physical Apple TV. Generator, SDK, runtime, and build infra already support tvOS; only the `nuke runtime-tests-tvos-device` Nuke target and deployment mechanism are missing. |
+| **Mixed-indirect generic tuple returns** | Bare-generic shape (`(T, U)`, `(T, U, V)`) is covered by `IsMultiElementGenericTupleIndirectReturn`. Mixed and bound-generic shapes — `(T, Int)` → `(@out T, Int)`, `(Array<T>, T)` → `(Array<T>, @out T)`, `(UnsafePointer<T>, T)` → `(UnsafePointer<T>, @out T)`, `(Optional<T>, T)` → `(@out Optional<T>, @out T)` — fall through to the legacy `SwiftIndirectResult` path with the wrong shape. Real fix: per-element address-only/direct ABI classifier driving a partial-indirect P/Invoke signature. No active repro from validation libraries; un-block when one surfaces. |
 | **Pattern 2 retirement (wrapper-eligibility)** | `SwiftWrapperPostProcessor.Pattern2_SilgenOrCdeclBroken` strips broken `@_silgen_name`/`@_cdecl` wrapper bodies after-the-fact. M3-S3 sub-cause counter showed 99.7% of hits are `Pattern2.InternalType` — wrapper signatures that reach `internalTypeNames`. A naive emission-time gate (`MemberValidationPipeline`) regressed 4 libraries (CryptoSwift/SkeletonView/NVActivityIndicatorView/XMLCoder) because `@usableFromInline internal` types like XMLCoder's `BoolBox`/`FloatBox` are flagged internal yet emitted as public C# classes. Right fix layer is wrapper-eligibility (`MethodWrapperEmitter.ShouldEmitWrapper` / `ConstructorWrapperEmitter` / `PropertyWrapperEmitter`): refuse the `@_cdecl` wrapper when its signature reaches an internal type, then `MethodHandler.cs:928–933` falls back to the original Swift symbol under `CallConvSwift`. Plumbing requires either threading `InternalTypeNames` through `MethodEnvironment` (~13 source-side construction sites + ~44 test sites) or attaching the set to `ModuleDecl`. Proof obligation: BindingTests fixture for an `@usableFromInline internal` type so the runtime path is exercised on iOS sim + device. Not < 1-session scope; deferred. |
 
 ---
 
 ## Blocked (Confirmed Upstream Only)
 
-These are the **only** confirmed upstream issues. There are exactly 7 (reproduced in standalone repro at `/Users/wojo/Dev/swift-interop-repro/`). If a crash doesn't match one of these, it's our bug. See `feedback_mono_jit_blame.md` for the full investigation checklist.
+These are the **only** confirmed upstream issues. There are exactly 4 (reproduced in standalone repro at `/Users/wojo/Dev/swift-interop-repro/`). If a crash doesn't match one of these, it's our bug. See `feedback_mono_jit_blame.md` for the full investigation checklist.
 
 | # | Issue | Blocked By |
 |---|-------|-----------|
-| 1 | **Mono: JIT assertion `!ji->async` on CallConvSwift P/Invoke** | Fatal `jit-info.c:918` during stack unwinding when calling Swift runtime functions. Workaround: `@_silgen_name` Swift wrappers |
+| 1 | **Mono: JIT assertion `!ji->async` on CallConvSwift P/Invoke** | Fatal `jit-info.c:918` during stack unwinding through a `wrapper_managed_to_native_*` frame after a native crash in a `CallConvSwift` callee. Workaround: `@_silgen_name` Swift wrappers / avoid native crashes through `CallConvSwift` |
 | 2 | **Non-blittable type rejection with CallConvSwift** | .NET runtime design limitation. Workaround: @_cdecl wrappers (already covers 78.5% of P/Invokes) |
 | 3 | **Mono: SafeHandle async lifetime** | GC may collect SafeHandle during async suspension. Workaround: manual ARC retain/release or singleton pattern |
-| 4 | **NativeAOT: custom struct float/double in GPR instead of FPR** | NativeAOT JIT `SwiftPhysicalLowering.cs` register allocation bug. System types (CGRect) work; custom structs fail |
-| 5 | **NativeAOT: custom integer struct >16B SIGSEGV** | Struct passed by pointer instead of in registers. NativeAOT (≥24B), Mono (≥32B) |
-| 6 | **NativeAOT: multi-type-parameter generic SIGSEGV** | 1 type param works, 2+ type params SIGSEGV |
-| 7 | **Mono: `Cannot transition thread from STARTING with DONE_BLOCKING` on `(Bool, @out via x0)` tuple-return CallConvSwift** | Specific to `Set<T>.insert` ABI shape. `Set.contains` (no `@out`) passes. Workaround: `@_cdecl` Swift wrapper |
+| 4 | **Mono: `Cannot transition thread from STARTING with DONE_BLOCKING` on `(Bool, @out via x0)` tuple-return CallConvSwift** | Specific to `Set<T>.insert` ABI shape. `Set.contains` (no `@out`) passes. Workaround: `@_cdecl` Swift wrapper |
+
+**Closed 2026-04-30** (previously listed as confirmed upstream, now disproven):
+- ~~**NativeAOT: custom struct float/double in GPR instead of FPR**~~ — resilience mismatch in the repro library, not a runtime bug. Marking the repro structs `@frozen` resolves the symptom on both Mono Sim and NativeAOT device.
+- ~~**NativeAOT: custom integer struct >16B SIGSEGV**~~ — same resilience mismatch as above.
+- ~~**NativeAOT: multi-type-parameter generic SIGSEGV**~~ — wrong P/Invoke shape on our side (multi-result tuple returns use `(x0=res1, x1=res2, x2=pay1, x3=pay2, x4=Tmeta, x5=Umeta)`, not `x8`/`SwiftIndirectResult`). Generator emits the corrected shape for fully bare-generic tuples; `BasicGenericTests.TestGetPairSameType` + heterogeneous + class-element variants pass on Sim and Device.
 
 | Other | Status |
 |-------|--------|

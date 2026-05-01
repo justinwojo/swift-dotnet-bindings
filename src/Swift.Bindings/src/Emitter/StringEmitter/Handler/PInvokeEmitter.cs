@@ -274,6 +274,18 @@ namespace BindingsGeneration
                         AddParameter("IntPtr", "hasValuePtr");
                     }
                 }
+                else if (MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(_env)
+                    && returnType.SwiftTypeSpec is TupleTypeSpec tupleSpec)
+                {
+                    // Multi-element generic-element tuples are address-only in Swift's ABI.
+                    // Each element is returned via its own @out register (x0, x1, …) instead of
+                    // a single x8 SwiftIndirectResult. Emit one IntPtr per element so the call
+                    // site allocates and passes N separate buffer pointers in the right registers.
+                    for (int i = 0; i < tupleSpec.Elements.Count; i++)
+                    {
+                        AddParameter("IntPtr", $"tupleResult{i}Ptr");
+                    }
+                }
                 else
                 {
                     AddParameter("SwiftIndirectResult", "swiftIndirectResult");

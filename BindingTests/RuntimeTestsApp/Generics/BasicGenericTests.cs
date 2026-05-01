@@ -297,7 +297,6 @@ public class BasicGenericTests : TestBase
         AssertEqual(-100, result.Value, "GetIdentity negative value");
     }
 
-    [Skip("Upstream issue #4: multi-type-parameter generic SIGSEGV. CallConvSwift with 2+ type metadata params crashes on both Mono and NativeAOT. No @_cdecl wrapper possible for method-level generics.")]
     public void TestGetPairSameType()
     {
         var a = new SummableInt32(value: 10);
@@ -308,6 +307,30 @@ public class BasicGenericTests : TestBase
         AssertEqual(10, pair.Item1.Value, "GetPair Item1.Value");
         AssertEqual(20, pair.Item2.Value, "GetPair Item2.Value");
         TestLogger.Info($"GetPair(10, 20) = ({pair.Item1.Value}, {pair.Item2.Value})");
+    }
+
+    public void TestGetPairHeterogeneousStructs()
+    {
+        var a = new SummableInt32(value: 7);
+        var b = new SimpleItem("id-99", "hello");
+#pragma warning disable CS0618
+        var pair = TestLibFunctions.Pair(a, b);
+#pragma warning restore CS0618
+        AssertEqual(7, pair.Item1.Value, "GetPair heterogeneous Item1.Value");
+        AssertEqual("id-99", pair.Item2.Id.ToString(), "GetPair heterogeneous Item2.Id");
+        AssertEqual("hello", pair.Item2.Label.ToString(), "GetPair heterogeneous Item2.Label");
+    }
+
+    public void TestGetPairTwoClasses()
+    {
+        var coord = new CoordinateRef(x: 3, y: 4);
+        var label = new LabelRef(text: "origin");
+#pragma warning disable CS0618
+        var pair = TestLibFunctions.Pair(coord, label);
+#pragma warning restore CS0618
+        AssertEqual(3, pair.Item1.X, "GetPair class Item1.X");
+        AssertEqual(4, pair.Item1.Y, "GetPair class Item1.Y");
+        AssertEqual("origin", pair.Item2.Text.ToString(), "GetPair class Item2.Text");
     }
 
     #endregion

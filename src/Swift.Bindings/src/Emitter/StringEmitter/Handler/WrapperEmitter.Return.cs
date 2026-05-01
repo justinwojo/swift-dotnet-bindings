@@ -150,6 +150,17 @@ namespace BindingsGeneration
             // returns null (user-defined generics). Uses the wrapper signature's return type.
             if (_requiresIndirectResult)
             {
+                // Multi-element generic tuple: each element was returned via its own @out buffer
+                // (tupleResult{i}Ptr / _tupleResult{i}Buf — first buffer reuses _cdeclBuf).
+                // Marshal each element separately, applying the same ownership-transfer rules
+                // as the single-buffer fallback below (class T → dereference; ISwiftStruct T →
+                // null out buffer; otherwise free buffer normally).
+                if (MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(_env))
+                {
+                    EmitMultiElementGenericTupleReturn(csWriter, (TupleTypeSpec)returnArg.SwiftTypeSpec);
+                    return;
+                }
+
                 // @_cdecl wrappers use plain IntPtr resultPtr, not SwiftIndirectResult.
                 // Native thunks use SwiftIndirectResult (x8 register passthrough) — NOT resultPtr.
                 var resultExpr = _env.MethodDecl.UsesCdeclWrapper ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)";
@@ -1324,6 +1335,75 @@ namespace BindingsGeneration
 
             // Frozen blittable primitives — use directly
             return $"var {resultName} = {itemName};";
+        }
+
+        /// <summary>
+        /// Emits the read site for a multi-element generic-element tuple return whose elements
+        /// were written into N separate @out buffers (tupleResult{i}Ptr → backed by _cdeclBuf for
+        /// element 0, _tupleResult{i}Buf for elements 1..N-1).
+        ///
+        /// Per element, dispatches at runtime on the C# generic param's actual type:
+        ///   * class T (ISwiftObject, not ISwiftStruct, not value type) — buffer holds the heap
+        ///     pointer; dereference, then MarshalFromSwift&lt;T&gt;(classHandle). Buffer is freed
+        ///     normally in finally.
+        ///   * ISwiftStruct T (non-frozen struct, complex enum) — MarshalFromSwift takes
+        ///     ownership of the buffer (SafeHandle wraps it). Null the buffer local so finally
+        ///     skips the free.
+        ///   * value type / frozen-blittable / primitive T — MarshalFromSwift copies bytes out;
+        ///     buffer is freed normally in finally.
+        ///
+        /// After all elements are read, synthesizes the C# value-tuple `(elem0, elem1, …)`.
+        /// </summary>
+        private void EmitMultiElementGenericTupleReturn(CSharpWriter csWriter, TupleTypeSpec tupleSpec)
+        {
+            var elementCount = tupleSpec.Elements.Count;
+            var elementCsTypes = new List<string>(elementCount);
+            foreach (var element in tupleSpec.Elements)
+            {
+                elementCsTypes.Add(ResolveGenericTupleElementCSharpType(element));
+            }
+
+            for (int i = 0; i < elementCount; i++)
+            {
+                var elemType = elementCsTypes[i];
+                var ptrName = $"tupleResult{i}Ptr";
+                var bufferVar = i == 0 ? "_cdeclBuf" : $"_tupleResult{i}Buf";
+                var resultName = $"_tupleResult{i}";
+                csWriter.WriteLines($$"""
+                    {{elemType}} {{resultName}};
+                    if (!typeof({{elemType}}).IsValueType && typeof(Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({{elemType}})) && !typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({{elemType}})))
+                    {
+                        IntPtr _classHandle{{i}};
+                        unsafe { _classHandle{{i}} = *(IntPtr*){{ptrName}}; }
+                        {{resultName}} = SwiftMarshal.MarshalFromSwift<{{elemType}}>(_classHandle{{i}});
+                    }
+                    else
+                    {
+                        {{resultName}} = SwiftMarshal.MarshalFromSwift<{{elemType}}>({{ptrName}});
+                        if (typeof(Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({{elemType}}))) {{bufferVar}} = null;
+                    }
+                    """);
+            }
+
+            var elementValues = string.Join(", ", Enumerable.Range(0, elementCount).Select(i => $"_tupleResult{i}"));
+            csWriter.WriteLine($"return ({elementValues});");
+        }
+
+        /// <summary>
+        /// Translates a tuple element TypeSpec to its C# type name for use inside
+        /// <c>typeof(T)</c> / <c>MarshalFromSwift&lt;T&gt;</c> within the generated wrapper body.
+        /// Bare generic parameters resolve via the active <see cref="GenericContext"/>;
+        /// concrete and bound-generic types delegate to <see cref="TupleHandler"/>.
+        /// </summary>
+        private string ResolveGenericTupleElementCSharpType(TypeSpec element)
+        {
+            if (element is NamedTypeSpec ns &&
+                TypeSpecHelpers.IsGenericTypeParameter(ns.Name) &&
+                _genericContext.TryResolve(ns.Name, out var csName))
+            {
+                return csName;
+            }
+            return _env.TupleHandler.TranslateElementTypeToCSharp(element);
         }
     }
 }

@@ -90,6 +90,21 @@ public class TupleHandler
         tupleTypeSpec.Elements.Any(ContainsGenericTypeParameter);
 
     /// <summary>
+    /// Checks whether every top-level element of the tuple is a bare generic type parameter
+    /// (e.g., T, U, τ_0_0). Swift returns bare generic parameters via @out indirect result,
+    /// so a tuple where every element is a bare generic uniformly uses N @out registers.
+    ///
+    /// Bound generics like Array&lt;T&gt;, UnsafePointer&lt;T&gt;, and similar are returned direct
+    /// (refcounted reference, pointer) even though they contain a generic parameter; mixing
+    /// them with bare T would produce a mixed indirect/direct ABI that this branch does not
+    /// model. Optional&lt;T&gt; is also address-only when T is generic but is excluded here for
+    /// safety — the legacy path handles it.
+    /// </summary>
+    public bool AllElementsAreBareGenericTypeParameter(TupleTypeSpec tupleTypeSpec) =>
+        tupleTypeSpec.Elements.Count > 0
+        && tupleTypeSpec.Elements.All(static e => e is NamedTypeSpec named && TypeSpecHelpers.IsGenericTypeParameter(named.Name));
+
+    /// <summary>
     /// Recursively checks whether a TypeSpec contains a generic type parameter,
     /// either directly or nested inside bound generic arguments.
     /// </summary>

@@ -170,6 +170,18 @@ internal class MethodMarshalPlanBuilder
         if (_requiresSwiftError && !_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.UsesNativeThunk)
             lines.Add("var swiftError = default(SwiftError);");
 
+        // Multi-element generic tuple non-cdecl returns split each element into its own @out
+        // buffer. The first buffer reuses _cdeclBuf (declared by EmitCdeclPayloadDeclaration);
+        // the rest need their own pre-try declarations so the finally block can free them.
+        if (MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(_env))
+        {
+            var tupleSpec = (TupleTypeSpec)_env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+            for (int i = 1; i < tupleSpec.Elements.Count; i++)
+            {
+                lines.Add($"void* _tupleResult{i}Buf = null;");
+            }
+        }
+
         // Declare GCHandle variables for escaping closures. Skip only closures
         // that the async bridge (Session A/B throwing baseline, Session C
         // non-throwing baseline) handles internally via
@@ -645,6 +657,47 @@ internal class MethodMarshalPlanBuilder
                 };
             }
 
+            // Multi-element generic tuple non-cdecl: Swift's ABI splits each address-only element
+            // into its own @out register (x0, x1, …). Allocate one buffer per element, expose them
+            // as IntPtr locals matching the P/Invoke parameter names (tupleResult{i}Ptr), and free
+            // each in the finally block. The first buffer reuses _cdeclBuf (declared by
+            // EmitCdeclPayloadDeclaration); subsequent buffers are added to DeclarationLines.
+            if (MarshallingHelpers.IsMultiElementGenericTupleIndirectReturn(_env))
+            {
+                var tupleSpec = (TupleTypeSpec)_env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+                var elementCsTypes = new List<string>(tupleSpec.Elements.Count);
+                foreach (var element in tupleSpec.Elements)
+                {
+                    elementCsTypes.Add(GetGenericTupleElementCSharpType(element));
+                }
+
+                var allocBuilder = new System.Text.StringBuilder();
+                var cleanupBuilder = new System.Text.StringBuilder();
+                for (int i = 0; i < elementCsTypes.Count; i++)
+                {
+                    var elemCsType = elementCsTypes[i];
+                    var bufferVar = i == 0 ? "_cdeclBuf" : $"_tupleResult{i}Buf";
+                    var ptrVar = $"tupleResult{i}Ptr";
+                    var metaVar = $"_tupleResult{i}Meta";
+
+                    if (allocBuilder.Length > 0) allocBuilder.AppendLine();
+                    allocBuilder.AppendLine($"var {metaVar} = TypeMetadata.GetTypeMetadataOrThrow<{elemCsType}>();");
+                    allocBuilder.AppendLine($"{bufferVar} = NativeMemory.Alloc((nuint){metaVar}.Size);");
+                    allocBuilder.Append($"var {ptrVar} = (IntPtr){bufferVar};");
+
+                    if (cleanupBuilder.Length > 0) cleanupBuilder.AppendLine();
+                    cleanupBuilder.Append($"NativeMemory.Free({bufferVar});");
+                }
+
+                return new IndirectResultSetup
+                {
+                    IsConstructor = false,
+                    ReturnTypeName = _wrapperSignature.ReturnType,
+                    AllocationCode = allocBuilder.ToString(),
+                    CleanupCode = cleanupBuilder.ToString()
+                };
+            }
+
             // Non-cdecl SwiftIndirectResult path: same ownership-transfer logic as @_cdecl.
             // _cdeclBuf is declared before the try block (EmitCdeclPayloadDeclaration) so
             // the finally block can free it. Non-frozen structs and complex enums transfer
@@ -685,6 +738,25 @@ internal class MethodMarshalPlanBuilder
                 CleanupCode = swiftIndirectCleanup
             };
         }
+    }
+
+    /// <summary>
+    /// Translates a tuple element TypeSpec to a C# type name for use inside
+    /// <c>TypeMetadata.GetTypeMetadataOrThrow&lt;T&gt;()</c> and
+    /// <c>SwiftMarshal.MarshalFromSwift&lt;T&gt;()</c> within a generic-tuple wrapper body.
+    /// Bare generic parameters resolve via the active <see cref="GenericContext"/>;
+    /// concrete and bound-generic types fall back to the type-database resolver
+    /// shared with the @_cdecl tuple metadata path.
+    /// </summary>
+    private string GetGenericTupleElementCSharpType(TypeSpec element)
+    {
+        if (element is NamedTypeSpec ns &&
+            TypeSpecHelpers.IsGenericTypeParameter(ns.Name) &&
+            _genericContext.TryResolve(ns.Name, out var csName))
+        {
+            return csName;
+        }
+        return GetTupleElementMetadataTypeName(element);
     }
 
     /// <summary>

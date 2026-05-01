@@ -41,7 +41,7 @@ public class MethodLevelGenericTests : TestBase
         TestLogger.Info($"GenericMethodHost.StaticDescribe = {result}");
     }
 
-    [Skip("Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug ('Cannot transition thread from STARTING with DONE_BLOCKING') in the CallConvSwift marshaller. Same root cause as BasicGenericTests.TestGetPairSameType. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics.")]
+    [Skip("Class-instance method-level generic with no @_cdecl wrapper. Generator emits the binding as [Obsolete] (SB0001) because it falls back to direct CallConvSwift dispatch on the Swift ABI thunk (Tj). On Mono this trips an internal thread state machine bug ('Cannot transition thread from STARTING with DONE_BLOCKING') in the CallConvSwift marshaller. Long-term fix: generator needs to emit @_cdecl wrappers for class-instance method-level generics.")]
     public void TestGenericMethodHost_MixedParams()
     {
         var host = new GenericMethodHost(label: "tagged");
