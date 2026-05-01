@@ -1501,13 +1501,26 @@ namespace BindingsGeneration
         /// <param name="unresolvedReason">The reason: "missing-slice" or "missing-xcframework".</param>
         internal static string FormatDependencyWarning(string frameworkName, string unresolvedReason)
         {
+            // MSBuild SDK guidance: SwiftFrameworkDependency provides build-time framework
+            // resolution; a sibling PackageReference (or ProjectReference) is required for
+            // NuGet restore — they're independent. SWIFTBIND080 in Sdk.targets uses the same
+            // pairing.
+            const string sdkGuidanceTail =
+                "MSBuild SDK: For NuGet package consumption, declare both items — " +
+                "<SwiftFrameworkDependency Include=\"path/to/{0}.xcframework\" " +
+                "PackageId=\"{0}.Swift.iOS\" PackageVersion=\"1.0.0\" /> for build-time framework " +
+                "resolution, and <PackageReference Include=\"{0}.Swift.iOS\" Version=\"1.0.0\" /> " +
+                "so NuGet restores the package. For local source builds, use <ProjectReference> " +
+                "to the sibling binding csproj instead. ";
+
+            var sdkGuidance = string.Format(sdkGuidanceTail, frameworkName);
+
             if (unresolvedReason == "missing-slice")
             {
                 return $"SWIFTBIND060: Detected dependency '{frameworkName}' but its xcframework " +
                     "lacks the required platform slice. " +
                     "CLI: Use --framework-dependency to specify a complete xcframework. " +
-                    "MSBuild SDK: Add <SwiftFrameworkDependency Include=\"path/to/{frameworkName}.xcframework\" " +
-                    $"PackageId=\"{frameworkName}.Swift.iOS\" PackageVersion=\"1.0.0\" /> to your project file. " +
+                    sdkGuidance +
                     "Verify the dependency xcframework contains both device and simulator slices.";
             }
             else
@@ -1515,8 +1528,7 @@ namespace BindingsGeneration
                 return $"SWIFTBIND060: Detected dependency '{frameworkName}' but no matching " +
                     $"{frameworkName}.xcframework found. " +
                     "CLI: Use --framework-dependency to specify its location. " +
-                    "MSBuild SDK: Add <SwiftFrameworkDependency Include=\"path/to/{frameworkName}.xcframework\" " +
-                    $"PackageId=\"{frameworkName}.Swift.iOS\" PackageVersion=\"1.0.0\" /> to your project file. " +
+                    sdkGuidance +
                     "You may need to build the dependency separately or obtain it from the library author.";
             }
         }

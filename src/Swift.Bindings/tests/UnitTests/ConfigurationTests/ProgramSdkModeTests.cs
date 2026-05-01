@@ -552,8 +552,11 @@ namespace BindingsGeneration.Tests
                 "Swift wrapper compilation failed (exit code 1): error: no such module 'Stripe3DS2'\n\n" +
                 "Missing module(s): 'Stripe3DS2'. Provide the xcframework(s) for these modules:\n" +
                 "  CLI:  --framework-dependency /path/to/<Module>.xcframework (repeat for each)\n" +
-                "  SDK:  <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" " +
-                "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />");
+                "  SDK:  Declare both items — SwiftFrameworkDependency for build-time " +
+                "framework resolution, PackageReference for NuGet restore:\n" +
+                "          <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" " +
+                "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />\n" +
+                "          <PackageReference Include=\"<Module>.Swift.iOS\" Version=\"1.0.0\" />");
 
             var (_, _, message) = BindingsGenerator.HandleWrapperCompilationOutcome(
                 WrapperCompilationOutcome.Fatal, sdkMode: true, ex, compilationResult: null);
@@ -561,6 +564,7 @@ namespace BindingsGeneration.Tests
             Assert.Contains("Missing module(s): 'Stripe3DS2'", message);
             Assert.Contains("--framework-dependency", message);
             Assert.Contains("SwiftFrameworkDependency", message);
+            Assert.Contains("PackageReference", message);
         }
     }
 
@@ -621,8 +625,9 @@ namespace BindingsGeneration.Tests
             var message = BindingsGenerator.FormatDependencyWarning("MyLib", reason);
             // CLI guidance
             Assert.Contains("--framework-dependency", message);
-            // MSBuild SDK guidance
+            // MSBuild SDK guidance: both items required for NuGet consumption
             Assert.Contains("SwiftFrameworkDependency", message);
+            Assert.Contains("PackageReference", message);
         }
     }
 

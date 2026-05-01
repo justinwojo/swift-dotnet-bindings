@@ -112,24 +112,6 @@ namespace BindingsGeneration.Tests
         // top of Sdk.props. The matching assertions are in `SdkTargetsContentTests`.
 
         [Fact]
-        public void Props_InjectsStaticPackageReferenceForDependencies()
-        {
-            // SwiftFrameworkDependency items with PackageId + PackageVersion
-            // should generate PackageReference at evaluation time
-            Assert.Contains("SwiftFrameworkDependency", PropsContent);
-            Assert.Contains("%(SwiftFrameworkDependency.PackageId)", PropsContent);
-            Assert.Contains("%(SwiftFrameworkDependency.PackageVersion)", PropsContent);
-        }
-
-        [Fact]
-        public void Props_DependencyPackageReference_RequiresBothMetadata()
-        {
-            // PackageReference should only be emitted when BOTH PackageId AND PackageVersion are present
-            Assert.Contains("'%(SwiftFrameworkDependency.PackageId)' != ''", PropsContent);
-            Assert.Contains("'%(SwiftFrameworkDependency.PackageVersion)' != ''", PropsContent);
-        }
-
-        [Fact]
         public void Props_DefaultsSwiftRuntimeVersion()
         {
             Assert.Contains("<SwiftRuntimeVersion Condition=", PropsContent);

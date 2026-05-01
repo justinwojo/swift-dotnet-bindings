@@ -698,6 +698,121 @@ namespace BindingsGeneration.Tests
             Assert.Equal(1, CountOccurrences(output, "SUPPLEMENT_PKG:SwiftBindings.Apple|"));
         }
 
+        // Regression: <PackageReference Update="X" Version="Y" /> inside a target body
+        // (execution-time) does NOT actually filter to identity X — MSBuild applies the
+        // Version metadata to every PackageReference in scope, including unrelated ones
+        // (SwiftBindings.Runtime, the SDK-injected Microsoft.NET.ILLink.Tasks). The
+        // resulting nuspec / dgspec then declares the wrong version range for those deps,
+        // surfacing downstream as NU1605 package-downgrade restore failures (e.g. the
+        // SwiftWrapperRequired=false libraries in swift-dotnet-packages: BlinkID, BlinkIDUX,
+        // and the eleven cross-referencing Stripe.* packages all hit this once the
+        // generator's binding-metadata.props existed on disk from a prior build).
+        //
+        // The fix is the per-item `Condition="'%(Identity)' == 'SwiftBindings.Apple'"` on
+        // the Update line in `_InjectAppleSupplementPrototype`. This test asserts that an
+        // unrelated sibling PackageReference (SwiftBindings.Runtime here, modelling the
+        // implicit reference Sdk.props injects at evaluation time) survives the supplement
+        // Update with its sentinel version intact.
+        [Fact]
+        public void InjectAppleSupplementPrototype_UpdateDoesNotStompUnrelatedPackageReferences()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingPackageVersion>1.0.0</_SwiftBindingPackageVersion>
+                    <_SwiftBindingMinimumOSVersion>15.0</_SwiftBindingMinimumOSVersion>
+                    <_SwiftBindingModuleName>TestModule</_SwiftBindingModuleName>
+                    <_SwiftBindingIsVersionPlaceholder>False</_SwiftBindingIsVersionPlaceholder>
+                    <_SwiftBindingHasWrapperXCFramework>False</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingWrapperModuleName>TestModuleSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingWrapperSliceCount>0</_SwiftBindingWrapperSliceCount>
+                    <_SwiftBindingNeedsAppleSupplement>True</_SwiftBindingNeedsAppleSupplement>
+                    <_SwiftBindingAppleSupplementVersion>26.0.0</_SwiftBindingAppleSupplementVersion>
+                  </PropertyGroup>
+                </Project>
+                """);
+
+            // Plant a sibling SwiftBindings.Runtime PackageReference with a sentinel version
+            // distinct from the supplement's [26.0.0,). If the Update bug regresses, the
+            // sibling's Version will be rewritten to [26.0.0,) and the assertion below will
+            // catch it.
+            const string runtimeSentinel = "[0.0.0-runtime-placeholder,0.1.0)";
+            RunInjectSupplementTarget(intermediateDir, out var output, out var exitCode,
+                plantSiblingPackageReferenceWithVersion: runtimeSentinel);
+
+            Assert.True(exitCode == 0, $"Target failed.\nOutput: {output}");
+            // Apple ref refined as expected.
+            Assert.Contains("SUPPLEMENT_PKG:SwiftBindings.Apple|[26.0.0,)", output);
+            Assert.Equal(1, CountOccurrences(output, "SUPPLEMENT_PKG:SwiftBindings.Apple|"));
+            // Runtime ref must keep its sentinel version — Update must not stomp it.
+            Assert.Contains($"SIBLING_PKG:SwiftBindings.Runtime|{runtimeSentinel}", output);
+            Assert.DoesNotContain("SIBLING_PKG:SwiftBindings.Runtime|[26.0.0,)", output);
+            Assert.Equal(1, CountOccurrences(output, "SIBLING_PKG:SwiftBindings.Runtime|"));
+        }
+
+        // Regression guard against re-introducing custom-metadata-in-Condition patterns
+        // anywhere in Sdk.props. The original failure: an ItemGroup at evaluation time
+        // declared a PackageReference with a Condition that referenced qualified custom
+        // metadata
+        //   `Condition="'%(SwiftFrameworkDependency.PackageId)' != '' AND ..."`
+        // which passes during normal restore but fails MSB4191 ("custom metadata not
+        // allowed in this condition") under introspection paths like
+        // `dotnet msbuild -getItem:PackageReference`, which IDE/CI tools invoke for
+        // project introspection. The failure surfaces even when the project declares
+        // no SwiftFrameworkDependency items (the inner Condition is parsed regardless
+        // of the outer ItemGroup Condition's evaluation), which is why pure-binding
+        // csprojs hit it. The buggy block has been removed entirely (it was dead code
+        // for the typical `<Project Sdk="SwiftBindings.Sdk/...">` flow because Sdk.props
+        // auto-imports before the project body); this test plants SwiftFrameworkDependency
+        // items and runs `-getItem:PackageReference` to ensure no equivalent pattern
+        // creeps back into Sdk.props or its imports.
+        [Fact]
+        public void SdkProps_GetItemPackageReference_DoesNotEmitMsb4191()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkPropsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.props");
+
+            // Manual import order: Microsoft.NET.Sdk first establishes evaluation
+            // context, user SwiftFrameworkDependency items are declared in the project
+            // body, then the repo Sdk.props is imported by path so it sees those items
+            // (the inverse of real `Sdk="SwiftBindings.Sdk/..."` order, but irrelevant
+            // for what this test asserts: MSB4191 fires regardless of whether the items
+            // exist or are visible at the import point, so any ordering exercises the
+            // bug. The benign MSB4011 "Microsoft.NET.Sdk Sdk.props re-imported" warning
+            // is expected and ignored.)
+            var project = $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFrameworkDependency Include="/path/A.xcframework"
+                                              PackageId="My.PackageA"
+                                              PackageVersion="1.2.3" />
+                  </ItemGroup>
+                  <Import Project="{sdkPropsPath}" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -getItem:PackageReference -nologo");
+            var combined = result.StdOut + "\n" + result.StdErr;
+
+            Assert.True(result.ExitCode == 0,
+                $"-getItem:PackageReference failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+            Assert.DoesNotContain("MSB4191", combined);
+        }
+
         private static int CountOccurrences(string haystack, string needle)
         {
             if (string.IsNullOrEmpty(needle)) return 0;
@@ -713,7 +828,8 @@ namespace BindingsGeneration.Tests
         private void RunInjectSupplementTarget(string intermediateDir, out string output, out int exitCode,
             bool plantImplicitSwiftAppleReference = true,
             bool disableImplicitSwiftAppleReference = false,
-            string plantedReferenceVersion = "[0.0.0-placeholder,)")
+            string plantedReferenceVersion = "[0.0.0-placeholder,)",
+            string? plantSiblingPackageReferenceWithVersion = null)
         {
             var sdkTargetsPath = Path.Combine(FindRepoRoot(),
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
@@ -743,6 +859,18 @@ namespace BindingsGeneration.Tests
                   </ItemGroup>
                 """
                 : "";
+            // Optional sibling PackageReference. Used by tests that need to assert the
+            // supplement Update only modifies SwiftBindings.Apple and leaves unrelated
+            // PackageReferences (Runtime, ILLink.Tasks, …) untouched. The siblingmust
+            // have a distinct sentinel version so a wildcard-matching Update — the
+            // exact bug being regression-tested — would visibly stomp it.
+            var siblingItemGroup = plantSiblingPackageReferenceWithVersion is { } siblingVersion
+                ? $"""
+                  <ItemGroup>
+                    <PackageReference Include="SwiftBindings.Runtime" Version="{siblingVersion}" />
+                  </ItemGroup>
+                """
+                : "";
             var optOutPropertyGroup = disableImplicitSwiftAppleReference
                 ? """
                   <PropertyGroup>
@@ -758,6 +886,7 @@ namespace BindingsGeneration.Tests
                   </PropertyGroup>
                 {optOutPropertyGroup}
                 {implicitItemGroup}
+                {siblingItemGroup}
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>
                     <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
@@ -770,6 +899,8 @@ namespace BindingsGeneration.Tests
                   <Target Name="TestDump" DependsOnTargets="_InjectAppleSupplementPrototype">
                     <Message Importance="High" Text="SUPPLEMENT_PKG:%(PackageReference.Identity)|%(PackageReference.Version)"
                              Condition="'%(PackageReference.Identity)' == 'SwiftBindings.Apple'" />
+                    <Message Importance="High" Text="SIBLING_PKG:%(PackageReference.Identity)|%(PackageReference.Version)"
+                             Condition="'%(PackageReference.Identity)' == 'SwiftBindings.Runtime'" />
                     <Message Importance="High" Text="SUPPLEMENT_PROJ:%(ProjectReference.Identity)"
                              Condition="$([System.String]::Copy('%(ProjectReference.Identity)').Contains('SwiftBindings.Apple'))" />
                   </Target>

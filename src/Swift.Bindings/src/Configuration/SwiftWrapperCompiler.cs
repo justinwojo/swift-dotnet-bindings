@@ -1367,8 +1367,13 @@ namespace BindingsGeneration
                     hint = $"\n\nMissing module(s): {moduleList}. " +
                            "Provide the xcframework(s) for these modules:\n" +
                            $"  CLI:  --framework-dependency /path/to/<Module>.xcframework (repeat for each)\n" +
-                           $"  SDK:  <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" " +
-                           "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />";
+                           $"  SDK:  Declare both items — SwiftFrameworkDependency for build-time " +
+                           "framework resolution, PackageReference for NuGet restore:\n" +
+                           $"          <SwiftFrameworkDependency Include=\"path/to/<Module>.xcframework\" " +
+                           "PackageId=\"<Module>.Swift.iOS\" PackageVersion=\"1.0.0\" />\n" +
+                           $"          <PackageReference Include=\"<Module>.Swift.iOS\" Version=\"1.0.0\" />\n" +
+                           $"        For local source builds, use <ProjectReference> to the sibling " +
+                           "binding csproj instead.";
                 }
 
                 throw new InvalidOperationException(

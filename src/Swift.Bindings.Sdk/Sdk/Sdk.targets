@@ -1002,7 +1002,7 @@ done"
     <!-- WARN fields are pipe-delimited: WARN|module|packageId|version|xcframeworkPath -->
     <Warning Condition="'$(_SwiftBindingDependencies)' != '' AND $([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').StartsWith('WARN|'))"
              Code="SWIFTBIND080"
-             Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])/$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]).csproj&quot; /&gt;%0A%0A  For NuGet package consumption:%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])&quot;%0A                              PackageId=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot; PackageVersion=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;" />
+             Text="Cross-module dependency detected but no sibling binding project found. To resolve, add one of:%0A%0A  For local source builds:%0A    &lt;ProjectReference Include=&quot;../$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])/$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2]).csproj&quot; /&gt;%0A%0A  For NuGet package consumption (both items required — SwiftFrameworkDependency for build-time framework resolution, PackageReference for NuGet restore):%0A    &lt;SwiftFrameworkDependency Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[4])&quot;%0A                              PackageId=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot; PackageVersion=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;%0A    &lt;PackageReference Include=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[2])&quot;%0A                      Version=&quot;$([System.String]::Copy('%(_SwiftAutoDepResult.Identity)').Split('|')[3])&quot; /&gt;" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -1112,13 +1112,26 @@ done"
          The version guard prevents emitting an invalid version range if the generator
          ever skips `_SwiftBindingAppleSupplementVersion` or a hand-authored
          binding-metadata.props omits it — NuGet would otherwise fail with an opaque
-         "invalid version range" error. -->
+         "invalid version range" error.
+
+         The `Condition="'%(Identity)' == 'SwiftBindings.Apple'"` is load-bearing, not
+         redundant. `<PackageReference Update="X" Version="Y" />` inside an `ItemGroup`
+         that lives in a target body (execution-time, not project-evaluation-time) does
+         NOT actually filter to the literal X — MSBuild applies the Version metadata to
+         every PackageReference in scope, including ones it should never touch
+         (SwiftBindings.Runtime, the SDK-injected Microsoft.NET.ILLink.Tasks). The
+         resulting nuspec / dgspec then declares the wrong version range for those deps,
+         which downstream consumers see as NU1605 package-downgrade restore failures.
+         The metadata Condition forces per-item batching so the Update only fires for
+         the Apple ref. Same shape works at evaluation time without the Condition; only
+         target-body ItemGroups exhibit the wildcard behaviour. -->
     <ItemGroup Condition="'$(_SwiftBindingNeedsAppleSupplement)' == 'True'
                            AND '$(_SwiftBindingAppleSupplementPrototypeCsproj)' == ''
                            AND '$(_SwiftBindingAppleSupplementVersion)' != ''
                            AND '$(DisableImplicitSwiftAppleReference)' != 'true'
                            AND '$(SwiftFrameworkType)' != 'ObjC'">
-      <PackageReference Update="SwiftBindings.Apple" Version="[$(_SwiftBindingAppleSupplementVersion),)" />
+      <PackageReference Update="SwiftBindings.Apple" Version="[$(_SwiftBindingAppleSupplementVersion),)"
+                        Condition="'%(Identity)' == 'SwiftBindings.Apple'" />
     </ItemGroup>
   </Target>
 
@@ -1505,14 +1518,15 @@ done"
           BeforeTargets="_ConfigureSwiftBindingPack"
           Condition="'$(IsPackable)' == 'true' AND '@(SwiftFrameworkDependency)' != ''">
 
-    <!-- Fail-closed at pack time: a silently-dropped PackageReference produces a shipped
-         nupkg that declares zero dependency on a required Swift framework, which then
-         surfaces as a DllNotFoundException for consumers at runtime. The IsPackable
-         gate on the containing target keeps this error scoped to pack; a plain build
-         is unaffected. -->
+    <!-- Fail-closed at pack time: SwiftFrameworkDependency carries PackageId/PackageVersion
+         to identify which NuGet package owns the underlying xcframework. Missing metadata
+         blocks pack validation here; it does not by itself wire the NuGet dependency —
+         consumers also need a sibling <PackageReference> (or <ProjectReference> for local
+         source builds) on the same package. The IsPackable gate on the containing target
+         keeps this error scoped to pack; a plain build is unaffected. -->
     <Error Condition="'%(SwiftFrameworkDependency.PackageId)' == '' OR '%(SwiftFrameworkDependency.PackageVersion)' == ''"
            Code="SWIFTBIND040"
-           Text="SwiftFrameworkDependency '%(SwiftFrameworkDependency.Identity)' is missing PackageId or PackageVersion metadata. The NuGet package cannot declare this dependency. Add PackageId and PackageVersion metadata for correct NuGet dependency propagation, or exclude the dependency before pack." />
+           Text="SwiftFrameworkDependency '%(SwiftFrameworkDependency.Identity)' is missing PackageId or PackageVersion metadata. Add PackageId and PackageVersion so this dependency can be validated at pack time, and ensure a matching &lt;PackageReference Include='...PackageId...' Version='...PackageVersion...' /&gt; (or &lt;ProjectReference&gt; for local source builds) is declared so NuGet restores the dependent package. Otherwise exclude the SwiftFrameworkDependency before pack." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

@@ -1,4 +1,4 @@
-<Project>
+<?xml version="1.0" encoding="utf-8"?><Project>
   <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
 
   <PropertyGroup>
@@ -21,7 +21,7 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**</DefaultItemExcludes>
 
     <!-- SDK internal paths -->
-    <_SwiftBindingSdkVersion>0.0.0-dev</_SwiftBindingSdkVersion>
+    <_SwiftBindingSdkVersion>0.9.0</_SwiftBindingSdkVersion>
     <_SwiftBindingGeneratorDir>$(MSBuildThisFileDirectory)../tools/net10.0/any/</_SwiftBindingGeneratorDir>
 
     <!-- NOTE: Platform detection (_SwiftBindingPlatform et al) lives in Sdk.targets,
@@ -44,14 +44,14 @@
          minimum-only float, which would let consumers slide into 0.9.0 and break the
          compatibility boundary; the bounded range pins the minor floor instead. Both values
          derive from the same VersionScope stamp so SDK and standalone paths cannot drift. -->
-    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.0.0-dev</SwiftRuntimeVersion>
-    <SwiftRuntimePackageVersionRange Condition="'$(SwiftRuntimePackageVersionRange)' == ''">[0.0.0-dev,0.1.0)</SwiftRuntimePackageVersionRange>
+    <SwiftRuntimeVersion Condition="'$(SwiftRuntimeVersion)' == ''">0.9.0</SwiftRuntimeVersion>
+    <SwiftRuntimePackageVersionRange Condition="'$(SwiftRuntimePackageVersionRange)' == ''">[0.9.0,0.10.0)</SwiftRuntimePackageVersionRange>
     <!-- SwiftBindings.Apple supplement version (follows the Apple SDK train, not SwiftRuntimeVersion).
          Stamped by VersionScope at pack time; users can override for prototype workflows. Threaded
          through to both generator invocations via the apple-version option so future Apple train bumps
          need only a single input, instead of being hardcoded across CliOptions, BindingProjectEmitter,
          and XCFrameworkMetadataExtractor. -->
-    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">0.0.0-dev</SwiftAppleSupplementVersion>
+    <SwiftAppleSupplementVersion Condition="'$(SwiftAppleSupplementVersion)' == ''">26.2.1</SwiftAppleSupplementVersion>
     <!-- Require wrapper compilation to succeed (set to false for libraries with known internal type issues) -->
     <SwiftWrapperRequired Condition="'$(SwiftWrapperRequired)' == ''">true</SwiftWrapperRequired>
     <!-- Auto-extract symbol graph for doc comments (set to false to disable) -->
@@ -90,8 +90,7 @@
        pins consumers inside the current minor and they can't silently slide across a
        compatibility boundary (see SwiftRuntimePackageVersionRange above). -->
   <ItemGroup>
-    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimePackageVersionRange)"
-                      Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
+    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimePackageVersionRange)" Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
   </ItemGroup>
 
   <!-- Implicit SwiftBindings.Apple reference.
@@ -108,19 +107,16 @@
        Apple SDK train. _InjectAppleSupplementPrototype still handles the prototype-csproj branch
        (ProjectReference wins over PackageReference when both are present). -->
   <ItemGroup>
-    <PackageReference Include="SwiftBindings.Apple" Version="[$(SwiftAppleSupplementVersion),)"
-                      Condition="'$(DisableImplicitSwiftAppleReference)' != 'true'
-                                 AND '$(SwiftFrameworkType)' != 'ObjC'" />
+    <PackageReference Include="SwiftBindings.Apple" Version="[$(SwiftAppleSupplementVersion),)" Condition="'$(DisableImplicitSwiftAppleReference)' != 'true'                                  AND '$(SwiftFrameworkType)' != 'ObjC'" />
   </ItemGroup>
 
-  <!-- Inject PackageReference for each SwiftFrameworkDependency with PackageId + PackageVersion.
-       This must be in .props (evaluation-time) so NuGet restore picks up the references
-       before the build targets run. Without both metadata values, the reference is skipped. -->
-  <ItemGroup Condition="'@(SwiftFrameworkDependency)' != ''">
-    <PackageReference Include="%(SwiftFrameworkDependency.PackageId)"
-                      Version="%(SwiftFrameworkDependency.PackageVersion)"
-                      Condition="'%(SwiftFrameworkDependency.PackageId)' != '' AND '%(SwiftFrameworkDependency.PackageVersion)' != ''" />
-  </ItemGroup>
+  <!-- NOTE: SwiftFrameworkDependency does NOT auto-inject a PackageReference here.
+       Sdk.props is auto-imported before the project body, so an ItemGroup matching
+       body-declared SwiftFrameworkDependency items observes nothing. Consumers wanting
+       NuGet-only consumption must declare both items explicitly (see SWIFTBIND080
+       guidance in Sdk.targets); auto-detected cross-module dependencies emit a sibling
+       ProjectReference, which NuGet pack lifts into a package dependency on the
+       referenced project's PackageId. -->
 
   <!-- NOTE: Auto-discovery is in Sdk.targets (after project body evaluation) -->
   <!-- so explicit <SwiftFramework> items in the project are seen first        -->
