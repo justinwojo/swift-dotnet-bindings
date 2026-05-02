@@ -6,7 +6,7 @@
 - `RealityKit`: 29 × CS0234 (cross-module type qualification — references to `RealityKit.Entity` / `RealityFoundation.Entity` / `ARKit.ARRaycastQueryTarget` / `Swift.SIMD3` that don't resolve).
 - `RealityFoundation`: skipped (compile-gated on `RealityKit`).
 
-**Status**: Sessions 5/5b/6 done. Session 5b retired the deferred `IsObjCModuleType` over-classification bug (P1) by splitting `IsObjCExistentialBridgedProtocol` off from the broad helper and threading `CurrentModuleName` through `ProtocolHandler`'s `ProjectionContext` so cross-module existential interface members qualify correctly. Dep gate at 15/15. Session 7 (packaging hand-off) next.
+**Status**: Sessions 1–7 done. Session 7 published the downstream-consumable Packaging contract (TFM, dep edges, platform floor, consumer limitations) and re-ran `nuke pack --version 0.10.0-preview.1 --apple-version 26.2.2-preview.1` clean as a sanity check. Dep gate at 15/15; RealityKit/RealityFoundation both at 0 errors. Plan complete — packaging executes downstream in `swift-dotnet-packages`.
 
 A throwaway dep-order-reversal experiment (now reverted) proved that once `RealityFoundation` is generated against an actually-loaded `RealityKit` module DB, **90 hidden errors in `RealityFoundation` surface**. Those 90 are the real backlog. The 29 surface errors on `RealityKit` are all qualification-resolution failures rooted in the same dep-threading gap.
 
@@ -378,18 +378,131 @@ Swift-only protocols** in `src/docs/roadmap.md`.
 
 ---
 
-## Session 7 — Packaging hand-off
+## Session 7 — Packaging hand-off ✅ completed
 
 **Goal**: produce the contract the downstream `swift-dotnet-packages` repo needs to ship the NuGet package, without doing the packaging work itself.
 
 - Append a "Packaging contract" section to this file: target TFMs (iOS-only at entry — RealityKit doesn't ship elsewhere), declared SDK / framework deps (`RealityKit` package depends on `RealityFoundation` package + `SwiftBindings.Runtime` range), platform version, consumer-visible limitations.
-- Sanity-check `nuke pack --version <X.Y.Z-preview>` produces the three NuGets without errors.
-- Per memory note: Apple-framework smoke tests are temporary scaffolding — don't overinvest. If `swift-dotnet-packages` already wires the smoke pattern, just point at it.
+- Sanity-check `nuke pack --version <X.Y.Z-preview>` produces the four NuGets (Runtime + Sdk + Templates + Apple supplement) without errors. The Session 7 sanity run packed `0.10.0-preview.1` (with `--apple-version 26.2.2-preview.1`) and confirmed all four nupkgs land in `$TMPDIR/swift-nuget/` (= `/var/folders/.../T/swift-nuget` on macOS, since `Path.GetTempPath()` resolves there). Stamped versions verified: SDK nupkg's `Sdk.props` carries `SwiftRuntimePackageVersionRange=[0.10.0-preview.1,0.11.0)`; Apple-supplement nupkg's nuspec carries the matching bounded `SwiftBindings.Runtime` dep edge across all four Apple TFM groups. `Sdk.props` and the supplement csproj are restored to their original `0.9.0` / `26.2.1` values on Dispose.
+- Per memory note: Apple-framework smoke tests are temporary scaffolding — don't overinvest. `swift-dotnet-packages` already wires the smoke pattern as `nuke PackValidateAppleFramework --library RealityKit` (see `Build.AppleFramework.cs::PackValidateAppleFramework`); the contract below points at it instead of duplicating.
 
 ### Done when
 
-- "Packaging contract" section in this file the downstream repo can consume directly.
-- Local `nuke pack` runs clean.
+- "Packaging contract" section in this file the downstream repo can consume directly. ✅
+- Local `nuke pack` runs clean. ✅
+
+---
+
+## Packaging contract
+
+This section is the contract the downstream `swift-dotnet-packages` repo consumes to ship `SwiftBindings.Apple.RealityKit` + `SwiftBindings.Apple.RealityFoundation` to NuGet. A downstream packager should be able to implement the package projects without reading the rest of this design doc.
+
+### Scope
+
+Two NuGet packages, one per Swift module:
+
+| Package ID | Backs Swift module | Consumer-facing namespace |
+|---|---|---|
+| `SwiftBindings.Apple.RealityFoundation` | `RealityFoundation` | `RealityFoundation.*` |
+| `SwiftBindings.Apple.RealityKit` | `RealityKit` | `RealityKit.*` |
+
+Symbols originate in `RealityFoundation` and are re-exported via `@_exported import` from `RealityKit`. Consumers that need just the core ECS / animation surface depend on `RealityFoundation`; consumers that need the rendering / interaction layer depend on `RealityKit` (which transitively pulls `RealityFoundation`).
+
+### Target framework
+
+- **TFM**: `net10.0-ios26.2` (single-TFM, iOS-only at entry).
+- **`SupportedOSPlatformVersion`**: defaults to `15.0` (the SDK's `SwiftAppleFrameworkMinDeploymentVersion` floor for iOS — see `src/Swift.Bindings.Sdk/Sdk/Sdk.targets:56`). The downstream package may override by setting `<SwiftAppleFrameworkMinDeploymentVersion>` in the csproj if a higher floor is desired (e.g., to use APIs that were added after iOS 15.0). The SDK only warns if `SupportedOSPlatformVersion` falls below the SwiftBindings floor; it does not error.
+- **Why `26.2` in the TFM**: the platform version segment of the TFM is the Apple **SDK build** version used at compile time (resolved from `build/validation-libraries.json::platformVersion`, currently `26.2`). The `SupportedOSPlatformVersion` (deployment floor) is a separate property and stays at `15.0`. These two should not be conflated. When the upstream Apple SDK train bumps (e.g., to `27.0`), the TFM segment moves with it; the deployment floor stays put unless the consumer explicitly raises it.
+
+Multi-TFM (macOS / Catalyst / tvOS) RealityKit is explicitly out of scope. RealityKit ships iOS-only at this entry; revisit only if Apple ships it elsewhere (per "Out of Scope" below).
+
+### SDK and dependency edges
+
+Both package projects use the `SwiftBindings.Sdk` MSBuild SDK. Minimum project shape (RealityKit; the RealityFoundation project is identical except no inter-framework dep block, different `PackageId` / `SwiftAppleFrameworkTarget`):
+
+```xml
+<Project Sdk="SwiftBindings.Sdk/X.Y.Z">
+  <PropertyGroup>
+    <!-- Override the single-TFM default from swift-dotnet-packages/Directory.Build.props:3
+         (which sets <TargetFramework>net10.0-ios</TargetFramework>) so we can declare
+         the versioned multi-target form below. -->
+    <TargetFramework />
+    <TargetFrameworks>net10.0-ios26.2</TargetFrameworks>
+    <PackageId>SwiftBindings.Apple.RealityKit</PackageId>
+    <Version>26.2.1</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <SwiftAppleFrameworkTarget Include="RealityKit" />
+    <!-- REQUIRED for the inter-framework dep edge — apple-framework mode does NOT
+         auto-inject this. See "Inter-framework dep edge" below.
+         Bounded `[major.minor.patch,major.(minor+1).0)` to mirror the per-Apple-SDK-train
+         versioning policy below: a new SDK train bumps the minor, so the upper bound
+         keeps consumers inside the same train rather than silently floating across one. -->
+    <PackageReference Include="SwiftBindings.Apple.RealityFoundation"
+                      Version="[26.2.1,26.3.0)" />
+  </ItemGroup>
+</Project>
+```
+
+The downstream packager omits the `<PackageReference>` for the `RealityFoundation` project. Reference shapes verified against `/Users/wojo/Dev/swift-dotnet-packages/apple-frameworks/RealityKit/SwiftBindings.Apple.RealityKit.csproj` and the matching `RealityFoundation` project, both currently at SDK `0.9.0`. The `<PackageReference>` above is the **delta** the downstream repo must add to RealityKit (see follow-up note at the bottom of this section).
+
+The SDK injects two implicit dep edges into the packed nuspec for any apple-framework binding:
+
+1. **`SwiftBindings.Runtime`** — bounded version range `[X.Y.Z,X.(Y+1).0)`, threaded from `SwiftRuntimePackageVersionRange` in `src/Swift.Bindings.Sdk/Sdk/Sdk.props`. Currently `[0.9.0,0.10.0)`. The bounded range is load-bearing: a bare floor would let consumers slide into the next minor across an incompatibility boundary. Stamped at pack time by `VersionScope.StampSdkProps` (`build/Helpers/VersionScope.cs:121`).
+2. **`SwiftBindings.Apple`** — floor-only range `[$(SwiftAppleSupplementVersion),)`, currently `[26.2.1,)`. Floor-only (not bounded) by design: the supplement is additive across Apple SDK trains, so consumers can always float forward onto a newer Apple supplement.
+
+**Inter-framework dep edge (`SwiftBindings.Apple.RealityKit` → `SwiftBindings.Apple.RealityFoundation`) is manual in apple-framework mode.** Auto-detection of cross-module dependencies (`SwiftAutoDetectDependencies` default-true) only fires for `--xcframework` mode — `BindingsGeneratorCommand.cs:452` gates `BinaryDependencyAnalyzer.Analyze` on `hasXcframework`. For `<SwiftAppleFrameworkTarget>` projects, `_AFW_MetadataLines` (`src/Swift.Bindings.Sdk/Sdk/Sdk.targets:479`) does not include `_SwiftBindingDependencies`, so `_ResolveSwiftAutoDetectedDependencies` (Sdk.targets:939–1006) reads it as empty and is a no-op. Without the manual declaration above, the resulting `SwiftBindings.Apple.RealityKit.nupkg` ships **with no nuspec dependency on `SwiftBindings.Apple.RealityFoundation`**, and consumers will break at first reference into the re-exported `RealityFoundation.*` types.
+
+Why the dep block is `<PackageReference>`-only and does *not* include `<SwiftFrameworkDependency>`:
+
+- `<SwiftFrameworkDependency>` is xcframework-mode vocabulary. The CLI option it feeds (`--framework-dependency`) explicitly **requires `--xcframework`** (see `src/Swift.Bindings/src/CliOptions.cs:108–109`) and rejects non-`.xcframework` paths. The apple-framework generator target (`_GenerateSwiftBindingsAppleFramework`, `Sdk.targets:409`) does not append `--framework-dependency` to its command line at all — that flag is appended only inside the `@(SwiftFramework)`-gated xcframework propertygroup at `Sdk.targets:766`. Adding `<SwiftFrameworkDependency>` to an apple-framework project is at best a no-op for code generation; it would also become a `NativeReference` (`Sdk.targets:1417`) which is undesired when the framework is already SDK-resolved via `_SwiftAppleFrameworkSdkPath`.
+- `_ValidateSwiftDependencyMetadata` (`Sdk.targets:1517–1530`) only fires *if* `<SwiftFrameworkDependency>` items exist; it does not synthesize the nuspec dependency. NuGet pack serializes the `<dependencies>` group from `<PackageReference>` items.
+- Use a bounded range (`[major.minor.patch,major.(minor+1).0)`) rather than a bare floor to match the per-Apple-SDK-train versioning policy below — `RealityFoundation`'s binding surface is an Apple-SDK-train ABI, not an additive contract, so floating across a minor (which here corresponds to a new Apple SDK train) is unsafe.
+
+The supplement's own `Swift.Runtime` ProjectReference is stamped to the bounded range at pack time by the override target in `src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj` (added in commit `6a5d967c`) — `_GetProjectReferenceVersions` doesn't honor `<Version>`/`<VersionOverride>` metadata on `<ProjectReference>`, so the override is required to keep the supplement nupkg from shipping a min-only Runtime dep that defeats the bounded range. The downstream packager doesn't need to reproduce this; it's already done in this repo for the supplement's pack flow.
+
+> **Important downstream-state note.** The current
+> `/Users/wojo/Dev/swift-dotnet-packages/apple-frameworks/RealityKit/SwiftBindings.Apple.RealityKit.csproj`
+> ships **without** the inter-framework `<PackageReference Include="SwiftBindings.Apple.RealityFoundation" />`.
+> Adding it (with the bounded `[26.2.1,26.3.0)` range) is the first action for the downstream
+> packager when consuming this contract. Auto-injection of cross-framework dep edges in
+> apple-framework mode is tracked as **P6** in `src/docs/roadmap.md` (RealityKit shipping-plan
+> follow-ups); until that lands, the manual `<PackageReference>` above is the contract.
+
+### Versioning
+
+- `SwiftBindings.Apple.RealityKit` and `SwiftBindings.Apple.RealityFoundation` are versioned **per Apple SDK train** (currently `26.2.1`), not per Runtime/SDK. Bump the patch when re-packing against the same Apple SDK with binding fixes; bump minor when picking up a new Apple SDK train.
+- The two packages should ship in lockstep — RealityKit's manually-declared dep edge `[X.Y.Z,X.(Y+1).0)` permits patch float on RealityFoundation within the same Apple SDK train (e.g., a `26.2.2` re-pack picks up a `26.2.x` RealityFoundation rebuild) but caps below the next train. A downstream-paired publish (same patch on both) is the recommended cadence.
+- Pre-release builds use NuGet's standard `-preview.N` suffix (e.g., `26.2.2-preview.1`). Session 7's sanity check used `nuke pack --version 0.10.0-preview.1 --apple-version 26.2.2-preview.1`; both versions sort above the currently-published `0.9.0` Runtime/SDK and `26.2.1` supplement.
+
+### Build / smoke gate
+
+- Compile gate (downstream): `nuke PackValidateAppleFramework --library RealityKit` — defined in `swift-dotnet-packages/build/Build.AppleFramework.cs::PackValidateAppleFramework`. Wraps `dotnet pack` with a smoke version (`0.0.0-ci`) and verifies the nupkg is well-formed. (Note: `PackValidate` without the `AppleFramework` suffix is a different, third-party-library target in `Build.Pack.cs` that expects a `libraries/<name>/library.json` and is the wrong gate for apple-framework projects.) There is no separate runtime smoke app for RealityKit at present (per `swift-dotnet-packages/apple-frameworks/RealityKit/`, only `README.md` + csproj). Don't add one as part of shipping — Apple-framework smokes are explicitly throwaway scaffolding (memory note `project_smoke_tests_temporary`); the BindingTests in this repo are the durable end-to-end gate.
+- Run `PackValidateAppleFramework` for both `RealityFoundation` and `RealityKit` before publishing.
+- **Ordering & restore source for the RealityKit gate.** `PackValidateAppleFramework` outputs to `artifacts/packages/` (see `swift-dotnet-packages/build/Build.Pack.cs:17`), but the repo's `NuGet.config` declares `local-packages/` as its only local source (alongside `nuget.org`). Because the RealityKit csproj carries a `<PackageReference Include="SwiftBindings.Apple.RealityFoundation" Version="[26.2.1,26.3.0)" />`, restore inside `PackValidateAppleFramework --library RealityKit` will fail unless that exact-versioned RealityFoundation nupkg is reachable. Two acceptable orderings: **(a)** publish `SwiftBindings.Apple.RealityFoundation 26.2.1` to nuget.org first, then validate RealityKit (cleanest pre-publish workflow); or **(b)** pack RealityFoundation locally with the real version (`dotnet pack apple-frameworks/RealityFoundation/SwiftBindings.Apple.RealityFoundation.csproj -c Release -p:Version=26.2.1 -o local-packages`), then run `PackValidateAppleFramework --library RealityKit`. The smoke target itself does not reproduce this ordering automatically — the downstream packager owns it.
+
+### Consumer-visible limitations
+
+These follow from the broader binding-generator surface; they are not RealityKit-specific bugs and do not block shipping. Surface them in package release notes / README so consumers know what to expect.
+
+| Limitation | Where bound | Notes |
+|---|---|---|
+| Bare-generic / associated-type signatures | `roadmap.md` Theme A — `UnsupportedSignatures` (~611 portfolio-wide) | Skipped at generation. Affects RealityKit subscript/PAT shapes (e.g., `MeshResource` subscripts where the return type is an associated type). No C# equivalent for Swift PATs. |
+| Non-trivial closure shapes | `roadmap.md` Theme A — `UnsupportedClosure` (~188 portfolio-wide) | Closures with generic parameters, nested closures, and async-closure shapes outside the supported arg/return matrix are skipped. Closures with primitive args/returns and the documented `Foundation.Data` zero-arg async shape work. |
+| Multi-protocol generic compositions | `roadmap.md` Theme A — blocked | Composition like `<T: A & B>` is not yet expressible across the `@_cdecl` boundary. RealityKit/RealityFoundation hits one such case (`MultipeerConnectivityService.Owner(Entity) -> any SynchronizationPeerID`) — closed in Session 5b, but related compositions in other RealityKit APIs may still skip. |
+| Subscript return / index AnyType (PAT-shaped) | `roadmap.md` AnyTypeFallback decomposition (62 portfolio-wide) | Includes the `MeshResource` subscript family; the indexer surfaces but the AnyType return is replaced by `object`-typed fallback or skipped. |
+| `Swift.Runtime` trimmer descriptor on transitive NativeAOT | `roadmap.md` P5 | An app that transitively consumes `SwiftBindings.Runtime` via `SwiftBindings.Apple.RealityKit` and publishes with `PublishAot=true` does not yet receive the ILC `--descriptor` injection; consumers must add `<TrimmerRootDescriptor>` and an `<IlcArg>` to their app csproj manually. P5 fix direction is to ship a `buildTransitive` targets file in `SwiftBindings.Runtime`. Worth calling out in the package README until P5 lands. |
+| RealityKit-specific wrapper-emission gaps (P2) | `roadmap.md` P2 | Three issues surfaced during the ARRaycastQueryTarget Codex review (Codex session `019de6ef-c41c-7fb3-a708-cda5cde59cf1`); not blocking shipping but tracked as upstream-bug-style gaps. |
+| Roadmap-tracked items (P3, P4) | `roadmap.md` P3 / P4 | Existential resolver USR-vs-printedName reconciliation (P3) and `c:@E@…` enum TypeRecord synthesis (P4) — currently masked by the apple-frameworks.json data fix in `c614ae45`; not visible to consumers but logged for future generalization. |
+
+A consolidated, consumer-facing list lives at the wiki [Known Limitations page](https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations); RealityKit-specific items added to that page should mirror the rows above.
+
+### What downstream owns (this contract does NOT cover)
+
+- The actual NuGet publish (push to nuget.org with `SwiftBindings.*` API key — memory note `Public Documentation`).
+- README / changelog wording in the downstream package directory.
+- Deciding whether to add a runtime smoke app for RealityKit (currently none, deliberately).
+- Wiki page edits.
 
 ---
 
