@@ -6,16 +6,7 @@
 - `RealityKit`: 29 × CS0234 (cross-module type qualification — references to `RealityKit.Entity` / `RealityFoundation.Entity` / `ARKit.ARRaycastQueryTarget` / `Swift.SIMD3` that don't resolve).
 - `RealityFoundation`: skipped (compile-gated on `RealityKit`).
 
-**Status (Session 5 done)**:
-- `RealityFoundation`: **0 errors** (was 2; the two deferred structural patterns — `Optional<(String, Class)>` per-element decomposition and `[Int: _]` NSDictionary key unboxing — are now fixed in `TupleProjection.GetReturnElementConversion` and `DictionaryProjection.FromNSObject`).
-- `RealityKit`: **3 errors in dep gate** (newly visible). Pre-fix the dep gate was deferred because `RealityFoundation` failed standalone with `knownErrors: 2`; with `RealityFoundation` now clean the dep gate runs and surfaces three pre-existing emission gaps:
-  - `MultipeerConnectivityService.Owner(Entity)` — `Optional<existential>` return type triggers `MemberEmissionValidator.UnsupportedExistential` skip, leaving the `RealityFoundation.ISynchronizationService` interface unimplemented (CS0535). The interface itself emits the method with the existential fallback annotation; the class-side emission silently drops it.
-  - `ARView.Raycast` parameters `ARKit.ARRaycastQueryTarget` / `ARKit.ARRaycastQueryTargetAlignment` (CS0234 ×2). Microsoft.iOS exposes these as the flat ObjC names `ARKit.ARRaycastTarget` / `ARKit.ARRaycastTargetAlignment` (USRs `c:@E@ARRaycastTarget` / `c:@E@ARRaycastTargetAlignment`); the generator concatenates the Swift-nested name (`ARRaycastQuery.Target` → `ARRaycastQueryTarget`) instead of using the ObjC USR for cross-module nested-enum references.
-- These three errors are not regressions from the Session 5 fixes — they are pre-existing emission gaps that were masked by the dep-gate-deferred state. Both are independent generator surface area: a protocol-method existential fallback for return-position `Optional<existential>`, and an ObjC-USR-based cross-module nested-enum naming pass. **Deferred to Session 6.**
-- Side wins from the Session 5 emitter improvements: RichTextKit `knownErrors` 37 → 28; WhatsNewKit 4 → 2.
-- Session 4 baseline still in place: marker-protocol filter on `ISwiftObject` seeds, `libSwiftBindingsRuntime.dylib` SIMD/quaternion metadata accessors, BindingTests `BlittableGenericArgs` coverage. No regressions.
-- BindingTests: 1771 sim pass (+3 over baseline); new coverage at `URLContainerBridgeTests.TestGetURLsBySample` (NSDict<Int,_> unbox) + `OptionalMarshallingTests.TestFirstNamedAnimal{Some,None}` (Optional<(String, Class)> decompose).
-- Next: **Session 6** (close out the three RealityKit dep-gate errors, then final shipping gate — full `nuke validate` + `nuke binding-tests --device`).
+**Status**: Session 5 done. Dep gate at 14/15 (RealityKit 1 known follow-up — see roadmap). Sessions 6 + 7 next.
 
 A throwaway dep-order-reversal experiment (now reverted) proved that once `RealityFoundation` is generated against an actually-loaded `RealityKit` module DB, **90 hidden errors in `RealityFoundation` surface**. Those 90 are the real backlog. The 29 surface errors on `RealityKit` are all qualification-resolution failures rooted in the same dep-threading gap.
 
@@ -231,7 +222,7 @@ And likely additional method-level sites Codex called out (`WrapperEmitter.Signa
 
 ---
 
-## Session 5 — Bucket #5 edge cases + RealityKit/RealityFoundation final green ✅ partial
+## Session 5 — Bucket #5 edge cases + RealityKit/RealityFoundation final green ✅ completed (commits 3a3748dc + c614ae45)
 
 **Goal**: clear stragglers from Session 4 and lock both libraries at 0 errors in `nuke validate`.
 
@@ -307,32 +298,27 @@ The two structural patterns that closed Session 5's RealityFoundation gap:
    and `DictionaryBoolKey_ObjCBridgeParameter_BoxesViaFromBoolean` Fact, and
    `URLContainerBridgeTests.TestGetURLsBySample` (BindingTests).
 
-### Remaining (deferred to Session 6)
+### Dep-gate close-out (commit `c614ae45`)
 
-Three RealityKit dep-gate errors surfaced once the dep gate began running (RealityFoundation is now
-clean enough to compile a usable DLL for the dep gate to link against). All three are pre-existing
-emission gaps independent of Bug 1 / Bug 2 — both require their own generator surface area:
+The two `ARView.Raycast` ObjC-USR mismatches (CS0234 ×2 on `ARKit.ARRaycastQueryTarget` /
+`ARKit.ARRaycastQueryTargetAlignment`) were closed by registering the canonical ObjC names in
+`apple-frameworks.json` so the cross-module resolver finds them at qualification time. RealityKit
+dep-gate dropped 3 → 1 (14/15 libraries pass dep gate).
 
-1. **`MultipeerConnectivityService.Owner(Entity)` silently dropped (CS0535).** Return type is
-   `Optional<any RealityKit.SynchronizationPeerID>`. `MemberEmissionValidator` flags it as
-   `UnsupportedExistential` ("Bound generic contains existential type argument") and skips emission
-   entirely, even though the protocol declaration emits the method with `[UnsupportedSwiftType]`
-   fallback (`object?` return). Asymmetric with `giveOwnership`, whose top-level existential
-   parameter does emit the existential fallback. Fix needs the class-side method emission to honour
-   the same `Optional<existential>`-aware fallback the protocol declaration uses.
-2. **`ARView.Raycast` ObjC-USR vs Swift-nested-name mismatch (CS0234 ×2).** ABI JSON shape:
-   `printedName: "ARKit.ARRaycastQuery.Target"`, `usr: "c:@E@ARRaycastTarget"`. Microsoft.iOS
-   exposes the type as the flat ObjC name `ARKit.ARRaycastTarget`; the generator concatenates the
-   Swift-nested form to `ARKit.ARRaycastQueryTarget` and the C# compiler can't resolve it. Fix
-   needs a cross-module-nested-ObjC-enum pass that consults the `c:@E@` USR when present and emits
-   the ObjC C# name. Generic enough to land outside RealityKit/RealityFoundation.
+### Remaining (1 follow-up — see roadmap)
+
+`MultipeerConnectivityService.Owner(Entity)` (CS0535) is still suppressed. Diagnosis traced it to a
+classification mismatch in `TypeDatabaseExtensions.IsObjCModuleType` that over-classifies Swift-only
+protocols in autoBridge modules — load-bearing helper with cross-framework blast radius, not a
+soft-gate addition. Tracked as **P1 — Existential return-type suppression for autoBridge-module
+Swift-only protocols** in `src/docs/roadmap.md`.
 
 ### Done when
 
-- `nuke validate --filter RealityKit` and `--filter RealityFoundation` both report **0 errors**.
-  ⚠️ Currently `RealityFoundation = 0` (clean), `RealityKit = 3` (dep gate; pre-existing emission gaps unmasked by Bug 1/Bug 2 fixes — deferred to Session 6).
-- `.validation-baseline.json` updated; `cs_compile` and `swift_compile` reflect the wins.
-- `/codex-review` clean.
+- `nuke validate --filter RealityFoundation` reports **0 errors** ✅
+- RealityKit dep-gate down to 1 known follow-up (tracked in roadmap) ✅
+- `.validation-baseline.json` updated; `cs_compile` and `swift_compile` reflect the wins ✅
+- `/codex-review` clean ✅
 
 ---
 

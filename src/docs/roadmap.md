@@ -69,6 +69,20 @@ Remaining steps:
 
 ---
 
+## RealityKit shipping-plan follow-ups
+
+Surfaced during Session 5 of `realitykit-shipping-plan.md` (commits `3a3748dc` + `c614ae45`). RealityKit dep-gate sits at 14/15 with one known follow-up; the items below are the active workstream for closing it out and for cleaning up the structural seams the work uncovered.
+
+**P1 — Existential return-type suppression for autoBridge-module Swift-only protocols.** `IsObjCModuleType` (in `TypeDatabaseExtensions`) classifies every non-value-type from an autoBridge module (RealityKit, UIKit, AppKit, etc.) as ObjC, even when the type lacks the registry's `objcPrefixes`. This causes `ExistentialHandler.GetEffectiveProtocols` to filter Swift-only protocols out, leaving `effective.Count==0`, which forces `GetPublicExistentialType` to return `"object"`, which forces `IsValidExistentialForContainer` to return false, which trips `B6 UnsupportedExistential` in `MemberEmissionValidator`. Concrete suppression: `RealityKit.MultipeerConnectivityService.Owner(Entity) -> any RealityFoundation.SynchronizationPeerID`. Fix direction: narrow `IsObjCModuleType` (or introduce `AppleFrameworkRegistry.IsObjCBridgedTypeName`) to also check the prefix list against the type's name. **Cross-framework sweep required** — UIKit, AppKit, AVFoundation may have other Swift-only protocols currently being incorrectly suppressed.
+
+**P2 — Wrapper-emission bugs surfaced during ARRaycastQueryTarget Codex review.** Three issues called out by Codex session `019de6ef-c41c-7fb3-a708-cda5cde59cf1` round 2 — recover from that session, reproduce in BindingTests, fix.
+
+**P3 — Existential-resolver cross-module USR-to-printedName reconciliation.** Original suppression scoped during Session 5 work (parser sees module via printedName, TypeRecord via USR). The data fix in `c614ae45` (`apple-frameworks.json` registry entries for ARRaycastQueryTarget) covers the immediate symptoms; reconciliation work would replace the data fix with a code-side fix and generalize to AVFoundation. Lower priority — the data fix is honest and not a hack.
+
+**P4 — Enum TypeRecord synthesis for `c:@E@…` USRs in autoBridge modules.** Companion to P3 — synthesize Enum-kind TypeRecord (not Class) for nested ObjC enum USRs. Authorized but deferred during Session 5 since `c614ae45` lands the data-side fix.
+
+---
+
 ## Lower Priority
 
 | Item | Notes |
