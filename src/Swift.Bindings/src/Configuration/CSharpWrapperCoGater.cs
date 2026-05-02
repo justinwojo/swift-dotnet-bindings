@@ -2014,8 +2014,31 @@ namespace BindingsGeneration
         /// throw NotSupportedException instead of being stripped (prevents CS0535).
         /// </summary>
         public static CoGatingResult ProcessSuppressedProxyReferences(string content, IReadOnlySet<string> suppressedProxyClassNames)
+            => ProcessSuppressedProxyReferences(content, suppressedProxyClassNames, EmptyStringSet);
+
+        private static readonly IReadOnlySet<string> EmptyStringSet = new HashSet<string>();
+
+        /// <summary>
+        /// Variant that also accepts cross-module suppressed proxy class names in their fully
+        /// qualified form (<c>{DepNamespace}.SwiftInterop.{ProxyName}</c>). The local set
+        /// matches ONLY the unqualified <c>new {ProxyName}(</c> and the local-namespace
+        /// <c>new SwiftInterop.{ProxyName}(</c> forms — never any
+        /// <c>{Namespace}.SwiftInterop.{ProxyName}(</c> shape. <c>QualifyProxyClassName</c>
+        /// returns unqualified when the protocol's emission namespace matches the current
+        /// module, so the current module never emits self-qualified references; matching the
+        /// qualified form against the local set could only false-positive on a valid
+        /// reference into a non-suppressing dependency. The cross-module set matches ONLY
+        /// the fully qualified form keyed on the dep's C# namespace, so a dependency's
+        /// suppressed proxy never strips this module's own legitimately-emitted proxy that
+        /// happens to share a simple class name.
+        /// </summary>
+        public static CoGatingResult ProcessSuppressedProxyReferences(
+            string content,
+            IReadOnlySet<string> suppressedProxyClassNames,
+            IReadOnlySet<string> crossModuleSuppressedQualifiedNames)
         {
-            if (suppressedProxyClassNames.Count == 0 || string.IsNullOrEmpty(content))
+            if ((suppressedProxyClassNames.Count == 0 && crossModuleSuppressedQualifiedNames.Count == 0)
+                || string.IsNullOrEmpty(content))
                 return CoGatingResult.Empty(content);
 
             // Capture the input verbatim so the wrap-fallback pre-pass can be detected as
@@ -2031,7 +2054,7 @@ namespace BindingsGeneration
             // cause the entire enclosing method/helper to be stripped, which cascades into broken
             // call sites elsewhere. Rewriting just the lambda preserves the surrounding code path
             // (with the original throw-if-not-convertible runtime semantics for the fallback).
-            content = DowngradeSuppressedWrapFallbacks(content, suppressedProxyClassNames);
+            content = DowngradeSuppressedWrapFallbacks(content, suppressedProxyClassNames, crossModuleSuppressedQualifiedNames);
 
             var lines = SplitLines(content);
             var removals = new HashSet<int>();
@@ -2061,7 +2084,18 @@ namespace BindingsGeneration
                 int blockEnd = FindBlockEnd(lines, braceOpenLine);
                 if (blockEnd < braceOpenLine) { i++; continue; }
 
-                // Check if the block body contains a proxy construction
+                // Check if the block body contains a proxy construction.
+                // Local suppressed names match ONLY the unqualified form `new XProxy(` and the
+                // local-namespace form `new SwiftInterop.XProxy(` — never `{Namespace}.SwiftInterop.XProxy(`.
+                // QualifyProxyClassName returns unqualified when the protocol's emission namespace
+                // matches the current module, so the current module never emits self-qualified
+                // references; matching the qualified form against the LOCAL set would only
+                // false-positive on a valid reference into a different (non-suppressing)
+                // dependency that happens to share a simple proxy class name.
+                // Cross-module suppressed names match ONLY the fully qualified construction
+                // (`new {DepNamespace}.SwiftInterop.{Proxy}(`) keyed on the dep's C# namespace —
+                // never bare or `SwiftInterop.`-only forms, which would false-positive on the
+                // current module's own proxy of the same simple name.
                 bool referencesProxy = false;
                 for (int j = i; j <= blockEnd && !referencesProxy; j++)
                 {
@@ -2069,6 +2103,16 @@ namespace BindingsGeneration
                     {
                         if (lines[j].Contains($"new {proxyName}(", StringComparison.Ordinal) ||
                             lines[j].Contains($"new SwiftInterop.{proxyName}(", StringComparison.Ordinal))
+                        {
+                            referencesProxy = true;
+                            break;
+                        }
+                    }
+                    if (referencesProxy)
+                        break;
+                    foreach (var qualified in crossModuleSuppressedQualifiedNames)
+                    {
+                        if (lines[j].Contains($"new {qualified}(", StringComparison.Ordinal))
                         {
                             referencesProxy = true;
                             break;
@@ -2290,10 +2334,12 @@ namespace BindingsGeneration
             };
         }
 
-        // Pattern: ", static __<ident> => new <ProxyName>(__<ident>)" where the matched proxy is suppressed.
+        // Pattern: ", static __<ident> => new <Qualifier>?<ProxyName>(__<ident>)" where the matched proxy is suppressed.
         // The leading comma is the wrap-fallback delimiter inside GetOrCreate<T>(value, fallback).
+        // Group 1: lambda parameter ident. Group 2: optional qualifier (`SwiftInterop.` or
+        // `{Namespace}.SwiftInterop.`, possibly empty). Group 3: bare proxy class name.
         private static readonly System.Text.RegularExpressions.Regex s_wrapFallbackPattern = new(
-            @",\s*static\s+__(\w+)\s*=>\s*new\s+(?:[\w\.]+\.)?(\w+Proxy)\(\s*__\1\s*\)",
+            @",\s*static\s+__(\w+)\s*=>\s*new\s+([\w\.]+\.)?(\w+Proxy)\(\s*__\1\s*\)",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
         /// <summary>
@@ -2303,15 +2349,45 @@ namespace BindingsGeneration
         /// intact, so the helper still compiles and the original throw-on-incompatible-input
         /// runtime semantics apply.
         /// </summary>
-        private static string DowngradeSuppressedWrapFallbacks(string content, IReadOnlySet<string> suppressedProxyClassNames)
+        private static string DowngradeSuppressedWrapFallbacks(
+            string content,
+            IReadOnlySet<string> suppressedProxyClassNames,
+            IReadOnlySet<string> crossModuleSuppressedQualifiedNames)
         {
             return s_wrapFallbackPattern.Replace(content, match =>
             {
-                var proxyName = match.Groups[2].Value;
-                if (suppressedProxyClassNames.Contains(proxyName))
-                {
+                // Group 2 captures the optional dotted qualifier (empty, "SwiftInterop.", or
+                // "{Namespace}.SwiftInterop."). Group 3 is the bare proxy class name. Scoping by
+                // capture groups keeps the matching robust against extra whitespace inside the
+                // regex's `\s+` runs (a substring scan for "new " would mis-handle that).
+                var qualifier = match.Groups[2].Value;
+                var proxyName = match.Groups[3].Value;
+
+                const string swiftInteropPrefix = "SwiftInterop.";
+                bool isCrossModuleQualified =
+                    qualifier.Length > swiftInteropPrefix.Length
+                    && qualifier.EndsWith(swiftInteropPrefix, StringComparison.Ordinal);
+                bool isLocalForm =
+                    qualifier.Length == 0
+                    || string.Equals(qualifier, swiftInteropPrefix, StringComparison.Ordinal);
+
+                // Local set only matches when the call site has no module qualifier — i.e.
+                // bare `new XProxy(__v)` or `new SwiftInterop.XProxy(__v)`. Matching against
+                // a cross-module qualifier would false-positive on a reference into a different
+                // (non-suppressing) dependency that happens to share a simple proxy class name.
+                if (isLocalForm && suppressedProxyClassNames.Contains(proxyName))
                     return string.Empty;
+
+                // Cross-module set is keyed by the full `{DepNamespace}.SwiftInterop.{Proxy}`
+                // string. Only match the cross-module-qualified form, never bare or
+                // `SwiftInterop.`-only forms.
+                if (isCrossModuleQualified && crossModuleSuppressedQualifiedNames.Count > 0)
+                {
+                    var fullyQualified = qualifier + proxyName;
+                    if (crossModuleSuppressedQualifiedNames.Contains(fullyQualified))
+                        return string.Empty;
                 }
+
                 return match.Value;
             });
         }
@@ -2321,8 +2397,21 @@ namespace BindingsGeneration
         /// Files are modified in-place. Returns the aggregate list of cogated member identities.
         /// </summary>
         public static IReadOnlyList<CoGatedMember> ProcessSuppressedProxyReferencesInDirectory(string directory, IReadOnlySet<string> suppressedProxyClassNames, ILogger? logger = null)
+            => ProcessSuppressedProxyReferencesInDirectory(directory, suppressedProxyClassNames, EmptyStringSet, logger);
+
+        /// <summary>
+        /// Variant accepting a separate cross-module qualified-name set
+        /// (<c>{DepNamespace}.SwiftInterop.{ProxyName}</c>). See
+        /// <see cref="ProcessSuppressedProxyReferences(string, IReadOnlySet{string}, IReadOnlySet{string})"/>
+        /// for matching semantics.
+        /// </summary>
+        public static IReadOnlyList<CoGatedMember> ProcessSuppressedProxyReferencesInDirectory(
+            string directory,
+            IReadOnlySet<string> suppressedProxyClassNames,
+            IReadOnlySet<string> crossModuleSuppressedQualifiedNames,
+            ILogger? logger = null)
         {
-            if (suppressedProxyClassNames.Count == 0)
+            if (suppressedProxyClassNames.Count == 0 && crossModuleSuppressedQualifiedNames.Count == 0)
                 return Array.Empty<CoGatedMember>();
 
             var csFiles = Directory.GetFiles(directory, "*.cs");
@@ -2331,7 +2420,7 @@ namespace BindingsGeneration
             foreach (var file in csFiles)
             {
                 var content = File.ReadAllText(file);
-                var result = ProcessSuppressedProxyReferences(content, suppressedProxyClassNames);
+                var result = ProcessSuppressedProxyReferences(content, suppressedProxyClassNames, crossModuleSuppressedQualifiedNames);
                 if (!result.ContentChanged)
                     continue;
 

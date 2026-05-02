@@ -378,6 +378,39 @@ Swift-only protocols** in `src/docs/roadmap.md`.
 
 ---
 
+## Session 5c — Umbrella mangled-name acceptance + proxy reference qualifier
+
+**Goal**: close the symmetric proxy-class-side gap left by 5b. After 5b's interface-side fix, RealityFoundation's apple-framework-mode generated output still emitted only 3 of 7 expected proxies (BindableData, BlendTreeNode, AnimatableData) — the four missing protocols (Component, HasAnchoring, SynchronizationPeerID, SynchronizationService) had their interfaces emit but their proxy classes were skipped, and reference sites in RF.cs dangled with `RealityKit.SwiftInterop.<X>Proxy` qualifications that pointed at the umbrella's namespace, producing 8 CS0246 errors when `swift-dotnet-packages` built RealityFoundation against the SDK.
+
+The user's initial framing (broad `IsObjCModuleType` filter still gating proxy emission) didn't survive investigation. The actual root cause was Apple's `@_implementationOnly` umbrella collapse leaking into two independent name-resolution sites:
+
+1. **Mangled-name filter rejected umbrella prefixes.** `ModuleHandler.IsMangledNameFromModule` requires `$s{len}{moduleName}` to match exactly. The 4 broken protocols carry `mangledName=$s10RealityKit...` (umbrella encoding) even though `usr=s:17RealityFoundation...` and `moduleName=RealityFoundation`. The filter rejected them, so they never reached the EveryProtocol pipeline — `binding-report.json` recorded `EveryProtocolConformanceSkipped: "no decision recorded"` for all four.
+2. **Proxy reference qualifier read printedName module.** `ExistentialHandler.QualifyProxyClassName` extracted `p.Module` directly from the parsed protocol type. Apple's ABI emits `printedName: "any RealityKit.HasAnchoring"`, so `p.Module = "RealityKit"` even when the protocol's TypeRecord lives in `RealityFoundation.SwiftInterop`. Without umbrella-aware resolution, every cross-module qualification at proxy reference sites dangled.
+
+### Shape of the fix
+
+1. **`ModuleHandler.IsMangledNameFromModule`** — also accept `$s{len}{umbrella}` when `AppleFrameworkRegistry.MapModuleToCompileImport(moduleName)` resolves to a different umbrella module. Source-truth check stays via the registered remap — only modules with a `compileImportModule` entry in `apple-frameworks.json` get the umbrella branch, so non-Apple modules (CryptoSwift, Nuke) are unaffected. The umbrella's own pass is unaffected too: the umbrella module name has no further remap.
+2. **`ExistentialHandler.QualifyProxyClassName`** — replace `Select(p => p.Module)` with `Select(p => ProtocolConformanceHelper.ResolveProtocolEmissionModule(SwiftTypeName.FromTypeSpec(p), _typeDatabase))` so the umbrella key resolves to the source module's `CSharpTypeName.Namespace`, mirroring `GetPublicExistentialType`'s already-umbrella-aware resolution path.
+
+### Coverage
+
+- **Unit tests**: `ModuleHandlerTests.IsMangledNameFromModule_AcceptsCompileImportUmbrellaPrefix` (8 cases pinning umbrella acceptance for the 4 broken protocols, native prefix still accepted, umbrella's own pass unaffected, unrelated modules unaffected). `ExistentialHandlerTests.QualifyProxyClassName_AppleUmbrellaPrintedName_CollapsesToSourceModule` + `_SameSourceModule_NoQualification` (cover both the cross-assembly fully-qualified form and the same-module unqualified form).
+- **End-to-end gate**: downstream `swift-dotnet-packages` `RealityFoundation` and `RealityKit` csproj builds. BindingTests cannot reproduce this fix's pattern in isolation — `@_implementationOnly` umbrella collapse requires a multi-module Swift package where one module re-exports another with that attribute, which the single-module BindingTests harness can't express. The downstream RF + RK builds are the durable end-to-end gate.
+
+### Follow-on hardening (same session)
+
+Lifting the mangled-name umbrella filter exposed two adjacent bugs that had been masked by the original suppression:
+
+3. **Conflict-pre-scan including default implementations dropped legitimate protocols.** With the umbrella prefix accepted, RealityKit's `Material` extension default `name: String?` reached the conflicting-property-name pre-scan in `ModuleHandler.cs`. The scan compared property *types* by name across all protocols in the EveryProtocol candidate set, including default-implementation properties from same-protocol extensions. `name: String` (a real protocol requirement on BlendTreeNode/AnimationDefinition/MaterialFunction) collided with `name: String?` (a default impl on Material) and dropped all three legitimate protocols. **Fix**: added `prop.IsProtocolRequirement` to the scan filter — only requirements contribute witnesses to EveryProtocol's conformance, so default impls have no business participating in the conflict check. Restores BlendTreeNode/AnimationDefinition/MaterialFunction proxies that 5c's umbrella fix would otherwise have lost.
+4. **Cross-module suppressed-proxy visibility through dependency XML.** When RF suppresses a proxy (UnsatisfiedProtocolConstraint, etc.), RK's pass — running with `--module-database RealityFoundationDatabase.xml` — emits cross-module qualified references like `new RealityFoundation.SwiftInterop.HasCollisionProxy(...)` via the umbrella-aware `QualifyProxyClassName`. Pre-fix, RK's post-pass only knew its own suppressed set, so those refs survived as CS0246 in downstream RK builds. **Fix**: `ModuleDatabaseEmitter` now writes a `<suppressedProxies namespace="...">` element listing names from `EmissionContext.SuppressedProxyClassNames`. The `namespace` attribute persists the dependency's *C# namespace* (NOT the Swift module name — those diverge under a custom `namespacePattern`); `TypeDatabase.ReadVersion1_0` parses it onto `ModuleTypeDatabase` (falling back to the Swift module name for legacy databases that predate the attribute); `ITypeDatabase.GetCrossModuleSuppressedProxyClassNames()` returns `(Namespace, ProxyName)` pairs; `Program.cs` post-pass builds the cross-module set as `{Namespace}.SwiftInterop.{ProxyName}` and threads it into `CSharpWrapperCoGater.ProcessSuppressedProxyReferencesInDirectory` separately from the local set. The local set matches ONLY bare or `SwiftInterop.`-only forms; the cross-module set matches ONLY the fully qualified `{DepNamespace}.SwiftInterop.{Proxy}(` form. This keeps a future module that legitimately emits its own proxy with the same simple class name from being false-positive stripped, and prevents a dependency's suppressed proxy from incorrectly stripping references into a different (non-suppressing) dependency. Backwards-compatible: older databases without the element behave as if the dependency suppressed nothing.
+
+#### Coverage for the follow-on
+
+- **Unit tests**: `ModuleHandlerTests` (existing requirements-only behavior pinned with new property-conflict cases). `ModuleDatabaseEmitterTests.Emit_SuppressedProxies_RoundTripsThroughXml`, `_NoSuppressedProxies_OmitsElement`, `_UnionsAcrossLoadedDependencies` cover the XML schema, omission, and multi-dependency union.
+- **End-to-end**: `nuke validate` baseline updated, RealityKit improved fail(6) → ok(0). Full unit test suite (10704) passes.
+
+---
+
 ## Session 7 — Packaging hand-off ✅ completed
 
 **Goal**: produce the contract the downstream `swift-dotnet-packages` repo needs to ship the NuGet package, without doing the packaging work itself.

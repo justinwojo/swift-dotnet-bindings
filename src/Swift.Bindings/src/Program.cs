@@ -399,14 +399,46 @@ namespace BindingsGeneration
                 // When EveryProtocol conformance is skipped, the proxy class is not emitted.
                 // Method bodies in other types that construct the proxy (existential return
                 // unwrappers, optional property getters) must also be removed.
+                //
+                // Cross-module case: the umbrella-aware existential marshaler can emit
+                // `{Namespace}.SwiftInterop.{ProxyName}(` references targeting a proxy that
+                // lives in a previously generated dependency module. If that dependency
+                // suppressed the proxy, its <suppressedProxies> XML element flows here via
+                // TypeDatabase as `(namespace, proxyName)` pairs (namespace = the dep's C#
+                // namespace, persisted by ModuleDatabaseEmitter). We pass them to the
+                // post-pass as a separate qualified-only set so it strips ONLY the
+                // cross-module qualified form, never the unqualified `new {ProxyName}(` or
+                // `new SwiftInterop.{ProxyName}(` forms — those would false-positive on
+                // this module's own legitimately-emitted proxy with the same simple class
+                // name.
+                var crossModulePairs = typeDatabase.GetCrossModuleSuppressedProxyClassNames();
+                IReadOnlySet<string> crossModuleQualified;
+                if (crossModulePairs.Count > 0)
+                {
+                    var qualified = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var (ns, proxyName) in crossModulePairs)
+                        qualified.Add($"{ns}.SwiftInterop.{proxyName}");
+                    crossModuleQualified = qualified;
+                }
+                else
+                {
+                    crossModuleQualified = new HashSet<string>(StringComparer.Ordinal);
+                }
+
                 IReadOnlyList<CoGatedMember> proxyCoGated = Array.Empty<CoGatedMember>();
-                if (emissionContext.SuppressedProxyClassNames.Count > 0)
+                if (emissionContext.SuppressedProxyClassNames.Count > 0 || crossModuleQualified.Count > 0)
                 {
                     proxyCoGated = CSharpWrapperCoGater.ProcessSuppressedProxyReferencesInDirectory(
-                        outputDirectory, emissionContext.SuppressedProxyClassNames, logger);
+                        outputDirectory,
+                        emissionContext.SuppressedProxyClassNames,
+                        crossModuleQualified,
+                        logger);
                     if (proxyCoGated.Count > 0)
-                        logger.LogInformation("Suppressed {Count} method(s) referencing {ProxyCount} suppressed proxy class(es).",
-                            proxyCoGated.Count, emissionContext.SuppressedProxyClassNames.Count);
+                        logger.LogInformation(
+                            "Suppressed {Count} method(s) referencing {LocalCount} local + {CrossCount} cross-module suppressed proxy class(es).",
+                            proxyCoGated.Count,
+                            emissionContext.SuppressedProxyClassNames.Count,
+                            crossModuleQualified.Count);
                 }
 
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
@@ -449,8 +481,23 @@ namespace BindingsGeneration
                 // EmitModule (WasEmitted bits set) and before database serialization.
                 ClassHandler.PopulateEmittedClassMethods(decl, typeDatabase);
 
-                // Emit module database XML for cross-module resolution by downstream modules
-                ModuleDatabaseEmitter.Emit(moduleDatabase, outputDirectory, logger);
+                // Emit module database XML for cross-module resolution by downstream modules.
+                // Pass the local emission's suppressed proxy class names so downstream modules
+                // can strip cross-module qualified references to those suppressed proxies.
+                // The namespace is the C# namespace into which the proxies would have been
+                // emitted (`{generatedNamespace}.SwiftInterop` minus the trailing
+                // `.SwiftInterop`). Persist it so downstream post-passes can build the exact
+                // qualified-form needle — `QualifyProxyClassName` uses the protocol record's
+                // C# namespace, which diverges from the Swift module name under a custom
+                // `namespacePattern`.
+                ModuleDatabaseEmitter.Emit(
+                    moduleDatabase,
+                    outputDirectory,
+                    logger,
+                    emissionContext.SuppressedProxyClassNames.Count > 0
+                        ? (IReadOnlyCollection<string>)emissionContext.SuppressedProxyClassNames
+                        : null,
+                    suppressedProxyNamespace: namespaceResolver.ResolveNamespace(moduleName));
 
                 logger.LogInformation("Bindings generation completed for {SwiftAbiPath}.", swiftAbiPath);
 

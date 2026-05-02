@@ -643,6 +643,220 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Fact]
+        public async Task Emit_SuppressedProxies_RoundTripsThroughXml()
+        {
+            // RealityFoundation suppresses HasCollisionProxy / HasAnchoringProxy when their
+            // EveryProtocol conformance can't satisfy a constraint. RealityKit's umbrella-
+            // aware existential marshaler will then emit cross-module qualified references
+            // (`RealityFoundation.SwiftInterop.HasCollisionProxy`) that the post-pass must
+            // strip. The information flows through the dependency XML, so the round trip
+            // here is the contract: emit → load → cross-module set.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("RealityFoundation", "/fake/RealityFoundation.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.Anchor");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "Anchor"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s17RealityFoundation6AnchorC",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+
+                var suppressed = new HashSet<string>(StringComparer.Ordinal)
+                {
+                    "HasCollisionProxy",
+                    "HasAnchoringProxy",
+                    "ComponentProxy",
+                };
+
+                var path = ModuleDatabaseEmitter.Emit(
+                    module, dir, NullLogger.Instance, suppressed,
+                    suppressedProxyNamespace: "RealityFoundation");
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.Contains("<suppressedProxies namespace=\"RealityFoundation\">", xml);
+                Assert.Contains("name=\"ComponentProxy\"", xml);
+                Assert.Contains("name=\"HasAnchoringProxy\"", xml);
+                Assert.Contains("name=\"HasCollisionProxy\"", xml);
+
+                // Names must be ordered deterministically so XML diffs stay clean across
+                // generator runs (HashSet iteration order is not stable).
+                var componentIdx = xml.IndexOf("ComponentProxy", StringComparison.Ordinal);
+                var hasAnchoringIdx = xml.IndexOf("HasAnchoringProxy", StringComparison.Ordinal);
+                var hasCollisionIdx = xml.IndexOf("HasCollisionProxy", StringComparison.Ordinal);
+                Assert.True(componentIdx < hasAnchoringIdx);
+                Assert.True(hasAnchoringIdx < hasCollisionIdx);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                var crossModule = typeDatabase.GetCrossModuleSuppressedProxyClassNames();
+                Assert.Equal(3, crossModule.Count);
+                Assert.Contains(("RealityFoundation", "HasCollisionProxy"), crossModule);
+                Assert.Contains(("RealityFoundation", "HasAnchoringProxy"), crossModule);
+                Assert.Contains(("RealityFoundation", "ComponentProxy"), crossModule);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_NoSuppressedProxies_OmitsElement()
+        {
+            // When a module's emission suppresses zero proxies, the XML must NOT contain
+            // an empty <suppressedProxies> element — that would be carrying noise into the
+            // dependency contract. Older databases predate this element; the XML schema
+            // treats absence as "no cross-module suppressions to thread through".
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("CleanModule", "/fake/CleanModule.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("CleanModule.Widget");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("CleanModule", "Widget"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s11CleanModule6WidgetV",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance, suppressedProxyClassNames: null);
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                Assert.DoesNotContain("suppressedProxies", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+                Assert.Empty(typeDatabase.GetCrossModuleSuppressedProxyClassNames());
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_SuppressedProxies_UnionsAcrossLoadedDependencies()
+        {
+            // The cross-module set returned by TypeDatabase concatenates pairs across all
+            // loaded module databases. Two dependencies (RealityFoundation, CoreFoundation-like)
+            // each contribute their own suppressed proxies; downstream RealityKit picks
+            // up the union and uses it for post-pass body stripping. Provenance is
+            // preserved per-pair — a proxy class name shared across two dependencies
+            // appears as TWO distinct (module, proxy) entries, not deduplicated, so the
+            // post-pass can match the qualified form against the originating module only.
+            var dirA = CreateTempDir();
+            var dirB = CreateTempDir();
+            try
+            {
+                var moduleA = new ModuleTypeDatabase("ModuleA", "/fake/ModuleA.dylib");
+                moduleA.RegisterType(
+                    SwiftTypeName.FromModuleQualifiedName("ModuleA.WidgetA"),
+                    new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ModuleA", "WidgetA"),
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ModuleA.WidgetA"),
+                        MetadataAccessor = "$s7ModuleA7WidgetAV",
+                        Kind = TypeRecordKind.Struct,
+                        Flags = TypeRecordFlags.Frozen,
+                    });
+
+                var moduleB = new ModuleTypeDatabase("ModuleB", "/fake/ModuleB.dylib");
+                moduleB.RegisterType(
+                    SwiftTypeName.FromModuleQualifiedName("ModuleB.WidgetB"),
+                    new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ModuleB", "WidgetB"),
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ModuleB.WidgetB"),
+                        MetadataAccessor = "$s7ModuleB7WidgetBV",
+                        Kind = TypeRecordKind.Struct,
+                        Flags = TypeRecordFlags.Frozen,
+                    });
+
+                // ModuleA uses the default-pattern namespace (matches Swift module name).
+                // ModuleB uses a CUSTOM C# namespace ("Custom.NestedNs") that diverges from
+                // the Swift module name — exercising the schema's `namespace` attribute.
+                // The qualified form the post-pass needs to match is keyed on the C#
+                // namespace, NOT the Swift module name.
+                var pathA = ModuleDatabaseEmitter.Emit(
+                    moduleA, dirA, NullLogger.Instance,
+                    new HashSet<string>(StringComparer.Ordinal) { "ProxyOne", "ProxyShared" },
+                    suppressedProxyNamespace: "ModuleA");
+                var pathB = ModuleDatabaseEmitter.Emit(
+                    moduleB, dirB, NullLogger.Instance,
+                    new HashSet<string>(StringComparer.Ordinal) { "ProxyTwo", "ProxyShared" },
+                    suppressedProxyNamespace: "Custom.NestedNs");
+                Assert.NotNull(pathA);
+                Assert.NotNull(pathB);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(pathA);
+                await typeDatabase.LoadModuleDatabaseFromFile(pathB);
+
+                var crossModule = typeDatabase.GetCrossModuleSuppressedProxyClassNames();
+                // ProxyShared appears in both XMLs and is preserved as two distinct
+                // (namespace, proxy) pairs — provenance matters because the post-pass only
+                // matches the cross-module qualified form `{Namespace}.SwiftInterop.{Proxy}(`,
+                // and ModuleA's and ModuleB's namespaces are different (the latter custom).
+                Assert.Equal(4, crossModule.Count);
+                Assert.Contains(("ModuleA", "ProxyOne"), crossModule);
+                Assert.Contains(("Custom.NestedNs", "ProxyTwo"), crossModule);
+                Assert.Contains(("ModuleA", "ProxyShared"), crossModule);
+                Assert.Contains(("Custom.NestedNs", "ProxyShared"), crossModule);
+            }
+            finally
+            {
+                Directory.Delete(dirA, true);
+                Directory.Delete(dirB, true);
+            }
+        }
+
+        [Fact]
+        public async Task Emit_SuppressedProxies_NamespaceAttributeOmitted_FallsBackToModuleName()
+        {
+            // Older databases predate the `namespace` attribute. On read, an absent attribute
+            // must fall back to the Swift module name — preserving the default-pattern
+            // equivalence under which the schema was originally introduced.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("LegacyDep", "/fake/LegacyDep.dylib");
+                module.RegisterType(
+                    SwiftTypeName.FromModuleQualifiedName("LegacyDep.Anchor"),
+                    new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("LegacyDep", "Anchor"),
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("LegacyDep.Anchor"),
+                        MetadataAccessor = "$s9LegacyDep6AnchorC",
+                        Flags = TypeRecordFlags.RequiresMemoryManagement,
+                        Kind = TypeRecordKind.Class,
+                    });
+
+                // Emit WITHOUT a namespace argument — simulates the legacy schema shape.
+                var path = ModuleDatabaseEmitter.Emit(
+                    module, dir, NullLogger.Instance,
+                    new HashSet<string>(StringComparer.Ordinal) { "LegacyProxy" });
+                Assert.NotNull(path);
+
+                var xml = File.ReadAllText(path!);
+                // No namespace attribute on the element.
+                Assert.DoesNotContain("namespace=", xml);
+                Assert.Contains("<suppressedProxies>", xml);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                var crossModule = typeDatabase.GetCrossModuleSuppressedProxyClassNames();
+                // Fallback: namespace = Swift module name.
+                Assert.Single(crossModule);
+                Assert.Contains(("LegacyDep", "LegacyProxy"), crossModule);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         private static string CreateTempDir()
         {
             var dir = Path.Combine(Path.GetTempPath(), $"mdb_emit_{Guid.NewGuid():N}");

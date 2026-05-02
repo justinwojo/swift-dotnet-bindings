@@ -1383,6 +1383,141 @@ namespace BindingsGeneration.Tests
             Assert.Equal(BindingItemKind.Property, member.Kind);
             Assert.DoesNotContain(result.StrippedMembers, m => m.Name.EndsWith("_Get", System.StringComparison.Ordinal));
         }
+
+        [Fact]
+        public void ProcessSuppressedProxy_CrossModuleQualified_StripsOnlyFullyQualifiedForm()
+        {
+            // Cross-module suppression is keyed by the full `{DepNamespace}.SwiftInterop.{Proxy}`
+            // qualifier. The local module emits two methods: one calls a dependency proxy via
+            // the qualified form (must be stripped) and one constructs its OWN local proxy of
+            // the same simple class name (must be preserved). False-positive matching against
+            // simple class name would silently break the local API surface.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IDepFoo CallDep()\n" +
+                "    {\n" +
+                "        return new DependencyMod.SwiftInterop.SharedProxy(p);\n" +
+                "    }\n" +
+                "\n" +
+                "    public static ILocalFoo CallLocal()\n" +
+                "    {\n" +
+                "        return new SharedProxy(p);\n" +
+                "    }\n" +
+                "}\n";
+            var localSuppressed = new HashSet<string>(StringComparer.Ordinal);
+            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "DependencyMod.SwiftInterop.SharedProxy",
+            };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
+                input, localSuppressed, crossModuleQualified);
+
+            // The qualified call site is stripped (body replaced with throw).
+            Assert.Contains("CallDep", result.Content);
+            Assert.Contains("throw new NotSupportedException", result.Content);
+            Assert.DoesNotContain("DependencyMod.SwiftInterop.SharedProxy", result.Content);
+
+            // The local `new SharedProxy(...)` body is preserved verbatim — the cross-module
+            // entry must NEVER false-positive on the bare class-name form.
+            Assert.Contains("CallLocal", result.Content);
+            Assert.Contains("return new SharedProxy(p);", result.Content);
+        }
+
+        [Fact]
+        public void ProcessSuppressedProxy_CrossModuleQualified_DoesNotStripDifferentDependencyModule()
+        {
+            // Provenance matters. If `DepA` suppressed `XProxy` but `DepB` did not, a call
+            // referencing `new DepB.SwiftInterop.XProxy(...)` must survive — the cross-module
+            // set is keyed by the full `{Namespace}.SwiftInterop.{Proxy}` string, not the bare
+            // class name.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IFoo Get() { return new DepB.SwiftInterop.XProxy(p); }\n" +
+                "}\n";
+            var localSuppressed = new HashSet<string>(StringComparer.Ordinal);
+            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "DepA.SwiftInterop.XProxy",
+            };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
+                input, localSuppressed, crossModuleQualified);
+
+            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
+            Assert.DoesNotContain("throw new NotSupportedException", result.Content);
+            Assert.Equal(0, result.StrippedMemberCount);
+        }
+
+        [Fact]
+        public void ProcessSuppressedProxy_LocalSet_DoesNotStripCrossModuleQualifiedReference()
+        {
+            // Symmetric case: this module's local emission suppressed `XProxy` (its own proxy
+            // class is gone), but it ALSO references a different dependency's valid
+            // `DepB.SwiftInterop.XProxy` for an unrelated protocol. The local-set match must
+            // see the bare/SwiftInterop. forms only — never the cross-module-qualified form —
+            // otherwise the valid dep reference is wrongly stripped.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public static IDepX FromDep() { return new DepB.SwiftInterop.XProxy(p); }\n" +
+                "}\n";
+            var localSuppressed = new HashSet<string>(StringComparer.Ordinal) { "XProxy" };
+            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal);
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
+                input, localSuppressed, crossModuleQualified);
+
+            // Cross-module qualified reference must survive — the local set is for THIS
+            // module's namespace only.
+            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
+            Assert.DoesNotContain("throw new NotSupportedException", result.Content);
+            Assert.Equal(0, result.StrippedMemberCount);
+        }
+
+        [Fact]
+        public void ProcessSuppressedProxy_LocalWrapFallback_DoesNotStripCrossModuleQualifiedFallback()
+        {
+            // Same symmetric guard for the GetOrCreate wrap-fallback rewrite. The local set
+            // contains `XProxy`; the call site uses `new DepB.SwiftInterop.XProxy(__v)` which
+            // is a reference into a DIFFERENT dependency. The local set must not match the
+            // module-qualified form.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public void A(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new DepB.SwiftInterop.XProxy(__v)); }\n" +
+                "}\n";
+            var localSuppressed = new HashSet<string>(StringComparer.Ordinal) { "XProxy" };
+            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal);
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
+                input, localSuppressed, crossModuleQualified);
+
+            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
+        }
+
+        [Fact]
+        public void ProcessSuppressedProxy_CrossModuleWrapFallback_DowngradesOnlyMatchingDependency()
+        {
+            // The GetOrCreate wrap-fallback rewrite must respect cross-module provenance too.
+            // Two GetOrCreate calls reference the same simple proxy name with different
+            // module qualifiers; only the suppressing dependency's call should have its
+            // fallback lambda stripped. The other survives — and so does any unqualified
+            // local construction.
+            var input =
+                "public partial class MyClass {\n" +
+                "    public void A(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new DepA.SwiftInterop.XProxy(__v)); }\n" +
+                "    public void B(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new DepB.SwiftInterop.XProxy(__v)); }\n" +
+                "    public void C(IFoo v) { ExistentialContainerFactory.GetOrCreate<IFoo>(v, static __v => new XProxy(__v)); }\n" +
+                "}\n";
+            var localSuppressed = new HashSet<string>(StringComparer.Ordinal);
+            var crossModuleQualified = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "DepA.SwiftInterop.XProxy",
+            };
+            var result = CSharpWrapperCoGater.ProcessSuppressedProxyReferences(
+                input, localSuppressed, crossModuleQualified);
+
+            // The DepA fallback's lambda is removed (the surrounding GetOrCreate call stays).
+            Assert.DoesNotContain("DepA.SwiftInterop.XProxy", result.Content);
+            // DepB and the local unqualified XProxy are preserved.
+            Assert.Contains("DepB.SwiftInterop.XProxy", result.Content);
+            Assert.Contains("static __v => new XProxy(__v)", result.Content);
+        }
     }
 
     #endregion

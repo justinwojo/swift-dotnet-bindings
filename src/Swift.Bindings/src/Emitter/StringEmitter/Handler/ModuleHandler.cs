@@ -716,6 +716,7 @@ namespace BindingsGeneration
                 .Where(p => !HasMembersReferencingInternalTypes(p, typeDatabase, moduleDecl.Name))
                 .ToList();
 
+
             // Global dedup of EveryProtocol stubs is keyed by property name, so two protocols
             // that each require a property with the SAME name but DIFFERENT types produce one
             // successful conformance and one whose required member gets skipped (breaking the
@@ -723,12 +724,19 @@ namespace BindingsGeneration
             // conflicting names and drop every protocol that participates, so the remaining
             // conformances compile cleanly. Example: MusicKit.LibraryAlbumFilter.artistName is
             // `String` while MusicKit.LibraryMusicVideoFilter.artistName is `String?`.
+            // Only protocol *requirements* contribute witnesses to EveryProtocol's conformance —
+            // default implementations from same-protocol extensions are extension methods on the
+            // existential, not witness-table entries. Including them in the conflict scan turned
+            // RealityFoundation umbrella-prefixed protocols (e.g. RealityKit.Material's
+            // `name: String?` extension default) into false positives that dropped the canonical
+            // BlendTreeNode/AnimationDefinition/MaterialFunction protocols whose `name: String`
+            // is genuinely required.
             var propertyTypeCounts = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
             foreach (var p in suitableProtocols)
             {
                 foreach (var prop in p.Properties)
                 {
-                    if (prop.IsStatic || prop.IsObjCOptional)
+                    if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
                         continue;
                     if (!propertyTypeCounts.TryGetValue(prop.Name, out var types))
                     {
@@ -746,7 +754,7 @@ namespace BindingsGeneration
             {
                 suitableProtocols = suitableProtocols
                     .Where(p => !p.Properties.Any(prop =>
-                        !prop.IsStatic && !prop.IsObjCOptional &&
+                        !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement &&
                         conflictingPropertyNames.Contains(prop.Name)))
                     .ToList();
             }
@@ -991,6 +999,11 @@ namespace BindingsGeneration
         /// Checks if a Swift mangled name belongs to the given module.
         /// Swift encodes module names in mangled symbols as $s{length}{moduleName}...
         /// (e.g., $s11CryptoSwift...). Stdlib protocols use abbreviated forms ($sSl, $sSB, $ss...).
+        /// Also accepts the umbrella prefix when the source module is exposed through Apple's
+        /// `@_implementationOnly` re-export (e.g., RealityFoundation protocols carry
+        /// $s10RealityKit... mangling because RealityKit is the umbrella declared in
+        /// apple-frameworks.json's compileImportModule). Without the umbrella branch, those
+        /// protocols would be silently filtered out of the source module's emission pass.
         /// </summary>
         internal static bool IsMangledNameFromModule(string mangledName, string moduleName)
         {
@@ -999,7 +1012,18 @@ namespace BindingsGeneration
 
             // The expected mangled prefix is "$s" + length + moduleName
             var expectedPrefix = $"$s{moduleName.Length}{moduleName}";
-            return mangledName.StartsWith(expectedPrefix, StringComparison.Ordinal);
+            if (mangledName.StartsWith(expectedPrefix, StringComparison.Ordinal))
+                return true;
+
+            var umbrella = AppleFrameworkRegistry.MapModuleToCompileImport(moduleName);
+            if (!string.IsNullOrEmpty(umbrella) && !string.Equals(umbrella, moduleName, StringComparison.Ordinal))
+            {
+                var umbrellaPrefix = $"$s{umbrella.Length}{umbrella}";
+                if (mangledName.StartsWith(umbrellaPrefix, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
         }
 
         /// <summary>

@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 using System.Collections.Concurrent;
@@ -15,6 +16,8 @@ namespace BindingsGeneration
         /// The type records associated with the module, where the key is the Swift type identifier.
         /// </summary>
         private readonly ConcurrentDictionary<SwiftTypeName, TypeRecord> _typeRecords;
+
+        private readonly HashSet<string> _suppressedProxyClassNames = new(StringComparer.Ordinal);
 
         public ModuleTypeDatabase(string name, string path)
         {
@@ -76,5 +79,33 @@ namespace BindingsGeneration
         /// </summary>
         public IEnumerable<KeyValuePair<SwiftTypeName, TypeRecord>> GetAllTypeRecords()
             => _typeRecords;
+
+        /// <summary>
+        /// Records a proxy class name that was suppressed during this module's emission.
+        /// Used so downstream modules can strip method bodies that reference the cross-module
+        /// qualified form (<c>{Namespace}.SwiftInterop.{ProxyName}</c>) when the umbrella-aware
+        /// protocol-emission resolver routes them to a suppressed proxy.
+        /// </summary>
+        public void RegisterSuppressedProxyClassName(string proxyClassName)
+        {
+            _suppressedProxyClassNames.Add(proxyClassName);
+        }
+
+        /// <summary>
+        /// The C# namespace into which suppressed proxies would have been emitted (i.e.
+        /// <c>{generatedNamespace}.SwiftInterop</c> minus the trailing <c>.SwiftInterop</c>).
+        /// Persisted in the module database so downstream modules can build the exact
+        /// qualified-form needle the umbrella-aware marshaler emits — which uses the
+        /// protocol record's C# namespace, NOT the Swift module name. With the default
+        /// <c>namespacePattern</c> the two are equal, but they diverge under a custom
+        /// pattern, and the post-pass match must follow the C# namespace.
+        /// Defaults to <see cref="Name"/> on databases that predate this property.
+        /// </summary>
+        public string? SuppressedProxyNamespace { get; set; }
+
+        /// <summary>
+        /// Gets the set of proxy class names suppressed during this module's emission.
+        /// </summary>
+        public IReadOnlyCollection<string> SuppressedProxyClassNames => _suppressedProxyClassNames;
     }
 }

@@ -562,9 +562,11 @@ public class ExistentialHandler
 
     /// <summary>
     /// Gets the proxy class name qualified for cross-module use. When CurrentModuleName is set
-    /// and the protocol belongs to a different module, returns "OtherModule.SwiftInterop.ProxyName".
-    /// Proxy classes live in the {Module}.SwiftInterop namespace, so cross-assembly references
-    /// require the full namespace qualification.
+    /// and the protocol's emission namespace differs from the current module, returns
+    /// "OtherNamespace.SwiftInterop.ProxyName". Proxy classes live in the
+    /// {Namespace}.SwiftInterop namespace (where {Namespace} is the C# namespace from the
+    /// generator's namespace pattern, which can diverge from the Swift module name), so
+    /// cross-assembly references require the full namespace qualification.
     /// </summary>
     public string GetQualifiedProxyClassName(ProtocolListTypeSpec protocolList)
     {
@@ -573,9 +575,10 @@ public class ExistentialHandler
 
     /// <summary>
     /// Applies cross-module qualification to a proxy class name.
-    /// Returns "Module.SwiftInterop.ProxyName" when the protocol belongs to a different module.
-    /// Used by both GetQualifiedProxyClassName and TryGetFilteredProxyClassName callers that
-    /// need cross-module qualification on an already-computed (ObjC-filtered) name.
+    /// Returns "Namespace.SwiftInterop.ProxyName" when the protocol's emission namespace differs
+    /// from the current module. Used by both GetQualifiedProxyClassName and
+    /// TryGetFilteredProxyClassName callers that need cross-module qualification on an
+    /// already-computed (ObjC-filtered) name.
     /// </summary>
     public string QualifyProxyClassName(string proxyClassName, ProtocolListTypeSpec protocolList)
     {
@@ -586,9 +589,13 @@ public class ExistentialHandler
         // ObjC-bridged protocols before picking a module. Otherwise an ordering like
         // `Swift.Sendable & OtherModule.Protocol` would pick "Swift" first, return
         // unqualified, and defeat the cross-module qualification path.
+        // Resolve via umbrella-aware mapping so Apple's `@_implementationOnly` re-exports
+        // (e.g., printedName "any RealityKit.HasAnchoring" for a protocol that actually
+        // lives in RealityFoundation) collapse to the source module's namespace where the
+        // proxy class is emitted. Mirrors GetPublicExistentialType's resolution path.
         var protocolModule = protocolList.Protocols.Keys
             .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
-            .Select(p => p.Module)
+            .Select(p => ProtocolConformanceHelper.ResolveProtocolEmissionModule(SwiftTypeName.FromTypeSpec(p), _typeDatabase))
             .FirstOrDefault(m => !string.IsNullOrEmpty(m));
 
         if (protocolModule == null || protocolModule == CurrentModuleName || protocolModule == "Swift")

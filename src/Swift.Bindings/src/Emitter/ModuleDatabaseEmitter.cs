@@ -25,7 +25,9 @@ namespace BindingsGeneration
         public static string? Emit(
             ModuleTypeDatabase moduleDatabase,
             string outputDirectory,
-            ILogger logger)
+            ILogger logger,
+            IReadOnlyCollection<string>? suppressedProxyClassNames = null,
+            string? suppressedProxyNamespace = null)
         {
             var records = moduleDatabase.GetAllTypeRecords()
                 .OrderBy(kvp => kvp.Key.ModuleQualifiedName, StringComparer.Ordinal)
@@ -65,6 +67,37 @@ namespace BindingsGeneration
                 }
 
                 writer.WriteEndElement(); // entities
+
+                // Suppressed proxy class names — names whose EveryProtocol conformance
+                // was skipped in this module's emission so the proxy class did not emit.
+                // Downstream modules use this to strip method bodies that reference the
+                // cross-module qualified form (`{Namespace}.SwiftInterop.{ProxyName}`) which
+                // the umbrella-aware existential marshaler can route to suppressed proxies.
+                //
+                // The `namespace` attribute is the C# namespace into which the proxies
+                // would have been emitted (`{generatedNamespace}.SwiftInterop`). Persisting
+                // it here is required because `QualifyProxyClassName` uses the protocol's
+                // C# namespace (via `record.CSharpTypeName.Namespace`), not the Swift module
+                // name — with a non-default `namespacePattern` the two diverge. Older
+                // databases that predate this attribute fall back to the Swift module name
+                // on read, matching the default-pattern equivalence.
+                if (suppressedProxyClassNames is { Count: > 0 })
+                {
+                    var orderedNames = suppressedProxyClassNames
+                        .OrderBy(n => n, StringComparer.Ordinal)
+                        .ToList();
+                    writer.WriteStartElement("suppressedProxies");
+                    if (!string.IsNullOrEmpty(suppressedProxyNamespace))
+                        writer.WriteAttributeString("namespace", suppressedProxyNamespace);
+                    foreach (var proxyName in orderedNames)
+                    {
+                        writer.WriteStartElement("proxy");
+                        writer.WriteAttributeString("name", proxyName);
+                        writer.WriteEndElement();
+                    }
+                    writer.WriteEndElement(); // suppressedProxies
+                }
+
                 writer.WriteEndElement(); // swifttypedatabase
                 writer.WriteEndDocument();
             }

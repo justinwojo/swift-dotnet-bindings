@@ -918,6 +918,54 @@ public class ExistentialHandlerTests
         Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
     }
 
+    [Fact]
+    public void QualifyProxyClassName_AppleUmbrellaPrintedName_CollapsesToSourceModule()
+    {
+        // Apple `@_implementationOnly` re-exports surface protocols whose ABI printedName
+        // encodes the umbrella module ("any RealityKit.HasAnchoring") even though the
+        // protocol is declared in RealityFoundation. The TypeRecord (looked up via the
+        // umbrella key thanks to the TypeDatabase umbrella fallback) carries the source
+        // module's namespace, which is what the rest of the emitter qualifies with. Using
+        // raw `p.Module` would produce `RealityKit.SwiftInterop.HasAnchoringProxy` and dangle
+        // (CS0246) — `RealityFoundation.SwiftInterop.HasAnchoringProxy` is where the proxy
+        // is actually emitted.
+        var db = new MockTypeDatabaseWithExplicitNamespace(
+            recordKey: "RealityKit.HasAnchoring",
+            csharpNamespace: "RealityFoundation",
+            csharpName: "IHasAnchoring");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "RealityKit" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("RealityKit.HasAnchoring")
+        });
+
+        var result = handler.QualifyProxyClassName("HasAnchoringProxy", protocolList);
+
+        Assert.Equal("RealityFoundation.SwiftInterop.HasAnchoringProxy", result);
+    }
+
+    [Fact]
+    public void QualifyProxyClassName_AppleUmbrellaPrintedName_SameSourceModule_NoQualification()
+    {
+        // RealityFoundation emits its own bindings: the protocol's printedName encodes the
+        // umbrella ("any RealityKit.HasAnchoring") but TypeRecord lookup resolves to
+        // RealityFoundation. Once umbrella-aware resolution lands, source module equals
+        // CurrentModuleName so the proxy reference stays unqualified.
+        var db = new MockTypeDatabaseWithExplicitNamespace(
+            recordKey: "RealityKit.HasAnchoring",
+            csharpNamespace: "RealityFoundation",
+            csharpName: "IHasAnchoring");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "RealityFoundation" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("RealityKit.HasAnchoring")
+        });
+
+        var result = handler.QualifyProxyClassName("HasAnchoringProxy", protocolList);
+
+        Assert.Equal("HasAnchoringProxy", result);
+    }
+
     #endregion
 
     #region MockTypeDatabaseWithProtocol
@@ -951,6 +999,43 @@ public class ExistentialHandlerTests
         {
             return _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
         }
+
+        public string GetLibraryPath(string moduleName) => "";
+        public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }
+    }
+
+    /// <summary>
+    /// Mock that registers a protocol TypeRecord whose lookup key may differ from its
+    /// CSharpTypeName.Namespace. Mirrors Apple's umbrella collapse: the lookup is keyed
+    /// on the umbrella module ("RealityKit.HasAnchoring") but the C# emission lives in
+    /// the source module's namespace ("RealityFoundation").
+    /// </summary>
+    private class MockTypeDatabaseWithExplicitNamespace : ITypeDatabase
+    {
+        private readonly Dictionary<string, TypeRecord> _types;
+        public string AsyncLibraryName => null!;
+
+        public MockTypeDatabaseWithExplicitNamespace(string recordKey, string csharpNamespace, string csharpName)
+        {
+            _types = new Dictionary<string, TypeRecord>
+            {
+                [recordKey] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csharpNamespace, csharpName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordKey),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Protocol,
+                    EmittedMemberCount = 0
+                }
+            };
+        }
+
+        public bool IsTypeProcessed(SwiftTypeName swiftTypeName) =>
+            _types.ContainsKey(swiftTypeName.ModuleQualifiedName);
+
+        public bool TryGetTypeRecord(SwiftTypeName swiftTypeName, out TypeRecord record) =>
+            _types.TryGetValue(swiftTypeName.ModuleQualifiedName, out record!);
 
         public string GetLibraryPath(string moduleName) => "";
         public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record) { }

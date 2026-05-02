@@ -314,6 +314,33 @@ namespace BindingsGeneration
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);
             }
 
+            // Suppressed proxy class names — populated when a previously generated module
+            // suppressed a proxy (UnsatisfiedProtocolConstraint, StaticMethodRequirements,
+            // HasSelfRequirement, etc.). The downstream module needs this so its post-pass
+            // co-gater can strip method bodies that reference the cross-module qualified
+            // proxy form (`{Namespace}.SwiftInterop.{ProxyName}`) emitted by the umbrella-aware
+            // existential marshaler. Element is optional — older databases predate it.
+            XmlNode? suppressedProxiesNode = xmlDoc.SelectSingleNode("//swifttypedatabase/suppressedProxies");
+            if (suppressedProxiesNode != null)
+            {
+                // Optional namespace attribute — older databases predate it. Default to the
+                // Swift module name, which matches the default-pattern equivalence (and is
+                // what the previous schema implicitly assumed).
+                var nsAttr = suppressedProxiesNode.Attributes?["namespace"]?.Value;
+                moduleDatabase.SuppressedProxyNamespace = string.IsNullOrEmpty(nsAttr)
+                    ? databaseModuleName
+                    : nsAttr;
+
+                foreach (XmlNode? proxyNode in suppressedProxiesNode.ChildNodes)
+                {
+                    if (proxyNode?.NodeType != XmlNodeType.Element) continue;
+                    if (proxyNode.Name != "proxy") continue;
+                    var proxyName = proxyNode.Attributes?["name"]?.Value;
+                    if (string.IsNullOrEmpty(proxyName)) continue;
+                    moduleDatabase.RegisterSuppressedProxyClassName(proxyName);
+                }
+            }
+
             return moduleDatabase;
         }
 
@@ -470,6 +497,26 @@ namespace BindingsGeneration
             {
                 _outOfModuleTypes.TryAdd(identifier, record);
             }
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyCollection<(string Namespace, string ProxyName)> GetCrossModuleSuppressedProxyClassNames()
+        {
+            List<(string, string)>? pairs = null;
+            foreach (var moduleDb in _modules.Values)
+            {
+                if (moduleDb.SuppressedProxyClassNames.Count == 0)
+                    continue;
+                // Namespace falls back to the Swift module name when the database predates
+                // the namespace attribute — matches the historical default-pattern shape.
+                var ns = string.IsNullOrEmpty(moduleDb.SuppressedProxyNamespace)
+                    ? moduleDb.Name
+                    : moduleDb.SuppressedProxyNamespace!;
+                pairs ??= new List<(string, string)>();
+                foreach (var name in moduleDb.SuppressedProxyClassNames)
+                    pairs.Add((ns, name));
+            }
+            return (IReadOnlyCollection<(string, string)>?)pairs ?? Array.Empty<(string, string)>();
         }
 
         private bool TryGetTypeRecordInternal(SwiftTypeName swiftTypeName, [NotNullWhen(returnValue: true)] out TypeRecord? record)

@@ -1174,6 +1174,29 @@ public class ModuleHandlerTests
         Assert.Equal(expected, ModuleHandler.IsMangledNameFromModule(mangledName, moduleName));
     }
 
+    [Theory]
+    // Apple `@_implementationOnly` umbrella collapse: the source module's protocols may carry
+    // mangled names that encode the umbrella module. The filter must accept either prefix when
+    // apple-frameworks.json registers a compileImportModule remap, otherwise the protocols are
+    // silently dropped from the source module's emission pass and downstream proxy references
+    // dangle (CS0246 in cross-module consumers).
+    [InlineData("$s10RealityKit9ComponentP", "RealityFoundation", true)]
+    [InlineData("$s10RealityKit12HasAnchoringP", "RealityFoundation", true)]
+    [InlineData("$s10RealityKit21SynchronizationPeerIDP", "RealityFoundation", true)]
+    [InlineData("$s10RealityKit22SynchronizationServiceP", "RealityFoundation", true)]
+    // Native (non-umbrella) prefix still accepted for the same module.
+    [InlineData("$s17RealityFoundation12BindableDataP", "RealityFoundation", true)]
+    // Umbrella's own emission pass: the umbrella module name has no remap, so only its native
+    // prefix is accepted (no recursive expansion).
+    [InlineData("$s10RealityKit9ComponentP", "RealityKit", true)]
+    [InlineData("$s17RealityFoundation12BindableDataP", "RealityKit", false)]
+    // Other modules are unaffected by RealityFoundation's umbrella mapping.
+    [InlineData("$s10RealityKit9ComponentP", "CryptoSwift", false)]
+    public void IsMangledNameFromModule_AcceptsCompileImportUmbrellaPrefix(string mangledName, string moduleName, bool expected)
+    {
+        Assert.Equal(expected, ModuleHandler.IsMangledNameFromModule(mangledName, moduleName));
+    }
+
     #endregion
 
     #region CQ-3: Module-Internal Type Suppression Tests

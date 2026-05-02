@@ -50,4 +50,21 @@ public interface ITypeDatabase
     /// <param name="name">The Swift type name.</param>
     /// <param name="record">The updated type record.</param>
     public void UpdateTypeRecord(SwiftTypeName name, TypeRecord record);
+
+    /// <summary>
+    /// Gets <c>(namespace, proxyName)</c> pairs for proxy classes that were suppressed by
+    /// previously generated (dependency) modules whose database XML has been loaded into
+    /// this type database. The umbrella-aware existential marshaler can emit cross-module
+    /// qualified references (<c>{Namespace}.SwiftInterop.{ProxyName}</c>) to a proxy that
+    /// lives in a dependency; if that dependency suppressed the proxy, those references must
+    /// be stripped during the local module's post-pass. The pair preserves the dependency's
+    /// C# namespace (NOT its Swift module name — those diverge under a custom
+    /// <c>namespacePattern</c>) so the post-pass can match the exact qualified form the
+    /// generator emitted. Matching by simple name across modules would false-positive on a
+    /// future module that legitimately emits its own proxy with the same simple class name.
+    /// Defaults to empty so the many test mocks that implement <see cref="ITypeDatabase"/>
+    /// don't need to override this. The real <see cref="TypeDatabase"/> overrides it.
+    /// </summary>
+    public IReadOnlyCollection<(string Namespace, string ProxyName)> GetCrossModuleSuppressedProxyClassNames()
+        => Array.Empty<(string, string)>();
 }
