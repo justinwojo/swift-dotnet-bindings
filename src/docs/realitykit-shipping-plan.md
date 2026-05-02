@@ -6,7 +6,7 @@
 - `RealityKit`: 29 × CS0234 (cross-module type qualification — references to `RealityKit.Entity` / `RealityFoundation.Entity` / `ARKit.ARRaycastQueryTarget` / `Swift.SIMD3` that don't resolve).
 - `RealityFoundation`: skipped (compile-gated on `RealityKit`).
 
-**Status**: Session 5 done. Dep gate at 14/15 (RealityKit 1 known follow-up — see roadmap). Sessions 6 + 7 next.
+**Status**: Sessions 5/5b/6 done. Session 5b retired the deferred `IsObjCModuleType` over-classification bug (P1) by splitting `IsObjCExistentialBridgedProtocol` off from the broad helper and threading `CurrentModuleName` through `ProtocolHandler`'s `ProjectionContext` so cross-module existential interface members qualify correctly. Dep gate at 15/15. Session 7 (packaging hand-off) next.
 
 A throwaway dep-order-reversal experiment (now reverted) proved that once `RealityFoundation` is generated against an actually-loaded `RealityKit` module DB, **90 hidden errors in `RealityFoundation` surface**. Those 90 are the real backlog. The 29 surface errors on `RealityKit` are all qualification-resolution failures rooted in the same dep-threading gap.
 
@@ -322,7 +322,7 @@ Swift-only protocols** in `src/docs/roadmap.md`.
 
 ---
 
-## Session 6 — RealityKit dep-gate close-out + final shipping gate
+## Session 6 — RealityKit dep-gate close-out + final shipping gate ✅ completed (commit 80174bbe)
 
 **Goal**: clear the three RealityKit dep-gate errors unmasked by Session 5, then prove regression-clean and ABI-safe end-to-end.
 
@@ -349,6 +349,32 @@ Swift-only protocols** in `src/docs/roadmap.md`.
 - All gates green, baseline updated in the same commit as the last fix.
 - BindingTests covers every new emission shape introduced by the plan.
 - `/codex-review` clean on the cumulative branch diff.
+
+---
+
+## Session 5b — Existential filter narrowing for autoBridge Swift-only protocols ✅ completed
+
+**Goal**: retire the P1 dep-gate suppression discovered in Session 5 — `MultipeerConnectivityService.Owner(Entity) -> any RealityFoundation.SynchronizationPeerID` was being filtered out because `TypeDatabaseExtensions.IsObjCModuleType` classified every non-value-type from an autoBridge module as ObjC, even when the type's name didn't match its module's `objcPrefixes`. That dropped the protocol from `ExistentialHandler.GetEffectiveProtocols`, returned `"object"` from `GetPublicExistentialType`, and tripped `B6 UnsupportedExistential`.
+
+### Shape of the fix (Option A — narrow predicate, broad helper preserved)
+
+1. **`AppleFrameworkRegistry.IsObjCBridgedTypeName(module, qualifiedName)`** — public per-module ObjC prefix gate. Three tiers: autoBridge gate, valueTypes exclusion, typeRemaps signal, then per-module `objcPrefixes` match.
+2. **`TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(typeSpec)`** — narrow helper used ONLY at existential filter / parity-guard sites. `IsObjCModuleType` stays broad so the synthetic-record `ObjCBridgingStrategy` path (e.g. `RealityKit.Entity` collapsed from `RealityFoundation.Entity`) is unaffected.
+3. **Filter / parity-guard sites updated to call the narrow predicate**: `ExistentialHandler.GetEffectiveProtocols`, `ExistentialHandler.QualifyProxyClassName`, two `WitnessDispatchEmitter` parity guards, one `ProtocolExtensionEmitter` parity guard, one `BoundGenericsHandler` parity guard, two `ClosureHandler` parity guards. `QualifyProxyClassName` additionally drops marker protocols (mirrors `GetEffectiveProtocols` predicate) so a composition ordered `Swift.Sendable & OtherModule.Protocol` qualifies by `OtherModule` rather than picking `Swift` and emitting unqualified.
+4. **`ProtocolHandler.GetCSharpTypeName`** — added `CurrentModuleName = protocolContext?.ModuleDecl?.Name` to its `ProjectionContext`. Without this, cross-module existential interface members emitted unqualified names (e.g. `IHasCollision?` instead of `RealityFoundation.IHasCollision?`) on the interface side while the implementation emitted the qualified form, tripping CS0246 + CS0738.
+
+### Coverage
+
+- **Unit tests**: `AppleFrameworkRegistryTests.IsObjCBridgedTypeName_ReturnsExpected` (17 cases), `TypeDatabaseExtensionsTests.IsObjCExistentialBridgedProtocol_PerModulePrefixGate` (10 cases), `IsObjCModuleType_BroadAutoBridgePreserved` (5 cases pinning the broad predicate stays broad for umbrella-collapsed types), `ExistentialHandlerTests.QualifyProxyClassName_MarkerFirstThenSwiftModule_QualifiesCorrectModule` (pins the marker-filter parity in `QualifyProxyClassName`).
+- **BindingTests fixture**: `Protocols/AutoBridgeSwiftOnlyExistentialReturn.swift` mirrors the suppression pattern via `Foundation.LocalizedError` (autoBridge with `["NS"]` prefix; LocalizedError doesn't match). `AutoBridgeSwiftOnlyExistentialTests` asserts the method is reachable and the existential round-trips on repeated invocations.
+
+### Result
+
+- Compile gate: 115/115 standalone (was 114/115).
+- Overall validation: 129/129 (was 128/129).
+- Dependencies: 15/15 (was 14/15) — RealityKit close-out target met.
+- Skip count down (more methods now emit instead of being filtered).
+- Runtime gates green; sim baseline 1771 → 1774, device baseline 1784 → 1785 (the 3 new fixture tests pass on both Mono JIT sim and NativeAOT device).
 
 ---
 

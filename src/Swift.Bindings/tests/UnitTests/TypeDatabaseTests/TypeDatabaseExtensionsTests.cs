@@ -461,6 +461,75 @@ public class TypeDatabaseExtensionsTests
         Assert.Null(fallbackInfo);
     }
 
+    // --- Per-module ObjC-prefix gate for existential filtering (Session 5b P1 fix) ---
+    //
+    // Existential filtering used to drop every protocol whose module was in the
+    // autoBridge set, regardless of whether the protocol's name matched that
+    // module's declared `objcPrefixes`. Concrete repro: `RealityKit.MultipeerConnectivityService`
+    // returning `any RealityFoundation.SynchronizationPeerID` — the protocol
+    // collapses onto the RealityKit umbrella via `@_implementationOnly` and the
+    // raw filter wrongly classified it as ObjC, leaving zero effective protocols
+    // and tripping `B6 UnsupportedExistential` in `MemberEmissionValidator`.
+    //
+    // Fix shape: introduce a NARROW helper, `IsObjCExistentialBridgedProtocol`,
+    // that delegates to `AppleFrameworkRegistry.IsObjCBridgedTypeName` and is
+    // used ONLY at existential-filter and parity-guard sites
+    // (ExistentialHandler.GetEffectiveProtocols / QualifyProxyClassName, the
+    // five `Count(p => !IsObjCModuleType(p))` parity checks across
+    // WitnessDispatchEmitter / ProtocolExtensionEmitter / BoundGenericsHandler /
+    // ClosureHandler, and `WitnessDispatchEmitter.GetSwiftExistentialTypeName`).
+    // The BROAD `IsObjCModuleType` and `IsObjCClassSwiftType` are deliberately
+    // left unchanged so umbrella-collapsed real ObjC types (e.g.
+    // `RealityKit.Entity`, which collapses from `RealityFoundation.Entity`) keep
+    // their synthetic ObjCBridged record from `ObjCBridgingStrategy` and route
+    // through `ExtensionMarshallingHelper` / namespace-emission unchanged.
+
+    [Theory]
+    // RealityKit (declares ["RE"]) — Swift-only protocols/classes whose names
+    // don't start with RE must NOT be classified as ObjC by the narrow gate.
+    [InlineData("RealityKit.SynchronizationPeerID", false)]
+    [InlineData("RealityKit.MultipeerConnectivityService", false)]
+    [InlineData("RealityKit.Entity", false)]
+    // MultipeerConnectivity (declares ["MC"]) — MCSession matches; SessionState
+    // (a Swift-only inner type) does not.
+    [InlineData("MultipeerConnectivity.MCSession", true)]
+    [InlineData("MultipeerConnectivity.SessionState", false)]
+    // Foundation (declares ["NS"]) — LocalizedError is a Swift-only protocol
+    // and was previously misclassified as ObjC by the broad path. The narrow
+    // gate also recognises Foundation's NS-prefix-dropped overlay names via
+    // typeRemaps (URLSession → NSURLSession, Bundle → NSBundle, etc.).
+    [InlineData("Foundation.LocalizedError", false)]
+    [InlineData("Foundation.NSString", true)]
+    [InlineData("Foundation.URLSession", true)]
+    // AVFoundation (declares ["AV"]) — AVPlayer matches; a Swift-only protocol
+    // would not.
+    [InlineData("AVFoundation.AVPlayer", true)]
+    // AppKit (no declared prefix list) — preserves the autoBridge fallback so
+    // existing AppKit consumers don't regress.
+    [InlineData("AppKit.NSImage", true)]
+    public void IsObjCExistentialBridgedProtocol_PerModulePrefixGate(string moduleQualifiedName, bool expected)
+    {
+        var typeSpec = new NamedTypeSpec(moduleQualifiedName);
+        Assert.Equal(expected, TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(typeSpec));
+    }
+
+    [Theory]
+    // The BROAD `IsObjCModuleType` must still classify umbrella-collapsed real
+    // ObjC types as ObjC so `ObjCBridgingStrategy` keeps synthesising
+    // `Kind=Class` records for them. Without this, the standalone RealityKit
+    // build re-emits `RealityFoundation.IHasCollision` references that fail to
+    // resolve at compile time.
+    [InlineData("RealityKit.Entity", true)]
+    [InlineData("RealityKit.SynchronizationPeerID", true)]
+    [InlineData("Foundation.LocalizedError", true)]
+    [InlineData("AppKit.NSImage", true)]
+    [InlineData("MultipeerConnectivity.MCSession", true)]
+    public void IsObjCModuleType_BroadAutoBridgePreserved(string moduleQualifiedName, bool expected)
+    {
+        var typeSpec = new NamedTypeSpec(moduleQualifiedName);
+        Assert.Equal(expected, TypeDatabaseExtensions.IsObjCModuleType(typeSpec));
+    }
+
     // --- Foundation class types are auto-bridged as ObjC ---
 
     [Theory]

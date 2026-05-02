@@ -1289,8 +1289,9 @@ public class ClosureHandler
                 if (_existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
                     var publicType = _existentialHandler.GetPublicExistentialType(protocolList);
+                    // Parity with ExistentialHandler.GetEffectiveProtocols (per-module ObjC-prefix gate).
                     var filteredCount = protocolList.Protocols.Keys
-                        .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+                        .Count(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p));
                     if (publicType != "object" &&
                         filteredCount == protocolList.Protocols.Count &&
                         _existentialHandler.TryGetFilteredProxyClassName(protocolList, out _))
@@ -2024,8 +2025,9 @@ public class ClosureHandler
         // ExistentialContainer{filteredCount} but P/Invoke passes ExistentialContainer{originalCount}.
         if (!_existentialHandler.TryGetFilteredProxyClassName(protocolList, out proxyClassName))
             return false;
+        // Parity with ExistentialHandler.GetEffectiveProtocols (per-module ObjC-prefix gate).
         var filteredCount = protocolList.Protocols.Keys
-            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+            .Count(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p));
         if (filteredCount != protocolList.Protocols.Count)
         {
             proxyClassName = "";

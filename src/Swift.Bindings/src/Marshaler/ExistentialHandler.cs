@@ -82,7 +82,7 @@ public class ExistentialHandler
     public static IReadOnlyList<NamedTypeSpec> GetEffectiveProtocols(ProtocolListTypeSpec protocolList)
     {
         return protocolList.Protocols.Keys
-            .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
             .ToList();
     }
 
@@ -582,8 +582,12 @@ public class ExistentialHandler
         if (string.IsNullOrEmpty(CurrentModuleName))
             return proxyClassName;
 
+        // Mirror GetEffectiveProtocols's predicate shape: drop marker protocols and
+        // ObjC-bridged protocols before picking a module. Otherwise an ordering like
+        // `Swift.Sendable & OtherModule.Protocol` would pick "Swift" first, return
+        // unqualified, and defeat the cross-module qualification path.
         var protocolModule = protocolList.Protocols.Keys
-            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
             .Select(p => p.Module)
             .FirstOrDefault(m => !string.IsNullOrEmpty(m));
 

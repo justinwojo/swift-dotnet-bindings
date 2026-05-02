@@ -34,6 +34,13 @@ internal static class AppleFrameworkRegistry
     private static readonly HashSet<string> _valueTypes;
     private static readonly Dictionary<ApplePlatform, HashSet<string>> _platformUnavailableModules;
     private static readonly string[] _objcPrefixes;
+    // Per-module ObjC prefix tables. Modules that declare an explicit `objcPrefixes`
+    // entry in apple-frameworks.json get a strict per-module prefix gate in
+    // <see cref="IsObjCBridgedTypeName"/>; modules without a declared list fall back
+    // to the original "all autoBridge class types are ObjC" behavior so we don't
+    // accidentally re-classify real ObjC types whose modules haven't yet had their
+    // prefix list backfilled (e.g. AppKit's NS-prefixed types).
+    private static readonly Dictionary<string, string[]> _perModuleObjcPrefixes;
     private static readonly HashSet<string> _knownModulesForElements;
     private static readonly HashSet<string> _netUnavailableTypes;
 
@@ -103,6 +110,7 @@ internal static class AppleFrameworkRegistry
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
         _knownModulesForElements = new HashSet<string>(StringComparer.Ordinal);
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
+        _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var objcPrefixSet = new HashSet<string>(StringComparer.Ordinal);
 
         // Platform unavailable: build per-platform sets
@@ -138,10 +146,16 @@ internal static class AppleFrameworkRegistry
             if (def.KnownModuleForElements)
                 _knownModulesForElements.Add(def.Module);
 
-            if (def.ObjcPrefixes != null)
+            if (def.ObjcPrefixes != null && def.ObjcPrefixes.Length > 0)
             {
                 foreach (var prefix in def.ObjcPrefixes)
                     objcPrefixSet.Add(prefix);
+                // Per-module prefix list (longest-first so multi-letter prefixes match
+                // before sub-prefixes from the same module).
+                _perModuleObjcPrefixes[def.Module] = def.ObjcPrefixes
+                    .OrderByDescending(p => p.Length)
+                    .ThenBy(p => p, StringComparer.Ordinal)
+                    .ToArray();
             }
 
             if (def.PlatformUnavailable != null)
@@ -347,6 +361,67 @@ internal static class AppleFrameworkRegistry
             }
         }
 
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when the module-qualified name should be treated as an ObjC-bridged
+    /// class type for marshalling and existential filtering. Three-tier logic:
+    ///
+    /// 1. The module must be in the auto-bridge set, and the name must not be in the
+    ///    explicit value-type exclusion set.
+    /// 2. An explicit <c>typeRemaps</c> entry (Swift→.NET ObjC name) is the strongest
+    ///    "this is ObjC" signal — Apple's Foundation overlay drops the <c>NS</c> prefix
+    ///    on many classes (<c>Foundation.URLSession</c>, <c>Foundation.Bundle</c>), so
+    ///    a name that doesn't match the module's prefix can still be ObjC by intent.
+    /// 3. If the module declares <c>objcPrefixes</c>, the type's bare name MUST start
+    ///    with one of THIS module's declared prefixes followed by an uppercase letter.
+    ///    Swift-only types whose names don't match return false — this is what closes
+    ///    the existential-filter bug for cases like
+    ///    <c>RealityKit.SynchronizationPeerID</c> (no <c>RE</c> prefix).
+    /// 4. If the module declares no <c>objcPrefixes</c>, the answer falls back to true
+    ///    (preserves the original behavior for modules whose prefix list hasn't been
+    ///    populated yet — e.g. AppKit, AVFAudio — so we don't accidentally re-classify
+    ///    real ObjC types).
+    ///
+    /// This is the single source of truth shared by <see cref="TypeDatabaseExtensions.IsObjCModuleType"/>
+    /// and <see cref="TypeDatabaseExtensions.IsObjCClassSwiftType"/>.
+    /// </summary>
+    public static bool IsObjCBridgedTypeName(string moduleName, string moduleQualifiedName)
+    {
+        if (string.IsNullOrEmpty(moduleName) || string.IsNullOrEmpty(moduleQualifiedName))
+            return false;
+        if (!_autoBridgeModules.Contains(moduleName))
+            return false;
+        if (_valueTypes.Contains(moduleQualifiedName))
+            return false;
+
+        // Explicit Swift→.NET typeRemaps entry — Apple's Foundation overlay drops NS
+        // prefixes (URLSession → NSURLSession, Bundle → NSBundle, ...) so a remapped
+        // Swift name is intentionally bridging to ObjC even without a matching prefix.
+        if (_typeNameRemaps.ContainsKey(moduleQualifiedName))
+            return true;
+
+        if (!_perModuleObjcPrefixes.TryGetValue(moduleName, out var prefixes))
+            return true;
+
+        // Strict per-module prefix gate. Strip the module portion (if present) before
+        // matching so the prefix check operates on the bare type-name span. Nested
+        // names like "ARRaycastQuery.Target" still anchor to the head segment.
+        var typeName = moduleQualifiedName.AsSpan();
+        var dotIndex = typeName.IndexOf('.');
+        if (dotIndex >= 0 && moduleQualifiedName.AsSpan(0, dotIndex).SequenceEqual(moduleName.AsSpan()))
+            typeName = typeName.Slice(dotIndex + 1);
+
+        foreach (var prefix in prefixes)
+        {
+            if (typeName.Length > prefix.Length &&
+                typeName.StartsWith(prefix.AsSpan(), StringComparison.Ordinal) &&
+                char.IsUpper(typeName[prefix.Length]))
+            {
+                return true;
+            }
+        }
         return false;
     }
 

@@ -293,8 +293,9 @@ public class BoundGenericsHandler
             return false;
         // P1 fix: Mixed compositions where ObjC filtering drops protocols
         // would produce proxy/container size mismatch at runtime.
+        // Mirrors ExistentialHandler.GetEffectiveProtocols (per-module ObjC-prefix gate).
         var filteredCount = protocolList.Protocols.Keys
-            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+            .Count(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p));
         if (filteredCount != protocolList.Protocols.Count)
             return false;
         return true;

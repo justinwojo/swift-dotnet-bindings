@@ -898,6 +898,26 @@ public class ExistentialHandlerTests
         Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
     }
 
+    [Fact]
+    public void QualifyProxyClassName_MarkerFirstThenSwiftModule_QualifiesCorrectModule()
+    {
+        // Regression: a composition ordered like `Swift.Sendable & OtherModule.Protocol`
+        // must still qualify by OtherModule. Without the marker filter the predicate would
+        // pick "Swift" first, hit the early return, and emit an unqualified proxy name —
+        // defeating cross-module qualification for cross-module protocol compositions.
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db) { CurrentModuleName = "StripePayments" };
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Swift.Sendable"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        var result = handler.QualifyProxyClassName("STPAnalyticsClientProtocolProxy", protocolList);
+
+        Assert.Equal("StripeCore.SwiftInterop.STPAnalyticsClientProtocolProxy", result);
+    }
+
     #endregion
 
     #region MockTypeDatabaseWithProtocol

@@ -603,9 +603,10 @@ public class WitnessDispatchEmitter
                 publicType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
                 return false;
 
-            // ObjC filtering guard: if ObjC filtering drops protocols, proxy expects fewer witness tables than ABI
+            // ObjC filtering guard: if ObjC filtering drops protocols, proxy expects fewer witness tables than ABI.
+            // Mirrors the predicate used by ExistentialHandler.GetEffectiveProtocols so the parity check stays in sync.
             var filteredCount = innerProtocolList.Protocols.Keys
-                .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+                .Count(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p));
             if (filteredCount != innerProtocolList.Protocols.Count)
                 return false;
 
@@ -1633,8 +1634,9 @@ public class WitnessDispatchEmitter
             return null;
 
         // Build module-qualified protocol names for the existential type
+        // (parity with ExistentialHandler.GetEffectiveProtocols).
         var protocols = protocolList.Protocols.Keys
-            .Where(p => !TypeDatabaseExtensions.IsObjCModuleType(p))
+            .Where(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
         if (protocols.Count == 0)

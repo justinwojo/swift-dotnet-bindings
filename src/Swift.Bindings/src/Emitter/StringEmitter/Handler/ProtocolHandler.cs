@@ -921,12 +921,22 @@ namespace BindingsGeneration
                 : GenericContext.Empty;
 
             var factory = new TypeProjectionFactory();
+            // Pass CurrentModuleName so cross-module existential projections (e.g. an
+            // umbrella-collapsed `any RealityKit.HasCollision` whose record actually
+            // lives in `RealityFoundation`) get namespace-qualified
+            // (`RealityFoundation.IHasCollision?`). Without this, the interface
+            // declaration emits a bare `IHasCollision?` while the concrete
+            // implementation emits the qualified form, producing CS0246 + CS0738
+            // when more existentials survive ObjC filtering after the per-module
+            // prefix gate (Session 5b).
+            var factory_currentModuleName = protocolContext?.ModuleDecl?.Name;
             var projection = factory.Project(typeSpec, new ProjectionContext
             {
                 TypeDatabase = typeDatabase,
                 IsParameter = isParameter,
                 GenericContext = genericContext,
-                CompositionCollector = _compositionCollector
+                CompositionCollector = _compositionCollector,
+                CurrentModuleName = factory_currentModuleName
             });
             if (projection != null)
                 return projection.PublicType;

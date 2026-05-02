@@ -475,6 +475,16 @@ public static class TypeDatabaseExtensions
     /// 2. Apple framework module types (UIKit.UIImage, AppKit.NSImage) — assumed to be classes
     ///    unless listed in AppleFrameworkRegistry.ValueTypes
     /// TypeSpecParser.cs remaps "ObjectiveC.X" → "Foundation.X", so we check both modules.
+    ///
+    /// This is the BROAD classification used by the marshalling pipeline
+    /// (ObjCBridgingStrategy synthetic-record creation, namespace remap, foreign-type
+    /// extension routing). For the EXISTENTIAL-FILTERING path use
+    /// <see cref="IsObjCExistentialBridgedProtocol"/> instead — it gates by the module's
+    /// declared <c>objcPrefixes</c> so Swift-only protocols whose names don't match the
+    /// module prefix (e.g. <c>RealityKit.SynchronizationPeerID</c> from
+    /// <c>RealityFoundation</c>'s umbrella collapse) survive
+    /// <see cref="ExistentialHandler.GetEffectiveProtocols"/> and don't trip the
+    /// mixed-composition parity guards.
     /// </summary>
     internal static bool IsObjCModuleType(NamedTypeSpec typeSpec)
     {
@@ -498,6 +508,35 @@ public static class TypeDatabaseExtensions
         // but exclude known value types (structs/enums) from those modules
         return AppleFrameworkRegistry.IsAutoBridgeModule(typeSpec.Module)
             && !AppleFrameworkRegistry.IsKnownValueType(typeSpec.Name);
+    }
+
+    /// <summary>
+    /// Narrow per-module ObjC-prefix gate for protocol-composition existential filtering.
+    /// Returns true only when the protocol's bare name actually matches one of the module's
+    /// declared <c>objcPrefixes</c> in <c>apple-frameworks.json</c>. Swift-only protocols
+    /// whose names don't match (e.g. <c>RealityFoundation.SynchronizationPeerID</c>
+    /// collapsed onto <c>RealityKit</c>'s umbrella, where the module declares only
+    /// <c>"RE"</c>) return false so they survive
+    /// <see cref="ExistentialHandler.GetEffectiveProtocols"/> and the mixed-composition
+    /// parity guards instead of being silently dropped — which would force
+    /// <see cref="ExistentialHandler.GetPublicExistentialType"/> to <c>"object"</c> and
+    /// trip <c>B6 UnsupportedExistential</c>. Use this ONLY at existential-filter and
+    /// parity-guard sites; broader marshalling decisions stay on <see cref="IsObjCModuleType"/>
+    /// so we don't regress synthetic-record creation for umbrella-collapsed real ObjC types.
+    /// </summary>
+    internal static bool IsObjCExistentialBridgedProtocol(NamedTypeSpec typeSpec)
+    {
+        if (!typeSpec.HasModule())
+            return false;
+
+        // ObjectiveC/Foundation root classes show up as protocol participants in some
+        // class-bounded compositions; keep them ObjC-classified for parity with the
+        // broad path so the parity guard still catches classic ObjC-rooted shapes.
+        if ((typeSpec.Module == ObjCModuleName || typeSpec.Module == "Foundation")
+            && AppleFrameworkRegistry.IsKnownObjCRootClass(typeSpec.NameWithoutModule))
+            return true;
+
+        return AppleFrameworkRegistry.IsObjCBridgedTypeName(typeSpec.Module, typeSpec.Name);
     }
 
     /// <summary>

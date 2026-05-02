@@ -1074,4 +1074,53 @@ public class AppleFrameworkRegistryTests
     {
         Assert.Equal(expected, AppleFrameworkRegistry.IsKnownAppleOrSystemModule(module));
     }
+
+    // --- IsObjCBridgedTypeName ---
+    //
+    // Per-module ObjC prefix gate. Modules that declare an `objcPrefixes` entry in
+    // apple-frameworks.json get a strict per-module check (Swift-only types whose
+    // names don't match return false); modules without a declared prefix list
+    // preserve the conservative "all autoBridge class types are ObjC" behavior.
+
+    [Theory]
+    // RealityKit declares ["RE"]: Swift-only protocols/classes whose names don't
+    // start with RE must NOT be classified as ObjC. This is the Session 5 P1 bug —
+    // SynchronizationPeerID was wrongly filtered out of effective protocols.
+    [InlineData("RealityKit", "RealityKit.SynchronizationPeerID", false)]
+    [InlineData("RealityKit", "RealityKit.MultipeerConnectivityService", false)]
+    [InlineData("RealityKit", "RealityKit.Entity", false)]
+    [InlineData("RealityKit", "RealityKit.REEntity", true)]   // hypothetical RE-prefixed name still classifies as ObjC
+    // MultipeerConnectivity declares ["MC"]: MCSession is real ObjC; SessionState is Swift-only.
+    [InlineData("MultipeerConnectivity", "MultipeerConnectivity.MCSession", true)]
+    [InlineData("MultipeerConnectivity", "MultipeerConnectivity.SessionState", false)]
+    // UIKit declares ["UI"]: UIView passes; a Swift-only protocol like
+    // UICoordinateSpace is still UI-prefixed and stays ObjC. Genuinely Swift-only
+    // names (no UI prefix) get correctly re-classified.
+    [InlineData("UIKit", "UIKit.UIView", true)]
+    [InlineData("UIKit", "UIKit.UICoordinateSpace", true)]
+    [InlineData("UIKit", "UIKit.MyHypotheticalSwiftType", false)]
+    // AVFoundation declares ["AV"]: AVPlayer is ObjC; a Swift-only protocol with no
+    // AV prefix correctly returns false.
+    [InlineData("AVFoundation", "AVFoundation.AVPlayer", true)]
+    [InlineData("AVFoundation", "AVFoundation.SomeSwiftProtocol", false)]
+    // ARKit declares ["AR"]: ARSession is ObjC; valueTypes-listed entries stay false.
+    [InlineData("ARKit", "ARKit.ARSession", true)]
+    [InlineData("ARKit", "ARKit.ARRaycastQuery.Target", false)]   // listed in valueTypes
+    // Foundation declares ["NS"]: NSString is ObjC; non-NS Foundation types
+    // (Bundle, Timer, etc. — handled separately by TryGetNetTypeName).
+    [InlineData("Foundation", "Foundation.NSString", true)]
+    [InlineData("Foundation", "Foundation.LocalizedError", false)]
+    // AppKit declares no prefix list — preserves the "all autoBridge class types
+    // are ObjC" backstop so existing AppKit consumers don't regress while the
+    // prefix list waits to be backfilled.
+    [InlineData("AppKit", "AppKit.NSWindow", true)]
+    [InlineData("AppKit", "AppKit.SomeSwiftType", true)]
+    // Non-autoBridge module — never classified as ObjC.
+    [InlineData("RealityFoundation", "RealityFoundation.SynchronizationPeerID", false)]
+    [InlineData("MyCustomLib", "MyCustomLib.MyType", false)]
+    [InlineData("", "", false)]
+    public void IsObjCBridgedTypeName_ReturnsExpected(string module, string moduleQualifiedName, bool expected)
+    {
+        Assert.Equal(expected, AppleFrameworkRegistry.IsObjCBridgedTypeName(module, moduleQualifiedName));
+    }
 }

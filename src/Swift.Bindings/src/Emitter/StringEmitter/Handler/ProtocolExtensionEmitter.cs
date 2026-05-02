@@ -832,9 +832,10 @@ public static class ProtocolExtensionEmitter
         if (publicType == TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)
             return false;
 
-        // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size mismatches
+        // ObjC filtering guard: if filtering drops protocols, ExistentialContainer size mismatches.
+        // Mirrors ExistentialHandler.GetEffectiveProtocols so the parity check stays in sync.
         var filteredCount = protocolList.Protocols.Keys
-            .Count(p => !TypeDatabaseExtensions.IsObjCModuleType(p));
+            .Count(p => !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p));
         if (filteredCount != protocolList.Protocols.Count)
             return false;
 
