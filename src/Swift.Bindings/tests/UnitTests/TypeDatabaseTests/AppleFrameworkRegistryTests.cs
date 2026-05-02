@@ -136,6 +136,23 @@ public class AppleFrameworkRegistryTests
     [InlineData("Network.NWEndpoint.Port", true)]
     [InlineData("PassKit.PKPaymentButtonType", true)]
     [InlineData("PassKit.PKPaymentNetwork", true)]
+    // ARKit nested ObjC enums. Microsoft.iOS exposes these as flat enums
+    // (ARRaycastTarget / ARRaycastTargetAlignment) rather than nested under
+    // ARRaycastQuery. Without these entries the synthetic ObjC bridge path
+    // overlap-dedups the parts into a non-existent ARRaycastQueryTarget
+    // identifier — a CS0234 in any RealityKit binding that surfaces ARView.Raycast.
+    // typeRemaps below pins the .NET name; valueTypes here keeps them off the
+    // Class-bridged path so no Handle extraction is generated.
+    [InlineData("ARKit.ARRaycastQuery.Target", true)]
+    [InlineData("ARKit.ARRaycastQuery.TargetAlignment", true)]
+    // ARHitTestResult.ResultType / UIAccessibilityCustomRotor.Direction —
+    // same shape as ARRaycastQuery.Target: nested ObjC enum that
+    // Microsoft.iOS hoists to a flat name (ARHitTestResultType /
+    // UIAccessibilityCustomRotorDirection). Surfaced via RealityKit
+    // dep-gate as CS0023 / CS0315 / CS1061 because the bridge path
+    // synthesised a non-existent flattened identifier.
+    [InlineData("ARKit.ARHitTestResult.ResultType", true)]
+    [InlineData("UIKit.UIAccessibilityCustomRotor.Direction", true)]
     [InlineData("PassKit.PKPayment", false)]   // Class (NSObject subclass)
     [InlineData("UIKit.UIImage", false)]       // Class, not value type
     [InlineData("Foundation.NSObject", false)]  // Class
@@ -275,6 +292,15 @@ public class AppleFrameworkRegistryTests
     [InlineData("AVFoundation.AVURLAsset", "AVFoundation.AVUrlAsset")]
     // Photos
     [InlineData("Photos.PHImageContentMode", "Photos.PHImageContentMode")]
+    // ARKit nested ObjC enums — see IsKnownValueType_ReturnsExpected for the
+    // full why. Microsoft.iOS exposes these as ARKit.ARRaycastTarget /
+    // ARKit.ARRaycastTargetAlignment, not flattened ARRaycastQueryTarget.
+    [InlineData("ARKit.ARRaycastQuery.Target", "ARKit.ARRaycastTarget")]
+    [InlineData("ARKit.ARRaycastQuery.TargetAlignment", "ARKit.ARRaycastTargetAlignment")]
+    // ARHitTestResult.ResultType / UIAccessibilityCustomRotor.Direction —
+    // same flat-hoist asymmetry; pin the Microsoft.iOS .NET name.
+    [InlineData("ARKit.ARHitTestResult.ResultType", "ARKit.ARHitTestResultType")]
+    [InlineData("UIKit.UIAccessibilityCustomRotor.Direction", "UIKit.UIAccessibilityCustomRotorDirection")]
     public void TryGetNetTypeName_KnownType_ReturnsTrue(string swiftName, string expectedNetName)
     {
         Assert.True(AppleFrameworkRegistry.TryGetNetTypeName(swiftName, out var netName));
@@ -591,6 +617,7 @@ public class AppleFrameworkRegistryTests
             "UIKit.UIEdgeInsets", "UIKit.UIOffset", "UIKit.UIFloatRange",
             "UIKit.NSDirectionalEdgeInsets",
             "UIKit.UIView.ContentMode", "UIKit.UIControl.State", "UIKit.UIControl.Event",
+            "UIKit.UIAccessibilityCustomRotor.Direction",
             "UIKit.UIAccessibilityTraits",
             "UIKit.UIBarStyle", "UIKit.UIKeyboardAppearance", "UIKit.UITextField.ViewMode",
             "UIKit.UIControl.ContentVerticalAlignment", "UIKit.UIActivityIndicatorView.Style",
@@ -662,6 +689,9 @@ public class AppleFrameworkRegistryTests
             "MapKit.MKDirectionsTransportType",
             // ARKit
             "ARKit.ARRaycastQuery",
+            "ARKit.ARRaycastQuery.Target",
+            "ARKit.ARRaycastQuery.TargetAlignment",
+            "ARKit.ARHitTestResult.ResultType",
             // Foundation
             "Foundation.Data", "Foundation.URL", "Foundation.UUID", "Foundation.IndexPath",
             "Foundation.URLError", "Foundation.URLError.Code",
@@ -849,8 +879,13 @@ public class AppleFrameworkRegistryTests
             ["UIKit.UIUserInterfaceStyle"] = "UIKit.UIUserInterfaceStyle",
             ["UIKit.UIControl.State"] = "UIKit.UIControlState",
             ["UIKit.UIControl.Event"] = "UIKit.UIControlEvent",
+            ["UIKit.UIAccessibilityCustomRotor.Direction"] = "UIKit.UIAccessibilityCustomRotorDirection",
             // Photos
             ["Photos.PHImageContentMode"] = "Photos.PHImageContentMode",
+            // ARKit
+            ["ARKit.ARRaycastQuery.Target"] = "ARKit.ARRaycastTarget",
+            ["ARKit.ARRaycastQuery.TargetAlignment"] = "ARKit.ARRaycastTargetAlignment",
+            ["ARKit.ARHitTestResult.ResultType"] = "ARKit.ARHitTestResultType",
         };
 
         foreach (var (swiftName, expectedNetName) in expectedRemaps)

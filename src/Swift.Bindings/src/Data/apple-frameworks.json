@@ -8,8 +8,16 @@
       "objcPrefixes": ["AR"],
       "platformUnavailable": ["tvOS", "macOS"],
       "valueTypes": [
-        "ARRaycastQuery"
-      ]
+        "ARHitTestResult.ResultType",
+        "ARRaycastQuery",
+        "ARRaycastQuery.Target",
+        "ARRaycastQuery.TargetAlignment"
+      ],
+      "typeRemaps": {
+        "ARHitTestResult.ResultType": "ARKit.ARHitTestResultType",
+        "ARRaycastQuery.Target": "ARKit.ARRaycastTarget",
+        "ARRaycastQuery.TargetAlignment": "ARKit.ARRaycastTargetAlignment"
+      }
     },
     {
       "module": "AVFAudio",
@@ -716,6 +724,7 @@
         "NSTextAlignment",
         "NSUnderlineStyle",
         "NSWritingDirection",
+        "UIAccessibilityCustomRotor.Direction",
         "UIAccessibilityTraits",
         "UIActivityIndicatorView.Style",
         "UIAlertAction.Style",
@@ -808,7 +817,8 @@
         "UIModalPresentationStyle": "UIKit.UIModalPresentationStyle",
         "UIUserInterfaceStyle": "UIKit.UIUserInterfaceStyle",
         "UIControl.State": "UIKit.UIControlState",
-        "UIControl.Event": "UIKit.UIControlEvent"
+        "UIControl.Event": "UIKit.UIControlEvent",
+        "UIAccessibilityCustomRotor.Direction": "UIKit.UIAccessibilityCustomRotorDirection"
       },
       "excludeFromXml": [
         "NSUnderlineStyle"
