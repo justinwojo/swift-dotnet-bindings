@@ -408,7 +408,7 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindingsAppleFramework"
           BeforeTargets="ResolveProjectReferences"
-          DependsOnTargets="_DumpAppleFrameworkAbi">
+          DependsOnTargets="_DumpAppleFrameworkAbi;_CollectSwiftModuleDatabases">
 
     <!-- Build direct-mode generator command (gated on fingerprint + mode) -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'">
@@ -429,6 +429,11 @@ done; true"
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
+      <!-- Cross-framework dependency module databases (e.g., RealityKit consuming
+           RealityFoundation's RealityFoundationDatabase.xml). Without this, the
+           generator can't resolve umbrella references back to their source module
+           and emits qualified type names rooted at the wrong namespace. -->
+      <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
     </PropertyGroup>
