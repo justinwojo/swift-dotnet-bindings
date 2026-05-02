@@ -261,11 +261,24 @@ public class DictionaryProjection : ITypeProjection
             if (innerConv != null)
                 return $"(Foundation.NSObject){innerConv}";
         }
+        // Primitive numerics/bool aren't NSObjects — box via Foundation.NSNumber to mirror
+        // the FromNSObject unbox path (NIntValue/BoolValue/...). Without this, an
+        // [Int: URL] or [Bool: URL] *parameter* bridge emits "(Foundation.NSObject)kvp.Key"
+        // which is an invalid primitive-to-NSObject cast.
+        if (projection is BlittableProjection or BoolProjection)
+        {
+            var box = NSNumberBoxExpression(projection.PublicType, elementVar);
+            if (box != null)
+                return box;
+        }
         return $"(Foundation.NSObject){elementVar}";
     }
 
     /// <summary>
     /// Converts an NSObject from NSDictionary to the C# typed element.
+    /// Numeric keys/values are stored as boxed NSNumber instances and require explicit
+    /// unboxing through the matching NSNumber accessor (e.g. <c>NIntValue</c> for
+    /// <c>Swift.Int</c>) rather than a plain cast — <c>(nint)NSObject</c> is invalid.
     /// </summary>
     private static string FromNSObject(ITypeProjection projection, string nsObjectVar)
     {
@@ -275,7 +288,69 @@ public class DictionaryProjection : ITypeProjection
             return $"{nsObjectVar}.ToString()";
         if (projection is DataProjection)
             return $"((Foundation.NSData){nsObjectVar}).ToArray()";
+        // BoolProjection is its own class (not BlittableProjection), but Swift.Bool also
+        // bridges to NSNumber inside an NSDictionary, so it needs the same unbox path.
+        if (projection is BlittableProjection or BoolProjection)
+        {
+            var unbox = NSNumberUnboxExpression(projection.PublicType, nsObjectVar);
+            if (unbox != null)
+                return unbox;
+        }
         return $"({projection.PublicType}){nsObjectVar}";
+    }
+
+    /// <summary>
+    /// For numeric/boolean primitive types stored as NSNumber inside an NSDictionary,
+    /// emit the matching NSNumber accessor. Returns null for non-NSNumber primitives,
+    /// in which case callers fall back to the default NSObject cast.
+    /// </summary>
+    private static string? NSNumberUnboxExpression(string publicType, string nsObjectVar)
+    {
+        var nsNumber = $"((Foundation.NSNumber){nsObjectVar})";
+        return publicType switch
+        {
+            "nint" => $"{nsNumber}.NIntValue",
+            "nuint" => $"{nsNumber}.NUIntValue",
+            "long" => $"{nsNumber}.Int64Value",
+            "ulong" => $"{nsNumber}.UInt64Value",
+            "int" => $"{nsNumber}.Int32Value",
+            "uint" => $"{nsNumber}.UInt32Value",
+            "short" => $"{nsNumber}.Int16Value",
+            "ushort" => $"{nsNumber}.UInt16Value",
+            "byte" => $"{nsNumber}.ByteValue",
+            "sbyte" => $"{nsNumber}.SByteValue",
+            "float" => $"{nsNumber}.FloatValue",
+            "double" => $"{nsNumber}.DoubleValue",
+            "bool" => $"{nsNumber}.BoolValue",
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Inverse of <see cref="NSNumberUnboxExpression"/>: box a C# primitive into a
+    /// Foundation.NSNumber for NSDictionary construction. Foundation.NSNumber IS an NSObject,
+    /// so the result is directly assignable as a key/value. Returns null for primitives
+    /// without an NSNumber factory; callers fall back to the default NSObject cast.
+    /// </summary>
+    private static string? NSNumberBoxExpression(string publicType, string elementVar)
+    {
+        return publicType switch
+        {
+            "nint" => $"Foundation.NSNumber.FromNInt({elementVar})",
+            "nuint" => $"Foundation.NSNumber.FromNUInt({elementVar})",
+            "long" => $"Foundation.NSNumber.FromInt64({elementVar})",
+            "ulong" => $"Foundation.NSNumber.FromUInt64({elementVar})",
+            "int" => $"Foundation.NSNumber.FromInt32({elementVar})",
+            "uint" => $"Foundation.NSNumber.FromUInt32({elementVar})",
+            "short" => $"Foundation.NSNumber.FromInt16({elementVar})",
+            "ushort" => $"Foundation.NSNumber.FromUInt16({elementVar})",
+            "byte" => $"Foundation.NSNumber.FromByte({elementVar})",
+            "sbyte" => $"Foundation.NSNumber.FromSByte({elementVar})",
+            "float" => $"Foundation.NSNumber.FromFloat({elementVar})",
+            "double" => $"Foundation.NSNumber.FromDouble({elementVar})",
+            "bool" => $"Foundation.NSNumber.FromBoolean({elementVar})",
+            _ => null
+        };
     }
 
     /// <summary>

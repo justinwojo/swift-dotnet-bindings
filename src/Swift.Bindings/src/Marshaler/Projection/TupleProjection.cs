@@ -78,7 +78,15 @@ public class TupleProjection : ITypeProjection
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
     {
-        var needsConversion = _elementProjections.Any(p => p.GetReturnElementConversion("x") != null);
+        // Top-level tuple return needs the same per-element treatment as the Optional<Tuple>
+        // inner-element path: the P/Invoke result is a ValueTuple<…> at PInvokeType (e.g.
+        // ValueTuple<SwiftString, IntPtr> for (String, Class)), but the public surface is the
+        // PublicType ValueTuple ((string, Animal)). Without the per-element lift, a direct
+        // (String, Class) return would leak raw IntPtr into the public tuple's class slot.
+        bool NeedsConversion(ITypeProjection p)
+            => IsRawPointerClassProjection(p) || p.GetReturnElementConversion("x") != null;
+
+        var needsConversion = _elementProjections.Any(NeedsConversion);
 
         if (!needsConversion)
         {
@@ -100,7 +108,19 @@ public class TupleProjection : ITypeProjection
             var itemAccess = strategy == ReturnStrategy.Direct
                 ? $"{resultName}.Item{i + 1}"
                 : $"{resultName}.Item{i + 1}";
-            var conv = proj.GetReturnElementConversion(itemAccess);
+
+            string? conv;
+            if (IsRawPointerClassProjection(proj))
+            {
+                // Tuple PInvokeType is IntPtr for class fields — lift to the public class
+                // instance via MarshalFromSwiftObject. Mirrors the path in
+                // GetReturnElementConversion below for the inner-tuple case.
+                conv = RawPointerClassLift(proj, itemAccess);
+            }
+            else
+            {
+                conv = proj.GetReturnElementConversion(itemAccess);
+            }
 
             if (conv != null)
             {
@@ -120,6 +140,67 @@ public class TupleProjection : ITypeProjection
             PInvokeExpression = $"({string.Join(", ", elemExprs)})",
             RequiresUnsafe = requiresUnsafe
         };
+    }
+
+    /// <summary>
+    /// Projections whose P/Invoke field for a tuple slot is a raw <c>IntPtr</c> that must
+    /// be materialized via <c>SwiftMarshal.MarshalFromSwiftObject&lt;T&gt;</c> to produce the
+    /// public instance. All members share the same shape: <c>PInvokeType == "IntPtr"</c>,
+    /// <c>GetReturnPlan</c> wraps via MarshalFromSwiftObject, and
+    /// <c>GetReturnElementConversion</c> returns null (so the tuple cannot delegate to it).
+    /// Covers pure-Swift <see cref="ClassProjection"/>, ObjC-rooted
+    /// <see cref="ObjCRootedClassProjection"/>, and non-frozen struct/complex-enum
+    /// <see cref="NonFrozenStructProjection"/>.
+    /// </summary>
+    private static bool IsRawPointerClassProjection(ITypeProjection p)
+        => p is ClassProjection or ObjCRootedClassProjection or NonFrozenStructProjection;
+
+    private static string RawPointerClassLift(ITypeProjection p, string elementVar)
+        => $"({p.PublicType})SwiftMarshal.MarshalFromSwiftObject<{p.PublicType}>({elementVar})";
+
+    /// <summary>
+    /// Element-level conversion for when this Tuple is the inner of a container that materializes
+    /// fields as raw P/Invoke shapes — e.g. <c>SwiftOptional&lt;ValueTuple&lt;SwiftString, IntPtr&gt;&gt;</c>
+    /// where <c>.Some</c> returns a ValueTuple with each field at its <c>PInvokeType</c>.
+    /// Composes per-element conversions: <c>StringProjection</c> emits <c>{var}.Item1.ToString()</c>;
+    /// <c>ClassProjection</c> needs an explicit lift from IntPtr to the class instance because
+    /// nothing else in the Tuple-of-classes path constructs the wrapper (unlike SwiftArray/Dictionary
+    /// AsProjected lambdas, which receive already-materialized instances).
+    /// </summary>
+    public string? GetReturnElementConversion(string elementVar)
+    {
+        var elemExprs = new List<string>();
+        bool anyConversion = false;
+        for (int i = 0; i < _elementProjections.Count; i++)
+        {
+            var proj = _elementProjections[i];
+            var itemAccess = $"{elementVar}.Item{i + 1}";
+            string? conv;
+            if (IsRawPointerClassProjection(proj))
+            {
+                // Tuple stores PInvokeType for each field. For class-shaped slots that's
+                // IntPtr (pure Swift class OR ObjC-rooted class) — lift via
+                // MarshalFromSwiftObject. SwiftArray/SwiftDictionary don't hit this case
+                // because their AsProjected lambdas receive already-materialized class
+                // instances (T = MarshalFromSwiftType, not IntPtr).
+                conv = RawPointerClassLift(proj, itemAccess);
+            }
+            else
+            {
+                conv = proj.GetReturnElementConversion(itemAccess);
+            }
+
+            if (conv != null)
+            {
+                elemExprs.Add(conv);
+                anyConversion = true;
+            }
+            else
+            {
+                elemExprs.Add(itemAccess);
+            }
+        }
+        return anyConversion ? $"({string.Join(", ", elemExprs)})" : null;
     }
 
     public bool RequiresSwiftWrapper => false;

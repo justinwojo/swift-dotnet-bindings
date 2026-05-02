@@ -59,4 +59,20 @@ public class URLContainerTestHelper {
     public func acceptEmptyURLArray(urls: [URL]) -> Int {
         return urls.count
     }
+
+    // MARK: - Dictionary with Numeric Key (Bug fix #20)
+    //
+    // Pins the NSDictionary→Dictionary integer-key unboxing fix in
+    // DictionaryProjection.FromNSObject. The container bridges to NSDictionary
+    // because the value type (URL) is ObjC-bridgeable; the keys are then stored
+    // as boxed NSNumber instances. Before the fix, `(nint)_nsKey` was emitted
+    // and produced CS0030 because NSObject is not directly castable to nint.
+    // Mirrors the RealityFoundation `[Int: URL]` shape that triggered this.
+
+    public func getURLsBySample() -> [Int: URL] {
+        return [
+            10: URL(string: "https://sample-10.example.com")!,
+            42: URL(string: "https://sample-42.example.com")!,
+        ]
+    }
 }

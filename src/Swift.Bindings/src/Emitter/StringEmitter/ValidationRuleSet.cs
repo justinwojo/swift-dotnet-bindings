@@ -68,7 +68,7 @@ public static class ValidationRuleSet
                 // produce a CS0234 dangling reference since the declaration was never
                 // emitted. Enforces the invariant "if a type is skipped, every use of
                 // it must be skipped too."
-                if (namedType.HasModule() && ReportCollector.IsTypeSkipped(namedType.Name))
+                if (namedType.HasModule() && IsTypeSkippedWithUmbrellaRemap(namedType))
                     return true;
                 // Types the emitter will never produce (e.g., single-case no-payload
                 // enums marked Unemittable). Skip anything referencing them so we don't
@@ -319,6 +319,40 @@ public static class ValidationRuleSet
     #region Private Helpers
 
     private static bool IsIdentifierChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>
+    /// Probes <see cref="ReportCollector.IsTypeSkipped(string)"/> with the type's name as-is,
+    /// then with each Apple <c>compileImportModule</c> source-module remap applied. The ABI
+    /// JSON's <c>printedName</c> often qualifies a type with its umbrella module
+    /// (e.g. <c>RealityKit.Entity.ChildCollection.IndexingIterator</c>), but
+    /// <see cref="TypeSkipPrePass"/> records the canonical declaration's
+    /// <c>SwiftTypeName.ModuleQualifiedName</c> — which uses the source module
+    /// (<c>RealityFoundation.…</c>). Without the remap the gate misses and emission leaks a
+    /// dangling reference past the C# compiler.
+    /// </summary>
+    private static bool IsTypeSkippedWithUmbrellaRemap(NamedTypeSpec namedType)
+    {
+        if (ReportCollector.IsTypeSkipped(namedType.Name))
+            return true;
+
+        var umbrellaModule = namedType.Module;
+        if (string.IsNullOrEmpty(umbrellaModule))
+            return false;
+
+        var sourceModules = AppleFrameworkRegistry.GetCompileImportSourceModules(umbrellaModule);
+        if (sourceModules.Count == 0)
+            return false;
+
+        // namedType.Name = "Umbrella.Path.To.Type" — strip the umbrella module prefix and
+        // reattach each source module so the lookup matches the canonical declaration key.
+        var suffix = namedType.Name.Substring(umbrellaModule.Length + 1);
+        foreach (var sourceModule in sourceModules)
+        {
+            if (ReportCollector.IsTypeSkipped($"{sourceModule}.{suffix}"))
+                return true;
+        }
+        return false;
+    }
 
     #endregion
 }

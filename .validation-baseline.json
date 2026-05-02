@@ -1,5 +1,5 @@
 {
-  "git_sha": "50e3ebc6",
+  "git_sha": "92b384da",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -108,16 +108,16 @@
         "swift_compile": "ok"
       },
       "RealityKit": {
-        "compile": "skip",
-        "errors": 0,
+        "compile": "fail",
+        "errors": 3,
         "lines": 7767,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RealityFoundation": {
-        "compile": "known_errors",
-        "errors": 2,
-        "lines": 173276,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 173206,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,8 +908,8 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 22408,
-    "total_skipped_members": 6608,
+    "total_emitted_members": 22406,
+    "total_skipped_members": 6610,
     "skip_rate_pct": 22.8,
     "skip_reasons": {
       "UnsupportedSignature": 1201,
@@ -920,8 +920,8 @@
       "GenericProtocolConstraint": 655,
       "EveryProtocolConformanceSkipped": 289,
       "UnsupportedClosure": 281,
+      "SwiftUIConstraint": 239,
       "MissingWrapperSymbol": 238,
-      "SwiftUIConstraint": 237,
       "UnsupportedType": 213,
       "UnsupportedExistential": 125,
       "UnsatisfiedGenericConstraint": 108,
@@ -938,7 +938,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1768,
+      "pass": 1771,
       "fail": 0,
       "skip": 50,
       "crash": 0

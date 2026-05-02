@@ -6,12 +6,16 @@
 - `RealityKit`: 29 × CS0234 (cross-module type qualification — references to `RealityKit.Entity` / `RealityFoundation.Entity` / `ARKit.ARRaycastQueryTarget` / `Swift.SIMD3` that don't resolve).
 - `RealityFoundation`: skipped (compile-gated on `RealityKit`).
 
-**Status (Session 3 done)**:
-- `RealityKit`: **0 errors**.
-- `RealityFoundation`: **36 errors** (annotated as `knownErrors: 36`, down from 41). Bucket #7 (CS0111 dup ctors, CS0102 dup `Count`) and Misc (CS1750 unconstrained-T default) eliminated for the targeted patterns. Remaining: 24 × CS0315 boxing (Bucket #5, Session 4 scope) + 12 structural (CS0426/CS0246/CS0234, deferred). The "drop of 10" estimate in the original plan over-counted because dependency-project errors were being double-tallied.
-- Dedup keys (`BaseHandler.GetProjectedCSharpMethodKey` + `DefaultParameterOverloadEmitter.GetProjectedOverloadKey`) now collapse `Optional<GenericParam>` onto the bare param form via a shared `CollectVisibleGenericParamNames` walk; `SwiftDefaultValueMapper.MapNil` returns `default` for unconstrained generic-T (canonical τ_*_* and sugared "Value"/"Element" alike); `CollectionProjectionEmitter.Count` is gated on whether `PropertyHandler` actually emitted a `Count` property.
-- `nuke validate`: 129/129 overall passed; baseline rolled.
-- Next: **Session 4** (Bucket #5 — relax `ISwiftObject` constraint for blittable-T generics, ~24 × CS0315).
+**Status (Session 5 done)**:
+- `RealityFoundation`: **0 errors** (was 2; the two deferred structural patterns — `Optional<(String, Class)>` per-element decomposition and `[Int: _]` NSDictionary key unboxing — are now fixed in `TupleProjection.GetReturnElementConversion` and `DictionaryProjection.FromNSObject`).
+- `RealityKit`: **3 errors in dep gate** (newly visible). Pre-fix the dep gate was deferred because `RealityFoundation` failed standalone with `knownErrors: 2`; with `RealityFoundation` now clean the dep gate runs and surfaces three pre-existing emission gaps:
+  - `MultipeerConnectivityService.Owner(Entity)` — `Optional<existential>` return type triggers `MemberEmissionValidator.UnsupportedExistential` skip, leaving the `RealityFoundation.ISynchronizationService` interface unimplemented (CS0535). The interface itself emits the method with the existential fallback annotation; the class-side emission silently drops it.
+  - `ARView.Raycast` parameters `ARKit.ARRaycastQueryTarget` / `ARKit.ARRaycastQueryTargetAlignment` (CS0234 ×2). Microsoft.iOS exposes these as the flat ObjC names `ARKit.ARRaycastTarget` / `ARKit.ARRaycastTargetAlignment` (USRs `c:@E@ARRaycastTarget` / `c:@E@ARRaycastTargetAlignment`); the generator concatenates the Swift-nested name (`ARRaycastQuery.Target` → `ARRaycastQueryTarget`) instead of using the ObjC USR for cross-module nested-enum references.
+- These three errors are not regressions from the Session 5 fixes — they are pre-existing emission gaps that were masked by the dep-gate-deferred state. Both are independent generator surface area: a protocol-method existential fallback for return-position `Optional<existential>`, and an ObjC-USR-based cross-module nested-enum naming pass. **Deferred to Session 6.**
+- Side wins from the Session 5 emitter improvements: RichTextKit `knownErrors` 37 → 28; WhatsNewKit 4 → 2.
+- Session 4 baseline still in place: marker-protocol filter on `ISwiftObject` seeds, `libSwiftBindingsRuntime.dylib` SIMD/quaternion metadata accessors, BindingTests `BlittableGenericArgs` coverage. No regressions.
+- BindingTests: 1771 sim pass (+3 over baseline); new coverage at `URLContainerBridgeTests.TestGetURLsBySample` (NSDict<Int,_> unbox) + `OptionalMarshallingTests.TestFirstNamedAnimal{Some,None}` (Optional<(String, Class)> decompose).
+- Next: **Session 6** (close out the three RealityKit dep-gate errors, then final shipping gate — full `nuke validate` + `nuke binding-tests --device`).
 
 A throwaway dep-order-reversal experiment (now reverted) proved that once `RealityFoundation` is generated against an actually-loaded `RealityKit` module DB, **90 hidden errors in `RealityFoundation` surface**. Those 90 are the real backlog. The 29 surface errors on `RealityKit` are all qualification-resolution failures rooted in the same dep-threading gap.
 
@@ -145,7 +149,7 @@ If Session 1 happens to land with zero portfolio regressions, this session colla
 
 ---
 
-## Session 4 — Bucket #5: relax `ISwiftObject` constraint for blittable-T generics
+## Session 4 — Bucket #5: relax `ISwiftObject` constraint for blittable-T generics ✅ completed (commit 92b384da)
 
 **Goal**: 68 × CS0315 errors gone. This is the deepest change in the plan — touches four coordinated sites and the runtime metadata path.
 
@@ -227,7 +231,7 @@ And likely additional method-level sites Codex called out (`WrapperEmitter.Signa
 
 ---
 
-## Session 5 — Bucket #5 edge cases + RealityKit/RealityFoundation final green
+## Session 5 — Bucket #5 edge cases + RealityKit/RealityFoundation final green ✅ partial
 
 **Goal**: clear stragglers from Session 4 and lock both libraries at 0 errors in `nuke validate`.
 
@@ -237,17 +241,117 @@ And likely additional method-level sites Codex called out (`WrapperEmitter.Signa
 - Nested generics where the outer is blittable-T but the inner constrains.
 - Anything else `nuke validate --filter RealityFoundation` / `--filter RealityKit` still reports.
 
+### Outcome
+
+Four root-cause fixes landed against generator/parser/marshaller layers (no XML or per-library
+suppressions). RealityFoundation knownErrors **36 → 2**, RichTextKit **37 → 28**, WhatsNewKit
+**4 → 2** as collateral wins from the same emitter improvements.
+
+- **Fix A — `ValidationRuleSet.ReferencesUnsupportedModule` umbrella source-module probe.**
+  Reverse-maps an umbrella TypeSpec name (`RealityKit.Entity.ChildCollection.IndexingIterator`)
+  through `AppleFrameworkRegistry.GetCompileImportSourceModules` so the gate sees the canonical
+  `RealityFoundation.…` skip entry recorded by the pre-pass.
+- **Fix B — `NativeIntOverloadEmitter.ResolveType` bound-generic alias short-circuit.**
+  Probes `TryResolveBoundGenericAlias` BEFORE the bare-name + generic-arg recursion fallback so
+  `Swift.SIMD3<Swift.Float>` resolves to `simd.simd_float3`'s C# name instead of the synthetic
+  `Swift.SIMD3<float>`.
+- **Fix C — `SwiftABIParser` enum-case associated-value `TypeNameAlias` surgical unwrap.**
+  When the textually-parsed tuple's element index has a `TypeNameAlias` ABI child, replace it
+  with `CreateTypeSpec(child)` (which unwraps to the underlying nominal); preserve the textually
+  parsed `TypeLabel`.
+- **Fix D — `WrapperEmitter.Marshalling` B12 ObjC-optional gate delegates to
+  `MarshallingHelpers.IsOptionalObjCBridged`.** Same precedence rule as `TypeProjectionFactory`:
+  TypeRecord-first, with the auto-bridge fallback gated on `IsOptionalFallbackModule` +
+  `HasObjCClassPrefix`. Prevents `?.Handle` emission for plain Swift classes whose ABI
+  `printedName` uses an umbrella re-export module — the previous bespoke logic relied on the
+  broader `IsObjCModuleType` heuristic and misclassified such types.
+- **Fix B follow-on — `Swift.Optional<T>` fallback emits C# nullable form.** When
+  `NativeIntOverloadEmitter.ResolveType` falls through the projection layer (incomplete
+  TypeDatabase, fragmented generic context), `Swift.Optional<T>` now emits `T?` instead of the
+  raw generic shape `Swift.Optional<T>` — that shape is not a valid C# type and would CS0234
+  the int overload. Locked in by the nested-Optional regression test.
+
+### Tests
+
+`src/Swift.Bindings/tests/UnitTests/EmitterTests/RealityFrameworkRemapFixTests.cs` — six tests
+covering all four fixes (A positive + negative, B alias short-circuit, B-nested
+`Optional<SIMD3<Float>>` resolves to `System.Numerics.Vector3?`, C enum-case unwrap with
+non-alias element preserved, D ObjC-optional gating defers to TypeRecord).
+
+### Follow-on fixes — RealityFoundation 2 → 0
+
+The two structural patterns that closed Session 5's RealityFoundation gap:
+
+1. **Bug 1 — `Optional<(String, Class)>` per-element decomposition** (`TupleProjection.GetReturnElementConversion`).
+   `OptionalProjection`'s "no element conversion" path was casting `_swiftOpt.Some` (an unmaterialised
+   `ValueTuple<SwiftString, IntPtr>`) directly to `(string, Animal)?` and tripping CS0030. The fix
+   overrides `GetReturnElementConversion` on `TupleProjection` to walk elements: each non-class
+   element delegates to its projection's per-element conversion; class elements emit the explicit
+   `(T)SwiftMarshal.MarshalFromSwiftObject<T>(itemAccess)` lift to materialise the ARC pointer.
+   Pinned by `OptionalTupleOfStringClass_GetReturnPlan_DecomposesPerElement` (unit) and
+   `OptionalMarshallingTests.TestFirstNamedAnimal{Some,None}` (BindingTests).
+2. **Bug 2 — `[Int: URL]` NSDictionary integer-key unbox** (`DictionaryProjection.FromNSObject` /
+   `ToNSObject`). When the value type is ObjC-bridgeable (`URL`/`NSDate`/etc.) the entire `[K:V]`
+   bridges to `NSDictionary`, so the Swift `Int` keys arrive as boxed `NSNumber`s under `NSObject`.
+   The pre-fix return path emitted `(nint)_nsKey` and the parameter path emitted
+   `(Foundation.NSObject)kvp.Key` — both tripping invalid primitive↔NSObject casts. The fix routes
+   primitive keys through a symmetric pair of NSNumber tables: returns unbox via the matching
+   accessor (`NIntValue` / `Int32Value` / `DoubleValue` / etc.), parameters box via the matching
+   `Foundation.NSNumber.FromXxx(...)` factory. Both `BlittableProjection` (12 primitive numerics)
+   and `BoolProjection` (Swift `Bool`, which has its own projection class because the P/Invoke side
+   needs `[MarshalAs(UnmanagedType.U1)]`) flow through the tables. Pinned by
+   `DictionaryIntUrl_ObjCBridgeReturn_UnboxesIntKeyViaNSNumber` (unit), the broader
+   `DictionaryBlittableKey_ObjCBridgeReturn_UsesMatchingNSNumberAccessor` `[Theory]` covering the
+   12 numeric primitive types, the `DictionaryBoolKey_ObjCBridgeReturn_UnboxesViaBoolValue` Fact,
+   the parameter-side `DictionaryBlittableKey_ObjCBridgeParameter_BoxesViaNSNumberFactory` `[Theory]`
+   and `DictionaryBoolKey_ObjCBridgeParameter_BoxesViaFromBoolean` Fact, and
+   `URLContainerBridgeTests.TestGetURLsBySample` (BindingTests).
+
+### Remaining (deferred to Session 6)
+
+Three RealityKit dep-gate errors surfaced once the dep gate began running (RealityFoundation is now
+clean enough to compile a usable DLL for the dep gate to link against). All three are pre-existing
+emission gaps independent of Bug 1 / Bug 2 — both require their own generator surface area:
+
+1. **`MultipeerConnectivityService.Owner(Entity)` silently dropped (CS0535).** Return type is
+   `Optional<any RealityKit.SynchronizationPeerID>`. `MemberEmissionValidator` flags it as
+   `UnsupportedExistential` ("Bound generic contains existential type argument") and skips emission
+   entirely, even though the protocol declaration emits the method with `[UnsupportedSwiftType]`
+   fallback (`object?` return). Asymmetric with `giveOwnership`, whose top-level existential
+   parameter does emit the existential fallback. Fix needs the class-side method emission to honour
+   the same `Optional<existential>`-aware fallback the protocol declaration uses.
+2. **`ARView.Raycast` ObjC-USR vs Swift-nested-name mismatch (CS0234 ×2).** ABI JSON shape:
+   `printedName: "ARKit.ARRaycastQuery.Target"`, `usr: "c:@E@ARRaycastTarget"`. Microsoft.iOS
+   exposes the type as the flat ObjC name `ARKit.ARRaycastTarget`; the generator concatenates the
+   Swift-nested form to `ARKit.ARRaycastQueryTarget` and the C# compiler can't resolve it. Fix
+   needs a cross-module-nested-ObjC-enum pass that consults the `c:@E@` USR when present and emits
+   the ObjC C# name. Generic enough to land outside RealityKit/RealityFoundation.
+
 ### Done when
 
 - `nuke validate --filter RealityKit` and `--filter RealityFoundation` both report **0 errors**.
+  ⚠️ Currently `RealityFoundation = 0` (clean), `RealityKit = 3` (dep gate; pre-existing emission gaps unmasked by Bug 1/Bug 2 fixes — deferred to Session 6).
 - `.validation-baseline.json` updated; `cs_compile` and `swift_compile` reflect the wins.
 - `/codex-review` clean.
 
 ---
 
-## Session 6 — Final shipping gate
+## Session 6 — RealityKit dep-gate close-out + final shipping gate
 
-**Goal**: prove regression-clean and ABI-safe end-to-end.
+**Goal**: clear the three RealityKit dep-gate errors unmasked by Session 5, then prove regression-clean and ABI-safe end-to-end.
+
+### Pre-shipping fixes
+
+1. **`Optional<existential>` return-type fallback on class-side method emission.** Make
+   `MemberEmissionValidator`'s `UnsupportedExistential` skip on a method match the protocol-decl
+   path: emit the method with `[UnsupportedSwiftType]` and an `object?` return. BindingTests
+   coverage on a class implementing a protocol where one method returns `Optional<some-existential>`.
+2. **ObjC-USR cross-module nested-enum naming pass.** When emitting a parameter / return type whose
+   USR is `c:@E@<ObjCName>` and whose Swift `printedName` is a nested form (`Foo.Bar`), prefer the
+   ObjC name from the USR. Generic across all Apple frameworks; verify against ARKit raycast types
+   and a couple of other nested ObjC enums in the validation portfolio.
+
+### Final gates
 
 - Full `nuke test`, full `nuke validate`, `nuke binding-tests` (sim).
 - `nuke binding-tests --device` (NativeAOT) — required because Sessions 1 and 4 touched calling-convention / marshalling code.

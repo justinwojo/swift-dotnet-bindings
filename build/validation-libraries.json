@@ -93,8 +93,7 @@
       "platforms": ["ios"],
       "products": [
         {
-          "framework": "RealityFoundation",
-          "knownErrors": 36
+          "framework": "RealityFoundation"
         }
       ],
       "tier": 1
@@ -984,7 +983,7 @@
         {
           "scheme": "RichTextKit",
           "framework": "RichTextKit",
-          "knownErrors": 37
+          "knownErrors": 28
         }
       ],
       "tier": 2
@@ -1000,7 +999,7 @@
         {
           "scheme": "WhatsNewKit",
           "framework": "WhatsNewKit",
-          "knownErrors": 4
+          "knownErrors": 2
         }
       ],
       "tier": 2

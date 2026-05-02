@@ -1220,16 +1220,44 @@ namespace BindingsGeneration
                                 {
                                     var tuplePrintedName = assocValuesNode.PrintedName;
                                     var parsedTuple = TypeSpecParser.Parse(tuplePrintedName);
+                                    List<TypeSpec> parsedElements;
                                     if (parsedTuple is TupleTypeSpec tupleSpec)
                                     {
-                                        foreach (var element in tupleSpec.Elements)
-                                            enumCaseDecl.AssociatedValues.Add(element);
-                                        parsedFromTuplePrintedName = true;
+                                        parsedElements = tupleSpec.Elements;
                                     }
                                     else if (parsedTuple != null)
                                     {
                                         // Single-element tuple unwrapped by TypeSpecParser
-                                        enumCaseDecl.AssociatedValues.Add(parsedTuple);
+                                        parsedElements = new List<TypeSpec> { parsedTuple };
+                                    }
+                                    else
+                                    {
+                                        parsedElements = new List<TypeSpec>();
+                                    }
+
+                                    if (parsedElements.Count > 0)
+                                    {
+                                        // For elements whose corresponding ABI child is a TypeNameAlias,
+                                        // resolve the alias to its underlying nominal type via CreateTypeSpec
+                                        // (which unwraps the alias) — the textual TypeSpecParser only sees
+                                        // the printed alias name (e.g. "simd.float4x4") and cannot expand
+                                        // it to the real type ("simd.simd_float4x4"). Preserve the
+                                        // textually-parsed label since CreateTypeSpec doesn't see it.
+                                        var assocChildren = assocValuesNode.Children.ToList();
+                                        for (int i = 0; i < parsedElements.Count && i < assocChildren.Count; i++)
+                                        {
+                                            if (assocChildren[i].Kind == "TypeNameAlias")
+                                            {
+                                                var resolved = CreateTypeSpec(assocChildren[i]);
+                                                if (resolved != null)
+                                                {
+                                                    resolved.TypeLabel = parsedElements[i].TypeLabel;
+                                                    parsedElements[i] = resolved;
+                                                }
+                                            }
+                                        }
+                                        foreach (var element in parsedElements)
+                                            enumCaseDecl.AssociatedValues.Add(element);
                                         parsedFromTuplePrintedName = true;
                                     }
                                 }

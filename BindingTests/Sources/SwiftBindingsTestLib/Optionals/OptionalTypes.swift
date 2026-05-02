@@ -149,3 +149,24 @@ public struct LargeValueStruct {
         self.f = f
     }
 }
+
+// MARK: - Bug fix: Optional<(String, Class)> return per-element decomposition
+//
+// Pins the TupleProjection.GetReturnElementConversion fix. Tuple stores PInvokeType
+// per element, so a (String, Animal) field is laid out as (SwiftString, IntPtr).
+// Before the fix, OptionalProjection's "no element conversion" path emitted
+// `((string, Animal)?)_swiftOpt.Some` — a CS0030 from ValueTuple<SwiftString, IntPtr>
+// to (string, Animal). The fix decomposes per element: SwiftString.ToString() and
+// SwiftMarshal.MarshalFromSwiftObject<Animal> on the IntPtr field.
+//
+// Mirrors the RealityFoundation Iterator.next() shape `Optional<(name: String,
+// animation: AnimationResource)>` that triggered the original error.
+
+/// Returns the named animal in the array as a (String, Animal) tuple, or nil if
+/// the array is empty. The Animal class element forces the per-element
+/// decomposition path because tuple PInvokeType for a class is IntPtr, not the
+/// already-materialized class instance that SwiftArray/SwiftDictionary surface.
+public func firstNamedAnimal(_ animals: [Animal]) -> (label: String, animal: Animal)? {
+    guard let first = animals.first else { return nil }
+    return (label: "primary:\(first.name)", animal: first)
+}

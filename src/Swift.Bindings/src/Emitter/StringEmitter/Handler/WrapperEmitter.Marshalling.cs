@@ -549,19 +549,23 @@ namespace BindingsGeneration
 
             var csName = NameProvider.GetCSharpParameterName(argumentDecl);
 
-            // B12: ObjC optional inner — extract Handle directly instead of using projection
-            if (projection is OptionalProjection optProj)
+            // B12: ObjC optional inner — extract Handle directly instead of using projection.
+            //
+            // Delegate to MarshallingHelpers.IsOptionalObjCBridged so this gate uses the SAME
+            // precedence rule as TypeProjectionFactory (TypeRecord-first; auto-bridge fallback
+            // gated on IsOptionalFallbackModule + HasObjCClassPrefix). The module-name
+            // heuristic alone misclassifies plain Swift classes whose ABI printedName uses an
+            // umbrella re-export module — e.g., `RealityKit.Entity` for a class that lives
+            // in RealityFoundation — and emits `<param>?.Handle ?? IntPtr.Zero` for a class
+            // that has no Handle property (only .Payload), producing CS1061. ObjCRooted
+            // classes use SwiftOptional<T> ABI, not nullable pointer, so they are
+            // intentionally excluded by IsOptionalObjCBridged.
+            if (projection is OptionalProjection &&
+                MarshallingHelpers.IsOptionalObjCBridged(argumentDecl.SwiftTypeSpec, _env.TypeDatabase))
             {
-                var optNamed = argumentDecl.SwiftTypeSpec as NamedTypeSpec;
-                var innerElement = optNamed?.GenericParameters.FirstOrDefault();
-                if (innerElement is NamedTypeSpec innerNamed && innerNamed.HasModule() &&
-                    TypeDatabaseExtensions.IsObjCModuleType(innerNamed) &&
-                    !IsKnownSwiftValueType(innerNamed, _env.TypeDatabase))
-                {
-                    var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                    csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");
-                    return true;
-                }
+                var bufferName = NameProvider.GetBoundGenericBufferName(csName);
+                csWriter.WriteLine($"IntPtr {bufferName} = {csName}?.Handle ?? IntPtr.Zero;");
+                return true;
             }
 
             // Check if Optional param needs DangerousGetHandle override.

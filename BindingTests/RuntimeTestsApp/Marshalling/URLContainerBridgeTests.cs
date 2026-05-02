@@ -74,6 +74,25 @@ public class URLContainerBridgeTests : TestBase
         AssertEqual("https://api.example.com", dict["api"]!.AbsoluteString, "'api' URL preserved");
     }
 
+    public void TestGetURLsBySample()
+    {
+        // Pins the [Int: URL] NSDictionary integer-key unboxing fix. Before the fix,
+        // FromNSObject emitted (nint)_nsKey for the Swift.Int → nint key, which
+        // failed CS0030 because NSDictionary.Keys is NSObject[] holding boxed NSNumber.
+        // The fix routes BlittableProjection numeric keys through NSNumber accessors
+        // (NIntValue here). RealityFoundation's UrlsBySample triggered the original error.
+        using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();
+        var dict = helper.GetURLsBySample();
+        AssertNotNull(dict, "GetURLsBySample returns non-null");
+        AssertEqual(2, dict!.Count, "Dictionary has 2 entries");
+        AssertTrue(dict.ContainsKey(10), "Dictionary contains key 10");
+        AssertTrue(dict.ContainsKey(42), "Dictionary contains key 42");
+        AssertEqual("https://sample-10.example.com", dict[10]!.AbsoluteString,
+            "Key 10 URL preserved (NSNumber unbox round-trip)");
+        AssertEqual("https://sample-42.example.com", dict[42]!.AbsoluteString,
+            "Key 42 URL preserved (NSNumber unbox round-trip)");
+    }
+
     #endregion
 
     #region Set Return

@@ -338,5 +338,30 @@ public class OptionalMarshallingTests : TestBase
         TestLogger.Info("OptionalGenericHolder<LargeValueStruct>.GetPeek round-trip preserved");
     }
 
+    public void TestFirstNamedAnimalSome()
+    {
+        // Pins the Optional<(String, Class)> per-element decomposition fix.
+        // Tuple stores PInvokeType for each element so the IntPtr field for the
+        // class must be lifted via SwiftMarshal.MarshalFromSwiftObject<Animal>,
+        // and the SwiftString field via .ToString(). Before the fix the generated
+        // code attempted ((string, Animal)?)_swiftOpt.Some which is a CS0030.
+        var cat = TestLibFunctions.CreateAnimal("Cat", "Meow");
+        var dog = TestLibFunctions.CreateAnimal("Dog", "Woof");
+        var result = TestLibFunctions.FirstNamedAnimal(new[] { cat, dog });
+        AssertTrue(result.HasValue, "FirstNamedAnimal returns Some for non-empty array");
+        var (label, animal) = result!.Value;
+        AssertEqual("primary:Cat", label, "Tuple Item1 (String) lifted via .ToString()");
+        AssertNotNull(animal, "Tuple Item2 (Animal) lifted via MarshalFromSwiftObject");
+        AssertEqual("Cat", animal.Name.ToString(), "Animal class instance round-tripped through tuple field");
+        TestLogger.Info($"FirstNamedAnimal Some => label=\"{label}\", animal.Name=\"{animal.Name}\"");
+    }
+
+    public void TestFirstNamedAnimalNone()
+    {
+        var result = TestLibFunctions.FirstNamedAnimal(Array.Empty<Animal>());
+        AssertFalse(result.HasValue, "FirstNamedAnimal returns None for empty array");
+        TestLogger.Info("FirstNamedAnimal([]) = null");
+    }
+
     #endregion
 }

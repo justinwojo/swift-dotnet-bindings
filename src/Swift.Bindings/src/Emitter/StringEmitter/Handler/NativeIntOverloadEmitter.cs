@@ -240,6 +240,25 @@ internal static class NativeIntOverloadEmitter
         // Must come BEFORE TryGetTypeRecord which strips generic args.
         if (typeSpec is NamedTypeSpec namedSpec && namedSpec.GenericParameters?.Count > 0)
         {
+            // SIMD bound-generic alias: Swift.SIMD3<Swift.Float> resolves to a non-generic
+            // typealias (simd.simd_float3 → System.Numerics.Vector3). Probe this BEFORE
+            // the bare-name fallback so the int-overload mirrors the primary method's
+            // projection — otherwise the overload emits Swift.SIMD3<float> which doesn't
+            // exist as a C# type (CS0234).
+            if (TypeDatabaseExtensions.TryResolveBoundGenericAlias(methodEnv.TypeDatabase, namedSpec, out var aliasRecord))
+                return aliasRecord.CSharpTypeName.FullyQualifiedName;
+
+            // Swift.Optional<T> must emit C# nullable form (T?), never the raw generic shape
+            // "Swift.Optional<...>" — that doesn't exist as a C# type. The projection path at
+            // line 230 normally produces this through OptionalProjection, but if it returns
+            // null (incomplete TypeDatabase, edge generic context) the fallback would compose
+            // an invalid identifier. Recurse on the inner element and append "?".
+            if (namedSpec.Name == "Swift.Optional" && namedSpec.GenericParameters.Count == 1)
+            {
+                var innerResolved = ResolveType(namedSpec.GenericParameters[0], methodEnv, isParameter);
+                return innerResolved.EndsWith('?') ? innerResolved : $"{innerResolved}?";
+            }
+
             var bareSpec = new NamedTypeSpec(namedSpec.Name);
             string baseName;
             if (methodEnv.TypeDatabase.TryGetTypeRecord(bareSpec, out var rec))
