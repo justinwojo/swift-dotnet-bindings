@@ -41,4 +41,36 @@
     <!-- Closure callback support: generated callbacks call GetDelegateFromContext<T> -->
     <type fullname="Swift.Runtime.SwiftClosureMarshaller" preserve="methods" />
   </assembly>
+  <!-- ValueTuple constructors/fields for tuple marshalling on NativeAOT.
+       SwiftMarshal.MarshalTupleFromSwift<T> reflectively invokes the closed
+       ValueTuple<...>(T1, T2, ...) constructor when materializing tuples
+       returned through Optional<(SwiftString, IntPtr)> and similar shapes.
+       Inline [DynamicallyAccessedMembers] annotations on the T type
+       parameter do not propagate strongly enough through typeof(T) → Type to
+       keep the matching ctor overload alive on every closed instantiation
+       under ILC trimming; preserve="all" pins constructors + fields together
+       so the reflective path stays valid uniformly across instantiations.
+       Effectiveness caveat: the IL trimmer (any consumer that publishes
+       trimmed, e.g. PublishTrimmed=true or IsTrimmable=true on a library)
+       discovers this embedded descriptor automatically. ILC (NativeAOT)
+       does NOT auto-discover embedded descriptors from referenced
+       assemblies; a NativeAOT consumer must additionally pass the
+       descriptor explicitly to ILC by adding an IlcArg item that
+       references this file via the ILC descriptor command-line option.
+       BindingTests/RuntimeTestsApp does this with TrimmerRoots.xml plus an
+       explicit IlcArg in its csproj for the device/NativeAOT path; the
+       iOS simulator path in this repo runs with MtouchLink=None (no
+       trimming) so neither mechanism is active there. Wiring the same
+       path for NuGet consumers via buildTransitive is a followup tracked
+       in src/docs/roadmap.md. -->
+  <assembly fullname="System.Private.CoreLib">
+    <type fullname="System.ValueTuple`1" preserve="all" />
+    <type fullname="System.ValueTuple`2" preserve="all" />
+    <type fullname="System.ValueTuple`3" preserve="all" />
+    <type fullname="System.ValueTuple`4" preserve="all" />
+    <type fullname="System.ValueTuple`5" preserve="all" />
+    <type fullname="System.ValueTuple`6" preserve="all" />
+    <type fullname="System.ValueTuple`7" preserve="all" />
+    <type fullname="System.ValueTuple`8" preserve="all" />
+  </assembly>
 </linker>

@@ -76,4 +76,28 @@
     <type fullname="Swift.Runtime.ExistentialContainer7" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer8" preserve="methods" />
   </assembly>
+  <!-- ValueTuple constructors and fields for tuple marshalling on NativeAOT.
+       SwiftMarshal.MarshalTupleFromSwift<T> reflectively invokes the closed
+       ValueTuple<...>(T1, T2, ...) constructor for tuples returned via
+       Optional<(SwiftString, IntPtr)> and similar shapes. The inline
+       [DynamicallyAccessedMembers] annotation on T does not propagate strongly
+       enough through typeof(T) → Type to keep the matching ctor overload alive
+       on every closed instantiation under ILC trimming; preserve="all" pins
+       constructors and fields uniformly across instantiations.
+       This descriptor is consumed only on the device build (`ios-arm64` /
+       NativeAOT) — see the `<TrimmerRootDescriptor>` ItemGroup in
+       RuntimeTestsApp.csproj guarded by RuntimeIdentifier == 'ios-arm64'.
+       The Mono JIT simulator path is unaffected because TrimmerRoots.xml is
+       not wired in for `iossimulator-arm64` and the simulator csproj sets
+       `MtouchLink=None` (no trimming). -->
+  <assembly fullname="System.Private.CoreLib">
+    <type fullname="System.ValueTuple`1" preserve="all" />
+    <type fullname="System.ValueTuple`2" preserve="all" />
+    <type fullname="System.ValueTuple`3" preserve="all" />
+    <type fullname="System.ValueTuple`4" preserve="all" />
+    <type fullname="System.ValueTuple`5" preserve="all" />
+    <type fullname="System.ValueTuple`6" preserve="all" />
+    <type fullname="System.ValueTuple`7" preserve="all" />
+    <type fullname="System.ValueTuple`8" preserve="all" />
+  </assembly>
 </linker>

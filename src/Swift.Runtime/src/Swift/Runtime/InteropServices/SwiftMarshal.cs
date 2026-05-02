@@ -815,8 +815,16 @@ public static class SwiftMarshal
             currentOffset += elementSize;
         }
 
-        // Create the ValueTuple using the constructor
-        return CreateValueTuple<T>(tupleType, elementValues);
+        // Pass typeof(T) directly so the closed-generic dispatch lines up with
+        // T's [DynamicallyAccessedMembers(PublicConstructors)] annotation on
+        // CreateValueTuple<T>. Using an unannotated `Type` local dropped the
+        // annotation flow under ILC and stripped the closed-ctor metadata,
+        // surfacing as "Could not find constructor for ValueTuple`N" on
+        // NativeAOT for tuple returns from SwiftOptional<(T1, T2)> shapes.
+        // Belt-and-braces preservation of System.ValueTuple`N constructors
+        // lives in ILLink.Descriptors.xml (consumer-side) and the BindingTests
+        // app's TrimmerRoots.xml (which is what actually keeps device green).
+        return CreateValueTuple<T>(typeof(T), elementValues);
     }
 
     /// <summary>
@@ -1020,12 +1028,38 @@ public static class SwiftMarshal
     }
 
     /// <summary>
-    /// Creates a ValueTuple from an array of element values.
+    /// Creates a ValueTuple from an array of element values by reflectively
+    /// invoking the closed <c>ValueTuple&lt;...&gt;</c> constructor.
+    /// <para>
+    /// The caller must pass <c>typeof(T)</c> rather than an intermediate
+    /// <c>Type</c> local so the annotation on <c>T</c>
+    /// (<c>PublicConstructors</c>) reaches the lookup. Routing through an
+    /// unannotated <c>Type</c> local drops the data-flow annotation and ILC
+    /// strips the closed-generic ctor metadata, surfacing as
+    /// "Could not find constructor for ValueTuple`N" on NativeAOT. We do
+    /// NOT additionally annotate the <c>tupleType</c> parameter — under
+    /// .NET 10 ILC the doubled annotation regresses this exact test path
+    /// (TestFirstNamedAnimalSome SIGTRAP); the descriptor below is the
+    /// load-bearing preservation, the parameter stays plain <c>Type</c>.
+    /// </para>
+    /// <para>
+    /// The operative NativeAOT preservation of
+    /// <c>System.ValueTuple`1..`8</c> for every reachable closed
+    /// instantiation comes from a trimmer descriptor. The package-side hint
+    /// lives in this project's embedded <c>ILLink.Descriptors.xml</c>; ILC
+    /// does not auto-discover embedded descriptors from referenced
+    /// assemblies (only the IL trimmer does), so a NativeAOT consumer also
+    /// has to pass the descriptor explicitly to ILC via an IlcArg item.
+    /// The in-tree <c>BindingTests/RuntimeTestsApp/TrimmerRoots.xml</c>
+    /// mirror plus the IlcArg in RuntimeTestsApp.csproj is what keeps the
+    /// device gate green for this repo's tests; downstream NuGet consumers
+    /// are tracked as a buildTransitive followup in src/docs/roadmap.md.
+    /// </para>
     /// </summary>
     [RequiresUnreferencedCode("ValueTuple constructor access")]
     private static T CreateValueTuple<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(Type tupleType, object?[] values)
     {
-        // Use the ValueTuple constructor directly
+        // Look up the all-fields constructor (T1, T2, ...) and invoke it.
         var constructor = tupleType.GetConstructor(tupleType.GetGenericArguments())
             ?? throw new InvalidOperationException($"Could not find constructor for {tupleType.Name}");
 

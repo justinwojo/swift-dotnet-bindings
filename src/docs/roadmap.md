@@ -81,6 +81,8 @@ Surfaced during Session 5 of `realitykit-shipping-plan.md` (commits `3a3748dc` +
 
 **P4 — Enum TypeRecord synthesis for `c:@E@…` USRs in autoBridge modules.** Companion to P3 — synthesize Enum-kind TypeRecord (not Class) for nested ObjC enum USRs. Authorized but deferred during Session 5 since `c614ae45` lands the data-side fix.
 
+**P5 — Wire `Swift.Runtime` trimmer descriptor for downstream NativeAOT consumers via `buildTransitive`.** Surfaced during Session 6 by Codex review of the tuple-marshalling fix. Embedded `ILLink.Descriptors.xml` in `Swift.Runtime` is honored automatically by the IL trimmer (any consumer that publishes trimmed — `PublishTrimmed=true`, or `IsTrimmable=true` on a referencing library) but **not** by ILC (NativeAOT/device path) when the assembly is referenced transitively — ILC only reads descriptors passed via `--descriptor` IlcArgs. This repo's iOS simulator path runs with `MtouchLink=None` so neither mechanism is active there; the issue surfaces only on NativeAOT consumers. BindingTests works around this by adding both `<TrimmerRootDescriptor>TrimmerRoots.xml</TrimmerRootDescriptor>` and `<IlcArg Include="--descriptor:..." />` directly in `RuntimeTestsApp.csproj`; downstream NuGet consumers don't get this automatically. Fix direction: ship a `buildTransitive/SwiftBindings.Runtime.targets` in the `SwiftBindings.Runtime` NuGet that injects the equivalent IlcArg + TrimmerRootDescriptor whenever `PublishAot=true` is detected. Add a NativeAOT consumer smoke test (e.g., a fresh `dotnet new swift-binding` project consuming the live NuGet) that exercises an `Optional<(T1, T2)>` return path so the gap is detected by CI rather than only by an unrelated regression.
+
 ---
 
 ## Lower Priority
