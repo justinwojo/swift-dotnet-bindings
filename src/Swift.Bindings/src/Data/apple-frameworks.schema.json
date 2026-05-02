@@ -74,6 +74,10 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "Type names (without module prefix) that are auto-bridged in Swift but not present in the corresponding .NET assembly. Referencing them at C# emission time produces CS0234."
+          },
+          "packageId": {
+            "type": "string",
+            "description": "NuGet package ID for this module's binding package (e.g., 'SwiftBindings.Apple.RealityKit'). Used by apple-framework-mode auto-injection of cross-module dependency edges. Only set for modules that ship as standalone SwiftBindings.Apple.<Module> packages."
           }
         },
         "additionalProperties": false

@@ -241,3 +241,41 @@ public class RequiresExplicitPlatformVersionTests
 }
 
 #endregion
+
+#region DeriveModuleNameFromSwiftInterfacePath
+
+/// <summary>
+/// The apple-framework cross-module dep detector derives the current module name
+/// from the swiftinterface path's <c>&lt;Module&gt;.swiftmodule</c> parent dir, so
+/// the MSBuild SDK doesn't need to thread a separate "what module is this?" flag.
+/// The path layout is canonical for Apple SDK frameworks
+/// (<c>&lt;Framework&gt;.framework/Modules/&lt;Module&gt;.swiftmodule/&lt;arch&gt;-&lt;platform&gt;.swiftinterface</c>).
+/// Any path that doesn't match the layout returns null so the CLI can fail loud.
+/// </summary>
+public class DeriveModuleNameFromSwiftInterfacePathTests
+{
+    [Theory]
+    [InlineData(
+        "/SDK/iPhoneOS26.2.sdk/System/Library/Frameworks/RealityKit.framework/Modules/RealityKit.swiftmodule/arm64e-apple-ios.swiftinterface",
+        "RealityKit")]
+    [InlineData(
+        "/SDK/MacOSX.sdk/System/Library/Frameworks/Foo.framework/Modules/Foo.swiftmodule/x86_64-apple-macos.swiftinterface",
+        "Foo")]
+    public void RecognizesCanonicalAppleSdkLayout(string path, string expected)
+    {
+        Assert.Equal(expected, BindingsGeneratorCommand.DeriveModuleNameFromSwiftInterfacePath(path));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("/path/with/no/swiftmodule/parent.swiftinterface")]
+    [InlineData(".swiftmodule/arm64.swiftinterface")] // empty module name
+    public void RejectsNonconformantPaths(string? path)
+    {
+        Assert.Null(BindingsGeneratorCommand.DeriveModuleNameFromSwiftInterfacePath(path!));
+    }
+}
+
+#endregion

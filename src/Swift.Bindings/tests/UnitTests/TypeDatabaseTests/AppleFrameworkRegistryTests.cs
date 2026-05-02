@@ -1123,4 +1123,41 @@ public class AppleFrameworkRegistryTests
     {
         Assert.Equal(expected, AppleFrameworkRegistry.IsObjCBridgedTypeName(module, moduleQualifiedName));
     }
+
+    // --- TryGetPackageId ---
+    // Cross-framework dep-edge auto-injection lives or dies on this lookup. Modules with
+    // a registered packageId resolve to a SwiftBindings.Apple.<Module> NuGet ID; modules
+    // without one (markers like Swift / _Concurrency, or Apple SDK modules that don't ship
+    // as a standalone binding package) MUST return false so the MSBuild target skips them.
+
+    [Theory]
+    [InlineData("RealityKit", "SwiftBindings.Apple.RealityKit")]
+    [InlineData("RealityFoundation", "SwiftBindings.Apple.RealityFoundation")]
+    public void TryGetPackageId_ReturnsRegisteredPackageId(string module, string expectedPackageId)
+    {
+        Assert.True(AppleFrameworkRegistry.TryGetPackageId(module, out var packageId));
+        Assert.Equal(expectedPackageId, packageId);
+    }
+
+    [Theory]
+    // Marker imports — never have a packageId
+    [InlineData("Swift")]
+    [InlineData("_Concurrency")]
+    [InlineData("_StringProcessing")]
+    [InlineData("simd")]
+    [InlineData("__ObjC")]
+    [InlineData("Builtin")]
+    // Apple SDK modules in the registry but without a standalone binding package
+    [InlineData("Foundation")]
+    [InlineData("UIKit")]
+    [InlineData("ARKit")]
+    [InlineData("Combine")]
+    // Unknown / non-Apple modules
+    [InlineData("MyCustomLib")]
+    [InlineData("")]
+    public void TryGetPackageId_ReturnsFalseForUnregisteredModules(string module)
+    {
+        Assert.False(AppleFrameworkRegistry.TryGetPackageId(module, out var packageId));
+        Assert.True(string.IsNullOrEmpty(packageId));
+    }
 }

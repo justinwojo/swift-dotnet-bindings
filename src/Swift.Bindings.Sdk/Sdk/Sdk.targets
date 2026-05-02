@@ -1141,6 +1141,92 @@ done"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4cc: Auto-inject cross-Apple-framework PackageReference deps    -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    Apple-framework mode (SwiftAppleFrameworkTarget) only; no-op in xcframework
+    mode (SwiftFramework). Parses the swiftinterface's `import` lines via the
+    generator's `detect-apple-cross-module-deps` subcommand, resolves them
+    against AppleFrameworkRegistry's packageId map, and injects a bounded
+    PackageReference (range "[X.Y.Z,X.(Y+1).0)") for each detected
+    SwiftBindings.Apple.<Module> dep edge.
+
+    Why bounded: each Apple SDK train (Xcode minor release) ships a
+    coordinated set of SwiftBindings.Apple.<Module> packages at the same Y.Z.
+    The bounded range ensures cross-framework deps within a train resolve
+    to a consistent set without floating into the next train. The generator
+    computes the upper bound from `apple-version` so MSBuild doesn't need
+    property-function math.
+
+    Restore-time visibility: BeforeTargets="ResolveProjectReferences;CollectPackageReferences"
+    fires during BOTH `dotnet restore` (CollectPackageReferences is part of
+    the NuGet restore target chain) and `dotnet build`. PackageReference
+    items injected here flow into project.assets.json at restore time and
+    into the nuspec dependencies group at pack time.
+
+    Opt out by setting <SwiftAutoDetectAppleFrameworkDependencies>false</SwiftAutoDetectAppleFrameworkDependencies>
+    in the consumer csproj when manual cross-package deps are preferred.
+
+    Dedup against any user-declared PackageReference of the same identity so
+    removing the auto-injection isn't required when migrating an existing
+    project; the user's pinned reference wins.
+
+    Outer-evaluation guard: a multi-TFM `dotnet pack` first evaluates the
+    project at the outer level (TargetFramework empty). _ResolveAppleFrameworkPaths
+    cannot run cleanly there — its xcrun shell-out is keyed off _SwiftXcrunSdk,
+    which is only set on inner per-TFM evaluations (it derives from
+    _SwiftBindingPlatform). Skipping the whole target (and its dependencies)
+    when TargetFramework is empty avoids that. NuGet's pack then aggregates the
+    inner evaluations' PackageReference items into the nuspec dependencies group.
+  -->
+  <Target Name="_DetectAppleFrameworkCrossModuleDeps"
+          Condition="'$(TargetFramework)' != ''"
+          BeforeTargets="ResolveProjectReferences;CollectPackageReferences"
+          DependsOnTargets="_DetectSwiftBindingTargetKind;_ResolveAppleFrameworkPaths">
+
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND
+                     '$(SwiftAutoDetectAppleFrameworkDependencies)' != 'false' AND
+                     Exists('$(_SwiftAppleFrameworkInterface)')"
+          Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --detect-apple-cross-module-deps &quot;$(_SwiftAppleFrameworkInterface)&quot; --apple-version $(SwiftAppleSupplementVersion)"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_SwiftAppleAutoDepLine" />
+    </Exec>
+
+    <!-- Each line: MODULE|PACKAGE_ID|VERSION_RANGE.
+         Materialize parsed metadata first so the per-line PackageId and VersionRange
+         are addressable in the inject ItemGroup's Condition (MSBuild can't index
+         a Split() result inside a Condition expression). -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftAppleAutoDep Include="%(_SwiftAppleAutoDepLine.Identity)"
+                          Condition="'%(_SwiftAppleAutoDepLine.Identity)' != ''">
+        <PackageId>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[1])</PackageId>
+        <VersionRange>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[2])</VersionRange>
+      </_SwiftAppleAutoDep>
+    </ItemGroup>
+
+    <!-- Build a sentinel-wrapped semicolon list of already-declared PackageReference
+         identities. The leading + trailing ';' lets the Condition use a single
+         Contains(';<id>;') check that matches whole identities only — without the
+         sentinels, a partial match could accidentally swallow "SwiftBindings.Apple"
+         vs. "SwiftBindings.Apple.RealityKit". -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftAppleAutoDepExisting>;@(PackageReference->'%(Identity)', ';');</_SwiftAppleAutoDepExisting>
+    </PropertyGroup>
+
+    <!-- Inject one PackageReference per detected dep, skipping any whose ID is
+         already declared by the user (or by another SDK target). The metadata
+         Condition `'%(_SwiftAppleAutoDep.PackageId)' != ''` is required to
+         silently drop empty-line garbage (xcframework mode produces no output
+         but the ItemName collection may still hold a single empty item). -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <PackageReference Include="%(_SwiftAppleAutoDep.PackageId)"
+                        Version="%(_SwiftAppleAutoDep.VersionRange)"
+                        Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
+                                   !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 4d: Protocol target for dependency xcframework search paths     -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Exposes this project's xcframework paths so that dependent projects

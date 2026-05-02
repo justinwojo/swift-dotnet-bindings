@@ -43,6 +43,7 @@ internal static class AppleFrameworkRegistry
     private static readonly Dictionary<string, string[]> _perModuleObjcPrefixes;
     private static readonly HashSet<string> _knownModulesForElements;
     private static readonly HashSet<string> _netUnavailableTypes;
+    private static readonly Dictionary<string, string> _packageIds;
 
     // --- JSON Model ---
 
@@ -92,6 +93,9 @@ internal static class AppleFrameworkRegistry
 
         [JsonProperty("netUnavailableTypes")]
         public string[]? NetUnavailableTypes { get; set; }
+
+        [JsonProperty("packageId")]
+        public string? PackageId { get; set; }
     }
 
     // --- Static Constructor (loads from embedded JSON) ---
@@ -110,6 +114,7 @@ internal static class AppleFrameworkRegistry
         _valueTypes = new HashSet<string>(StringComparer.Ordinal);
         _knownModulesForElements = new HashSet<string>(StringComparer.Ordinal);
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
+        _packageIds = new Dictionary<string, string>(StringComparer.Ordinal);
         _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
         var objcPrefixSet = new HashSet<string>(StringComparer.Ordinal);
 
@@ -186,6 +191,9 @@ internal static class AppleFrameworkRegistry
                 foreach (var typeName in def.NetUnavailableTypes)
                     _netUnavailableTypes.Add($"{def.Module}.{typeName}");
             }
+
+            if (!string.IsNullOrEmpty(def.PackageId))
+                _packageIds[def.Module] = def.PackageId!;
         }
 
         // Sort prefixes by length descending for correct matching
@@ -455,6 +463,25 @@ internal static class AppleFrameworkRegistry
 
     public static bool IsKnownModuleForElements(string moduleName) =>
         _knownModulesForElements.Contains(moduleName);
+
+    /// <summary>
+    /// Returns the NuGet package ID for a Swift module if one is registered in
+    /// <c>apple-frameworks.json</c>'s <c>packageId</c> field. Used by apple-framework-mode
+    /// auto-injection of cross-module dependency edges (e.g.,
+    /// <c>RealityKit</c> → <c>SwiftBindings.Apple.RealityKit</c>).
+    /// Returns false for any module without a registered packageId — including marker
+    /// imports like <c>Swift</c>, <c>_Concurrency</c>, <c>simd</c>, and Apple SDK modules
+    /// that do not ship as standalone binding packages.
+    /// </summary>
+    public static bool TryGetPackageId(string moduleName, out string packageId)
+    {
+        if (string.IsNullOrEmpty(moduleName))
+        {
+            packageId = string.Empty;
+            return false;
+        }
+        return _packageIds.TryGetValue(moduleName, out packageId!);
+    }
 
     /// <summary>
     /// Returns true if the module is a known Apple framework or Swift system module.

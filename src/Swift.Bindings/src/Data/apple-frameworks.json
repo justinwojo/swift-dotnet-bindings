@@ -632,13 +632,15 @@
     },
     {
       "module": "RealityFoundation",
-      "compileImportModule": "RealityKit"
+      "compileImportModule": "RealityKit",
+      "packageId": "SwiftBindings.Apple.RealityFoundation"
     },
     {
       "module": "RealityKit",
       "autoBridge": true,
       "optionalFallback": true,
-      "objcPrefixes": ["RE"]
+      "objcPrefixes": ["RE"],
+      "packageId": "SwiftBindings.Apple.RealityKit"
     },
     {
       "module": "SafariServices",

@@ -157,6 +157,18 @@ public class CliOptions
                      "from the output directory into a {Module}Bridge.xcframework, and updates binding-metadata.props. Requires --xcframework and -o.",
         getDefaultValue: () => false);
 
+    public Option<string?> DetectAppleCrossModuleDeps { get; } = new(
+        aliases: new[] { "--detect-apple-cross-module-deps" },
+        description: "Detect-apple-cross-module-deps mode: parse a .swiftinterface file's " +
+                     "import lines and emit one 'MODULE|PACKAGE_ID|VERSION_RANGE' line per " +
+                     "registered cross-Apple-framework dep edge to stdout. Used by the " +
+                     "apple-framework-mode SDK target to auto-inject PackageReference items " +
+                     "for transitive Apple binding-package deps (e.g. RealityKit -> " +
+                     "RealityFoundation). Requires --apple-version. The current module name " +
+                     "(used to filter self-references) is derived from the swiftinterface " +
+                     "path's parent '<Module>.swiftmodule/' directory. Modules without a " +
+                     "registered packageId in apple-frameworks.json are silently skipped.");
+
     public Option<bool> SliceXcframework { get; } = new(
         aliases: new[] { "--slice-xcframework" },
         description: "Slice-xcframework mode: copy a source xcframework to -o, retaining only " +
@@ -320,6 +332,7 @@ public class CliOptions
             SkipThunkCompilation,
             CompileWrapperOnly,
             CompileBridgeOnly,
+            DetectAppleCrossModuleDeps,
             SliceXcframework,
             Rid,
             EmitAppleTypesManifest,

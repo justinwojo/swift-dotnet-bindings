@@ -55,6 +55,7 @@ public static class BindingsGeneratorCommand
         var skipThunkCompilation = parseResult.GetValueForOption(options.SkipThunkCompilation);
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
+        var detectAppleCrossModuleDeps = parseResult.GetValueForOption(options.DetectAppleCrossModuleDeps);
         var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
         var rid = parseResult.GetValueForOption(options.Rid);
         var emitAppleTypesManifest = parseResult.GetValueForOption(options.EmitAppleTypesManifest);
@@ -88,6 +89,46 @@ public static class BindingsGeneratorCommand
 
         ILoggerFactory loggerFactory = BindingsGenerator.CreateLoggerFactory(verbose);
         ILogger logger = loggerFactory.CreateLogger<BindingsGenerator>();
+
+        // Handle --detect-apple-cross-module-deps: parse a .swiftinterface file's `import`
+        // lines, resolve them against AppleFrameworkRegistry's packageId map, and write
+        // pipe-delimited dep edges to stdout for the apple-framework-mode SDK target's
+        // PackageReference auto-injection. Out-of-tree from the binding-generation
+        // pipeline — never consumes dylib/TBD, so it must run BEFORE --platform validation.
+        if (!string.IsNullOrWhiteSpace(detectAppleCrossModuleDeps))
+        {
+            try
+            {
+                var swiftInterfacePath = detectAppleCrossModuleDeps!;
+                var currentModule = DeriveModuleNameFromSwiftInterfacePath(swiftInterfacePath);
+                if (string.IsNullOrEmpty(currentModule))
+                {
+                    logger.LogError(
+                        "Error: --detect-apple-cross-module-deps could not derive a module name from path '{Path}'. " +
+                        "Expected a path under '<Module>.swiftmodule/'.",
+                        swiftInterfacePath);
+                    context.ExitCode = 1;
+                    return;
+                }
+                var deps = AppleFrameworkImportDetector.Detect(swiftInterfacePath, currentModule, appleVersion);
+                foreach (var dep in deps)
+                {
+                    Console.Out.WriteLine($"{dep.ModuleName}|{dep.PackageId}|{dep.VersionRange}");
+                }
+                context.ExitCode = 0;
+            }
+            catch (FileNotFoundException ex)
+            {
+                logger.LogError("Error: {Message}", ex.Message);
+                context.ExitCode = 1;
+            }
+            catch (ArgumentException ex)
+            {
+                logger.LogError("Error: {Message}", ex.Message);
+                context.ExitCode = 1;
+            }
+            return;
+        }
 
         // Handle --slice-xcframework: stage a sliced copy of a source xcframework for a given
         // NuGet RID. Out-of-tree from the binding-generation pipeline — this mode never
@@ -1131,6 +1172,27 @@ public static class BindingsGeneratorCommand
         if (value != null && value.StartsWith("\\@", StringComparison.Ordinal))
             return value.Substring(1);
         return value;
+    }
+
+    /// <summary>
+    /// Derives the Swift module name from a path of the canonical Apple-SDK swiftinterface
+    /// layout: <c>&lt;Framework&gt;.framework/Modules/&lt;Module&gt;.swiftmodule/&lt;arch&gt;.swiftinterface</c>.
+    /// Returns the module name (the parent dir's filename minus the <c>.swiftmodule</c> suffix),
+    /// or null if the path doesn't match the expected layout.
+    /// </summary>
+    internal static string? DeriveModuleNameFromSwiftInterfacePath(string swiftInterfacePath)
+    {
+        if (string.IsNullOrWhiteSpace(swiftInterfacePath))
+            return null;
+        var parentDir = Path.GetDirectoryName(swiftInterfacePath);
+        if (string.IsNullOrEmpty(parentDir))
+            return null;
+        var parentName = Path.GetFileName(parentDir);
+        const string suffix = ".swiftmodule";
+        if (!parentName.EndsWith(suffix, StringComparison.Ordinal))
+            return null;
+        var module = parentName.Substring(0, parentName.Length - suffix.Length);
+        return string.IsNullOrEmpty(module) ? null : module;
     }
 
     // Parses the leading numeric component of an Apple supplement version string

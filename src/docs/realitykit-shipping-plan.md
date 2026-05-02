@@ -451,7 +451,7 @@ Multi-TFM (macOS / Catalyst / tvOS) RealityKit is explicitly out of scope. Reali
 
 ### SDK and dependency edges
 
-Both package projects use the `SwiftBindings.Sdk` MSBuild SDK. Minimum project shape (RealityKit; the RealityFoundation project is identical except no inter-framework dep block, different `PackageId` / `SwiftAppleFrameworkTarget`):
+Both package projects use the `SwiftBindings.Sdk` MSBuild SDK. Minimum project shape (identical for RealityKit and RealityFoundation modulo `PackageId` / `SwiftAppleFrameworkTarget`):
 
 ```xml
 <Project Sdk="SwiftBindings.Sdk/X.Y.Z">
@@ -466,41 +466,34 @@ Both package projects use the `SwiftBindings.Sdk` MSBuild SDK. Minimum project s
   </PropertyGroup>
   <ItemGroup>
     <SwiftAppleFrameworkTarget Include="RealityKit" />
-    <!-- REQUIRED for the inter-framework dep edge — apple-framework mode does NOT
-         auto-inject this. See "Inter-framework dep edge" below.
-         Bounded `[major.minor.patch,major.(minor+1).0)` to mirror the per-Apple-SDK-train
-         versioning policy below: a new SDK train bumps the minor, so the upper bound
-         keeps consumers inside the same train rather than silently floating across one. -->
-    <PackageReference Include="SwiftBindings.Apple.RealityFoundation"
-                      Version="[26.2.1,26.3.0)" />
   </ItemGroup>
 </Project>
 ```
 
-The downstream packager omits the `<PackageReference>` for the `RealityFoundation` project. Reference shapes verified against `/Users/wojo/Dev/swift-dotnet-packages/apple-frameworks/RealityKit/SwiftBindings.Apple.RealityKit.csproj` and the matching `RealityFoundation` project, both currently at SDK `0.9.0`. The `<PackageReference>` above is the **delta** the downstream repo must add to RealityKit (see follow-up note at the bottom of this section).
+No manual `<PackageReference>` is needed for the inter-framework dep edge — the SDK auto-injects it from the swiftinterface's `import` lines (see "Inter-framework dep edge" below). Reference shape verified against `/Users/wojo/Dev/swift-dotnet-packages/apple-frameworks/RealityKit/SwiftBindings.Apple.RealityKit.csproj` and the matching `RealityFoundation` project, both currently at SDK `0.9.0`.
 
 The SDK injects two implicit dep edges into the packed nuspec for any apple-framework binding:
 
 1. **`SwiftBindings.Runtime`** — bounded version range `[X.Y.Z,X.(Y+1).0)`, threaded from `SwiftRuntimePackageVersionRange` in `src/Swift.Bindings.Sdk/Sdk/Sdk.props`. Currently `[0.9.0,0.10.0)`. The bounded range is load-bearing: a bare floor would let consumers slide into the next minor across an incompatibility boundary. Stamped at pack time by `VersionScope.StampSdkProps` (`build/Helpers/VersionScope.cs:121`).
 2. **`SwiftBindings.Apple`** — floor-only range `[$(SwiftAppleSupplementVersion),)`, currently `[26.2.1,)`. Floor-only (not bounded) by design: the supplement is additive across Apple SDK trains, so consumers can always float forward onto a newer Apple supplement.
 
-**Inter-framework dep edge (`SwiftBindings.Apple.RealityKit` → `SwiftBindings.Apple.RealityFoundation`) is manual in apple-framework mode.** Auto-detection of cross-module dependencies (`SwiftAutoDetectDependencies` default-true) only fires for `--xcframework` mode — `BindingsGeneratorCommand.cs:452` gates `BinaryDependencyAnalyzer.Analyze` on `hasXcframework`. For `<SwiftAppleFrameworkTarget>` projects, `_AFW_MetadataLines` (`src/Swift.Bindings.Sdk/Sdk/Sdk.targets:479`) does not include `_SwiftBindingDependencies`, so `_ResolveSwiftAutoDetectedDependencies` (Sdk.targets:939–1006) reads it as empty and is a no-op. Without the manual declaration above, the resulting `SwiftBindings.Apple.RealityKit.nupkg` ships **with no nuspec dependency on `SwiftBindings.Apple.RealityFoundation`**, and consumers will break at first reference into the re-exported `RealityFoundation.*` types.
+**Inter-framework dep edge (`SwiftBindings.Apple.RealityKit` → `SwiftBindings.Apple.RealityFoundation`) is auto-injected by the SDK.** `_DetectAppleFrameworkCrossModuleDeps` (`src/Swift.Bindings.Sdk/Sdk/Sdk.targets`) parses the swiftinterface's `import` lines via the generator's `--detect-apple-cross-module-deps` subcommand, resolves them against `apple-frameworks.json`'s `packageId` map (`AppleFrameworkRegistry`), and synthesizes one `<PackageReference Include="SwiftBindings.Apple.<Module>" Version="[X.Y.Z,X.(Y+1).0)" />` per detected dep. The bounded range matches the per-Apple-SDK-train versioning policy below — `RealityFoundation`'s binding surface is an Apple-SDK-train ABI, not an additive contract, so floating across a minor (which here corresponds to a new Apple SDK train) is unsafe. Marker imports (`Swift`, `_Concurrency`, `_StringProcessing`, `simd`, etc.) are filtered out; modules with no `packageId` registered are skipped silently.
 
-Why the dep block is `<PackageReference>`-only and does *not* include `<SwiftFrameworkDependency>`:
+Auto-injection runs inside `BeforeTargets="ResolveProjectReferences;CollectPackageReferences"`, so it fires during both `dotnet restore` and `dotnet pack`. The injected `<PackageReference>` flows into `project.assets.json` at restore time and into the packed nuspec's `<dependencies>` group at pack time. A user-declared `<PackageReference>` of the same identity wins (the inject ItemGroup dedups against existing identities), so a downstream consumer that wants to pin or widen the range can do so by adding their own `<PackageReference>` for the dep — auto-injection backs off without warning. Opt out entirely with `<SwiftAutoDetectAppleFrameworkDependencies>false</SwiftAutoDetectAppleFrameworkDependencies>` in the consumer csproj.
 
-- `<SwiftFrameworkDependency>` is xcframework-mode vocabulary. The CLI option it feeds (`--framework-dependency`) explicitly **requires `--xcframework`** (see `src/Swift.Bindings/src/CliOptions.cs:108–109`) and rejects non-`.xcframework` paths. The apple-framework generator target (`_GenerateSwiftBindingsAppleFramework`, `Sdk.targets:409`) does not append `--framework-dependency` to its command line at all — that flag is appended only inside the `@(SwiftFramework)`-gated xcframework propertygroup at `Sdk.targets:766`. Adding `<SwiftFrameworkDependency>` to an apple-framework project is at best a no-op for code generation; it would also become a `NativeReference` (`Sdk.targets:1417`) which is undesired when the framework is already SDK-resolved via `_SwiftAppleFrameworkSdkPath`.
-- `_ValidateSwiftDependencyMetadata` (`Sdk.targets:1517–1530`) only fires *if* `<SwiftFrameworkDependency>` items exist; it does not synthesize the nuspec dependency. NuGet pack serializes the `<dependencies>` group from `<PackageReference>` items.
-- Use a bounded range (`[major.minor.patch,major.(minor+1).0)`) rather than a bare floor to match the per-Apple-SDK-train versioning policy below — `RealityFoundation`'s binding surface is an Apple-SDK-train ABI, not an additive contract, so floating across a minor (which here corresponds to a new Apple SDK train) is unsafe.
+Why this is `<PackageReference>` only and does *not* include `<SwiftFrameworkDependency>`:
 
-The supplement's own `Swift.Runtime` ProjectReference is stamped to the bounded range at pack time by the override target in `src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj` (added in commit `6a5d967c`) — `_GetProjectReferenceVersions` doesn't honor `<Version>`/`<VersionOverride>` metadata on `<ProjectReference>`, so the override is required to keep the supplement nupkg from shipping a min-only Runtime dep that defeats the bounded range. The downstream packager doesn't need to reproduce this; it's already done in this repo for the supplement's pack flow.
+- `<SwiftFrameworkDependency>` is xcframework-mode vocabulary. The CLI option it feeds (`--framework-dependency`) explicitly **requires `--xcframework`** (see `src/Swift.Bindings/src/CliOptions.cs`) and rejects non-`.xcframework` paths. The apple-framework generator target (`_GenerateSwiftBindingsAppleFramework`, `Sdk.targets`) does not append `--framework-dependency` to its command line at all — that flag is appended only inside the `@(SwiftFramework)`-gated xcframework propertygroup. Adding `<SwiftFrameworkDependency>` to an apple-framework project is at best a no-op for code generation; it would also become a `NativeReference` (`Sdk.targets`) which is undesired when the framework is already SDK-resolved via `_SwiftAppleFrameworkSdkPath`.
+- `_ValidateSwiftDependencyMetadata` only fires *if* `<SwiftFrameworkDependency>` items exist; it does not synthesize the nuspec dependency. NuGet pack serializes the `<dependencies>` group from `<PackageReference>` items.
 
-> **Important downstream-state note.** The current
+The supplement's own `Swift.Runtime` ProjectReference is stamped to the bounded range at pack time by the override target in `src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj` — `_GetProjectReferenceVersions` doesn't honor `<Version>`/`<VersionOverride>` metadata on `<ProjectReference>`, so the override is required to keep the supplement nupkg from shipping a min-only Runtime dep that defeats the bounded range. The downstream packager doesn't need to reproduce this; it's already done in this repo for the supplement's pack flow.
+
+> **Downstream migration note.** The current
 > `/Users/wojo/Dev/swift-dotnet-packages/apple-frameworks/RealityKit/SwiftBindings.Apple.RealityKit.csproj`
-> ships **without** the inter-framework `<PackageReference Include="SwiftBindings.Apple.RealityFoundation" />`.
-> Adding it (with the bounded `[26.2.1,26.3.0)` range) is the first action for the downstream
-> packager when consuming this contract. Auto-injection of cross-framework dep edges in
-> apple-framework mode is tracked as **P6** in `src/docs/roadmap.md` (RealityKit shipping-plan
-> follow-ups); until that lands, the manual `<PackageReference>` above is the contract.
+> still carries an explicit `<PackageReference Include="SwiftBindings.Apple.RealityFoundation" Version="[26.2.1,26.3.0)" />`.
+> That block is now redundant — the SDK auto-injects the same edge with the same bounded range —
+> but harmless: dedup logic ensures the user-declared `<PackageReference>` wins. The downstream
+> packager may delete the manual block at any time without changing nuspec output.
 
 ### Versioning
 
