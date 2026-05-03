@@ -192,7 +192,24 @@ public static class WrapperValidation
             // fall back to the default gate (i.e., treat the member as actor-isolated).
             var effectiveNonisolated = isNonisolated &&
                 !SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase);
-            if (IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated, effectiveNonisolated))
+
+            // Constructors on Swift `actor` parent types are implicitly nonisolated from the
+            // outside — Swift permits `MyActor()` synchronously from any context because the
+            // actor's isolation domain doesn't exist before the actor is constructed. The
+            // parser deliberately leaves them sync (see SwiftABIParser actor-isolation block:
+            // "Constructors on Swift `actor` types stay sync because their default inits are
+            // nonisolated from outside"). The matching @_cdecl wrapper is a free Swift function
+            // that calls `MyActor()` directly, which compiles fine. Without this bypass the
+            // gate falls through to the broken direct `cfC` PInvoke — that path doesn't pass
+            // Self.Type metadata in x20, so the allocated heap object's metadata pointer is
+            // garbage and the first swift_release on the resulting handle SIGSEGVs inside
+            // swift_release_dealloc trying to invoke a corrupt destructor.
+            bool actorInitSync = kind == MemberKind.Constructor &&
+                env.ParentDecl is ClassDecl { IsActor: true } &&
+                !isMainActorIsolated;
+
+            if (!actorInitSync &&
+                IsActorIsolatedMember(env.ParentDecl, isActorIsolated, isMainActorIsolated, effectiveNonisolated))
                 return false;
         }
 
