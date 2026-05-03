@@ -104,15 +104,23 @@ internal static class ProtocolSignatureHelper
     /// Creates a projected C# method signature key for dedup purposes.
     /// Two methods that would produce the same C# interface signature get the same key.
     /// Key format: "MethodName(paramType1,paramType2,...)" — no return type (C# overload identity).
+    ///
+    /// Pass <paramref name="propertyNames"/> with the same set the interface emitter used
+    /// for this protocol when collision-aware comparison matters (e.g. BFS shadow detection
+    /// across protocols whose own property sets differ); otherwise the rename `Foo` →
+    /// `FooMethod` is silently dropped and methods that emit under different C# names
+    /// produce identical keys.
     /// </summary>
-    public static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null)
+    public static string GetProjectedCSharpMethodKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null)
     {
         // Compute the public method name the same way EmitInterfaceMethod does
         var returnTypeSpec = methodDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
         // Capture hasReturnValue BEFORE async conversion turns void→Task
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(methodDecl);
-        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
+        var methodName = NameProvider.GetPublicMethodName(methodDecl.Name, methodDecl.IsAsync, hasReturnValue: hasReturnValue,
+            propertyNames: propertyNames,
+            isSelfReturning: isSelfReturning,
             parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         var paramTypes = new List<string>();

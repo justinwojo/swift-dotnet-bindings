@@ -195,6 +195,14 @@ namespace BindingsGeneration
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
                 string? superclassStr = typeDeclarationNode?.Attributes?["superclass"]?.Value;
+                // Whether the class body emitted PInvoke_getMetadata (Class kind only).
+                // Absent on legacy databases that predate this field — keep as null so the
+                // downstream consumer's HasMetadataPInvokeInResolvedAncestors falls back to
+                // pre-fix behavior (assume yes), preserving compile against old NuGets.
+                string? emittedMetadataPInvokeStr = typeDeclarationNode?.Attributes?["emittedMetadataPInvoke"]?.Value;
+                bool? emittedMetadataPInvoke = emittedMetadataPInvokeStr == null
+                    ? (bool?)null
+                    : emittedMetadataPInvokeStr.Equals("true", StringComparison.OrdinalIgnoreCase);
                 string? inlineSizeStr = typeDeclarationNode?.Attributes?["inlineSize"]?.Value;
                 int? inlineSize = inlineSizeStr != null ? int.Parse(inlineSizeStr) : null;
                 string? abiFieldLayout = typeDeclarationNode?.Attributes?["abiLayout"]?.Value;
@@ -309,6 +317,7 @@ namespace BindingsGeneration
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                     ProtocolConformances = protocolConformances,
                     EmittedClassMethods = emittedClassMethods,
+                    EmittedMetadataPInvoke = emittedMetadataPInvoke,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

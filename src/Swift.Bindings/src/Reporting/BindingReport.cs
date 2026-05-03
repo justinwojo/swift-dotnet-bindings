@@ -88,6 +88,7 @@ public enum SkipReason
     ActorIsolatedConstructor,
     MissingWrapperSymbol,
     SuppressedProxyMethodBody,
+    CovariantReturnNotRepresentable,
     Unknown,
 }
 

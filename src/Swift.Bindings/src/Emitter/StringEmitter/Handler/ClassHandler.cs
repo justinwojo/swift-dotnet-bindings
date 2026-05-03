@@ -298,12 +298,13 @@ namespace BindingsGeneration
                     // No generated finalizer needed — SafeHandle's built-in finalizer calls ReleaseHandle.
                     if (!isDerived)
                     {
-                        // If the class has a declared superclass but IsEffectivelyDerived returned false
-                        // (e.g., superclass has unsupported generic constraints), we still emit _handle/Payload
-                        // but with `new` modifiers to avoid CS0108 (hides inherited member).
-                        bool needsNewModifier = classDecl.DirectSuperclassName != null;
-                        WriteClassHandleField(csWriter, typeNameWithGenerics, needsNewModifier);
-                        WriteClassHandleAccessors(csWriter, typeNameWithGenerics, needsNewModifier);
+                        // !isDerived implies the C# class declaration has no base class
+                        // (only interfaces — see line 231 / cross-module branches above).
+                        // System.Object has none of these handle members, so `new` would
+                        // produce CS0109 ("does not hide an accessible member") for every
+                        // root-emitted class with an unbindable Swift superclass.
+                        WriteClassHandleField(csWriter, typeNameWithGenerics, needsNewModifier: false);
+                        WriteClassHandleAccessors(csWriter, typeNameWithGenerics, needsNewModifier: false);
                     }
                 }
 
@@ -519,7 +520,11 @@ namespace BindingsGeneration
                     }
 
                     typeDatabase.UpdateTypeRecord(classDecl.SwiftTypeName,
-                        record with { EmittedClassMethods = emitted });
+                        record with
+                        {
+                            EmittedClassMethods = emitted,
+                            EmittedMetadataPInvoke = classDecl.EmittedMetadataPInvoke
+                        });
                 }
 
                 if (typeDecl.Types.Count > 0)
@@ -683,10 +688,11 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = _isDerived
+                        HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl)
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
+                    _classDecl.EmittedMetadataPInvoke = true;
                 }
                 else
                 {
@@ -714,6 +720,7 @@ namespace BindingsGeneration
                         """);
                     _writer.WriteLine();
 
+                    var hasNew = HasMetadataPInvokeInResolvedAncestors(_classDecl);
                     foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
                     {
                         LibraryPath = _typeDatabase.AsyncLibraryName!,
@@ -723,7 +730,7 @@ namespace BindingsGeneration
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
                         CallingConvention = PInvokeCallingConvention.Cdecl,
-                        HasNewModifier = _isDerived
+                        HasNewModifier = hasNew
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -737,10 +744,11 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = _isDerived
+                        HasNewModifier = hasNew
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
+                    _classDecl.EmittedMetadataPInvoke = true;
                 }
             }
             else
@@ -757,11 +765,43 @@ namespace BindingsGeneration
                     ReturnType = "TypeMetadata",
                     ParametersString = "",
                     Visibility = PInvokeVisibility.Internal,
-                    HasNewModifier = _isDerived
+                    HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl)
                 }))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
+                _classDecl.EmittedMetadataPInvoke = true;
             }
+        }
+
+        /// <summary>
+        /// Returns true when any ancestor (same-module via <see cref="ClassDecl.ResolvedSuperclass"/>
+        /// or cross-module via persisted <see cref="TypeRecord.EmittedMetadataPInvoke"/>) emitted an
+        /// instance-level <c>PInvoke_getMetadata</c> on its own class body. Drives the C# <c>new</c>
+        /// modifier on the derived class's <c>PInvoke_getMetadata</c> declaration so the modifier
+        /// only appears when there is a real inherited member to shadow — otherwise the compiler
+        /// emits CS0109 ("does not hide an inherited member"). The flag is false on parents whose
+        /// metadata accessor lives on a generic <see cref="PInvokeHelperContext"/> helper class
+        /// instead of on the parent itself; those parents have nothing for the derived member
+        /// to shadow.
+        /// </summary>
+        internal static bool HasMetadataPInvokeInResolvedAncestors(ClassDecl classDecl)
+        {
+            for (var a = classDecl.ResolvedSuperclass; a != null; a = a.ResolvedSuperclass)
+            {
+                if (a.EmittedMetadataPInvoke) return true;
+            }
+            // Cross-module immediate parent: consult its persisted flag. When the flag is
+            // null (legacy module databases produced before this field existed) preserve
+            // pre-fix behavior — assume the parent emitted PInvoke_getMetadata so that
+            // already-published parent NuGets continue to compile against newly generated
+            // children. The CS0109 warning was emitted before this fix anyway.
+            if (classDecl.HasCrossModuleSwiftSuperclass)
+            {
+                var flag = classDecl.CrossModuleSuperclassRecord!.EmittedMetadataPInvoke;
+                if (flag == true) return true;
+                if (flag == null) return true;
+            }
+            return false;
         }
 
         /// <summary>

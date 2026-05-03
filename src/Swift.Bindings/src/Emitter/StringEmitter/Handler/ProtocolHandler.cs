@@ -107,7 +107,7 @@ namespace BindingsGeneration
             var closureHandler = new ClosureHandler(env.TypeDatabase);
 
             // Pre-compute extension default lookup values (loop-invariant)
-            var extensionDefaultsIndex = context.GetEmissionContext()?.ExtensionDefaultsIndex;
+            var extensionDefaultsIndex = emissionCtx?.ExtensionDefaultsIndex;
             var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
                                    ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
 
@@ -208,6 +208,12 @@ namespace BindingsGeneration
             foreach (var closurePropName in closureSkippedPropertyNames)
                 emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(closurePropName));
 
+            // Publish the actually-emitted property-name set so downstream emitters that
+            // need to compute this protocol's exact C# member names (proxy explicit-interface
+            // forwarders, BFS shadow detection) can read it instead of approximating from
+            // protocolDecl.Properties (which over-includes gate-skipped properties).
+            emissionCtx?.RecordInterfacePropertyNames(protoQualifiedName, emittedCSharpPropertyNames);
+
             // Emit subscripts as interface indexers
             var skippedSubscriptIndices = new HashSet<int>();
             int subscriptIndex = 0;
@@ -292,7 +298,7 @@ namespace BindingsGeneration
                     }
 
                     // Emit as static abstract (no DIM, no nint overload — static abstract members can't have default implementations)
-                    EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: true);
+                    EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: true, emissionCtx: emissionCtx);
                     staticAbstractMethodKeys.Add(staticMethodKey);
                     emittedInterfaceMemberCount++;
                     ReportCollector.RecordMemberEmitted(methodDecl);
@@ -375,7 +381,7 @@ namespace BindingsGeneration
                         protoQualifiedName, extMethodKey);
                 }
 
-                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault);
+                EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault, emissionCtx: emissionCtx);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(methodDecl);
 
@@ -787,7 +793,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false, bool isStaticAbstract = false)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false, bool isStaticAbstract = false, ModuleEmissionContext? emissionCtx = null)
         {
             // Note: Constructor, static, duplicate, and AnyType generic arg checks
             // are handled at the loop level in Emit(). This method is only called
@@ -897,8 +903,133 @@ namespace BindingsGeneration
             }
             else
             {
-                csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)});");
+                // `new` modifier when this method shadows an inherited interface's same-name
+                // method — silences CS0108. The shadowing usually arises from refined-return
+                // covariance (e.g. WCDB's PropertyConvertible refines ColumnConvertible's
+                // `_in(string) -> Column` to return `Property`). Same projected key (name +
+                // params, no return) means C# treats this as a hide.
+                var newModifier = ShadowsInheritedInterfaceMethod(methodDecl, protocolContext, typeDatabase, emissionCtx) ? "new " : "";
+                csWriter.WriteLine($"{newModifier}{returnType} {methodName}({string.Join(", ", parameters)});");
             }
+        }
+
+        /// <summary>
+        /// Returns the C# property-name set the interface emitter actually used for
+        /// <paramref name="protocolDecl"/>, or a conservative fallback derived from
+        /// <c>protocolDecl.Properties</c> when the cache hasn't been populated. The
+        /// fallback is used for ancestors whose interface emission ran in a different
+        /// module pass (cross-module inheritance is filtered out elsewhere, but the
+        /// helper stays defensive).
+        /// </summary>
+        private static IReadOnlySet<string>? GetEmittedInterfacePropertyNames(
+            ProtocolDecl protocolDecl, ModuleEmissionContext? emissionCtx)
+        {
+            if (emissionCtx != null)
+            {
+                var qualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                                  ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
+                var cached = emissionCtx.GetInterfacePropertyNames(qualifiedName);
+                if (cached != null)
+                    return cached;
+            }
+            return new HashSet<string>(protocolDecl.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+        }
+
+        /// <summary>
+        /// Returns true when <paramref name="methodDecl"/> declared on
+        /// <paramref name="protocolDecl"/> projects to the same C# overload key
+        /// (method name + parameter types, ignoring return type) as a method declared on
+        /// any same-module ancestor protocol reachable via <c>InheritedProtocols</c>.
+        ///
+        /// C# emits CS0108 when an interface method hides an inherited interface's method
+        /// without the <c>new</c> modifier. Refined-return covariance (Swift's protocol
+        /// witness tables permit it; C# interface contracts do not) is the most common
+        /// trigger — see <c>ProtocolProxyEmitter.InterfaceImpl.cs</c> for the matching
+        /// proxy-side fix that emits an explicit-interface forwarder for the base slot.
+        ///
+        /// BFS filter mirrors <see cref="GetInheritedInterfaceList"/>: skip AnyObject,
+        /// Sendable/Copyable/Escapable, cross-module, PAT/Self-requirement, and
+        /// underscore-suppressed protocols. Stops at the first match — emitting <c>new</c>
+        /// once is sufficient regardless of how many ancestors share the slot.
+        /// </summary>
+        private static bool ShadowsInheritedInterfaceMethod(
+            MethodDecl methodDecl, ProtocolDecl? protocolDecl, ITypeDatabase typeDatabase,
+            ModuleEmissionContext? emissionCtx = null)
+        {
+            if (protocolDecl == null || protocolDecl.InheritedProtocols.Count == 0)
+                return false;
+
+            var moduleDecl = protocolDecl.ModuleDecl;
+            if (moduleDecl == null)
+                return false;
+
+            // Compute keys with each protocol's own emitted property-name set so a method
+            // renamed `Foo` -> `FooMethod` in one protocol (because that protocol has a
+            // property `Foo`) doesn't collide with a method that emits as plain `Foo`
+            // elsewhere. Falls back to a conservative approximation when the cache hasn't
+            // been populated (e.g. cross-module ancestor whose interface ran in a different
+            // module's emission pass).
+            var ownPropNames = GetEmittedInterfacePropertyNames(protocolDecl, emissionCtx);
+            var ownProjectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(methodDecl, typeDatabase, protocolDecl, ownPropNames);
+            var currentModule = protocolDecl.ModuleDecl?.Name;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<NamedTypeSpec>();
+            foreach (var inherited in protocolDecl.InheritedProtocols)
+                queue.Enqueue(inherited);
+
+            while (queue.Count > 0)
+            {
+                var inherited = queue.Dequeue();
+                if (inherited.Name is "Swift.AnyObject" or "AnyObject")
+                    continue;
+                if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
+                    continue;
+
+                var inheritedModule = inherited.Module;
+                if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(currentModule) &&
+                    inheritedModule != currentModule)
+                    continue;
+
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(inherited);
+                if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var inheritedRecord))
+                    continue;
+                if (inheritedRecord.Kind != TypeRecordKind.Protocol)
+                    continue;
+                if (inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                    inheritedRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                    continue;
+
+                // Skip underscore-suppressed protocols — their interfaces aren't emitted, so the
+                // child protocol can't actually inherit (or shadow) anything from them. Without
+                // this filter, we'd wrongly add a `new` modifier when the parent interface was
+                // never produced, making the modifier itself a CS0109 "new keyword not required"
+                // warning — the exact noise this whole pass is trying to prevent.
+                if (emissionCtx != null && swiftTypeName != null &&
+                    emissionCtx.IsUnderscoreSuppressed(swiftTypeName.ToString()))
+                    continue;
+
+                var visitKey = swiftTypeName?.ToString() ?? inherited.NameWithoutModule;
+                if (!visited.Add(visitKey))
+                    continue;
+
+                var inheritedDecl = moduleDecl.Protocols.FirstOrDefault(p => p.Name == inherited.NameWithoutModule);
+                if (inheritedDecl == null)
+                    continue;
+
+                var ancestorPropNames = GetEmittedInterfacePropertyNames(inheritedDecl, emissionCtx);
+                foreach (var ancestorMethod in inheritedDecl.Methods)
+                {
+                    if (ancestorMethod.IsConstructor || ancestorMethod.MethodType == MethodType.Static)
+                        continue;
+                    var ancestorKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(ancestorMethod, typeDatabase, inheritedDecl, ancestorPropNames);
+                    if (ancestorKey == ownProjectedKey)
+                        return true;
+                }
+
+                foreach (var grandparent in inheritedDecl.InheritedProtocols)
+                    queue.Enqueue(grandparent);
+            }
+            return false;
         }
 
         /// <summary>

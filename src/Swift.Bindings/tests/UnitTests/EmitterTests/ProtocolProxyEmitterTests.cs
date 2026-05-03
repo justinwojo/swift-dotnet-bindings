@@ -5493,4 +5493,159 @@ public class ProtocolProxyEmitterTests
     }
 
     #endregion
+
+    #region Covariant return forwarder (CS0738)
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_DirectSubclass_ReturnsTrue()
+    {
+        // Property : Column — direct superclass relationship in TypeDatabase.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Column"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Column"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Column"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Property"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Property"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Property"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Column"),
+            })
+        });
+
+        var assignable = _emitter.IsSwiftClassAssignableTo(
+            new NamedTypeSpec("TestModule.Property"),
+            new NamedTypeSpec("TestModule.Column"));
+
+        Assert.True(assignable);
+    }
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_TransitiveSubclass_ReturnsTrue()
+    {
+        // Leaf : Mid : Root — must walk the chain, not just the direct edge.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Root"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Root"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Root"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Mid"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Mid"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Mid"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Root"),
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.Leaf"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Leaf"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Leaf"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Mid"),
+            })
+        });
+
+        Assert.True(_emitter.IsSwiftClassAssignableTo(
+            new NamedTypeSpec("TestModule.Leaf"),
+            new NamedTypeSpec("TestModule.Root")));
+    }
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_SameType_ReturnsTrue()
+    {
+        // Identical type pairs are trivially assignable — short-circuited before DB lookup
+        // so this works even without a registered TypeRecord.
+        Assert.True(_emitter.IsSwiftClassAssignableTo(
+            new NamedTypeSpec("TestModule.Foo"),
+            new NamedTypeSpec("TestModule.Foo")));
+    }
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_UnrelatedClasses_ReturnsFalse()
+    {
+        // Two root-level classes with no inheritance relationship — covariant cast
+        // must NOT be considered safe.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.A"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "A"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.A"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.B"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "B"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.B"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+            })
+        });
+
+        Assert.False(_emitter.IsSwiftClassAssignableTo(
+            new NamedTypeSpec("TestModule.A"),
+            new NamedTypeSpec("TestModule.B")));
+    }
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_StructInsteadOfClass_ReturnsFalse()
+    {
+        // Struct kinds don't have C# inheritance — the forwarder cast would be invalid.
+        _typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("TestModule.RefinedStruct"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "RefinedStruct"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.RefinedStruct"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            })
+        });
+
+        Assert.False(_emitter.IsSwiftClassAssignableTo(
+            new NamedTypeSpec("TestModule.RefinedStruct"),
+            new NamedTypeSpec("TestModule.BaseClass")));
+    }
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_UnregisteredRefinedType_ReturnsFalse()
+    {
+        // No record in TypeDatabase — the assignability check must fail closed
+        // (better to surface CS0738 than to emit a forwarder that throws at runtime).
+        Assert.False(_emitter.IsSwiftClassAssignableTo(
+            new NamedTypeSpec("TestModule.UnknownChild"),
+            new NamedTypeSpec("TestModule.UnknownParent")));
+    }
+
+    [Fact]
+    public void IsSwiftClassAssignableTo_NonNamedTypeSpec_ReturnsFalse()
+    {
+        // Tuples, closures, and protocol compositions can't satisfy a class hierarchy cast.
+        Assert.False(_emitter.IsSwiftClassAssignableTo(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.SomeClass")));
+    }
+
+    #endregion
 }

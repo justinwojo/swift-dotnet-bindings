@@ -6,7 +6,25 @@ A consumer asked whether WCDB could be bound with our tooling. The xcframework b
 
 ## Status
 
-**Decision (2026-05-03): defer to 0.10.0.** All three fixes (blocker 1, blocker 2, bonus CS0109) are concrete and bounded after the verified scoping below. None block what 0.9.0 already delivers — WCDB isn't currently supported and no existing library regresses. Don't hold up 0.9.0 to bundle these.
+**Update (2026-05-03 — fixes landed against 0.10.0):** All three target items resolved in `swift-bindings`:
+- Blocker 1 — clang submodule synthesis landed in `spm-to-xcframework`.
+- Blocker 2 — covariant-return forwarder in `ProtocolProxyEmitter.InterfaceImpl.cs`. Two-branch design: emits a real cast forwarder when the C# class hierarchy mirrors Swift's refinement (`IsSwiftClassAssignableTo` walks `TypeRecord.SuperclassTypeName`); emits an explicit-interface `NotSupportedException` stub with a redirect-hint message when the refined and base return types are sibling classes (WCDB's `Property`/`Column` case). The throwing-stub case is recorded to `binding-report.json` as `CovariantReturnNotRepresentable` so consumers can see what to manually forward.
+- Bonus CS0109 — `ClassHandler.cs:299-309` always passes `needsNewModifier: false` in the `!isDerived` branch (System.Object has none of those handle members; `new` was always invalid).
+- Collateral fix found during verification: covariant-return forwarder needed dedup by explicit-impl signature. Multi-path inheritance (PropertyConvertible → ColumnConvertible via direct base AND via ExpressionInOperable) re-entered the forwarder and produced duplicate explicit impls (CS8646/CS0111). Fixed by tracking emitted `Interface.Method(params)` keys per proxy class.
+
+**Verification — `nuke BuildLibrary --library WCDB` against 0.10.0-blockerfix3:**
+- CS0738: 0 (was many)
+- CS0109: 0 (was 376)
+- CS8646/CS0111: 0 (collateral dedup fix landed)
+- `binding-report.json` shows 2 `CovariantReturnNotRepresentable` entries for `_in` and `of` on `WCDBSwift.ColumnConvertible` with the redirect-hint message.
+
+**New latent bug surfaced (not introduced — was hidden behind the duplicate explicit impls):** `WCDBSwift.cs:7561` and `:7657` show `var result = Table_PInvoke.PInvoke_getColumn_*(ExistentialContainerFactory.GetOrCreate<I*Convertible>(result, ...))` — the generator reuses `result` as both the Swift method's parameter name AND the standard P/Invoke return-variable name, producing CS0841/CS0136 on the self-referential RHS. This is a parameter-name collision in the P/Invoke emitter, unrelated to protocol covariance. Should be tracked separately in roadmap when the broader generator backlog is reviewed.
+
+**Wrapper-side blockers stay deferred.** Per analysis with the user: even with `<SwiftWrapperRequired>true>`, WCDB's actual value (TableCodable ORM, KeyPath query DSL) is not reachable from pure C# — `@TableCodable` macros synthesize code in the consumer's *Swift* module, and KeyPaths don't bridge. So the cross-module import issue in `WCDBSwift.Wrapper.swift` (`ModuleHandler.cs:661`) and any wrapper-side covariant-return work do not unblock a usable WCDB binding. The three generator improvements above stand on their own.
+
+---
+
+**Original decision (2026-05-03): defer to 0.10.0.** All three fixes (blocker 1, blocker 2, bonus CS0109) are concrete and bounded after the verified scoping below. None block what 0.9.0 already delivers — WCDB isn't currently supported and no existing library regresses. Don't hold up 0.9.0 to bundle these.
 
 | Item | Owner | Verified shape | Test gap |
 |---|---|---|---|

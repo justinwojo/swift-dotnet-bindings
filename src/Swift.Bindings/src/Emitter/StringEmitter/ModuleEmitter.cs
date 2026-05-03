@@ -73,6 +73,14 @@ namespace BindingsGeneration
                     // && opaqueSkipped > 0) BEFORE any method wrappers so SB0002 diagnostics fire on
                     // call sites regardless of declaration order. See SilentTombstoneRegistrar.
                     SilentTombstoneRegistrar.Precompute(moduleDecl, _typeDatabase, emissionContext);
+                    // Pre-pass: populate the per-protocol "actually-emitted interface property names"
+                    // cache for every protocol in the module BEFORE any interface body is emitted.
+                    // Downstream consumers (proxy explicit-impl forwarders, BFS shadow detection,
+                    // covariant-return forwarders) read this set to compute method projection keys
+                    // with the same collision context the interface itself used. Lazy population
+                    // during emission was order-dependent; this prepass makes the cache
+                    // declaration-order-independent. See InterfacePropertyNamePrecomputer.
+                    InterfacePropertyNamePrecomputer.Precompute(moduleDecl, _typeDatabase, emissionContext);
                     var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews();

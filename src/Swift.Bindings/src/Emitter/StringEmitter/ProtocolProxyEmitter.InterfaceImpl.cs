@@ -52,20 +52,48 @@ public partial class ProtocolProxyEmitter
         }
 
         // Collect emitted C# property names for method/property collision detection.
-        // Include closure-skipped properties: they ARE emitted in the interface (proxy gets
-        // NotSupportedException stubs), so proxy methods must match interface collision renames.
-        var emittedCSharpPropertyNames = new HashSet<string>();
-        foreach (var property in protocolDecl.Properties)
+        // Use the canonical cached set populated by ProtocolHandler / InterfacePropertyNamePrecomputer
+        // so the proxy's view matches what the interface actually emits. The canonical set
+        // includes BOTH instance properties (closure-stub or otherwise) AND static abstract
+        // property names — both produce real C# members on the proxy class (instance via the
+        // interface contract, static via EmitStaticAbstractStubs below) and either can collide
+        // with an instance method's projected name (e.g., a `static var Foo` plus instance
+        // `func foo(...)` forces the method to emit as `FooMethod`).
+        var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                               ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
+        var canonicalPropertyNames = _emissionContext.GetInterfacePropertyNames(protoQualifiedName);
+        HashSet<string> emittedCSharpPropertyNames;
+        if (canonicalPropertyNames != null)
         {
-            if (!property.IsStatic &&
-                (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name)))
-                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+            emittedCSharpPropertyNames = new HashSet<string>(canonicalPropertyNames);
+        }
+        else
+        {
+            // Defensive fallback: the prepass populates the cache for every protocol in the
+            // module, so this branch should not trigger in practice. Mirror the canonical
+            // construction (instance + static), not the previous instance-only approximation.
+            emittedCSharpPropertyNames = new HashSet<string>();
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (property.IsStatic)
+                {
+                    if (_staticAbstractPropertyNames.Contains(property.Name))
+                        emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                }
+                else if (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name))
+                {
+                    emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                }
+            }
         }
 
-        // Methods - track by signature to handle overloads
+        // Methods - track by signature to handle overloads.
+        // Value carries the originally-emitted MethodDecl so the inherited-walk pass can
+        // compare projected return types and emit a covariant-return forwarder when a child
+        // protocol refines a base protocol's return type (CS0738 fix).
         int methodIndex = 0;
         var methodIndices = new Dictionary<string, int>();
-        var emittedCSharpKeys = new HashSet<string>();
+        var emittedCSharpKeys = new Dictionary<string, MethodDecl>();
         foreach (var method in protocolDecl.Methods)
         {
             if (method.IsConstructor || method.MethodType == MethodType.Static)
@@ -81,16 +109,23 @@ public partial class ProtocolProxyEmitter
                     // Closure-skipped methods are now in the interface — emit NotSupported stub
                     if (_closureSkippedMethodKeys.Contains(methodKey))
                     {
-                        var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
-                        if (!emittedCSharpKeys.Add(projectedKeySkipped))
+                        // Pass the proxy's own propertyNames so the dedup key reflects the
+                        // collision-aware C# member name (Foo -> FooMethod when this protocol
+                        // has a property Foo). Without it, two methods that emit under
+                        // different C# names can falsely share a dedup key, dropping one
+                        // emission entirely.
+                        var projectedKeySkipped = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
+                        if (emittedCSharpKeys.ContainsKey(projectedKeySkipped))
                             continue;
+                        emittedCSharpKeys[projectedKeySkipped] = method;
                         EmitNotSupportedMethodStub(writer, method, "closure parameters cannot be marshalled", emittedCSharpPropertyNames);
                     }
                     continue;
                 }
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
-                if (!emittedCSharpKeys.Add(projectedKey))
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, emittedCSharpPropertyNames);
+                if (emittedCSharpKeys.ContainsKey(projectedKey))
                     continue;
+                emittedCSharpKeys[projectedKey] = method;
                 EmitMethodImplementation(writer, method, protocolDecl, dispatchEmitter, idx, emittedCSharpPropertyNames);
             }
         }
@@ -160,20 +195,38 @@ public partial class ProtocolProxyEmitter
             }
         }
 
-        // Collect emitted static property names for method/property collision detection
-        // (mirrors ProtocolHandler.Emit() emittedCSharpPropertyNames logic for statics)
-        var staticPropertyNames = new HashSet<string>();
-        foreach (var property in protocolDecl.Properties)
+        // Collect property names for method/property collision detection on the static
+        // method stub path. Source from the canonical cached set (ProtocolHandler /
+        // InterfacePropertyNamePrecomputer) so the dedup key at the projection-key site below
+        // and the methodName resolution use the same set the interface itself used. The
+        // canonical set includes static-property names that pass duplicate detection regardless
+        // of gate result (mirroring ProtocolHandler.Emit's emittedCSharpPropertyNames), so a
+        // gate-skipped static `Foo` plus static `foo(...)` correctly forces the interface to
+        // emit `FooMethod(...)` AND the proxy stub to emit `FooMethod(...)`.
+        var staticStubsProtoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                                          ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
+        var staticStubsCanonicalNames = _emissionContext.GetInterfacePropertyNames(staticStubsProtoQualifiedName);
+        HashSet<string> staticPropertyNames;
+        if (staticStubsCanonicalNames != null)
         {
-            if (property.IsStatic && _staticAbstractPropertyNames.Contains(property.Name))
-                staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+            staticPropertyNames = new HashSet<string>(staticStubsCanonicalNames);
         }
-        // Also include instance property names that are emitted in the interface
-        foreach (var property in protocolDecl.Properties)
+        else
         {
-            if (!property.IsStatic &&
-                (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name)))
-                staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+            // Defensive fallback: prepass populates the cache for every protocol in the
+            // module, so this branch should not trigger in practice.
+            staticPropertyNames = new HashSet<string>();
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (property.IsStatic && _staticAbstractPropertyNames.Contains(property.Name))
+                    staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+            }
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (!property.IsStatic &&
+                    (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name)))
+                    staticPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+            }
         }
 
         // Static method stubs
@@ -186,7 +239,12 @@ public partial class ProtocolProxyEmitter
             if (!_staticAbstractMethodKeys.Contains(methodKey))
                 continue;
 
-            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+            // Pass staticPropertyNames so the dedup key reflects the same collision-aware
+            // C# member name resolution used at the methodName site below (line 226). Without
+            // it, two static methods that emit under different C# names (e.g., `Foo` -> `FooMethod`
+            // because of a static `var Foo` collision) can falsely share a dedup key, dropping
+            // one stub entirely.
+            var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl, staticPropertyNames);
             if (!emittedStaticMethodCSharpKeys.Add(projectedKey))
                 continue;
 
@@ -231,7 +289,7 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private void EmitInheritedInterfaceImplementations(
         CSharpWriter writer, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter,
-        HashSet<string> emittedMembers, HashSet<string> emittedCSharpKeys,
+        HashSet<string> emittedMembers, Dictionary<string, MethodDecl> emittedCSharpKeys,
         HashSet<string> emittedCSharpPropertyNames)
     {
         if (protocolDecl.InheritedProtocols.Count == 0)
@@ -283,6 +341,14 @@ public partial class ProtocolProxyEmitter
 
         writer.WriteLine();
         writer.WriteLine("// Inherited protocol interface implementations (stubs — dispatch via parent proxy)");
+
+        // Tracks already-emitted explicit-interface impls so the covariant-return forwarder
+        // doesn't double-write the same `Interface.Method(params)` line. Multiple inheritance
+        // paths from the proxy class to the same base interface (common in WCDB's overlapping
+        // refinement protocols) walk the same method via different parents and would otherwise
+        // produce duplicate explicit impls — CS8646 ("explicitly implemented more than once")
+        // and CS0111. The C# slot is satisfied by the first emission; later paths must skip.
+        var emittedExplicitImplSignatures = new HashSet<string>(StringComparer.Ordinal);
 
         // Recursively collect inherited protocols (walk the chain)
         var allInherited = new List<ProtocolDecl>();
@@ -346,15 +412,34 @@ public partial class ProtocolProxyEmitter
                 emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
             }
 
+            // Resolve the inherited protocol's own emitted property-name set (cache hit
+            // when the interface emitter already ran for it; conservative fallback to all
+            // declared properties otherwise). The ancestor's projection key must be computed
+            // with the ancestor's own collision set so a `Foo` method that the ancestor
+            // emitted as `FooMethod` doesn't mismatch against the proxy's `Foo` key.
+            var inheritedProtoQualifiedName = inheritedProto.SwiftTypeName?.ModuleQualifiedName
+                                           ?? $"{inheritedProto.ModuleDecl?.Name ?? "Unknown"}.{inheritedProto.Name}";
+            var inheritedOwnPropertyNames = _emissionContext.GetInterfacePropertyNames(inheritedProtoQualifiedName)
+                ?? new HashSet<string>(inheritedProto.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+
             // Emit inherited method stubs
             foreach (var method in inheritedProto.Methods)
             {
                 if (method.IsConstructor || method.MethodType == MethodType.Static)
                     continue;
 
-                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, inheritedProto);
-                if (!emittedCSharpKeys.Add(projectedKey))
+                var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, inheritedProto, inheritedOwnPropertyNames);
+                if (emittedCSharpKeys.TryGetValue(projectedKey, out var existingMethod))
+                {
+                    // Same C# overload key already emitted. If the inherited base method's
+                    // projected return type differs from the already-emitted (refined) one,
+                    // this is a covariant-return shadowing case (CS0738). Emit an explicit
+                    // interface implementation forwarder so the base interface contract is
+                    // satisfied. Equal return projections are legitimate dedup — skip silently.
+                    TryEmitCovariantReturnForwarder(writer, inheritedProto, method, existingMethod, emittedExplicitImplSignatures, emittedCSharpPropertyNames);
                     continue;
+                }
+                emittedCSharpKeys[projectedKey] = method;
                 EmitInheritedMethodStub(writer, method, emittedCSharpPropertyNames);
             }
         }
@@ -415,6 +500,219 @@ public partial class ProtocolProxyEmitter
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         writer.WriteLine($"public {returnTypeName} {methodName}({string.Join(", ", parameters)}) => throw new NotSupportedException(\"Inherited protocol member — dispatch via parent protocol proxy.\");");
+    }
+
+    /// <summary>
+    /// Emits an explicit interface implementation for an inherited base protocol method
+    /// that shares a C# overload key with an already-emitted (refined-return) method on
+    /// the proxy class. Without this, C# rejects the proxy with CS0738 because the base
+    /// interface contract <c>Column _in(string)</c> is unimplemented — the refined
+    /// <c>Property _in(string)</c> shadows but does not satisfy it.
+    ///
+    /// Pattern (Swift):
+    /// <code>
+    /// protocol Base { func in(_:String) -> Column }
+    /// protocol Refined: Base { func in(_:String) -> Property }
+    /// </code>
+    /// Pattern (emitted C#):
+    /// <code>
+    /// public Property _in(string table) { /* refined body */ }
+    /// Column IBase._in(string table) =&gt; (Column)this._in(table);   // when Property : Column
+    /// Column IBase._in(string table) =&gt; throw new NotSupportedException(...);  // otherwise
+    /// </code>
+    ///
+    /// Behavior:
+    /// <list type="bullet">
+    /// <item>Returns silently when return projections agree — legitimate dedup, no covariance.</item>
+    /// <item>When the refined Swift type IS class-assignable to the base type via the
+    ///   <see cref="ITypeDatabase"/> superclass chain, emits a cast forwarder so callers
+    ///   through the base interface get up-cast results from the refined dispatch path.</item>
+    /// <item>When the cast is NOT statically safe (e.g. WCDB's <c>Property</c> and <c>Column</c>
+    ///   are sibling classes despite the protocol-level refinement), emits an explicit-interface
+    ///   <c>NotSupportedException</c> stub. This satisfies the C# interface contract (no CS0738)
+    ///   and gives consumers a clear runtime error directing them to the refined dispatch path.
+    ///   Recorded to the binding report as <see cref="SkipReason.CovariantReturnNotRepresentable"/>
+    ///   so the missing real implementation is auditable.</item>
+    /// </list>
+    /// </summary>
+    private void TryEmitCovariantReturnForwarder(
+        CSharpWriter writer,
+        ProtocolDecl inheritedProto,
+        MethodDecl inheritedMethod,
+        MethodDecl refinedMethod,
+        HashSet<string> emittedExplicitImplSignatures,
+        IReadOnlySet<string> propertyNames)
+    {
+        // No covariant return when method projections agree — silent dedup.
+        var inheritedReturnSpec = inheritedMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var refinedReturnSpec = refinedMethod.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        bool inheritedHasReturn = inheritedReturnSpec != null && !inheritedReturnSpec.IsEmptyTuple;
+        bool refinedHasReturn = refinedReturnSpec != null && !refinedReturnSpec.IsEmptyTuple;
+        if (!inheritedHasReturn || !refinedHasReturn)
+            return;
+
+        var inheritedReturnCsRaw = GetCSharpTypeName(inheritedReturnSpec!, isParameter: false);
+        var refinedReturnCsRaw = GetCSharpTypeName(refinedReturnSpec!, isParameter: false);
+        if (inheritedReturnCsRaw == refinedReturnCsRaw && inheritedMethod.IsAsync == refinedMethod.IsAsync)
+            return;
+
+        // Wrap async returns in Task<>/Task so the explicit-impl signature matches the
+        // inherited interface slot exactly. The cast-forwarder body further down only runs
+        // for the sync subclass case; async always falls through to the throwing stub
+        // because Task<T> is invariant in C# (no static `Task<Refined> -> Task<Base>` cast).
+        var inheritedReturnCs = inheritedMethod.IsAsync
+            ? $"Task<{inheritedReturnCsRaw}>"
+            : inheritedReturnCsRaw;
+        var refinedReturnCs = refinedMethod.IsAsync
+            ? $"Task<{refinedReturnCsRaw}>"
+            : refinedReturnCsRaw;
+        bool isAsyncCovariant = inheritedMethod.IsAsync || refinedMethod.IsAsync;
+
+        // Build the explicit-interface signature from the *inherited* method. The slot we
+        // satisfy (`IBase.Foo(...)`) is whatever the inherited interface emitted, and that
+        // signature is dictated by the inherited method's projection — not the refined one.
+        // GetProjectedCSharpMethodKey collapses sync vs async into the same key, so a sync
+        // inherited method can pair with an async refined one (e.g. sync `fooAsync()` vs
+        // async `foo()` both project to `FooAsync(...)`); using refined parameters would emit
+        // an explicit impl with a CancellationToken the inherited slot doesn't declare.
+        var parameters = new List<string>();
+        var argNames = new List<string>();
+        foreach (var param in inheritedMethod.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(param))
+                continue;
+            if (param.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, isParameter: true);
+            var paramName = NameProvider.GetCSharpParameterName(param);
+            parameters.Add($"{paramTypeName} {paramName}");
+            argNames.Add(paramName);
+        }
+        if (inheritedMethod.IsAsync)
+            parameters.Add("global::System.Threading.CancellationToken cancellationToken = default");
+
+        var inheritedInterfaceName = NameProvider.GetInterfaceName(
+            inheritedProto.Name, moduleName: inheritedProto.ModuleDecl?.Name ?? "");
+        // Compute the inherited slot name using the inherited interface's own emitted
+        // property-name set. Using the proxy's accumulated set would over-include
+        // properties from sibling interfaces and from the refined protocol, predicting
+        // a `Foo` -> `FooMethod` rename for a slot the inherited interface emitted as
+        // plain `Foo` (CS0539/CS0535).
+        //
+        // First-choice source: the canonical set published by ProtocolHandler when it
+        // emitted the inherited interface (matches the gate-evaluated set exactly).
+        // Fallback: project from inheritedProto.Properties when the cache hasn't been
+        // populated (cross-module inheritance, where the inherited interface's emission
+        // ran in a different module). The fallback over-includes gate-skipped properties,
+        // but cross-module inheritance is already filtered out at the caller's BFS.
+        var inheritedProtoQualifiedName = inheritedProto.SwiftTypeName?.ModuleQualifiedName
+                                       ?? $"{inheritedProto.ModuleDecl?.Name ?? "Unknown"}.{inheritedProto.Name}";
+        var inheritedInterfacePropertyNames = _emissionContext.GetInterfacePropertyNames(inheritedProtoQualifiedName)
+            ?? new HashSet<string>(inheritedProto.Properties.Select(p => NameProvider.GetPropertyName(p.Name)));
+        var inheritedMethodName = NameProvider.GetPublicMethodName(
+            inheritedMethod.Name, inheritedMethod.IsAsync, inheritedHasReturn,
+            propertyNames: inheritedInterfacePropertyNames,
+            isSelfReturning: MethodEnvironment.IsSelfReturningMethod(inheritedMethod),
+            parameterCount: inheritedMethod.CSSignature.Skip(1)
+                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+
+        var paramsString = string.Join(", ", parameters);
+
+        // Dedupe by the explicit-impl C# slot signature. Multiple inheritance paths from the
+        // proxy class to the same base interface (e.g. WCDB's PropertyConvertible reaches
+        // ColumnConvertible through both ExpressionInOperable and a direct base) re-enter this
+        // method with the same `Interface.Method(params)` shape. C# allows a single explicit
+        // impl per slot — emit once per (interface, method, params) tuple.
+        var explicitImplKey = $"{inheritedInterfaceName}.{inheritedMethodName}({paramsString})";
+        if (!emittedExplicitImplSignatures.Add(explicitImplKey))
+            return;
+
+        // Verify the C# class hierarchy mirrors the Swift refinement. When it does, the
+        // refined dispatch path can satisfy the base contract via a static up-cast. When it
+        // doesn't (sibling classes coincidentally exposed through a refined protocol pair —
+        // common in WCDB), no safe cast exists, so emit a NotSupportedException stub that
+        // satisfies the C# interface contract while signaling the limitation at runtime.
+        // Async covariant cases also fall through to the stub: Task<T> is invariant in C#
+        // so no synchronous cast forwarder exists, and emitting an async cast wrapper would
+        // change the public method's signature in ways the existing pipeline doesn't support.
+        if (!isAsyncCovariant && IsSwiftClassAssignableTo(refinedReturnSpec!, inheritedReturnSpec!))
+        {
+            var refinedIsSelfReturning = MethodEnvironment.IsSelfReturningMethod(refinedMethod);
+            var refinedParameterCount = refinedMethod.CSSignature.Skip(1)
+                .Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple);
+            var refinedMethodName = NameProvider.GetPublicMethodName(
+                refinedMethod.Name, refinedMethod.IsAsync, refinedHasReturn,
+                propertyNames: propertyNames,
+                isSelfReturning: refinedIsSelfReturning,
+                parameterCount: refinedParameterCount);
+            var argsString = string.Join(", ", argNames);
+            writer.WriteLine(
+                $"{inheritedReturnCs} {inheritedInterfaceName}.{inheritedMethodName}({paramsString}) => " +
+                $"({inheritedReturnCs})this.{refinedMethodName}({argsString});");
+            return;
+        }
+
+        // Sibling-class case: emit a throwing explicit-interface stub. Satisfies CS0738.
+        // The message names the refined interface so consumers can switch dispatch paths.
+        var refinedInterfaceName = NameProvider.GetInterfaceName(
+            refinedMethod.ParentDecl is ProtocolDecl refinedParent ? refinedParent.Name : "",
+            moduleName: (refinedMethod.ParentDecl as ProtocolDecl)?.ModuleDecl?.Name ?? "");
+        var redirectHint = string.IsNullOrEmpty(refinedInterfaceName)
+            ? "Use the refined protocol's dispatch path."
+            : $"Use {refinedInterfaceName} (the refined protocol) instead.";
+        writer.WriteLine(
+            $"{inheritedReturnCs} {inheritedInterfaceName}.{inheritedMethodName}({paramsString}) => " +
+            $"throw new NotSupportedException(\"Refined return type ('{refinedReturnCs}') is not " +
+            $"assignable to '{inheritedReturnCs}'. {redirectHint}\");");
+        var stubReason = isAsyncCovariant
+            ? $"async covariant return '{refinedReturnCs}' is not Task<>-castable to base '{inheritedReturnCs}' "
+            : $"refined return '{refinedReturnCs}' is not assignable to base '{inheritedReturnCs}' ";
+        ReportCollector.RecordMemberSkipped(
+            inheritedMethod,
+            SkipReason.CovariantReturnNotRepresentable,
+            stubReason +
+            $"(inherited from {inheritedProto.Name}); emitted explicit-interface stub that throws " +
+            $"NotSupportedException to satisfy CS0738");
+    }
+
+    /// <summary>
+    /// Returns true when the Swift type <paramref name="refined"/> is the same as, or a
+    /// subclass of, <paramref name="base"/> as declared in the type database. Walks the
+    /// resolved <see cref="TypeRecord.SuperclassTypeName"/> chain for class types; protocols,
+    /// structs, and unresolved types are treated as non-assignable (no class-hierarchy
+    /// relationship to walk). Used by the covariant-return forwarder to verify a static
+    /// cast from the refined return type to the base return type would succeed.
+    /// </summary>
+    internal bool IsSwiftClassAssignableTo(TypeSpec refined, TypeSpec @base)
+    {
+        // Only NamedTypeSpec carries class identity. Closures, tuples, and protocol
+        // compositions can't satisfy a class-hierarchy assignment.
+        if (refined is not NamedTypeSpec refinedNamed || @base is not NamedTypeSpec baseNamed)
+            return false;
+        var refinedName = SwiftTypeName.FromTypeSpec(refinedNamed);
+        var baseName = SwiftTypeName.FromTypeSpec(baseNamed);
+        if (refinedName == null || baseName == null)
+            return false;
+        if (refinedName.ModuleQualifiedName == baseName.ModuleQualifiedName)
+            return true;
+
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var current = refinedName;
+        while (current != null && visited.Add(current.ModuleQualifiedName))
+        {
+            if (!_typeDatabase.TryGetTypeRecord(current, out var record))
+                return false;
+            // Only class hierarchies have superclass relationships in C#. Structs and protocols
+            // can't satisfy a covariant cast through inheritance.
+            if (record.Kind != TypeRecordKind.Class)
+                return false;
+            if (record.SuperclassTypeName == null)
+                return false;
+            if (record.SuperclassTypeName.ModuleQualifiedName == baseName.ModuleQualifiedName)
+                return true;
+            current = record.SuperclassTypeName;
+        }
+        return false;
     }
 
     private void EmitPropertyImplementation(CSharpWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, WitnessDispatchEmitter dispatchEmitter)

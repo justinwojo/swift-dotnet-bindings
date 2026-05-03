@@ -177,6 +177,16 @@ namespace BindingsGeneration
             if (record.SuperclassTypeName != null)
                 writer.WriteAttributeString("superclass", record.SuperclassTypeName.ModuleQualifiedName);
 
+            // Whether the class body emitted PInvoke_getMetadata (Class kind only). See
+            // ClassHandler.HasMetadataPInvokeInResolvedAncestors — a derived class in a
+            // downstream module checks this flag to decide whether the C# `new` modifier on
+            // its own PInvoke_getMetadata declaration shadows an inherited member. Omit the
+            // attribute when null so legacy module databases keep loading as null.
+            if (record.Kind == TypeRecordKind.Class && record.EmittedMetadataPInvoke.HasValue)
+                writer.WriteAttributeString(
+                    "emittedMetadataPInvoke",
+                    record.EmittedMetadataPInvoke.Value ? "true" : "false");
+
             // Direct protocol conformances (struct/class/enum: declared protocols;
             // protocol: inherited protocols). Stored as a comma-separated list of
             // module-qualified names, mirroring AbiFieldLayout's compact encoding.

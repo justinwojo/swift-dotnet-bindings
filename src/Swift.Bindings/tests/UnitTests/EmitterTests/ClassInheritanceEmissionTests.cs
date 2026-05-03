@@ -452,11 +452,15 @@ public class ClassInheritanceEmissionTests
     }
 
     [Fact]
-    public void SkippedBaseClass_EmitsNewModifierOnHandleAndPayload()
+    public void SkippedBaseClass_NoNewModifier_AvoidsCS0109()
     {
-        // When IsEffectivelyDerived returns false but DirectSuperclassName is set
-        // (base class has unsupported constraints), the emitter emits _handle/Payload/Dispose
-        // with `new` modifiers to avoid CS0108 (hides inherited member).
+        // When IsEffectivelyDerived returns false (the Swift superclass doesn't surface
+        // as a C# base class because it has unsupported constraints), the C# declaration
+        // has no base class — it inherits implicitly from System.Object, which has none
+        // of the handle/Payload/Dispose members. Emitting `new` on those declarations
+        // produces CS0109 ("the new keyword is not required, no member is hidden").
+        // Verified end-to-end against WCDB: the prior emission produced 376 CS0109
+        // warnings; gating on actual emission of an in-tree base class drops it to 0.
         var baseClass = CreateClassDecl("SwiftUIBase");
         baseClass.GenericParameters = new List<GenericArgumentDecl>
         {
@@ -480,17 +484,20 @@ public class ClassInheritanceEmissionTests
         var output = EmitSingleClass(derived);
         var body = GetClassBody(output, "ConcreteView");
 
-        // `new` modifier on _handle, Payload, and Dispose to avoid CS0108
-        Assert.Contains("new protected SwiftClassHandle<ConcreteView> _handle", body);
-        Assert.Contains("new public SwiftClassHandle<ConcreteView> Payload", body);
-        Assert.Contains("new void Dispose()", body);
+        Assert.Contains("protected SwiftClassHandle<ConcreteView> _handle", body);
+        Assert.Contains("public SwiftClassHandle<ConcreteView> Payload", body);
+        Assert.DoesNotContain("new protected SwiftClassHandle", body);
+        Assert.DoesNotContain("new public SwiftClassHandle", body);
+        Assert.DoesNotContain("new void Dispose", body);
     }
 
     [Fact]
-    public void UnresolvedSuperclass_EmitsNewModifierOnHandle()
+    public void UnresolvedSuperclass_NoNewModifier_AvoidsCS0109()
     {
-        // When a class has DirectSuperclassName but ResolvedSuperclass is null
-        // (cross-module base class), emitter should use `new` modifiers.
+        // Same root cause as the skipped-base case: when ResolvedSuperclass is null
+        // (cross-module base not in the in-tree TypeDatabase), IsEffectivelyDerived
+        // returns false and the emitted C# class has no base class. `new` would
+        // produce CS0109.
         var child = CreateClassDecl("ChildClass");
         child.SuperclassNames = new List<string> { "ExternalBase" };
         // ResolvedSuperclass intentionally left null
@@ -498,8 +505,10 @@ public class ClassInheritanceEmissionTests
         var output = EmitSingleClass(child);
         var body = GetClassBody(output, "ChildClass");
 
-        Assert.Contains("new protected SwiftClassHandle<ChildClass> _handle", body);
-        Assert.Contains("new public SwiftClassHandle<ChildClass> Payload", body);
+        Assert.Contains("protected SwiftClassHandle<ChildClass> _handle", body);
+        Assert.Contains("public SwiftClassHandle<ChildClass> Payload", body);
+        Assert.DoesNotContain("new protected SwiftClassHandle", body);
+        Assert.DoesNotContain("new public SwiftClassHandle", body);
     }
 
     [Fact]
@@ -514,6 +523,36 @@ public class ClassInheritanceEmissionTests
         Assert.Contains("protected SwiftClassHandle<StandaloneClass> _handle", body);
         Assert.DoesNotContain("new protected", body);
         Assert.DoesNotContain("new public", body);
+    }
+
+    [Fact]
+    public void ManyClassesWithSharedUnresolvedBase_NoNewModifierAnywhere()
+    {
+        // Mirrors WCDB's `Statement*` family: many derived classes share a single
+        // unresolved (cross-module / non-emittable) base. WCDB used to emit 376
+        // CS0109 warnings here — one per `new`-modified handle/Payload/Dispose member
+        // across every derived class. After the gate fix, none of the per-class
+        // emissions should carry a `new` modifier.
+        var siblings = new[]
+        {
+            "StatementSelect", "StatementUpdate", "StatementInsert",
+            "StatementDelete", "StatementDropTrigger", "StatementVacuum",
+        };
+
+        foreach (var name in siblings)
+        {
+            var derived = CreateClassDecl(name);
+            derived.SuperclassNames = new List<string> { "StatementBase" };
+            // ResolvedSuperclass intentionally null — base lives outside the in-tree TypeDatabase.
+
+            var output = EmitSingleClass(derived);
+            var body = GetClassBody(output, name);
+
+            Assert.Contains($"protected SwiftClassHandle<{name}> _handle", body);
+            Assert.DoesNotContain("new protected", body);
+            Assert.DoesNotContain("new public", body);
+            Assert.DoesNotContain("new void Dispose", body);
+        }
     }
 
     #endregion

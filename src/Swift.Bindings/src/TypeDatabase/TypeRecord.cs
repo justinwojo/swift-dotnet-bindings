@@ -268,6 +268,16 @@ public record TypeRecord
     /// v0.8.x behavior.
     /// </summary>
     public IReadOnlyList<EmittedClassMethod>? EmittedClassMethods { get; init; }
+
+    /// <summary>
+    /// For <see cref="TypeRecordKind.Class"/> records: whether the producing module's
+    /// emitter wrote an instance-level <c>PInvoke_getMetadata</c> on this class's body.
+    /// False when the metadata accessor was hosted by a generic helper class instead.
+    /// Consumed by a downstream module's derived class to decide whether the C#
+    /// <c>new</c> modifier on its own <c>PInvoke_getMetadata</c> shadows an inherited
+    /// member (avoids CS0109 when the parent never emitted one).
+    /// </summary>
+    public bool? EmittedMetadataPInvoke { get; init; }
 }
 
 /// <summary>

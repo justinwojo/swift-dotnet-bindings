@@ -114,6 +114,41 @@ public sealed class ModuleEmissionContext
     public bool IsUnderscoreSuppressed(string moduleQualifiedName) =>
         _underscoreSuppressedNames?.Contains(moduleQualifiedName) == true;
 
+    // ==================== Interface Emitted Property Names ====================
+
+    private readonly Dictionary<string, IReadOnlySet<string>> _interfaceEmittedPropertyNames =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Records the set of C# property names actually emitted in a given protocol's interface
+    /// declaration — the same set <c>ProtocolHandler.EmitProtocolImpl</c> uses internally to
+    /// decide whether a method needs the <c>FooMethod</c> rename to avoid colliding with a
+    /// property <c>Foo</c>. Keyed by the protocol's module-qualified Swift name.
+    ///
+    /// Consumers (proxy explicit-interface forwarders, BFS shadow detection in
+    /// <c>ShadowsInheritedInterfaceMethod</c>) need this set to compute the exact C# member
+    /// name a foreign protocol emitted, since that name depends on which of that protocol's
+    /// own properties survived gate evaluation.
+    /// </summary>
+    public void RecordInterfacePropertyNames(string protoQualifiedName, IReadOnlySet<string> propertyNames)
+    {
+        if (string.IsNullOrEmpty(protoQualifiedName))
+            return;
+        _interfaceEmittedPropertyNames[protoQualifiedName] = propertyNames;
+    }
+
+    /// <summary>
+    /// Returns the property-name set recorded for <paramref name="protoQualifiedName"/>, or
+    /// <c>null</c> when the protocol's interface emission hasn't run yet (cross-module case
+    /// or pre-emission lookup). Callers fall back to a conservative approximation in that case.
+    /// </summary>
+    public IReadOnlySet<string>? GetInterfacePropertyNames(string protoQualifiedName)
+    {
+        if (string.IsNullOrEmpty(protoQualifiedName))
+            return null;
+        return _interfaceEmittedPropertyNames.TryGetValue(protoQualifiedName, out var set) ? set : null;
+    }
+
     // ==================== Protocol Extension Defaults Index ====================
 
     /// <summary>

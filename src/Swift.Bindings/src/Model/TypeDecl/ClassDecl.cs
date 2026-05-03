@@ -109,5 +109,16 @@ namespace BindingsGeneration
         /// list and to suppress the duplicate <c>_handle</c>/<c>Dispose</c> emission.
         /// </summary>
         public bool HasCrossModuleSwiftSuperclass => CrossModuleSuperclassRecord != null;
+
+        /// <summary>
+        /// Whether <c>WriteGetTypeMetadata</c> emitted an instance-level
+        /// <c>PInvoke_getMetadata</c> P/Invoke on this class's body. False when the class's
+        /// type-metadata accessor was hosted by a generic <c>PInvokeHelperContext</c> (the
+        /// helper class declares the P/Invoke instead of the class itself), so derived
+        /// classes know there is no inherited member to shadow with the C# <c>new</c>
+        /// modifier and avoid emitting CS0109. Set during emission; consumed by
+        /// <see cref="HasMetadataPInvokeInResolvedAncestors"/> on derived classes.
+        /// </summary>
+        public bool EmittedMetadataPInvoke { get; set; }
     }
 }
