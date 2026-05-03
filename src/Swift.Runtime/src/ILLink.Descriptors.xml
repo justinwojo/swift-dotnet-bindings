@@ -50,19 +50,19 @@
        keep the matching ctor overload alive on every closed instantiation
        under ILC trimming; preserve="all" pins constructors + fields together
        so the reflective path stays valid uniformly across instantiations.
-       Effectiveness caveat: the IL trimmer (any consumer that publishes
-       trimmed, e.g. PublishTrimmed=true or IsTrimmable=true on a library)
-       discovers this embedded descriptor automatically. ILC (NativeAOT)
-       does NOT auto-discover embedded descriptors from referenced
-       assemblies; a NativeAOT consumer must additionally pass the
-       descriptor explicitly to ILC by adding an IlcArg item that
-       references this file via the ILC descriptor command-line option.
-       BindingTests/RuntimeTestsApp does this with TrimmerRoots.xml plus an
-       explicit IlcArg in its csproj for the device/NativeAOT path; the
-       iOS simulator path in this repo runs with MtouchLink=None (no
-       trimming) so neither mechanism is active there. Wiring the same
-       path for NuGet consumers via buildTransitive is a followup tracked
-       in src/docs/roadmap.md. -->
+       Two consumption modes, single source on disk:
+       1. Embedded resource: the IL trimmer (any consumer that publishes
+          trimmed, e.g. PublishTrimmed=true or IsTrimmable=true on a
+          library) auto-discovers this descriptor from the assembly.
+       2. Packed file: ILC (NativeAOT) does NOT auto-discover embedded
+          descriptors from referenced assemblies. The build/SwiftBindings.Runtime.targets
+          file (packed at buildTransitive/ alongside this descriptor) injects
+          a TrimmerRootDescriptor and an IlcArg descriptor flag pointing at this
+          file whenever PublishAot=true is set on the consuming project.
+       BindingTests/RuntimeTestsApp imports the same on-disk file directly
+       via ProjectReference (buildTransitive only flows across PackageReference,
+       not ProjectReference). The iOS simulator path runs with MtouchLink=None
+       so neither mechanism is active there. -->
   <assembly fullname="System.Private.CoreLib">
     <type fullname="System.ValueTuple`1" preserve="all" />
     <type fullname="System.ValueTuple`2" preserve="all" />

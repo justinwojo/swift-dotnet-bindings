@@ -19,6 +19,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -124,6 +126,16 @@ partial class Build
             // produced.
             AssertSupplementBoundsRuntimeRange(nupkgDir, PackGateVersion, PackGateAppleVersion);
 
+            // 2c. Assert the Runtime nupkg ships ILLink.Descriptors.xml adjacent to
+            // SwiftBindings.Runtime.targets in buildTransitive/. The targets file references
+            // the descriptor via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml; if the
+            // descriptor isn't packed alongside it, every NativeAOT consumer's IlcArg
+            // resolves to a non-existent path and ILC silently strips ValueTuple ctors and
+            // core Swift.Runtime types that the embedded descriptor (ILLink-only) was
+            // pinning. Catches a packaging-contract regression at pack time, before
+            // downstream consumers crash at runtime.
+            AssertRuntimeBuildTransitiveLayout(nupkgDir, PackGateVersion);
+
             // 3. Clear NuGet caches for SwiftBindings.* so the throwaway-version packages
             // aren't shadowed by a stale entry from a previous pack-gate run.
             Log.Information("  [3/5] Clearing NuGet cache");
@@ -142,6 +154,15 @@ partial class Build
                 var pkgDir = nugetCacheDir / pkg / ver;
                 if (Directory.Exists(pkgDir)) pkgDir.DeleteDirectory();
             }
+
+            // 3b. Verify SwiftBindings.Runtime's buildTransitive .targets actually injects
+            // the ILC descriptor under PublishAot=true. Step 2c proves the file is in the
+            // package; this proves the MSBuild conditional fires and points at it. Together
+            // they cover the full packaging contract: the file ships AND the targets wire it
+            // up. Behavioral end-to-end (ILC actually honoring the descriptor) is covered by
+            // RuntimeTestsApp on device (`nuke binding-tests --device`), which references
+            // the same descriptor source file.
+            AssertRuntimeAotDescriptorInjection(PackGateScratch, nupkgDir, PackGateVersion);
 
             // 4. Write fixture + NuGet.config, then pack the fixture.
             Log.Information("  [4/5] Packing fixture ({Fw})", PackGateFixtureFramework);
@@ -790,5 +811,180 @@ partial class Build
 
         static string StripWhitespace(string s) =>
             new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
+    }
+
+    // Static layout assertion: SwiftBindings.Runtime.{ver}.nupkg must contain BOTH
+    // buildTransitive/SwiftBindings.Runtime.targets AND buildTransitive/ILLink.Descriptors.xml.
+    // The targets file resolves the descriptor via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml,
+    // so the two must ship adjacent in buildTransitive/. A regression that drops the descriptor
+    // from the pack manifest would silently produce IlcArgs pointing at non-existent files —
+    // ILC would either error obscurely or, worse, succeed-with-warning while stripping the
+    // pinned types. Caught at pack time before downstream consumers see the failure.
+    static void AssertRuntimeBuildTransitiveLayout(AbsolutePath nupkgDir, string runtimeVersion)
+    {
+        var runtimePath = nupkgDir / $"SwiftBindings.Runtime.{runtimeVersion}.nupkg";
+        if (!File.Exists(runtimePath))
+            Assert.Fail($"PackGate: expected runtime nupkg at {runtimePath}, but it was not produced.");
+
+        using var archive = ZipFile.OpenRead(runtimePath);
+        string[] requiredEntries =
+        {
+            "buildTransitive/SwiftBindings.Runtime.targets",
+            "buildTransitive/ILLink.Descriptors.xml",
+        };
+        var missing = requiredEntries
+            .Where(e => !archive.Entries.Any(entry => string.Equals(entry.FullName, e, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        if (missing.Count > 0)
+        {
+            Assert.Fail(
+                $"PackGate: SwiftBindings.Runtime.{runtimeVersion}.nupkg is missing required " +
+                $"buildTransitive entr(ies): {string.Join(", ", missing)}. " +
+                $"The NativeAOT descriptor wiring depends on both files being adjacent in " +
+                $"buildTransitive/ — without ILLink.Descriptors.xml on disk the IlcArg " +
+                $"--descriptor: path resolves to a non-existent file. Path: {runtimePath}");
+        }
+
+        // Embedded-resource leg of the contract: the IL trimmer (ILLink) auto-discovers
+        // descriptors embedded as ManifestResource on referenced assemblies. Trimmed-but-
+        // not-AOT consumers (PublishTrimmed=true on a library, or any IsTrimmable=true
+        // assembly) rely on this path — buildTransitive/ wiring is ILC-only. Without this
+        // assertion, removing <EmbeddedResource Include="ILLink.Descriptors.xml"> from
+        // Swift.Runtime.csproj would silently strip ValueTuple ctors on those consumers
+        // while the buildTransitive/ILC path kept passing. Check every TFM-specific
+        // Swift.Runtime.dll: Apple consumers receive the lib/net10.0-ios26.0 (or similar)
+        // assembly, not the plain net10.0 one, so a regression scoped to a single TFM
+        // would slip past a check on the first DLL only.
+        var dllEntries = archive.Entries
+            .Where(e =>
+                e.FullName.StartsWith("lib/", StringComparison.OrdinalIgnoreCase) &&
+                e.FullName.EndsWith("/Swift.Runtime.dll", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (dllEntries.Count == 0)
+        {
+            Assert.Fail(
+                $"PackGate: SwiftBindings.Runtime.{runtimeVersion}.nupkg contains no " +
+                $"lib/<tfm>/Swift.Runtime.dll entry — cannot verify the embedded ILLink.Descriptors.xml " +
+                $"manifest resource. Path: {runtimePath}");
+        }
+
+        var missingResource = new List<string>();
+        foreach (var dllEntry in dllEntries)
+        {
+            using var dllStream = dllEntry.Open();
+            using var ms = new MemoryStream();
+            dllStream.CopyTo(ms);
+            ms.Position = 0;
+            using var peReader = new PEReader(ms);
+            var mdReader = peReader.GetMetadataReader();
+            var hasDescriptor = mdReader.ManifestResources
+                .Select(h => mdReader.GetString(mdReader.GetManifestResource(h).Name))
+                .Contains("ILLink.Descriptors.xml");
+            if (!hasDescriptor)
+                missingResource.Add(dllEntry.FullName);
+        }
+
+        if (missingResource.Count > 0)
+        {
+            Assert.Fail(
+                $"PackGate: the following Swift.Runtime.dll entries inside " +
+                $"SwiftBindings.Runtime.{runtimeVersion}.nupkg are missing the embedded " +
+                $"'ILLink.Descriptors.xml' manifest resource: {string.Join(", ", missingResource)}. " +
+                $"The IL trimmer auto-discovers this descriptor via ManifestResource on referenced " +
+                $"assemblies — without it, trimmed (non-AOT) consumers silently strip ValueTuple " +
+                $"ctors and core Swift.Runtime types. Apple consumers receive the platform-specific " +
+                $"TFM (e.g. lib/net10.0-ios26.0), not lib/net10.0, so the descriptor must be embedded " +
+                $"in every TFM. Restore <EmbeddedResource Include=\"ILLink.Descriptors.xml\"> in " +
+                $"src/Swift.Runtime/src/Swift.Runtime.csproj.");
+        }
+
+        Log.Information("  Runtime nupkg buildTransitive layout: ILLink.Descriptors.xml + SwiftBindings.Runtime.targets present");
+        Log.Information("  Runtime assembly embedded resource: ILLink.Descriptors.xml present in all {Count} TFM-specific Swift.Runtime.dll entries", dllEntries.Count);
+    }
+
+    // Item-injection assertion: under PublishAot=true, the buildTransitive .targets must
+    // inject an IlcArg containing '--descriptor:.../ILLink.Descriptors.xml' AND a matching
+    // TrimmerRootDescriptor item. Verified by spinning up a tiny consumer that
+    // PackageReferences SwiftBindings.Runtime, then running `dotnet msbuild` against an
+    // in-csproj target that prints the resolved item identities. Hermetic — no actual ILC
+    // publish, no Apple workload, no codesign. The "ILC actually honors --descriptor" leg
+    // of the contract is covered by RuntimeTestsApp on device (NativeAOT), which references
+    // the same source descriptor file directly.
+    static void AssertRuntimeAotDescriptorInjection(
+        AbsolutePath scratch, AbsolutePath nupkgDir, string runtimeVersion)
+    {
+        var consumerDir = scratch / "aot-injection";
+        if (Directory.Exists(consumerDir)) consumerDir.DeleteDirectory();
+        consumerDir.CreateDirectory();
+
+        WritePackGateConsumerNuGetConfig(consumerDir, nupkgDir);
+
+        // Plain net10.0 (not workload TFM) keeps this hermetic — no Apple workload,
+        // no codesign, no AOT runtime pack lookup. The buildTransitive .targets fire
+        // during evaluation regardless of TFM, so this is sufficient to verify the
+        // PublishAot conditional + item injection.
+        var csproj = $"""
+            <Project Sdk="Microsoft.NET.Sdk">
+              <PropertyGroup>
+                <TargetFramework>net10.0</TargetFramework>
+                <PublishAot>true</PublishAot>
+              </PropertyGroup>
+              <ItemGroup>
+                <PackageReference Include="SwiftBindings.Runtime" Version="{runtimeVersion}" />
+              </ItemGroup>
+              <Target Name="DumpInjectedItems">
+                <Message Text="ILC_ARG_ITEM:%(IlcArg.Identity)" Importance="high" />
+                <Message Text="TRIMMER_ROOT_ITEM:%(TrimmerRootDescriptor.Identity)" Importance="high" />
+              </Target>
+            </Project>
+            """;
+        File.WriteAllText(consumerDir / "AotInjection.csproj", csproj);
+
+        DotNetRestore(s => s
+            .SetProjectFile(consumerDir / "AotInjection.csproj")
+            .SetVerbosity(DotNetVerbosity.quiet));
+
+        var process = ProcessTasks.StartProcess(
+                "dotnet",
+                "msbuild AotInjection.csproj -t:DumpInjectedItems -p:PublishAot=true -nologo -v:minimal",
+                workingDirectory: consumerDir, logOutput: false)
+            .AssertWaitForExit();
+        var output = process.Output.StdToText();
+
+        if (process.ExitCode != 0)
+        {
+            Assert.Fail(
+                $"PackGate (AOT injection): dotnet msbuild exited {process.ExitCode}.\n{output}");
+        }
+
+        var ilcArgLines = output.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("ILC_ARG_ITEM:", StringComparison.Ordinal))
+            .ToList();
+        var trimmerRootLines = output.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("TRIMMER_ROOT_ITEM:", StringComparison.Ordinal))
+            .ToList();
+
+        var ilcArgHasDescriptor = ilcArgLines.Any(l =>
+            l.Contains("--descriptor:", StringComparison.Ordinal) &&
+            l.Contains("ILLink.Descriptors.xml", StringComparison.Ordinal));
+        var trimmerRootHasDescriptor = trimmerRootLines.Any(l =>
+            l.Contains("ILLink.Descriptors.xml", StringComparison.Ordinal));
+
+        if (!ilcArgHasDescriptor || !trimmerRootHasDescriptor)
+        {
+            Assert.Fail(
+                $"PackGate (AOT injection): SwiftBindings.Runtime's buildTransitive targets is " +
+                $"not injecting the descriptor under PublishAot=true. " +
+                $"IlcArg with --descriptor:ILLink.Descriptors.xml present: {ilcArgHasDescriptor}. " +
+                $"TrimmerRootDescriptor with ILLink.Descriptors.xml present: {trimmerRootHasDescriptor}. " +
+                $"Without these, NativeAOT consumers silently strip ValueTuple constructors and " +
+                $"core Swift.Runtime types — see ILLink.Descriptors.xml for the affected surface.\n" +
+                $"IlcArg items found:\n  {(ilcArgLines.Count == 0 ? "(none)" : string.Join("\n  ", ilcArgLines))}\n" +
+                $"TrimmerRootDescriptor items found:\n  {(trimmerRootLines.Count == 0 ? "(none)" : string.Join("\n  ", trimmerRootLines))}");
+        }
+
+        Log.Information("  Runtime AOT injection: IlcArg + TrimmerRootDescriptor wired correctly under PublishAot=true");
     }
 }

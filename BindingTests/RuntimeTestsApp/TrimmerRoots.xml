@@ -48,56 +48,10 @@
     <type fullname="SwiftBindingsTestLib.SwiftInterop.Bug17HiddenRequirementProtocolProxy" preserve="all" />
   </assembly>
 
-  <!-- Preserve Swift.Runtime ISwiftObject type methods for NativeAOT reflection fallback.
-       Use preserve="methods" (not "all") to avoid ILC Bus error from CallConvSwift P/Invoke members.
-       Primary path uses NewFromPayloadDispatcher (no reflection), but reflection is the fallback
-       for types not yet accessed through a constrained code path. -->
-  <assembly fullname="Swift.Runtime">
-    <!-- Core collection/wrapper types used in test suite -->
-    <type fullname="Swift.SwiftString" preserve="methods" />
-    <type fullname="Swift.SwiftArray`1" preserve="methods" />
-    <type fullname="Swift.SwiftOptional`1" preserve="methods" />
-    <type fullname="Swift.SwiftResult`2" preserve="methods" />
-    <type fullname="Swift.SwiftDictionary`2" preserve="methods" />
-    <type fullname="Swift.SwiftSet`1" preserve="methods" />
-    <type fullname="Swift.AnyHashable" preserve="methods" />
-    <!-- NOTE: Foundation/UIKit/AppKit stub types (URL, UIImage, DispatchQueue, etc.) intentionally
-         excluded — preserve="methods" on them crashes ILC due to CallConvSwift P/Invoke members.
-         These types use the NewFromPayloadDispatcher factory cache (no reflection needed) when
-         accessed through constrained code paths. -->
-    <!-- Existential containers -->
-    <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer2" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer3" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer4" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer5" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer6" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer7" preserve="methods" />
-    <type fullname="Swift.Runtime.ExistentialContainer8" preserve="methods" />
-  </assembly>
-  <!-- ValueTuple constructors and fields for tuple marshalling on NativeAOT.
-       SwiftMarshal.MarshalTupleFromSwift<T> reflectively invokes the closed
-       ValueTuple<...>(T1, T2, ...) constructor for tuples returned via
-       Optional<(SwiftString, IntPtr)> and similar shapes. The inline
-       [DynamicallyAccessedMembers] annotation on T does not propagate strongly
-       enough through typeof(T) → Type to keep the matching ctor overload alive
-       on every closed instantiation under ILC trimming; preserve="all" pins
-       constructors and fields uniformly across instantiations.
-       This descriptor is consumed only on the device build (`ios-arm64` /
-       NativeAOT) — see the `<TrimmerRootDescriptor>` ItemGroup in
-       RuntimeTestsApp.csproj guarded by RuntimeIdentifier == 'ios-arm64'.
-       The Mono JIT simulator path is unaffected because TrimmerRoots.xml is
-       not wired in for `iossimulator-arm64` and the simulator csproj sets
-       `MtouchLink=None` (no trimming). -->
-  <assembly fullname="System.Private.CoreLib">
-    <type fullname="System.ValueTuple`1" preserve="all" />
-    <type fullname="System.ValueTuple`2" preserve="all" />
-    <type fullname="System.ValueTuple`3" preserve="all" />
-    <type fullname="System.ValueTuple`4" preserve="all" />
-    <type fullname="System.ValueTuple`5" preserve="all" />
-    <type fullname="System.ValueTuple`6" preserve="all" />
-    <type fullname="System.ValueTuple`7" preserve="all" />
-    <type fullname="System.ValueTuple`8" preserve="all" />
-  </assembly>
+  <!-- Swift.Runtime + System.ValueTuple roots are NOT defined here. They live in
+       src/Swift.Runtime/src/ILLink.Descriptors.xml (the single source of truth for
+       trimmer-sensitive Swift.Runtime surface) and are consumed by this project via
+       a second TrimmerRootDescriptor + IlcArg pair in RuntimeTestsApp.csproj's
+       ios-arm64 ItemGroup. Downstream NuGet consumers receive the same roots
+       automatically through SwiftBindings.Runtime's buildTransitive .targets. -->
 </linker>

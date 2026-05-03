@@ -41,10 +41,18 @@
 
   <!-- TrimmerRoots: only needed for NativeAOT device builds.
        Source generator eliminates reflection for test discovery, but Swift.Runtime types
-       still need preservation for NativeAOT reflection fallback paths. -->
+       still need preservation for NativeAOT reflection fallback paths.
+       Two descriptors: TrimmerRoots.xml carries app-specific roots (test infrastructure
+       namespaces, protocol proxies referenced only by reflection); the source
+       ILLink.Descriptors.xml from Swift.Runtime carries the Swift.Runtime + ValueTuple
+       roots. Referenced here directly because buildTransitive only flows across
+       PackageReference, not ProjectReference, and using the source file keeps it as the
+       single point of truth shared with downstream NuGet consumers. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
     <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
+    <TrimmerRootDescriptor Include="../../src/Swift.Runtime/src/ILLink.Descriptors.xml" />
     <IlcArg Include="--descriptor:$(MSBuildProjectDirectory)/TrimmerRoots.xml" />
+    <IlcArg Include="--descriptor:$(MSBuildProjectDirectory)/../../src/Swift.Runtime/src/ILLink.Descriptors.xml" />
   </ItemGroup>
 
   <ItemGroup>

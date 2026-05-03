@@ -137,6 +137,12 @@
     <None Include="../native/tvos/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvos" />
     <None Include="../native/tvossimulator/libSwiftBindingsRuntime.dylib" Pack="true" PackagePath="native/tvossimulator" />
     <None Include="build/SwiftBindings.Runtime.targets" Pack="true" PackagePath="buildTransitive" />
+    <!-- Pack the descriptor adjacent to the targets file so consumer projects can resolve
+         it via $(MSBuildThisFileDirectory)ILLink.Descriptors.xml. The same file is also
+         consumed as <EmbeddedResource> above for the IL trimmer's auto-discovery path —
+         single source on disk, two consumption modes (embedded for IL trimmer, packed
+         file for ILC/NativeAOT). -->
+    <None Include="ILLink.Descriptors.xml" Pack="true" PackagePath="buildTransitive" />
     <None Include="../../../README.md" Pack="true" PackagePath="" />
     <None Include="../../../LICENSE" Pack="true" PackagePath="" />
     <None Include="../../legal/NOTICE.md" Pack="true" PackagePath="" />

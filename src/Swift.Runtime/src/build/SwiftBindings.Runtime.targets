@@ -76,4 +76,19 @@
     </Content>
   </ItemGroup>
 
+  <!-- NativeAOT trimmer descriptor wiring.
+       Swift.Runtime ships ILLink.Descriptors.xml as an EmbeddedResource for the IL trimmer's
+       auto-discovery path. ILC (NativeAOT) does not auto-discover embedded descriptors from
+       referenced assemblies; it only honors descriptors passed via the IlcArg descriptor flag.
+       Without this injection, NativeAOT consumers silently strip ValueTuple constructors
+       and core Swift.Runtime types (existential containers, protocol witness tables, factory
+       dispatchers) that the embedded descriptor was pinning, surfacing as MissingMethodException
+       or AOT runtime errors deep inside Swift.Runtime, opaque from the consumer's POV.
+       Belt-and-suspenders on both items mirrors the in-tree workaround in
+       BindingTests/RuntimeTestsApp.csproj that was the model for this packaging contract. -->
+  <ItemGroup Condition="'$(PublishAot)' == 'true' AND Exists('$(MSBuildThisFileDirectory)ILLink.Descriptors.xml')">
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
+    <IlcArg Include="--descriptor:$(MSBuildThisFileDirectory)ILLink.Descriptors.xml" />
+  </ItemGroup>
+
 </Project>
