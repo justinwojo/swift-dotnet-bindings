@@ -681,11 +681,58 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2a': Pre-build sibling Apple-framework dep csprojs                -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Apple-framework cross-module qualification (e.g. RealityKit referencing
+       RealityFoundation.Entity through the umbrella) requires the dep's
+       <DepModule>Database.xml to exist on disk when this project's generator
+       runs. _DetectAppleFrameworkCrossModuleDeps auto-injects a ProjectReference
+       to the sibling csproj when present, but ResolveProjectReferences runs
+       AFTER _GenerateSwiftBindingsAppleFramework — so on a clean build, the
+       dep is built too late and our generator emits umbrella-rooted type
+       qualifications that fail with CS0234 at C# compile.
+
+       Pre-building each sibling dep here ensures their DBs exist before
+       _CollectSwiftModuleDatabases scans for them. Subsequent
+       ResolveProjectReferences sees the dep as up-to-date and is a no-op.
+       BuildInParallel is off because nested invocations may themselves
+       recurse for transitive Apple deps; serial keeps the recursion graph
+       deterministic and the per-dep build is short. -->
+  <Target Name="_BuildSiblingAppleFrameworkDeps"
+          DependsOnTargets="_DetectAppleFrameworkCrossModuleDeps"
+          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '@(_SwiftAppleAutoDep)' != ''">
+    <!-- Restore first: the sibling ProjectReference was injected during target
+         execution (after the parent's restore phase), so the dep's
+         project.assets.json doesn't yet exist on a clean build. Restore is a
+         no-op when assets are already current, so the cost is bounded.
+         The dedup gates mirror the ProjectReference injection above so we
+         don't redundantly build a dep the user pinned via PackageReference
+         (their pinned package wins) or already wired via ProjectReference
+         (their explicit PR is what gets used). -->
+    <MSBuild Projects="%(_SwiftAppleAutoDep.SiblingCsproj)"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)"
+             Targets="Restore"
+             BuildInParallel="false"
+             Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
+                        Exists('%(_SwiftAppleAutoDep.SiblingCsproj)') AND
+                        !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
+                        !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
+    <MSBuild Projects="%(_SwiftAppleAutoDep.SiblingCsproj)"
+             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)"
+             Targets="Build"
+             BuildInParallel="false"
+             Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
+                        Exists('%(_SwiftAppleAutoDep.SiblingCsproj)') AND
+                        !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
+                        !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 2b: Collect module databases for cross-module resolution        -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_CollectSwiftModuleDatabases"
           BeforeTargets="_GenerateSwiftBindings"
-          DependsOnTargets="_ComputeSwiftFingerprint">
+          DependsOnTargets="_ComputeSwiftFingerprint;_BuildSiblingAppleFrameworkDeps">
 
     <!-- Source 1: NuGet-provided SwiftModuleDatabase items (from consumed package .targets) -->
     <ItemGroup Condition="'@(SwiftModuleDatabase)' != ''">
@@ -1195,12 +1242,17 @@ done"
     <!-- Each line: MODULE|PACKAGE_ID|VERSION_RANGE.
          Materialize parsed metadata first so the per-line PackageId and VersionRange
          are addressable in the inject ItemGroup's Condition (MSBuild can't index
-         a Split() result inside a Condition expression). -->
+         a Split() result inside a Condition expression). SiblingCsproj computes the
+         conventional in-tree sibling path (`../<MODULE>/<PACKAGE_ID>.csproj`); when
+         it exists we inject a ProjectReference instead of a PackageReference so an
+         in-tree build can resolve a dep whose nupkg hasn't been packed yet. -->
     <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleAutoDep Include="%(_SwiftAppleAutoDepLine.Identity)"
                           Condition="'%(_SwiftAppleAutoDepLine.Identity)' != ''">
+        <Module>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[0])</Module>
         <PackageId>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[1])</PackageId>
         <VersionRange>$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[2])</VersionRange>
+        <SiblingCsproj>$(MSBuildProjectDirectory)/../$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[0])/$([System.String]::Copy('%(_SwiftAppleAutoDepLine.Identity)').Split('|')[1]).csproj</SiblingCsproj>
       </_SwiftAppleAutoDep>
     </ItemGroup>
 
@@ -1208,13 +1260,24 @@ done"
          identities. The leading + trailing ';' lets the Condition use a single
          Contains(';<id>;') check that matches whole identities only — without the
          sentinels, a partial match could accidentally swallow "SwiftBindings.Apple"
-         vs. "SwiftBindings.Apple.RealityKit". -->
+         vs. "SwiftBindings.Apple.RealityKit".
+
+         The ProjectReference sentinel list is keyed on the resolved csproj filename
+         (sans extension), since user-authored ProjectReference items use any path
+         that resolves to the same project. Matching on filename avoids both the
+         duplicate-injection case (user already pinned a sibling ProjectReference
+         pointing at the dep csproj) and the metadata-stomp case (auto-injected
+         ProjectReference loses user-supplied SetConfiguration / SetTargetFramework /
+         ReferenceOutputAssembly metadata). -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleAutoDepExisting>;@(PackageReference->'%(Identity)', ';');</_SwiftAppleAutoDepExisting>
+      <_SwiftAppleAutoDepExistingProjectFiles>;@(ProjectReference->'%(Filename)', ';');</_SwiftAppleAutoDepExistingProjectFiles>
     </PropertyGroup>
 
     <!-- Inject one PackageReference per detected dep, skipping any whose ID is
-         already declared by the user (or by another SDK target). The metadata
+         already declared by the user (or by another SDK target) AND any whose
+         conventional sibling csproj exists in-tree (which gets a ProjectReference
+         instead, see below). The metadata
          Condition `'%(_SwiftAppleAutoDep.PackageId)' != ''` is required to
          silently drop empty-line garbage (xcframework mode produces no output
          but the ItemName collection may still hold a single empty item). -->
@@ -1222,7 +1285,25 @@ done"
       <PackageReference Include="%(_SwiftAppleAutoDep.PackageId)"
                         Version="%(_SwiftAppleAutoDep.VersionRange)"
                         Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
-                                   !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);'))" />
+                                   !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
+                                   !Exists('%(_SwiftAppleAutoDep.SiblingCsproj)')" />
+    </ItemGroup>
+
+    <!-- In-tree fallback: when the conventional sibling csproj exists at
+         `../<MODULE>/<PACKAGE_ID>.csproj`, inject a ProjectReference. This lets
+         the swift-dotnet-packages mono-repo build apple-frameworks/RealityKit
+         against the in-tree apple-frameworks/RealityFoundation csproj without
+         needing to pre-pack RealityFoundation as a NuGet package. The published
+         consumer scenario is unaffected because consumers never have the sibling
+         csproj on disk. The same dedup against existing PackageReference
+         identities also applies here so a user-pinned PackageReference still
+         wins. -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <ProjectReference Include="%(_SwiftAppleAutoDep.SiblingCsproj)"
+                        Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
+                                   !$(_SwiftAppleAutoDepExisting.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
+                                   !$(_SwiftAppleAutoDepExistingProjectFiles.Contains(';%(_SwiftAppleAutoDep.PackageId);')) AND
+                                   Exists('%(_SwiftAppleAutoDep.SiblingCsproj)')" />
     </ItemGroup>
   </Target>
 
