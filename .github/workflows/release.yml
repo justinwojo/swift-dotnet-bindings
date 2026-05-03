@@ -604,18 +604,21 @@ jobs:
               Structure (in this exact order):
               1. Start with 1-2 sentences capturing the theme of this release — what it means for users in practical terms. Focus on what you can do now that you couldn't before, not internal metrics. Write like a maintainer talking to users, not a press release. No hype, no overpromising — this is an experimental project.
               2. A "## Highlights" section with 3-5 bold bullet points calling out the most important changes. Each highlight should have a bold short label followed by a dash and a one-sentence explanation of why it matters to someone consuming the bindings.
-              3. Remaining sections grouped by category (e.g., "## Bug fixes", "## Generator improvements", "## Runtime improvements", "## Developer experience"). Only include categories that have meaningful content. Consolidate related commits into single bullets — don't list every commit separately. Aim for 3-6 bullets per section max.
+              3. Detail sections grouped by category. **Maximum 4 detail sections.** Standard shape: "## Generator improvements", "## Runtime improvements", "## Bug fixes", "## Developer experience". If a draft has more, merge until it fits — for example, fold "Trimming and NativeAOT" into Runtime improvements, fold "Documentation" into Developer experience. Aim for 3-6 bullets per section. Skip a section entirely if it has no meaningful content.
               4. End with a "## Packages" section. {packages_table} After the table (and any unchanged-lane note), include a link to the [GitHub wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) for installation and usage.
 
               Style guidelines:
               - Write like a knowledgeable maintainer, not a bot or marketer. No words like "seamless", "mastery", "bulletproof", "aces", "unlocking". Be direct and understated.
               - The opening sentences should describe the user-facing theme, not cite pass/fail numbers. Save metrics for highlight bullets where they add context.
-              - In the highlights, explain impact ("fixes a crash when..." not "fixed crash in X function")
-              - In detail sections, use concise bullet points. Bold the first few words of each bullet as a label. Collapse related work into single bullets rather than listing each commit.
+              - **Every bullet — highlights AND detail sections — leads with the user-visible effect, not the internal implementation.** "Fixes a crash when async closures throw" beats "Resolves error path in async closure dispatch". If a bullet only describes a refactor with no observable user impact, omit it or fold it into a related impact-framed bullet.
+              - **No duplication between Highlights and detail sections.** Each commit-derived fact appears in exactly one place. If RealityKit support is a Highlight, do not also create a "RealityKit" or "Apple framework support" detail section restating the same work — put deeper detail under Generator improvements / Runtime improvements / Bug fixes instead.
+              - Bold the first few words of each bullet as a short label. Aggressively collapse related commits into a single bullet — three commits about the same subsystem become one bullet, not three.
               - Do not use filler phrases like "This release includes" or "We are excited to announce"
               - Use the commit messages as source of truth — do not invent changes
               - Omit trivial changes (typo fixes, minor refactors) unless they're part of a larger story
-              - Wrap Swift attributes (@MainActor, @Observable, @frozen, @convention, etc.) in backticks so GitHub doesn't parse them as user mentions
+              - **Wrap Swift attributes AND prominent Swift/C# type names in backticks**: `@MainActor`, `@frozen`, `@_cdecl`, `Optional<T>`, `Span<byte>`, `UnsafeRawBufferPointer`, `NamedTypeSpec`, etc. Bare type names break GitHub's monospace cue for code identifiers.
+              - Do not reference internal session, phase, or milestone numbers from design docs (e.g., "Session 5 done", "M1", "phase 2 complete"). Describe what shipped instead — users have no context for these labels.
+              - Use em-dashes (—), not hyphens (-), between a bold highlight label and its explanation, to match prior releases.
           """).strip()
           data = json.dumps({
               "model": "grok-4-1-fast-reasoning",

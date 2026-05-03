@@ -54,7 +54,7 @@ Any xcframework → SwiftBindings tool → C# binding
 
 This project is a fork of Microsoft's [`dotnet/runtimelab` (feature/swift-bindings branch)](https://github.com/dotnet/runtimelab/tree/feature/swift-bindings) — an experimental effort that established the foundational architecture (ABI JSON parsing, Swift symbol demangling, type database, code emitter) but was never intended as a shipping product. Development went inactive with support limited to basic classes, structs, and simple method signatures.
 
-Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **800+ commits, ~140K lines of production code and ~150K lines of tests**.
+Since forking, the project has grown from that proof-of-concept into a comprehensive binding generator — **1,000+ commits since the fork, ~140K lines of production code and ~150K lines of tests**.
 
 ## What It Can Do
 
@@ -69,7 +69,7 @@ The generator handles the full breadth of Swift's type system:
 - **Closures** (`@convention(c)`, `@escaping`) with automatic delegate marshalling, including closures with bound generic arguments and error propagation
 - **Tuples**, **operators**, **subscripts**, **inout parameters**, **failable initializers**
 - **Existential containers** (`any Protocol`) as parameters and return values, with concrete-type boxing via `IExistentialBoxable`
-- **Type projections** — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Set<T>` → `IReadOnlySet<T>`, `Dictionary<K,V>` → `IReadOnlyDictionary<K,V>`, `Data` → `byte[]`, `Decimal` → `decimal`, `Optional<T>` → `T?`
+- **Type projections** — `String` → `string`, `Array<T>` → `IReadOnlyList<T>`, `Set<T>` → `IReadOnlySet<T>`, `Dictionary<K,V>` → `IReadOnlyDictionary<K,V>`, `Data` → `byte[]`, `Decimal` → `decimal`, `Optional<T>` → `T?`, `UnsafeMutableRawBufferPointer` → `Span<byte>`
 - **Convenience overloads** — `nint`/`nuint` parameters get `int`/`uint` overloads, methods with default parameters get reduced-arity overloads
 - **SwiftUI Views** — automatic `UIHostingController` bridge with two-way state updates, view modifier chains, and async factory patterns
 - **XML doc comments** — Swift documentation automatically extracted and converted to C# IntelliSense docs
@@ -122,6 +122,8 @@ double progress = animationView.CurrentProgress;
 ```
 
 All generated C# — no manual wrapper code. These packages are published from [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages).
+
+**Pre-built Apple framework bindings** (StoreKit 2, CryptoKit, MusicKit, WeatherKit, RoomPlan, WorkoutKit, TipKit, LiveCommunicationKit, FamilyControls, Translation, ProximityReader, ActivityKit, RealityKit, RealityFoundation) ship from the same repo as `SwiftBindings.Apple.{Framework}` — see [Apple frameworks in swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages#apple-frameworks) for the full list and version cadence.
 
 ## Getting Started
 
@@ -204,7 +206,7 @@ For customization options (bridge hints, constructor selection, import overrides
 
 ## Real-World Validation
 
-Validated against **51 libraries (95 framework targets)** spanning image loading, payments, animation, networking, document scanning, analytics, and more:
+Validated against **65+ libraries** spanning image loading, payments, animation, networking, document scanning, analytics, Apple system frameworks, and more:
 
 | Category | Libraries |
 |----------|-----------|
@@ -239,7 +241,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **9,000+ unit tests** and **1,285 runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **9,000+ unit tests** and **1,200+ runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
 
 ## Contributing
 
