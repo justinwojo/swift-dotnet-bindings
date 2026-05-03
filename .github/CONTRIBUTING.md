@@ -1,171 +1,76 @@
 # Contributing to Swift Bindings
 
-Thanks for your interest in contributing! This project generates C# bindings from compiled Swift and Objective-C frameworks for .NET 10.0 on Apple platforms. It's under active development and evolving rapidly.
+Thanks for your interest! This project generates C# bindings from compiled Swift libraries (`.dylib` + ABI JSON) for .NET 10.0 on Apple platforms. It's under active development.
 
-## Architecture Overview
+## AI-driven development
 
-The generator transforms compiled Swift libraries into idiomatic C# bindings. Here's how the pipeline works:
+This repo is **designed to be worked on with AI coding tools** — primarily [Claude Code](https://claude.ai/claude-code) for implementation and [Codex](https://github.com/openai/codex) for code review, but either can be used. Two context files do most of the heavy lifting:
 
-```
-xcframework (dylib + ABI JSON + TBD + swiftinterface)
-    |
-    v
-  Parser ──────> TypeDatabase ──────> Marshaler ──────> Emitter
-  (reads ABI      (central type       (decides C#        (generates C# source,
-   JSON, TBD,      registry for        mapping per        Swift @_cdecl wrappers,
-   swiftinterface) all Swift types)    Swift type)        consumer .targets)
-```
+- **`CLAUDE.md`** — project conventions, build commands, working guidelines for Claude Code
+- **`AGENTS.md`** — equivalent file for Codex and other agent tools
 
-**Parser** reads the Swift ABI JSON (type metadata, function signatures, conformances), TBD files (exported symbols), and swiftinterface files to populate the TypeDatabase.
+If you're comfortable with these tools, point one at an issue and the context files will give it the project knowledge it needs to make a meaningful contribution. The unit, runtime, and validation suites are a strong safety net for AI-generated changes. Human review is still the final gate.
 
-**TypeDatabase** is the central type registry. Every Swift type discovered by the parser is registered here with its full metadata — kind, generic parameters, conformances, and relationships.
-
-**Marshaler** decides how each Swift type maps to C#: which calling convention to use (CallConvCdecl for @_cdecl wrappers and native ARM64 thunks, CallConvSwift for the small number of direct calls), whether a type needs a Swift wrapper function, and how parameters/returns are marshalled across the interop boundary.
-
-**Emitter** generates the final output: C# source files with P/Invoke declarations and managed wrappers, Swift @_cdecl wrapper functions (for non-blittable types, closures, and async), native ARM64 assembly thunks (for synchronous blittable methods), and a consumer `.targets` file for MSBuild integration.
-
-**Runtime** (`Swift.Runtime`) provides the .NET-side infrastructure: `SwiftString` and `SwiftArray` for collection interop, `SafeHandle`-based classes for deterministic ARC bridging, and module initializers for dynamic library resolution.
-
-**MSBuild SDK** (`SwiftBindings.Sdk`) wraps the entire generator workflow into a standard `dotnet build && dotnet pack` experience, so binding authors don't need to invoke the CLI directly.
-
-### Key Directories
-
-| Directory | What's There |
-|-----------|-------------|
-| `src/Swift.Bindings/src/` | Generator: Parser, TypeDatabase, Marshaler, Emitter |
-| `src/Swift.Bindings/tests/` | Generator unit tests (~9,000 tests) |
-| `src/Swift.Runtime/src/Swift/` | Runtime library (SwiftString, SwiftArray, SafeHandle, ARC) |
-| `src/Swift.Bindings.Sdk/` | MSBuild SDK package (`SwiftBindings.Sdk`) |
-| `src/Swift.Bindings.Templates/` | `dotnet new swift-binding` project template |
-| `BindingTests/` | Integration test library + iOS Simulator runtime tests (~850 tests) |
-| `build/validation-libraries.json` | Library validation manifest (90 targets across 46 libraries) |
-| `build/` | Nuke Build targets (C#): compile, test, validate, pack |
-| `build/scripts/` | Coverage report, CI orchestrator scripts |
-| `src/docs/` | Internal design docs, status, known issues |
-
-## Getting Started
-
-### Prerequisites
+## Prerequisites
 
 - macOS (Apple Silicon recommended)
-- [Xcode 26](https://developer.apple.com/xcode/) or later
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the iOS workload:
-  ```bash
-  dotnet workload install ios
-  ```
+- [Xcode 26.3](https://developer.apple.com/xcode/) or later
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- `dotnet workload restore` (installs the ios/macos/maccatalyst/tvos workloads)
 
-### Building
+## Build & test
 
-```bash
-nuke compile
-```
+Always go through `nuke <target>` rather than raw `dotnet` / `swift` commands. The everyday targets:
 
-### Running Tests
+| Target | Purpose |
+|---|---|
+| `nuke compile` | Build the project |
+| `nuke test` | Unit tests (generator + runtime), ~2 min |
+| `nuke binding-tests` | End-to-end: regenerate bindings, build, run on iOS Simulator |
+| `nuke validate` | Compile gate across 65 real-world libraries, ~2 min |
+| `nuke fetch` | Download library xcframeworks (first time only) |
+| `nuke pack --version X.Y.Z --apple-version A.B.C` | Build all NuGet packages |
 
-```bash
-# Unit tests (~9,000 tests, ~2 min)
-nuke test
+`nuke binding-tests` composes platform flags — `--sim` (default, Mono JIT), `--device` (physical iPhone, NativeAOT), `--macos`, `--catalyst`, `--tvos` — and supports `--compile-only`, `--skip-regen`, `--skip-build`, `--class-filter NAME`. Full flag table is in `CLAUDE.md`.
 
-# Library validation (requires fetching libraries first)
-nuke fetch                     # First time only (~30-60 min)
-nuke validate                  # Full validation (90 targets)
-nuke validate --filter Nuke    # Single library
-
-# End-to-end integration tests (~5 min)
-nuke binding-tests
-```
-
-### Generator CLI
+## Generator CLI
 
 ```bash
-# Generate bindings from an xcframework
 dotnet run --project src/Swift.Bindings/src -- \
   --xcframework /path/to/Library.xcframework \
   -o /tmp/output/
 
-# Verify generated output compiles
-cd /tmp/output && dotnet build Library.Swift.iOS.csproj -p:EnableDefaultCompileItems=false
+cd /tmp/output && dotnet build Library.Swift.iOS.csproj
 ```
 
-Run `dotnet run --project src/Swift.Bindings/src -- --help` for all CLI options.
+Do **not** pass `-p:EnableDefaultCompileItems=false` on the command line — it propagates as a global property and breaks Swift.Runtime. The generated csproj already sets it locally. Run with `--help` for all options.
 
-## Development Workflow
+## Adding a validation library
 
-### Testing Generator Changes
+1. Add an entry to `build/validation-libraries.json`. Schema varies by `mode` — `apple-framework`, `source`, `binary`, `manual`. Copy the shape of an existing entry of the same mode.
+2. `nuke fetch --filter NewLib`
+3. `nuke validate --filter NewLib`
+4. Run full `nuke validate` to refresh `.validation-baseline.json`.
 
-Follow this progression from fast to thorough:
+For SPM-only third-party libraries, use [`spm-to-xcframework`](https://github.com/justinwojo/spm-to-xcframework) rather than writing custom build scripts.
 
-1. **Unit tests** (`nuke test`) — fast feedback on parser/marshaler/emitter logic
-2. **Library validation** (`nuke validate`) — compile gate across 90 real-world library targets
-3. **BindingTests** (`nuke binding-tests`) — end-to-end: Swift source to generated binding to runtime execution on iOS Simulator
+## Filing issues
 
-Unit tests alone can't catch ABI mismatches, calling convention bugs, or marshalling crashes that only surface when running real bindings. Always run the full progression for generator/emitter changes.
+Issue reports are the most impactful way to contribute. For a binding error, include:
 
-### Adding a New Validation Library
+- Generator output (run with `-v 2`)
+- The library name and version (or the xcframework itself, if shareable)
 
-1. Add an entry to `build/validation-libraries.json` (repo URL, version, mode, tier)
-2. Fetch: `nuke fetch --filter NewLib`
-3. Validate: `nuke validate --filter NewLib`
-4. Run full validation (`nuke validate`) to update `.validation-baseline.json`
+The [wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki) covers consumer-facing limitations and known issues.
 
-### Where Tests Go
+## Pull requests
 
-Tests are organized **by domain** (closures, enums, structs, protocols, etc.), not by milestone, session, or SDK version. Place new tests in the appropriate domain file. For example, closure-related tests go in closure test files.
+Open an issue first for anything beyond a trivial fix — generator internals change frequently and a quick discussion avoids wasted effort on both sides.
 
-### Test Quality
-
-- **Assert behavior, not implementation.** Prefer `"output contains CallConvCdecl"` over exact string matching of generated code. This prevents tests from breaking when emitter internals change while behavior stays correct.
-- **Bug-first testing.** When writing tests for untested code, read and understand the code first. Don't assume existing behavior is correct — if something looks wrong, write a test that exposes the correct behavior, not one that enshrines the bug.
-- Use `[Theory]`/`[InlineData]` when multiple tests differ only in input values.
-
-## Filing Issues
-
-The most impactful way to contribute is through **issue reports**:
-
-- **Binding errors** — the generator produces C# that doesn't compile for your library
-- **Runtime failures** — generated bindings crash or behave incorrectly at runtime
-- **Feature requests** — Swift patterns or workflows the generator doesn't handle
-- **Documentation gaps** — missing or unclear information in the [wiki](https://github.com/justinwojo/swift-dotnet-bindings/wiki)
-
-When filing a binding error, please include:
-
-1. **Generator logs** — run with `-v 2` for verbose output
-2. **The binding report** — `binding-report.json` from the output directory
-3. **The xcframework** (if possible) — or at minimum the library name and version so we can reproduce
-
-## Pull Requests
-
-PRs are welcome, but **please open an issue first** to discuss the change — especially for anything beyond a trivial fix. The generator internals change frequently, and coordinating upfront avoids wasted effort on both sides. PRs should target the `main` branch.
-
-### PR Expectations
-
-- **All changes must have tests.** Unit tests at minimum; integration tests for new Swift patterns.
-- **Run `nuke test` before submitting.** All unit tests must pass.
-- **Run `nuke validate`** if your change affects code generation. No regressions in the validation baseline.
-- **Run `nuke binding-tests`** if your change affects code generation or the runtime.
-- **Keep PRs focused.** One logical change per PR. Don't bundle unrelated fixes.
-- **Don't refactor surrounding code.** Fix/add what's needed, nothing more.
-
-## Code Conventions
-
-For detailed development guidelines, see [`CLAUDE.md`](CLAUDE.md) — it's the authoritative reference for project conventions and is kept current. Key points:
-
-- **Never use `git stash`** — hooks detect reverted files and stash pop can discard changes silently.
-- **Test files by domain** — never create test files named after milestones, sessions, or versions.
-- **Bug-first testing** — don't assume existing behavior is correct when writing tests for untested code.
-- **Verify generated output compiles** — after code gen changes, always build the output to confirm correctness.
-
-## AI-Driven Development
-
-This project is developed primarily with AI tooling — [Claude Code](https://claude.ai/claude-code) (Claude Opus) for implementation and [Codex](https://openai.com/codex) for code review. The repository is configured to support this workflow:
-
-- **`CLAUDE.md`** — Project context, build commands, architecture constraints, and working guidelines for Claude Code sessions
-- **`AGENTS.md`** — Equivalent context file for OpenAI Codex
-
-If you're comfortable working with AI coding tools, the repo is set up to be productive out of the box — point Claude Code or Codex at an issue and the context files provide the project knowledge needed to make meaningful contributions. The unit tests, runtime tests, and validation suite serve as a strong safety net for AI-generated changes.
-
-Human review remains the final gate on all changes.
+- Every change ships with tests at the right layer (generator unit / runtime unit / end-to-end BindingTests). `CLAUDE.md` describes which layer matches what kind of change.
+- `nuke test` and the relevant `nuke binding-tests` / `nuke validate` runs must pass before submitting; no regressions in `.validation-baseline.json`.
+- Keep PRs focused — one logical change, no incidental refactors.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing, you agree your contributions will be licensed under the [MIT License](../LICENSE).

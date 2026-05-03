@@ -9,8 +9,8 @@
 #   # After nuke validate:
 #   python3 build/scripts/skip-metrics.py --input /tmp/binding-validation-main/ --output skip-metrics.json
 #
-#   # For sim-validation:
-#   python3 build/scripts/skip-metrics.py --input /Users/wojo/Dev/sim-validation/ --output skip-metrics.json
+#   # For internal-binding-testing:
+#   python3 build/scripts/skip-metrics.py --input /Users/wojo/Dev/internal-binding-testing/ --output skip-metrics.json
 #
 #   # Compare against baseline:
 #   python3 build/scripts/skip-metrics.py --input /tmp/binding-validation-main/ --baseline .validation-skip-baseline.json
