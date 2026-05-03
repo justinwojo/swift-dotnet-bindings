@@ -52,9 +52,13 @@ partial class Build
 
     AbsolutePath BehaviorTierScratch => RootDirectory / "artifacts" / "behavior-tier";
 
+    // .After(RegenerateStoreKitSnapshot) is a pure ordering edge: that target and
+    // BehaviorTier are otherwise co-equal final sinks (RegenerateAppleSnapshot is already
+    // non-sink because RegenerateStoreKitSnapshot depends on it), and Nuke --strict
+    // requires a total peel order.
     Target BehaviorTier => _ => _
         .DependsOn(Compile)
-        .After(Validate, PackGate)
+        .After(Validate, PackGate, RegenerateStoreKitSnapshot)
         .Executes(() =>
         {
             var scratch = BehaviorTierScratch;

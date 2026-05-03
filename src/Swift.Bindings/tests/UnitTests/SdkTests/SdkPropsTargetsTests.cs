@@ -3,6 +3,8 @@
 
 #nullable enable
 
+using System;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace BindingsGeneration.Tests
@@ -336,7 +338,16 @@ namespace BindingsGeneration.Tests
             // MSBuild evaluates Target Condition with evaluation-phase property values,
             // so _SwiftBindingUpToDate (set at execution time in _ComputeSwiftFingerprint)
             // can't gate the Target. Instead, the fingerprint gates the Exec task.
-            Assert.Contains("DependsOnTargets=\"_ComputeSwiftFingerprint\"", TargetsContent);
+            // _GenerateSwiftBindings must depend on _ComputeSwiftFingerprint (any
+            // semicolon-delimited position) so the fingerprint runs before the Exec gate.
+            var generateTarget = TargetsContent.Substring(
+                TargetsContent.IndexOf("Name=\"_GenerateSwiftBindings\"", StringComparison.Ordinal));
+            var generateTagEnd = generateTarget.IndexOf('>', StringComparison.Ordinal);
+            var generateTag = generateTarget.Substring(0, generateTagEnd);
+            var dependsMatch = Regex.Match(generateTag, "DependsOnTargets=\"([^\"]*)\"");
+            Assert.True(dependsMatch.Success, "_GenerateSwiftBindings must declare DependsOnTargets");
+            Assert.Contains("_ComputeSwiftFingerprint",
+                dependsMatch.Groups[1].Value.Split(';', StringSplitOptions.RemoveEmptyEntries));
 
             // _ComputeSwiftFingerprint target should not declare BeforeTargets
             var fingerprintTarget = TargetsContent.Substring(

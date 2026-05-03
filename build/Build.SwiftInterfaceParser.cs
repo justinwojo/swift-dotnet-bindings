@@ -30,8 +30,11 @@ partial class Build
     /// regress the .NET-only Compile target's prerequisites). The Pack target hard-fails if
     /// the binary is missing — see <c>SwiftInterfaceParserBinaryPath</c> consumers there.
     /// </summary>
+    // .After(Clean) is a pure ordering edge: both targets have no other dependencies and
+    // are otherwise co-equal roots, which Nuke --strict rejects.
     Target CompileSwiftInterfaceParser => _ => _
         .Description("Build the SwiftInterfaceParser host binary (M2 SwiftSyntax fact producer).")
+        .After(Clean)
         .OnlyWhenStatic(() => OperatingSystem.IsMacOS())
         .Executes(() =>
         {
