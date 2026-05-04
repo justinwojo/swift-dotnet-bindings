@@ -6,12 +6,51 @@ using System.Text.RegularExpressions;
 namespace BindingsGeneration
 {
     /// <summary>
+    /// Sub-cause classification for stripped blocks. Used to distinguish "the new emission-time
+    /// gate caught the dominant case" from "the gate missed, and the post-processor swept up the
+    /// residue." Each stripped block is bucketed by the trigger that fired in the post-processor
+    /// (priority follows the post-processor's short-circuit OR order).
+    /// </summary>
+    public enum StripSubCause
+    {
+        /// <summary>
+        /// Block body referenced an <c>@usableFromInline internal</c> type (or any name in
+        /// <c>InternalTypeNames</c>). Dominant Pattern 2 case — should drop near-zero once the
+        /// <c>Pattern2InternalTypeReach</c> emission gate is in place.
+        /// </summary>
+        InternalType,
+
+        /// <summary>
+        /// Block body referenced an ObjC type that is explicitly unavailable in Swift
+        /// (e.g. <c>NSInvocation</c>). Not addressed by the emission-time gate.
+        /// </summary>
+        NSInvocation,
+
+        /// <summary>
+        /// Pattern-specific broken-shape trigger (<c>EveryProtocol()</c> placeholder,
+        /// <c>.load(as: @escaping)</c>, etc.) — the catch-all bucket for safety-net strips
+        /// that aren't internal-type or NSInvocation reaches.
+        /// </summary>
+        Other,
+    }
+
+    /// <summary>
     /// Result of post-processing a Swift wrapper file.
     /// </summary>
     public sealed class PostProcessingResult
     {
         public required string CleanedContent { get; init; }
         public required int StrippedBlockCount { get; init; }
+
+        /// <summary>
+        /// Per-sub-cause counts for the blocks counted in <see cref="StrippedBlockCount"/>.
+        /// Sums to <see cref="StrippedBlockCount"/>. Used by validation reporting to track
+        /// whether the <c>Pattern2InternalTypeReach</c> emission-time gate is taking the
+        /// load expected of it (the <see cref="StripSubCause.InternalType"/> bucket should
+        /// drop to a small documented residue).
+        /// </summary>
+        public IReadOnlyDictionary<StripSubCause, int> StrippedBlocksBySubCause { get; init; }
+            = new Dictionary<StripSubCause, int>();
 
         /// <summary>
         /// Set of @_cdecl / @_silgen_name symbol names that were stripped from the wrapper.
@@ -73,6 +112,12 @@ namespace BindingsGeneration
             var outputLines = new List<string>();
             int removedCount = 0;
             var strippedSymbols = new HashSet<string>();
+            var subCauseCounts = new Dictionary<StripSubCause, int>
+            {
+                [StripSubCause.InternalType] = 0,
+                [StripSubCause.NSInvocation] = 0,
+                [StripSubCause.Other] = 0,
+            };
             int i = 0;
 
             while (i < lines.Count)
@@ -101,10 +146,12 @@ namespace BindingsGeneration
                         // For protocol conformance extensions with method/property bodies,
                         // strip if the body references an internal or Swift-unavailable type
                         var body = ScanBlockBody(lines, i, end);
-                        if (ReferencesInternalType(body, internalTypeNames) ||
-                            ReferencesSwiftUnavailableType(body))
+                        bool refsInternal = ReferencesInternalType(body, internalTypeNames);
+                        bool refsUnavail = !refsInternal && ReferencesSwiftUnavailableType(body);
+                        if (refsInternal || refsUnavail)
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                            subCauseCounts[refsInternal ? StripSubCause.InternalType : StripSubCause.NSInvocation]++;
                             removedCount++;
                             i = end + 1;
                             continue;
@@ -122,11 +169,13 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning) ||
-                        ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesSwiftUnavailableType(body))
+                    bool brokenPat = IsSilgenNameBroken(lines, i, end, body, onSafetyNetWarning);
+                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames);
+                    bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
+                    if (brokenPat || refsInternal || refsUnavail)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
                         // The wrapper emitters write a "// Comment\n@available(...)\n" preamble
                         // BEFORE the @_cdecl line. Pop those preamble lines from outputLines so they
                         // don't end up dangling — `@available` annotations on a missing declaration
@@ -150,11 +199,13 @@ namespace BindingsGeneration
                         int end = FindBlockEnd(lines, i + 1);
                         var body = ScanBlockBody(lines, i + 1, end);
 
-                        if (IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning) ||
-                            ReferencesInternalType(body, internalTypeNames) ||
-                            ReferencesSwiftUnavailableType(body))
+                        bool brokenPat = IsSilgenNameBroken(lines, i + 1, end, body, onSafetyNetWarning);
+                        bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames);
+                        bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
+                        if (brokenPat || refsInternal || refsUnavail)
                         {
                             ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                            subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
                             RemoveTrailingWrapperPreamble(outputLines);
                             removedCount++;
                             i = end + 1;
@@ -173,12 +224,15 @@ namespace BindingsGeneration
                     // Check both the extension header and body for internal type references.
                     // The header (e.g., "extension XMLCoder.SharedBox: _SBW_...") names the type
                     // being extended, which may be internal even when the body uses Self.
-                    if (IsExtensionBroken(lines, i, end, body, onSafetyNetWarning) ||
+                    bool brokenPat = IsExtensionBroken(lines, i, end, body, onSafetyNetWarning);
+                    bool refsInternal = !brokenPat && (
                         ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesInternalType(stripped, internalTypeNames) ||
-                        ReferencesSwiftUnavailableType(body))
+                        ReferencesInternalType(stripped, internalTypeNames));
+                    bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
+                    if (brokenPat || refsInternal || refsUnavail)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -193,11 +247,14 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesInternalType(stripped, internalTypeNames) ||
-                        ReferencesSwiftUnavailableType(body))
+                    bool refsInternal =
+                        ReferencesInternalType(body, internalTypeNames) ||
+                        ReferencesInternalType(stripped, internalTypeNames);
+                    bool refsUnavail = !refsInternal && ReferencesSwiftUnavailableType(body);
+                    if (refsInternal || refsUnavail)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        subCauseCounts[refsInternal ? StripSubCause.InternalType : StripSubCause.NSInvocation]++;
                         removedCount++;
                         i = end + 1;
                         continue;
@@ -211,11 +268,13 @@ namespace BindingsGeneration
                     int end = FindBlockEnd(lines, i);
                     var body = ScanBlockBody(lines, i, end);
 
-                    if (IsStandaloneFuncBroken(body, i, onSafetyNetWarning) ||
-                        ReferencesInternalType(body, internalTypeNames) ||
-                        ReferencesSwiftUnavailableType(body))
+                    bool brokenPat = IsStandaloneFuncBroken(body, i, onSafetyNetWarning);
+                    bool refsInternal = !brokenPat && ReferencesInternalType(body, internalTypeNames);
+                    bool refsUnavail = !brokenPat && !refsInternal && ReferencesSwiftUnavailableType(body);
+                    if (brokenPat || refsInternal || refsUnavail)
                     {
                         ExtractSymbolsFromBlock(lines, i, end, strippedSymbols);
+                        subCauseCounts[ClassifySubCause(brokenPat, refsInternal, refsUnavail)]++;
                         RemoveTrailingWrapperPreamble(outputLines);
                         removedCount++;
                         i = end + 1;
@@ -231,8 +290,23 @@ namespace BindingsGeneration
             {
                 CleanedContent = string.Join("", outputLines),
                 StrippedBlockCount = removedCount,
+                StrippedBlocksBySubCause = subCauseCounts,
                 StrippedSymbols = strippedSymbols
             };
+        }
+
+        /// <summary>
+        /// Picks the highest-priority sub-cause for a stripped block. Priority follows the
+        /// post-processor's short-circuit OR order: pattern-specific broken &gt; internal-type
+        /// reference &gt; Swift-unavailable type reference.
+        /// </summary>
+        private static StripSubCause ClassifySubCause(bool brokenPat, bool refsInternal, bool refsUnavail)
+        {
+            if (brokenPat) return StripSubCause.Other;
+            if (refsInternal) return StripSubCause.InternalType;
+            if (refsUnavail) return StripSubCause.NSInvocation;
+            // Caller guarantees at least one trigger; defensive fallback only.
+            return StripSubCause.Other;
         }
 
         /// <summary>

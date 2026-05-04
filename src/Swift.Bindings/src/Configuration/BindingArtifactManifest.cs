@@ -170,6 +170,16 @@ public sealed class WrapperSection
     public int SliceCount { get; init; }
     public int CompiledFileCount { get; init; }
     public int PostProcessorStrippedBlockCount { get; init; }
+
+    /// <summary>
+    /// Per-sub-cause histogram for the strips counted in
+    /// <see cref="PostProcessorStrippedBlockCount"/>. Validation reporting reads this to
+    /// distinguish "the new <c>Pattern2InternalTypeReach</c> emission gate caught the
+    /// dominant case" from "the post-processor swept up unexpected residue."
+    /// Keys mirror <see cref="StripSubCause"/> serialized as strings.
+    /// </summary>
+    public Dictionary<string, int> PostProcessorStrippedBlocksBySubCause { get; init; } = new();
+
     public bool WrapperXcfwExists { get; init; }
 
     /// <summary>
@@ -207,6 +217,11 @@ public sealed class WrapperSection
             PostProcessorStrippedBlockCount = outcome.CompilationResult?.StrippedBlockCount ?? 0,
             WrapperXcfwExists = outcome.CompilationResult?.XCFrameworkPath is { } p && Directory.Exists(p),
         };
+        if (outcome.CompilationResult?.StrippedBlocksBySubCause is { } subCauses)
+        {
+            foreach (var (cause, count) in subCauses.OrderBy(kv => kv.Key))
+                section.PostProcessorStrippedBlocksBySubCause[cause.ToString()] = count;
+        }
         foreach (var symbol in outcome.StrippedSymbols.OrderBy(s => s, StringComparer.Ordinal))
             section.StrippedSymbols.Add(symbol);
         section.CSharpCoGatedMembers.AddRange(coGatedMembers);

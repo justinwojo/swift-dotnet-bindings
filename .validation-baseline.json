@@ -1,5 +1,5 @@
 {
-  "git_sha": "b6fe4d1f",
+  "git_sha": "e158f2a3",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -271,14 +271,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 21427,
+        "lines": 21361,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 97639,
+        "lines": 97523,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -355,7 +355,7 @@
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10515,
+        "lines": 9767,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -523,7 +523,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10570,
+        "lines": 10461,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -537,7 +537,7 @@
       "NVActivityIndicatorView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7589,
+        "lines": 6880,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -600,7 +600,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2264,
+        "lines": 2172,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -621,7 +621,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16427,
+        "lines": 13835,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,43 +908,49 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 22556,
-    "total_skipped_members": 6454,
-    "skip_rate_pct": 22.2,
+    "total_emitted_members": 22416,
+    "total_skipped_members": 6595,
+    "skip_rate_pct": 22.7,
     "skip_reasons": {
-      "UnsupportedSignature": 1212,
+      "UnsupportedSignature": 1206,
       "SynthesizedCodable": 905,
       "ModuleInternal": 843,
-      "DuplicateSignature": 686,
       "AnyTypeFallback": 672,
-      "GenericProtocolConstraint": 655,
+      "DuplicateSignature": 670,
+      "GenericProtocolConstraint": 647,
       "EveryProtocolConformanceSkipped": 285,
-      "UnsupportedClosure": 282,
-      "MissingWrapperSymbol": 242,
+      "UnsupportedClosure": 280,
       "SwiftUIConstraint": 239,
+      "Pattern2InternalTypeReach": 234,
       "UnsupportedType": 216,
-      "UnsupportedExistential": 115,
-      "UnsatisfiedGenericConstraint": 108,
+      "MissingWrapperSymbol": 209,
+      "UnsupportedExistential": 111,
+      "UnsatisfiedGenericConstraint": 103,
       "GenericTypeCallback": 99,
       "StaticProtocolMember": 74,
-      "SuppressedProxyMethodBody": 72,
       "SwiftUIView": 53,
+      "SuppressedProxyMethodBody": 53,
       "IndeterminatePwtShape": 27,
       "OwnedByAppleSupplement": 12,
       "NonBlittableCallConvSwift": 6,
       "UnsupportedAsyncStream": 4,
       "UnderscorePrefixInternal": 2
+    },
+    "post_processor_sub_causes": {
+      "InternalType": 294,
+      "NSInvocation": 1,
+      "Other": 0
     }
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1785,
+      "pass": 1797,
       "fail": 0,
       "skip": 50,
       "crash": 0
     },
     "device": {
-      "pass": 1787,
+      "pass": 1810,
       "fail": 0,
       "skip": 37,
       "crash": 0

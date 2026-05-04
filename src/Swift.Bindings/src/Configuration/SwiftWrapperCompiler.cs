@@ -27,6 +27,14 @@ namespace BindingsGeneration
         public required int StrippedBlockCount { get; init; }
 
         /// <summary>
+        /// Per-sub-cause aggregate counts for the blocks summed in <see cref="StrippedBlockCount"/>.
+        /// Lets validation reporting distinguish "the new emission-time gate caught the dominant
+        /// case" from "the gate missed everything but happened to reduce total strips."
+        /// </summary>
+        public IReadOnlyDictionary<StripSubCause, int> StrippedBlocksBySubCause { get; init; }
+            = new Dictionary<StripSubCause, int>();
+
+        /// <summary>
         /// Number of architecture slices in the wrapper xcframework (1 = simulator only, 2 = both).
         /// </summary>
         public int SliceCount { get; init; } = 1;
@@ -192,6 +200,7 @@ namespace BindingsGeneration
 
             int totalStripped = 0;
             var allStrippedSymbols = new HashSet<string>();
+            var subCauseTotals = NewSubCauseTotals();
             var cleanedFiles = new List<string>();
 
             try
@@ -203,11 +212,13 @@ namespace BindingsGeneration
                         warning => logger.LogWarning("{Warning}", warning));
                     totalStripped += result.StrippedBlockCount;
                     allStrippedSymbols.UnionWith(result.StrippedSymbols);
+                    AccumulateSubCauseTotals(subCauseTotals, result.StrippedBlocksBySubCause);
 
                     if (result.StrippedBlockCount > 0)
                     {
-                        logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
-                            result.StrippedBlockCount, Path.GetFileName(swiftFile));
+                        logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File} ({SubCauses})",
+                            result.StrippedBlockCount, Path.GetFileName(swiftFile),
+                            FormatSubCauseSummary(result.StrippedBlocksBySubCause));
                     }
 
                     if (!string.IsNullOrWhiteSpace(result.CleanedContent))
@@ -220,12 +231,14 @@ namespace BindingsGeneration
 
                 if (cleanedFiles.Count == 0 && !hasAssemblyFiles)
                 {
-                    logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s)).", totalStripped);
+                    logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s); {SubCauses}).",
+                        totalStripped, FormatSubCauseSummary(subCauseTotals));
                     return new SwiftWrapperCompilationResult
                     {
                         XCFrameworkPath = "",
                         CompiledFileCount = 0,
                         StrippedBlockCount = totalStripped,
+                        StrippedBlocksBySubCause = subCauseTotals,
                         StrippedSymbols = allStrippedSymbols,
                         SliceCount = 0
                     };
@@ -489,6 +502,7 @@ namespace BindingsGeneration
                         XCFrameworkPath = "",
                         CompiledFileCount = 0,
                         StrippedBlockCount = totalStripped,
+                        StrippedBlocksBySubCause = subCauseTotals,
                         StrippedSymbols = allStrippedSymbols,
                         SliceCount = 0
                     };
@@ -523,6 +537,7 @@ namespace BindingsGeneration
                     XCFrameworkPath = xcframeworkPath,
                     CompiledFileCount = cleanedFiles.Count,
                     StrippedBlockCount = totalStripped,
+                    StrippedBlocksBySubCause = subCauseTotals,
                     StrippedSymbols = allStrippedSymbols,
                     SliceCount = sliceCount
                 };
@@ -588,6 +603,7 @@ namespace BindingsGeneration
 
             int totalStripped = 0;
             var allStrippedSymbols = new HashSet<string>();
+            var subCauseTotals = NewSubCauseTotals();
             var cleanedFiles = new List<string>();
 
             try
@@ -599,11 +615,13 @@ namespace BindingsGeneration
                         warning => logger.LogWarning("{Warning}", warning));
                     totalStripped += result.StrippedBlockCount;
                     allStrippedSymbols.UnionWith(result.StrippedSymbols);
+                    AccumulateSubCauseTotals(subCauseTotals, result.StrippedBlocksBySubCause);
 
                     if (result.StrippedBlockCount > 0)
                     {
-                        logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File}",
-                            result.StrippedBlockCount, Path.GetFileName(swiftFile));
+                        logger.LogInformation("  Stripped {Count} broken wrapper(s) from {File} ({SubCauses})",
+                            result.StrippedBlockCount, Path.GetFileName(swiftFile),
+                            FormatSubCauseSummary(result.StrippedBlocksBySubCause));
                     }
 
                     // Only write files that have content left after processing
@@ -617,12 +635,14 @@ namespace BindingsGeneration
 
                 if (cleanedFiles.Count == 0 && !hasAssemblyFiles)
                 {
-                    logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s)).", totalStripped);
+                    logger.LogWarning("All Swift wrapper code was stripped as broken ({Count} block(s); {SubCauses}).",
+                        totalStripped, FormatSubCauseSummary(subCauseTotals));
                     return new SwiftWrapperCompilationResult
                     {
                         XCFrameworkPath = "",
                         CompiledFileCount = 0,
                         StrippedBlockCount = totalStripped,
+                        StrippedBlocksBySubCause = subCauseTotals,
                         StrippedSymbols = allStrippedSymbols
                     };
                 }
@@ -746,6 +766,7 @@ namespace BindingsGeneration
                         XCFrameworkPath = "",
                         CompiledFileCount = 0,
                         StrippedBlockCount = totalStripped,
+                        StrippedBlocksBySubCause = subCauseTotals,
                         StrippedSymbols = allStrippedSymbols
                     };
                 }
@@ -775,6 +796,7 @@ namespace BindingsGeneration
                     XCFrameworkPath = xcframeworkPath,
                     CompiledFileCount = cleanedFiles.Count,
                     StrippedBlockCount = totalStripped,
+                    StrippedBlocksBySubCause = subCauseTotals,
                     StrippedSymbols = allStrippedSymbols
                 };
             }
@@ -788,6 +810,32 @@ namespace BindingsGeneration
                 }
                 catch { /* best-effort cleanup */ }
             }
+        }
+
+        private static Dictionary<StripSubCause, int> NewSubCauseTotals()
+            => new()
+            {
+                [StripSubCause.InternalType] = 0,
+                [StripSubCause.NSInvocation] = 0,
+                [StripSubCause.Other] = 0,
+            };
+
+        private static void AccumulateSubCauseTotals(
+            Dictionary<StripSubCause, int> totals,
+            IReadOnlyDictionary<StripSubCause, int> add)
+        {
+            if (add == null) return;
+            foreach (var (cause, count) in add)
+                totals[cause] = totals.GetValueOrDefault(cause) + count;
+        }
+
+        private static string FormatSubCauseSummary(IReadOnlyDictionary<StripSubCause, int> counts)
+        {
+            if (counts == null || counts.Count == 0) return "no sub-causes";
+            return string.Join(", ", counts
+                .Where(kv => kv.Value > 0)
+                .OrderBy(kv => kv.Key)
+                .Select(kv => $"{kv.Key}={kv.Value}"));
         }
 
         /// <summary>Backward-compatible overload that accepts string platformVariant/sdkName.</summary>

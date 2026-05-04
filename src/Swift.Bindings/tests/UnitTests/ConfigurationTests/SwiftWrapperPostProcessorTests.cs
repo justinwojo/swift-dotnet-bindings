@@ -1633,4 +1633,144 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region G. Sub-cause classification
+
+    public class PostProcessorSubCauseClassifierTests
+    {
+        [Fact]
+        public void Process_ClassifiesInternalTypeStrip()
+        {
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                @_cdecl("SBW_broken")
+                public func _sbw_broken(_ self_: UnsafeRawPointer) {
+                    let x = self_.assumingMemoryBound(to: InternalType.self).pointee
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+        }
+
+        [Fact]
+        public void Process_ClassifiesNSInvocationStrip()
+        {
+            var input = """
+                @_cdecl("SBW_broken")
+                public func _sbw_broken(_ inv: NSInvocation) {
+                    inv.invoke()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+        }
+
+        [Fact]
+        public void Process_ClassifiesOtherStripFromEveryProtocolPlaceholder()
+        {
+            // EveryProtocol() placeholder body is a Pattern 2 (a) "broken" trigger,
+            // not an internal-type or NSInvocation reach. Bucket = Other.
+            var input = """
+                @_cdecl("SBW_broken_placeholder")
+                public func _sbw_broken_placeholder() -> EveryProtocol {
+                    return EveryProtocol()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+        }
+
+        [Fact]
+        public void Process_PrioritisesPatternBrokenOverInternalType()
+        {
+            // A block that hits BOTH the Pattern 2 (a) placeholder trigger AND references
+            // an internal type must classify as Other (the broken-shape trigger is
+            // higher priority than the internal-type reach, matching the post-processor's
+            // short-circuit OR order). Otherwise the InternalType bucket would
+            // mis-attribute strips that the new emission gate cannot prevent.
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                @_cdecl("SBW_broken_both")
+                public func _sbw_broken_both() -> EveryProtocol {
+                    let x: InternalType? = nil
+                    _ = x
+                    return EveryProtocol()
+                }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(1, result.StrippedBlockCount);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+        }
+
+        [Fact]
+        public void Process_AggregatesAcrossMultipleBlocks()
+        {
+            var internalTypes = new HashSet<string> { "InternalType" };
+            var input = """
+                @_cdecl("SBW_a")
+                public func _sbw_a(_ self_: UnsafeRawPointer) {
+                    let x = self_.assumingMemoryBound(to: InternalType.self).pointee
+                }
+
+                @_cdecl("SBW_b")
+                public func _sbw_b(_ inv: NSInvocation) {
+                    inv.invoke()
+                }
+
+                @_cdecl("SBW_c")
+                public func _sbw_c() -> EveryProtocol {
+                    return EveryProtocol()
+                }
+
+                @_cdecl("SBW_keep")
+                public func _sbw_keep() -> Int { return 0 }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input, internalTypes);
+
+            Assert.Equal(3, result.StrippedBlockCount);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(1, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+            Assert.Contains("_sbw_keep", result.CleanedContent);
+        }
+
+        [Fact]
+        public void Process_NoStrips_ReturnsZeroBuckets()
+        {
+            var input = """
+                @_cdecl("SBW_keep")
+                public func _sbw_keep() -> Int { return 0 }
+
+                """;
+            var result = SwiftWrapperPostProcessor.Process(input);
+
+            Assert.Equal(0, result.StrippedBlockCount);
+            // Buckets are eagerly initialized to zero so callers can format/aggregate
+            // without null-checks.
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.InternalType]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.NSInvocation]);
+            Assert.Equal(0, result.StrippedBlocksBySubCause[StripSubCause.Other]);
+        }
+    }
+
+    #endregion
+
 }

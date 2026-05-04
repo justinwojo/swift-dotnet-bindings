@@ -541,6 +541,43 @@ partial class Build
                         Log.Debug("    {Count,5}  {Reason}", count, reason);
                 }
 
+                if (skipMetrics.PostProcessorSubCauses.Count > 0)
+                {
+                    Log.Information("  Post-processor strips: {Summary}",
+                        string.Join(", ", skipMetrics.PostProcessorSubCauses
+                            .OrderBy(kv => kv.Key)
+                            .Select(kv => $"{kv.Key}={kv.Value}")));
+
+                    if (prevBaseline.SkipMetrics.PostProcessorSubCauses.Count > 0)
+                    {
+                        // Per-bucket thresholds: "Other" is the safety-net bucket
+                        // (EveryProtocol() placeholders, .load(as: @escaping)) that
+                        // should never fire in normal operation, so any non-zero
+                        // increase is a real regression. "NSInvocation" is also
+                        // tightly bounded — a +1 there is a new ObjC-unavailable
+                        // type leaking through. "InternalType" is the noisy
+                        // post-processor residue that absorbs body-reference
+                        // strips, so a small absolute tolerance keeps the warning
+                        // useful as the residue inventory drifts.
+                        foreach (var (cause, curr) in skipMetrics.PostProcessorSubCauses)
+                        {
+                            prevBaseline.SkipMetrics.PostProcessorSubCauses.TryGetValue(cause, out var prev);
+                            int allowedDelta = cause switch
+                            {
+                                "Other" => 0,
+                                "NSInvocation" => 0,
+                                "InternalType" => 5,
+                                _ => 5,
+                            };
+                            if (curr > prev + allowedDelta)
+                            {
+                                Log.Warning("Post-processor sub-cause '{Cause}' increased: {Prev} -> {Curr} (+{Delta})",
+                                    cause, prev, curr, curr - prev);
+                            }
+                        }
+                    }
+                }
+
                 // Warn if skip count increased vs previous baseline
                 if (prevBaseline.SkipMetrics.TotalSkippedMembers > 0 &&
                     skipMetrics.TotalSkippedMembers > prevBaseline.SkipMetrics.TotalSkippedMembers)
@@ -2331,8 +2368,9 @@ $"""
 
     ValidationBaseline.SkipMetricsBaseline CollectSkipMetrics(AbsolutePath outputBase, IReadOnlySet<string> targetNames)
     {
-        int totalEmitted = 0, totalSkipped = 0, failedReports = 0;
+        int totalEmitted = 0, totalSkipped = 0, failedReports = 0, failedManifests = 0;
         var skipReasons = new Dictionary<string, int>();
+        var subCauses = new Dictionary<string, int>();
 
         if (!Directory.Exists(outputBase))
             return new ValidationBaseline.SkipMetricsBaseline();
@@ -2379,9 +2417,47 @@ $"""
             }
         }
 
+        // Post-processor sub-cause histogram lives on the binding-artifact-manifest, not the
+        // binding-report — the manifest aggregates wrapper-compile state, the report aggregates
+        // emission state. Read both so the baseline carries both signals.
+        var manifestFiles = targetNames
+            .Select(name => Path.Combine(outputBase, name, "binding-artifact-manifest.json"))
+            .Where(File.Exists);
+
+        foreach (var manifestFile in manifestFiles)
+        {
+            try
+            {
+                var json = File.ReadAllText(manifestFile);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("Wrapper", out var wrapper) ||
+                    wrapper.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    continue;
+                if (!wrapper.TryGetProperty("PostProcessorStrippedBlocksBySubCause", out var bucket) ||
+                    bucket.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    continue;
+                foreach (var prop in bucket.EnumerateObject())
+                {
+                    if (prop.Value.ValueKind != System.Text.Json.JsonValueKind.Number ||
+                        !prop.Value.TryGetInt32(out var count))
+                        continue;
+                    subCauses[prop.Name] = subCauses.GetValueOrDefault(prop.Name) + count;
+                }
+            }
+            catch (Exception ex)
+            {
+                failedManifests++;
+                Log.Debug("Failed to parse {File}: {Message}", manifestFile, ex.Message);
+            }
+        }
+
         if (failedReports > 0)
             Log.Warning("Skip metrics: {Count} binding-report.json file(s) could not be parsed",
                 failedReports);
+        if (failedManifests > 0)
+            Log.Warning("Skip metrics: {Count} binding-artifact-manifest.json file(s) could not be parsed",
+                failedManifests);
 
         var total = totalEmitted + totalSkipped;
         return new ValidationBaseline.SkipMetricsBaseline
@@ -2390,7 +2466,10 @@ $"""
             TotalSkippedMembers = totalSkipped,
             SkipRatePct = total > 0 ? Math.Round((double)totalSkipped / total * 100, 1) : 0,
             SkipReasons = skipReasons.OrderByDescending(kv => kv.Value)
-                .ToDictionary(kv => kv.Key, kv => kv.Value)
+                .ToDictionary(kv => kv.Key, kv => kv.Value),
+            PostProcessorSubCauses = subCauses
+                .OrderByDescending(kv => kv.Value)
+                .ToDictionary(kv => kv.Key, kv => kv.Value),
         };
     }
 

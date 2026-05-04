@@ -67,6 +67,12 @@ import Foundation
 /// Pattern 2 shape. Plays the role of CryptoSwift's `BlockEncryptor` /
 /// XMLCoder's `_XMLPlistEncodingContainer` — referenced from emitted wrappers
 /// but off-limits to the binding's external surface.
+///
+/// The C# binding emits this as a shell type (no type-level filter exists for
+/// `@usableFromInline internal`; the metadata anchor is needed for cross-module
+/// references), but every consumer-facing entry point is gated. The
+/// runtime-test invariant is that *no public constructor exists* on the
+/// emitted shell — see `TestInternalCarrierTypeIsUncreatable`.
 @usableFromInline
 internal struct InternalCarrier {
     @usableFromInline

@@ -18,10 +18,14 @@ namespace RuntimeTestsApp.Internal;
 /// emission-time gate is exercised end-to-end by three members on
 /// <c>PublicHostWithInternalMembers</c>: <c>RegisterCarrier</c> (parameter
 /// branch), <c>MakeCarrier</c> (return branch), and the
-/// <c>subscript[carrier:]</c> indexer (subscript-index branch). The other
-/// internal members (<c>InternalCarrier</c> the type, the free functions,
-/// the internal-typed property) are caught by older gates that fire first;
-/// see the fixture file's header comment for the per-member gate map.
+/// <c>subscript[carrier:]</c> indexer (subscript-index branch), plus
+/// <c>InternalCarrier.init</c> (the shell type's own constructor). The free
+/// functions and the internal-typed property are caught by older gates that
+/// fire first. The shell type itself is intentionally emitted (no type-level
+/// filter exists for <c>@usableFromInline internal</c> — the type can still
+/// be referenced through metadata accessors), but every consumer-facing
+/// entry point is gated. See the fixture file's header comment for the
+/// per-member gate map.
 ///
 /// Negative direction (gates do not over-strip): <c>DoesNotReachInternal</c>'s
 /// public-only signature and <c>PublicWithInternalStored</c>'s public surface
@@ -45,15 +49,26 @@ public class InternalTypeReachTests : TestBase
 
     #region Positive — gate fires; types/members must be absent
 
-    public void TestInternalCarrierTypeIsAbsent()
+    public void TestInternalCarrierTypeIsUncreatable()
     {
-        // @usableFromInline internal struct — must not show up as a public
-        // C# type. The pre-existing internal-type filter handles the type;
-        // this assertion guards against a future regression that would re-emit
-        // it (e.g. if IsModuleInternal classification drifted).
+        // @usableFromInline internal struct. The generator emits the type as
+        // a shell (it can still be reached as a generic argument or via metadata
+        // accessor for cross-module references) but every consumer-facing entry
+        // point — most importantly the public init — must be suppressed by the
+        // new walker gate. The walker emits a "Unsupported: method 'init'..."
+        // marker comment in the binding when it fires.
+        //
+        // The invariant we lock in here is "no consumer can construct an
+        // InternalCarrier from C#": all public constructors must be absent.
+        // If a future regression re-exposed `init`, the type would become
+        // reachable from public code paths even though its members are gated.
         var t = FindGeneratedType("InternalCarrier");
-        AssertNull(t, "InternalCarrier should not be emitted to C# bindings");
-        TestLogger.Info("InternalCarrier absent from binding surface (expected).");
+        AssertNotNull(t, "InternalCarrier shell type expected (used as metadata anchor)");
+        var publicCtors = t!
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        AssertEqual(0, publicCtors.Length,
+            "InternalCarrier must not expose any public constructor — walker gate must suppress init");
+        TestLogger.Info("InternalCarrier emitted as shell type with no public constructor (expected).");
     }
 
     public void TestInternalFreeFunctionsAreAbsent()
@@ -87,8 +102,8 @@ public class InternalTypeReachTests : TestBase
         // an implementation detail behind the public init.
         using var holder = new PublicWithInternalStored(seed: 7);
         AssertNotNull(holder, "PublicWithInternalStored ctor returned null");
-        AssertEqual(14, holder.SeedDoubled(), "seedDoubled should round-trip the internal stored seed");
-        TestLogger.Info("PublicWithInternalStored constructed; SeedDoubled() = 14 as expected.");
+        AssertEqual(14, holder.GetSeedDoubled(), "seedDoubled should round-trip the internal stored seed");
+        TestLogger.Info("PublicWithInternalStored constructed; GetSeedDoubled() = 14 as expected.");
     }
 
     public void TestPublicWithInternalStoredCarrierAccessorAbsent()

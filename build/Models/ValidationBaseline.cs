@@ -75,6 +75,16 @@ public record ValidationBaseline
         [JsonPropertyName("skip_reasons")]
         public IDictionary<string, int> SkipReasons { get; init; }
             = new Dictionary<string, int>();
+
+        /// <summary>
+        /// Aggregate per-sub-cause counts from <c>SwiftWrapperPostProcessor</c> across all
+        /// validated libraries. Lets us track whether the <c>Pattern2InternalTypeReach</c>
+        /// emission gate is taking the load expected of it: the <c>InternalType</c> bucket
+        /// should drop to a small, documented residue once the gate ships.
+        /// </summary>
+        [JsonPropertyName("post_processor_sub_causes")]
+        public IDictionary<string, int> PostProcessorSubCauses { get; init; }
+            = new Dictionary<string, int>();
     }
 
     public static ValidationBaseline Load(AbsolutePath path)
