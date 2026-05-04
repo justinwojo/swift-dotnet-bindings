@@ -488,7 +488,46 @@ public partial class ProtocolProxyEmitter
         var argsString = string.Join(", ", argNames);
 
         var isSelfReturning = MethodEnvironment.IsSelfReturningMethod(method);
-        var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn, isSelfReturning: isSelfReturning,
+        // Mirror the property-collision rename applied during interface emission
+        // (ProtocolProxyEmitter.InterfaceImpl.cs L62–L88). Use the canonical cached
+        // set populated by ProtocolHandler / InterfacePropertyNamePrecomputer so the
+        // receiver's view matches what the interface actually emits — including
+        // emitted static abstract property names and excluding skipped instance
+        // properties. Without this, the receiver invokes `impl.RichText(range)`
+        // for a method that the interface emitted as `RichTextMethod(range)`
+        // because a same-named property took the PascalCased slot (CS1955), and
+        // static-property collisions are missed while skipped-property collisions
+        // are over-applied.
+        var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                               ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
+        var canonicalPropertyNames = _emissionContext.GetInterfacePropertyNames(protoQualifiedName);
+        HashSet<string> receiverPropertyNames;
+        if (canonicalPropertyNames != null)
+        {
+            receiverPropertyNames = new HashSet<string>(canonicalPropertyNames);
+        }
+        else
+        {
+            // Defensive fallback: the prepass populates the cache for every protocol in
+            // the module, so this branch should not trigger in practice. Mirror the
+            // canonical construction (instance + emitted static).
+            receiverPropertyNames = new HashSet<string>();
+            foreach (var property in protocolDecl.Properties)
+            {
+                if (property.IsStatic)
+                {
+                    if (_staticAbstractPropertyNames.Contains(property.Name))
+                        receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                }
+                else if (!_skippedPropertyNames.Contains(property.Name) || _closureSkippedPropertyNames.Contains(property.Name))
+                {
+                    receiverPropertyNames.Add(NameProvider.GetPropertyName(property.Name));
+                }
+            }
+        }
+        var pascalMethodName = NameProvider.GetPublicMethodName(method.Name, method.IsAsync, hasReturn,
+            propertyNames: receiverPropertyNames,
+            isSelfReturning: isSelfReturning,
             parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
         if (hasReturn)

@@ -916,7 +916,7 @@
         { "framework": "FirebaseAuth" },
         { "framework": "FirebaseAuthInterop" },
         { "framework": "FirebaseCore" },
-        { "framework": "FirebaseCoreExtension", "knownErrors": 1 },
+        { "framework": "FirebaseCoreExtension" },
         { "framework": "FirebaseCoreInternal" },
         { "framework": "FirebaseCrashlytics" },
         { "framework": "FirebaseDatabase" },
@@ -951,8 +951,7 @@
       "products": [
         {
           "scheme": "CodeScanner",
-          "framework": "CodeScanner",
-          "knownErrors": 2
+          "framework": "CodeScanner"
         }
       ],
       "tier": 2
@@ -982,8 +981,7 @@
       "products": [
         {
           "scheme": "RichTextKit",
-          "framework": "RichTextKit",
-          "knownErrors": 28
+          "framework": "RichTextKit"
         }
       ],
       "tier": 2
@@ -998,8 +996,7 @@
       "products": [
         {
           "scheme": "WhatsNewKit",
-          "framework": "WhatsNewKit",
-          "knownErrors": 2
+          "framework": "WhatsNewKit"
         }
       ],
       "tier": 2
@@ -1014,8 +1011,7 @@
       "products": [
         {
           "scheme": "YouTubePlayerKit",
-          "framework": "YouTubePlayerKit",
-          "knownErrors": 2
+          "framework": "YouTubePlayerKit"
         }
       ],
       "tier": 2

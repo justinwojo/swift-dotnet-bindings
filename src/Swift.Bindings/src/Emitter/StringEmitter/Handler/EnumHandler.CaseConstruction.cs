@@ -101,6 +101,19 @@ namespace BindingsGeneration
                     return false;
                 }
 
+                // Skip enum cases whose bound-generic payload references a concrete type
+                // that doesn't satisfy a user-protocol constraint on the outer generic
+                // (e.g., RichTextInsertion<T> where T : IRichTextInsertable, but the case
+                // binds T = Swift.SwiftString, which cannot retroactively conform to the
+                // user protocol). Without this gate the static factory's parameter type
+                // produces CS0311 at compile time. Mirrors the same check applied to
+                // methods/properties in MemberEmissionValidator.
+                if (boundGenericsHandler.TryGetFirstUnsatisfiedConstraint(typeSpec, caseDecl, out var constraintDetails))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' associated value violates generic constraint: {constraintDetails}. Skipping case factory.");
+                    return false;
+                }
+
                 parameters.Add((csharpType, publicType, paramName, typeSpec));
             }
 

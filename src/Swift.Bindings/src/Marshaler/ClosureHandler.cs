@@ -1542,6 +1542,130 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Checks if a closure RETURNED from Swift can be safely invoked from C# via a direct
+    /// Swift function pointer call. Currently the throwing-closure return path
+    /// (<see cref="Emitter.StringEmitter.ClosureEmitter"/> EmitThrowingClosureReturnMarshalling)
+    /// emits <c>_fp(_arg0, _arg1, ...)</c> using <see cref="Emitter.StringEmitter.ClosureEmitter"/>'s
+    /// <c>GetSwiftInvokeArgExpression</c>. That helper only knows how to convert a fixed set
+    /// of types into the void* that the function pointer expects (primitives, enums, classes,
+    /// ObjC bridged classes, well-known/known protocols). Anything else (Swift.String, frozen
+    /// structs, generic structs, tuples) falls through as the bare C# expression and produces
+    /// CS1503 cannot-convert-to-void* errors.
+    /// Until full marshaling for those shapes lands, throwing closures whose params include
+    /// such types must be pruned at the boundary, otherwise the binding emits broken C#.
+    /// Mirror the branch list in <c>GetSwiftInvokeArgExpression</c> exactly — keeping these
+    /// in sync is load-bearing.
+    /// </summary>
+    public bool CanInvokeReturnedThrowingClosure(ClosureTypeSpec closureTypeSpec)
+    {
+        if (!closureTypeSpec.Throws)
+            return true;
+
+        foreach (var arg in closureTypeSpec.EachArgument())
+        {
+            if (!IsDirectInvokeArgSupported(arg))
+                return false;
+        }
+
+        if (!IsDirectInvokeReturnSupported(closureTypeSpec.ReturnType))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a returned throwing closure's RETURN type is correctly handled by
+    /// <see cref="Emitter.StringEmitter.ClosureEmitter.EmitClosureReturnMarshalling"/>'s
+    /// fallback emission path. The default branch there emits a bare
+    /// <c>return _fp(...)</c>, which only compiles when the function pointer's P/Invoke
+    /// return type matches the delegate's declared C# return type. Bound generics, frozen
+    /// structs with reference fields, complex enums, ObjC-bridged classes, etc. translate
+    /// to <c>void*</c> in the function pointer but stay as their C# shape in the delegate
+    /// — assigning void* to those produces CS1503 at compile time.
+    /// Mirror the explicit branch list in <c>EmitClosureReturnMarshalling</c>; keeping
+    /// these in sync is load-bearing.
+    /// </summary>
+    private bool IsDirectInvokeReturnSupported(TypeSpec typeSpec)
+    {
+        // void return: emitter omits the return statement
+        if (typeSpec.IsEmptyTuple)
+            return true;
+        if (MarshallingHelpers.IsBoolType(typeSpec))
+            return true;
+        if (NeedsWellKnownProtocolWrapping(typeSpec, out _))
+            return true;
+        if (NeedsProxyWrapping(typeSpec, out _))
+            return true;
+        if (IsExistentialParam(typeSpec))
+            return true;
+        if (IsSimpleEnum(typeSpec))
+            return true;
+        if (typeSpec is NamedTypeSpec namedType)
+        {
+            if (IsClassType(namedType))
+                return true;
+            // Pointer types are NOT supported here for the same reason as in
+            // IsDirectInvokeArgSupported: TranslateTypeSpecToCSharp emits IntPtr for
+            // the delegate return type while TranslateTypeSpecToPInvokeType emits
+            // void* for the function pointer return; bare `return _fp(...)` would
+            // produce CS1503 without an explicit cast that the emitter does not insert.
+            if (GetBlittablePrimitiveType(namedType.Name) != null)
+                return true;
+        }
+        if (typeSpec is TupleTypeSpec tuple)
+        {
+            foreach (var element in tuple.Elements)
+            {
+                if (!IsDirectInvokeReturnSupported(element))
+                    return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private bool IsDirectInvokeArgSupported(TypeSpec typeSpec)
+    {
+        if (MarshallingHelpers.IsBoolType(typeSpec))
+            return true;
+        if (IsSimpleEnum(typeSpec) || IsComplexEnum(typeSpec))
+            return true;
+        if (NeedsWellKnownProtocolWrapping(typeSpec, out _))
+            return true;
+        if (NeedsProxyWrapping(typeSpec, out _))
+            return true;
+        if (IsExistentialParam(typeSpec))
+            return true;
+        if (typeSpec is NamedTypeSpec namedType)
+        {
+            // Blittable primitives translate to int/long/float/etc. and are passed
+            // bare as `_arg{N}` — the function pointer's typed parameter accepts them
+            // directly. Without this, `(Int32) throws -> Void` returns get pruned even
+            // though the emitter would produce valid C#.
+            // (Pointer types are NOT included: TranslateTypeSpecToCSharp emits IntPtr
+            // for the delegate signature while TranslateTypeSpecToPInvokeType emits void*
+            // for the function pointer; the emitter does not insert the cross-cast, so
+            // bare `_argN` would produce CS1503.)
+            if (GetBlittablePrimitiveType(namedType.Name) != null)
+                return true;
+            if (IsClassType(namedType))
+                return true;
+            if (IsObjCBridgedClass(namedType))
+                return true;
+        }
+        if (typeSpec is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
+        {
+            foreach (var element in tuple.Elements)
+            {
+                if (!IsDirectInvokeArgSupported(element))
+                    return false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a parameter type can be passed when invoking a Swift closure from C#.
     /// Supports primitive types, frozen structs, non-frozen structs, enums, and reference types.
     /// </summary>

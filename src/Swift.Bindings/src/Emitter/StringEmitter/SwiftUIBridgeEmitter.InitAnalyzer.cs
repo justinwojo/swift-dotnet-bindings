@@ -354,14 +354,12 @@ public static partial class SwiftUIBridgeEmitter
         }
 
         // Array<T>: bridge as pointer + count across ABI.
-        // Only intercept when the element type IS supported; otherwise fall through to MapDatabaseType
-        // so Array<UnsupportedType> still gets the generic BoundType treatment it had before.
+        // When the element type is unsupported, return null so the entire view falls back
+        // to template emission. Falling through to MapDatabaseType produces a broken
+        // bare "Array" / "Swift.SwiftArray" (no element type) in the generated bridge.
         if (namedSpec.Name == "Swift.Array" && namedSpec.GenericParameters.Count == 1)
         {
-            var arrayResult = MapArrayType(paramName, namedSpec, context);
-            if (arrayResult != null)
-                return arrayResult;
-            // Unsupported element type — fall through to MapDatabaseType
+            return MapArrayType(paramName, namedSpec, context);
         }
 
         // SwiftUI.Image: bridge as String (SF Symbol name), construct Image in wrapper

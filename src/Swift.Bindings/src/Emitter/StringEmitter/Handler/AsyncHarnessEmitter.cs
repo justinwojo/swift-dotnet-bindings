@@ -659,7 +659,7 @@ namespace BindingsGeneration
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
-            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion))
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion))
             {
                 if (containerBridgeConversion != null)
                 {
@@ -678,6 +678,22 @@ namespace BindingsGeneration
                 }
                 else if (objcBridgeConversion != null)
                     marshalResultCode = $"var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n                                var result = _rawResult.Case == SwiftOptionalCases.Some ? {objcBridgeConversion} : null;";
+                else if (valueContainerInnerConversion != null)
+                {
+                    // Optional<Array/Set/Dictionary<value-type>>: ToNullable() yields the raw Swift
+                    // container (SwiftArray<SwiftString>?, SwiftSet<int>?, etc.) but the public TCS
+                    // expects the projected public type (IReadOnlyList<string>?, IReadOnlySet<int>?).
+                    // Apply the inner container projection's element conversion to the unwrapped
+                    // value before assigning to result. The outer Optional is a complex enum, so the
+                    // carrier was initialized via initializeMemory(as: Optional<SwiftArray<…>>.self)
+                    // and holds +1 on the embedded class storage — VWT-Destroy the carrier before
+                    // SBW_Free reclaims the raw allocation, otherwise the storage refcount leaks.
+                    marshalResultCode =
+                        $"var _rawResult = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();\n" +
+                        $"                                var result = _rawResult is {{ }} _rawCol ? {valueContainerInnerConversion} : null;\n" +
+                        $"                                var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
+                        $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
+                }
                 else if (carrierNeedsDestroy)
                 {
                     // Optional<value-type-with-non-trivial-VWT> (e.g. Optional<@frozen struct with
@@ -823,16 +839,23 @@ namespace BindingsGeneration
         ///   2. <paramref name="objcBridgeConversion"/> set: inner is an ObjC-bridgeable scalar
         ///      (e.g., <c>Optional&lt;URLRequest&gt;</c>). Caller reads via SwiftOptional&lt;IntPtr&gt;
         ///      then bridges the Some payload through GetNSObject.
-        ///   3. Neither set: ordinary value-type optional. Caller reads via SwiftOptional&lt;T&gt;.ToNullable().
+        ///   3. <paramref name="valueContainerInnerConversion"/> set: inner is Array/Set/Dict whose
+        ///      elements are value-type projected (e.g., <c>Optional&lt;Array&lt;String&gt;&gt;</c>).
+        ///      The caller reads via SwiftOptional&lt;SwiftArray&lt;…&gt;&gt;.ToNullable() and applies
+        ///      this conversion to project the unwrapped Swift container into the public type
+        ///      (IReadOnlyList&lt;string&gt;?, IReadOnlySet&lt;int&gt;?).
+        ///   4. None set: ordinary value-type optional. Caller reads via SwiftOptional&lt;T&gt;.ToNullable().
         /// </summary>
         private bool TryGetOptionalMarshalType(
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? marshalType,
             out string? objcBridgeConversion,
-            out string? containerBridgeConversion)
+            out string? containerBridgeConversion,
+            out string? valueContainerInnerConversion)
         {
             marshalType = null;
             objcBridgeConversion = null;
             containerBridgeConversion = null;
+            valueContainerInnerConversion = null;
             var returnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
             if (returnSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optionalSpec)
                 return false;
@@ -875,6 +898,16 @@ namespace BindingsGeneration
                     containerBridgeConversion = op.InnerProjection.GetReturnContainerConversion("_ptr");
                     // Drop the no-longer-used objcBridgeConversion guard — we're switching strategies.
                     objcBridgeConversion = null;
+                }
+                else if (objcBridgeConversion == null
+                    && op.InnerProjection is ArrayProjection or SetProjection or DictionaryProjection)
+                {
+                    // Optional<Array/Set/Dictionary<value-type>>: the carrier holds a real
+                    // SwiftOptional<SwiftArray<…>> value (no ObjC bridge). ToNullable() yields
+                    // SwiftArray<rawElem>?, but the public TCS expects IReadOnlyList<publicElem>?.
+                    // Capture the inner container's element-conversion expression (e.g.,
+                    // `_rawCol.AsProjected(e => e.ToString())`) to apply at the call site.
+                    valueContainerInnerConversion = op.InnerProjection.GetReturnContainerConversion("_rawCol");
                 }
 
                 return true;

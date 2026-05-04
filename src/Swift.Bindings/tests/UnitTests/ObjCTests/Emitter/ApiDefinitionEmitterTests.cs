@@ -1226,6 +1226,10 @@ public class ApiDefinitionEmitterTests
         var module = new ObjCModule
         {
             ModuleName = "Test",
+            // KeyType is used both as a generic param (in GenericCollection) AND a
+            // real concrete type (in KeyTypeConsumer). Declare it as an SDK type so
+            // the resolvability filter doesn't drop the KeyTypeConsumer method.
+            AppleSdkTypeNames = new HashSet<string> { "KeyType" },
             Classes =
             [
                 new ObjCClassDecl
@@ -2037,7 +2041,10 @@ public class ApiDefinitionEmitterTests
     public void Emit_ApiDefinitionFiltering_FallbackHeuristicWhenAppleSdkTypesNull()
     {
         // When AppleSdkTypeNames is null (no Clang context, e.g. -fmodules AST),
-        // falls back to uppercase CamelCase heuristic — uppercase types pass, C-types are filtered.
+        // the fallback only accepts names whose head matches a registered Apple
+        // ObjC class prefix. The bare "any uppercase" rule was a false-positive
+        // source: it let cross-framework third-party types (e.g. FIROptions in a
+        // sibling xcframework) through and produced CS0246 at compile time.
         var module = new ObjCModule
         {
             ModuleName = "Test",
@@ -2049,6 +2056,13 @@ public class ApiDefinitionEmitterTests
                     Name = "MyClass",
                     Methods =
                     [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doApple:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [new ObjCParameterDecl { Name = "color", Type = new ObjCTypeRef { Name = "UIColor", IsPointer = true } }]
+                        },
                         new ObjCMethodDecl
                         {
                             Selector = "doStuff:",
@@ -2069,9 +2083,12 @@ public class ApiDefinitionEmitterTests
         };
 
         var result = EmitAndRead(module);
-        // Uppercase ObjC-style types pass the fallback heuristic
-        Assert.Contains("DoStuff", result);
-        // Lowercase C-style types are still filtered
+        // Apple-prefixed types pass the fallback
+        Assert.Contains("DoApple", result);
+        // Uppercase types without an Apple prefix are filtered (they would
+        // otherwise emit references to types that aren't actually available)
+        Assert.DoesNotContain("DoStuff", result);
+        // Lowercase C-style types are also filtered
         Assert.DoesNotContain("DoBad", result);
     }
 
@@ -3309,6 +3326,10 @@ public class ApiDefinitionEmitterTests
                     }
                 ]
             })
+            // The third-party FIRMessaging type would normally come from a sibling
+            // framework (FirebaseMessaging) parsed alongside — declare it here so
+            // the resolvability filter doesn't drop the method we're asserting on.
+            .WithAppleSdkTypeNames("FIRMessaging")
             .Build();
 
         var result = EmitAndRead(module);
@@ -3340,6 +3361,7 @@ public class ApiDefinitionEmitterTests
                     }
                 ]
             })
+            .WithAppleSdkTypeNames("FIRMessaging")
             .Build();
 
         var result = EmitAndRead(module);

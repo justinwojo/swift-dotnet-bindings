@@ -619,6 +619,11 @@ public static class MemberEmissionValidator
                     skipDetails = "Return type is an unsupported closure type.";
                     return SkipReason.UnsupportedClosure;
                 }
+                if (!closureHandler.CanInvokeReturnedThrowingClosure(closureTypeSpec))
+                {
+                    skipDetails = "Return type is a throwing closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
+                    return SkipReason.UnsupportedClosure;
+                }
             }
         }
 
@@ -913,6 +918,25 @@ public static class MemberEmissionValidator
                     }
 
                     skipDetails = $"Parameter '{arg.Name}' has unsupported closure type that cannot be marshalled.";
+                    return SkipReason.UnsupportedClosure;
+                }
+            }
+        }
+
+        // B21 (return position): Methods returning a throwing closure whose param/return shapes
+        // cannot be reduced to void* by ClosureEmitter.GetSwiftInvokeArgExpression produce broken
+        // C# (CS1503/CS0019 cannot-convert-to-void* errors at the _fp(...) invocation site, plus
+        // string-vs-void* mismatch on the FromSuccess return). Pruning here keeps the binding
+        // honest until full marshaling for those shapes lands. Mirrors the parameter-side check above.
+        if (method.CSSignature.Count > 0)
+        {
+            var returnArg = method.CSSignature[0];
+            if (closureHandler.IsClosure(returnArg))
+            {
+                var returnClosureSpec = closureHandler.GetClosureTypeSpec(returnArg);
+                if (returnClosureSpec != null && !closureHandler.CanInvokeReturnedThrowingClosure(returnClosureSpec))
+                {
+                    skipDetails = "Return type is a throwing closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
                     return SkipReason.UnsupportedClosure;
                 }
             }

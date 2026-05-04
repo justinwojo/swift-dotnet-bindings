@@ -265,6 +265,30 @@ public class MemberValidationPipeline
             }
         }
 
+        // ── Phase 5b: Tuple parameters with P/Invoke-vs-C# element type mismatch ──
+        // PInvokeEmitter emits tuple params as ValueTuple<P/Invoke types>, while the
+        // public-facing C# signature uses ValueTuple<idiomatic types>. When element
+        // P/Invoke type is IntPtr but C# type is a class/struct (e.g., a non-frozen
+        // Swift struct projected as a class with .Payload), no per-element conversion
+        // is generated — the call site passes the raw class tuple and CS1503s.
+        //
+        // The CdeclTuple buffer path (PInvokeEmitter ~L517) already gates this via
+        // IsCdeclSafeTuple (primitives only). The standard ValueTuple path has no such
+        // gate — it just emits broken code. This Phase mirrors the closure-side check
+        // (TupleHandler.HasClosureUnsafeTupleElements) at the method/ctor level.
+        var tupleHandler = new TupleHandler(_typeDatabase);
+        foreach (var argument in methodDecl.CSSignature.Skip(1))
+        {
+            if (!tupleHandler.IsTuple(argument))
+                continue;
+            var tupleSpec = tupleHandler.GetTupleTypeSpec(argument)!;
+            if (tupleHandler.HasClosureUnsafeTupleElements(tupleSpec))
+            {
+                return ValidationResult.Skip(SkipReason.UnsupportedSignature,
+                    $"Tuple parameter '{argument.Name}' has elements whose P/Invoke type (IntPtr) differs from the C# type — per-element marshalling is not yet implemented for tuple-of-class/struct.");
+            }
+        }
+
         // ── Phase 6: Generic constructor own params (constructor only) ──
         // C# does not support generic constructors. If the constructor has method-own
         // generic parameters (not inherited from the parent type), skip it.

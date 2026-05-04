@@ -403,6 +403,13 @@ public static class ObjCTypeMapper
         known.Add("Selector");
         known.Add("Class");
         known.Add("NativeHandle");
+        // Apple framework value types (CGPoint, CGRect, NSRange, etc.) — these are
+        // recognized everywhere else in the type mapper as well-known Apple value
+        // types but reach IsApiDefinitionTypeResolvable as raw passthrough names.
+        // Without this, CoreGraphics/CoreLocation/etc. types get rejected under the
+        // -fmodules fallback because their prefixes aren't registered as ObjC class
+        // prefixes (those frameworks expose only C structs, not ObjC classes).
+        foreach (var v in KnownAppleValueTypes) known.Add(v);
         return known;
     }
 
@@ -423,9 +430,15 @@ public static class ObjCTypeMapper
     /// <summary>
     /// Checks whether a mapped type name will be resolvable in ApiDefinition.cs.
     /// Source-aware: uses Apple SDK type names collected during parsing to distinguish
-    /// Apple framework types (available via .NET iOS bindings) from third-party types (not available).
-    /// When appleSdkTypeNames is null (e.g., -fmodules mode where SDK types aren't expanded),
-    /// falls back to the same uppercase CamelCase heuristic as StructsAndEnums.
+    /// Apple framework types (available via .NET iOS bindings) from third-party types
+    /// (not available). When <paramref name="appleSdkTypeNames"/> is null (e.g.
+    /// <c>-fmodules</c> mode where SDK types are loaded from precompiled module files
+    /// and never expanded into the AST), falls back to the known Apple framework ObjC
+    /// class prefix list registered in <see cref="AppleFrameworkRegistry"/>. The bare
+    /// "any uppercase letter" rule is too permissive there: under -fmodules a
+    /// cross-framework type referenced from a sibling xcframework (e.g.
+    /// <c>FIROptions</c> in FirebaseCore, used by a method declared in FirebaseCoreExtension)
+    /// would otherwise pass the check and produce CS0246 at compile time.
     /// </summary>
     public static bool IsApiDefinitionTypeResolvable(string mappedType, HashSet<string> knownTypes, HashSet<string>? appleSdkTypeNames)
     {
@@ -439,9 +452,15 @@ public static class ObjCTypeMapper
                 && ContainsAppleSdkType(appleSdkTypeNames, mappedType[1..])) return true;
             return false;
         }
-        // Fallback: accept uppercase-starting types (ObjC CamelCase convention).
-        // Used when SDK types aren't available (e.g., -fmodules AST, synthetic test modules).
-        if (mappedType.Length > 0 && char.IsUpper(mappedType[0])) return true;
+        // -fmodules fallback: only accept names whose head matches a known Apple
+        // framework ObjC class prefix.
+        if (mappedType.Length == 0 || !char.IsUpper(mappedType[0])) return false;
+        if (AppleFrameworkRegistry.TypeNameStartsWithKnownObjCPrefix(mappedType)) return true;
+        // Protocol interface form: I-prefix on an Apple class prefix
+        // (e.g., INSObjectProtocol -> NSObjectProtocol).
+        if (mappedType.Length > 1 && mappedType[0] == 'I' && char.IsUpper(mappedType[1])
+            && AppleFrameworkRegistry.TypeNameStartsWithKnownObjCPrefix(mappedType[1..]))
+            return true;
         return false;
     }
 

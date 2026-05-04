@@ -373,6 +373,30 @@ internal static class AppleFrameworkRegistry
     }
 
     /// <summary>
+    /// Returns true if the bare type name starts with one of the known Apple ObjC class
+    /// prefixes (loaded from apple-frameworks.json) followed by an uppercase letter.
+    /// Used by the ObjC binding generator to distinguish Apple SDK types (which the
+    /// .NET iOS bindings provide) from third-party types (which need their own bindings)
+    /// when the AST itself doesn't carry source-of-origin information — e.g. under
+    /// <c>-fmodules</c> where SDK declarations are not expanded into the parsed AST.
+    /// </summary>
+    public static bool TypeNameStartsWithKnownObjCPrefix(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName)) return false;
+        var span = typeName.AsSpan();
+        foreach (var prefix in _objcPrefixes)
+        {
+            if (span.Length > prefix.Length &&
+                span.StartsWith(prefix.AsSpan(), StringComparison.Ordinal) &&
+                char.IsUpper(span[prefix.Length]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Returns true when the module-qualified name should be treated as an ObjC-bridged
     /// class type for marshalling and existential filtering. Three-tier logic:
     ///

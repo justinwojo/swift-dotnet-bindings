@@ -830,9 +830,10 @@ public class ObjCTypeMapperTests
     }
 
     [Theory]
-    [InlineData("UIColor", true)]          // Uppercase → fallback accepts
-    [InlineData("AnyObjCType", true)]      // Uppercase → fallback accepts
-    [InlineData("pb_wire_type_t", false)]  // Lowercase → fallback rejects
+    [InlineData("UIColor", true)]          // Apple ObjC prefix "UI" → accepted
+    [InlineData("NSObject", true)]         // Listed in BuildKnownMappedTypes
+    [InlineData("AnyObjCType", false)]     // Uppercase but no registered Apple prefix → rejected (was permissive false-positive that produced CS0246 for cross-framework third-party types)
+    [InlineData("pb_wire_type_t", false)]  // Lowercase → rejected
     public void IsApiDefinitionTypeResolvable_NullSdkNames_FallsBackToHeuristic(string mappedType, bool expected)
     {
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();

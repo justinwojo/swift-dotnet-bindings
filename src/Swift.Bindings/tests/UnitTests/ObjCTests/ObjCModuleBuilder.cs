@@ -22,6 +22,7 @@ public class ObjCModuleBuilder
     private readonly List<ObjCConstantDecl> _constants = [];
     private readonly List<ObjCTypedefDecl> _typedefs = [];
     private readonly List<ObjCCategoryDecl> _categories = [];
+    private HashSet<string>? _appleSdkTypeNames;
 
     public static ObjCModuleBuilder Create(string moduleName = "TestLib") =>
         new() { _moduleName = moduleName };
@@ -139,6 +140,19 @@ public class ObjCModuleBuilder
         return this;
     }
 
+    /// <summary>
+    /// Declare types that should be treated as available from sibling SDK/parsed
+    /// frameworks (mirrors what ApiDefinitionEmitter sees from real Clang parsing).
+    /// Without this, third-party type names referenced in test fixtures get filtered
+    /// by the resolvability check.
+    /// </summary>
+    public ObjCModuleBuilder WithAppleSdkTypeNames(params string[] names)
+    {
+        _appleSdkTypeNames ??= new HashSet<string>(StringComparer.Ordinal);
+        foreach (var n in names) _appleSdkTypeNames.Add(n);
+        return this;
+    }
+
     public ObjCModule Build() => new()
     {
         ModuleName = _moduleName,
@@ -150,6 +164,7 @@ public class ObjCModuleBuilder
         Constants = _constants,
         Typedefs = _typedefs,
         Categories = _categories,
+        AppleSdkTypeNames = _appleSdkTypeNames,
     };
 
     // --- Sub-builders ---

@@ -1,5 +1,5 @@
 {
-  "git_sha": "311aa95f",
+  "git_sha": "b6fe4d1f",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -117,7 +117,7 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 177694,
+        "lines": 177693,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -621,7 +621,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 16428,
+        "lines": 16427,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -724,8 +724,8 @@
         "swift_compile": "no_wrapper"
       },
       "FirebaseCoreExtension": {
-        "compile": "known_errors",
-        "errors": 1,
+        "compile": "ok",
+        "errors": 0,
         "lines": 206,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
@@ -871,9 +871,9 @@
         "swift_compile": "no_wrapper"
       },
       "CodeScanner": {
-        "compile": "known_errors",
-        "errors": 2,
-        "lines": 931,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 893,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -885,44 +885,44 @@
         "swift_compile": "ok"
       },
       "RichTextKit": {
-        "compile": "known_errors",
-        "errors": 28,
-        "lines": 27239,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 26854,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WhatsNewKit": {
-        "compile": "known_errors",
-        "errors": 2,
-        "lines": 8353,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 8296,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "YouTubePlayerKit": {
-        "compile": "known_errors",
-        "errors": 2,
-        "lines": 31708,
+        "compile": "ok",
+        "errors": 0,
+        "lines": 31384,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 22564,
-    "total_skipped_members": 6446,
+    "total_emitted_members": 22556,
+    "total_skipped_members": 6454,
     "skip_rate_pct": 22.2,
     "skip_reasons": {
-      "UnsupportedSignature": 1207,
+      "UnsupportedSignature": 1212,
       "SynthesizedCodable": 905,
       "ModuleInternal": 843,
       "DuplicateSignature": 686,
       "AnyTypeFallback": 672,
       "GenericProtocolConstraint": 655,
       "EveryProtocolConformanceSkipped": 285,
-      "UnsupportedClosure": 281,
+      "UnsupportedClosure": 282,
       "MissingWrapperSymbol": 242,
       "SwiftUIConstraint": 239,
-      "UnsupportedType": 214,
+      "UnsupportedType": 216,
       "UnsupportedExistential": 115,
       "UnsatisfiedGenericConstraint": 108,
       "GenericTypeCallback": 99,
@@ -938,7 +938,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1782,
+      "pass": 1785,
       "fail": 0,
       "skip": 50,
       "crash": 0

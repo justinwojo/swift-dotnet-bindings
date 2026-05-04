@@ -157,6 +157,17 @@ namespace BindingsGeneration
                     return;
                 }
 
+                // Skip TryGet when the payload binds a concrete type that doesn't satisfy a
+                // user-protocol constraint on the outer generic (e.g.,
+                // RichTextInsertion<Swift.SwiftString> where T : IRichTextInsertable).
+                // The `out` parameter type would produce CS0311. Mirrors the same gate on
+                // case factory emission in EmitEnumCaseWithAssociatedValues.
+                if (boundGenericsHandler.TryGetFirstUnsatisfiedConstraint(typeSpec, caseDecl, out var constraintDetails))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' associated value violates generic constraint: {constraintDetails}. Skipping TryGet.");
+                    return;
+                }
+
                 var publicType = GetPublicCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, enumGenericParams, enumDecl.ModuleDecl);
 
                 // Use type label if available, otherwise generate a name

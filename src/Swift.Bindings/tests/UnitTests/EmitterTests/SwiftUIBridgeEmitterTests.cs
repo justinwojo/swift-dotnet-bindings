@@ -8922,13 +8922,16 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.DoesNotContain("BRIDGE TEMPLATE", swiftContent);
     }
 
-    // --- Regression: unsupported inner types must fall through to MapDatabaseType ---
+    // --- Unsupported inner element type → return null so view falls back to template ---
 
     [Fact]
-    public void ArrayOfUnsupportedType_WithTypeDatabase_FallsThrough_ToBoundStruct()
+    public void ArrayOfUnsupportedType_WithTypeDatabase_ReturnsNull()
     {
-        // Regression test: Array<UnsupportedStruct> must fall through to MapDatabaseType
-        // so Swift.Array resolves as BoundStruct (from SwiftDatabase.xml), not return null.
+        // Array<UnsupportedElement> must return null so the entire view falls back to
+        // template emission. The previous fall-through behavior produced a broken
+        // bare "Array" / "Swift.SwiftArray" in the generated bridge — falling back
+        // to the template is the correct behavior when the element type isn't
+        // bridgeable.
         var typeDb = new BridgeTestTypeDatabase(new Dictionary<string, TypeRecord>
         {
             ["Swift.Array"] = new TypeRecord
@@ -8955,8 +8958,7 @@ public class SwiftUIBridgeEmitterTests : IDisposable
 
         var result = SwiftUIBridgeEmitter.MapParameterType(param, context);
 
-        Assert.NotNull(result);
-        Assert.Equal(BridgeParameterKind.BoundStruct, result.Kind);
+        Assert.Null(result);
     }
 
     [Fact]

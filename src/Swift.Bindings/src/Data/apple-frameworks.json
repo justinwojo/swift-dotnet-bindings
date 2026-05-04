@@ -46,6 +46,7 @@
         "AVFileType",
         "AVLayerVideoGravity",
         "AVMediaType",
+        "AVMetadataObject.ObjectType",
         "AVPlayer.Status",
         "AVPlayer.TimeControlStatus",
         "AVPlayerItem.Status"
@@ -236,6 +237,7 @@
         "Decimal",
         "Decimal.FormatStyle.Currency",
         "FileAttributeKey",
+        "FileManager.SearchPathDirectory",
         "IndexPath",
         "IndexSet",
         "JSONDecoder",
@@ -287,6 +289,7 @@
         "ProcessInfo": "Foundation.NSProcessInfo",
         "Thread": "Foundation.NSThread",
         "FileManager": "Foundation.NSFileManager",
+        "FileManager.SearchPathDirectory": "Foundation.NSSearchPathDirectory",
         "FileHandle": "Foundation.NSFileHandle",
         "UndoManager": "Foundation.NSUndoManager",
         "Progress": "Foundation.NSProgress",
@@ -745,6 +748,7 @@
         "UIControl.State",
         "UIDataDetectorTypes",
         "UIDatePicker.Mode",
+        "UIDropOperation",
         "UIEdgeInsets",
         "UIFloatRange",
         "UIFont.TextStyle",
@@ -762,6 +766,7 @@
         "UIModalPresentationStyle",
         "UIModalTransitionStyle",
         "UINavigationController.Operation",
+        "UINotificationFeedbackGenerator.FeedbackType",
         "UINavigationItem.LargeTitleDisplayMode",
         "UIOffset",
         "UIPageViewController.NavigationDirection",
@@ -846,7 +851,14 @@
       "module": "WebKit",
       "autoBridge": true,
       "optionalFallback": true,
-      "objcPrefixes": ["WK"]
+      "objcPrefixes": ["WK"],
+      "valueTypes": [
+        "WKWebView.FullscreenState",
+        "WKMediaPlaybackState"
+      ],
+      "typeRemaps": {
+        "WKWebView.FullscreenState": "WebKit.WKFullscreenState"
+      }
     },
     {
       "module": "WidgetKit",
