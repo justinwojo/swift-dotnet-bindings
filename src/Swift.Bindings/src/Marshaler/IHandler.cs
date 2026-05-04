@@ -670,30 +670,51 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Creates a unique signature key for a method based on name, constructor status, and parameter types.
+        /// Creates a unique signature key for a method based on Swift-level identity:
+        /// constructor status, name, async/throws qualifiers, and parameter labels+types.
+        ///
+        /// Including labels distinguishes Swift overloads that differ only in argument labels
+        /// (e.g. `request(_:didCreateTask:)` vs `request(_:didReceiveTask:)`) — both have
+        /// identical positional types but represent different methods. Async and throws are
+        /// included so that `f()` and `f() async` (or `f() throws`) flow through to secondary
+        /// (projected C#) dedup, which renames the second via numeric suffix instead of
+        /// silently dropping it.
+        ///
+        /// Used as a stateful HashSet key by both <see cref="HandleBaseDecl"/> (class/struct
+        /// methods) and <see cref="ModuleHandler"/> (free functions). The
+        /// <see cref="ProtocolSignatureHelper.GetMethodSignatureKey"/> variant intentionally
+        /// stays label-free — it doubles as the witness-matching key on the protocol side
+        /// and matching is positional, not by label.
         /// </summary>
         protected static string GetMethodSignatureKey(MethodDecl methodDecl, ITypeDatabase typeDatabase, ILogger? logger = null)
         {
-            var paramTypes = new List<string>();
+            var paramEntries = new List<string>();
             // Skip first element (return type) in CSSignature
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
+                string paramType;
                 try
                 {
                     var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
-                    paramTypes.Add(typeRecord.CSharpTypeName.FullyQualifiedName);
+                    paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
                 }
                 catch (Exception ex)
                 {
                     // For generic type parameters or other unsupported types,
                     // use the string representation of the type spec
                     logger?.LogWarning($"GetMethodSignatureKey: Failed to resolve type '{arg.SwiftTypeSpec}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
-                    paramTypes.Add(arg.SwiftTypeSpec?.ToString() ?? "unknown");
+                    paramType = arg.SwiftTypeSpec?.ToString() ?? "unknown";
                 }
+                // Label is the external Swift argument label (or "argN" for `_`-prefixed
+                // positional labels — synthesized by SwiftABIParser.ExtractParameterNames).
+                paramEntries.Add($"{arg.Name}:{paramType}");
             }
             var prefix = methodDecl.IsConstructor ? "ctor:" : "method:";
-            return $"{prefix}{methodDecl.Name}({string.Join(",", paramTypes)})";
+            var qualifiers = new System.Text.StringBuilder();
+            if (methodDecl.IsAsync) qualifiers.Append("|async");
+            if (methodDecl.Throws) qualifiers.Append("|throws");
+            return $"{prefix}{methodDecl.Name}{qualifiers}({string.Join(",", paramEntries)})";
         }
     }
 }

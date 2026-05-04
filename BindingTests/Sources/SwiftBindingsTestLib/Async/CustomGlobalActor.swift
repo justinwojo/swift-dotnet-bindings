@@ -146,12 +146,13 @@ public final class NonisolatedInitOnCustomActor: Sendable {
 
 /// Sendable class-bound delegate protocol for the harder fixture below. Mirrors
 /// the shape of `Nuke.ImagePipeline.Delegate` — a class-bound protocol the host
-/// type accepts as `(any Delegate)?` in its init. Method name intentionally
-/// avoids `describe()` (which would collide with `Describable` in the same
-/// module via the EveryProtocol "conforms to all protocols" fixture's witness
-/// dedup).
+/// type accepts as `(any Delegate)?` in its init. Uses the same `describe()`
+/// name as `Describable` so the EveryProtocol "conforms to all" fixture lands
+/// the witness body in only one of the two sibling extensions and the other
+/// must inherit it via Swift cross-extension lookup. Pinning this pattern in
+/// the fixture keeps the strip-time cross-extension preservation honest.
 public protocol NonisolatedInitDelegate: AnyObject, Sendable {
-    func delegateLabel() -> String
+    func describe() -> String
 }
 
 /// Configuration struct with a non-C#-mappable default expression
@@ -186,6 +187,6 @@ public final class PipelineLikeNonisolatedInit: Sendable {
         delegate: (any NonisolatedInitDelegate)? = nil
     ) {
         self.depth = configuration.depth
-        self.delegateDescription = delegate?.delegateLabel() ?? "none"
+        self.delegateDescription = delegate?.describe() ?? "none"
     }
 }

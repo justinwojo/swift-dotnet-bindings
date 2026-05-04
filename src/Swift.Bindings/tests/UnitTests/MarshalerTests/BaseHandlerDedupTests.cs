@@ -247,6 +247,129 @@ public class BaseHandlerDedupTests
         Assert.Contains("Crashing.Module.BadType", result);
     }
 
+    [Fact]
+    public void GetMethodSignatureKey_DistinctLabels_ProduceDistinctKeys()
+    {
+        // Two methods with identical positional types but different argument labels
+        // (e.g. `request(_:didCreateTask:)` vs `request(_:didReceiveTask:)`) must produce
+        // different primary keys so both flow through to secondary (projected C#) dedup
+        // for numeric-suffix disambiguation, instead of one being silently dropped.
+        var typeDatabase = new BasicTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+
+        var paramType = new NamedTypeSpec("Swift.Int");
+        var methodA = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$sTestA",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty),
+                new ArgumentDecl
+                {
+                    Name = "valueLabel",
+                    PrivateName = "value",
+                    SwiftTypeSpec = paramType,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+        };
+        var methodB = new MethodDecl
+        {
+            Name = "process",
+            MangledName = "$sTestB",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgDecl(TupleTypeSpec.Empty),
+                new ArgumentDecl
+                {
+                    Name = "otherLabel",
+                    PrivateName = "value",
+                    SwiftTypeSpec = paramType,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+        };
+
+        var keyA = InvokeGetMethodSignatureKey(methodA, typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
+
+        Assert.NotEqual(keyA, keyB);
+        Assert.Contains("valueLabel:", keyA);
+        Assert.Contains("otherLabel:", keyB);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_AsyncDifference_ProducesDistinctKey()
+    {
+        // `f()` and `f() async` must dedup independently — Swift permits both.
+        var typeDatabase = new BasicTypeDatabase();
+        var sync = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
+        var asyncMethod = CreateMethod("fetch", new NamedTypeSpec("Swift.Int"));
+        asyncMethod.IsAsync = true;
+
+        var keySync = InvokeGetMethodSignatureKey(sync, typeDatabase);
+        var keyAsync = InvokeGetMethodSignatureKey(asyncMethod, typeDatabase);
+
+        Assert.NotEqual(keySync, keyAsync);
+        Assert.Contains("|async", keyAsync);
+        Assert.DoesNotContain("|async", keySync);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_ThrowsDifference_ProducesDistinctKey()
+    {
+        // `f()` and `f() throws` must dedup independently — Swift permits both.
+        var typeDatabase = new BasicTypeDatabase();
+        var nonThrowing = CreateMethod("compute", new NamedTypeSpec("Swift.Int"));
+        var throwing = CreateMethod("compute", new NamedTypeSpec("Swift.Int"));
+        throwing.Throws = true;
+
+        var keyNonThrowing = InvokeGetMethodSignatureKey(nonThrowing, typeDatabase);
+        var keyThrowing = InvokeGetMethodSignatureKey(throwing, typeDatabase);
+
+        Assert.NotEqual(keyNonThrowing, keyThrowing);
+        Assert.Contains("|throws", keyThrowing);
+        Assert.DoesNotContain("|throws", keyNonThrowing);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_IdenticalLabelsAndTypes_ProducesIdenticalKeys()
+    {
+        // Genuine duplicates (same name, labels, types, qualifiers) must still collide
+        // so the dedup HashSet drops the redundant copy.
+        var typeDatabase = new BasicTypeDatabase();
+        var methodA = CreateMethod("process", new NamedTypeSpec("Swift.Int"));
+        var methodB = CreateMethod("process", new NamedTypeSpec("Swift.Int"));
+
+        var keyA = InvokeGetMethodSignatureKey(methodA, typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
+
+        Assert.Equal(keyA, keyB);
+    }
+
     #endregion
 
     #region Helpers

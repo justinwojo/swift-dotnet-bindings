@@ -53,6 +53,27 @@ public static class SwiftSourceStripper
     private static readonly Regex ClosureParamPattern = new(
         @",\s*\w+:\s*\([^)]*\)\s*->", RegexOptions.Compiled);
 
+    private static readonly Regex EveryProtocolExtensionHeader = new(
+        @"^\s*extension\s+EveryProtocol\s*:\s*(?:[\w.]+\.)?(\w+)\b", RegexOptions.Compiled);
+
+    // Captures `public [modifiers] func name(params)`, `public [modifiers] var/let name`,
+    // or `public [modifiers] subscript`. `kind` discriminates so cross-extension witness
+    // checks only match like-with-like (var-vs-func with the same bare name is a redeclaration,
+    // not a witness — see `ProvidesCrossExtensionWitness`).
+    private static readonly Regex DeclaredMember = new(
+        @"\bpublic\s+(?:static\s+|nonisolated\s+|final\s+)*(?:(?<kind>func|var|let)\s+(?<name>\w+)|(?<sub>subscript)\b)",
+        RegexOptions.Compiled);
+
+    // `fileprivate struct <Protocol>_vtable {` — protocol witness vtable struct header.
+    private static readonly Regex VtableStructHeader = new(
+        @"^\s*fileprivate\s+struct\s+(\w+)_vtable\s*\{", RegexOptions.Compiled);
+
+    // `var func_<barename>_get|set|<digit>` inside a vtable struct.
+    // Suffix `_get`/`_set` → property (var); suffix `_<digit>` → method (func).
+    // Greedy `.+` so names containing underscores (e.g. `snake_case`) survive intact.
+    private static readonly Regex VtableField = new(
+        @"\bvar\s+func_(?<name>.+)_(?<suffix>get|set|\d+)\b", RegexOptions.Compiled);
+
     /// <summary>
     /// Result of stripping a single file.
     /// </summary>
@@ -71,6 +92,16 @@ public static class SwiftSourceStripper
         bool seenUtf8Slice = false;
         bool seenEmptyBuffer = false;
 
+        // Pre-scan: figure out which bare member names a preserved EveryProtocol conformance
+        // depends on but doesn't declare in its own extension body. EveryProtocolEmitter dedups
+        // same-signature witnesses across protocols by emitting the body in only one extension
+        // and leaving siblings without it; Swift normally satisfies the empty conformance via
+        // cross-extension method visibility. If the *only* extension declaring the witness is
+        // a non-preserved one, stripping it here breaks the preserved sibling's conformance
+        // with no recoverable error pattern. We keep a non-preserved extension only when it
+        // declares at least one of those missing required names.
+        var crossExtensionRequired = CollectCrossExtensionRequiredNames(lines);
+
         while (i < lines.Length)
         {
             var line = lines[i];
@@ -82,7 +113,8 @@ public static class SwiftSourceStripper
             {
                 int end = FindBlockEnd(lines, i);
                 var body = ScanBlockBody(lines, i, end);
-                if (!ReferencesPreservedProtocol(body))
+                if (!ReferencesPreservedProtocol(body) &&
+                    !ProvidesCrossExtensionWitness(body, crossExtensionRequired))
                 {
                     removedCount++;
                     i = end + 1;
@@ -320,6 +352,131 @@ public static class SwiftSourceStripper
     private static bool ReferencesPreservedProtocol(string body)
     {
         return PreservedProtocolPattern.IsMatch(body);
+    }
+
+    /// <summary>
+    /// (Kind, Name) tuple identifying a witness slot. Kind is the normalised member shape:
+    /// "method", "property", or "subscript". A non-preserved extension only counts as a
+    /// cross-extension witness source if it declares a member with the *same* kind as the
+    /// missing requirement — otherwise we'd over-preserve unrelated extensions whose bare
+    /// name happens to collide.
+    /// </summary>
+    private readonly record struct WitnessKey(string Kind, string Name);
+
+    /// <summary>
+    /// Builds the set of (kind, bare-name) pairs that some preserved EveryProtocol conformance
+    /// requires (per its `<Protocol>_vtable` struct) but that the preserved extension body
+    /// does not itself declare. Those are the slots whose witness must come from a sibling
+    /// extension via Swift's cross-extension method-visibility rule. Stripping the sibling
+    /// would silently break the preserved conformance, so we keep any non-preserved extension
+    /// that declares a kind+name match.
+    /// </summary>
+    private static HashSet<WitnessKey> CollectCrossExtensionRequiredNames(string[] lines)
+    {
+        // Step 1: vtable struct → required (kind, bare-name) pairs per protocol.
+        var protocolRequired = new Dictionary<string, HashSet<WitnessKey>>(StringComparer.Ordinal);
+        for (int idx = 0; idx < lines.Length; idx++)
+        {
+            var headerMatch = VtableStructHeader.Match(lines[idx]);
+            if (!headerMatch.Success) continue;
+
+            var protocolName = headerMatch.Groups[1].Value;
+            int end = FindBlockEnd(lines, idx);
+            var required = new HashSet<WitnessKey>();
+            for (int j = idx + 1; j < end; j++)
+            {
+                var fieldMatch = VtableField.Match(lines[j]);
+                if (!fieldMatch.Success) continue;
+                var key = MakeVtableWitnessKey(fieldMatch.Groups["name"].Value, fieldMatch.Groups["suffix"].Value);
+                required.Add(key);
+            }
+            if (required.Count > 0)
+                protocolRequired[protocolName] = required;
+            idx = end;
+        }
+
+        // Step 2: walk preserved extensions, subtract the (kind, name) pairs they actually
+        // declare, collect the leftover requirements — those must be supplied cross-extension.
+        var missing = new HashSet<WitnessKey>();
+        for (int idx = 0; idx < lines.Length; idx++)
+        {
+            var match = EveryProtocolExtensionHeader.Match(lines[idx]);
+            if (!match.Success) continue;
+
+            int end = FindBlockEnd(lines, idx);
+            var protocolName = match.Groups[1].Value;
+            if (PreservedProtocols.Contains(protocolName)
+                && protocolRequired.TryGetValue(protocolName, out var required))
+            {
+                var body = ScanBlockBody(lines, idx, end);
+                var declared = CollectDeclaredWitnessKeys(body);
+                foreach (var slot in required)
+                    if (!declared.Contains(slot))
+                        missing.Add(slot);
+            }
+            idx = end;
+        }
+        return missing;
+    }
+
+    /// <summary>
+    /// Builds the WitnessKey for a vtable field. Properties surface as `func_<name>_get/_set`
+    /// (suffix get/set, name = the property name). Methods surface as `func_<name>_<index>`
+    /// (digit suffix). Subscripts are emitted by EveryProtocolEmitter as
+    /// `func_subscript_<index>_get/_set`, so the parsed (name, suffix) is
+    /// (<c>subscript_&lt;index&gt;</c>, <c>get|set</c>) — both name and kind are normalized to
+    /// the literal "subscript" so they collate with the declared `public subscript` side.
+    /// </summary>
+    private static WitnessKey MakeVtableWitnessKey(string name, string suffix)
+    {
+        if (SubscriptVtableName.IsMatch(name))
+            return new WitnessKey("subscript", "subscript");
+        if (suffix == "get" || suffix == "set")
+            return new WitnessKey("property", name);
+        return new WitnessKey("method", name);
+    }
+
+    private static readonly Regex SubscriptVtableName = new(@"^subscript(_\d+)?$", RegexOptions.Compiled);
+
+    private static HashSet<WitnessKey> CollectDeclaredWitnessKeys(string body)
+    {
+        var declared = new HashSet<WitnessKey>();
+        foreach (Match m in DeclaredMember.Matches(body))
+        {
+            if (m.Groups["sub"].Success)
+            {
+                declared.Add(new WitnessKey("subscript", "subscript"));
+                continue;
+            }
+            var kind = m.Groups["kind"].Value switch
+            {
+                "func" => "method",
+                "var" or "let" => "property",
+                _ => null,
+            };
+            if (kind == null) continue;
+            declared.Add(new WitnessKey(kind, m.Groups["name"].Value));
+        }
+        return declared;
+    }
+
+    /// <summary>
+    /// Returns true when a non-preserved EveryProtocol extension declares a (kind, bare-name)
+    /// pair that some preserved sibling needs but doesn't declare itself. That makes this
+    /// extension the cross-extension witness source — stripping it would break compile.
+    /// Kind discrimination prevents an unrelated `describe` property in a non-preserved
+    /// extension from being kept just because some preserved protocol needs a `describe()`
+    /// method.
+    /// </summary>
+    private static bool ProvidesCrossExtensionWitness(string body, HashSet<WitnessKey> crossExtensionRequired)
+    {
+        if (crossExtensionRequired.Count == 0) return false;
+        foreach (var key in CollectDeclaredWitnessKeys(body))
+        {
+            if (crossExtensionRequired.Contains(key))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

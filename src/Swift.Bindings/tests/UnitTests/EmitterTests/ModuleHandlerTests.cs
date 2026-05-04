@@ -724,6 +724,110 @@ public class ModuleHandlerTests
         Assert.DoesNotContain("public partial class Functions", csOutput);
     }
 
+    [Fact]
+    public void Emit_LabelOnlyDistinctFreeFunctions_KeepBothViaSecondaryDedup()
+    {
+        // Two free functions with same Swift name + same parameter type but different
+        // argument labels (e.g., describe(forItem:) vs describe(fromValue:)) must both be
+        // emitted: primary dedup uses the labelled signature, secondary dedup detects
+        // the projected C# collision and disambiguates the second with a numeric suffix.
+        // Wires the actual ModuleHandler.Emit pipeline (not just the dedup helpers).
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "LabelDedup",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        moduleDecl.Methods.Add(BuildLabelledMethod("describe", "forItem",
+            "$s10LabelDedup8describe7forItemySi_tF", moduleDecl));
+        moduleDecl.Methods.Add(BuildLabelledMethod("describe", "fromValue",
+            "$s10LabelDedup8describe9fromValueySi_tF", moduleDecl));
+
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("LabelDedup", "/fake/path"));
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var handler = new ModuleHandler(new Microsoft.Extensions.Logging.Abstractions.NullLogger<ModuleHandler>());
+        var env = handler.Marshal(moduleDecl, typeDatabase);
+        var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        var csOutput = csStringWriter.ToString();
+
+        // Both methods kept — neither bumped to "DuplicateSignature" skip.
+        Assert.DoesNotContain("DuplicateSignature", csOutput);
+
+        // Projected name appears twice: once unsuffixed, once suffixed via secondary dedup.
+        var bareCount = System.Text.RegularExpressions.Regex.Matches(csOutput, @"\bDescribe\s*\(").Count;
+        var suffixedCount = System.Text.RegularExpressions.Regex.Matches(csOutput, @"\bDescribe2\s*\(").Count;
+        Assert.True(bareCount >= 1, $"Expected at least one 'Describe(' call site in output:\n{csOutput}");
+        Assert.True(suffixedCount >= 1, $"Expected at least one 'Describe2(' call site in output:\n{csOutput}");
+    }
+
+    private static MethodDecl BuildLabelledMethod(string name, string argLabel, string mangledName, ModuleDecl moduleDecl)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = mangledName,
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                // Return type (void)
+                new()
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                // Single Int parameter with the differentiating argument label.
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                    Name = argLabel,
+                    PrivateName = argLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
     #endregion
 
     #region Helper Methods
