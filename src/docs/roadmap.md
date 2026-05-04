@@ -6,14 +6,6 @@ This doc covers longer-term themes, blocked items, and lower-priority ideas. Liv
 
 ---
 
-## High Priority
-
-| Item | Notes |
-|------|-------|
-| **Pattern 2 retirement (wrapper-eligibility)** | `SwiftWrapperPostProcessor.Pattern2_SilgenOrCdeclBroken` strips broken `@_silgen_name`/`@_cdecl` wrapper bodies after-the-fact. 99.7% of hits are `Pattern2.InternalType` — wrapper signatures that reach `internalTypeNames`. A naive emission-time gate regressed 4 libraries (CryptoSwift / SkeletonView / NVActivityIndicatorView / XMLCoder) because `@usableFromInline internal` types like XMLCoder's `BoolBox` / `FloatBox` are flagged internal yet emitted as public C# classes. Right fix layer is wrapper-eligibility (`MethodWrapperEmitter.ShouldEmitWrapper` / `ConstructorWrapperEmitter` / `PropertyWrapperEmitter`): refuse the `@_cdecl` wrapper when its signature reaches an internal type, then `MethodHandler.cs:928–933` falls back to the original Swift symbol under `CallConvSwift`. Plumbing requires either threading `InternalTypeNames` through `MethodEnvironment` (~13 source-side construction sites + ~44 test sites) or attaching the set to `ModuleDecl`. Proof obligation: BindingTests fixture for an `@usableFromInline internal` type so the runtime path is exercised on iOS sim + device. Not < 1-session scope. |
-
----
-
 ## Medium Priority
 
 | Item | Notes |

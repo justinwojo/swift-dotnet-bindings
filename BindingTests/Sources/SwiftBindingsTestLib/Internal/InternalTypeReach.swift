@@ -46,11 +46,19 @@ import Foundation
 //     other check. (The unrelated `MemberEmissionValidator.CanEmitSubscript`
 //     path is for conformance validation, not concrete emission.)
 //
-//   * `@usableFromInline internal` *types* with `public` member methods.
-//     Swift allows the methods (their declared signatures are public-only),
-//     but the generated wrapper bodies must reference the internal parent
-//     type. That case stays handled by `SwiftWrapperPostProcessor`
-//     Pattern 2 / Pattern 3 as the post-emission safety net (Findings 6–7).
+//   * `@usableFromInline internal` *types* with `public` member methods
+//     (`InternalHolder.describe()`). Swift allows the methods (their declared
+//     signatures are public-only), but the generated wrapper bodies must
+//     reference the internal parent type. This shape is **formally retained
+//     as post-processing scope**: the receiver-aware emission-time gate is
+//     not viable because at emission time we don't know whether the
+//     containing type satisfies a public protocol that the C# co-gater would
+//     need to protect (CryptoSwift `BlockEncryptor : Cryptor` was the
+//     concrete regression that rejected option (a)). The
+//     `SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub strips
+//     the broken wrapper, and `CSharpWrapperCoGater` (with its
+//     `BuildTypeProtectedMembers` interface-member protection) removes the
+//     C# member when there's no protocol to satisfy.
 //
 //   * `@frozen public struct` with `@usableFromInline internal` stored
 //     properties — the public storage boundary. The struct is constructible
@@ -105,11 +113,14 @@ internal func readCarrier(_ carrier: InternalCarrier) -> Int32 {
 
 /// `@usableFromInline internal` class with `public` member methods. The
 /// methods' declared signatures are public-only (Swift refuses anything
-/// else), so the *new* gate does not catch them — but the generated wrapper
-/// bodies must reference `InternalHolder` as `self`, which the post-processor
-/// continues to strip (Pattern 2 (B) body-reference shape per Finding 6).
-/// Including this case here so we notice if the post-processor's residue
-/// behaviour regresses while the new gate is being wired in.
+/// else), so the signature-reach walker does not catch them. The generated
+/// wrapper bodies must reference `InternalHolder` as `self`, and the Swift
+/// compiler rejects internal-type references inside `@_cdecl` bodies. This
+/// shape is formally retained as post-processing scope: the
+/// `SwiftWrapperPostProcessor` Pattern 2 (B) body-reference scrub strips
+/// these wrappers post-emission, and `CSharpWrapperCoGater` removes the
+/// matching C# members (preserving interface-implementation members so
+/// types that conform to public protocols still compile).
 @usableFromInline
 internal class InternalHolder {
     @usableFromInline

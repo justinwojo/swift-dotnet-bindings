@@ -8,24 +8,37 @@ using SwiftBindingsTestLib;
 namespace RuntimeTestsApp.Internal;
 
 /// <summary>
-/// End-to-end coverage for the Pattern 2 internal-type-reach emission gate.
-/// Pairs with the Swift fixture at
+/// End-to-end coverage for the Pattern 2 internal-type-reach emission gate
+/// AND the formally retained internal-receiver post-processing scope. Pairs
+/// with the Swift fixture at
 /// <c>BindingTests/Sources/SwiftBindingsTestLib/Internal/InternalTypeReach.swift</c>.
 ///
 /// Several distinct gates participate in suppressing the fixture's internal
 /// surface; the runtime absence assertions below are what matter, not which
-/// gate fires for each member. The new <c>Pattern2InternalTypeReach</c>
+/// gate fires for each member. The <c>Pattern2InternalTypeReach</c>
 /// emission-time gate is exercised end-to-end by three members on
-/// <c>PublicHostWithInternalMembers</c>: <c>RegisterCarrier</c> (parameter
-/// branch), <c>MakeCarrier</c> (return branch), and the
-/// <c>subscript[carrier:]</c> indexer (subscript-index branch), plus
-/// <c>InternalCarrier.init</c> (the shell type's own constructor). The free
-/// functions and the internal-typed property are caught by older gates that
-/// fire first. The shell type itself is intentionally emitted (no type-level
-/// filter exists for <c>@usableFromInline internal</c> — the type can still
-/// be referenced through metadata accessors), but every consumer-facing
-/// entry point is gated. See the fixture file's header comment for the
-/// per-member gate map.
+/// <c>PublicHostWithInternalMembers</c> — <c>RegisterCarrier</c> (parameter
+/// branch), <c>MakeCarrier</c> (return branch), <c>subscript[carrier:]</c>
+/// (subscript-index branch) — and by the inits on <c>InternalCarrier</c> and
+/// <c>InternalHolder</c>: the walker walks <c>CSSignature</c>, which carries
+/// an init's implicit Self-return, so an init returning an internal type is
+/// caught at emission time exactly like a method whose declared return reaches
+/// an internal type. The body-reference shape (<c>InternalHolder.describe</c>)
+/// is formally retained as post-processing scope: in real validation libraries
+/// the <c>SwiftWrapperPostProcessor</c> Pattern 2 (B) body-reference scrub
+/// strips the broken wrapper, and <c>CSharpWrapperCoGater</c> removes the
+/// matching C# member (preserving interface-implementation members so types
+/// conforming to public protocols still compile — see CryptoSwift
+/// <c>BlockEncryptor : Cryptor</c>). End-to-end coverage of that path lives in
+/// <c>nuke validate</c> against the four real libraries, not in BindingTests:
+/// the wrapper-compile + post-processor pipeline does not run cleanly here,
+/// so the fixture verifies what is reachable — the construction barrier (no
+/// public init) renders any C# member that survives in source unreachable.
+/// The free functions and the internal-typed property are caught by older
+/// gates that fire first. The shell type itself is intentionally emitted (no
+/// type-level filter exists for <c>@usableFromInline internal</c> — the type
+/// can still be referenced through metadata accessors). See the fixture file's
+/// header comment for the per-member gate map.
 ///
 /// Negative direction (gates do not over-strip): <c>DoesNotReachInternal</c>'s
 /// public-only signature and <c>PublicWithInternalStored</c>'s public surface
@@ -54,9 +67,13 @@ public class InternalTypeReachTests : TestBase
         // @usableFromInline internal struct. The generator emits the type as
         // a shell (it can still be reached as a generic argument or via metadata
         // accessor for cross-module references) but every consumer-facing entry
-        // point — most importantly the public init — must be suppressed by the
-        // new walker gate. The walker emits a "Unsupported: method 'init'..."
-        // marker comment in the binding when it fires.
+        // point — most importantly the public init — is suppressed.
+        //
+        // The init's emitted CSSignature carries the implicit Self-return type
+        // (InternalCarrier itself, which is in the module's InternalTypeNames
+        // set), so Pattern2InternalTypeReach matches via the return-type branch
+        // and the init is skipped at emission time. No wrapper is emitted and
+        // no post-processor strip is needed for this case.
         //
         // The invariant we lock in here is "no consumer can construct an
         // InternalCarrier from C#": all public constructors must be absent.
@@ -125,6 +142,42 @@ public class InternalTypeReachTests : TestBase
         AssertNotNull(host, "PublicHostWithInternalMembers ctor returned null");
         AssertEqual(42, host.Plain(value: 21), "plain(21) doubled");
         TestLogger.Info("PublicHostWithInternalMembers public surface intact.");
+    }
+
+    public void TestInternalHolderPublicConstructorAbsent()
+    {
+        // InternalHolder is @usableFromInline internal but declares a
+        // public func describe(). Two suppression mechanisms are in play:
+        //
+        //   * init: walker-suppressed via the same implicit Self-return path
+        //     as InternalCarrier.init (see TestInternalCarrierTypeIsUncreatable).
+        //
+        //   * describe(): declared signature is purely public (() -> String),
+        //     so the walker cannot catch it at emission time. The runtime
+        //     suppression in real libraries is the post-processor + co-gater
+        //     pair — Pattern 2 (B) body-reference scrub strips the broken
+        //     @_cdecl wrapper, and CSharpWrapperCoGater removes the matching
+        //     C# member when no public protocol requires it. (Where a protocol
+        //     does require it — CryptoSwift BlockEncryptor : Cryptor — the
+        //     co-gater's BuildTypeProtectedMembers exemption keeps the C#
+        //     member to satisfy CS0535, which is why an emission-time receiver
+        //     gate isn't safe.) That end-to-end path is validated by
+        //     `nuke validate`, not here: BindingTests' wrapper-compile +
+        //     post-processor pipeline does not run cleanly, so the C# member
+        //     stays in source — but is unreachable because there is no
+        //     instance to call it on (the construction barrier below).
+        //
+        // Regression signal: if a public constructor ever appears on
+        // InternalHolder, the construction barrier has fallen and any
+        // surviving describe-equivalent in the C# source becomes callable.
+        var holderType = FindGeneratedType("InternalHolder");
+        AssertNotNull(holderType, "InternalHolder shell type expected (used as metadata anchor)");
+
+        var publicCtors = holderType!
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+        AssertEqual(0, publicCtors.Length,
+            "InternalHolder must not expose any public constructor — walker gate must suppress init");
+        TestLogger.Info("InternalHolder emitted as shell with no public constructor (walker gate suppressed init).");
     }
 
     public void TestPublicHostInternalMembersAbsent()

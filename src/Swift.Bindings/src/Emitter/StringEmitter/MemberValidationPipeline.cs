@@ -83,8 +83,7 @@ public class MemberValidationPipeline
         // internal (or otherwise-suppressed) type that the Swift wrapper cannot
         // legally expose. Replaces the dominant Pattern 2 cleanup pass — the
         // wrapper post-processor stays in place as a safety net for body-reference
-        // shapes the signature walk can't predict (see
-        // src/docs/Future/pattern2-retirement-plan.md).
+        // shapes the signature walk can't predict.
         if (TryCheckInternalTypeReach(methodDecl, out var methodSkip))
             return methodSkip!;
 
@@ -416,6 +415,7 @@ public class MemberValidationPipeline
     {
         if (TryCheckInternalTypeReach(subscriptDecl, out var subscriptSkip))
             return subscriptSkip!;
+
         return ValidationResult.Emit;
     }
 
