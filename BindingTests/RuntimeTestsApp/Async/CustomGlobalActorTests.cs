@@ -323,4 +323,85 @@ public class CustomGlobalActorTests : TestBase
         AssertNotNull(label, "GlobalActorIsolatedClass.label getter must survive emission.");
         AssertNotNull(count, "GlobalActorIsolatedClass.count getter must survive emission.");
     }
+
+    /// <summary>
+    /// `nonisolated public init` on a @&lt;CustomActor&gt;-isolated class must reach C#
+    /// as a synchronous public constructor — NOT as a `static Task&lt;T&gt; CreateAsync(...)`.
+    /// The `nonisolated` modifier opts the init out of the actor's isolation domain,
+    /// so the binding generator must emit a sync `@_cdecl` wrapper for it (gate 6b in
+    /// WrapperValidation honors `IsNonisolated`). This is the gate-logic guard for the
+    /// Nuke 13 `ImagePipeline`/`ImagePrefetcher`/`TaskQueue` shape — without it, every
+    /// `new ImagePipeline(...)` call site is unreachable from C#.
+    /// </summary>
+    public void TestNonisolatedInitOnCustomActor_SyncConstructorEmitted()
+    {
+        var declaredCtors = typeof(NonisolatedInitOnCustomActor)
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+            .Where(c => c.DeclaringType == typeof(NonisolatedInitOnCustomActor))
+            .ToArray();
+
+        AssertTrue(declaredCtors.Length >= 2,
+            "NonisolatedInitOnCustomActor declares two `nonisolated public init` overloads " +
+            "(one taking a label, one parameter-less). Both must reach C# as synchronous " +
+            $"public constructors; found {declaredCtors.Length} declared ctor(s). If this drops " +
+            "below 2, gate 6b in WrapperValidation has regressed and is wholesale-skipping the " +
+            "ctor under SWIFTBIND022 even though the parser tagged it `IsNonisolated`.");
+    }
+
+    /// <summary>
+    /// End-to-end round-trip: synchronous `new NonisolatedInitOnCustomActor("hello")`
+    /// must construct an instance and the `nonisolated let label` getter must return
+    /// the value the ctor was called with. Validates the @_cdecl wrapper actually runs
+    /// the init (no actor hop) and the stored property getter reads back through the
+    /// foreign-runtime boundary correctly.
+    /// </summary>
+    public void TestNonisolatedInitOnCustomActor_SyncConstructorRoundTrips()
+    {
+        using var instance = new NonisolatedInitOnCustomActor("hello");
+        AssertNotNull(instance, "Synchronous nonisolated ctor must return a non-null instance");
+        AssertEqual("hello", instance.Label.ToString(), "label was not preserved across the ctor wrapper");
+
+        using var defaulted = new NonisolatedInitOnCustomActor();
+        AssertEqual("default", defaulted.Label.ToString(), "parameter-less nonisolated init must apply Swift-side default");
+    }
+
+    /// <summary>
+    /// Mirror of `Nuke.ImagePipeline.init(configuration:delegate:)`: a `nonisolated`
+    /// init on a custom-global-actor class taking a non-trivial config struct (with a
+    /// non-C#-mappable Swift-side default) AND an optional existential delegate (with
+    /// default `nil`). The synchronous public ctor must emit; consumers can then call
+    /// it like Nuke 13's `ImagePipeline(configuration:)` from C#.
+    /// </summary>
+    public void TestPipelineLikeNonisolatedInit_SyncConstructorEmitted()
+    {
+        var declaredCtors = typeof(PipelineLikeNonisolatedInit)
+            .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+            .Where(c => c.DeclaringType == typeof(PipelineLikeNonisolatedInit))
+            .ToArray();
+
+        AssertTrue(declaredCtors.Length >= 1,
+            "PipelineLikeNonisolatedInit (Nuke ImagePipeline shape) must emit at least one " +
+            $"synchronous public constructor; found {declaredCtors.Length}. Without this, the " +
+            "gate-6b nonisolated bypass regressed against the exact pattern that drove it.");
+    }
+
+    /// <summary>
+    /// Round-trip through the Nuke-shaped ctor with the `delegate: nil` default: the
+    /// stored `delegateDescription` should resolve to "none" (Swift-side `?? "none"`),
+    /// and `depth` should reflect either the explicitly-passed `NonisolatedInitConfig`
+    /// or the Swift-side default (depth=11) when the trimmed overload is used. We use
+    /// the explicit-config path here because the trimmed/default-arg overload's
+    /// availability depends on a separate emitter pipeline; this test focuses on the
+    /// gate-6b nonisolated bypass, not on default-arg trimming.
+    /// </summary>
+    public void TestPipelineLikeNonisolatedInit_SyncConstructorRoundTrips()
+    {
+        using var config = new NonisolatedInitConfig(13);
+        using var instance = new PipelineLikeNonisolatedInit(config, null);
+        AssertNotNull(instance, "Nuke-shaped nonisolated ctor must return a non-null instance");
+        AssertEqual(13, instance.Depth, "config.depth was not preserved across the ctor wrapper");
+        AssertEqual("none", instance.DelegateDescription.ToString(),
+            "delegate=nil path should resolve `delegate?.describe() ?? \"none\"` to \"none\"; " +
+            "if this returns the wrong value, the optional existential param marshalled incorrectly.");
+    }
 }

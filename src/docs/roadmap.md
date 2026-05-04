@@ -6,7 +6,7 @@ This doc covers longer-term themes, blocked items, and lower-priority ideas. Liv
 
 ---
 
-## Theme A: Skip Reduction *(low priority)*
+## Skip Reduction *(low priority)*
 
 Skip rate is 23.7% (per current `.validation-baseline.json`). The remaining skips are overwhelmingly either correct behavior (private API, synthesized Codable) or architecturally blocked. Consumer-impactful patterns (`Result<T,E>`, common generics, protocol conformances) are already covered. Further reduction has diminishing returns.
 
@@ -32,40 +32,6 @@ Skip rate is 23.7% (per current `.validation-baseline.json`). The remaining skip
 | Optional existential inner protocol not in TypeDatabase | 18 | 8 are bare `Optional<Any>` (Swinject Storage×5, ObjectMapper Map×2, Mixpanel.MixpanelFlagVariant); 10 are pure-ObjC delegate protocols (Foundation.URLSessionDelegate, UIKit.UITextFieldDelegate, UIKit.UIPopoverPresentationControllerDelegate, UIKit.UIPopoverPresentationControllerSourceItem, PassKit.PKAddPaymentPassViewControllerDelegate). Both ObjC and pure-`Any` are filtered by `GetEffectiveProtocols` → `object` → property skip. ObjC protocol bridging is post-1.0 surface. |
 
 In-scope surface (single-module supplement-resolution gaps, alias gaps): **0 measurable hits**. The original ~303 / ~429 figures cited in the gameplan and earlier roadmap rows pre-date the M9 gate (which surfaced 399 PAT classifications cleanly); the increase is bookkeeping, not regression.
-
----
-
-## Theme B: Multi-TFM Runtime Coverage
-
-**Exercise non-iOS slices of multi-TFM packages at runtime.** ~35k lines of test code already cover ~39 libraries on iOS sim + device, but every test app targets `net10.0-ios` only. Packages that ship for macOS / Mac Catalyst / tvOS get compile-gated against those TFMs and never run there. The compile gate catches generator/SDK issues; runtime drift (P/Invoke ABI, framework lookup, codesign, lifecycle) goes unnoticed until a consumer reports it.
-
-Multi-TFM packages currently shipping (TFMs untested at runtime in **bold**):
-
-| Package | TFMs | Untested at runtime |
-|---------|------|---------------------|
-| **CryptoKit, MusicKit, StoreKit2, TipKit, WeatherKit** | iOS + **macOS** + **Catalyst** + **tvOS** | 3 of 4 |
-| **LiveCommunicationKit, WorkoutKit** | iOS + **macOS** + **Catalyst** | 2 of 3 |
-| **ProximityReader** | iOS + **Catalyst** | 1 of 2 |
-
-8 Apple-framework packages × 1–3 untested platforms each. Third-party libraries currently ship iOS-only — extending them to additional TFMs is a separate, per-library question driven by consumer demand, not part of this theme.
-
-**Approach:**
-1. Pick 1–2 packages with the broadest TFM matrix as the pilot (StoreKit2 and TipKit are the natural candidates — both already ship 4 TFMs, both have substantive embedded tests).
-2. Multi-target the existing test app so the same C# test surface runs on each TFM the package supports.
-3. Wire macOS / Mac Catalyst / tvOS runners into the regression-validation flow next to the existing iOS sim + device legs.
-4. Roll the pattern out across the remaining 6 multi-TFM packages.
-
-Once stable, the `nuke binding-tests` flags (`--macos --catalyst --tvos`) that already exist generator-side become first-class regression gates, not just developer probes.
-
----
-
-## Theme C: Upstream Bug Reports + Repro Repo *(ready to file 1/2/3)*
-
-Filing-ready bug reports for the three confirmed upstream issues live as one file each under `Future/upstream-issue-{01,02,03}-*.md`; see `Future/upstream-issues-README.md` for the filing guide. Repro repo at `/Users/wojo/Dev/swift-interop-repro/` carries one C# class per issue. The 2026-04-30 Codex fact-check + disassembly review surfaced Issue 8 as a wrong-P/Invoke-shape bug on our side rather than a runtime bug; the generator now emits the correct shape for fully bare-generic multi-element tuple returns. Mixed shapes (e.g., `(T, Int)`, `(Array<T>, T)`) still fall through to the legacy path — see *Lower Priority*.
-
-Remaining steps:
-1. Publish repro repo to GitHub (`justinwojo/swift-interop-repro` — currently local only, no remote).
-2. File Issues 1, 2, 3 on dotnet/runtime; post the `SwiftSelf<SafeHandle>` item as a tracking-issue comment.
 
 ---
 
@@ -104,6 +70,7 @@ Surfaced during Session 5 of `realitykit-shipping-plan.md` (commits `3a3748dc` +
 | **Mixed-indirect generic tuple returns** | Bare-generic shape (`(T, U)`, `(T, U, V)`) is covered by `IsMultiElementGenericTupleIndirectReturn`. Mixed and bound-generic shapes — `(T, Int)` → `(@out T, Int)`, `(Array<T>, T)` → `(Array<T>, @out T)`, `(UnsafePointer<T>, T)` → `(UnsafePointer<T>, @out T)`, `(Optional<T>, T)` → `(@out Optional<T>, @out T)` — fall through to the legacy `SwiftIndirectResult` path with the wrong shape. Real fix: per-element address-only/direct ABI classifier driving a partial-indirect P/Invoke signature. No active repro from validation libraries; un-block when one surfaces. |
 | **P/Invoke `result` variable shadowed by parameter** | Generator reuses `result` as both a Swift method's parameter name and the local P/Invoke return variable, producing CS0841/CS0136 on the self-referential RHS (`var result = PInvoke_*(GetOrCreate<...>(result, ...))`). No active repro post-WCDB-blocker fixes — was hidden behind duplicate explicit impls until those were dedup'd. Fix: rename the return local when a parameter named `result` exists. |
 | **Investigate DuplicateSignature skip dominance** | WCDB's `binding-report.json` showed 266 / 410 (~65%) of skips were `DuplicateSignature` — unusually high for a single product. May indicate the generator is emitting duplicates rather than detecting source-side overload-resolution ambiguity. Worth a closer look when the broader generator backlog is reviewed. |
+| **EveryProtocol witness dedup leaves 2nd protocol extension without an impl** | When two protocols in the same module share an identical method signature (e.g., `func describe() -> String`) and the BindingTests `EveryProtocol` "conforms to everything" fixture extends both, the wrapper-emitter writes the impl into only the first extension and leaves the second's extension body empty — swiftc then rejects the second extension as non-conforming, the build script can't strip the structural failure, and unrelated `@_cdecl` symbols silently disappear from the dylib. Hit while adding `NonisolatedInitDelegate.describe()` next to the pre-existing `Describable.describe()`; worked around by renaming the new method to `delegateLabel()`. Real fix: emit the witness method in every conforming extension — each extension is what swiftc independently checks for conformance. |
 | **Pattern 2 retirement (wrapper-eligibility)** | `SwiftWrapperPostProcessor.Pattern2_SilgenOrCdeclBroken` strips broken `@_silgen_name`/`@_cdecl` wrapper bodies after-the-fact. M3-S3 sub-cause counter showed 99.7% of hits are `Pattern2.InternalType` — wrapper signatures that reach `internalTypeNames`. A naive emission-time gate (`MemberValidationPipeline`) regressed 4 libraries (CryptoSwift/SkeletonView/NVActivityIndicatorView/XMLCoder) because `@usableFromInline internal` types like XMLCoder's `BoolBox`/`FloatBox` are flagged internal yet emitted as public C# classes. Right fix layer is wrapper-eligibility (`MethodWrapperEmitter.ShouldEmitWrapper` / `ConstructorWrapperEmitter` / `PropertyWrapperEmitter`): refuse the `@_cdecl` wrapper when its signature reaches an internal type, then `MethodHandler.cs:928–933` falls back to the original Swift symbol under `CallConvSwift`. Plumbing requires either threading `InternalTypeNames` through `MethodEnvironment` (~13 source-side construction sites + ~44 test sites) or attaching the set to `ModuleDecl`. Proof obligation: BindingTests fixture for an `@usableFromInline internal` type so the runtime path is exercised on iOS sim + device. Not < 1-session scope; deferred. |
 
 ---

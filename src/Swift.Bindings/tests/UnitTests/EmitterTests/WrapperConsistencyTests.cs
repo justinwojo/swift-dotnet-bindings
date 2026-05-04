@@ -417,6 +417,42 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void CustomGlobalActorParent_NonisolatedConstructor_WrapperAccepts_PlainConstructorRejects()
+    {
+        // Gate 6b in WrapperValidation wholesale-skips synchronous @_cdecl wrappers for
+        // constructors on @<CustomActor>-isolated parents (SWIFTBIND022 — there is no
+        // synchronous foreign entry into a custom global actor's isolation domain). But
+        // an explicit `nonisolated` modifier opts the init out of that domain, so it's
+        // safe to dispatch directly. The gate must honor `MethodDecl.IsNonisolated` and
+        // accept the wrapper; this is what makes Nuke 13's @ImagePipelineActor classes
+        // (`ImagePipeline`, `ImagePrefetcher`, `TaskQueue`) reachable from C# via
+        // `new ImagePipeline(...)` instead of being silently dropped.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("ImagePipeline");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ImagePipeline", moduleDecl);
+        parentDecl.IsCustomActorIsolated = true;
+
+        // `nonisolated public init` — must be accepted by gate 6b.
+        var nonisolatedCtor = CreateConstructor("init", parentDecl, moduleDecl);
+        nonisolatedCtor.IsNonisolated = true;
+        var nonisolatedEnv = new MethodEnvironment(nonisolatedCtor, typeDb);
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(nonisolatedEnv),
+            "ConstructorWrapperEmitter must accept `nonisolated public init` on a " +
+            "custom-global-actor parent — the explicit nonisolated modifier opts out of " +
+            "the actor isolation domain, so the synchronous @_cdecl wrapper is safe.");
+
+        // Plain (actor-isolated) `public init` — gate 6b must still block it. Async-factory
+        // pipeline handles this case via `static Task<T> CreateAsync(...)`.
+        var actorIsolatedCtor = CreateConstructor("init", parentDecl, moduleDecl);
+        var actorIsolatedEnv = new MethodEnvironment(actorIsolatedCtor, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(actorIsolatedEnv),
+            "ConstructorWrapperEmitter must still reject actor-isolated ctors on " +
+            "custom-global-actor parents (SWIFTBIND022) — those route through the " +
+            "async-factory pipeline, not a synchronous wrapper.");
+    }
+
+    [Fact]
     public void ContainsParameterizedProtocol_ProtocolBaseWithGenericArg_ReturnsTrue()
     {
         // Parameterized-protocol pattern: `EventStream<UIEvent>` where EventStream is a protocol

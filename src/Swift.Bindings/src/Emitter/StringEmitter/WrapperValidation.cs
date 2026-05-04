@@ -232,7 +232,8 @@ public static class WrapperValidation
         // for IsAsync constructors, so this gate fires only for any sync ctor that the
         // parser couldn't tag (defense in depth).
         if (kind is MemberKind.Constructor &&
-            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true })
+            env.ParentDecl is TypeDecl { IsCustomActorIsolated: true } &&
+            !isNonisolated)
         {
             return false;
         }

@@ -122,6 +122,7 @@ namespace BindingsGeneration
             // gate in WrapperValidation, not be skipped wholesale.
             if (methodEnv.MethodDecl.IsConstructor &&
                 !methodEnv.MethodDecl.IsAsync &&
+                !methodEnv.MethodDecl.IsNonisolated &&
                 methodEnv.ParentDecl is TypeDecl actorIsolatedParent &&
                 actorIsolatedParent.IsCustomActorIsolated)
             {
