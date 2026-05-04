@@ -51,6 +51,12 @@ public static class EnumCaseWrapperEmitter
     /// </summary>
     private static bool IsSupportedAssociatedValueType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
+        // Metatype values (bare or Optional<Metatype>) collapse to AnyType in MetatypeStrategy
+        // and have no @_cdecl-compatible representation. Reject before tuple recursion or
+        // generic-container allowance, otherwise CdeclParamMapper.Map emits invalid wrappers.
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(typeSpec))
+            return false;
+
         // Closures can't be passed as @_cdecl params easily
         if (typeSpec is ClosureTypeSpec)
             return false;

@@ -139,14 +139,16 @@ public static class MethodWrapperEmitter
         if (HasUnsupportedGenericContainerParamsOrReturn(env))
             return true;
 
-        // 14b. No metatype parameters (Any.Type, T.Type) — not C-representable, renders as bare "Type"
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => IsMetatypeType(a.SwiftTypeSpec)))
+        // 14b. No metatype parameters (Any.Type, T.Type) — not C-representable, renders as bare "Type".
+        //      Includes Optional<Metatype> (e.g. AnyClass.Type?) which would otherwise be
+        //      misclassified by IsProtocolExistentialType and emitted as "any AnyClass.Type".
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
             return true;
 
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
 
-        // 14c. No metatype return types
-        if (IsMetatypeType(returnSpec))
+        // 14c. No metatype return types (including Optional<Metatype>)
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(returnSpec))
             return true;
 
         // 15. Opaque return types (some Protocol): ALLOWED — routed through IndirectResult.

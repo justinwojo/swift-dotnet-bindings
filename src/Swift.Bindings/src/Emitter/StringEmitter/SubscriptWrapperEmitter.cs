@@ -53,6 +53,17 @@ public static class SubscriptWrapperEmitter
         if (accessor.Method.IsAsync)
             return false;
 
+        // 6b. No metatype return type or index parameters (including Optional<Metatype>).
+        // Setter newValue uses ReturnTypeSpec too, so the same gate covers both accessors.
+        // Same boundary as the method/property/constructor wrapper gates.
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(subscriptDecl.ReturnTypeSpec))
+            return false;
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (WrapperValidation.IsMetatypeTypeIncludingOptional(param.SwiftTypeSpec))
+                return false;
+        }
+
         // 7. No opaque return type (some Protocol)
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return false;
@@ -143,6 +154,13 @@ public static class SubscriptWrapperEmitter
         // Noncopyable struct parents are now allowed (borrowing pointer semantics)
         if (WrapperValidation.IsActorIsolatedMember(env.ParentDecl, accessor.Method.IsActorIsolated, accessor.Method.IsMainActorIsolated, accessor.Method.IsNonisolated))
             return "actor_type_subscript";
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(subscriptDecl.ReturnTypeSpec))
+            return "metatype_return";
+        foreach (var param in subscriptDecl.IndexParameters)
+        {
+            if (WrapperValidation.IsMetatypeTypeIncludingOptional(param.SwiftTypeSpec))
+                return "metatype_index_param";
+        }
         if (subscriptDecl.ReturnTypeSpec is ProtocolListTypeSpec { IsOpaque: true })
             return "opaque_return_type";
         if (WrapperValidation.IsUnsupportedGenericContainer(subscriptDecl.ReturnTypeSpec, env.TypeDatabase))

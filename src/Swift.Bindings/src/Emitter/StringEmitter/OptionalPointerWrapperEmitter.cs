@@ -22,6 +22,11 @@ public static class OptionalPointerWrapperEmitter
         // Per-param checks on NON-LARGE params only (large params are already UnsafeRawPointer)
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
+            // Metatype check runs BEFORE the large-optional skip: AnyClass.Type? would otherwise
+            // be marshalled as UnsafeRawPointer and the wrapper body would still try to render
+            // the bare metatype token. Reject upfront — same boundary as the primary wrapper gate.
+            if (WrapperValidation.IsMetatypeTypeIncludingOptional(arg.SwiftTypeSpec))
+                return false;
             if (env.BoundGenericsHandler.IsLargeOptionalParam(arg.SwiftTypeSpec))
                 continue;
             if (arg.IsGeneric) return false;
@@ -346,6 +351,12 @@ public static class OptionalPointerWrapperEmitter
         // Determine if wrapper needs @MainActor annotation (only for @MainActor, not custom actors)
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
+
+        // @_silgen_name and @_cdecl wrappers are top-level Swift functions and do NOT inherit
+        // their parent type's @available; both must be re-applied or the wrapper compiles
+        // unconditionally and crashes on devices below the wrapped API's introduced version.
+        var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, parentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
         // Emit the wrapper
         if (needsMainActor)

@@ -682,6 +682,25 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Returns true when <paramref name="typeSpec"/> is either a metatype directly
+    /// (<see cref="IsMetatypeType"/>) or a single-arg <c>Swift.Optional</c> whose payload is
+    /// a metatype (<c>AnyClass.Type?</c>, <c>Foundation.Decimal.Type?</c>). Wrapper-eligibility
+    /// gates use this so the Swift wrapper does not try to render <c>(any AnyObject.Type).self</c>
+    /// or fall back to the bare token <c>Type</c>. Distinct from <see cref="IsMetatypeType"/>
+    /// because <see cref="MetatypeStrategy"/> intentionally only collapses bare metatypes —
+    /// collapsing <c>Optional&lt;Metatype&gt;</c> there would lose the Optional wrapping in the
+    /// type-record graph.
+    /// </summary>
+    public static bool IsMetatypeTypeIncludingOptional(TypeSpec typeSpec)
+    {
+        if (IsMetatypeType(typeSpec))
+            return true;
+        if (typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } opt)
+            return IsMetatypeType(opt.GenericParameters[0]);
+        return false;
+    }
+
+    /// <summary>
     /// Returns true for Swift.Optional&lt;T&gt; type specs (any generic parameter count &gt; 0).
     /// </summary>
     public static bool IsOptionalType(TypeSpec typeSpec)
@@ -971,6 +990,13 @@ public static class WrapperValidation
         // Guard 10: No protocol existential return
         if (CdeclParamMapper.IsProtocolExistentialType(returnSpec, env.TypeDatabase))
             return false;
+        // Guard 10b: No metatype return (including Optional<Metatype>). Secondary wrapper
+        // paths (closure / large-optional / ArraySlice) reach this gate independently of
+        // MethodWrapperEmitter.ShouldEmitWrapper, so the metatype check has to be here too —
+        // otherwise a method with a closure/large-optional/ArraySlice trigger plus an
+        // AnyClass.Type? return would slip through and emit an invalid wrapper.
+        if (IsMetatypeTypeIncludingOptional(returnSpec))
+            return false;
         return true;
     }
 
@@ -1254,15 +1280,15 @@ public static class WrapperValidation
             }
         }
 
-        // 14b. No metatype parameters
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => IsMetatypeType(a.SwiftTypeSpec)))
+        // 14b. No metatype parameters (including Optional<Metatype>)
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
             return "metatype_param";
 
         // 14c-15: Return type checks
         {
             var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
 
-            if (IsMetatypeType(returnSpec))
+            if (IsMetatypeTypeIncludingOptional(returnSpec))
                 return "metatype_return";
 
             // Opaque returns (some Protocol): now supported — @_cdecl wrapper boxes into existential.

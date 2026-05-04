@@ -52,6 +52,13 @@ public static class ObjCOverridePropertyWrapperEmitter
         if (classParent.IsGeneric)
             return false;
 
+        // Reject metatype-shaped property types (bare or Optional<Metatype>) — the
+        // accessor wrapper would render the property type via ExistentialBypassEmitter
+        // and emit a bare "Type" token; ObjC override wrappers run independently of
+        // PropertyWrapperEmitter.ShouldEmitWrapper so this gate has to be here too.
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(propertyDecl.SwiftTypeSpec))
+            return false;
+
         return true;
     }
 
@@ -95,6 +102,12 @@ public static class ObjCOverridePropertyWrapperEmitter
             // Routes through wrapper lib because Tj dispatch thunk is unavailable for ObjC-inherited overrides.
             """);
 
+        // @_silgen_name wrappers are top-level Swift functions and do NOT inherit the
+        // parent type's @available; re-apply it (merged with member-level annotations and
+        // any ancestor floors) so the wrapper compiles only where the wrapped API is reachable.
+        var availability = WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, parentTypeDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+
         if (parentTypeDecl.IsMainActorIsolated)
         {
             swiftWriter.WriteLine("@MainActor");
@@ -133,6 +146,15 @@ public static class ObjCOverridePropertyWrapperEmitter
             // ObjC override property setter wrapper for {{moduleQualifiedName}}.{{propertyDecl.Name}}.
             // Routes through wrapper lib because Tj dispatch thunk is unavailable for ObjC-inherited overrides.
             """);
+
+        // Setter availability prefers the narrower SetterAvailabilityAnnotations when present
+        // (a get-only-on-iOS-16 / set-on-iOS-18 split shape), otherwise falls back to the
+        // property's getter-side annotations so both wrappers carry consistent floors.
+        var setterMember = propertyDecl.SetterAvailabilityAnnotations is { Count: > 0 }
+            ? propertyDecl.SetterAvailabilityAnnotations
+            : propertyDecl.AvailabilityAnnotations;
+        var availability = WrapperEmitterHelpers.MergeAvailability(setterMember, parentTypeDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
 
         if (parentTypeDecl.IsMainActorIsolated)
         {

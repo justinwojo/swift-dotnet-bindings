@@ -58,8 +58,11 @@ public static class PropertyWrapperEmitter
             }
         }
 
-        // 2d. Skip metatype properties (Any.Type, T.Type) — not C-representable
-        if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
+        // 2d. Skip metatype properties (Any.Type, T.Type) — not C-representable. Also skips
+        //     Optional<Metatype> (e.g. AnyClass.Type?) which would otherwise slip past as a
+        //     protocol-existential candidate at gate 9a and emit a Swift wrapper rendering
+        //     "(any AnyObject.Type).self" — invalid Swift that fails wrapper compile.
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(propertyDecl.SwiftTypeSpec))
             return false;
 
         // 2e. Skip the Swift built-in `self` property — `obj.self` returns the receiver type,
@@ -165,7 +168,7 @@ public static class PropertyWrapperEmitter
             return "internal_property";
         if (propertyDecl.IsSpiProtected)
             return "spi_protected";
-        if (WrapperValidation.IsMetatypeType(propertyDecl.SwiftTypeSpec))
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(propertyDecl.SwiftTypeSpec))
             return "metatype_property";
         if (propertyDecl.Name == "self")
             return "self_property";

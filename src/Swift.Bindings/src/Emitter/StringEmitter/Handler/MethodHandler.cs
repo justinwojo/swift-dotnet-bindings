@@ -1041,6 +1041,10 @@ namespace BindingsGeneration
             {
                 asyncCdeclEligible = methodEnv.MethodDecl.CSSignature.Skip(1).All(p => {
                     if (p.IsGeneric) return false;
+                    // Metatype check runs BEFORE the closure / large-optional / nested-struct
+                    // bypasses below: AnyClass.Type? would otherwise be widened to UnsafeRawPointer
+                    // by the async wrapper and the body would still try to render the bare metatype.
+                    if (WrapperValidation.IsMetatypeTypeIncludingOptional(p.SwiftTypeSpec)) return false;
                     if (p.SwiftTypeSpec is ClosureTypeSpec closureSpec)
                     {
                         // Baseline async closures (Session A/B throwing + Session C

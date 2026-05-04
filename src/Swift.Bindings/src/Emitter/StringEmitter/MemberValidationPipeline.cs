@@ -471,6 +471,9 @@ public class MemberValidationPipeline
         }
         if (env.MethodDecl.IsAsync) return "async_constructor";
         if (WrapperValidation.IsNonCopyableStructParent(env.ParentDecl)) return "non_copyable_struct_parent";
+        if (env.MethodDecl.CSSignature.Skip(1)
+                .Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
+            return "metatype_param";
         if (ConstructorWrapperEmitter.HasNonCopyableStructParameter(env)) return "non_copyable_struct_parameter";
         if (ConstructorWrapperEmitter.HasNestedFrozenStructParameter(env)) return "nested_frozen_struct_parameter";
         if (ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env)) return "unsupported_buffer_pointer_parameter";

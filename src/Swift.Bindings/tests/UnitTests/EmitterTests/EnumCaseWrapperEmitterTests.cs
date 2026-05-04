@@ -111,6 +111,38 @@ public class EnumCaseWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmit_OptionalMetatypeAssociatedValue_ReturnsFalse()
+    {
+        // Bug-2 pin: Optional<AnyClass.Type> collapses to AnyType in MetatypeStrategy
+        // and has no @_cdecl-compatible representation. The associated value must be
+        // rejected here, otherwise CdeclParamMapper.Map renders an invalid Swift
+        // wrapper (bare "Type" / "(any AnyClass.Type).self") and a bare "Type"
+        // C# parameter that fails to compile.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Registration", moduleDecl);
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        var caseDecl = CreateCaseDecl("registered", new List<TypeSpec> { optionalMetatype }, moduleDecl);
+
+        Assert.False(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDb));
+    }
+
+    [Fact]
+    public void ShouldEmit_BareMetatypeAssociatedValue_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var enumDecl = CreateEnumDecl("Registration", moduleDecl);
+        var caseDecl = CreateCaseDecl("registered",
+            new List<TypeSpec> { new NamedTypeSpec("AnyClass.Type") }, moduleDecl);
+
+        Assert.False(EnumCaseWrapperEmitter.ShouldEmitCaseFactoryWrapper(enumDecl, caseDecl, typeDb));
+    }
+
+    [Fact]
     public void ShouldEmit_PrimitiveTuple_ReturnsTrue()
     {
         // Tuple of primitives: C# ValueTuple<long, bool> has same memory layout as Swift (Int, Bool)

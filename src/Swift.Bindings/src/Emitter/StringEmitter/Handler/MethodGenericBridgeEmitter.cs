@@ -76,6 +76,12 @@ public static class MethodGenericBridgeEmitter
         if (ReturnContainsGenericParam(methodDecl, genericInfo.Param.TypeName))
             return false;
 
+        // Reject metatype-shaped returns (bare or Optional<Metatype>) — the indirect
+        // return buffer would render through ExistentialBypassEmitter and emit a bare
+        // "Type" token in the wrapper. AreNonGenericParamsCompatible covers params.
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(methodDecl.CSSignature[0].SwiftTypeSpec))
+            return false;
+
         // Ensure xcframework mode (needed for wrapper library)
         if (!WrapperValidation.IsXCFrameworkMode(env.TypeDatabase))
             return false;
@@ -126,6 +132,8 @@ public static class MethodGenericBridgeEmitter
         if (!AreNonGenericParamsCompatible(method, genericInfo, typeDatabase))
             return false;
         if (ReturnContainsGenericParam(method, genericInfo.Param.TypeName))
+            return false;
+        if (WrapperValidation.IsMetatypeTypeIncludingOptional(method.CSSignature[0].SwiftTypeSpec))
             return false;
 
         return true;

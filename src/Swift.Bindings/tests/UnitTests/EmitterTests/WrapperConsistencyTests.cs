@@ -560,6 +560,60 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void IsMetatypeType_OptionalMetatype_ReturnsFalse()
+    {
+        // IsMetatypeType (the bare check) must NOT recurse into Optional — MetatypeStrategy
+        // keys off it to collapse metatypes to AnyType, and collapsing Optional<Metatype>
+        // there would lose the Optional wrapping in the type-record graph.
+        var optMetatype = new NamedTypeSpec("Swift.Optional");
+        optMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        Assert.False(WrapperValidation.IsMetatypeType(optMetatype));
+    }
+
+    [Fact]
+    public void IsMetatypeTypeIncludingOptional_BareMetatype_ReturnsTrue()
+    {
+        // Behaves like IsMetatypeType for the non-Optional case
+        Assert.True(WrapperValidation.IsMetatypeTypeIncludingOptional(new NamedTypeSpec("Type")));
+        Assert.True(WrapperValidation.IsMetatypeTypeIncludingOptional(new NamedTypeSpec("Any.Type")));
+        Assert.True(WrapperValidation.IsMetatypeTypeIncludingOptional(new NamedTypeSpec("AnyClass.Type")));
+    }
+
+    [Fact]
+    public void IsMetatypeTypeIncludingOptional_OptionalMetatype_ReturnsTrue()
+    {
+        // Bug-2 pin: Optional<AnyClass.Type> (Parchment shape) must be detected so the
+        // wrapper-eligibility gates skip it instead of slipping through and emitting a
+        // Swift wrapper rendering "(any AnyClass.Type).self" — which is invalid Swift.
+        var optAnyClass = new NamedTypeSpec("Swift.Optional");
+        optAnyClass.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        Assert.True(WrapperValidation.IsMetatypeTypeIncludingOptional(optAnyClass));
+
+        var optAny = new NamedTypeSpec("Swift.Optional");
+        optAny.GenericParameters.Add(new NamedTypeSpec("Any.Type"));
+        Assert.True(WrapperValidation.IsMetatypeTypeIncludingOptional(optAny));
+
+        // Nested-chain shape — Foundation.Decimal.Type? produced by TypeSpecParser
+        var optNested = new NamedTypeSpec("Swift.Optional");
+        optNested.GenericParameters.Add(new NamedTypeSpec("Foundation")
+        {
+            InnerType = new NamedTypeSpec("Decimal")
+            {
+                InnerType = new NamedTypeSpec("Type")
+            }
+        });
+        Assert.True(WrapperValidation.IsMetatypeTypeIncludingOptional(optNested));
+    }
+
+    [Fact]
+    public void IsMetatypeTypeIncludingOptional_OptionalNonMetatype_ReturnsFalse()
+    {
+        var optInt = new NamedTypeSpec("Swift.Optional");
+        optInt.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.False(WrapperValidation.IsMetatypeTypeIncludingOptional(optInt));
+    }
+
+    [Fact]
     public void IsNestedType_NestedSwiftType_ReturnsTrue()
     {
         // Uses AppleFrameworkRegistry.IsNestedType which checks for double dots after module
@@ -967,6 +1021,67 @@ public class WrapperConsistencyTests
     }
 
     [Fact]
+    public void GetRejectionReason_OptionalMetatypeParam_ReturnsMetatypeParam()
+    {
+        // Telemetry must report Optional<Metatype> rejections under the same reason as
+        // bare metatypes, otherwise skip-reason analysis loses the signal entirely.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        var method = new MethodDecl
+        {
+            Name = "doWork",
+            MangledName = "$s10TestModule_doWork",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = optionalMetatype, Name = "metaType", PrivateName = "metaType", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.Equal("metatype_param", WrapperValidation.GetRejectionReason(env));
+    }
+
+    [Fact]
+    public void GetRejectionReason_OptionalMetatypeReturn_ReturnsMetatypeReturn()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("Any.Type"));
+        var method = new MethodDecl
+        {
+            Name = "getType",
+            MangledName = "$s10TestModule_getType",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = optionalMetatype, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.Equal("metatype_return", WrapperValidation.GetRejectionReason(env));
+    }
+
+    [Fact]
     public void ConstructorWrapper_RawGenericParam_Rejected()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
@@ -996,6 +1111,39 @@ public class WrapperConsistencyTests
         var env = new MethodEnvironment(ctor, typeDb);
         Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
             "Constructor with raw generic param should be rejected");
+    }
+
+    [Fact]
+    public void ConstructorWrapper_OptionalMetatypeParam_Rejected()
+    {
+        // CdeclParamMapper.Map would render Optional<AnyClass.Type> through the metatype
+        // path producing a bare "Type" token; constructor wrapper must reject upfront.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        var ctor = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule_init_optMeta",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = optionalMetatype, Name = "metaType", PrivateName = "metaType", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        var env = new MethodEnvironment(ctor, typeDb);
+        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
+            "Constructor with Optional<Metatype> param should be rejected");
     }
 
     [Fact]
@@ -1051,6 +1199,56 @@ public class WrapperConsistencyTests
         var env = new MethodEnvironment(getterMethod, typeDb);
         Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env),
             "Subscript with raw generic index param should be rejected");
+    }
+
+    [Fact]
+    public void SubscriptWrapper_OptionalMetatypeReturn_Rejected()
+    {
+        // CdeclParamMapper would render Optional<AnyClass.Type> as bare "Type" \u2014 the
+        // subscript wrapper must reject upfront. Same boundary as the method/property gates.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            optionalMetatype,
+            new[] { CreateIndexParam("key", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env),
+            "Subscript with Optional<Metatype> return should be rejected");
+        Assert.Equal("metatype_return",
+            SubscriptWrapperEmitter.GetRejectionReason(subscript, accessor, env));
+    }
+
+    [Fact]
+    public void SubscriptWrapper_OptionalMetatypeIndexParam_Rejected()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("Any.Type"));
+        var getterMethod = CreateAccessorMethod("getter:subscript", isGetter: true, parentDecl, moduleDecl);
+        var accessor = new GetAccessorDecl { Method = getterMethod };
+        var subscript = CreateSubscriptDecl(
+            new NamedTypeSpec("Swift.Int"),
+            new[] { CreateIndexParam("key", optionalMetatype, moduleDecl) },
+            new AccessorDecl[] { accessor },
+            parentDecl, moduleDecl);
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        Assert.False(SubscriptWrapperEmitter.ShouldEmitSubscriptWrapper(subscript, accessor, env),
+            "Subscript with Optional<Metatype> index param should be rejected");
+        Assert.Equal("metatype_index_param",
+            SubscriptWrapperEmitter.GetRejectionReason(subscript, accessor, env));
     }
 
     #endregion

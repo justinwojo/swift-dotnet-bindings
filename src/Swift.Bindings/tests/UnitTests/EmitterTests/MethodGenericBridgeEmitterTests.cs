@@ -409,6 +409,28 @@ public class MethodGenericBridgeEmitterTests
         Assert.False(MethodGenericBridgeEmitter.IsEligible(method, typeDatabase));
     }
 
+    [Fact]
+    public void IsEligible_OptionalMetatypeReturn_ReturnsFalse()
+    {
+        // Bug-2 pin: a method-generic bridge with Optional<AnyClass.Type> return must
+        // be rejected — ExistentialBypassEmitter would render the indirect buffer type
+        // as a bare "Type" token in the @_cdecl wrapper. Generic param handling for
+        // params already excludes this; the return side needs its own gate.
+        var method = CreateMethodDeclWithGenericParam();
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+
+        // Replace the return slot with Optional<AnyClass.Type>
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        method.CSSignature[0] = CreateArg("", optionalMetatype, method.ModuleDecl);
+
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+
+        Assert.False(MethodGenericBridgeEmitter.IsEligible(method, typeDatabase));
+    }
+
     #endregion
 
     #region TryEmit: eligible method emits bridge

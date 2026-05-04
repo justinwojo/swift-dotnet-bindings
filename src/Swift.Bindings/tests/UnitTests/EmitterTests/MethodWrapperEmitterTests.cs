@@ -816,6 +816,38 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_OptionalMetatypeParameter_ReturnsFalse()
+    {
+        // Optional<AnyClass.Type> collapses to AnyType in MetatypeStrategy and emits a bare
+        // "Type" token in C# unless we filter Optional-wrapped metatypes here too.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        var method = CreateMethodWithParam("doWork", optionalMetatype, "metaType", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_OptionalMetatypeReturn_ReturnsFalse()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("Any.Type"));
+        var method = CreateMethodWithReturn("getType", optionalMetatype, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_NonMetatypeParameter_ReturnsTrue()
     {
         // Normal types should still pass

@@ -110,6 +110,30 @@ public class ObjCOverridePropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitWrapper_OptionalMetatypeProperty_ReturnsFalse()
+    {
+        // Bug-2 pin: ObjC override wrapper path is independent of PropertyWrapperEmitter.
+        // An ObjC-rooted override with Optional<AnyClass.Type> must be rejected here
+        // too — otherwise ExistentialBypassEmitter renders the property type as a bare
+        // "Type" token in the @_silgen_name accessor wrapper.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");
+        typeDb.AsyncLibraryName = "LottieSwiftBindings";
+
+        var classDecl = CreateClassDecl("AnimationView", moduleDecl, isObjCRooted: true);
+        var property = CreateEmittablePropertyDecl(classDecl, moduleDecl, "registeredClass", "Swift.Int",
+            hasGetter: true, hasSetter: true);
+        property.IsOverride = true;
+
+        // Replace the property type with Optional<AnyClass.Type>
+        var optionalMetatype = new NamedTypeSpec("Swift.Optional");
+        optionalMetatype.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        property.SwiftTypeSpec = optionalMetatype;
+
+        var env = CreateAccessorEnv(property.Accessors[0], typeDb);
+        Assert.False(ObjCOverridePropertyWrapperEmitter.ShouldEmitWrapper(property, env));
+    }
+
+    [Fact]
     public void ShouldEmitWrapper_PropertyInResolvedAncestor_ReturnsFalse()
     {
         var (moduleDecl, typeDb) = CreateTestEnvironment("Lottie");

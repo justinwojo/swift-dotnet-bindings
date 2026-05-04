@@ -63,6 +63,14 @@ public static class ConstructorWrapperEmitter
                 return false;
         }
 
+        // Skip constructors with metatype parameters (including Optional<Metatype>).
+        // Metatypes aren't C-representable: the wrapper would render a bare "Type" token
+        // through CdeclParamMapper.Map and the generated C# fails to compile. Same boundary
+        // as the method-level gate (MethodWrapperEmitter.HasUnsupportedTypeSignature 14b).
+        if (env.MethodDecl.CSSignature.Skip(1)
+                .Any(a => WrapperValidation.IsMetatypeTypeIncludingOptional(a.SwiftTypeSpec)))
+            return false;
+
         // Skip constructors with non-copyable (~Copyable) struct parameters.
         // The @_cdecl wrapper passes frozen structs by value through the C ABI, which
         // requires copying. Non-copyable types can't be copied, so the wrapper won't compile.

@@ -441,6 +441,10 @@ public static class ArraySliceNormalizationEmitter
             return false;
         foreach (var arg in normalizedMethodDecl.CSSignature.Skip(1))
         {
+            // Metatype check runs BEFORE the large-optional skip so AnyClass.Type? doesn't
+            // slip through as UnsafeRawPointer — same boundary as the primary wrapper gate.
+            if (WrapperValidation.IsMetatypeTypeIncludingOptional(arg.SwiftTypeSpec))
+                return false;
             if (OptionalPointerWrapperEmitter.ShouldWidenParam(arg, env.BoundGenericsHandler))
                 continue;
             if (arg.IsGeneric) return false;
@@ -606,6 +610,13 @@ public static class ArraySliceNormalizationEmitter
         var swiftFuncName = $"_sbw_{originalMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}";
         var annotation = useCdecl ? "@_cdecl" : "@_silgen_name";
 
+        // @_silgen_name and @_cdecl wrappers are top-level Swift functions (or live in a
+        // foreign extension that won't pick up the original declaration's @available); both
+        // must re-apply availability or the wrapper compiles unconditionally and crashes
+        // on devices below the wrapped API's introduced version.
+        var availability = WrapperEmitterHelpers.MergeAvailability(
+            originalMethodDecl.AvailabilityAnnotations, parentTypeDecl);
+
         swiftWriter.WriteLine();
 
         if (isFreeFunction || (useCdecl && !isFreeFunction))
@@ -639,6 +650,7 @@ public static class ArraySliceNormalizationEmitter
                 callExprBase = $"{callPrefix}{originalMethodName}({callArgString})";
             }
 
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
@@ -697,9 +709,15 @@ public static class ArraySliceNormalizationEmitter
             var staticKeyword = isStatic ? "static " : "";
             var selfPrefix = isStatic ? "Self" : "self";
 
+            // Availability must precede the `extension {Type} {` line: Swift type-checks
+            // the extension declaration itself against the deployment target. If the parent
+            // type is iOS-18-only, an unannotated extension fails to compile on an iOS 16
+            // floor before reaching the (also-annotated) wrapper function inside.
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
 
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){throwsClause}{returnClause} {{");
             swiftWriter.Indent++;

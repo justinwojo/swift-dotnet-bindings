@@ -769,6 +769,10 @@ public static partial class ClosureEmitter
             return false;
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
+            // Metatype check runs BEFORE closure/large-optional skips so AnyClass.Type? doesn't
+            // slip through under either bypass — same boundary as the primary wrapper gate.
+            if (WrapperValidation.IsMetatypeTypeIncludingOptional(arg.SwiftTypeSpec))
+                return false;
             // Closure params are already C-compatible (funcPtr + context)
             if (env.ClosureHandler.IsClosure(arg))
                 continue;
@@ -965,7 +969,12 @@ public static partial class ClosureEmitter
         var callSuffix = methodDecl.IsConstructor ? ")" : ")";
         var tryPrefix = methodDecl.Throws ? "try " : "";
 
-        // Emit the wrapper — add @MainActor only for @MainActor isolation (not custom actors)
+        // Emit the wrapper — add @MainActor only for @MainActor isolation (not custom actors).
+        // @_silgen_name and @_cdecl wrappers are top-level Swift functions and do NOT inherit
+        // their parent type's @available; both must be re-applied or the wrapper compiles
+        // unconditionally and crashes on devices below the wrapped API's introduced version.
+        var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, parentDecl);
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
             parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
         if (needsMainActor)

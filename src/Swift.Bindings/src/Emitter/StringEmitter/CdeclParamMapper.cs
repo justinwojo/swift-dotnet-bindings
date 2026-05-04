@@ -502,8 +502,12 @@ public static class CdeclParamMapper
         if (typeSpec is ProtocolListTypeSpec)
             return true;
 
-        // Single protocol referenced by name: check TypeRecord
+        // Single protocol referenced by name: check TypeRecord. Metatypes resolve through
+        // MetatypeStrategy to the AnyType record (Kind=Protocol) — exclude them so a bare
+        // metatype (AnyClass.Type, T.Type) is not misclassified as a protocol existential
+        // and routed through .load(as: any X.Type) rendering, which is invalid Swift.
         if (typeSpec is NamedTypeSpec singleNamed &&
+            !WrapperValidation.IsMetatypeType(singleNamed) &&
             typeDatabase.TryGetTypeRecord(singleNamed, out var record) &&
             (record.Kind == TypeRecordKind.Protocol || record.Kind == TypeRecordKind.Existential))
             return true;
@@ -530,7 +534,11 @@ public static class CdeclParamMapper
         if (inner is ProtocolListTypeSpec)
             return true;
 
+        // Same metatype carve-out as the non-Optional path: the inner Metatype TypeSpec
+        // resolves to AnyType (Kind=Protocol) through MetatypeStrategy, but it isn't a
+        // protocol existential — emitting "any AnyClass.Type" is invalid Swift.
         if (inner is NamedTypeSpec innerNamed &&
+            !WrapperValidation.IsMetatypeType(innerNamed) &&
             typeDatabase.TryGetTypeRecord(innerNamed, out var record) &&
             (record.Kind == TypeRecordKind.Protocol || record.Kind == TypeRecordKind.Existential))
             return true;

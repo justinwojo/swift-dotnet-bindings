@@ -769,6 +769,27 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void ShouldEmitPropertyWrapper_OptionalMetatypeProperty_ReturnsFalse()
+    {
+        // Bug-2 pin: an Optional<AnyClass.Type> property (Parchment shape) used to slip past
+        // the bare-metatype gate at PropertyWrapperEmitter.ShouldEmitWrapper line 62 and then
+        // hit the protocol-existential branch (line 110) — IsProtocolExistentialType returned
+        // true via MetatypeStrategy resolving the inner metatype to the AnyType record
+        // (Kind=Protocol). The wrapper would emit "(any AnyClass.Type).self" which is invalid
+        // Swift. The fix routes the gate through IsMetatypeTypeIncludingOptional so the
+        // property is rejected up front and never reaches wrapper emission.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var optAnyClass = new NamedTypeSpec("Swift.Optional");
+        optAnyClass.GenericParameters.Add(new NamedTypeSpec("AnyClass.Type"));
+        var (propertyDecl, env) = CreatePropertyAndEnv("classRef", optAnyClass, parentDecl, moduleDecl, typeDb);
+
+        Assert.False(PropertyWrapperEmitter.ShouldEmitWrapper(propertyDecl, env));
+    }
+
+    [Fact]
     public void ShouldEmitPropertyWrapper_InternalProperty_ReturnsFalse()
     {
         // S4: PropertyWrapperEmitter also gates internal properties
