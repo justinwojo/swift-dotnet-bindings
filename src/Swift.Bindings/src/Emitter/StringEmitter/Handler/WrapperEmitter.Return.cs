@@ -60,7 +60,7 @@ namespace BindingsGeneration
                         csWriter.WriteLine($@"
                         unsafe {{
                             IntPtr bufferPtr = (IntPtr)NativeMemory.Alloc((nuint)sizeof({resolvedName}.Buffer));
-                            *({resolvedName}.Buffer*)bufferPtr = result;
+                            *({resolvedName}.Buffer*)bufferPtr = {ReturnLocalName};
                             _payload = new SwiftSafeHandle<{resolvedName}>(bufferPtr);
                         }}");
                     }
@@ -83,13 +83,13 @@ namespace BindingsGeneration
                 {
                     handleTypeName = ClassISwiftObjectMethodWriter.GetRootBaseTypeNameWithGenerics(classDecl, _env.TypeDatabase);
                 }
-                csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleTypeName}>(result);");
+                csWriter.WriteLine($"_handle = new SwiftClassHandle<{handleTypeName}>({ReturnLocalName});");
                 return;
             }
 
             if (!_requiresIndirectResult)
             {
-                csWriter.WriteLine("this = result;");
+                csWriter.WriteLine($"this = {ReturnLocalName};");
             }
             else if (_env.MethodDecl.UsesCdeclConstructorWrapper && _env.ParentDecl is StructDecl frozenStruct && frozenStruct.IsFrozen)
             {
@@ -181,20 +181,20 @@ namespace BindingsGeneration
                         var invokeThunkLib = invokeThunkInfo?.libraryName;
                         var invokeThunkHelper = invokeThunkInfo?.helperName;
 
-                        csWriter.WriteLines("""
+                        csWriter.WriteLines($$"""
                             unsafe {
-                                var result = *(SwiftClosureData*)resultPtr;
-                                if (result.FunctionPointer == IntPtr.Zero) return null;
+                                var {{ReturnLocalName}} = *(SwiftClosureData*)resultPtr;
+                                if ({{ReturnLocalName}}.FunctionPointer == IntPtr.Zero) return null;
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -361,19 +361,19 @@ namespace BindingsGeneration
                         var invokeThunkLib = invokeThunkInfo?.libraryName;
                         var invokeThunkHelper = invokeThunkInfo?.helperName;
 
-                        csWriter.WriteLines("""
+                        csWriter.WriteLines($$"""
                             unsafe {
-                                var result = *(SwiftClosureData*)resultPtr;
+                                var {{ReturnLocalName}} = *(SwiftClosureData*)resultPtr;
                             """);
                         csWriter.Indent++;
                         if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                         else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -478,7 +478,7 @@ namespace BindingsGeneration
             // Just return the raw result; PropertyHandler applies the appropriate conversion.
             if (_env.MethodDecl.IsAccessor && CdeclParamMapper.IsOptionalWithReferenceInner(returnArg.SwiftTypeSpec, _env.TypeDatabase))
             {
-                csWriter.WriteLine("return result;");
+                csWriter.WriteLine($"return {ReturnLocalName};");
                 return;
             }
 
@@ -489,7 +489,7 @@ namespace BindingsGeneration
                 (CdeclParamMapper.IsObjCBridgeableContainer(returnArg.SwiftTypeSpec, _env.TypeDatabase) ||
                  CdeclParamMapper.IsOptionalObjCBridgeableContainer(returnArg.SwiftTypeSpec, _env.TypeDatabase)))
             {
-                csWriter.WriteLine("return result;");
+                csWriter.WriteLine($"return {ReturnLocalName};");
                 return;
             }
 
@@ -504,10 +504,11 @@ namespace BindingsGeneration
                 {
                     var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
                     var marshalType = $"Swift.SwiftOptional<{containerType}>";
+                    var rln = ReturnLocalName;
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
                     {
                         csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
                             if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
                             return new {{wkType}}(swiftResult.Some);
                             """);
@@ -516,7 +517,7 @@ namespace BindingsGeneration
                     {
                         var proxyName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
                         csWriter.WriteLines($$"""
-                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
+                            var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
                             if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
                             return new {{proxyName}}(swiftResult.Some);
                             """);
@@ -549,19 +550,23 @@ namespace BindingsGeneration
                         !MarshallingHelpers.IsOptionalObjCBridged(returnArg.SwiftTypeSpec, _env.TypeDatabase))
                     {
                         var innerType = optProj.InnerProjection.MarshalFromSwiftType;
+                        var rln = ReturnLocalName;
                         csWriter.WriteLines($$"""
-                            if (result == IntPtr.Zero)
+                            if ({{rln}} == IntPtr.Zero)
                                 return SwiftOptional<{{innerType}}>.NewNone();
-                            return SwiftOptional<{{innerType}}>.NewSome(({{innerType}})SwiftMarshal.MarshalFromSwift<{{innerType}}>(result));
+                            return SwiftOptional<{{innerType}}>.NewSome(({{innerType}})SwiftMarshal.MarshalFromSwift<{{innerType}}>({{rln}}));
                             """);
                         return;
                     }
 
-                    csWriter.WriteLines($$"""
-                        unsafe {
-                            return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&result));
-                        }
-                        """);
+                    {
+                        var rln = ReturnLocalName;
+                        csWriter.WriteLines($$"""
+                            unsafe {
+                                return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
+                            }
+                            """);
+                    }
                     return;
                 }
                 // Factory returned null — user-defined generic (e.g., Box<(T) -> ()>,
@@ -572,12 +577,15 @@ namespace BindingsGeneration
                 // (not AnyType). MarshalFromSwift<T> instantiates via ISwiftObject.NewFromPayload.
                 var fallbackType = _wrapperSignature.ReturnType;
                 _emissionContext.RecordBoundGenericSwiftObjectType(fallbackType);
-                csWriter.WriteLines($$"""
-                    // Bound-generic fallback: factory cannot project {{fallbackType}}
-                    unsafe {
-                        return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>(new IntPtr(&result));
-                    }
-                    """);
+                {
+                    var rln = ReturnLocalName;
+                    csWriter.WriteLines($$"""
+                        // Bound-generic fallback: factory cannot project {{fallbackType}}
+                        unsafe {
+                            return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>(new IntPtr(&{{rln}}));
+                        }
+                        """);
+                }
                 return;
             }
 
@@ -596,29 +604,29 @@ namespace BindingsGeneration
                     // Throwing closures need special marshalling to handle SwiftError
                     if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                     }
                     // Use non-frozen struct marshalling if any parameter is a non-frozen struct
                     // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy)
                     else if (_env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                        ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                     }
                     // Use frozen struct marshalling if any parameter is a frozen struct
                     // (uses stackalloc for stack allocation)
                     else if (_env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
                     {
-                        ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName);
+                        ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
                     }
                     else
                     {
-                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, "result", invokeThunkName, invokeThunkLib, invokeThunkHelper);
+                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper);
                     }
                     return;
                 }
                 // Unsupported closure return: MemberEmissionValidator should have caught this,
                 // but guard against fallthrough to GetTypeRecordOrThrow (which crashes on ClosureTypeSpec).
-                csWriter.WriteLine("return result;");
+                csWriter.WriteLine($"return {ReturnLocalName};");
                 return;
             }
 
@@ -652,7 +660,7 @@ namespace BindingsGeneration
                 // ExistentialContainer0 boxes to 'object' matching the public return type
                 if (protocolList.Protocols.Count == 0)
                 {
-                    csWriter.WriteLine("return result;");
+                    csWriter.WriteLine($"return {ReturnLocalName};");
                     return;
                 }
 
@@ -661,26 +669,26 @@ namespace BindingsGeneration
                 var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList);
                 if (publicType == "object")
                 {
-                    csWriter.WriteLine("return result;");
+                    csWriter.WriteLine($"return {ReturnLocalName};");
                     return;
                 }
 
                 // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
                 if (publicType == "Swift.Runtime.ExistentialUnion")
                 {
-                    csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(result);");
+                    csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion({ReturnLocalName});");
                     return;
                 }
 
                 // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownReturnType))
                 {
-                    csWriter.WriteLine($"return new {wellKnownReturnType}(result);");
+                    csWriter.WriteLine($"return new {wellKnownReturnType}({ReturnLocalName});");
                     return;
                 }
 
                 var proxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
-                csWriter.WriteLine($"return new {proxyClassName}(result);");
+                csWriter.WriteLine($"return new {proxyClassName}({ReturnLocalName});");
                 return;
             }
 
@@ -694,16 +702,16 @@ namespace BindingsGeneration
                 {
                     var containerType = _env.ExistentialHandler.GetCSharpExistentialType(innerProtocolList);
                     // Optional existential: check for default (zero) container
-                    csWriter.WriteLine($"if (result.Equals(default({containerType}))) return null;");
+                    csWriter.WriteLine($"if ({ReturnLocalName}.Equals(default({containerType}))) return null;");
                     // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownOptType))
                     {
-                        csWriter.WriteLine($"return new {wellKnownOptType}(result);");
+                        csWriter.WriteLine($"return new {wellKnownOptType}({ReturnLocalName});");
                     }
                     else
                     {
                         var optProxyClassName = _env.ExistentialHandler.GetQualifiedProxyClassName(innerProtocolList);
-                        csWriter.WriteLine($"return new {optProxyClassName}(result);");
+                        csWriter.WriteLine($"return new {optProxyClassName}({ReturnLocalName});");
                     }
                     return;
                 }
@@ -725,7 +733,7 @@ namespace BindingsGeneration
                 // Simple enum return: cast underlying integer back to enum type
                 if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
                 {
-                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})result;");
+                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType}){ReturnLocalName};");
                     return;
                 }
 
@@ -739,11 +747,11 @@ namespace BindingsGeneration
                 {
                     if (MarshallingHelpers.IsCoreFoundationType(_wrapperSignature.ReturnType))
                     {
-                        csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result", nonNull: true, ownsReference: true)};");
+                        csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, ReturnLocalName, nonNull: true, ownsReference: true)};");
                     }
                     else
                     {
-                        csWriter.WriteLine($"var _objcResult = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, "result", nonNull: true)};");
+                        csWriter.WriteLine($"var _objcResult = {MarshallingHelpers.FormatObjCBridgeCall(_wrapperSignature.ReturnType, ReturnLocalName, nonNull: true)};");
                         csWriter.WriteLine($"_objcResult.DangerousRelease();");
                         csWriter.WriteLine($"return _objcResult;");
                     }
@@ -754,23 +762,24 @@ namespace BindingsGeneration
                 // NewFromPayload to create a SwiftClassHandle wrapping the pointer. No buffer needed.
                 if (typeRecord.Kind == TypeRecordKind.Class)
                 {
-                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(result);");
+                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({ReturnLocalName});");
                     return;
                 }
 
                 // Complex enums (non-simple) have SafeHandle-based opaque payloads — P/Invoke returns IntPtr
                 if (typeRecord.Kind == TypeRecordKind.Enum && !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
                 {
-                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(result);");
+                    csWriter.WriteLine($"return ({_wrapperSignature.ReturnType})SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>({ReturnLocalName});");
                     return;
                 }
 
                 // Frozen with memory management — MarshalFromSwift from buffer
                 if ((typeRecord.Flags & TypeRecordFlags.RequiresMemoryManagement) != 0 && (typeRecord.Flags & TypeRecordFlags.Frozen) != 0)
                 {
+                    var rln = ReturnLocalName;
                     csWriter.WriteLine($$"""
                         unsafe {
-                            return SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(&result));
+                            return SwiftMarshal.MarshalFromSwift<{{_wrapperSignature.ReturnType}}>(new IntPtr(&{{rln}}));
                         }
                         """);
                     return;
@@ -783,7 +792,7 @@ namespace BindingsGeneration
                 return;
             }
 
-            csWriter.WriteLine("return result;");
+            csWriter.WriteLine($"return {ReturnLocalName};");
         }
 
         /// <summary>
@@ -824,7 +833,7 @@ namespace BindingsGeneration
                 // @_cdecl uses IntPtr resultPtr; thunks use SwiftIndirectResult (x8 passthrough).
                 ReturnStrategy.IndirectResult => usesCdecl ? "resultPtr" : "new IntPtr(swiftIndirectResult.Value)",
                 ReturnStrategy.OutBuffer => "_optRetPtr",
-                _ => "result"
+                _ => ReturnLocalName
             };
 
             var plan = projection.GetReturnPlan(resultName, strategy);
@@ -871,7 +880,7 @@ namespace BindingsGeneration
             var tupleTypeSpec = _env.TupleHandler.GetTupleTypeSpec(returnArg);
             if (tupleTypeSpec == null)
             {
-                csWriter.WriteLine("return result;");
+                csWriter.WriteLine($"return {ReturnLocalName};");
                 return;
             }
 
@@ -883,7 +892,7 @@ namespace BindingsGeneration
             for (int i = 0; i < elements.Count; i++)
             {
                 var element = elements[i];
-                var itemName = $"result.Item{i + 1}";
+                var itemName = $"{ReturnLocalName}.Item{i + 1}";
                 var resultName = $"elem{i}";
                 var csharpType = GetCSharpTypeForTupleElement(element);
 
@@ -902,7 +911,7 @@ namespace BindingsGeneration
             // If no elements need marshalling, return directly
             if (!needsMarshalling)
             {
-                csWriter.WriteLine("return result;");
+                csWriter.WriteLine($"return {ReturnLocalName};");
                 return;
             }
 

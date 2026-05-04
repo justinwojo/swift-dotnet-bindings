@@ -734,6 +734,101 @@ public class MethodMarshalPlanBuilderTests
         Assert.DoesNotContain("var result = ", plan.PInvokeCallStatement);
     }
 
+    [Fact]
+    public void PInvokeCall_ReturnLocal_DoesNotCollideWithResultParam()
+    {
+        // Regression test: P/Invoke return local was hardcoded to "result" which caused
+        // CS0841/CS0136 self-referential shadowing when a method parameter was also named
+        // "result" (e.g., a Swift method like `func write(result: Int) -> Int`).
+        // The local is now renamed to "__result" when the collision is detected.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "compute",
+            MangledName = "$s10TestModule6Loader7computeySi6resultSi_tF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.Int"), moduleDecl),       // return type
+                CreateArg("result", new NamedTypeSpec("Swift.Int"), moduleDecl)  // param named "result"
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(method);
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Loader");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("long", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("Int64", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        // The hardcoded "var result = " would shadow the parameter — must be renamed.
+        Assert.DoesNotContain("var result = ", plan.PInvokeCallStatement);
+        Assert.Contains("var __result = ", plan.PInvokeCallStatement);
+        Assert.Equal("__result", plan.ReturnLocalName);
+    }
+
+    [Fact]
+    public void PInvokeCall_ReturnLocal_NoCollision_StaysAsResult()
+    {
+        // Sanity: when no parameter is named "result", the return local stays as "result"
+        // to avoid churning generated output for the common case.
+        var (env, wrapperSig, pInvokeSig) = CreateMethodSetup(
+            "compute", parentKind: ParentKind.Class,
+            returnType: new NamedTypeSpec("Swift.Int"));
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.Contains("var result = ", plan.PInvokeCallStatement);
+        Assert.Equal("result", plan.ReturnLocalName);
+    }
+
+    [Fact]
+    public void PInvokeCall_ReturnLocal_SkipsOver__resultParam()
+    {
+        // Iterative resolver: if both "result" and "__result" are taken by parameters,
+        // pick "__result1" so the rename itself doesn't reintroduce a collision.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "compute",
+            MangledName = "$s10TestModule6Loader7computeySi6resultSi__resultSi_tF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArg("result", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArg("__result", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        classDecl.Methods.Add(method);
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Loader");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("long", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("Int64", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        Assert.Equal("__result1", plan.ReturnLocalName);
+        Assert.Contains("var __result1 = ", plan.PInvokeCallStatement);
+    }
+
     #endregion
 
     #region GenericArgumentMarshalling Tests

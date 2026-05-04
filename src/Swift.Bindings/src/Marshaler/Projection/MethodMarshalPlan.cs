@@ -319,6 +319,13 @@ public record SyncMethodPlan
     /// <summary>The P/Invoke call statement.</summary>
     public required string PInvokeCallStatement { get; init; }
 
+    /// <summary>
+    /// Name of the local variable holding the P/Invoke return value.
+    /// Defaults to "result"; renamed to "__result" when a method parameter is also named "result"
+    /// to avoid CS0841/CS0136 self-referential shadowing.
+    /// </summary>
+    public string ReturnLocalName { get; init; } = "result";
+
     /// <summary>The fixed block header (e.g., "fixed (T* __self = &amp;this)"), or null.</summary>
     public string? FixedBlockHeader { get; init; }
 

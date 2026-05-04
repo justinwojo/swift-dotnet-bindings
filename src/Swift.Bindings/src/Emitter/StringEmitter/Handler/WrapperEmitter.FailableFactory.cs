@@ -48,7 +48,9 @@ namespace BindingsGeneration
             // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.Visibility);
             // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors
-            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} result)");
+            // Use plan's ReturnLocalName so init? params projected as "result" don't collide with the out param.
+            var resultName = ReturnLocalName;
+            csWriter.WriteLine($"{accessModifier} static bool TryCreate({_wrapperSignature.ParametersStringWithoutDefaults()}{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}out {typeName} {resultName})");
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
 
@@ -121,7 +123,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("if (tag == 1) // None");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine("result = default!;");
+            csWriter.WriteLine($"{resultName} = default!;");
             csWriter.WriteLine("return false;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -131,7 +133,7 @@ namespace BindingsGeneration
             if (isFrozenValue)
             {
                 // Frozen struct (C# value type): read value directly from the optional's payload
-                csWriter.WriteLine($"result = *({typeName}*)resultBuffer;");
+                csWriter.WriteLine($"{resultName} = *({typeName}*)resultBuffer;");
                 csWriter.WriteLine("return true;");
             }
             else
@@ -145,7 +147,7 @@ namespace BindingsGeneration
                 csWriter.WriteLines($$"""
                     IntPtr payloadBuffer = (IntPtr)NativeMemory.Alloc(selfMetadata.Size);
                     selfMetadata.ValueWitnessTable->InitializeWithCopy((void*)payloadBuffer, resultBuffer, selfMetadata);
-                    result = new {{typeName}}({{ctorArg}});
+                    {{resultName}} = new {{typeName}}({{ctorArg}});
                     return true;
                     """);
             }

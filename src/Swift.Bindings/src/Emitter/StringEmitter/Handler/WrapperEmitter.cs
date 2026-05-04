@@ -34,6 +34,13 @@ namespace BindingsGeneration
         private readonly SyncMethodPlan _syncPlan;
         private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
+
+        /// <summary>
+        /// Local-variable name for the P/Invoke return value. Normally "result"; renamed to
+        /// "__result" when a method parameter is also named "result" to prevent CS0841/CS0136
+        /// shadowing on the self-referential P/Invoke call expression.
+        /// </summary>
+        private string ReturnLocalName => _syncPlan.ReturnLocalName;
         private readonly AsyncHarnessEmitter _asyncHarness;
         // Legacy fields retained for dead-code in WrapperEmitter.Async.cs until the extraction
         // cleanup pass removes the duplicated helpers. The live path goes through _asyncHarness.
@@ -368,11 +375,11 @@ namespace BindingsGeneration
                 EmitPInvokeCall(csWriter);
                 EmitInConventionOptionalCleanup(csWriter);
                 EmitSwiftError(csWriter);
-                csWriter.WriteLine("if (result == IntPtr.Zero)");
+                csWriter.WriteLine($"if ({ReturnLocalName} == IntPtr.Zero)");
                 csWriter.Indent++;
                 csWriter.WriteLine("throw new InvalidOperationException(\"Swift initializer returned null.\");");
                 csWriter.Indent--;
-                csWriter.WriteLine("return new ObjCRuntime.NativeHandle(result);");
+                csWriter.WriteLine($"return new ObjCRuntime.NativeHandle({ReturnLocalName});");
                 EmitRawBufferFixedEnd(csWriter);
             }
 

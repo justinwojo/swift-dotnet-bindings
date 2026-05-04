@@ -52,6 +52,7 @@ internal class MethodMarshalPlanBuilder
     /// </summary>
     internal SyncMethodPlan BuildSyncPlan()
     {
+        var returnLocalName = ResolveReturnLocalName();
         return new SyncMethodPlan
         {
             SwiftSelf = BuildSwiftSelfSetup(),
@@ -63,10 +64,30 @@ internal class MethodMarshalPlanBuilder
             GenericArgumentMarshallingLines = BuildGenericArgumentMarshallingLines(),
             GenericInoutWritebackLines = BuildGenericInoutWritebackLines(),
             WitnessTableStatements = BuildWitnessTableStatements(),
-            PInvokeCallStatement = BuildPInvokeCallStatement(),
+            PInvokeCallStatement = BuildPInvokeCallStatement(returnLocalName),
+            ReturnLocalName = returnLocalName,
             FixedBlockHeader = BuildFixedBlockHeader(),
             RequiresUnsafe = ComputeRequiresUnsafe(),
         };
+    }
+
+    /// <summary>
+    /// Returns the local variable name for the P/Invoke return value.
+    /// Defaults to "result" but falls back to "__result", "__result1", "__result2", …
+    /// when a method parameter shares the chosen name, avoiding CS0841/CS0136 shadowing
+    /// on the self-referential RHS.
+    /// </summary>
+    private string ResolveReturnLocalName()
+    {
+        var paramNames = new HashSet<string>(
+            _env.MethodDecl.CSSignature.Skip(1).Select(NameProvider.GetCSharpParameterName));
+        if (!paramNames.Contains("result")) return "result";
+        if (!paramNames.Contains("__result")) return "__result";
+        for (var i = 1; ; i++)
+        {
+            var candidate = $"__result{i}";
+            if (!paramNames.Contains(candidate)) return candidate;
+        }
     }
 
     /// <summary>
@@ -970,12 +991,12 @@ internal class MethodMarshalPlanBuilder
     /// <summary>
     /// Builds the P/Invoke call statement.
     /// </summary>
-    private string BuildPInvokeCallStatement()
+    private string BuildPInvokeCallStatement(string returnLocalName)
     {
         var voidReturn = _env.MethodDecl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple;
         bool hasOptionalReturnBuffer = _env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
             (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary);
-        var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn || hasOptionalReturnBuffer) ? "" : "var result = ";
+        var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn || hasOptionalReturnBuffer) ? "" : $"var {returnLocalName} = ";
         var pInvokeName = NameProvider.GetPInvokeName(_env.MethodDecl);
         var callArgs = _pInvokeSignature.CallArgumentsString();
 

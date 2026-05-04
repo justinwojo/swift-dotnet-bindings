@@ -267,4 +267,43 @@ public class CollisionTests : TestBase
     }
 
     #endregion
+
+    #region ResultParameterCollider (P/Invoke return-local rename)
+
+    public void TestResultParamCollisionInstanceCompute()
+    {
+        // Method has a parameter named `result` and a non-void return — would have
+        // produced `var result = PInvoke(... result ...)` (CS0841/CS0136) before the
+        // return-local rename to `__result`.
+        using var collider = new ResultParameterCollider();
+        var value = collider.Compute(21);
+        AssertEqual(42, value, "Compute(result: 21) round-trips through renamed return local");
+    }
+
+    public void TestResultParamCollisionInstanceDescribe()
+    {
+        using var collider = new ResultParameterCollider();
+        var value = collider.Describe(7);
+        AssertEqual("result=7", value, "Describe(result:) returns the formatted Swift string");
+    }
+
+    public void TestResultParamCollisionStaticCompute()
+    {
+        var value = ResultParameterCollider.StaticCompute(10);
+        AssertEqual(11, value, "Static compute(result:) round-trips through renamed return local");
+    }
+
+    public void TestResultParamCollisionFailableInit()
+    {
+        // Failable init with a `result` parameter — the TryCreate factory's `out` parameter
+        // would have duplicated the input parameter name before the rename.
+        var ok = ResultFailable.TryCreate(7, out var success);
+        AssertEqual(true, ok, "TryCreate succeeds for non-negative result");
+        AssertEqual(7, success.Value, "Failable init preserves the input value");
+
+        var failed = ResultFailable.TryCreate(-1, out var _);
+        AssertEqual(false, failed, "TryCreate returns false for negative result");
+    }
+
+    #endregion
 }
