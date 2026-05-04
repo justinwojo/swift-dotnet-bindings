@@ -17,6 +17,19 @@ namespace BindingsGeneration
         public HashSet<string>? ExportedSymbols { get; set; }
 
         /// <summary>
+        /// Module-internal type names (short and module-qualified forms) collected by
+        /// <c>Program.CollectInternalTypeNames</c> and merged with underscore-suppressed
+        /// names. Read by emission-time gates (e.g.
+        /// <see cref="MemberValidationPipeline"/> via
+        /// <c>InternalTypeReferenceWalker</c>) to skip members whose signatures reach
+        /// <c>@usableFromInline internal</c> or otherwise-suppressed types — Swift
+        /// would refuse to compile a public wrapper that exposes them. Null until
+        /// <c>Program.cs</c> populates it after parsing. Set, not init: the underscore
+        /// merge runs after the initial assignment.
+        /// </summary>
+        public HashSet<string>? InternalTypeNames { get; set; }
+
+        /// <summary>
         /// The module's properties.
         /// </summary>
         public required List<PropertyDecl> Properties { get; set; }

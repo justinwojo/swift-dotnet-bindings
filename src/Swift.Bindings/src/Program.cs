@@ -268,7 +268,8 @@ namespace BindingsGeneration
                 decl.ExportedSymbols = demangledTbdFile.AllSymbols;
                 if (dependencyModuleNames != null)
                     decl.DependencyModuleNames = dependencyModuleNames;
-                internalTypeNames = CollectInternalTypeNames(decl);
+                decl.InternalTypeNames = CollectInternalTypeNames(decl);
+                internalTypeNames = decl.InternalTypeNames;
 
                 // Detect module/type name collision: a public type whose name matches the module name.
                 // When this occurs, Swift resolves bare "ModuleName" as the type, not the module,
@@ -318,6 +319,11 @@ namespace BindingsGeneration
                     internalTypeNames.UnionWith(underscoreSuppressedNames);
                     logger.LogInformation("Suppressing {Count} underscore-prefixed types from C# output", underscoreSuppressedNames.Count);
                 }
+                // Re-sync the property so emission-time gates (MemberValidationPipeline)
+                // see the same final set as the wrapper post-processor — the local was
+                // possibly created here when CollectInternalTypeNames returned an empty
+                // set and the underscore merge had to allocate.
+                decl.InternalTypeNames = internalTypeNames;
                 ReportCollector.Start(decl);
 
                 // dylibPath is used for metadata extraction, runtimeLibraryName is used in generated DllImport

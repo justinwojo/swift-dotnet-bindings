@@ -1399,6 +1399,112 @@ public class MemberValidationPipelineTests
 
     #endregion
 
+    #region Pattern 2 Internal-Type-Reach Gate
+
+    [Fact]
+    public void ValidateMethodEmission_InternalTypeReach_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.SecretShape", "SecretShape" };
+        var method = CreateMethodWithArgs("touchInternal", TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.SecretShape"));
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_NoInternalTypeNames_PassesGate()
+    {
+        // Module hasn't populated InternalTypeNames (e.g., dependency module). Gate should no-op.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var method = CreateMethodWithArgs("touchType", TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.SomeType"));
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_InternalTypeReach_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.SecretShape", "SecretShape" };
+        var property = CreateProperty("secret", new NamedTypeSpec("TestModule.SecretShape"));
+        property.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_InternalTypeReach_ReturnsSkip()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.SecretShape", "SecretShape" };
+        var subscript = CreateSubscript(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("TestModule.SecretShape"));
+        subscript.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_PublicTypes_PassesGate()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.SecretShape" };
+        var subscript = CreateSubscript(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String"));
+        subscript.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_CrossModuleShortNameCollision_DoesNotMatch()
+    {
+        // OtherModule.SecretShape has the same short name as TestModule's internal type
+        // — must NOT be flagged when walking TestModule's methods.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.SecretShape", "SecretShape" };
+        var method = CreateMethodWithArgs("touchOther", TupleTypeSpec.Empty,
+            new NamedTypeSpec("OtherModule.SecretShape"));
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static TypeDatabase CreateTypeDatabase()

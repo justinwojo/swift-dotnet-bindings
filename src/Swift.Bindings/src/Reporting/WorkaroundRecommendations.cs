@@ -60,6 +60,8 @@ public static class WorkaroundRecommendations
             "The Swift @_cdecl wrapper symbol was stripped during wrapper compilation, so the corresponding C# P/Invoke was suppressed to avoid runtime DllNotFoundException. Inspect the wrapper post-processor output for the underlying cause.",
         SkipReason.SuppressedProxyMethodBody =>
             "The method body referenced a proxy class whose EveryProtocol conformance was not emitted. Once the proxy can be emitted (add support for the missing requirements), the method body is restored.",
+        SkipReason.Pattern2InternalTypeReach =>
+            "Member signature exposes a @usableFromInline internal type. Refactor the Swift API to use a public type, or expose the functionality through a public Swift wrapper.",
         SkipReason.Unknown =>
             "Investigate the specific member in the generator output.",
         _ => null,
@@ -117,6 +119,8 @@ public static class WorkaroundRecommendations
             "P/Invoke removed because the Swift wrapper symbol was stripped during wrapper compilation",
         SkipReason.SuppressedProxyMethodBody =>
             "method body removed because it constructed a proxy class whose conformance was suppressed",
+        SkipReason.Pattern2InternalTypeReach =>
+            "member signature reaches an @usableFromInline internal (or otherwise-suppressed) type",
         SkipReason.Unknown =>
             "unclassified skip reason",
         _ => null,

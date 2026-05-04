@@ -36,6 +36,7 @@ namespace BindingsGeneration
 
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
             var emittedKeys = new HashSet<string>();
+            var subscriptValidationPipeline = new MemberValidationPipeline(typeDatabase);
             // Collect convenience indexer overload candidates during the primary loop,
             // then emit them after all primary indexers are processed. This ensures
             // primary indexers always take precedence over convenience nint→int overloads.
@@ -43,6 +44,18 @@ namespace BindingsGeneration
 
             foreach (var subscriptDecl in subscripts)
             {
+                // Pattern 2 emission-time gate (signature reaches internal). Runs before
+                // projection/dedup so a subscript whose accessors couldn't be wrapped is
+                // dropped silently rather than failing later in wrapper generation.
+                var subscriptValidation = subscriptValidationPipeline.ValidateSubscriptEmission(subscriptDecl, null);
+                if (!subscriptValidation.ShouldEmit)
+                {
+                    ReportCollector.RecordMemberSkipped(subscriptDecl,
+                        subscriptValidation.Reason ?? SkipReason.Unknown,
+                        subscriptValidation.Details ?? "");
+                    continue;
+                }
+
                 // Skip static subscripts (not supported as indexers)
                 if (subscriptDecl.IsStatic)
                 {

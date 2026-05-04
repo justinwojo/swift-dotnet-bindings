@@ -79,6 +79,15 @@ public class MemberValidationPipeline
             MemberEmissionValidator.IsSynthesizedProtocolMethod(methodDecl, parentType))
             return ValidationResult.Synthesized("Synthesized protocol method suppressed.");
 
+        // 3b. Pattern 2 emission-time gate: signature reaches a @usableFromInline
+        // internal (or otherwise-suppressed) type that the Swift wrapper cannot
+        // legally expose. Replaces the dominant Pattern 2 cleanup pass — the
+        // wrapper post-processor stays in place as a safety net for body-reference
+        // shapes the signature walk can't predict (see
+        // src/docs/Future/pattern2-retirement-plan.md).
+        if (TryCheckInternalTypeReach(methodDecl, out var methodSkip))
+            return methodSkip!;
+
         // 4. Variadic methods — Swift variadic params (T...) appear as Array<T> in ABI JSON.
         // At the ABI level, variadic T... IS Array<T>, so CallConvSwift can dispatch correctly
         // by passing SwiftArray<T> as a single pointer. @_cdecl wrappers cannot call variadic
@@ -315,6 +324,13 @@ public class MemberValidationPipeline
     /// </summary>
     public ValidationResult ValidatePropertyEmission(PropertyDecl propertyDecl, ValidationContext? context)
     {
+        // Pattern 2 emission-time gate (mirrors ValidateMethodEmission). Property
+        // accessors would be emitted with a @_cdecl wrapper that exposes the
+        // property's declared type — if that type is internal, the wrapper won't
+        // compile.
+        if (TryCheckInternalTypeReach(propertyDecl, out var propertySkip))
+            return propertySkip!;
+
         // Constrained-extension multi-specialization conflict — see
         // MemberEmissionValidator.CanEmitProperty for the full rationale. PropertyHandler.Emit
         // routes through this pipeline (not CanEmitProperty), so the gate must be repeated here
@@ -392,12 +408,63 @@ public class MemberValidationPipeline
     }
 
     /// <summary>
-    /// Validates whether a subscript should be emitted.
-    /// Currently all subscript validation remains in SubscriptHandler.EmitSubscripts.
+    /// Validates whether a subscript should be emitted. Today this is the Pattern 2
+    /// emission-time gate; other subscript validation (AnyType, complex index params,
+    /// dedup) lives in <c>SubscriptHandler.EmitSubscripts</c>.
     /// </summary>
     public ValidationResult ValidateSubscriptEmission(SubscriptDecl subscriptDecl, ValidationContext? context)
     {
+        if (TryCheckInternalTypeReach(subscriptDecl, out var subscriptSkip))
+            return subscriptSkip!;
         return ValidationResult.Emit;
+    }
+
+    /// <summary>
+    /// Shared Pattern 2 emission-time predicate — signature reaches a name in
+    /// <see cref="ModuleDecl.InternalTypeNames"/>. No-ops when the module hasn't
+    /// populated the set (e.g. unit tests that construct ModuleDecls directly), so
+    /// existing tests stay green.
+    /// </summary>
+    private static bool TryCheckInternalTypeReach(MethodDecl methodDecl, out ValidationResult? skip)
+    {
+        skip = null;
+        var internalTypeNames = methodDecl.ModuleDecl?.InternalTypeNames;
+        var moduleName = methodDecl.ModuleDecl?.Name;
+        if (internalTypeNames is null || internalTypeNames.Count == 0 || string.IsNullOrEmpty(moduleName))
+            return false;
+        if (!InternalTypeReferenceWalker.SignatureReachesInternalType(methodDecl, internalTypeNames, moduleName))
+            return false;
+        skip = ValidationResult.Skip(SkipReason.Pattern2InternalTypeReach,
+            "Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.");
+        return true;
+    }
+
+    private static bool TryCheckInternalTypeReach(PropertyDecl propertyDecl, out ValidationResult? skip)
+    {
+        skip = null;
+        var internalTypeNames = propertyDecl.ModuleDecl?.InternalTypeNames;
+        var moduleName = propertyDecl.ModuleDecl?.Name;
+        if (internalTypeNames is null || internalTypeNames.Count == 0 || string.IsNullOrEmpty(moduleName))
+            return false;
+        if (!InternalTypeReferenceWalker.SignatureReachesInternalType(propertyDecl, internalTypeNames, moduleName))
+            return false;
+        skip = ValidationResult.Skip(SkipReason.Pattern2InternalTypeReach,
+            "Property type reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.");
+        return true;
+    }
+
+    private static bool TryCheckInternalTypeReach(SubscriptDecl subscriptDecl, out ValidationResult? skip)
+    {
+        skip = null;
+        var internalTypeNames = subscriptDecl.ModuleDecl?.InternalTypeNames;
+        var moduleName = subscriptDecl.ModuleDecl?.Name;
+        if (internalTypeNames is null || internalTypeNames.Count == 0 || string.IsNullOrEmpty(moduleName))
+            return false;
+        if (!InternalTypeReferenceWalker.SignatureReachesInternalType(subscriptDecl, internalTypeNames, moduleName))
+            return false;
+        skip = ValidationResult.Skip(SkipReason.Pattern2InternalTypeReach,
+            "Subscript signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.");
+        return true;
     }
 
     #endregion

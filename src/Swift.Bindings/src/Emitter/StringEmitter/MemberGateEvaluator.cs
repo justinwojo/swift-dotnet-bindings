@@ -135,6 +135,23 @@ public class MemberGateEvaluator
             }
         }
 
+        // P9: Pattern 2 emission-time gate — property type reaches a name in
+        // ModuleDecl.InternalTypeNames. Mirrors S6 in EvaluateSubscript and the
+        // concrete-side gate in MemberValidationPipeline.ValidatePropertyEmission.
+        // Protocol property emission bypasses MemberValidationPipeline, so this
+        // gate must live here too — otherwise the protocol interface would declare
+        // a property whose concrete-side counterpart was suppressed (CS0535).
+        var resolvedPropertyModule = property.ModuleDecl ?? moduleDecl;
+        var propertyInternalTypeNames = resolvedPropertyModule?.InternalTypeNames;
+        if (propertyInternalTypeNames is { Count: > 0 } &&
+            !string.IsNullOrEmpty(resolvedPropertyModule!.Name) &&
+            InternalTypeReferenceWalker.SignatureReachesInternalType(
+                property, propertyInternalTypeNames, resolvedPropertyModule.Name))
+        {
+            return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
+                "Property type reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+        }
+
         return GateResult.Pass;
     }
 
@@ -202,6 +219,23 @@ public class MemberGateEvaluator
         if (hasUnsupportedModuleRef)
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Method signature references unsupported module (SwiftUI/Combine).");
 
+        // M11: Pattern 2 emission-time gate — method signature reaches a name in
+        // ModuleDecl.InternalTypeNames. Mirrors S6 in EvaluateSubscript and the
+        // concrete-side gate in MemberValidationPipeline.ValidateMethodEmission.
+        // Protocol method emission bypasses MemberValidationPipeline, so this gate
+        // must live here too — otherwise the interface would declare a method whose
+        // conforming-class counterpart was suppressed (CS0535).
+        var resolvedMethodModule = method.ModuleDecl ?? moduleDecl;
+        var methodInternalTypeNames = resolvedMethodModule?.InternalTypeNames;
+        if (methodInternalTypeNames is { Count: > 0 } &&
+            !string.IsNullOrEmpty(resolvedMethodModule!.Name) &&
+            InternalTypeReferenceWalker.SignatureReachesInternalType(
+                method, methodInternalTypeNames, resolvedMethodModule.Name))
+        {
+            return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
+                "Method signature reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+        }
+
         // If soft gates fired but no hard gate, return InterfaceOnly
         if (softFlags != SoftGateFlags.None)
             return GateResult.SoftSkip(softFlags);
@@ -252,6 +286,22 @@ public class MemberGateEvaluator
         if (MemberEmissionValidator.ReferencesUnsupportedModule(subscript.ReturnTypeSpec, _typeDatabase) ||
             subscript.IndexParameters.Any(p => MemberEmissionValidator.ReferencesUnsupportedModule(p.SwiftTypeSpec, _typeDatabase)))
             return GateResult.Skipped(SkipReason.SwiftUIConstraint, "Subscript signature references unsupported module (SwiftUI/Combine).");
+
+        // S6: Pattern 2 emission-time gate — subscript signature reaches a name in
+        // ModuleDecl.InternalTypeNames. Mirrors EvaluateHardGates / EvaluatePropertyHardGates
+        // for the concrete-side; protocol subscripts would land here. Honors the
+        // walker's qualified-first / short-name-fallback matching to avoid
+        // cross-module name collisions.
+        var resolvedSubscriptModule = subscript.ModuleDecl ?? moduleDecl;
+        var subscriptInternalTypeNames = resolvedSubscriptModule?.InternalTypeNames;
+        if (subscriptInternalTypeNames is { Count: > 0 } &&
+            !string.IsNullOrEmpty(resolvedSubscriptModule!.Name) &&
+            InternalTypeReferenceWalker.SignatureReachesInternalType(
+                subscript, subscriptInternalTypeNames, resolvedSubscriptModule.Name))
+        {
+            return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
+                "Subscript signature reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+        }
 
         return GateResult.Pass;
     }

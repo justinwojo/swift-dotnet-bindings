@@ -89,6 +89,13 @@ public enum SkipReason
     MissingWrapperSymbol,
     SuppressedProxyMethodBody,
     CovariantReturnNotRepresentable,
+    /// <summary>
+    /// Member's signature reaches a type listed in <c>ModuleDecl.InternalTypeNames</c>
+    /// (e.g. <c>@usableFromInline internal</c>). Distinct from <see cref="ModuleInternal"/>
+    /// so the emission-time Pattern 2 gate can be counted independently from the wrapper
+    /// post-processor's existing Pattern 2 hits.
+    /// </summary>
+    Pattern2InternalTypeReach,
     Unknown,
 }
 
