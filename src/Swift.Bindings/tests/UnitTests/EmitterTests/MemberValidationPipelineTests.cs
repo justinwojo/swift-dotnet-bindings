@@ -1503,6 +1503,182 @@ public class MemberValidationPipelineTests
         Assert.True(result.ShouldEmit);
     }
 
+    [Fact]
+    public void ValidateMethodEmission_FailableInitOnNonFrozenStruct_ParentReach_PassesGate()
+    {
+        // Regression: BoolBox.init?(xmlString:) emits via direct CallConvSwift to the
+        // dylib's mangled symbol — ConstructorWrapperEmitter skips @_cdecl wrapper
+        // emission for failable inits on non-frozen struct parents (lines 39-46), so
+        // the wrapper-free path doesn't reference the internal parent type. Mirrors
+        // the literal Optional<Self> return shape via Swift.Optional generic args.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.BoolBox", "BoolBox" };
+        var parentDecl = CreateInternalParentStruct("BoolBox", moduleDecl, isFrozen: false);
+
+        var optionalParent = new NamedTypeSpec("Swift.Optional");
+        optionalParent.GenericParameters.Add(new NamedTypeSpec("TestModule.BoolBox"));
+        var method = CreateMethodWithArgs("init", optionalParent,
+            new NamedTypeSpec("Swift.String"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.True(result.ShouldEmit);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_NonFailableInitOnInternalStruct_ParentReach_StillSkips()
+    {
+        // Non-failable inits do NOT take the wrapper-free path — ConstructorWrapperEmitter
+        // emits a @_cdecl wrapper that reconstructs Self via assumingMemoryBound(to: T.self),
+        // which fails to compile when T is internal. Gate must still fire.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.BoolBox", "BoolBox" };
+        var parentDecl = CreateInternalParentStruct("BoolBox", moduleDecl, isFrozen: false);
+
+        var method = CreateMethodWithArgs("init", new NamedTypeSpec("TestModule.BoolBox"),
+            new NamedTypeSpec("Swift.String"));
+        method.IsConstructor = true;
+        method.IsFailable = false;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_FailableInitOnFrozenStruct_ParentReach_StillSkips()
+    {
+        // Failable inits on FROZEN structs go through the @_cdecl wrapper path —
+        // ConstructorWrapperEmitter only short-circuits non-frozen failable struct
+        // inits. Frozen failable inits emit a wrapper that names the parent.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.BoolBox", "BoolBox" };
+        var parentDecl = CreateInternalParentStruct("BoolBox", moduleDecl, isFrozen: true);
+
+        var optionalParent = new NamedTypeSpec("Swift.Optional");
+        optionalParent.GenericParameters.Add(new NamedTypeSpec("TestModule.BoolBox"));
+        var method = CreateMethodWithArgs("init", optionalParent,
+            new NamedTypeSpec("Swift.String"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_ParentReach_StillSkips()
+    {
+        // Properties always emit a @_cdecl wrapper that reconstructs Self via
+        // SelfReconstructionEmitter, which names the parent type — so a property
+        // whose declared type IS the (internal) parent must still skip emission.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.BoolBox", "BoolBox" };
+        var parentDecl = CreateInternalParentStruct("BoolBox", moduleDecl, isFrozen: false);
+        var property = CreateProperty("self", new NamedTypeSpec("TestModule.BoolBox"));
+        property.ParentDecl = parentDecl;
+        property.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidatePropertyEmission(property, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_ParentReach_StillSkips()
+    {
+        // Subscripts always emit a @_cdecl wrapper that reconstructs Self, so a
+        // subscript that returns the (internal) parent must still skip emission.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string> { "TestModule.BoolBox", "BoolBox" };
+        var parentDecl = CreateInternalParentStruct("BoolBox", moduleDecl, isFrozen: false);
+        var subscript = CreateSubscript(
+            new NamedTypeSpec("TestModule.BoolBox"),
+            new NamedTypeSpec("Swift.Int"));
+        subscript.ParentDecl = parentDecl;
+        subscript.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateSubscriptEmission(subscript, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    [Fact]
+    public void ValidateMethodEmission_FailableInitParentPlusOtherInternal_StillSkips()
+    {
+        // Excluding the parent must NOT mask a separate internal-type reach. If a
+        // failable-init signature also touches a different @usableFromInline internal
+        // type, the gate must still fire even on the wrapper-free path.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        moduleDecl.InternalTypeNames = new HashSet<string>
+        {
+            "TestModule.BoolBox", "BoolBox",
+            "TestModule.SecretShape", "SecretShape",
+        };
+        var parentDecl = CreateInternalParentStruct("BoolBox", moduleDecl, isFrozen: false);
+
+        var optionalParent = new NamedTypeSpec("Swift.Optional");
+        optionalParent.GenericParameters.Add(new NamedTypeSpec("TestModule.BoolBox"));
+        var method = CreateMethodWithArgs("init", optionalParent,
+            new NamedTypeSpec("TestModule.SecretShape"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+        method.ParentDecl = parentDecl;
+        method.ModuleDecl = moduleDecl;
+
+        var result = pipeline.ValidateMethodEmission(method, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.Pattern2InternalTypeReach, result.Reason);
+    }
+
+    private static StructDecl CreateInternalParentStruct(string typeName, ModuleDecl moduleDecl, bool isFrozen)
+    {
+        return new StructDecl
+        {
+            Name = typeName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{typeName}"),
+            MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{typeName.Length}{typeName}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = isFrozen,
+            IsModuleInternal = true,
+            MetadataAccessor = string.Empty
+        };
+    }
+
     #endregion
 
     #region Helper Methods

@@ -432,7 +432,10 @@ public class MemberValidationPipeline
         var moduleName = methodDecl.ModuleDecl?.Name;
         if (internalTypeNames is null || internalTypeNames.Count == 0 || string.IsNullOrEmpty(moduleName))
             return false;
-        if (!InternalTypeReferenceWalker.SignatureReachesInternalType(methodDecl, internalTypeNames, moduleName))
+        var effectiveNames = ExcludeParentTypeNamesForWrapperFreeMethod(internalTypeNames, methodDecl);
+        if (effectiveNames.Count == 0)
+            return false;
+        if (!InternalTypeReferenceWalker.SignatureReachesInternalType(methodDecl, effectiveNames, moduleName))
             return false;
         skip = ValidationResult.Skip(SkipReason.Pattern2InternalTypeReach,
             "Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.");
@@ -465,6 +468,42 @@ public class MemberValidationPipeline
         skip = ValidationResult.Skip(SkipReason.Pattern2InternalTypeReach,
             "Subscript signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.");
         return true;
+    }
+
+    /// <summary>
+    /// Removes the parent type's short and module-qualified names from the effective
+    /// internal-type set ONLY when the method is a failable initializer on a non-frozen
+    /// struct — the one shape that <see cref="ConstructorWrapperEmitter"/> skips and
+    /// routes through direct CallConvSwift to the dylib's mangled symbol (see
+    /// <c>ConstructorWrapperEmitter.cs</c> lines 39-46). For that wrapper-free path a
+    /// signature mentioning only Self does not require any Swift wrapper to reference
+    /// the internal parent type. All other member kinds (non-failable inits,
+    /// non-constructor methods, properties, subscripts) emit a <c>@_cdecl</c> wrapper
+    /// whose body reconstructs <c>self</c> using the parent's module-qualified Swift
+    /// name (<c>assumingMemoryBound(to: T.self)</c> / <c>Unmanaged&lt;T&gt;</c>), so the
+    /// gate must still fire for them to avoid producing wrappers that fail to compile.
+    /// </summary>
+    internal static IReadOnlySet<string> ExcludeParentTypeNamesForWrapperFreeMethod(
+        IReadOnlySet<string> internalTypeNames, MethodDecl methodDecl)
+    {
+        if (!methodDecl.IsConstructor || !methodDecl.IsFailable)
+            return internalTypeNames;
+        if (methodDecl.ParentDecl is not StructDecl structDecl || structDecl.IsFrozen)
+            return internalTypeNames;
+
+        var shortName = structDecl.Name;
+        var qualifiedName = structDecl.SwiftTypeName?.ToString();
+        bool excludesShort = !string.IsNullOrEmpty(shortName) && internalTypeNames.Contains(shortName);
+        bool excludesQualified = !string.IsNullOrEmpty(qualifiedName) && internalTypeNames.Contains(qualifiedName);
+        if (!excludesShort && !excludesQualified)
+            return internalTypeNames;
+
+        var copy = new HashSet<string>(internalTypeNames);
+        if (excludesShort)
+            copy.Remove(shortName);
+        if (excludesQualified)
+            copy.Remove(qualifiedName!);
+        return copy;
     }
 
     #endregion

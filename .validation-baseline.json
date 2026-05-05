@@ -1,5 +1,5 @@
 {
-  "git_sha": "55c39181",
+  "git_sha": "cf878b13",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -621,7 +621,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13835,
+        "lines": 14414,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,20 +908,20 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 22416,
-    "total_skipped_members": 6595,
+    "total_emitted_members": 22428,
+    "total_skipped_members": 6583,
     "skip_rate_pct": 22.7,
     "skip_reasons": {
       "UnsupportedSignature": 1206,
       "SynthesizedCodable": 905,
       "ModuleInternal": 843,
       "AnyTypeFallback": 672,
-      "DuplicateSignature": 670,
+      "DuplicateSignature": 672,
       "GenericProtocolConstraint": 647,
       "EveryProtocolConformanceSkipped": 285,
       "UnsupportedClosure": 280,
       "SwiftUIConstraint": 239,
-      "Pattern2InternalTypeReach": 234,
+      "Pattern2InternalTypeReach": 220,
       "UnsupportedType": 216,
       "MissingWrapperSymbol": 209,
       "UnsupportedExistential": 111,
@@ -950,7 +950,7 @@
       "crash": 0
     },
     "device": {
-      "pass": 1811,
+      "pass": 1815,
       "fail": 0,
       "skip": 37,
       "crash": 0

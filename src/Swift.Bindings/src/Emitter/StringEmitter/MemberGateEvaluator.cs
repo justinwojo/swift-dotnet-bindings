@@ -228,12 +228,17 @@ public class MemberGateEvaluator
         var resolvedMethodModule = method.ModuleDecl ?? moduleDecl;
         var methodInternalTypeNames = resolvedMethodModule?.InternalTypeNames;
         if (methodInternalTypeNames is { Count: > 0 } &&
-            !string.IsNullOrEmpty(resolvedMethodModule!.Name) &&
-            InternalTypeReferenceWalker.SignatureReachesInternalType(
-                method, methodInternalTypeNames, resolvedMethodModule.Name))
+            !string.IsNullOrEmpty(resolvedMethodModule!.Name))
         {
-            return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
-                "Method signature reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+            var effective = MemberValidationPipeline.ExcludeParentTypeNamesForWrapperFreeMethod(
+                methodInternalTypeNames, method);
+            if (effective.Count > 0 &&
+                InternalTypeReferenceWalker.SignatureReachesInternalType(
+                    method, effective, resolvedMethodModule.Name))
+            {
+                return GateResult.Skipped(SkipReason.Pattern2InternalTypeReach,
+                    "Method signature reaches a @usableFromInline internal (or otherwise-suppressed) type.");
+            }
         }
 
         // If soft gates fired but no hard gate, return InterfaceOnly
