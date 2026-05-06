@@ -211,9 +211,25 @@ namespace BindingsGeneration
                         // @_cdecl: fall through to indirect result path — Optional<ExistentialContainer>
                         // is too large for register return. Uses decomposed (resultPtr + hasValuePtr).
                     }
+                    else if (MarshallingHelpers.MethodRequiresIndirectResult(_env) &&
+                             !_env.MethodDecl.UsesNativeThunk &&
+                             !_env.MethodDecl.HasOptionalPointerWrapper &&
+                             !_env.MethodDecl.UsesWrapperLibrary)
+                    {
+                        // Direct CallConvSwift (no @_cdecl, no native thunk, no wrapper lib):
+                        // Optional<ExistentialContainer> is ≥41 bytes (5-word existential + tag),
+                        // address-only in Swift's ABI — returned via sret. Fall through to the
+                        // SwiftIndirectResult branch below so the PInvoke signature includes the
+                        // sret slot the wrapper body's `_cdeclBuf` allocation writes to. Without
+                        // this fall-through, MethodRequiresIndirectResult drives WrapperEmitter
+                        // to allocate a buffer + read from it, but the PInvoke signature emits
+                        // IntPtr return without the sret arg — the call site reads uninitialized
+                        // memory and fabricates an AnyError over random bits.
+                    }
                     else
                     {
-                        // Non-cdecl: use IntPtr (legacy CallConvSwift path)
+                        // Native thunk / wrapper library / optional-pointer-wrapper paths keep the
+                        // legacy IntPtr return shape — those layers carry their own sret handling.
                         SetReturnType("IntPtr");
                         return;
                     }
@@ -223,7 +239,7 @@ namespace BindingsGeneration
                     SetReturnType(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName);
                     return;
                 }
-                // @_cdecl supported: fall through to MethodRequiresIndirectResult
+                // @_cdecl supported or sync sret: fall through to MethodRequiresIndirectResult
             }
 
             // String @_cdecl property wrappers use indirect result (resultPtr) because

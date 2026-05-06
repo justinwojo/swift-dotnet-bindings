@@ -317,6 +317,8 @@ public static partial class ClosureEmitter
         // No defer — C# takes ownership of the heap memory via SwiftSafeHandle
         // (VWT Destroy + NativeMemory.Free on disposal). Deallocating here would
         // cause use-after-free because MarshalFromSwift wraps the pointer without copying.
+        // Per-invocation buffer leak when C# uses MarshalBorrowedFromSwift instead is
+        // tracked in bug-0.10.0-swift-wrapper-payload-buffer-leak (Bundle 10).
         var heapAllocLines = new List<string>();
         foreach (var (idx, swiftType) in heapAllocArgs)
         {

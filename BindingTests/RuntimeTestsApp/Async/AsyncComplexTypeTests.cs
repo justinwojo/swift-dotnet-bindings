@@ -276,6 +276,46 @@ public class AsyncComplexTypeTests : TestBase
 
     #endregion
 
+    #region Bug 8 Regression: top-level non-optional Container<ObjCBridgeable> async returns
+
+    // Async wrappers for non-optional [URL] / Set<URL> / [String: URL] previously emitted
+    //   var _collection = SwiftMarshal.MarshalFromSwift<SwiftArray<NSUrl>>(resultPtr);
+    //   var result = ArrayFromHandleFunc<NSUrl>(_collection, …);   // CS1503: expected IntPtr
+    // The fix routes ObjC-container-bridge async returns through the same `_ptr` carrier
+    // the optional path uses: the Swift wrapper stores a +1 retained NSArray / NSDictionary /
+    // NSSet pointer via `as AnyObject`, and the C# side reads it as IntPtr before bridging.
+
+    public async Task TestAsyncGetTopLevelURLArray()
+    {
+        var worker = new AsyncTopLevelObjCContainerWorker();
+        var result = await WithTimeout(worker.GetURLArrayAsync(), DefaultAsyncTimeout);
+        AssertNotNull(result, "Top-level [URL] should not be null");
+        AssertEqual(2, result!.Count, "Two URLs returned");
+        AssertEqual("https://example.com", result[0]!.AbsoluteString, "First URL preserved");
+        AssertEqual("https://test.com", result[1]!.AbsoluteString, "Second URL preserved");
+        TestLogger.Info($"AsyncTopLevelObjCContainerWorker.GetURLArrayAsync() = {result.Count} URLs");
+    }
+
+    public async Task TestAsyncGetTopLevelURLSet()
+    {
+        var worker = new AsyncTopLevelObjCContainerWorker();
+        var result = await WithTimeout(worker.GetURLSetAsync(), DefaultAsyncTimeout);
+        AssertNotNull(result, "Top-level Set<URL> should not be null");
+        AssertEqual(2, result!.Count, "Two URLs in set");
+        TestLogger.Info($"AsyncTopLevelObjCContainerWorker.GetURLSetAsync() = {result.Count} URLs");
+    }
+
+    public async Task TestAsyncGetTopLevelURLDictionary()
+    {
+        var worker = new AsyncTopLevelObjCContainerWorker();
+        var result = await WithTimeout(worker.GetURLDictionaryAsync(), DefaultAsyncTimeout);
+        AssertNotNull(result, "Top-level [String: URL] should not be null");
+        AssertEqual(2, result!.Count, "Two entries in dictionary");
+        TestLogger.Info($"AsyncTopLevelObjCContainerWorker.GetURLDictionaryAsync() = {result.Count} entries");
+    }
+
+    #endregion
+
     #region X1: AsyncStream<Int32> (primitive element type)
     // The real coverage for this fix is the compile-check step: generated code references
     // SwiftAsyncStream<int> which wouldn't compile without removing the ISwiftObject constraint.

@@ -1387,9 +1387,20 @@ public class ClosureHandler
         if (typeSpec.IsEmptyTuple)
             return "void";
 
-        // Handle tuple types
+        // Handle tuple types — recurse through THIS translator so closure-arg-tuple
+        // elements pick up the same projection rules as top-level closure args
+        // (Foundation.Data → byte[], Foundation.URLResponse → Foundation.NSUrlResponse,
+        // Swift.Optional<T> → T?, Swift.String → string, etc.). The default
+        // overload of GetCSharpTupleType uses TupleHandler.TranslateElementTypeToCSharp
+        // which short-circuits to typeRecord.CSharpTypeName.FullyQualifiedName and skips
+        // every closure-specific projection — that's the
+        // bug-0.10.0-callback-arg-projection-asymmetry symptom where a tuple element of
+        // `Foundation.Data` came out as `Swift.Foundation.Data` and `Foundation.URLResponse?`
+        // came out as `Swift.SwiftOptional<IntPtr>` even though the top-level async return
+        // path (which uses the same TranslateTypeSpecToCSharp recursion) projected them to
+        // `byte[]` and `Foundation.NSUrlResponse?`.
         if (typeSpec is TupleTypeSpec tupleType)
-            return _tupleHandler.GetCSharpTupleType(tupleType);
+            return _tupleHandler.GetCSharpTupleType(tupleType, t => TranslateTypeSpecToCSharp(t));
 
         // Fallback for unsupported types
         return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
@@ -1899,6 +1910,31 @@ public class ClosureHandler
     /// </summary>
     public bool IsReferenceType(TypeSpec typeSpec) =>
         IsClassType(typeSpec) || IsObjCBridgedClass(typeSpec);
+
+    /// <summary>
+    /// Checks if a type has an ObjC NativeTypeName remap (e.g., Foundation.URLResponse →
+    /// Foundation.NSUrlResponse) that <see cref="TranslateTypeSpecToCSharp"/> projects to.
+    /// Closure callbacks need <see cref="MarshallingHelpers.FormatObjCBridgeCall"/> to
+    /// convert the IntPtr to the .NET type, since MarshalBorrowedFromSwift can't bridge
+    /// through ObjC.
+    /// </summary>
+    /// <param name="typeSpec">The Swift type to inspect.</param>
+    /// <param name="nativeTypeName">The C# native type to bridge into (e.g.,
+    /// "Foundation.NSUrlResponse").</param>
+    public bool HasObjCNativeRemap(TypeSpec typeSpec, out string nativeTypeName)
+    {
+        nativeTypeName = string.Empty;
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+        if (namedType.ContainsGenericParameters || !namedType.HasModule())
+            return false;
+        if (!_typeDatabase.TryGetTypeRecord(namedType, out var typeRecord))
+            return false;
+        if (typeRecord.NativeTypeName == null)
+            return false;
+        nativeTypeName = typeRecord.NativeTypeName.FullyQualifiedName;
+        return true;
+    }
 
     /// <summary>
     /// Checks if a type is a complex enum (enum with associated values) in the type database.

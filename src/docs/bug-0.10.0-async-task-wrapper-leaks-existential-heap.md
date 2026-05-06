@@ -4,6 +4,14 @@
 > consumer-experience audit of
 > [SwiftBindings.Stripe](https://github.com/justinwojo/swift-dotnet-packages)
 > (StripePayments 26.2.1 + StripeFinancialConnections 26.2.1).
+>
+> **Status:** Case 1 resolved — `MethodHandler.TryEmitCompletionHandlerOverload`
+> emits a delegating async overload that calls the sync method (which frees the
+> heap in its `finally`), so the async path no longer leaks. BindingTests
+> coverage:
+> `ClosureEdgeCaseTests.TestBug3Case1AsyncOverloadDelegatesThroughExistential`.
+> Case 2 (property-setter handler subscription) is carved out to **Bundle 10**
+> alongside the broader closure-lifetime infrastructure (Bug 1 + Bug 2).
 
 ## Summary
 

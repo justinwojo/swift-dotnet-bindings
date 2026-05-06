@@ -90,10 +90,16 @@ public class CompositeProjectionTests
         // Return plan
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        // Should use discriminant check (not ToNullable)
-        Assert.Contains("SwiftOptionalCases.None", plan.PInvokeExpression);
+        // Behavior: discriminant check + proxy construction. The check reads the
+        // existential's metadata pointer slot from the indirect buffer (canonical
+        // None encoding for `(any P)?` is `metadata == nullptr`); SwiftOptional<T>.Case
+        // is bypassed because VWT GetEnumTag is broken on Mono iOS Simulator for
+        // existential optionals.
+        Assert.Contains("== IntPtr.Zero", plan.PInvokeExpression);
         Assert.Contains("new ImageProcessingProxy", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetEnumTag", plan.PInvokeExpression);
+        Assert.True(plan.RequiresUnsafe);
     }
 
     #endregion

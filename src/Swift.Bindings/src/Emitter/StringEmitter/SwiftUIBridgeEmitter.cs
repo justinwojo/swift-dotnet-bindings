@@ -2193,26 +2193,41 @@ public static partial class SwiftUIBridgeEmitter
         // Presentation methods.
         EmitCSharpPresentationMethods(sb, info);
 
+        // Dispose pattern with finalizer: GC-driven cleanup is the only fallback when a
+        // SwiftUI consumer constructs a session and stores it on a struct View without
+        // a using/explicit-Dispose handshake. Without the finalizer, both the +1-retained
+        // native session pointer and every pinned GCHandle leak permanently. Pairs with
+        // bug-0.10.0-swiftui-bridge-session-missing-finalizer.
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
-        sb.AppendLine("            if (!_disposed)");
-        sb.AppendLine("            {");
+        sb.AppendLine("            Dispose(disposing: true);");
+        sb.AppendLine("            GC.SuppressFinalize(this);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine($"        ~{info.ViewName}Session() => Dispose(disposing: false);");
+        sb.AppendLine();
+        sb.AppendLine("        private void Dispose(bool disposing)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_disposed) return;");
         if (hasUpdatableParams)
-            sb.AppendLine("                Unbind();");
-        sb.AppendLine("                _disposed = true;");
-        sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Free(_handle);");
+        {
+            // Unbind() touches managed INotifyPropertyChanged subscriptions — only safe on
+            // the disposing path. On finalize, the publisher may already be unreachable.
+            sb.AppendLine("            if (disposing) Unbind();");
+        }
+        sb.AppendLine("            _disposed = true;");
+        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Free(_handle);");
         if (hasClosures)
         {
-            sb.AppendLine("                foreach (var h in _closureHandles)");
-            sb.AppendLine("                    if (h.IsAllocated) h.Free();");
-            sb.AppendLine("                _closureHandles = Array.Empty<GCHandle>();");
+            sb.AppendLine("            foreach (var h in _closureHandles)");
+            sb.AppendLine("                if (h.IsAllocated) h.Free();");
+            sb.AppendLine("            _closureHandles = Array.Empty<GCHandle>();");
         }
         // Free lifecycle handles.
-        sb.AppendLine("                foreach (var h in _lifecycleHandles)");
-        sb.AppendLine("                    if (h.IsAllocated) h.Free();");
-        sb.AppendLine("                _lifecycleHandles = Array.Empty<GCHandle>();");
-        sb.AppendLine("                _handle = IntPtr.Zero;");
-        sb.AppendLine("            }");
+        sb.AppendLine("            foreach (var h in _lifecycleHandles)");
+        sb.AppendLine("                if (h.IsAllocated) h.Free();");
+        sb.AppendLine("            _lifecycleHandles = Array.Empty<GCHandle>();");
+        sb.AppendLine("            _handle = IntPtr.Zero;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine();

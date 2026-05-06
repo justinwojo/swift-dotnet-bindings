@@ -308,8 +308,14 @@ namespace BindingsGeneration
                 }
                 // Optional<existential> without @_cdecl flag (e.g., property accessor where
                 // UsesCdeclPropertyWrapper isn't visible yet): check existential type directly.
-                if (env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec) ||
-                    CdeclParamMapper.IsProtocolExistentialType(returnType.SwiftTypeSpec, env.TypeDatabase))
+                // Exception: Optional<any Error> is 8 bytes (boxed reference, nil = 0) and
+                // returned directly in x0 — keep it on the direct-IntPtr path so the wrapper
+                // body uses the returned pointer instead of a never-written sret buffer.
+                // Both predicates (IsOptionalExistential + IsProtocolExistentialType) match
+                // Optional<any Error>, so the AnyError exclusion has to gate the whole branch.
+                if (!env.ExistentialHandler.IsOptionalAnyError(returnType.SwiftTypeSpec) &&
+                    (env.ExistentialHandler.IsOptionalExistential(returnType.SwiftTypeSpec) ||
+                     CdeclParamMapper.IsProtocolExistentialType(returnType.SwiftTypeSpec, env.TypeDatabase)))
                 {
                     return true;
                 }

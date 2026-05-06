@@ -333,6 +333,35 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("ObjectDisposedException", csContent);
     }
 
+    /// <summary>
+    /// Bug 4 regression: emitted SwiftUI bridge sessions follow the standard
+    /// .NET <c>IDisposable</c> pattern — a public <c>Dispose()</c> that calls
+    /// <c>GC.SuppressFinalize(this)</c>, a finalizer <c>~SessionName()</c>
+    /// that delegates to <c>Dispose(disposing: false)</c>, and a
+    /// <c>Dispose(bool disposing)</c> that frees the native handle and any
+    /// <c>GCHandle</c>s. Without the finalizer, a forgotten <c>Dispose()</c>
+    /// leaks the retained native pointer plus every GCHandle the session
+    /// allocated for closure parameters or the lifecycle handler.
+    /// </summary>
+    [Fact]
+    public void EmitSimpleViewBridge_CSharp_HasStandardDisposePatternWithFinalizer()
+    {
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Public Dispose() suppresses finalizer and delegates to Dispose(true)
+        Assert.Contains("public void Dispose()", csContent);
+        Assert.Contains("Dispose(disposing: true)", csContent);
+        Assert.Contains("GC.SuppressFinalize(this)", csContent);
+        // Finalizer delegates to Dispose(false) so a forgotten Dispose() still releases native state
+        Assert.Contains("~TestViewSession() => Dispose(disposing: false);", csContent);
+        // Protected Dispose(bool) is the single cleanup site
+        Assert.Contains("private void Dispose(bool disposing)", csContent);
+    }
+
     [Fact]
     public void EmitSimpleViewBridge_FallsBackToTemplate_ForUnsupportedParams()
     {

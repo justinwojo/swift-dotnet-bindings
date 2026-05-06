@@ -1009,15 +1009,26 @@ public static partial class SwiftUIBridgeEmitter
 
         EmitDataDrivenCreateAsyncFactory(sb, info, pattern);
 
+        // Dispose pattern with finalizer: GC-driven cleanup is the only fallback when a
+        // SwiftUI consumer constructs a session and stores it on a struct View without
+        // a using/explicit-Dispose handshake. Without the finalizer, both the +1-retained
+        // native session pointer and the pinned state GCHandle leak permanently. Pairs with
+        // bug-0.10.0-swiftui-bridge-session-missing-finalizer.
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
-        sb.AppendLine("            if (!_disposed)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                _disposed = true;");
-        sb.AppendLine($"                {info.ViewName}BridgeNativeMethods.Free(_handle);");
-        sb.AppendLine("                if (_stateHandle.IsAllocated) _stateHandle.Free();");
-        sb.AppendLine("                _handle = IntPtr.Zero;");
-        sb.AppendLine("            }");
+        sb.AppendLine("            Dispose(disposing: true);");
+        sb.AppendLine("            GC.SuppressFinalize(this);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine($"        ~{info.ViewName}Session() => Dispose(disposing: false);");
+        sb.AppendLine();
+        sb.AppendLine("        private void Dispose(bool disposing)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_disposed) return;");
+        sb.AppendLine("            _disposed = true;");
+        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Free(_handle);");
+        sb.AppendLine("            if (_stateHandle.IsAllocated) _stateHandle.Free();");
+        sb.AppendLine("            _handle = IntPtr.Zero;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine();

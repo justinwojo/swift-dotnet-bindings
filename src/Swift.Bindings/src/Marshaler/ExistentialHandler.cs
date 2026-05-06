@@ -376,6 +376,32 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// Determines whether a type spec is specifically <c>Optional&lt;any Swift.Error&gt;</c> —
+    /// the only existential whose Swift ABI is a single 8-byte boxed reference rather
+    /// than a 40-byte 5-word existential container.
+    ///
+    /// <para>
+    /// <c>any Error</c> is class-bound and stored as a single retained pointer to a Swift
+    /// error box (<c>swift_allocError</c>). <c>MemoryLayout&lt;(any Error)?&gt;.size == 8</c>
+    /// (verified via swiftc), and the function returns the boxed pointer in <c>x0</c> with
+    /// <c>nil</c> encoded as <c>0</c> — no <c>@out</c>/sret involved. Every other
+    /// <c>any P</c> existential is a 5-word container returned via sret.
+    /// </para>
+    /// <para>
+    /// Used by <see cref="MarshallingHelpers"/> to keep <c>Optional&lt;any Error&gt;</c> on
+    /// the direct-IntPtr return path (matching Swift's actual ABI) while leaving
+    /// <c>Optional&lt;any P&gt;</c> for arbitrary <c>P</c> on the sret path.
+    /// </para>
+    /// </summary>
+    public bool IsOptionalAnyError(TypeSpec typeSpec)
+    {
+        var inner = UnwrapOptionalExistential(typeSpec);
+        if (inner is null || inner.Protocols.Count != 1)
+            return false;
+        return inner.Protocols.Keys.First().Name == "Swift.Error";
+    }
+
+    /// <summary>
     /// Extracts the inner existential type from an Optional-wrapped existential.
     /// </summary>
     /// <param name="typeSpec">The type specification (must be an Optional-wrapped existential).</param>

@@ -732,6 +732,41 @@ internal class MethodMarshalPlanBuilder
             // ownership to SwiftSafeHandle — don't free for those.
             string? swiftIndirectCleanup = "NativeMemory.Free(_cdeclBuf);";
             var returnArg2 = _env.MethodDecl.CSSignature.First();
+
+            // Optional<any P> direct CallConvSwift sret: the Swift function writes the
+            // address-only Optional<existential> into the sret buffer using its full ABI shape
+            // (≥41 bytes, alignment 8). The wrapper-signature return type for the C# wrapper is
+            // a nullable projection (e.g. `Foo.AnyError?` → Nullable<AnyError>) which has no
+            // Swift type-metadata producer — sizing the buffer through it throws
+            // "Unable to get type metadata for type Nullable`1" at the first call.
+            //
+            // Size from SwiftOptional<ExistentialContainerN> instead. ExistentialContainerN
+            // implements IExistentialContainer (metadata via swift_getExistentialTypeMetadata),
+            // so SwiftOptional<…> resolves through its ISwiftObject metadata accessor and
+            // produces the correct stride. This is the same shape the unmarshal path reads
+            // via MarshalFromSwiftObject<SwiftOptional<…>>, keeping PInvoke signature,
+            // buffer allocation, and result extraction aligned on a single Swift ABI
+            // source-of-truth.
+            if (_env.ExistentialHandler.IsOptionalExistential(returnArg2.SwiftTypeSpec))
+            {
+                var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg2.SwiftTypeSpec);
+                if (innerProtocolList != null && _env.ExistentialHandler.IsSupportedExistential(innerProtocolList))
+                {
+                    var containerType = _env.ExistentialHandler.GetPInvokeExistentialType(innerProtocolList);
+                    return new IndirectResultSetup
+                    {
+                        IsConstructor = false,
+                        ReturnTypeName = _wrapperSignature.ReturnType,
+                        AllocationCode = $$"""
+                            var returnMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{containerType}}>>();
+                            _cdeclBuf = NativeMemory.AllocZeroed((nuint)returnMetadata.Size);
+                            var swiftIndirectResult = new SwiftIndirectResult(_cdeclBuf);
+                            """,
+                        CleanupCode = swiftIndirectCleanup
+                    };
+                }
+            }
+
             if (returnArg2.SwiftTypeSpec is NamedTypeSpec returnNts2 && returnNts2.HasModule())
             {
                 var returnTypeName2 = SwiftTypeName.FromTypeSpec(returnNts2);

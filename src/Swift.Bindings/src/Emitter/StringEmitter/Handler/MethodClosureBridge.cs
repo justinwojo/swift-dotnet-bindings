@@ -633,6 +633,8 @@ public static class MethodClosureBridge
             // D1: Heap allocations sit outside any if-let branch — they're independent of
             // optional-existential nil-vs-not and C# takes ownership either way (VWT Destroy
             // + NativeMemory.Free on disposal). Duplicating them per-branch would leak.
+            // Per-invocation buffer leak when C# uses MarshalBorrowedFromSwift instead is
+            // tracked in bug-0.10.0-swift-wrapper-payload-buffer-leak (Bundle 10).
             foreach (var (idx, swiftType) in analysis.heapAllocArgs)
             {
                 swiftWriter.WriteLine($"{bodyBaseIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
@@ -815,6 +817,10 @@ public static class MethodClosureBridge
         {
             innerTypeArgs.Add(GetCallbackParamType(closureArgs[i], env));
         }
+
+        // GCHandle is freed by the wrapper's finally block, not the trampoline. Single-shot
+        // completion-handler trampoline-side free is tracked under
+        // bug-0.10.0-callback-trampoline-gchandle-leak (Bundle 10).
 
         if (!closureReturnIsVoid)
         {

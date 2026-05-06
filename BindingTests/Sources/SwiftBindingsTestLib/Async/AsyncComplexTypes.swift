@@ -267,6 +267,39 @@ public class AsyncOptionalContainerWorker {
     }
 }
 
+/// Bug 8 regression: top-level (non-optional) async returns of
+/// `Array<ObjCBridgeable>` / `Set<ObjCBridgeable>` / `[Key: ObjCBridgeable]` previously
+/// emitted CS1503 because `EmitAsyncWrapperForCollection` declared
+/// `var _collection = SwiftMarshal.MarshalFromSwift<SwiftArray<NSUrl>>(resultPtr);`
+/// and then handed `_collection` to `ArrayFromHandleFunc<NSUrl>(_collection, ...)`,
+/// which expects an IntPtr. The optional path side-stepped this by switching to a
+/// `_ptr` carrier (the Swift wrapper stored a +1 retained NSArray/NSDictionary/NSSet
+/// via `as AnyObject`); the non-optional path now does the same.
+public class AsyncTopLevelObjCContainerWorker {
+    public init() {}
+
+    /// Async method returning non-optional `[URL]`.
+    public func asyncGetURLArray() async -> [URL] {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return [URL(string: "https://example.com")!, URL(string: "https://test.com")!]
+    }
+
+    /// Async method returning non-optional `Set<URL>`.
+    public func asyncGetURLSet() async -> Set<URL> {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return Set([URL(string: "https://example.com")!, URL(string: "https://test.com")!])
+    }
+
+    /// Async method returning non-optional `[String: URL]`.
+    public func asyncGetURLDictionary() async -> [String: URL] {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return [
+            "primary": URL(string: "https://example.com")!,
+            "secondary": URL(string: "https://test.com")!
+        ]
+    }
+}
+
 // MARK: - Async Tuple Returns with Foundation.Data
 
 /// Class with async methods returning tuples containing Foundation.Data.

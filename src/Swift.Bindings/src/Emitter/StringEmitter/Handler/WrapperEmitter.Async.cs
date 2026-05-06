@@ -661,6 +661,17 @@ namespace BindingsGeneration
                     bool isOptionalObjCContainer = !isClassType && !isOptionalClassType &&
                         IsOptionalObjCBridgeContainerReturn(returnTypeSpec);
 
+                    // Top-level non-optional Container<ObjCBridgeable> (e.g. `[URL]`, `Set<URL>`,
+                    // `[String: URL]`): same `as AnyObject` bridge as the optional variant, minus
+                    // the unwrap. Without this branch we'd `initializeMemory(as: Array<URL>.self,
+                    // ...)` — stamping `_ContiguousArrayStorage<URL>` bits into the carrier — and
+                    // the C# side would feed that pointer to `ArrayFromHandleFunc<NSUrl>(_ptr, ...)`,
+                    // which crashes because `_SwiftURL` is not an NSObject. Pairs with the
+                    // `usesObjCContainerBridge` branch in TryGetCollectionAsyncInfo.
+                    bool isTopLevelObjCContainer = !isClassType && !isOptionalClassType &&
+                        !isOptionalObjCContainer &&
+                        IsTopLevelObjCBridgeContainerReturn(returnTypeSpec);
+
                     // Allocate memory and place a properly-initialized Swift value in it.
                     // `storeBytes(of:as:)` requires BitwiseCopyable (Swift 6+). `copyMemory`
                     // produces raw bits aliased to the source, which is unsafe for non-trivial
@@ -679,12 +690,17 @@ namespace BindingsGeneration
                         $"// Marshal complex type to pointer for C# callback\n" +
                         $"                        let _resultPtr: OpaquePointer\n" +
                         $"                        do {{\n" +
-                        (isClassType
-                            ? // For classes: retain and store the opaque pointer value directly.
-                              // Unmanaged.passRetained increments refcount; toOpaque() returns UnsafeMutableRawPointer
-                              // which IS BitwiseCopyable, avoiding the storeBytes restriction.
-                              // C# will free the 8-byte carrier buffer via SBW_Free.
-                              // SwiftClassHandle takes ownership of the +1 retain (no Arc.Release needed in C#).
+                        ((isClassType || isTopLevelObjCContainer)
+                            ? // Classes and top-level ObjC-bridge containers: retain and store the
+                              // opaque pointer directly. For classes, `as AnyObject` is a no-op
+                              // pointer cast; for `[URL]` / `Set<URL>` / `[String: URL]` it dispatches
+                              // through `_ObjectiveCBridgeable` to produce a real NSArray/NSDictionary/NSSet
+                              // with +1 retain (NOT the raw `_ContiguousArrayStorage` / `Foundation._SwiftURL`,
+                              // which crash ObjC registrar lookup). `Unmanaged.passRetained` increments
+                              // refcount; `toOpaque()` returns UnsafeMutableRawPointer which IS BitwiseCopyable,
+                              // avoiding the storeBytes restriction. C# reads the IntPtr from the 8-byte
+                              // carrier and either MarshalFromSwift (class) or ArrayFromHandle/GetINativeObject
+                              // (container) takes ownership of the +1 retain.
                               $"                            let _rawPtr = UnsafeMutableRawPointer.allocate(\n" +
                               $"                                byteCount: MemoryLayout<UnsafeMutableRawPointer>.size,\n" +
                               $"                                alignment: MemoryLayout<UnsafeMutableRawPointer>.alignment)\n" +
@@ -1222,10 +1238,20 @@ namespace BindingsGeneration
             // Detect collection returns (Array, Dictionary, Set) — these pass through OpaquePointer
             // on the Swift side (same as complex types) but need MarshalFromSwift with the runtime
             // container type (e.g., SwiftArray<int>), not the public type (IReadOnlyList<int>).
-            if (!voidReturn && TryGetCollectionAsyncInfo(returnType.SwiftTypeSpec, out var runtimeType, out var conversionExpr))
+            //
+            // ObjC-container-bridge variant (e.g., `[URL]`, `Set<URL>`, `[String: URL]`): the Swift
+            // wrapper uses the same nullable-pointer carrier as the optional path — store a +1
+            // retained NSArray / NSDictionary / NSSet pointer (via `as AnyObject`) and let C# read
+            // it as an IntPtr. Without this branch, `MarshalFromSwift<SwiftArray<NSUrl>>(...)` would
+            // try to revive Swift's `_ContiguousArrayStorage<URL>` bits as a managed handle, and
+            // the conversion expression (`ArrayFromHandleFunc<NSUrl>(_collection, ...)`) would mismatch
+            // (CS1503: SwiftArray<NSUrl> vs IntPtr).
+            if (!voidReturn && TryGetCollectionAsyncInfo(returnType.SwiftTypeSpec,
+                out var runtimeType, out var conversionExpr, out var collectionUsesObjCBridge))
             {
                 EmitAsyncWrapperForCollection(callbackWriter, callbackFieldName, callbackMethodName,
-                    errorCallbackFieldName, errorCallbackMethodName, runtimeType, conversionExpr);
+                    errorCallbackFieldName, errorCallbackMethodName, runtimeType, conversionExpr,
+                    collectionUsesObjCBridge);
                 FlushAsyncHelperWriter();
                 return;
             }
@@ -1784,14 +1810,25 @@ namespace BindingsGeneration
         /// Tries to detect if the return TypeSpec is a collection type (Array, Dictionary, Set)
         /// and extracts the runtime container type name and conversion expression needed for
         /// async callback marshalling.
+        ///
+        /// When the projection's <see cref="ITypeProjection.UsesObjCContainerBridge"/> is true
+        /// (e.g. <c>[URL]</c>, <c>Set&lt;URL&gt;</c>, <c>[String: URL]</c> whose elements bridge
+        /// through NSObject), the returned <paramref name="conversionExpr"/> is keyed off
+        /// <c>_ptr</c> (an <c>IntPtr</c> read from the carrier buffer) instead of <c>_collection</c>
+        /// (a managed <c>SwiftArray&lt;T&gt;</c> / <c>SwiftSet&lt;T&gt;</c> / <c>SwiftDictionary&lt;…&gt;</c>).
+        /// The Swift @_cdecl wrapper for this branch stores a +1 retained NSArray / NSDictionary /
+        /// NSSet pointer (via <c>as AnyObject</c>) into the carrier. <paramref name="usesObjCContainerBridge"/>
+        /// signals which carrier shape <see cref="EmitAsyncWrapperForCollection"/> must emit.
         /// </summary>
         /// <returns>True if the type is a collection with extractable async info.</returns>
         private bool TryGetCollectionAsyncInfo(TypeSpec returnTypeSpec,
             [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? runtimeType,
-            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? conversionExpr)
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? conversionExpr,
+            out bool usesObjCContainerBridge)
         {
             runtimeType = null;
             conversionExpr = null;
+            usesObjCContainerBridge = false;
 
             var ctx = new ProjectionContext
             {
@@ -1803,26 +1840,59 @@ namespace BindingsGeneration
             var projection = s_projectionFactory.Project(returnTypeSpec, ctx);
             if (projection is ArrayProjection ap)
             {
+                usesObjCContainerBridge = ap.UsesObjCContainerBridge;
                 runtimeType = ap.ContainerTypeName;
-                conversionExpr = ap.GetReturnContainerConversion("_collection")!;
+                conversionExpr = usesObjCContainerBridge
+                    ? ap.GetReturnContainerConversion("_ptr")!
+                    : ap.GetReturnContainerConversion("_collection")!;
                 return true;
             }
             if (projection is DictionaryProjection dp)
             {
+                usesObjCContainerBridge = dp.UsesObjCContainerBridge;
                 runtimeType = dp.ContainerTypeName;
-                conversionExpr = dp.GetReturnContainerConversion("_collection")!;
+                conversionExpr = usesObjCContainerBridge
+                    ? dp.GetReturnContainerConversion("_ptr")!
+                    : dp.GetReturnContainerConversion("_collection")!;
                 return true;
             }
             if (projection is SetProjection sp)
             {
+                usesObjCContainerBridge = sp.UsesObjCContainerBridge;
                 runtimeType = sp.ContainerTypeName;
                 // SetProjection returns null when no element conversion is needed
                 // (SwiftSet<T> already implements IReadOnlySet<T>). Use identity.
-                conversionExpr = sp.GetReturnContainerConversion("_collection") ?? "_collection";
+                conversionExpr = usesObjCContainerBridge
+                    ? sp.GetReturnContainerConversion("_ptr")!
+                    : (sp.GetReturnContainerConversion("_collection") ?? "_collection");
                 return true;
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Returns true when the method's async return is a top-level non-optional
+        /// <c>Array/Set/Dictionary</c> whose element projection bridges through NSObject
+        /// (e.g. <c>[URL]</c>, <c>Set&lt;URL&gt;</c>, <c>[String: URL]</c>). Used by the
+        /// Swift @_cdecl wrapper emitter to pick the single-pointer carrier shape (store
+        /// a +1 retained NSArray / NSDictionary / NSSet pointer via <c>as AnyObject</c>)
+        /// instead of the raw <c>initializeMemory(as:repeating:)</c> path, which would
+        /// stamp Swift's <c>_ContiguousArrayStorage&lt;T&gt;</c> / <c>Foundation._SwiftURL</c>
+        /// bits into the buffer — those are NOT toll-free bridged, and feeding their
+        /// pointers into <c>ArrayFromHandle</c> / <c>GetINativeObject</c> crashes the
+        /// ObjC registrar.
+        /// </summary>
+        private bool IsTopLevelObjCBridgeContainerReturn(TypeSpec returnSpec)
+        {
+            var projection = ProjectReturn(returnSpec);
+            return projection switch
+            {
+                ArrayProjection ap => ap.UsesObjCContainerBridge,
+                DictionaryProjection dp => dp.UsesObjCContainerBridge,
+                SetProjection sp => sp.UsesObjCContainerBridge,
+                _ => false
+            };
         }
 
         /// <summary>
@@ -1934,13 +2004,34 @@ namespace BindingsGeneration
         /// These use the same OpaquePointer pattern as complex types on the Swift side,
         /// but require MarshalFromSwift with the runtime container type (e.g., SwiftArray&lt;int&gt;)
         /// instead of the public type (e.g., IReadOnlyList&lt;int&gt;).
+        ///
+        /// When <paramref name="usesObjCContainerBridge"/> is true (e.g. <c>[URL]</c>,
+        /// <c>Set&lt;URL&gt;</c>, <c>[String: URL]</c>), the Swift wrapper stores a +1 retained
+        /// NSArray / NSDictionary / NSSet pointer (via <c>as AnyObject</c>) into the carrier
+        /// instead of the raw Swift collection bits. C# reads that as an <c>IntPtr</c> and feeds
+        /// it to the projection-supplied conversion (which expects a pointer, not a managed
+        /// container). This mirrors the optional-collection ObjC-bridge branch in
+        /// <see cref="EmitAsyncWrapperForComplexType"/>.
         /// </summary>
         private void EmitAsyncWrapperForCollection(CSharpWriter csWriter,
             string callbackFieldName, string callbackMethodName,
             string errorCallbackFieldName, string errorCallbackMethodName,
-            string runtimeType, string conversionExpr)
+            string runtimeType, string conversionExpr,
+            bool usesObjCContainerBridge)
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
+
+            // ObjC-container bridge: read the retained pointer the Swift wrapper stored, then
+            // bridge through the projection's IntPtr-shaped conversion. Plain Swift collection:
+            // revive via MarshalFromSwift on the runtime container type and let the projection
+            // convert from the managed container.
+            string marshalLines = usesObjCContainerBridge
+                ? $"// ObjC-bridge collection: read +1 retained NS-collection pointer from carrier\n" +
+                  $"                                IntPtr _ptr = *(IntPtr*)resultPtr;\n" +
+                  $"                                var result = {conversionExpr};"
+                : $"// Marshal collection from Swift-allocated memory using runtime container type\n" +
+                  $"                                var _collection = SwiftMarshal.MarshalFromSwift<{runtimeType}>(resultPtr);\n" +
+                  $"                                var result = {conversionExpr};";
 
             var text = $$"""
                         {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> {{callbackFieldName}} = &{{callbackMethodName}};
@@ -1950,9 +2041,7 @@ namespace BindingsGeneration
                             GCHandle handle = GCHandle.FromIntPtr(task);
                             try
                             {
-                                // Marshal collection from Swift-allocated memory using runtime container type
-                                var _collection = SwiftMarshal.MarshalFromSwift<{{runtimeType}}>(resultPtr);
-                                var result = {{conversionExpr}};
+                                {{marshalLines}}
 
                                 // Handle both cases: direct TCS or object[] holder (with copy buffer pointers)
                                 if (handle.Target is object[] holder && holder[0] is TaskCompletionSource<{{_wrapperSignature.ReturnType}}> holderTcs)

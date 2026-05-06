@@ -218,4 +218,52 @@ public class ProtocolClosureSkipTests : TestBase
     }
 
     #endregion
+
+    #region Empty-Proxy-Vtable Bug — Closure-Skipped Vtable Slots Are Wired
+
+    // Layer-A regression for bug-0.10.0-empty-proxy-vtables-for-closure-protocol-methods.
+    //
+    // Pre-fix: the proxy declared a `Func_<closureMethod>_N` field but the static ctor
+    // never assigned it, so the Swift→C# vtable slot held a null function pointer.
+    // Swift's witness dispatch into that slot SIGSEGV'd silently — a programming error
+    // that the consumer had no way to diagnose because the C# side compiled and the
+    // proxy registered fine.
+    //
+    // Post-fix: the static ctor wires the slot to an observable-failure trampoline
+    // (`throw new NotSupportedException` from inside [UnmanagedCallersOnly]). We can't
+    // assert the throw at runtime without process-terminating the test, but the
+    // generated-code shape is locked down by the matching unit tests in
+    // ProtocolProxyEmitterTests / ProtocolHandlerOutputTests. The runtime checks here
+    // exercise the static-ctor execution path: pre-fix the static ctor failed silently
+    // in a different way for some shapes (multi-arg-closure / optional-closure types
+    // landed differently in the local-vtable struct layout), so even the construction
+    // path is a regression target.
+
+    public void TestEventDelegateProxy_StaticCtorWiresClosureSlot()
+    {
+        // Construct a proxy to force the static ctor + local-vtable init to run.
+        // The slot wiring (`Func_onComplete_1 = &Receive_onComplete_1,`) executes
+        // here. Pre-fix this line was missing entirely.
+        var impl = new TestEventDelegate("Slot", _ => true);
+        var proxy = new EventDelegateProxy(impl);
+        AssertNotNull(proxy, "EventDelegateProxy with closure-skipped onComplete constructs cleanly");
+    }
+
+    public void TestDataLoadingDelegateProxy_MultiArgClosureStaticCtorWires()
+    {
+        // Multi-arg closure shape: pre-fix would have left
+        // Func_onDataLoaded_0 unassigned. Forcing the static ctor verifies the
+        // wiring runs without TypeInitializationException.
+        global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(DataLoadingDelegateProxy).TypeHandle);
+        AssertNotNull(typeof(DataLoadingDelegateProxy), "DataLoadingDelegateProxy static ctor ran cleanly");
+    }
+
+    public void TestCompletionDelegateProxy_OptionalClosureStaticCtorWires()
+    {
+        // Optional<Closure> shape: same wiring path, same regression target.
+        global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CompletionDelegateProxy).TypeHandle);
+        AssertNotNull(typeof(CompletionDelegateProxy), "CompletionDelegateProxy static ctor ran cleanly");
+    }
+
+    #endregion
 }

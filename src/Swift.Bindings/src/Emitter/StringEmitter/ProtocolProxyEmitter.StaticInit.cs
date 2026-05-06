@@ -160,9 +160,19 @@ public partial class ProtocolProxyEmitter
             {
                 var idx = methodIndex++;
                 methodIndices[methodKey] = idx;
-                // Skip assignment for methods that the interface skipped (field stays default/null)
                 if (_skippedMethodKeys.Contains(methodKey))
+                {
+                    // Closure-receiving protocol methods get an observable-failure trampoline
+                    // instead of a null vtable slot — see EmitNotSupportedMethodReceiver in
+                    // ProtocolProxyEmitter.Receivers.cs.
+                    if (_closureSkippedMethodKeys.Contains(methodKey))
+                    {
+                        var projectedKeyClosure = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                        if (emittedCSharpKeys.Add(projectedKeyClosure))
+                            EmitLocalVtableMethodAssignment(writer, method, idx);
+                    }
                     continue;
+                }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
@@ -229,9 +239,19 @@ public partial class ProtocolProxyEmitter
             {
                 var idx = methodIndex++;
                 methodIndices[methodKey] = idx;
-                // Skip assignment for methods that the interface skipped (field stays IntPtr.Zero)
                 if (_skippedMethodKeys.Contains(methodKey))
+                {
+                    // Closure-receiving protocol methods: forward the local vtable's
+                    // NotSupported trampoline pointer to Swift so witness dispatch lands
+                    // on a logged exception rather than a null function pointer.
+                    if (_closureSkippedMethodKeys.Contains(methodKey))
+                    {
+                        var projectedKeyClosure = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
+                        if (emittedCSharpKeys.Add(projectedKeyClosure))
+                            EmitSwiftVtableMethodAssignment(writer, method, idx);
+                    }
                     continue;
+                }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;

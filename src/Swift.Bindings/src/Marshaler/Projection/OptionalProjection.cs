@@ -297,6 +297,50 @@ public class OptionalProjection : ITypeProjection
             // Existential inner — discriminant check + proxy construction
             var elemConversion = _innerProjection.GetReturnElementConversion("swiftResult.Some");
             var convExpr = elemConversion ?? "swiftResult.Some";
+
+            // Optional<any Error> direct-IntPtr return: `any Error` is class-bound (single
+            // boxed pointer, MemoryLayout = 8) so Swift returns Optional<(any Error)> directly
+            // in x0 with nil = IntPtr.Zero — no sret. Construct AnyError over Payload0 only;
+            // sbw_anyErrorGetDescription loads `(any Error).self` (8 bytes) from the container,
+            // so the remaining EC1 slots are unread and may stay zero.
+            //
+            // Gated to AnyError specifically — every other `any P` is a 5-word existential
+            // container (40 bytes) returned via sret, which falls through to the indirect-result
+            // bypass below.
+            if (strategy == ReturnStrategy.Direct &&
+                _innerProjection.PublicType == "Swift.Foundation.AnyError")
+            {
+                return new MarshalPlan
+                {
+                    PInvokeExpression =
+                        $"({resultName} == IntPtr.Zero ? (Swift.Foundation.AnyError?)null : " +
+                        $"new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultName} }}))"
+                };
+            }
+
+            // Indirect-result existential bypass: SwiftOptional<ExistentialContainerN>.Case
+            // resolves the discriminant via VWT.GetEnumTag, which is known-broken on Mono iOS
+            // Simulator for Optional<any P> (the inner SwiftOptional.cs blittable/simple-enum
+            // bypasses don't cover existentials). Read the existential's metadata pointer
+            // directly: ExistentialContainerN places `_metadata` at offset 3 × IntPtr.Size on
+            // every variant (0 protocols .. 8 protocols). Swift encodes None as
+            // `metadata = nullptr` via the metadata pointer's extra-inhabitant slot, so a
+            // pointer comparison against IntPtr.Zero is the canonical None check. Some =
+            // dereference the full container and feed it to the projection's element
+            // conversion (e.g. `new AnyError(...)` or proxy-class construction).
+            if (strategy is ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer)
+            {
+                var directInnerExpr = $"*({returnTypeParam}*){resultName}";
+                var directConv = elemConversion?.Replace("swiftResult.Some", directInnerExpr)
+                              ?? directInnerExpr;
+                return new MarshalPlan
+                {
+                    PInvokeExpression =
+                        $"(*(IntPtr*)((byte*){resultName} + (3 * IntPtr.Size)) == IntPtr.Zero ? null : {directConv})",
+                    RequiresUnsafe = true
+                };
+            }
+
             return BuildDiscriminantReturnPlan(resultName, strategy, returnTypeParam, convExpr);
         }
 

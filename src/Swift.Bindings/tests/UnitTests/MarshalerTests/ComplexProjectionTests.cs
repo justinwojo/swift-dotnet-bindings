@@ -591,8 +591,13 @@ public class ComplexProjectionTests
         var proj = new OptionalProjection(inner, isExistentialInner: true);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        Assert.Contains("SwiftOptionalCases.None", plan.PInvokeExpression);
+        // Behavior: indirect-result existential bypass — None is detected via the
+        // metadata-pointer null test (canonical encoding); Some constructs the proxy.
+        // The bypass exists because SwiftOptional<T>.Case → VWT GetEnumTag is broken
+        // on Mono iOS Simulator for existential optionals.
+        Assert.Contains("== IntPtr.Zero", plan.PInvokeExpression);
         Assert.Contains("new DescribableProxy", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetEnumTag", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -601,6 +606,39 @@ public class ComplexProjectionTests
         var inner = new BlittableProjection("Int64");
         var proj = new OptionalProjection(inner);
         Assert.Same(inner, proj.InnerProjection);
+    }
+
+    [Fact]
+    public void Optional_AnyError_DirectReturnPlan_BoxedPointer()
+    {
+        // Bug 0.10.0 (DataLoader.Validate uninitialized buffer): `(any Error)?` is the
+        // ONE existential optional that's NOT 5-word-container-via-sret. `any Error` is
+        // class-bound (boxed reference, MemoryLayout = 8). Swift returns `Optional<(any
+        // Error)>` directly in x0 with nil = IntPtr.Zero. The wrapper must construct
+        // AnyError over Payload0 (the boxed pointer) — sbw_anyErrorGetDescription
+        // loads `(any Error).self` (8 bytes) from the container and never reads the
+        // remaining EC1 slots, so they may stay zero.
+        //
+        // ExistentialProjection with PublicType "Swift.Foundation.AnyError" is the
+        // signal that fires the AnyError-specific direct branch; OptionalProjection
+        // emits the boxed-pointer null test instead of the buffer-relative
+        // metadata-pointer test used by every other `(any P)?`.
+        var inner = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer1",
+            "Swift.Foundation.AnyError",
+            proxyClassName: null);
+        var proj = new OptionalProjection(inner, isExistentialInner: true);
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+
+        // Boxed-pointer null check on the IntPtr return — NOT a buffer offset read.
+        Assert.Contains("result == IntPtr.Zero", plan.PInvokeExpression);
+        // AnyError construction wraps the boxed pointer into ExistentialContainer1.Payload0.
+        Assert.Contains("new Swift.Foundation.AnyError(", plan.PInvokeExpression);
+        Assert.Contains("Payload0 = result", plan.PInvokeExpression);
+        // No sret-style buffer arithmetic, no SwiftOptional discriminant.
+        Assert.DoesNotContain("byte*", plan.PInvokeExpression);
+        Assert.DoesNotContain("SwiftOptionalCases", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetEnumTag", plan.PInvokeExpression);
     }
 
     [Fact]

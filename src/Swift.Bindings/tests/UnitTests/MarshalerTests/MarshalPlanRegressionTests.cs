@@ -593,8 +593,13 @@ public class MarshalPlanRegressionTests
         var proj = new OptionalProjection(inner, isExistentialInner: true);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
 
-        Assert.Contains("SwiftOptionalCases.None", plan.PInvokeExpression);
-        Assert.Contains("new DescribableProxy(swiftResult.Some)", plan.PInvokeExpression);
+        // Behavior: discriminant check via metadata-pointer null test (canonical None
+        // encoding for `(any P)?`); Some branch dereferences the buffer as the inner
+        // existential container and constructs the proxy. SwiftOptional<T>.Case is not
+        // used — VWT GetEnumTag is broken on Mono iOS Simulator for existential optionals.
+        Assert.Contains("== IntPtr.Zero", plan.PInvokeExpression);
+        Assert.Contains("new DescribableProxy", plan.PInvokeExpression);
+        Assert.DoesNotContain("GetEnumTag", plan.PInvokeExpression);
     }
 
     #endregion

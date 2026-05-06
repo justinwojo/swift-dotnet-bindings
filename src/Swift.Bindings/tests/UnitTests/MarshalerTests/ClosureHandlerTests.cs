@@ -391,7 +391,12 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("global::System.Func<(long, Swift.SwiftString)>", result);
+        // Tuple-element translator now recurses through ClosureHandler so Swift.String
+        // projects to "string" — same projection rule as top-level closure args. Pre-fix
+        // (Bundle 03 callback-arg projection asymmetry) the tuple branch used
+        // TupleHandler.TranslateElementTypeToCSharp which short-circuited to
+        // typeRecord.CSharpTypeName ("Swift.SwiftString").
+        Assert.Equal("global::System.Func<(long, string)>", result);
     }
 
     [Fact]
@@ -416,7 +421,10 @@ public class ClosureHandlerTests
 
         var result = handler.GetCSharpDelegateType(closure);
 
-        Assert.Equal("global::System.Func<(long, bool), (double, Swift.SwiftString)>", result);
+        // Both tuples now route through ClosureHandler's recursive translator, so
+        // Swift.String projects to "string" inside the tuple — see comment on
+        // GetCSharpDelegateType_WithTupleReturn_ReturnsCorrectType.
+        Assert.Equal("global::System.Func<(long, bool), (double, string)>", result);
     }
 
     [Fact]
@@ -917,6 +925,39 @@ public class ClosureHandlerTests
         Assert.Equal("Swift.SwiftArray<string>?", result);
     }
 
+    /// <summary>
+    /// Layer-B regression for bug-0.10.0-callback-arg-projection-asymmetry.md: tuple
+    /// elements inside a closure-arg tuple must go through the same translator that
+    /// top-level closure args use, otherwise types with non-trivial projections
+    /// (Swift.String → string, Optional&lt;T&gt; → T?) leak through as their raw runtime
+    /// representations only inside callback closures, while async-return-tuple emit
+    /// projects them correctly.
+    /// </summary>
+    [Fact]
+    public void TranslateTypeSpecToCSharp_TupleElement_AppliesClosureProjections()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new ClosureHandler(typeDatabase);
+
+        // (Int, String, Bool, Optional<String>) — every projectable shape we expose to
+        // closure-arg tuples through the MockTypeDatabase (Foundation.Data needs the
+        // real Apple TypeDatabase, exercised in BindingTests CallbackArgProjectionTests).
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Bool"),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.String")),
+        });
+
+        var result = handler.TranslateTypeSpecToCSharp(tuple);
+
+        // Pre-fix the same input came out as "(long, Swift.SwiftString, bool,
+        // Swift.SwiftOptional<Swift.SwiftString>)" because TupleHandler's stripped-down
+        // element translator skipped the IsSwiftString and Optional-projection rules.
+        Assert.Equal("(long, string, bool, string?)", result);
+    }
+
     [Fact]
     public void TranslateTypeSpecToCSharp_OptionalTuple_ReturnsSwiftOptional()
     {
@@ -933,7 +974,9 @@ public class ClosureHandlerTests
         var optionalTuple = new NamedTypeSpec("Swift.Optional", tupleType);
         var result = handler.TranslateTypeSpecToCSharp(optionalTuple);
 
-        Assert.Equal("Swift.SwiftOptional<(long, Swift.SwiftString)>", result);
+        // Inner tuple element Swift.String projects to "string" (Bundle 03 callback-arg
+        // projection asymmetry fix) — same rule as top-level closure args.
+        Assert.Equal("Swift.SwiftOptional<(long, string)>", result);
     }
 
     [Fact]

@@ -98,6 +98,24 @@ public class ClosureEdgeCaseTests : TestBase
         TestLogger.Info($"ComputeValueAsync = {result}");
     }
 
+    // Bug 3 Case 1 (Stripe shape): a method whose non-closure params include an
+    // `any Protocol` existential, paired with a trailing `@escaping (T) -> Void`
+    // completion. The OLD generator emitted a duplicated …Async body that
+    // allocated `existentialContextHeap` and never freed it. The fix in
+    // `MethodHandler.TryEmitCompletionHandlerOverload` makes the async overload
+    // delegate to the sync method (whose finally block already frees the heap).
+    // If the async overload exists at all and round-trips a value through the
+    // existential, it's the delegating shape — direct re-emission would skip
+    // the sync method entirely.
+    public async Task TestBug3Case1AsyncOverloadDelegatesThroughExistential()
+    {
+        var fixture = new Bug3CompletionFixture();
+        var ctx = new Bug3DefaultPaymentContext();
+        var result = await WithTimeout(fixture.ProcessPaymentAsync(ctx), DefaultAsyncTimeout);
+        AssertEqual(11, result, "ProcessPaymentAsync(ctx-default) returns UTF-8 byte count = 11");
+        TestLogger.Info($"Bug3CompletionFixture.ProcessPaymentAsync(ctx-default) = {result}");
+    }
+
     #endregion
 
     #region Closure Return Types — Direct Return

@@ -2984,10 +2984,17 @@ public class ProtocolProxyEmitterTests
             closureSkippedMethodKeys: new HashSet<string> { methodKey });
         var output = stringWriter.ToString();
 
-        // Closure + existential method should have NotSupportedException (closure wins)
+        // Closure + existential method should have NotSupportedException stub on the C# side
+        // (the consumer-facing `public void Update(...)` interface impl).
         Assert.Contains("closure parameters cannot be marshalled", output);
-        // No receiver for the closure-skipped method
-        Assert.DoesNotContain("Receive_update_0", output);
+
+        // Bug 5 fix: closure-skipped methods now emit an observable-failure trampoline so the
+        // Swift→C# vtable slot is wired to a NotSupportedException-throwing receiver instead
+        // of a null function pointer (silent SIGSEGV pre-fix). The trampoline + both vtable
+        // assignments must all be present.
+        Assert.Contains("private static void Receive_update_0(", output);
+        Assert.Contains("Func_update_0 = &Receive_update_0", output);
+        Assert.Contains("func_update_0 = (IntPtr)_localVTable.Func_update_0", output);
     }
 
     [Fact]
@@ -4357,6 +4364,71 @@ public class ProtocolProxyEmitterTests
 
         // Proxy class still emitted
         Assert.Contains("FullClosureProtocolProxy", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClosureSkippedMethod_EmitsObservableFailureTrampoline()
+    {
+        // Layer-B regression for bug-0.10.0-empty-proxy-vtables-for-closure-protocol-methods.
+        //
+        // Pre-fix: `_skippedMethodKeys.Contains(methodKey)` short-circuited the receiver
+        // emission AND both vtable-assignment phases. The local-vtable struct still declared
+        // `Func_<closureMethod>_N` as a `delegate* unmanaged[Cdecl]<...>` field (Vtables.cs
+        // emits unconditionally), so the slot existed but stayed at its default IntPtr.Zero.
+        // Swift's witness dispatch through that slot SIGSEGV'd silently with no diagnostic.
+        //
+        // Post-fix: the receiver phase emits a `Receive_<method>_N` trampoline that throws
+        // NotSupportedException, and BOTH vtable phases wire the slot to that trampoline.
+        // We verify all three emissions plus the descriptive throw message.
+        var protocol = CreateSimpleProtocol("CallbackOwner");
+        protocol.Methods.Add(CreateMethodDecl("onComplete"));
+
+        var method = protocol.Methods.First(m => m.Name == "onComplete");
+        var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocol);
+
+        var output = EmitProxyClassWithSkips(protocol,
+            closureSkippedMethodKeys: new HashSet<string> { methodKey },
+            skippedMethodKeys: new HashSet<string> { methodKey });
+
+        // (1) The trampoline itself — body throws NotSupportedException, descriptive message
+        //     names the method and protocol so the failure is diagnosable from the log.
+        Assert.Contains("private static void Receive_onComplete_0(", output);
+        Assert.Contains("throw new NotSupportedException(", output);
+        Assert.Contains("'onComplete'", output);
+        Assert.Contains("'CallbackOwner'", output);
+
+        // (2) Local vtable wires the trampoline (was missing pre-fix — slot stayed default).
+        Assert.Contains("Func_onComplete_0 = &Receive_onComplete_0", output);
+
+        // (3) Swift vtable forwards the local-vtable pointer (was missing pre-fix — slot
+        //     stayed IntPtr.Zero, so even a future runtime patch couldn't observe the call).
+        Assert.Contains("func_onComplete_0 = (IntPtr)_localVTable.Func_onComplete_0", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_ClosureSkippedTrampoline_HasUnmanagedCallersOnlyAttribute()
+    {
+        // The trampoline must be [UnmanagedCallersOnly] with the same CallConvCdecl
+        // as the regular receivers — otherwise Swift cannot dispatch through the
+        // function pointer and we re-introduce the silent-failure mode in a different
+        // form (now a runtime "managed-method-not-callable-from-native" bind error).
+        var protocol = CreateSimpleProtocol("CallbackOwner");
+        protocol.Methods.Add(CreateMethodDecl("onComplete"));
+
+        var method = protocol.Methods.First(m => m.Name == "onComplete");
+        var methodKey = ProtocolSignatureHelper.GetMethodSignatureKey(method, _typeDatabase, protocol);
+
+        var output = EmitProxyClassWithSkips(protocol,
+            closureSkippedMethodKeys: new HashSet<string> { methodKey },
+            skippedMethodKeys: new HashSet<string> { methodKey });
+
+        // The trampoline declaration must be immediately preceded by the UnmanagedCallersOnly
+        // attribute. Slice the surrounding region to make the assertion locality-bound.
+        var idx = output.IndexOf("Receive_onComplete_0(");
+        Assert.True(idx > 0, "Trampoline declaration not emitted");
+        var precedingSlice = output.Substring(Math.Max(0, idx - 200), 200);
+        Assert.Contains("UnmanagedCallersOnly", precedingSlice);
+        Assert.Contains("CallConvCdecl", precedingSlice);
     }
 
     [Fact]

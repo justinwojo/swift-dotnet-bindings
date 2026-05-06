@@ -260,6 +260,37 @@ public class PInvokeEmitterTests
         Assert.DoesNotContain(sig.Parameters, p => p.Name == "resultPtr");
     }
 
+    [Fact]
+    public void ReturnType_NonCdeclOptionalExistential_UsesSwiftIndirectResult()
+    {
+        // Bug 0.10.0 (DataLoader.Validate uninitialized buffer): direct CallConvSwift
+        // sync method returning Optional<any P> (e.g. `static func validate(...) -> (any Error)?`)
+        // is address-only in Swift's ABI — returned via sret. The PInvoke signature must
+        // declare `(SwiftIndirectResult, args...) -> void`, matching the body emission that
+        // allocates `_cdeclBuf` and constructs `swiftIndirectResult`. Pre-fix, the
+        // optional-existential block short-circuited with `SetReturnType("IntPtr"); return;`
+        // for non-cdecl, leaving the wrapper allocating + reading uninitialized memory.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("validate", classDecl, moduleDecl, isStatic: true);
+        // Optional<any TestProtocol>: Swift.Optional with a ProtocolListTypeSpec inner.
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.TestProtocol") });
+        var optType = new NamedTypeSpec("Swift.Optional");
+        optType.GenericParameters.Add(protocolList);
+        method.CSSignature[0] = CreateArg("", optType, moduleDecl);
+        // No UsesCdeclWrapper / UsesNativeThunk / UsesWrapperLibrary — pure CallConvSwift sync.
+
+        var typeDb = CreateBasicTypeDatabase("Loader");
+        var sig = GetPInvokeSignature(method, typeDb);
+
+        // sret signature: void return + SwiftIndirectResult as first parameter.
+        Assert.Equal("void", sig.ReturnType);
+        Assert.Contains(sig.Parameters, p => p.Type is MarshalledType.Simple("SwiftIndirectResult"));
+        // The buggy shape was IntPtr return with no sret slot — pin the negation explicitly
+        // so a regression flips the test back to red.
+        Assert.NotEqual("IntPtr", sig.ReturnType);
+    }
+
     #endregion
 
     #region Parameter Marshalling
