@@ -747,6 +747,65 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void WriteSwiftEquatable_RefTypeWithSwiftWriter_PinsBothSafeHandlesAroundPInvokeEq()
+    {
+        // 0.10.0 Bundle 01 (Bug 1a): the refType (non-frozen / class-projected
+        // Equatable) Equals path used to call PInvoke_eq with raw
+        // DangerousGetHandle() on both sides — no AddRef bracket, so a
+        // concurrent GC finalization between the handle access and the Swift
+        // function entry could free the Swift heap payload mid-call.
+        //
+        // Property getters on the SAME type already wrap DangerousAddRef /
+        // DangerousRelease around their PInvoke; the asymmetry was the bug.
+        // The fix routes the Equals call through a generated
+        // _PInvoke_eq_pinned helper that brackets both SafeHandles, matching
+        // the property-getter shape.
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        var emissionContext = new ModuleEmissionContext();
+
+        var structDecl = CreateStructDeclWithConformances("WeatherAttribution", CreateModuleDecl("WeatherKit"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("WeatherKit.WeatherAttribution"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.MangledName = "$s10WeatherKit18WeatherAttributionVN";
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, refType: true, "WeatherAttribution",
+            hasExplicitEqualityOperator: false, hasExplicitInequalityOperator: false,
+            swiftWriter: swiftWriter, emissionContext: emissionContext, wrapperLibraryName: "WeatherKitSwiftBindings");
+        writer.WriteSwiftEquatableImplementation();
+
+        var csResult = csOutput.ToString();
+
+        // The Equals body must call the pinned helper, NOT raw DangerousGetHandle()
+        // on both sides directly.
+        Assert.Contains("_PInvoke_eq_pinned(", csResult);
+
+        // The pinned helper itself must be emitted with the AddRef/Release
+        // bracket around BOTH operands. We assert the structural shape via
+        // independent token-presence checks rather than full string-matching
+        // the helper body — the codegen formatter is free to re-flow.
+        Assert.Contains("private static bool _PInvoke_eq_pinned(", csResult);
+        Assert.Contains("bool _eqAddedLeft = false;", csResult);
+        Assert.Contains("bool _eqAddedRight = false;", csResult);
+        Assert.Contains("left.Payload.DangerousAddRef(ref _eqAddedLeft);", csResult);
+        Assert.Contains("right.Payload.DangerousAddRef(ref _eqAddedRight);", csResult);
+        Assert.Contains("if (_eqAddedRight) right.Payload.DangerousRelease();", csResult);
+        Assert.Contains("if (_eqAddedLeft) left.Payload.DangerousRelease();", csResult);
+        // Defensive: the pinned PInvoke call still threads the raw IntPtr to
+        // PInvoke_eq (the `unsafe` ABI signature hasn't changed).
+        Assert.Contains("PInvoke_eq(left.Payload.DangerousGetHandle(), right.Payload.DangerousGetHandle())", csResult);
+
+        // Pre-fix shape — direct DangerousGetHandle() pair without the
+        // _PInvoke_eq_pinned helper — must not regress.
+        Assert.DoesNotContain("return PInvoke_eq(\n                this.Payload.DangerousGetHandle()", csResult);
+        Assert.DoesNotContain("return PInvoke_eq(this.Payload.DangerousGetHandle(), other.Payload.DangerousGetHandle());", csResult);
+    }
+
+    [Fact]
     public void WriteSwiftEquatable_WithoutSwiftWriter_FallsBackToSwiftEquatable()
     {
         // Without SwiftWriter, equality should use SwiftEquatable.Equals (legacy path).

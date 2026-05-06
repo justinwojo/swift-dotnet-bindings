@@ -687,7 +687,10 @@ namespace BindingsGeneration
             {
                 if (eqSymbol == null) return $"Swift.Runtime.SwiftEquatable.Equals({lhs}, {rhs})";
                 if (refType)
-                    return $"PInvoke_eq({lhs}.Payload.DangerousGetHandle(), {rhs}.Payload.DangerousGetHandle())";
+                    // _PInvoke_eq_pinned brackets DangerousAddRef/DangerousRelease around both
+                    // SafeHandles so a concurrent GC finalization cannot free the Swift heap
+                    // payload between Payload.DangerousGetHandle() and the Swift function entry.
+                    return $"_PInvoke_eq_pinned({lhs}, {rhs})";
                 // Value types: wrap in unsafe + use Unsafe.AsPointer to pass stack addresses
                 return $"_PInvoke_eq_value(ref {lhs}, ref {rhs})";
             }
@@ -701,6 +704,34 @@ namespace BindingsGeneration
                     return PInvoke_eq(
                         (IntPtr)global::System.Runtime.CompilerServices.Unsafe.AsPointer(ref lhs),
                         (IntPtr)global::System.Runtime.CompilerServices.Unsafe.AsPointer(ref rhs));
+                }
+                """);
+                _writer.WriteLine();
+            }
+            // For reference types, emit a helper that pins both SafeHandles around the PInvoke.
+            // Without the AddRef bracket, GC finalization of either side between the handle
+            // access and Swift function entry can free the Swift heap object that the Swift
+            // wrapper is about to dereference. The bracket gives the standard SafeHandle
+            // GC-pinning guarantee that property getters already enforce.
+            bool needsRefHelper = eqSymbol != null && refType;
+            if (needsRefHelper)
+            {
+                _writer.WriteLines($$"""
+                private static bool _PInvoke_eq_pinned({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                {
+                    bool _eqAddedLeft = false;
+                    bool _eqAddedRight = false;
+                    try
+                    {
+                        left.Payload.DangerousAddRef(ref _eqAddedLeft);
+                        right.Payload.DangerousAddRef(ref _eqAddedRight);
+                        return PInvoke_eq(left.Payload.DangerousGetHandle(), right.Payload.DangerousGetHandle());
+                    }
+                    finally
+                    {
+                        if (_eqAddedRight) right.Payload.DangerousRelease();
+                        if (_eqAddedLeft) left.Payload.DangerousRelease();
+                    }
                 }
                 """);
                 _writer.WriteLine();

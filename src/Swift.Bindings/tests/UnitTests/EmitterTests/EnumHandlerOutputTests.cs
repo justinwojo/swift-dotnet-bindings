@@ -787,15 +787,24 @@ public class EnumHandlerOutputTests
     [Fact]
     public void Emit_GenericEnum_TryGetBareTypeParameterPayload_EmitsClassVsStructDispatch()
     {
-        // E.1 regression: TryGet<Case> on a generic enum whose payload is a bare type
-        // parameter must runtime-dispatch between class T and struct/ISwiftStruct T.
-        // For a true Swift class (metadata Kind == Class, !IsValueType, !ISwiftStruct),
-        // the stackalloc payload bytes ARE a class pointer and NewFromPayload expects
-        // the class reference itself — we must dereference *(IntPtr*)enumCopy.
-        // For value types and ISwiftStruct (e.g. SwiftString), NewFromPayload reads
-        // the bytes from the source address, so we pass the buffer pointer directly.
-        // Without the class branch, Holder<IntBox>.TryGetWrapped wraps the stackalloc
-        // pointer in a SwiftClassHandle → Arc.Release on a stack address → SIGSEGV.
+        // 0.10.0 Bundle 01 (Bug 3): TryGet<Case> on a generic enum whose payload is a bare
+        // type parameter must runtime-dispatch between class T and non-class T, and each
+        // branch must transfer ownership correctly to whatever SafeHandle MarshalFromSwift
+        // produces. Two correctness invariants:
+        //
+        //   1. Class T (Kind == Class, !IsValueType, !ISwiftStruct): payload bytes ARE a
+        //      heap class pointer; SwiftClassHandle takes +1 ownership. We dereference
+        //      *(IntPtr*)enumCopy and Arc.Retain so the SafeHandle's Arc.Release is
+        //      balanced — without the explicit retain, the dispose decrement underflows
+        //      the Swift heap object's refcount.
+        //
+        //   2. Non-class T (Kind != Class, includes ISwiftStruct, primitives, value
+        //      structs): heap-allocate a buffer, InitializeWithCopy from the stack source,
+        //      hand the heap pointer to MarshalFromSwift. ISwiftObject T transfers buffer
+        //      ownership to its SafeHandle (which frees on dispose); non-ISwiftObject T
+        //      reads by value and we Destroy + Free ourselves. Passing the stack buffer
+        //      address directly to MarshalFromSwift would crash SwiftSafeHandle.ReleaseHandle
+        //      via NativeMemory.Free on a non-heap pointer.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: true);
@@ -814,11 +823,26 @@ public class EnumHandlerOutputTests
 
         Assert.Contains("public bool TryGetWrapped", csOutput);
         Assert.Contains("metadata.ValueWitnessTable->DestructiveProjectEnumData(enumCopy, metadata);", csOutput);
-        // Class-T branch: metadata kind check + pointer dereference.
-        Assert.Contains("global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>().Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(*(IntPtr*)(enumCopy))", csOutput);
-        // Struct/ISwiftStruct fallback: pass the buffer pointer directly.
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(new IntPtr(enumCopy))", csOutput);
+        // Hoisted runtime metadata used by both branches.
+        Assert.Contains("var __value_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
+        // Class-T branch: metadata kind dispatch + pointer dereference + Arc.Retain
+        // (SwiftClassHandle takes ownership of +1).
+        Assert.Contains("__value_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
+        Assert.Contains("var __value_classPtr = *(IntPtr*)(enumCopy);", csOutput);
+        Assert.Contains("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(__value_classPtr)", csOutput);
+        // Non-class fallback: heap-alloc + InitializeWithCopy + ownership-transfer cleanup
+        // for non-ISwiftObject T. Must NOT pass the stack buffer pointer directly.
+        Assert.Contains("void* __value_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__value_meta.Size);", csOutput);
+        Assert.Contains("__value_meta.ValueWitnessTable->InitializeWithCopy(__value_heap, (void*)(enumCopy), __value_meta);", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<T>(new IntPtr(__value_heap))", csOutput);
+        Assert.Contains("if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(T)))", csOutput);
+        Assert.Contains("__value_meta.ValueWitnessTable->Destroy(__value_heap, __value_meta);", csOutput);
+        Assert.Contains("global::System.Runtime.InteropServices.NativeMemory.Free(__value_heap);", csOutput);
+        // The pre-fix shape — passing the stack buffer pointer to MarshalFromSwift —
+        // must not regress.
+        Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<T>(new IntPtr(enumCopy))", csOutput);
+        Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<T>(*(IntPtr*)(enumCopy))", csOutput);
     }
 
     [Fact]
@@ -857,15 +881,27 @@ public class EnumHandlerOutputTests
         // name (TSignedType) — not the AnyType fallback and not the raw "SignedType".
         Assert.Contains("public bool TryGetVerified([MaybeNullWhen(false)] out TSignedType value)", csOutput);
         // The bare-generic-parameter marshalling branch in EnumHandler.Marshalling.cs
-        // must fire: class-T metadata-kind dispatch + dereference, struct/ISwiftStruct
-        // fallback. Without the marshalling-side gate change (dropping the redundant
-        // IsGenericTypeParameter pre-check), the body would silently fall through to
-        // the AnyType branch and emit MarshalFromSwift<global::Swift.AnyType>.
-        Assert.Contains("global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<TSignedType>().Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(*(IntPtr*)(enumCopy))", csOutput);
-        Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(new IntPtr(enumCopy))", csOutput);
+        // must fire: class-T metadata-kind dispatch + dereference + Arc.Retain, vs
+        // non-class heap-alloc + InitializeWithCopy + ownership-transfer cleanup. Without
+        // the marshalling-side gate change (dropping the redundant IsGenericTypeParameter
+        // pre-check), the body would silently fall through to the AnyType branch and emit
+        // MarshalFromSwift<global::Swift.AnyType>.
+        Assert.Contains("var __value_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<TSignedType>();", csOutput);
+        Assert.Contains("__value_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class", csOutput);
+        Assert.Contains("var __value_classPtr = *(IntPtr*)(enumCopy);", csOutput);
+        Assert.Contains("global::Swift.Runtime.Arc.Retain(__value_classPtr);", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(__value_classPtr)", csOutput);
+        Assert.Contains("void* __value_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__value_meta.Size);", csOutput);
+        Assert.Contains("__value_meta.ValueWitnessTable->InitializeWithCopy(__value_heap, (void*)(enumCopy), __value_meta);", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TSignedType>(new IntPtr(__value_heap))", csOutput);
+        Assert.Contains("if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof(TSignedType)))", csOutput);
+        Assert.Contains("__value_meta.ValueWitnessTable->Destroy(__value_heap, __value_meta);", csOutput);
+        Assert.Contains("global::System.Runtime.InteropServices.NativeMemory.Free(__value_heap);", csOutput);
+        // The pre-fix stack-pointer shape (Bug 3) must not regress.
+        Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<TSignedType>(new IntPtr(enumCopy))", csOutput);
+        Assert.DoesNotContain("SwiftMarshal.MarshalFromSwift<TSignedType>(*(IntPtr*)(enumCopy))", csOutput);
         // AnyType must never leak into the TryGet signature for a generic-param payload —
-        // that was the silent-skip symptom this fix eliminates.
+        // that was the silent-skip symptom the sugared-name fix eliminates.
         Assert.DoesNotContain("out global::Swift.AnyType value", csOutput);
     }
 

@@ -762,6 +762,245 @@ public class AsyncSwiftWrapperTests
         Assert.Equal(1, addRefCount);
     }
 
+    [Fact]
+    public void AsyncWrapper_NonFrozenStructInstanceMethod_NoDangerousAddRefLeak()
+    {
+        // Bug 0.10.0 (Codex round 1 finding): for async non-frozen struct instance methods,
+        // EmitSafeHandleAddRef must NOT emit `_payload.DangerousAddRef(ref success)` because
+        // EmitSafeHandleRelease returns early on async paths. The DeferredSafeHandleRelease
+        // holder (added in 0.10.0 Bundle 01) is the sole +1 ownership end-to-end: its ctor
+        // calls DangerousAddRef, the async cleanup loop calls DangerousRelease. A duplicate
+        // pre-call AddRef would never be released, pinning the SafeHandle open forever and
+        // preventing the VWT Destroy + free in ReleaseHandle.
+        var csOutput = GenerateAsyncStructInstanceMethodCSharp(isFrozen: false);
+
+        // The DeferredSafeHandleRelease holder must own the +1.
+        Assert.Contains("DeferredSafeHandleRelease", csOutput);
+
+        // No pre-call _payload.DangerousAddRef on the async path. (Sync paths still emit it;
+        // this test fixture only generates the async wrapper.)
+        Assert.DoesNotContain("_payload.DangerousAddRef", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_NonSimpleEnumInstanceMethod_NoDangerousAddRefLeak()
+    {
+        // Bug 0.10.0 (Codex round 1 finding): same shape as struct receiver but for enum.
+        // Non-simple enums use _payload SafeHandle like structs. The pre-call AddRef must
+        // be skipped on async paths so DeferredSafeHandleRelease is the sole +1 ownership.
+        var csOutput = GenerateAsyncEnumInstanceMethodCSharp();
+
+        Assert.Contains("DeferredSafeHandleRelease", csOutput);
+        Assert.DoesNotContain("_payload.DangerousAddRef", csOutput);
+    }
+
+    /// <summary>
+    /// Generate the C# wrapper for an async instance method on a struct receiver.
+    /// Mirrors <see cref="GenerateAsyncMethodWrapper"/> but exposes the C# output and
+    /// lets the caller toggle <c>IsFrozen</c> so non-frozen-struct paths are exercised.
+    /// </summary>
+    private static string GenerateAsyncStructInstanceMethodCSharp(bool isFrozen)
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new StructDecl
+        {
+            Name = "TestStruct",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestStruct"),
+            IsFrozen = isFrozen,
+            MetadataAccessor = "$s10TestModule0A6StructVMa",
+            MangledName = "$s10TestModule0A6StructV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetch",
+            MangledName = "$s10TestModule0A6StructV5fetchSiyYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "TestStruct"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = parentDecl.MetadataAccessor,
+            // Non-frozen ↔ RequiresMemoryManagement; frozen ↔ Frozen.
+            Flags = isFrozen ? TypeRecordFlags.Frozen : TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(module);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csStringWriter.ToString();
+    }
+
+    /// <summary>
+    /// Generate the C# wrapper for an async instance method on a non-simple enum receiver.
+    /// Non-simple enums use the _payload SafeHandle just like non-frozen structs.
+    /// </summary>
+    private static string GenerateAsyncEnumInstanceMethodCSharp()
+    {
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Dependencies = new List<string>(),
+            Types = new List<TypeDecl>(),
+            Methods = new List<MethodDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var parentDecl = new EnumDecl
+        {
+            Name = "TestEnum",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TestEnum"),
+            IsFrozen = false,
+            MetadataAccessor = "$s10TestModule0A4EnumOMa",
+            MangledName = "$s10TestModule0A4EnumO",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Cases = new List<EnumCaseDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        moduleDecl.Types.Add(parentDecl);
+
+        var csSignature = new List<ArgumentDecl>
+        {
+            new ArgumentDecl
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                Name = string.Empty,
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = parentDecl,
+                ModuleDecl = moduleDecl
+            }
+        };
+
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetch",
+            MangledName = "$s10TestModule0A4EnumO5fetchSiyYaKF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = csSignature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            Visibility = Visibility.Public
+        };
+
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        module.RegisterType(parentDecl.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "TestEnum"),
+            SwiftTypeName = parentDecl.SwiftTypeName,
+            MetadataAccessor = parentDecl.MetadataAccessor,
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Enum
+        });
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            MetadataAccessor = "$sSiMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(module);
+
+        var csStringWriter = new StringWriter();
+        var swiftStringWriter = new StringWriter();
+        var csWriter = new CSharpWriter(csStringWriter);
+        var swiftWriter = new SwiftWriter(swiftStringWriter);
+
+        var loggerFactory = new NullLoggerFactory();
+        var conductor = new Conductor(loggerFactory);
+
+        var handler = new MethodHandler(new NullLogger<MethodHandler>());
+        var env = handler.Marshal(methodDecl, typeDatabase);
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csStringWriter.ToString();
+    }
+
     #endregion
 
     #region AsyncStream Library Target Tests

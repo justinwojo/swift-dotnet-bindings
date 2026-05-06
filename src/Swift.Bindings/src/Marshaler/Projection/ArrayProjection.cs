@@ -140,11 +140,18 @@ public class ArrayProjection : ITypeProjection
 
     public string? GetReturnContainerConversion(string containerVar)
     {
-        // ObjC bridge: convert NSArray to typed list (used by OptionalProjection)
+        // ObjC bridge: convert NSArray to typed list (used by OptionalProjection).
+        // releaseHandle: true balances the +1 retain emitted by the Swift @_cdecl
+        // wrapper (Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()).
+        // Without it, ArrayFromHandleFunc leaves the +1 dangling and each call
+        // leaks one NSArray plus its contained NSObject elements. The single-arg
+        // ArrayFromHandle<T>(IntPtr) and the (IntPtr, Converter) overloads do NOT
+        // accept ownership transfer; ArrayFromHandleFunc<T>(IntPtr, Func, bool) is
+        // the only public Microsoft.iOS API that releases the input handle.
         if (UsesObjCContainerBridge)
         {
             var objcElemType = GetObjCElementType();
-            return $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({containerVar})";
+            return $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({containerVar}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)";
         }
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
@@ -315,11 +322,23 @@ public class ArrayProjection : ITypeProjection
 
     /// <summary>
     /// ObjC bridge return plan: receive NSArray handle, extract typed elements.
+    /// releaseHandle: true on ArrayFromHandleFunc balances the +1 retain emitted
+    /// by the Swift @_cdecl wrapper. Inner-element NSArray reads (via
+    /// GetReturnElementConversion) stay non-releasing because nested elements
+    /// are borrowed references owned by the outer NSArray.
+    ///
+    /// Note: Microsoft.iOS exposes no `ArrayFromHandle&lt;T&gt;(IntPtr, bool owns)`
+    /// overload; the closest ownership-transferring API is
+    /// <c>ArrayFromHandleFunc&lt;T&gt;(IntPtr, Func&lt;NativeHandle, T&gt;, bool releaseHandle)</c>.
+    /// Using <c>ObjCRuntime.Runtime.GetNSObject&lt;T&gt;</c> as the factory
+    /// matches what the single-arg <c>ArrayFromHandle</c> does internally,
+    /// so this swap only adds the +1-retain release; per-element marshaling
+    /// is unchanged.
     /// </summary>
     private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
     {
         var objcElemType = GetObjCElementType();
-        var arrayFromHandle = $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({resultName})";
+        var arrayFromHandle = $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true)";
 
         // For nested containers, apply inner element conversion
         if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
@@ -327,7 +346,7 @@ public class ArrayProjection : ITypeProjection
         {
             var innerConv = _elementProjection.GetReturnElementConversion("e");
             if (innerConv != null)
-                arrayFromHandle = $"Foundation.NSArray.ArrayFromHandle<{objcElemType}>({resultName}).Select(e => {innerConv}).ToList()";
+                arrayFromHandle = $"Foundation.NSArray.ArrayFromHandleFunc<{objcElemType}>({resultName}, h => ObjCRuntime.Runtime.GetNSObject<{objcElemType}>(h)!, true).Select(e => {innerConv}).ToList()";
         }
 
         // ObjC bridge returns as ClassPointer (direct IntPtr), not IndirectResult

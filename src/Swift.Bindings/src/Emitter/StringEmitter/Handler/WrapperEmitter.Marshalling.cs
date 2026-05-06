@@ -274,15 +274,20 @@ namespace BindingsGeneration
                             }
                             else
                             {
-                                csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                                // SafeHandlePin brackets DangerousAddRef/DangerousRelease so a
+                                // concurrent GC finalization cannot free the Swift heap payload
+                                // between Payload.DangerousGetHandle() and the Swift function entry.
+                                csWriter.WriteLine($"using SafeHandlePin {csName}Pin = new SafeHandlePin({csName}.Payload);");
+                                csWriter.WriteLine($"IntPtr {bufferName} = {csName}Pin.Handle;");
                             }
                         }
                         // Large optional accessor params (e.g., Optional<SwiftString>) have payloads
                         // exceeding IntPtr size. PayloadBuffer<IntPtr> would truncate — use the full
-                        // buffer via DangerousGetHandle instead.
+                        // buffer via DangerousGetHandle instead, pinned via SafeHandlePin.
                         else if (_env.MethodDecl.IsAccessor && _env.BoundGenericsHandler.IsLargeOptionalParam(argumentDecl.SwiftTypeSpec))
                         {
-                            csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                            csWriter.WriteLine($"using SafeHandlePin {csName}Pin = new SafeHandlePin({csName}.Payload);");
+                            csWriter.WriteLine($"IntPtr {bufferName} = {csName}Pin.Handle;");
                         }
                         else
                         {
@@ -292,8 +297,11 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        // Non-frozen type: use handle-based marshalling
-                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}.Payload.DangerousGetHandle();");
+                        // Non-frozen type: use handle-based marshalling, pinned via SafeHandlePin
+                        // so the SafeHandle cannot be finalized between the handle access and the
+                        // Swift function entry.
+                        csWriter.WriteLine($"using SafeHandlePin {csName}Pin = new SafeHandlePin({csName}.Payload);");
+                        csWriter.WriteLine($"IntPtr {bufferName} = {csName}Pin.Handle;");
                     }
                 }
             }
@@ -955,8 +963,16 @@ namespace BindingsGeneration
                     var typeRecord = _env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
                     if (MarshallingHelpers.RequiresMemoryManagement(typeRecord) || !MarshallingHelpers.IsTypeFrozen(typeRecord))
                     {
-                        csWriter.WriteLine($"var success = false;");
-                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                        // Async struct instance methods: the DeferredSafeHandleRelease holder owns
+                        // the +1 refcount end-to-end (its ctor calls DangerousAddRef and the cleanup
+                        // loop calls DangerousRelease). EmitSafeHandleRelease returns early for
+                        // async, so a separate pre-call AddRef would never be released — pinning
+                        // the SafeHandle open forever. Skip it; the holder is the sole live +1.
+                        if (!_env.MethodDecl.IsAsync)
+                        {
+                            csWriter.WriteLine($"var success = false;");
+                            csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                        }
                     }
                 }
                 else if (_env.ParentDecl is ClassDecl classParent)
@@ -979,9 +995,14 @@ namespace BindingsGeneration
                 }
                 else if (_env.ParentDecl is EnumDecl)
                 {
-                    // Non-simple enums use _payload SafeHandle like classes
-                    csWriter.WriteLine($"var success = false;");
-                    csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                    // Non-simple enums use _payload SafeHandle like classes.
+                    // Same async constraint as struct: DeferredSafeHandleRelease owns the +1
+                    // end-to-end on async paths; a pre-call AddRef would leak.
+                    if (!_env.MethodDecl.IsAsync)
+                    {
+                        csWriter.WriteLine($"var success = false;");
+                        csWriter.WriteLine($"_payload.DangerousAddRef(ref success);");
+                    }
                 }
             }
 

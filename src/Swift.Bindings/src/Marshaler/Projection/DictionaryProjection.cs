@@ -382,6 +382,9 @@ public class DictionaryProjection : ITypeProjection
 
     /// <summary>
     /// ObjC bridge return plan: receive NSDictionary handle, extract typed key-value pairs.
+    /// owns: true balances the +1 retain emitted by the Swift @_cdecl wrapper
+    /// (Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()). Without
+    /// owns: true, the NSDictionary (and retained inner key/value NSObjects) leak per call.
     /// </summary>
     private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
     {
@@ -390,7 +393,7 @@ public class DictionaryProjection : ITypeProjection
             SetupStatements = new List<MarshalStatement>
             {
                 new MarshalStatement.Line(
-                    $"var {resultName}NSDict = ObjCRuntime.Runtime.GetNSObject<Foundation.NSDictionary>({resultName})!;"),
+                    $"var {resultName}NSDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({resultName}, true)!;"),
                 new MarshalStatement.Line(
                     $"var {resultName}Dict = new System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>((int){resultName}NSDict.Count);"),
                 new MarshalStatement.Line(
@@ -403,6 +406,7 @@ public class DictionaryProjection : ITypeProjection
     /// <summary>
     /// Builds the ObjC bridge return expression for use by OptionalProjection.
     /// The containerVar parameter is the IntPtr handle to the NSDictionary.
+    /// owns: true balances the +1 retain emitted by the Swift @_cdecl wrapper.
     /// </summary>
     private string BuildObjCBridgeReturnExpression(string containerVar)
     {
@@ -410,7 +414,7 @@ public class DictionaryProjection : ITypeProjection
         var valConv = FromNSObject(_valueProjection, $"_nsDict.ObjectForKey(_nsKey)!");
         // Inline dictionary construction using LINQ
         return $"((Func<IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>>)(() => {{ " +
-               $"var _nsDict = ObjCRuntime.Runtime.GetNSObject<Foundation.NSDictionary>({containerVar})!; " +
+               $"var _nsDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!; " +
                $"var _dict = new System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>((int)_nsDict.Count); " +
                $"foreach (var _nsKey in _nsDict.Keys) _dict[{keyConv}] = {valConv}; " +
                $"return _dict; }}))()";

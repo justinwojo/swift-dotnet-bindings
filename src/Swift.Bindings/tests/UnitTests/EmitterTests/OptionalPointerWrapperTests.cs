@@ -1205,6 +1205,14 @@ public class OptionalPointerWrapperTests
         // Regression: Optional<SwiftString> property setter was using PayloadBuffer<IntPtr>
         // (8 bytes) instead of the full optional buffer. The fix ensures the projection
         // system handles accessor setter params with convertible types.
+        //
+        // 0.10.0 Bundle 01 (Bug 1b): the same setter path also used to call
+        // DangerousGetHandle() raw — without an AddRef bracket, GC finalization
+        // of the value's SafeHandle between the handle access and Swift function
+        // entry would free the Swift heap payload mid-call. The fix wraps the
+        // handle access in a `using SafeHandlePin` scope so the SafeHandle is
+        // pinned for the duration of the PInvoke. Property getters on the same
+        // type already enforce the AddRef bracket; the setter must too.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Foo", moduleDecl);
@@ -1223,6 +1231,17 @@ public class OptionalPointerWrapperTests
         // Should use DangerousGetHandle path (full buffer), NOT PayloadBuffer<IntPtr> (truncated)
         Assert.Contains("DangerousGetHandle", csOutput);
         Assert.DoesNotContain("PayloadBuffer<IntPtr>", csOutput);
+
+        // Bug 1b: handle access must be pinned via SafeHandlePin so a
+        // concurrent GC finalization cannot free the Swift heap payload
+        // between the DangerousGetHandle() call and Swift function entry.
+        Assert.Contains("using SafeHandlePin", csOutput);
+        Assert.Contains("new SafeHandlePin(", csOutput);
+        Assert.Contains("Pin.Handle", csOutput);
+
+        // The pre-fix shape — raw DangerousGetHandle() into the IntPtr buffer
+        // variable without a SafeHandlePin scope — must not regress.
+        Assert.DoesNotContain("IntPtr arg0Buffer = arg0.Payload.DangerousGetHandle();", csOutput);
     }
 
     [Fact]

@@ -743,11 +743,23 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits the runtime dispatch for extracting a bare-generic-type-parameter payload from
-        /// a stackalloc enum buffer. True Swift classes (metadata Kind == Class, !IsValueType,
-        /// !ISwiftStruct) store a class reference in the payload bytes and need a dereference
-        /// before handoff to NewFromPayload. Everything else — value types, frozen structs via
-        /// ISwiftStruct (e.g. SwiftString) — takes the buffer-pointer path whose NewFromPayload
-        /// reads bytes from the source address.
+        /// a stackalloc enum buffer. Mirrors the concrete-type patterns:
+        ///
+        /// True Swift classes (metadata Kind == Class, !IsValueType, !ISwiftStruct) — payload
+        /// bytes ARE a class pointer at offset 0. Dereference, then <see cref="Arc.Retain"/>
+        /// for the +1 ownership <c>SwiftClassHandle</c> expects. Without the explicit retain,
+        /// the eventual <c>Arc.Release</c> at dispose time underflows the heap object's
+        /// refcount; the previous emit shape would also have produced this defect.
+        ///
+        /// Non-class generic T (ISwiftObject non-class, ISwiftStruct, primitives, value
+        /// structs) — heap-allocate a buffer, <c>InitializeWithCopy</c> from the source
+        /// (stack) pointer, hand the heap pointer to <c>MarshalFromSwift</c>. For ISwiftObject
+        /// T, the produced wrapper takes ownership of the heap buffer (its SafeHandle's
+        /// ReleaseHandle frees + destroys it). For non-ISwiftObject T (primitive, plain
+        /// value struct), MarshalFromSwift reads the value out and we own the heap — Destroy
+        /// then Free. The CRITICAL invariant: never hand the stack buffer pointer directly
+        /// to MarshalFromSwift, because <c>SwiftSafeHandle.ReleaseHandle</c> would call
+        /// <c>NativeMemory.Free</c> on a non-heap pointer.
         /// </summary>
         private static void EmitGenericTypeParameterPayloadExtraction(CSharpWriter csWriter, string typeParamName, string varName, string sourcePtrExpr, bool declareVar)
         {
@@ -755,19 +767,39 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"{typeParamName} {varName};");
             }
+            // Hoist metadata so both branches share it without recomputation.
+            csWriter.WriteLine($"var __{varName}_meta = global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{typeParamName}>();");
             csWriter.WriteLine($"if (typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName}))");
             csWriter.WriteLine($"    && !typeof({typeParamName}).IsValueType");
             csWriter.WriteLine($"    && !typeof(global::Swift.Runtime.ISwiftStruct).IsAssignableFrom(typeof({typeParamName}))");
-            csWriter.WriteLine($"    && global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{typeParamName}>().Kind == global::Swift.Runtime.TypeMetadataKind.Class)");
+            csWriter.WriteLine($"    && __{varName}_meta.Kind == global::Swift.Runtime.TypeMetadataKind.Class)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(*(IntPtr*)({sourcePtrExpr}));");
+            // Class T: read the class pointer at sourcePtr and Arc.Retain for SwiftClassHandle's +1
+            // ownership. Mirrors the concrete IsSwiftClassPayload branch (EmitPayloadMarshal /
+            // EmitPayloadMarshalWithOffset) and SwiftResult.ExtractPayloadValue.
+            csWriter.WriteLine($"var __{varName}_classPtr = *(IntPtr*)({sourcePtrExpr});");
+            csWriter.WriteLine($"global::Swift.Runtime.Arc.Retain(__{varName}_classPtr);");
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(__{varName}_classPtr);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("else");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr({sourcePtrExpr}));");
+            // Non-class T: heap-allocate, InitializeWithCopy from the stack source. NewFromPayload
+            // for an ISwiftObject T takes ownership of the heap pointer (SafeHandle frees on
+            // dispose). For primitives / non-ISwiftObject value types, MarshalFromSwift reads the
+            // value by value and we Destroy + Free the heap ourselves.
+            csWriter.WriteLine($"void* __{varName}_heap = global::System.Runtime.InteropServices.NativeMemory.Alloc(__{varName}_meta.Size);");
+            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->InitializeWithCopy(__{varName}_heap, (void*)({sourcePtrExpr}), __{varName}_meta);");
+            csWriter.WriteLine($"{varName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{typeParamName}>(new IntPtr(__{varName}_heap));");
+            csWriter.WriteLine($"if (!typeof(global::Swift.Runtime.ISwiftObject).IsAssignableFrom(typeof({typeParamName})))");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"__{varName}_meta.ValueWitnessTable->Destroy(__{varName}_heap, __{varName}_meta);");
+            csWriter.WriteLine($"global::System.Runtime.InteropServices.NativeMemory.Free(__{varName}_heap);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

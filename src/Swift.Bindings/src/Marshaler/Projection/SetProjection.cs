@@ -128,13 +128,16 @@ public class SetProjection : ITypeProjection
 
     public string? GetReturnContainerConversion(string containerVar)
     {
-        // ObjC bridge: convert NSSet handle to typed HashSet (used by OptionalProjection)
+        // ObjC bridge: convert NSSet handle to typed HashSet (used by OptionalProjection).
+        // owns: true balances the +1 retain emitted by the Swift @_cdecl wrapper
+        // (Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()). Without
+        // owns: true, the NSSet (and any retained inner elements) leak per call.
         if (UsesObjCContainerBridge)
         {
             var elemPublicType = _elementProjection.PublicType;
             var elemConv = MarshallingHelpers.FormatObjCBridgeCall(elemPublicType, "_nsObj.Handle", nonNull: true);
             return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
-                   $"var _nsSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({containerVar})!; " +
+                   $"var _nsSet = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({containerVar}, true)!; " +
                    $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
                    $"foreach (var _nsObj in _nsSet) _set.Add({elemConv}); " +
                    $"return _set; }}))()";
@@ -264,13 +267,14 @@ public class SetProjection : ITypeProjection
     {
         var elemPublicType = _elementProjection.PublicType;
         // NSSet received as ObjC pointer → HashSet<T>
-        // Use NSArray.ArrayFromHandle via intermediate (NSSet doesn't have typed extraction)
+        // Use NSArray.ArrayFromHandle via intermediate (NSSet doesn't have typed extraction).
+        // owns: true balances the +1 retain emitted by the Swift @_cdecl wrapper.
         return new MarshalPlan
         {
             SetupStatements = new List<MarshalStatement>
             {
                 new MarshalStatement.Line(
-                    $"var {resultName}NSSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({resultName})!;"),
+                    $"var {resultName}NSSet = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({resultName}, true)!;"),
                 new MarshalStatement.Line(
                     $"var {resultName}Set = new System.Collections.Generic.HashSet<{elemPublicType}>();"),
                 new MarshalStatement.Line(

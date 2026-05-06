@@ -317,6 +317,43 @@ public unsafe ref struct PayloadBuffer<T> : IDisposable where T : unmanaged
 }
 
 /// <summary>
+/// Pins a SafeHandle's reference count for the lifetime of the struct.
+/// Generated bindings use this to hold a SafeHandle open across a P/Invoke when only the
+/// raw pointer (DangerousGetHandle) is needed — without it, GC finalization between the
+/// handle access and the native call can free the underlying Swift heap payload.
+///
+/// Use the `using` statement so DangerousRelease runs on every exit (including exception
+/// unwinds). The constructor calls <see cref="SafeHandle.DangerousAddRef(ref bool)"/>;
+/// if the handle is closed, that throws <see cref="ObjectDisposedException"/>, which
+/// surfaces to the caller as a faulted invocation (correct: a disposed receiver cannot
+/// back the in-flight call).
+/// </summary>
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+public ref struct SafeHandlePin : IDisposable
+{
+    private readonly SafeHandle _handle;
+    private bool _addedRef;
+
+    /// <summary>The pinned SafeHandle's raw pointer.</summary>
+    public IntPtr Handle => _handle.DangerousGetHandle();
+
+    public SafeHandlePin(SafeHandle handle)
+    {
+        _handle = handle;
+        handle.DangerousAddRef(ref _addedRef);
+    }
+
+    public void Dispose()
+    {
+        if (_addedRef)
+        {
+            _handle.DangerousRelease();
+            _addedRef = false;
+        }
+    }
+}
+
+/// <summary>
 /// Marker struct used as a sentinel parameter in protected constructors for class inheritance chaining.
 /// Generated derived class constructors chain to base(default(SwiftInheritanceChain)) to invoke
 /// the base class's protected constructor. This type cannot conflict with any Swift-generated

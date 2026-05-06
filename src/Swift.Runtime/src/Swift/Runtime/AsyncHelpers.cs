@@ -22,12 +22,34 @@ namespace Swift.Runtime
     /// Wraps a SafeHandle that needs DangerousRelease() called after async completion.
     /// Used for async instance methods on structs where the SafeHandle must stay alive
     /// until the Swift async operation completes.
+    ///
+    /// The constructor calls <see cref="SafeHandle.DangerousAddRef(ref bool)"/> to take
+    /// a refcount that the async holder cleanup loop balances with a corresponding
+    /// <see cref="SafeHandle.DangerousRelease"/>. Without the AddRef the cleanup
+    /// underflows the SafeHandle's refcount — most visibly on cancellation paths that
+    /// run cleanup before any Swift continuation lands. <see cref="SafeHandle.DangerousAddRef(ref bool)"/>
+    /// throws <see cref="ObjectDisposedException"/> for closed handles, which propagates
+    /// to the calling async wrapper and surfaces as a faulted Task to the consumer
+    /// (correct: a disposed receiver cannot back the in-flight call).
     /// </summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public readonly struct DeferredSafeHandleRelease
     {
         public readonly SafeHandle Handle;
-        public DeferredSafeHandleRelease(SafeHandle handle) => Handle = handle;
+
+        public DeferredSafeHandleRelease(SafeHandle handle)
+        {
+            bool addedRef = false;
+            handle.DangerousAddRef(ref addedRef);
+            // DangerousAddRef throws ObjectDisposedException on a closed handle, so
+            // success is implied if we reach this point — but assert defensively in
+            // case a future SafeHandle subclass returns false without throwing.
+            if (!addedRef)
+                throw new InvalidOperationException(
+                    "DeferredSafeHandleRelease: DangerousAddRef did not take a reference. " +
+                    "The handle may already be closed.");
+            Handle = handle;
+        }
     }
 
     /// <summary>

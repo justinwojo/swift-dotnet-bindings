@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -312,6 +313,148 @@ public class WrapperProjectionParityTests
 
         Assert.Null(conversion);
         Assert.False(disposal);
+    }
+
+    #endregion
+
+    #region Bug 4 — ObjC bridge container reads must use owns: true
+
+    // 0.10.0 Bundle 01 (Bug 4): the Swift @_cdecl wrapper for an `async throws → [URL]?`
+    // (and equivalent Set/Dictionary) result calls
+    //     Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()
+    // emitting a +1 retain on the bridged NSArray/NSSet/NSDictionary. The C# callback
+    // must consume that +1 by reading the handle with `owns: true` — otherwise each
+    // call leaks one container plus its contained NSObject elements.
+    //
+    // Container reads (top-level result, OptionalProjection unwrap, BuildObjCBridgeReturnPlan)
+    // take `owns: true`; element reads (GetReturnElementConversion) intentionally stay
+    // `owns: false` because nested NSObjects are borrowed references owned by the outer
+    // collection.
+
+    [Fact]
+    public void ArrayReturn_ObjCBridge_TopLevelTakesOwnership()
+    {
+        // Top-level [URL] return — BuildObjCBridgeReturnPlan path.
+        // Microsoft.iOS does not expose ArrayFromHandle<T>(IntPtr, bool owns); the
+        // ownership-transferring overload is ArrayFromHandleFunc<T>(handle, factory,
+        // releaseHandle). The third positional arg `true` releases the input handle,
+        // balancing the +1 from Swift's passRetained. The factory uses GetNSObject<T>,
+        // which is what the non-owning ArrayFromHandle<T>(IntPtr) does internally —
+        // so per-element marshaling is unchanged.
+        var elem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new ArrayProjection(elem, isParameter: false);
+
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.NotNull(plan);
+        Assert.Contains("ArrayFromHandleFunc<Foundation.NSUrl>", plan.PInvokeExpression);
+        Assert.Contains("ObjCRuntime.Runtime.GetNSObject<Foundation.NSUrl>", plan.PInvokeExpression);
+        Assert.EndsWith(", true)", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void ArrayReturn_ObjCBridge_OptionalUnwrap_TakesOwnership()
+    {
+        // [URL]? return — OptionalProjection delegates to ArrayProjection's
+        // GetReturnContainerConversion. This is the StoreKit ExternalPurchaseLink
+        // .eligibleURLs path called out in the bug doc. Same ownership-transfer
+        // shape as the top-level case (ArrayFromHandleFunc + releaseHandle: true),
+        // because no `ArrayFromHandle<T>(IntPtr, bool owns)` overload exists.
+        var elem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new ArrayProjection(elem, isParameter: false);
+
+        var conv = proj.GetReturnContainerConversion("result");
+
+        Assert.NotNull(conv);
+        Assert.Contains("ArrayFromHandleFunc<Foundation.NSUrl>", conv);
+        Assert.Contains("ObjCRuntime.Runtime.GetNSObject<Foundation.NSUrl>", conv);
+        Assert.EndsWith(", true)", conv);
+
+        // Pre-fix shape: single-arg ArrayFromHandle (owns:false default) must not
+        // regress. The fix uses the Func variant; the no-owns shape would be
+        // `ArrayFromHandle<...>(result)`.
+        Assert.DoesNotContain("ArrayFromHandle<Foundation.NSUrl>(result)", conv);
+    }
+
+    [Fact]
+    public void ArrayReturn_ObjCBridge_ElementReads_StayBorrowed()
+    {
+        // Inner element NSArray reads (e.g., the inner `[URL]` inside `[[URL]]`)
+        // intentionally stay non-releasing — they're borrowed references owned by
+        // the outer NSArray, which already balances its own +1 via the
+        // ArrayFromHandleFunc(..., releaseHandle: true) on the parent read. The
+        // single-arg ArrayFromHandle<T>(IntPtr) is the correct non-owning form.
+        var elem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new ArrayProjection(elem, isParameter: false);
+
+        var conv = proj.GetReturnElementConversion("e");
+
+        Assert.NotNull(conv);
+        Assert.Contains("ArrayFromHandle<Foundation.NSUrl>(e.Handle)", conv);
+        Assert.DoesNotContain("ArrayFromHandleFunc", conv);
+        Assert.DoesNotContain("releaseHandle", conv);
+    }
+
+    [Fact]
+    public void SetReturn_ObjCBridge_TopLevelTakesOwnership()
+    {
+        // Top-level Set<URL> return — BuildObjCBridgeReturnPlan path. NSSet doesn't
+        // expose ArrayFromHandle, so the projection routes through
+        // ObjCRuntime.Runtime.GetINativeObject<NSSet>(handle, true). The third arg
+        // (`true`) is `owns:` and balances the @_cdecl wrapper's +1.
+        var elem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new SetProjection(elem, isParameter: false);
+
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.NotNull(plan);
+        // Setup statement constructs the NSSet wrapper with owns:true.
+        var setupTexts = string.Join("\n", plan.SetupStatements.Select(s => s.ToString()));
+        Assert.Contains("GetINativeObject<Foundation.NSSet>(result, true)", setupTexts);
+    }
+
+    [Fact]
+    public void SetReturn_ObjCBridge_OptionalUnwrap_TakesOwnership()
+    {
+        var elem = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new SetProjection(elem, isParameter: false);
+
+        var conv = proj.GetReturnContainerConversion("result");
+
+        Assert.NotNull(conv);
+        Assert.Contains("GetINativeObject<Foundation.NSSet>(result, true)", conv);
+        // Pre-fix shape: GetNSObject<NSSet>(handle) without ownership transfer
+        // must not regress.
+        Assert.DoesNotContain("GetNSObject<Foundation.NSSet>", conv);
+    }
+
+    [Fact]
+    public void DictionaryReturn_ObjCBridge_TopLevelTakesOwnership()
+    {
+        // Top-level [String: URL] return — BuildObjCBridgeReturnPlan path.
+        var key = new StringProjection();
+        var val = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new DictionaryProjection(key, val, isParameter: false);
+
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.IndirectResult);
+
+        Assert.NotNull(plan);
+        var setupTexts = string.Join("\n", plan.SetupStatements.Select(s => s.ToString()));
+        Assert.Contains("GetINativeObject<Foundation.NSDictionary>(result, true)", setupTexts);
+    }
+
+    [Fact]
+    public void DictionaryReturn_ObjCBridge_OptionalUnwrap_TakesOwnership()
+    {
+        var key = new StringProjection();
+        var val = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var proj = new DictionaryProjection(key, val, isParameter: false);
+
+        var conv = proj.GetReturnContainerConversion("result");
+
+        Assert.NotNull(conv);
+        Assert.Contains("GetINativeObject<Foundation.NSDictionary>(result, true)", conv);
+        Assert.DoesNotContain("GetNSObject<Foundation.NSDictionary>", conv);
     }
 
     #endregion
