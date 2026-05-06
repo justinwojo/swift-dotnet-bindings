@@ -4,3 +4,12 @@ SwiftBridge/*.framework/
 *.swiftmodule
 *.swiftdoc
 *.swiftsourceinfo
+
+# Bundle 8 (bug-0.10.0-mappedin-static-swift-framework) regression fixture.
+# The detection-order test needs a real xcframework with a static `ar archive`
+# binary AND a non-empty `.swiftinterface` committed in tree, so override the
+# blanket `*.swiftmodule` / `*.swiftdoc` / `*.swiftsourceinfo` ignores for the
+# fixture path. Rebuilding (Fixtures/StaticSwift/build.sh) requires Xcode + a
+# Swift toolchain — committing the artifacts keeps the regression test
+# reproducible on machines without that.
+!Fixtures/StaticSwift/StaticSwiftLib.xcframework/**

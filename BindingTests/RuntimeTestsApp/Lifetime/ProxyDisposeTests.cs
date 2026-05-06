@@ -25,6 +25,19 @@ public class ProxyDisposeTests : TestBase
 {
     public ProxyDisposeTests(TestResults results) : base(results) { }
 
+    // ---- 0.10.0 Layer C lifetime harness (populated by Bundles 1 and 3) ------
+    //
+    // Long-running / GC-pressure assertions for this class are gated by
+    // `TestRunFlags.Lifetime` — set via `nuke binding-tests --lifetime`. Off by
+    // default for inner-loop simulator runs; enabled unconditionally on the
+    // integration serial gate. The 0.10.0 SafeHandle-refcount and
+    // closure-lifetime bundles will populate methods here that loop a repro
+    // pattern ~10k times with `GC.Collect()` between runs and assert
+    // deterministic Swift alloc/dealloc counters return to baseline,
+    // `CFGetRetainCount` returns to baseline for bridged ObjC objects, RSS
+    // stays under a budget, and no finalizer-thread exceptions are logged.
+    // See `src/docs/0.10.0-fix-plan.md` §"Layer C — lifetime harness".
+
     #region Container-Path Tests (Tier 2 — no wrapper lib needed)
 
     public void TestProxyFromContainerDisposeIsSafe()

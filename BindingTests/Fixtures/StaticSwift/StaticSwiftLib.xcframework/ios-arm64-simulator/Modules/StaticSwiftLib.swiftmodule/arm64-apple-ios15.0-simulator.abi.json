@@ -1,0 +1,162 @@
+{
+  "ABIRoot": {
+    "kind": "Root",
+    "name": "StaticSwiftLib",
+    "printedName": "StaticSwiftLib",
+    "children": [
+      {
+        "kind": "TypeDecl",
+        "name": "StaticGreeting",
+        "printedName": "StaticGreeting",
+        "children": [
+          {
+            "kind": "Var",
+            "name": "message",
+            "printedName": "message",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "String",
+                "printedName": "Swift.String",
+                "usr": "s:SS"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:14StaticSwiftLib0A8GreetingV7messageSSvp",
+            "mangledName": "$s14StaticSwiftLib0A8GreetingV7messageSSvp",
+            "moduleName": "StaticSwiftLib",
+            "declAttributes": [
+              "HasStorage",
+              "AccessControl"
+            ],
+            "isLet": true,
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "String",
+                    "printedName": "Swift.String",
+                    "usr": "s:SS"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:14StaticSwiftLib0A8GreetingV7messageSSvg",
+                "mangledName": "$s14StaticSwiftLib0A8GreetingV7messageSSvg",
+                "moduleName": "StaticSwiftLib",
+                "implicit": true,
+                "accessorKind": "get"
+              }
+            ]
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(message:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "StaticGreeting",
+                "printedName": "StaticSwiftLib.StaticGreeting",
+                "usr": "s:14StaticSwiftLib0A8GreetingV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "String",
+                "printedName": "Swift.String",
+                "usr": "s:SS"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:14StaticSwiftLib0A8GreetingV7messageACSS_tcfc",
+            "mangledName": "$s14StaticSwiftLib0A8GreetingV7messageACSS_tcfc",
+            "moduleName": "StaticSwiftLib",
+            "declAttributes": [
+              "AccessControl"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Function",
+            "name": "greet",
+            "printedName": "greet(name:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "String",
+                "printedName": "Swift.String",
+                "usr": "s:SS"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "String",
+                "printedName": "Swift.String",
+                "usr": "s:SS"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:14StaticSwiftLib0A8GreetingV5greet4nameS2S_tF",
+            "mangledName": "$s14StaticSwiftLib0A8GreetingV5greet4nameS2S_tF",
+            "moduleName": "StaticSwiftLib",
+            "declAttributes": [
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          }
+        ],
+        "declKind": "Struct",
+        "usr": "s:14StaticSwiftLib0A8GreetingV",
+        "mangledName": "$s14StaticSwiftLib0A8GreetingV",
+        "moduleName": "StaticSwiftLib",
+        "declAttributes": [
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          }
+        ]
+      },
+      {
+        "kind": "Function",
+        "name": "staticSwiftGreet",
+        "printedName": "staticSwiftGreet()",
+        "children": [
+          {
+            "kind": "TypeNominal",
+            "name": "Int32",
+            "printedName": "Swift.Int32",
+            "usr": "s:s5Int32V"
+          }
+        ],
+        "declKind": "Func",
+        "usr": "c:(cm)staticSwiftGreet",
+        "mangledName": "$s14StaticSwiftLib06staticB5Greets5Int32VyF",
+        "moduleName": "StaticSwiftLib",
+        "declAttributes": [
+          "AccessControl",
+          "CDecl"
+        ],
+        "funcSelfKind": "NonMutating"
+      }
+    ],
+    "json_format_version": 8
+  },
+  "ConstValues": []
+}

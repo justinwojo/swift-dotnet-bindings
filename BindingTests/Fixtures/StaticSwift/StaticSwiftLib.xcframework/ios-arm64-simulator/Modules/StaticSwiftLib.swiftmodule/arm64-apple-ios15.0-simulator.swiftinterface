@@ -1,0 +1,15 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.2.4 effective-5.10 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)
+// swift-module-flags: -target arm64-apple-ios15.0-simulator -enable-objc-interop -enable-library-evolution -static -module-name StaticSwiftLib
+// swift-module-flags-ignorable:  -formal-cxx-interoperability-mode=off -interface-compiler-version 6.2.4
+import Swift
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+public struct StaticGreeting {
+  public let message: Swift.String
+  public init(message: Swift.String)
+  public func greet(name: Swift.String) -> Swift.String
+}
+@_cdecl("static_swift_greet")
+public func staticSwiftGreet() -> Swift.Int32

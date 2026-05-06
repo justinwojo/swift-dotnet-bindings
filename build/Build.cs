@@ -66,6 +66,16 @@ partial class Build : NukeBuild
     [Parameter("Flake detection mode (run each test 3x)")]
     readonly bool FlakeDetect;
 
+    // Enables the long-running / GC-pressure assertion blocks inside the
+    // existing BindingTests/RuntimeTestsApp/Lifetime/ test classes. Skipped
+    // by default for the inner-loop simulator runs (those classes still run,
+    // but only their fast assertions). The integration-branch serial gate
+    // sets this unconditionally. Per-bundle lifetime patterns gated by this
+    // flag are populated by Bundles 1 and 3 of the 0.10.0 plan; see
+    // src/docs/0.10.0-fix-plan.md §"Layer C".
+    [Parameter("Run extended lifetime / GC-pressure assertions in BindingTests/RuntimeTestsApp/Lifetime/")]
+    readonly bool Lifetime;
+
     [Parameter("Run fetch before validation")]
     readonly bool FetchFirst;
 

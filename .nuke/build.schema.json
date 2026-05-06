@@ -41,6 +41,7 @@
         "RegenerateBindings",
         "RegenerateStoreKitSnapshot",
         "RuntimeUnitTests",
+        "SeedSkipSurfaceBaseline",
         "SmokeTest",
         "Test",
         "UnitTests",
@@ -209,6 +210,10 @@
           "description": "Max parallel validation workers",
           "format": "int32"
         },
+        "Lifetime": {
+          "type": "boolean",
+          "description": "Run extended lifetime / GC-pressure assertions in BindingTests/RuntimeTestsApp/Lifetime/"
+        },
         "List": {
           "type": "boolean",
           "description": "Show library status without building"
@@ -252,6 +257,10 @@
         "SkipRegen": {
           "type": "boolean",
           "description": "Skip binding regeneration (incremental build)"
+        },
+        "SkipSurface": {
+          "type": "boolean",
+          "description": "Run the Layer B skip-surface trend gate against .skip-surface-baseline.json"
         },
         "Solution": {
           "type": "string",

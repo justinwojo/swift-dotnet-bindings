@@ -41,6 +41,10 @@ public class Program
             {
                 FlakeDetect = true;
             }
+            else if (args[i] == "--lifetime")
+            {
+                TestRunFlags.Lifetime = true;
+            }
             else if (args[i] == "--class" && i + 1 < args.Length)
             {
                 ClassFilter = args[i + 1];

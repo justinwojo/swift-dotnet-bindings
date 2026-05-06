@@ -49,6 +49,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestDescriptors.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestResults.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/TestLogger.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/TestRunFlags.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/LifetimeTracker.cs" />
   </ItemGroup>
 

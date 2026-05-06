@@ -830,6 +830,8 @@ partial class Build
                 Log.Information("Class filter: {ClassFilter}", ClassFilter);
             if (FlakeDetect)
                 Log.Information("Flake detection: enabled");
+            if (Lifetime)
+                Log.Information("Lifetime mode: enabled (extended Lifetime/ assertions)");
 
             // Step 1: Conditionally run binding pipeline
             if (!EffectiveSkipRegen)
@@ -1247,6 +1249,8 @@ partial class Build
                 Log.Information("Class filter: {ClassFilter}", ClassFilter);
             if (FlakeDetect)
                 Log.Information("Flake detection: enabled");
+            if (Lifetime)
+                Log.Information("Lifetime mode: enabled (extended Lifetime/ assertions)");
 
             // tvOS has no smoke wiring today — any active smoke flag is a
             // configuration error, not something to quietly ignore.
@@ -1364,6 +1368,7 @@ partial class Build
 
             var args = new List<string> { "--platform", "simulator" };
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
+            if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
             if (excludeClasses.Count > 0)
                 args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
@@ -1550,6 +1555,7 @@ partial class Build
 
         var args = new List<string> { "--platform", "simulator" };
         if (FlakeDetect) args.AddRange(["--flake-detect"]);
+        if (Lifetime) args.AddRange(["--lifetime"]);
         if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
 
         Log.Information("Launching app (timeout: {Timeout}s)...", Timeout);
@@ -1618,6 +1624,7 @@ partial class Build
 
             var args = new List<string> { "--platform", "device" };
             if (FlakeDetect) args.AddRange(["--flake-detect"]);
+            if (Lifetime) args.AddRange(["--lifetime"]);
             if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
             if (excludeClasses.Count > 0)
                 args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
@@ -1760,6 +1767,7 @@ partial class Build
         Directory.CreateDirectory(macResultsDir);
         var launchArgs = $"--platform simulator --results-path \"{macResultsDir}\"";
         if (FlakeDetect) launchArgs += " --flake-detect";
+        if (Lifetime) launchArgs += " --lifetime";
         if (!string.IsNullOrEmpty(ClassFilter)) launchArgs += $" --class {ClassFilter}";
 
         Log.Information("Launching RuntimeTestsApp.Mac (timeout: {Timeout}s)...", Timeout);
@@ -1857,6 +1865,7 @@ partial class Build
         if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
         var launchArgs = $"--platform simulator --results-path \"{catalystResultsDir}\"";
         if (FlakeDetect) launchArgs += " --flake-detect";
+        if (Lifetime) launchArgs += " --lifetime";
         if (!string.IsNullOrEmpty(ClassFilter)) launchArgs += $" --class {ClassFilter}";
 
         Log.Information("Launching RuntimeTestsApp.MacCatalyst (timeout: {Timeout}s)...", Timeout);
