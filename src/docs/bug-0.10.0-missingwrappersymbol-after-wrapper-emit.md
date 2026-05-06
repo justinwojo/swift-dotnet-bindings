@@ -143,3 +143,27 @@ any other "API present in Swift, missing in C#" defect.
 Cross-reference in
 [SDK-0.10.0-BLOCKERS.md](../../swift-dotnet-packages/SDK-0.10.0-BLOCKERS.md)
 under Round 3 / I-5.
+
+## Status — UNRESOLVED in Bundle 02 / queued for Bundle 11
+
+Bundle 02 did not produce a fix for the FlowController shape. Investigation
+showed that the wrapper-emit pipeline records the symbol as emitted in the
+report but the Swift wrapper compilation step fails to write it to the
+dylib — a Stripe-specific repro is needed (the test corpus in `BindingTests`
+does not currently reproduce the FlowController nested-static + Result-closure
+shape).
+
+**Carve-out:** queued for **Bundle 11** (nested-class + Result-closure
+wrapper-emitter rework). Bundle 7's domain is skip-policy / SB0001 emission
+("symbol can't be wrapped, fall through to direct PInvoke + diagnostic"),
+which is the right fit for `bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper.md`
+and `bug-0.10.0-generic-async-wrapper-symbol-missing.md`. Bug 3's resolution
+is the opposite shape — *extend the wrapper emitter so it does write the
+missing symbol*, not declare it unwrappable. Wrapper-emitter rework belongs
+in its own bundle (same pattern as Bundle 10 carving out closure lifetime
+infrastructure from Bundle 03). The post-emit "wrapper symbols actually
+exported" cross-reference gate from Bundle 7 will still catch any *future*
+shape that escapes Bundle 11's coverage.
+
+Until Bundle 11 lands, the consumer workaround (use the full-sheet
+`PaymentSheet(...)` ctor flows) stands.

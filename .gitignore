@@ -217,7 +217,11 @@ BindingTests/RuntimeTestsApp.Mac/TestClasses.g.txt
 BindingTests/RuntimeTestsApp.MacCatalyst/TestClasses.g.txt
 BindingTests/RuntimeTestsApp.tvOS/TestClasses.g.txt
 
-# Fetched library xcframeworks (rebuilt by nuke fetch)
+# Fetched library xcframeworks (rebuilt by nuke fetch).
+# Match both real directories and worktree-local symlinks pointing at the
+# parent worktree's .libraries/ (the latter is what `nuke validate` looks
+# for when running from a sibling worktree).
+.libraries
 .libraries/
 
 # Validation build artifacts (fingerprint stamps, rebuilt by nuke validate)

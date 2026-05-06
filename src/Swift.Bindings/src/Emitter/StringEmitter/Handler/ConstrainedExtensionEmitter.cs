@@ -38,6 +38,34 @@ public static class ConstrainedExtensionEmitter
     {
         if (!typeDecl.IsGeneric) return;
 
+        // Value-type-projected frozen-struct parents are skipped: the call sites at
+        // ~lines 315/331 emit `self.Payload.DangerousGetHandle()`, which assumes the
+        // SafeHandle-backed `Payload` projection used by classes, non-frozen structs,
+        // AND class-projected frozen structs (FrozenStructHandler.cs:168 emits
+        // `public SwiftSafeHandle<T> Payload`). A *value-type*-projected frozen
+        // struct (the `else` branch at FrozenStructHandler.cs:207) has no `Payload`
+        // member at all — only direct backing fields matching Swift's memory layout.
+        // Routing that shape through `self.Payload.DangerousGetHandle()` produces
+        // uncompilable C#. The original bug 6 target (WeatherKit `Forecast<T>`
+        // .Summary / .MinuteWeather) is a resilient (non-frozen) struct, so the
+        // SafeHandle path covers it. A value-type-projected frozen-struct generic
+        // with a same-type-constrained property is theoretical for current
+        // validation libraries; supporting it requires teaching this emitter to
+        // emit address/buffer-based dispatch, which is out of scope for Bundle 02.
+        if (typeDecl is StructDecl sd && sd.IsFrozen)
+        {
+            var typeRecord = typeDatabase.GetTypeRecordOrThrow(typeDecl.SwiftTypeName);
+            if (!MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord))
+            {
+                logger.LogDebug(
+                    $"Skipping constrained-extension emission for value-type-projected frozen struct {typeDecl.Name}: " +
+                    "ConstrainedExtensionEmitter assumes SafeHandle-backed Payload, " +
+                    "but value-type-projected frozen structs expose direct backing fields. " +
+                    "See bug-0.10.0-property-accessor-bound-to-specialization-symbol.md.");
+                return;
+            }
+        }
+
         // Group constrained-extension properties by concrete type
         var specializations = FindConstrainedSpecializations(typeDecl);
         if (specializations.Count == 0) return;
@@ -54,15 +82,29 @@ public static class ConstrainedExtensionEmitter
     }
 
     /// <summary>
-    /// Finds constrained-extension property groups: properties with same-name siblings
-    /// where each sibling's accessor carries a same-type equality constraint.
-    /// Returns a map from concrete type to list of properties for that specialization.
+    /// Finds constrained-extension property groups: properties whose accessor
+    /// carries a same-type equality constraint (e.g.
+    /// `extension Wrapper where T == Concrete`). Returns a map from concrete
+    /// type to list of properties for that specialization.
+    ///
+    /// Both single-specialization (one sibling) and multi-specialization (many
+    /// siblings) cases are emitted, because in either case the accessor mangled
+    /// name is bound to the closed generic instantiation — not the open generic
+    /// — and emitting at the open-generic class level would PInvoke the wrong
+    /// symbol for non-matching instantiations. Multi-spec groups are accepted
+    /// only when EVERY sibling carries a same-type constraint; mixed
+    /// open + constrained groups are rejected to avoid namespace collision with
+    /// the open-generic property emission.
     /// </summary>
     internal static Dictionary<SwiftTypeName, List<PropertyDecl>> FindConstrainedSpecializations(TypeDecl typeDecl)
     {
         var result = new Dictionary<SwiftTypeName, List<PropertyDecl>>();
 
-        // Find properties with same-name siblings (multi-specialization conflict)
+        if (!typeDecl.IsGeneric)
+            return result;
+
+        // Group properties by (name, isStatic) so we can detect mixed
+        // open-generic + constrained-extension siblings.
         var groups = new Dictionary<(string Name, bool IsStatic), List<PropertyDecl>>();
         foreach (var property in typeDecl.Properties)
         {
@@ -74,9 +116,10 @@ public static class ConstrainedExtensionEmitter
 
         foreach (var (_, siblings) in groups)
         {
-            if (siblings.Count <= 1) continue;
-
-            // Check that ALL siblings have parseable same-type constraints
+            // For both single- and multi-sibling groups: every sibling must
+            // carry a parseable same-type constraint. Mixed open + constrained
+            // groups are rejected so we don't emit closed extension methods
+            // that conflict with an open-generic property of the same name.
             bool allConstrained = true;
             foreach (var sibling in siblings)
             {
@@ -89,7 +132,7 @@ public static class ConstrainedExtensionEmitter
 
             if (!allConstrained) continue;
 
-            // Group each sibling under its concrete type
+            // Group each sibling under its concrete type.
             foreach (var sibling in siblings)
             {
                 var concreteType = ExtractSameTypeConstraint(sibling)!;
@@ -421,7 +464,24 @@ public static class ConstrainedExtensionEmitter
 
     private static string SanitizeTypeName(string name)
     {
-        return name.Replace(".", "_").Replace("<", "_").Replace(">", "").Replace(",", "_").Replace(" ", "");
+        // Strip every Swift type-syntax character that would produce an invalid C#
+        // identifier. Array `[T]`, generic `T<U>`, tuple `(A, B)` and qualified
+        // `Module.T` all need to map to bare-word identifiers; otherwise the emitted
+        // class name (e.g. `AlamofireExtensionSecCertificate]Extensions`) is a
+        // syntax error. Order matters: drop the closer (`>`, `]`, `)`) so the prefix
+        // collapses cleanly, replace the opener / separator with underscores so a
+        // composed name (`Dictionary_String_Int`) stays readable.
+        return name
+            .Replace(".", "_")
+            .Replace("<", "_")
+            .Replace(">", "")
+            .Replace("[", "_")
+            .Replace("]", "")
+            .Replace("(", "_")
+            .Replace(")", "")
+            .Replace(",", "_")
+            .Replace(" ", "")
+            .Replace("?", "_Optional");
     }
 
     private static bool IsCSharpPrimitiveType(string typeName) => typeName switch

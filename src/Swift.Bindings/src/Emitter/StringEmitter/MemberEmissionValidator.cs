@@ -94,36 +94,70 @@ public static class MemberEmissionValidator
             return SkipReason.ModuleInternal;
         }
 
-        // Constrained-extension multi-specialization conflict.
-        // Multiple `extension Wrapper where T == ConcreteN` blocks each define a
-        // property with the same Swift name. The ABI dump emits one Var node per
-        // specialization (e.g., StoreKit's three `extension VerificationResult
-        // where SignedType == ...` blocks each contribute a copy of
-        // `jwsRepresentation`), and each carries its own specialization-specific
-        // mangled accessor symbol. C# generics have only one specialization at
-        // runtime, so the merged C# class cannot dispatch among them: emitting
-        // one would silently call its symbol for ALL closed generic instantiations
-        // (returning the wrong specialization's data — undefined behavior).
-        // Skip ALL conflicting copies; users who need a specific specialization
-        // must call the mangled symbol via direct P/Invoke. The PropertyWrapperEmitter
-        // already defers these in `CanEmitGenericClassPropertyWrapper`, so no Swift
-        // wrapper is generated either. Regression coverage lives in
-        // BindingTests/.../Generics/ConstrainedExtensionDedup.swift.
+        // Constrained-extension specialization handling.
+        //
+        // Properties declared on `extension Wrapper where T == Concrete` carry
+        // accessor mangled names bound to the closed generic instantiation
+        // (e.g., `Forecast<MinuteWeather>.Summary`), not the open generic. If
+        // PropertyHandler emits such a property at the open-generic class level,
+        // the resulting P/Invoke calls a specialization-specific symbol for ALL
+        // closed instantiations — returning the wrong data, or throwing
+        // EntryPointNotFoundException when the symbol does not exist for the
+        // requested instantiation.
+        //
+        // Both single- and multi-specialization shapes are *re-surfaced* as
+        // closed-generic extension methods by ConstrainedExtensionEmitter (each
+        // specialization gets its own SBW_CEGet_* @_cdecl wrapper). The skip
+        // reason returned here only suppresses the *open-generic-class-level*
+        // emission that would PInvoke the wrong symbol — the property still
+        // reaches consumers via the extension-method projection.
+        //
+        //   - Multi-specialization (sibling count > 1): suppressed at the open-
+        //     generic level; emitted as one extension method per concrete type
+        //     by ConstrainedExtensionEmitter (multi-spec branch in
+        //     FindConstrainedSpecializations).
+        //   - Single-specialization (sibling count == 1) with a same-type
+        //     constraint: suppressed at the open-generic level; emitted as a
+        //     single closed-generic extension method (e.g.,
+        //     GetSummary(this Forecast<MinuteWeather> self)) backed by an
+        //     SBW_CEGet_* @_cdecl wrapper.
+        //
+        // Regression coverage lives in
+        // BindingTests/.../Generics/ConstrainedExtensionDedup.swift and
+        // ConstrainedExtensionSingleSpec.swift.
         if (property.ParentDecl is TypeDecl constrainedExtensionParent && constrainedExtensionParent.IsGeneric)
         {
+            // Walk the full sibling group (all same-name, same-IsStatic properties
+            // on the parent) and classify it. ConstrainedExtensionEmitter only
+            // re-surfaces groups whose siblings ALL carry a same-type constraint
+            // — mixed open + constrained groups are rejected there to avoid
+            // namespace collision with the open-generic property emission.
             int siblingCount = 0;
+            bool allSiblingsConstrained = true;
             foreach (var sibling in constrainedExtensionParent.Properties)
             {
                 if (sibling.Name == property.Name && sibling.IsStatic == property.IsStatic)
                 {
                     siblingCount++;
-                    if (siblingCount > 1)
-                        break;
+                    if (ConstrainedExtensionEmitter.ExtractSameTypeConstraint(sibling) == null)
+                        allSiblingsConstrained = false;
                 }
             }
             if (siblingCount > 1)
             {
-                skipDetails = $"Multiple constrained-extension specializations of '{property.Name}' on generic type '{constrainedExtensionParent.Name}' cannot be dispatched via C# generics.";
+                skipDetails = allSiblingsConstrained
+                    ? $"Multi-specialization constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' is suppressed at the open-generic class level; each specialization is emitted as a closed-generic extension method via ConstrainedExtensionEmitter."
+                    : $"Mixed open-generic + constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' is skipped: ConstrainedExtensionEmitter rejects mixed groups to avoid namespace collision with the open-generic emission.";
+                return SkipReason.UnsupportedType;
+            }
+            // Single-specialization same-type constraint: route to
+            // ConstrainedExtensionEmitter so the property is emitted as a
+            // closed-generic extension method bound to the correct concrete
+            // mangled symbol. Open-generic emission here would PInvoke a symbol
+            // that only exists for one instantiation.
+            if (ConstrainedExtensionEmitter.ExtractSameTypeConstraint(property) != null)
+            {
+                skipDetails = $"Single-specialization constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.";
                 return SkipReason.UnsupportedType;
             }
         }

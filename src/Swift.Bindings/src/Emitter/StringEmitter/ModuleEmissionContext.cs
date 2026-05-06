@@ -739,6 +739,7 @@ public sealed class ModuleEmissionContext
     // ==================== Protocol Conformance Decisions ====================
 
     private readonly Dictionary<string, ProtocolConformanceDecision> _conformanceDecisions = new();
+    private readonly HashSet<string> _setVtableEmitted = new();
 
     /// <summary>Records whether a protocol conformance was emitted or skipped.</summary>
     public void RecordConformanceDecision(string protocolName, bool emitted, string? skipReason)
@@ -761,6 +762,46 @@ public sealed class ModuleEmissionContext
 
     /// <summary>Returns all recorded conformance decisions.</summary>
     public IReadOnlyDictionary<string, ProtocolConformanceDecision> ConformanceDecisions => _conformanceDecisions;
+
+    /// <summary>
+    /// Records that a <c>Set&lt;Protocol&gt;_vtable</c> Swift trampoline was emitted into the
+    /// wrapper module for the given protocol. Consumed by <see cref="ProtocolProxyEmitter"/>
+    /// to switch the C# proxy's <c>InitializeVtable()</c> body to a no-op when the wrapper
+    /// did NOT emit the trampoline — the proxy class itself is still emitted (existential
+    /// factories reference it by name for read-only Swift→C# wrap), but the static ctor must
+    /// not call <c>NativeMethods.Set&lt;Protocol&gt;_vtable</c>, which would throw
+    /// <see cref="EntryPointNotFoundException"/> at first proxy use. See
+    /// <c>bug-0.10.0-proxy-vtable-setters-not-exported.md</c>. Must be called from the
+    /// <see cref="EveryProtocolEmitter"/> at the same point that emits the Swift function.
+    /// </summary>
+    public void MarkSetVtableEmitted(string protocolName)
+    {
+        _setVtableEmitted.Add(protocolName);
+    }
+
+    /// <summary>
+    /// Returns true when the wrapper module emitted a <c>Set&lt;Protocol&gt;_vtable</c> Swift
+    /// trampoline for this protocol. Proxy emission checks this to decide whether
+    /// <c>InitializeVtable()</c> calls <c>NativeMethods.Set&lt;Protocol&gt;_vtable</c> (true) or
+    /// short-circuits to a no-op (false).
+    ///
+    /// <b>Caller contract:</b> the "proxy class still emitted, body just changes" framing
+    /// only holds <i>after</i> the caller has separately confirmed conformance emission via
+    /// <see cref="WasConformanceEmitted"/> / the equivalent ProtocolHandler path. Conformances
+    /// that were never emitted (Self requirement, noncopyable param/return, static method/
+    /// property requirements, etc.) are suppressed at <c>ProtocolHandler</c>'s
+    /// <c>WasConformanceEmitted</c> check before the proxy emitter even runs, and references
+    /// to those proxy names are co-gated by <c>CSharpWrapperCoGater.ProcessSuppressedProxyReferences</c>.
+    /// This signal partitions the <i>remaining</i> protocols (conformance emitted, proxy
+    /// reachable) into "implementable conformance, real InitializeVtable body" (true) versus
+    /// "marker / composition shape, no-op InitializeVtable" (false). The C#-impl→Swift
+    /// callback path is what fails when the trampoline is absent; the Swift→C# read-only
+    /// wrap path goes through the existential's witness table and works either way.
+    /// </summary>
+    public bool WasSetVtableEmitted(string protocolName)
+    {
+        return _setVtableEmitted.Contains(protocolName);
+    }
 
     // ==================== Concrete Protocol Specialization ====================
 

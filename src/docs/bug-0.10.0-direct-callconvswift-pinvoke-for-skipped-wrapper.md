@@ -157,3 +157,27 @@ shape.
 Cross-reference in
 [SDK-0.10.0-BLOCKERS.md](../../swift-dotnet-packages/SDK-0.10.0-BLOCKERS.md)
 under Round 4 / M-6.
+
+## Status — DEFERRED to Bundle 7
+
+Bundle 02 wired up `WrapperValidation.IsSkippedWrapperDirectPInvoke` and the
+matching skip site in `MethodHandler` as a cross-bundle scaffold, but the
+naive trigger ("async with no wrapper flags in xcframework mode") over-fires:
+it matches both the genuine ABI-unsafe shape (this bug — `confirmIn: some
+UIScene` existential param) AND simple-signature async on generic class
+parents that empirically work with the legacy `CallConvSwift` direct path
+(e.g. `BindingTests` `AsyncGenericContainer<T>.processAsync`,
+`fetchOrThrow`). Both reach the predicate with identical method-flag state,
+so flag-only inspection cannot tell them apart.
+
+Bundle 7 owns the refined detector — a signature-level discriminator that
+recognises the genuine ABI-unsafe shapes (existential params, complex
+non-blittable returns) without catching the working simple-signature async
+path. Bundle 7 also folds the SB0001 / `WorkaroundRecommendations`
+integration in `gap-0.10.0-misleading-unsupported-attribute-on-working-members`.
+
+Until Bundle 7 lands, the predicate returns `false` and the legacy
+`@_silgen_name` + `CallConvSwift` direct-PInvoke path stays in place — same
+behaviour as `main`. The pinned scaffold tests live in
+`AbiSafetyTests.IsSkippedWrapperDirectPInvoke_*` and
+`SilgenNameTrampolineTests.Async_WithClosureParam_NoConversion_LegacyFallbackEmitted_Bundle7Deferred`.

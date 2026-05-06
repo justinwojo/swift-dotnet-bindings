@@ -27,6 +27,15 @@ public partial class ProtocolProxyEmitter
     private HashSet<string> _staticAbstractPropertyNames = new HashSet<string>();
     private HashSet<string> _staticAbstractMethodKeys = new HashSet<string>();
 
+    /// <summary>
+    /// True when EveryProtocolEmitter emitted a <c>SetXxx_vtable</c> Swift trampoline for the
+    /// protocol currently being emitted (or when running outside a ModuleEmissionContext, e.g.,
+    /// in unit tests). When false, <see cref="EmitStaticConstructor"/> emits a no-op
+    /// <c>InitializeVtable</c> so the static ctor doesn't throw EntryPointNotFoundException
+    /// at first proxy use.
+    /// </summary>
+    private bool _setVtableEmitted = true;
+
     public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {
         _typeDatabase = typeDatabase;
@@ -72,6 +81,47 @@ public partial class ProtocolProxyEmitter
         {
             _logger.LogWarning($"Skipping proxy class for {protocolDecl.Name}: protocols with associated types are not yet supported for proxy generation (would require [UnmanagedCallersOnly] in generic type)");
             return;
+        }
+
+        // Determine whether EveryProtocolEmitter emitted a SetXxx_vtable Swift trampoline for
+        // this protocol. The signal partitions the protocols that REACH this emitter at all
+        // (i.e. ones whose EveryProtocol conformance WAS recorded as emitted — ProtocolHandler
+        // suppresses the proxy entirely for the conformance-skipped paths) into two groups:
+        //
+        //   1. Implementable conformance (hasImplementableMembers=true): the wrapper emits a
+        //      real SetXxx_vtable cdecl trampoline, MarkSetVtableEmitted is called, the proxy's
+        //      static ctor calls into it normally. Default path.
+        //   2. Marker / composition protocol (hasImplementableMembers=false but NOT skipped for
+        //      static-property requirements): the wrapper emits an empty `extension EveryProtocol:
+        //      Foo {}` and records the conformance, but does NOT emit a SetXxx_vtable trampoline.
+        //      Calling NativeMethods.SetXxx_vtable from the static constructor would throw
+        //      EntryPointNotFoundException at first proxy use. The proxy class itself MUST still
+        //      be emitted, because other emitters reference it by name (existential factories
+        //      wrap Swift-side containers as `new XxxProxy(handle)` for read-only consumption);
+        //      skipping the class produces CS0246 across the binding.
+        //
+        // For (2), routing the "no vtable trampoline" signal into EmitStaticConstructor emits a
+        // no-op InitializeVtable() that only sets _vtableInitialized = true. The Swift→C# wrap
+        // path (the one that actually fires for marker conformances) does not depend on the
+        // local vtable — instance method dispatch goes through _swiftContainer.WitnessTable,
+        // populated by the existential ctor. The C#-impl→Swift path won't function (no callbacks
+        // registered) but the read-only path compiles AND runs correctly. See
+        // bug-0.10.0-proxy-vtable-setters-not-exported.md.
+        //
+        // (Protocols whose conformance was SKIPPED — Self requirement, noncopyable
+        // member, static method/property requirement, etc. — do not reach this emitter:
+        // ProtocolHandler suppresses the proxy at its EmissionContext.WasConformanceEmitted
+        // check before EmitProxyClass is called. Existential factory references to those proxy
+        // names are co-gated by CSharpWrapperCoGater.ProcessSuppressedProxyReferences.)
+        //
+        // The unit-test path (no ModuleEmissionContext supplied) keeps the legacy behaviour
+        // — _setVtableEmitted is treated as true so existing tests stay green.
+        _setVtableEmitted = _emissionContext == ModuleEmissionContext.Default
+            || _emissionContext.WasSetVtableEmitted(protocolDecl.Name);
+
+        if (!_setVtableEmitted)
+        {
+            _logger.LogDebug($"Emitting proxy class for {protocolDecl.Name} with no-op InitializeVtable: EveryProtocolEmitter did not emit Set{protocolDecl.Name}_vtable; only Swift→C# wrap path will function.");
         }
 
         // Inherited protocol requirements are now handled: the proxy emits implementations

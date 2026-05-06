@@ -598,8 +598,18 @@ namespace BindingsGeneration
                 : typeDatabase.GetLibraryPath(moduleDecl.Name);
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
-            // For @_cdecl wrappers, adjust calling convention and parameter types
-            var callingConvention = PInvokeCallingConvention.Cdecl;
+            // For @_cdecl wrappers, adjust calling convention and parameter types.
+            // When the operator @_cdecl wrapper was NOT emitted (e.g. operator on a
+            // class / non-frozen struct parent — see ShouldEmitOperatorWrapper guards),
+            // the EntryPoint stays the original Swift-mangled `$s…` symbol, which
+            // Swift compiles with the Swift calling convention. Pairing that symbol
+            // with CallConvCdecl (the previous hardcoded value) reads return values
+            // and self/parameters from the wrong registers — see
+            // bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv.md (MusicKit
+            // AnyMusicProperty.==). Use Cdecl iff the wrapper actually emitted.
+            var callingConvention = usesCdeclWrapper
+                ? PInvokeCallingConvention.Cdecl
+                : PInvokeCallingConvention.Swift;
             string returnType;
             string parametersString;
 
@@ -627,7 +637,13 @@ namespace BindingsGeneration
 
             if (pinvokeHelperContext != null)
             {
-                // Collect to helper context for generic types
+                // Collect to helper context for generic types. The same callingConvention
+                // selection as the direct path applies: when the @_cdecl wrapper was NOT
+                // emitted (operator on a class / non-frozen-struct parent), the EntryPoint
+                // remains the Swift-mangled symbol and MUST be paired with CallConvSwift
+                // (PInvokeDeclaration's default of Cdecl reproduces the same register-
+                // mismatch that bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv.md
+                // describes for non-generic parents).
                 var declaration = new PInvokeDeclaration
                 {
                     LibraryPath = libPath,
@@ -635,6 +651,7 @@ namespace BindingsGeneration
                     MethodName = pinvokeName,
                     ReturnType = returnType,
                     ParametersString = parametersString,
+                    CallingConvention = callingConvention,
                     IsAsync = false,
                     MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
                 };

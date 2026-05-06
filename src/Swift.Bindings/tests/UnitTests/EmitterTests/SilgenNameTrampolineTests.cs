@@ -579,8 +579,24 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void Async_WithClosureParam_NoConversion()
+    public void Async_WithClosureParam_NoConversion_LegacyFallbackEmitted_Bundle7Deferred()
     {
+        // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper — DEFERRED to Bundle 7.
+        //
+        // An async method whose signature carries a non-baseline closure parameter is rejected
+        // by HasCdeclCompatibleFunctionShape (no @_cdecl wrapper produced). In xcframework mode
+        // the legacy path then emits an `@_silgen_name` Swift trampoline plus a CallConvSwift
+        // P/Invoke into Swift's async ABI. That P/Invoke is genuinely ABI-unsafe at runtime,
+        // but Bundle 02's IsSkippedWrapperDirectPInvoke trigger over-fired — the same flag
+        // state appears on simple-signature async on generic class parents
+        // (AsyncGenericContainer&lt;T&gt;.processAsync, fetchOrThrow) that empirically work
+        // through the legacy path. Flipping the skip on for the closure case requires a
+        // signature-level discriminator (existential params, complex non-blittable returns)
+        // that Bundle 7 owns.
+        //
+        // This test pins the Bundle 02 status quo: the legacy @_silgen_name + CallConvSwift
+        // path is still emitted. Bundle 7 will replace these assertions with the skip-path
+        // expectations once the refined trigger lands.
         var typeDatabase = CreateAsyncTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
@@ -595,11 +611,15 @@ public class SilgenNameTrampolineTests
             methodType: MethodType.Instance);
         method.CSSignature.Add(CreateArgument("callback", closureType, moduleDecl));
 
-        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Swift closure param → can't convert → remains @_silgen_name
+        // Legacy fallback: @_silgen_name trampoline is emitted (no @_cdecl, since the closure
+        // param fails the cdecl-shape check).
         Assert.Contains("@_silgen_name", swiftOutput);
         Assert.DoesNotContain("@_cdecl", swiftOutput);
+        // C# emits a CallConvSwift P/Invoke into the trampoline. Bundle 7 will flip this to
+        // the unsupported-comment path when the refined ABI-unsafety trigger is wired.
+        Assert.Contains("CallConvSwift", csOutput);
     }
 
     #endregion

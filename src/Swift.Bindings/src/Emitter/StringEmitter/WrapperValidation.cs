@@ -1542,6 +1542,66 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Scaffold predicate for the "async into the raw Swift ABI" detection planned in Bundle 7.
+    /// Returns <c>true</c> when a method has no wrapper flag and is in xcframework mode —
+    /// the conditions where Bundle 7 will gate SB0001 ABI-unsafe diagnostics.
+    ///
+    /// <para><b>Bundle 02 scope:</b> this predicate is currently a no-op for the
+    /// <c>direct-callconvswift-pinvoke-for-skipped-wrapper</c> case (StoreKit
+    /// <c>Product.purchase(confirmIn: some UIScene)</c>): the bug 1 emission-time gate
+    /// was withdrawn after it was found to over-fire on simple-signature async methods on
+    /// generic class parents (<c>AsyncGenericContainer&lt;T&gt;.processAsync</c>,
+    /// <c>fetchOrThrow</c>) that empirically work with the legacy CallConvSwift direct-PInvoke
+    /// path. A correct discriminator must distinguish "wrapper rejected because the signature
+    /// has ABI-incompatible features" from "wrapper not emitted because the method is on a
+    /// generic-class parent and the legacy direct path is intentional and works." Both reach
+    /// here with identical method-flag state, so flag-only inspection cannot tell them apart.
+    /// Bundle 7 owns the refined detector (and the SB0001 / WorkaroundRecommendations integration
+    /// in <c>gap-0.10.0-misleading-unsupported-attribute-on-working-members</c>).</para>
+    ///
+    /// <para><b>Out of scope:</b> the wrapper-library "symbol missing in wrapper dylib" case
+    /// (bug-0.10.0-generic-async-wrapper-symbol-missing — MusicKit
+    /// <c>MusicPlayer.Queue.insert&lt;S: Sequence&gt;</c>) cannot be detected from method
+    /// flags alone: many legitimate paths (ArraySlice, default-parameter, metatype-array,
+    /// protocol-extension wrappers) set <see cref="MethodDecl.UsesWrapperLibrary"/> without
+    /// a @_cdecl-flag because they emit @_silgen_name wrappers whose symbols ARE present in
+    /// the wrapper dylib. Distinguishing real misses requires a wrapper-export cross-reference
+    /// and is tracked under the same bundle.</para>
+    /// </summary>
+    /// <param name="env">The method environment (after all wrapper flags have been resolved).</param>
+    /// <returns>Always <c>false</c> in Bundle 02. Bundle 7 will refine this.</returns>
+    public static bool IsSkippedWrapperDirectPInvoke(MethodEnvironment env)
+    {
+        // Predicate is xcframework-mode only. Outside xcframework mode the wrapper library
+        // doesn't exist, no wrapper symbols are emitted, and the legacy CallConvSwift
+        // direct-P/Invoke is the only available path — there's no "skipped wrapper" condition
+        // to detect. Test fixtures that don't set AsyncLibraryName fall into this branch.
+        if (!IsXCFrameworkMode(env.TypeDatabase))
+            return false;
+
+        // Methods routed through any wrapper path that physically emits a Swift symbol
+        // (cdecl wrapper, native ARM64 thunk, OptionalPointer wrapper, standalone closure
+        // wrapper) have a real entry point in the wrapper dylib — they are safe.
+        if (env.MethodDecl.UsesCdeclWrapper
+            || env.MethodDecl.UsesNativeThunk
+            || env.MethodDecl.HasOptionalPointerWrapper
+            || env.MethodDecl.HasClosureCdeclWrapper)
+            return false;
+
+        // Methods routed through the wrapper library (via @_silgen_name in ArraySlice,
+        // default-parameter, metatype-array, protocol-extension emitters, etc.) have an
+        // emitted wrapper symbol with Swift CC — calling them with CallConvSwift is correct
+        // even without a @_cdecl flag. Filter them out before flagging async.
+        if (env.MethodDecl.UsesWrapperLibrary)
+            return false;
+
+        // Bundle 7 will replace this no-op return with a refined trigger that matches the
+        // genuine ABI-unsafe shape (existential params, complex non-blittable returns) without
+        // catching simple-signature async on generic class parents that empirically work.
+        return false;
+    }
+
+    /// <summary>
     /// Returns true when a method has no @_cdecl wrapper or native thunk AND has non-blittable
     /// P/Invoke types. Used for SB0001 diagnostic — these methods are still emitted but may
     /// crash at runtime. Suppression was not feasible because it breaks protocol conformance (CS0535).

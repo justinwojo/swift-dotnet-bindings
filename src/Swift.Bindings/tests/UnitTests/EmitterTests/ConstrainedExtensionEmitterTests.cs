@@ -20,14 +20,41 @@ public class ConstrainedExtensionEmitterTests
     }
 
     [Fact]
-    public void FindConstrainedSpecializations_NoDuplicateProperties_ReturnsEmpty()
+    public void FindConstrainedSpecializations_SingleSpecPerName_GroupsByConcreteType()
     {
+        // Bug 0.10.0 — single-specialization same-type-constraint properties are
+        // bound to a closed-generic mangled symbol (e.g.,
+        // Forecast<MinuteWeather>.Summary), so they must be routed to the
+        // closed-generic extension-method emitter even though there is no
+        // sibling-name conflict.
         var typeDecl = CreateGenericStructDecl("Wrapper", "T");
         typeDecl.Properties.Add(CreatePropertyWithConstraint("propA", "TestModule.ConcreteA"));
         typeDecl.Properties.Add(CreatePropertyWithConstraint("propB", "TestModule.ConcreteB"));
 
         var result = ConstrainedExtensionEmitter.FindConstrainedSpecializations(typeDecl);
-        Assert.Empty(result); // no duplicate names → no conflict → no constrained specializations
+        Assert.Equal(2, result.Count);
+
+        var concreteA = SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteA");
+        var concreteB = SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteB");
+
+        Assert.True(result.ContainsKey(concreteA));
+        Assert.True(result.ContainsKey(concreteB));
+        Assert.Single(result[concreteA]);
+        Assert.Equal("propA", result[concreteA][0].Name);
+        Assert.Single(result[concreteB]);
+        Assert.Equal("propB", result[concreteB][0].Name);
+    }
+
+    [Fact]
+    public void FindConstrainedSpecializations_NonGenericType_ReturnsEmpty()
+    {
+        // Non-generic types cannot have same-type-constrained extensions —
+        // skip the whole walk regardless of property shape.
+        var typeDecl = CreateStructDecl("Concrete", isGeneric: false);
+        typeDecl.Properties.Add(CreateUnconstrainedProperty("prop"));
+
+        var result = ConstrainedExtensionEmitter.FindConstrainedSpecializations(typeDecl);
+        Assert.Empty(result);
     }
 
     [Fact]

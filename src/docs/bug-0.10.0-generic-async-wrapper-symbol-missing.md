@@ -127,3 +127,22 @@ A general-purpose post-emit pass that runs `nm -gU` on the wrapper
 binary and verifies every `[LibraryImport(EntryPoint = ...)]` resolves
 would catch this defect class at SDK-build time. Worth doing — see
 **O-2** for a sibling defect that needs the same gate.
+
+## Status — DEFERRED to Bundle 7
+
+Bundle 02 evaluated routing this through
+`WrapperValidation.IsSkippedWrapperDirectPInvoke`, but flag-only inspection
+cannot distinguish a method routed through the wrapper library whose symbol
+*didn't actually get emitted* (this bug — generic-async on `MusicPlayer.Queue.insert`)
+from one routed through the wrapper library whose symbol *did* get emitted
+(every working `@_silgen_name` path: ArraySlice, default-parameter,
+metatype-array, protocol extension). Both set `UsesWrapperLibrary=true` on
+methods without a `@_cdecl` flag.
+
+The correct discriminator is a wrapper-export cross-reference — load the
+emitted wrapper Swift source (or, preferably, the compiled wrapper dylib's
+exported symbol table via `nm -gU`) and reject any `[LibraryImport]`
+`EntryPoint` that doesn't resolve. That is the same post-emit gate proposed
+in the Fix gate section above and mirrors the SDK-build-time check needed
+for **O-2**. Bundle 7 owns this gate alongside the refined
+ABI-unsafety detector for `bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper.md`.

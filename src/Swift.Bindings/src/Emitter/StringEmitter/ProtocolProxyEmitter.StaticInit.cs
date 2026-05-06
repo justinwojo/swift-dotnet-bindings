@@ -89,6 +89,27 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("if (_vtableInitialized) return;");
         writer.WriteLine();
 
+        // When EveryProtocolEmitter did not emit a Set{Protocol}_vtable Swift trampoline
+        // (e.g., empty marker / static-only-requirement / noncopyable protocols), calling
+        // it would throw EntryPointNotFoundException. Skip the entire vtable population:
+        // for these protocols the proxy is only used to wrap Swift-side existential
+        // containers (read-only), and instance dispatch goes through _swiftContainer's
+        // witness table, not the local vtable. C# impls of the protocol won't dispatch
+        // back into Swift, but those are not produced for the protocol shapes that fall
+        // into this gate. See bug-0.10.0-proxy-vtable-setters-not-exported.md.
+        if (!_setVtableEmitted)
+        {
+            writer.WriteLine("// No Set" + protocolDecl.Name + "_vtable Swift trampoline was emitted for this protocol;");
+            writer.WriteLine("// the proxy is read-only (Swift→C# wrap path only). Skip vtable initialisation.");
+            writer.WriteLine("_vtableInitialized = true;");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine();
+            return;
+        }
+
         // Build local vtable with receiver function pointers
         writer.WriteLine($"_localVTable = new {localVtableName}");
         writer.WriteLine("{");

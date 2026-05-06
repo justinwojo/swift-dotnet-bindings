@@ -129,3 +129,58 @@ without `EntryPointNotFoundException`. Today only 2 of ~12 succeed.
 A wrapper-symbol-table verification pass (covering both this defect
 and **O-1**) at SDK-build time would catch this class of defect
 before ship.
+
+## Resolution — Bundle 02 (0.10.0 pre-release)
+
+The fix landed under the **binding-side, no-op static ctor** approach
+rather than the doc's original "decline to emit the proxy" suggestion.
+Declining to emit the proxy class drops it from the binding entirely,
+which is unsafe: existential factories elsewhere in the same module wrap
+Swift-side existential containers as `new XxxProxy(handle)` for read-only
+consumption, and removing the symbol breaks compilation across the binding
+with CS0246. So the proxy must stay emitted regardless.
+
+What actually changed:
+
+1. `EveryProtocolEmitter` now calls `MarkSetVtableEmitted(protocolName)`
+   on the same line that emits the `SetXxx_vtable` Swift trampoline
+   (`EveryProtocolEmitter.cs:1086`). The signal is recorded in
+   `ModuleEmissionContext._setVtableEmitted`.
+
+2. `ProtocolProxyEmitter` reads `WasSetVtableEmitted` near the top of
+   `EmitProxyClass` (`ProtocolProxyEmitter.cs:119`, inside the comment
+   block beginning at line 86) and routes the "no trampoline" decision
+   into `EmitStaticConstructor`
+   (`ProtocolProxyEmitter.StaticInit.cs`). When false, the static ctor
+   emits a no-op `InitializeVtable()` that only sets
+   `_vtableInitialized = true` — no `NativeMethods.SetXxx_vtable` call
+   that would throw `EntryPointNotFoundException`.
+
+The trade-off: the **Swift→C# wrap path** (the one that actually fires
+for these protocols — read-only consumption of Swift-returned existential
+containers) keeps working, because instance method dispatch routes through
+`_swiftContainer.WitnessTable` populated by the existential constructor,
+not through the local vtable. The **C#-impl→Swift callback path**
+(consumers implementing the protocol in C# and passing the proxy back into
+Swift) is non-functional for the affected protocols — there are no Swift
+callbacks registered to dispatch into. That's a known limitation tracked
+separately; it is not made worse by this fix because the alternative
+(static ctor crash on first type touch) was strictly worse.
+
+The narrow fix targets exactly one shape: marker / composition protocols
+whose conformance is recorded as emitted but whose `SetXxx_vtable`
+trampoline isn't (the empty-`extension EveryProtocol: Foo {}` branch in
+`EveryProtocolEmitter.EmitProtocolConformance`'s `else` arm). Protocols
+whose conformance is fully skipped (Self requirement, noncopyable param/
+return, static method/property requirements, etc.) reach a different
+gate: `ProtocolHandler.cs:459` suppresses the proxy class entirely, and
+references to that proxy elsewhere in the binding are co-gated by
+`CSharpWrapperCoGater.ProcessSuppressedProxyReferences`. Those shapes are
+not the bug 5 surface and the no-op `InitializeVtable` does not apply to
+them.
+
+The original "wrapper-symbol-table verification at SDK-build time"
+suggestion remains valid as a defense-in-depth gate and is folded into
+the Bundle 7 wrapper-export cross-reference work for
+`bug-0.10.0-generic-async-wrapper-symbol-missing.md` and
+`bug-0.10.0-missingwrappersymbol-after-wrapper-emit.md`.

@@ -2747,4 +2747,207 @@ public class AbiSafetyTests
     }
 
     #endregion
+
+    #region IsSkippedWrapperDirectPInvoke Tests
+    //
+    // Bundle 02 — ABI correctness. IsSkippedWrapperDirectPInvoke is a CROSS-BUNDLE SCAFFOLD:
+    // Bundle 02 wires the predicate up at the MethodHandler call site (so the skip path is
+    // exercised in tests) but the body returns false unconditionally. Bundle 7 will replace
+    // the scaffold with a refined trigger that matches the genuine ABI-unsafe shape
+    // (existential params like `some UIScene`, complex non-blittable returns) without
+    // catching simple-signature async on generic class parents that empirically work with
+    // the legacy CallConvSwift direct-PInvoke path.
+    //
+    // (bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper — StoreKit
+    // Product.purchase(confirmIn: some UIScene) — deferred to Bundle 7.)
+    //
+    // The flag-family early returns (UsesCdeclWrapper / UsesNativeThunk /
+    // HasOptionalPointerWrapper / HasClosureCdeclWrapper / UsesWrapperLibrary) are part of the
+    // scaffold contract — Bundle 7's refined trigger sits BEHIND those guards, so any method
+    // routed through a real wrapper symbol is exempt no matter what the trigger does.
+    // The tests below pin those guards plus the non-xcframework-mode early return.
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_NotXCFrameworkMode_ReturnsFalse()
+    {
+        // Outside xcframework mode there is no wrapper library to skip into. The legacy
+        // CallConvSwift direct-P/Invoke is the only available path, so the predicate must
+        // early-return false to avoid spurious "skipped" verdicts on non-xcframework fixtures.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        // Deliberately do NOT set typeDb.AsyncLibraryName — non-xcframework mode.
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("doSomethingAsync", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithoutWrapperFlag_Bundle02Scaffold_ReturnsFalse()
+    {
+        // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper — DEFERRED to Bundle 7.
+        //
+        // The naive trigger ("async with no wrapper flags in xcframework mode") over-fires:
+        // it matches both the genuine ABI-unsafe shape (StoreKit Product.purchase(confirmIn:
+        // some UIScene)) AND simple-signature async methods on generic class parents that
+        // empirically work with the legacy CallConvSwift direct-PInvoke path
+        // (e.g. AsyncGenericContainer<T>.processAsync, fetchOrThrow). The two cases reach
+        // the predicate with identical flag state, so discriminating them requires deeper
+        // signature analysis (existential params, complex non-blittable returns) that
+        // Bundle 02 doesn't add. Until Bundle 7 lands the refined trigger, the predicate
+        // returns false and the skip path is dormant.
+        //
+        // This test pins the Bundle 02 contract: an async method with no wrapper flags must
+        // NOT be skipped in xcframework mode. Bundle 7 will add a sibling test that fires
+        // the trigger on a method whose signature carries an existential param.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("purchase", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithCdeclWrapper_ReturnsFalse()
+    {
+        // The async method received a @_cdecl wrapper — the wrapper-library symbol exists
+        // and the cdecl boundary is safe. Predicate must return false.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("purchase", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.UsesCdeclMethodWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithNativeThunk_ReturnsFalse()
+    {
+        // Native ARM64 thunk path also produces a real wrapper symbol — predicate must skip.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("purchase", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.WrapperStrategy = WrapperStrategy.NativeThunk;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithOptionalPointerWrapper_ReturnsFalse()
+    {
+        // OptionalPointer wrapper produces its own Swift wrapper function — safe.
+        // (The flag is normally only meaningful for sync methods, but the predicate's flag
+        // exemption must apply regardless of IsAsync — we don't want to depend on flag-family
+        // ordering elsewhere in the pipeline.)
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("purchase", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.HasOptionalPointerWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithClosureCdeclWrapper_ReturnsFalse()
+    {
+        // Standalone closure cdecl wrapper produces its own Swift wrapper function — safe.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("purchase", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.HasClosureCdeclWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncRoutedThroughWrapperLibrary_ReturnsFalse()
+    {
+        // ArraySlice / default-parameter / metatype-array / protocol-extension emitters all set
+        // UsesWrapperLibrary=true on a clone WITHOUT a @_cdecl flag and emit the wrapper as
+        // @_silgen_name. The wrapper symbol IS present in the wrapper dylib, called with Swift
+        // CC, which is correct. The predicate must NOT flag these as broken — doing so caused
+        // ~30-60% line drift across StripeApplePay/StripeCore/StripePaymentsUI in validate.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("loadAsync", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.UsesWrapperLibrary = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_SyncRoutedThroughWrapperLibrary_ReturnsFalse()
+    {
+        // Same wrapper-library carve-out, sync flavour.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("compute", parentDecl, moduleDecl);
+        method.UsesWrapperLibrary = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_PlainSyncWithoutWrapperLibrary_ReturnsFalse()
+    {
+        // Plain sync method, no wrapper-library indirection, no flags set — there's nothing to
+        // "skip"; the C# P/Invoke targets the module library directly. Predicate must return false.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("doSomething", parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithCdeclConstructorWrapper_ReturnsFalse()
+    {
+        // Cdecl constructor wrapper is one of the WrapperStrategy values folded into
+        // UsesCdeclWrapper — the predicate must respect it.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("init", parentDecl, moduleDecl);
+        method.IsConstructor = true;
+        method.IsAsync = true;
+        method.UsesCdeclConstructorWrapper = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    #endregion
 }

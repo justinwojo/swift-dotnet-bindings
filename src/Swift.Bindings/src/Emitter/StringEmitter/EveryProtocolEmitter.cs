@@ -1077,6 +1077,13 @@ public class EveryProtocolEmitter
             EmitProtocolVtableStruct(writer, protocolDecl);
             EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
             EmitSetVtableFunction(writer, protocolDecl);
+            // Symmetric signal to ProtocolProxyEmitter: the C# proxy's InitializeVtable() may
+            // reference the SetXxx_vtable PInvoke now that the Swift trampoline is in place.
+            // See bug-0.10.0-proxy-vtable-setters-not-exported.md — without this signal the
+            // proxy emitter previously assumed every protocol got a setter and produced
+            // EntryPointNotFoundException-throwing static constructors for ~80% of MusicKit
+            // protocols.
+            _emissionContext?.MarkSetVtableEmitted(protocolDecl.Name);
         }
         else
         {

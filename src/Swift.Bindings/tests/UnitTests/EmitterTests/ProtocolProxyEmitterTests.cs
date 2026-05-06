@@ -173,6 +173,64 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("if (_vtableInitialized) return;", output);
     }
 
+    [Fact]
+    public void EmitProxyClass_NoSetVtableTrampoline_EmitsNoOpInitializeVtable()
+    {
+        // bug-0.10.0-proxy-vtable-setters-not-exported (Bundle 02 fix). When the wrapper
+        // module did NOT call MarkSetVtableEmitted for this protocol — the marker /
+        // composition shape where EveryProtocolEmitter records the conformance but emits
+        // no Set<Protocol>_vtable Swift trampoline — the proxy class MUST still be emitted
+        // (existential factories reference it by name) but its static ctor must not call
+        // NativeMethods.SetXxx_vtable (would throw EntryPointNotFoundException at first
+        // proxy use). The static ctor short-circuits to a no-op InitializeVtable that only
+        // sets _vtableInitialized = true.
+        var ctx = new ModuleEmissionContext();
+        // Deliberately do NOT call ctx.MarkSetVtableEmitted("TestProtocol") — this is the
+        // marker/composition path the bug 5 fix targets.
+        var emitter = new ProtocolProxyEmitter(_typeDatabase, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        emitter.EmitProxyClass(writer, protocolDecl);
+        var output = stringWriter.ToString();
+
+        // Proxy class is still emitted (existential factories need the symbol).
+        Assert.Contains("public unsafe partial class TestProtocolProxy", output);
+        // InitializeVtable still exists and the _vtableInitialized guard still gates it,
+        // but the body must NOT call any Set*_vtable PInvoke. Match the call shape
+        // (NativeMethods.SetTestProtocol_vtable(...) — see ProtocolProxyEmitter.StaticInit.cs:250)
+        // rather than the bare symbol name; the no-op path emits a documenting
+        // comment that mentions the symbol by name and would otherwise match.
+        Assert.Contains("private static void InitializeVtable()", output);
+        Assert.Contains("if (_vtableInitialized) return;", output);
+        Assert.DoesNotContain("NativeMethods.SetTestProtocol_vtable(", output);
+    }
+
+    [Fact]
+    public void EmitProxyClass_SetVtableTrampolineEmitted_KeepsRealInitializeVtableBody()
+    {
+        // Counterpart to the no-op test: when the wrapper DID emit Set<Protocol>_vtable
+        // (the implementable-conformance path), the proxy's InitializeVtable must call
+        // NativeMethods.SetXxx_vtable normally.
+        var ctx = new ModuleEmissionContext();
+        ctx.MarkSetVtableEmitted("TestProtocol");
+        var emitter = new ProtocolProxyEmitter(_typeDatabase, NullLogger.Instance, "TestModule", ctx);
+        var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
+
+        var stringWriter = new StringWriter();
+        var writer = new CSharpWriter(stringWriter);
+        emitter.EmitProxyClass(writer, protocolDecl);
+        var output = stringWriter.ToString();
+
+        Assert.Contains("public unsafe partial class TestProtocolProxy", output);
+        Assert.Contains("private static void InitializeVtable()", output);
+        // The real path emits `NativeMethods.SetTestProtocol_vtable(...)`. Match
+        // the call shape (ProtocolProxyEmitter.StaticInit.cs:250) rather than the
+        // bare symbol so the assertion doesn't accidentally match a comment.
+        Assert.Contains("NativeMethods.SetTestProtocol_vtable(", output);
+    }
+
     #endregion
 
     #region Receiver Method Tests

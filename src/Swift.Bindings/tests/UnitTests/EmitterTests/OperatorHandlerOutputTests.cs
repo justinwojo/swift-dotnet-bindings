@@ -620,4 +620,120 @@ public class OperatorHandlerOutputTests
         handler.EmitOperator(csWriter, op, typeDatabase);
         return writer.ToString();
     }
+
+    [Fact]
+    public void EmitOperator_ClassParentNoCdeclWrapper_UsesCallConvSwift()
+    {
+        // bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv (MusicKit AnyMusicProperty.==).
+        // When the operator's parent is a class, ShouldEmitOperatorWrapper returns false
+        // (line 848 of OperatorHandler.cs: only frozen structs get the @_cdecl operator wrapper),
+        // so the EntryPoint stays the original Swift-mangled `$s…` symbol. That symbol uses
+        // Swift's calling convention; pairing it with CallConvCdecl reads garbage from the
+        // cdecl-return register instead of Swift's. The fix in OperatorHandler.EmitOperatorPInvoke
+        // makes the CC conditional on usesCdeclWrapper.
+        var typeDatabase = CreateTypeDatabaseWithClass("TestModule", "AnyMusicProperty");
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parentType = new ClassDecl
+        {
+            Name = "AnyMusicProperty",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AnyMusicProperty"),
+            MangledName = "$s10TestModule16AnyMusicPropertyCN",
+            IsFinal = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var method = new MethodDecl
+        {
+            Name = "==",
+            // Real-world MusicKit AnyMusicProperty == mangled symbol shape (Swift CC).
+            MangledName = "$s10TestModule16AnyMusicPropertyC2eeoiySbAC_ACtFZ",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = new NamedTypeSpec("Swift.Bool"), Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = new NamedTypeSpec("TestModule.AnyMusicProperty"), Name = "lhs", PrivateName = "lhs", IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = new NamedTypeSpec("TestModule.AnyMusicProperty"), Name = "rhs", PrivateName = "rhs", IsInOut = false, IsGeneric = false, ParentDecl = parentType, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var op = new OperatorDecl
+        {
+            Name = "==",
+            OperatorSymbol = "==",
+            Kind = OperatorKind.Binary,
+            IsPrefix = false,
+            UnderlyingMethod = method,
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl
+        };
+
+        var output = EmitOperator(op, typeDatabase);
+
+        // The P/Invoke must keep the Swift-mangled EntryPoint AND advertise CallConvSwift.
+        // The previous bug paired the same EntryPoint with CallConvCdecl, which is the
+        // mismatch that returned bogus bool values from a register Swift never populated.
+        Assert.Contains("EntryPoint = \"$s10TestModule16AnyMusicPropertyC2eeoiySbAC_ACtFZ\"", output);
+        Assert.Contains("CallConvSwift", output);
+        Assert.DoesNotContain("CallConvCdecl", output);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClass(string moduleName, string typeName)
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var module = new ModuleTypeDatabase(moduleName, $"/tmp/{moduleName}.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{typeName}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(moduleName, typeName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{typeName}"),
+                MetadataAccessor = $"$s10{moduleName}{typeName.Length}{typeName}CMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
+
+    // NOTE: the PInvokeHelperContext branch in OperatorHandler.EmitOperatorPInvoke
+    // (OperatorHandler.cs:638) carries the same CallingConvention selection as the
+    // direct path covered by EmitOperator_ClassParentNoCdeclWrapper_UsesCallConvSwift.
+    // An end-to-end regression test for that branch is not viable today: the G4 skip
+    // gate at OperatorHandler.cs:208–224 fires for every generic-type operator whose
+    // P/Invoke parameter naming differs from the wrapper signature (the buffer-
+    // marshalling preamble case), so generic-class operators on Bool returns are
+    // skipped before reaching the helper-collect line. The fix at line 654
+    // ("CallingConvention = callingConvention") is structural symmetry with the
+    // direct branch and is documented inline at lines 640–646; if a future change
+    // loosens the G4 gate, the matching test belongs alongside whichever shape it
+    // newly admits.
 }

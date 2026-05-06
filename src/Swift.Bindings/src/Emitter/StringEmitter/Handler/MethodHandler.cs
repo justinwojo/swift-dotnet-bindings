@@ -1124,6 +1124,19 @@ namespace BindingsGeneration
                 return;
             }
 
+            // ABI-unsafe direct PInvoke scaffold (Bundle 02): the predicate is wired up here
+            // so Bundle 7 can refine the trigger and switch the skip on. The predicate
+            // returns false in Bundle 02 to avoid over-firing on simple-signature async
+            // methods on generic class parents that empirically work with the legacy
+            // CallConvSwift direct-PInvoke path. See WrapperValidation.IsSkippedWrapperDirectPInvoke.
+            if (!isAccessor && WrapperValidation.IsSkippedWrapperDirectPInvoke(methodEnv))
+            {
+                ReportCollector.RecordMemberSkipped(methodEnv.MethodDecl, SkipReason.UnsupportedSignature,
+                    "Async method without @_cdecl wrapper — direct CallConvSwift on Swift async ABI is unsafe.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name, BindingItemKind.Method, SkipReason.UnsupportedSignature, "wrapper not emitted; direct call would be ABI-unsafe");
+                return;
+            }
+
             var signatureHandler = new SignatureHandler(methodEnv);
 
             if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)

@@ -519,6 +519,39 @@ public class DotNetIdiomPolishTests
             ModuleDecl = moduleDecl,
         };
 
+        // Add an instance method so EveryProtocolEmitter emits SetFetchable_vtable
+        // (and ProtocolProxyEmitter therefore emits the proxy class). Without an
+        // implementable member the proxy is correctly suppressed by
+        // bug-0.10.0-proxy-vtable-setters-not-exported guarding — this test exercises
+        // namespace placement, so it needs a non-empty protocol.
+        var methodDecl = new MethodDecl
+        {
+            Name = "fetch",
+            ParentDecl = protocolDecl,
+            ModuleDecl = moduleDecl,
+            MangledName = "$s10TestModule9FetchableP5fetchyyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = string.Empty,
+                    PrivateName = string.Empty,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = protocolDecl,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        protocolDecl.Methods.Add(methodDecl);
+
         moduleDecl.Types.Add(protocolDecl);
         moduleDecl.Protocols.Add(protocolDecl);
 
