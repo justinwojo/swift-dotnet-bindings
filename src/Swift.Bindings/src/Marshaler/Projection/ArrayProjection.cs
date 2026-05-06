@@ -56,7 +56,17 @@ public class ArrayProjection : ITypeProjection
     {
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
-        var needsConversion = elemConversion != null;
+        // When SwiftContainerGenericType matches the C# public type, the SwiftArray<T>
+        // container holds typed wrapper instances directly (e.g. SwiftArray<NonFrozenStruct>).
+        // FromEnumerable then dispatches to ISwiftObject.MarshalToSwift per element, which
+        // copies the struct's payload bytes by value via VWT into each contiguous slot —
+        // matching the @_cdecl wrapper's `assumingMemoryBound(to: Array<TStruct>.self).pointee`
+        // expectation. Applying the per-element conversion (e.g. e.Payload.DangerousGetHandle())
+        // would silently downgrade the storage to 1-word IntPtr slots, which is the
+        // ABI-mismatch bug fixed in 0.10.0 (bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…).
+        var skipPerElementConversion = elemConversion != null
+            && rawElem == _elementProjection.PublicType;
+        var needsConversion = elemConversion != null && !skipPerElementConversion;
         var setup = new List<MarshalStatement>();
 
         if (needsConversion && _elementProjection.ElementRequiresDisposal)
@@ -225,7 +235,9 @@ public class ArrayProjection : ITypeProjection
 
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
-        if (elemConversion != null)
+        // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
+        // matches the C# public type, FromEnumerable wants the typed wrapper directly.
+        if (elemConversion != null && rawElem != _elementProjection.PublicType)
             return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar}.Select(e => {elemConversion}))";
         return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar})";
     }

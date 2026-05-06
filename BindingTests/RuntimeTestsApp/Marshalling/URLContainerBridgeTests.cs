@@ -111,8 +111,12 @@ public class URLContainerBridgeTests : TestBase
 
     public void TestAcceptURLSet()
     {
+        // Swift `Set<URL>` parameter projects to `IReadOnlySet<NSUrl>` post-Bundle-04 #9
+        // (was `IEnumerable<NSUrl>` pre-fix — the uniqueness invariant was being dropped
+        // at the public API surface). Caller must construct an IReadOnlySet<NSUrl>;
+        // HashSet<NSUrl> is the natural shape on the C# side.
         using var helper = new SwiftBindingsTestLib.URLContainerTestHelper();
-        var urls = new[]
+        var urls = new HashSet<Foundation.NSUrl>
         {
             Foundation.NSUrl.FromString("https://one.com")!,
             Foundation.NSUrl.FromString("https://two.com")!

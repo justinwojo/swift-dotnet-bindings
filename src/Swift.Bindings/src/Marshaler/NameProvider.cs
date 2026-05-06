@@ -358,7 +358,16 @@ public static class NameProvider
         if (_systemCollisionNames.Contains(protocolName))
             return $"ISwift{protocolName}";
 
-        var interfaceName = $"I{protocolName}";
+        // Apply the I prefix to the LEAF component only. For a nested protocol like
+        // `Parent.Nested` (e.g., Nuke.ImagePipeline.Delegate where the parent path lands
+        // here as `ImagePipeline.Delegate`), the C# nested layout is `Parent.INested` —
+        // the parent type names stay un-prefixed and the I attaches to the protocol's
+        // leaf name. Without this, `I + ImagePipeline.Delegate` produced the nonexistent
+        // type `IImagePipeline.Delegate`. See bug-0.10.0-nested-protocol-i-prefix.md.
+        var lastDot = protocolName.LastIndexOf('.');
+        var interfaceName = lastDot >= 0
+            ? protocolName.Substring(0, lastDot + 1) + "I" + protocolName.Substring(lastDot + 1)
+            : $"I{protocolName}";
 
         // Cross-module qualification: when a binding references a protocol declared in another
         // module (umbrella re-export, dep DB), the bare `IFoo` is unresolvable in C#. Mirror

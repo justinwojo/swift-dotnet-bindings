@@ -222,11 +222,15 @@ public class ProjectionVisitorTests
     #region SetProjection
 
     [Fact]
-    public void Set_AsParameter_PublicTypeIsEnumerable()
+    public void Set_AsParameter_PublicTypeIsReadOnlySet()
     {
+        // Bundle 04 #9: Set parameters now project as IReadOnlySet<T> (was
+        // IEnumerable<T> pre-fix, which dropped Swift's uniqueness invariant
+        // at the public API surface). Callers must materialise an actual set
+        // (HashSet<T>) on the C# side.
         var elemProj = new BlittableProjection("nint");
         var proj = new SetProjection(elemProj, isParameter: true);
-        Assert.Contains("IEnumerable", proj.PublicType);
+        Assert.Contains("IReadOnlySet", proj.PublicType);
         Assert.Equal("IntPtr", proj.PInvokeType);
     }
 

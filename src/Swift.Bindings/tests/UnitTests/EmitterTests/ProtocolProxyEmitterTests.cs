@@ -425,10 +425,16 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_GetterReceiver_OptionalNonFrozenStruct_UsesDangerousGetHandle()
+    public void EmitProxyClass_GetterReceiver_OptionalNonFrozenStruct_PassesTypedWrapper()
     {
-        // Optional<NonFrozenStruct> getter must use DangerousGetHandle() like Class,
-        // because non-frozen structs use ClassWithOpaquePayload (SafeHandle-based) in C#.
+        // Optional<NonFrozenStruct> getter must pass the typed C# wrapper directly to
+        // SwiftOptional<TWrapper>.NewSome — NOT extract via DangerousGetHandle().
+        // NonFrozenStructProjection.SwiftContainerGenericType returns the typed wrapper,
+        // and SwiftOptional<TWrapper>.NewSome routes through ISwiftObject.MarshalToSwift,
+        // which copies the struct's payload bytes by value via VWT.InitializeWithCopy.
+        // Lowering to .Payload.DangerousGetHandle() would type-mismatch the SwiftOptional
+        // generic parameter and emit Dictionary<nint, …>-shaped bugs at the same ABI
+        // boundary as bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
         _typeDatabase.AddOutOfModuleTypes(new[]
         {
             (SwiftTypeName.FromModuleQualifiedName("TestModule.MyConfig"), new TypeRecord
@@ -446,9 +452,11 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("OptStructProto", "config", hasGetter: true, hasSetter: true, optionalStruct);
         var output = EmitProxyClass(protocolDecl);
 
-        // Getter: must use DangerousGetHandle to extract IntPtr from non-frozen struct
+        // Getter: must pass the typed wrapper directly to NewSome — not via DangerousGetHandle.
         Assert.Contains("Receive_config_get", output);
-        Assert.Contains("DangerousGetHandle()", output);
+        Assert.Contains("SwiftOptional<TestModule.MyConfig>.NewSome(", output);
+        // The Some-arg must be the typed wrapper variable, not the wrapper's IntPtr handle.
+        Assert.DoesNotContain("Val.Payload.DangerousGetHandle())", output);
 
         // Setter: simple nullable cast, no redundant MarshalFromSwift
         Assert.Contains("Receive_config_set", output);

@@ -192,6 +192,59 @@ public func scalePoint(_ point: NonFrozenPoint, by factor: Double) -> NonFrozenP
     return NonFrozenPoint(x: point.x * factor, y: point.y * factor)
 }
 
+// MARK: - IEnumerable<NonFrozenStruct> sync round-trip
+// Regression coverage for `bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…` Defect A.
+// The wrapper expects `Array<NonFrozenPoint>` storage (contiguous payload bytes per slot,
+// not 1-word IntPtr handles). The sync paths exercise SwiftArray<NonFrozenPoint>
+// FromEnumerable / AsProjected via VWT InitializeWithCopy / NewFromPayload.
+
+/// Sums the magnitude of a sequence of non-frozen-struct points.
+/// Exercises SwiftArray<NonFrozenPoint> as a parameter on a sync wrapper.
+public func sumPointMagnitudes(_ points: [NonFrozenPoint]) -> Double {
+    return points.reduce(0.0) { acc, p in acc + p.distanceFromOrigin() }
+}
+
+/// Returns each point scaled by `factor`. Exercises SwiftArray<NonFrozenPoint> as a
+/// parameter AND a return value, validating the entire round-trip both directions.
+public func scalePoints(_ points: [NonFrozenPoint], by factor: Double) -> [NonFrozenPoint] {
+    return points.map { NonFrozenPoint(x: $0.x * factor, y: $0.y * factor) }
+}
+
+// MARK: - Set parameter with empty-literal default (StoreKit Product.purchase pattern)
+// Regression coverage for `gap-0.10.0-swift-set-parameter-becomes-ienumerable-default-lost.md`.
+// Pre-fix the parameter projects as `IEnumerable<nint>` (fidelity loss — Set's uniqueness
+// invariant is dropped at the API boundary) and the `= []` default is silently dropped
+// (consumer must construct an empty enumerable explicitly). Post-fix the parameter
+// projects as `IReadOnlySet<nint>` and the empty-literal default surfaces as either
+// an inline default or a trim overload that calls Swift's defaulted function.
+//
+// Element type is `Int` (Swift native `Int`, projects to C# `nint`) rather than
+// `Int32` because Swift `Set<Int32>` insertion takes the runtime's fallback
+// CallConvSwift path on Mono Simulator, which is a documented pre-existing
+// limitation (see `SwiftSet.InsertUnsafe`). `Set<Int>` has a working `@_cdecl`
+// wrapper (`SBW_SetInt_Insert`) so the round-trip exercises the Set projection
+// without tripping the unrelated runtime gap.
+
+/// Returns the count of a `Set<Int>` with an empty-literal default. The signature
+/// pattern mirrors StoreKit's `Product.purchase(options: Set<PurchaseOption> = [])`.
+public func setMembershipCount(_ values: Set<Int> = []) -> Int {
+    return values.count
+}
+
+/// Sums the elements of a `Set<Int>` parameter with empty-literal default.
+/// Provides round-trip evidence the post-fix surface still routes the values correctly
+/// when the caller does pass an explicit set.
+public func setMembershipSum(_ values: Set<Int> = []) -> Int {
+    return values.reduce(0, +)
+}
+
+/// Async variant — exercises the StoreKit `purchase(options: Set<…> = []) async`
+/// shape directly. Confirms whether the default-trim overload generator handles
+/// async methods on collection-defaulted parameters.
+public func setMembershipCountAsync(_ values: Set<Int> = []) async -> Int {
+    return values.count
+}
+
 // MARK: - V1: Method Overloading by Parameter Type (KeychainSwift Set pattern)
 
 /// Struct with 4 overloaded methods differing only by parameter type.

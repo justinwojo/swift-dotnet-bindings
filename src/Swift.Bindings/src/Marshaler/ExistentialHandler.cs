@@ -692,16 +692,31 @@ public class ExistentialHandler
     {
         if (protocolList.Protocols.Count == 1)
         {
-            var protocolName = protocolList.Protocols.Keys.First().NameWithoutModule;
+            // Use the LEAF protocol name only — for a nested protocol like
+            // `NestedProtoOuter.Listener`, NameWithoutModule returns the dotted path
+            // `NestedProtoOuter.Listener` which would produce `NestedProtoOuter.ListenerProxy`.
+            // The proxy class itself is emitted at module level as `ListenerProxy`
+            // (see ProtocolProxyEmitter.GetProxyClassName which uses ProtocolDecl.Name —
+            // the leaf), so the call-site reference must match. The cross-module
+            // qualification still happens later via QualifyProxyClassName.
+            // See bug-0.10.0-nested-protocol-i-prefix.md.
+            var protocolName = LeafName(protocolList.Protocols.Keys.First().NameWithoutModule);
             return $"{protocolName}Proxy";
         }
 
-        // Multi-protocol: combined proxy name
+        // Multi-protocol: combined proxy name (leaf names so nested protocols compose
+        // with the same shape as top-level protocols).
         var names = protocolList.Protocols.Keys
-            .Select(p => p.NameWithoutModule)
+            .Select(p => LeafName(p.NameWithoutModule))
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
         return string.Join("And", names) + "Proxy";
+    }
+
+    private static string LeafName(string nameWithoutModule)
+    {
+        var lastDot = nameWithoutModule.LastIndexOf('.');
+        return lastDot >= 0 ? nameWithoutModule.Substring(lastDot + 1) : nameWithoutModule;
     }
 
     /// <summary>
@@ -833,8 +848,10 @@ public class ExistentialHandler
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
         if (protocols.Count == 0) return false;
-        if (protocols.Count == 1) { proxyClassName = $"{protocols[0].NameWithoutModule}Proxy"; return true; }
-        proxyClassName = string.Join("And", protocols.Select(p => p.NameWithoutModule)) + "Proxy";
+        // Leaf names so a nested protocol like `Outer.Foo` produces `FooProxy`
+        // matching the proxy-class emission shape. See GetProxyClassName above.
+        if (protocols.Count == 1) { proxyClassName = $"{LeafName(protocols[0].NameWithoutModule)}Proxy"; return true; }
+        proxyClassName = string.Join("And", protocols.Select(p => LeafName(p.NameWithoutModule))) + "Proxy";
         return true;
     }
 

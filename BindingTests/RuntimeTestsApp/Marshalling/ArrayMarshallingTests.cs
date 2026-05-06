@@ -117,6 +117,57 @@ public class ArrayMarshallingTests : TestBase
 
     #endregion
 
+    #region IEnumerable<NonFrozenStruct> sync round-trip
+    // Regression coverage for bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-… Defect A.
+    // Pre-fix the generator emitted SwiftArray<IntPtr>.FromEnumerable(seq.Select(e =>
+    // e.Payload.DangerousGetHandle())), which packed 1-word handles where Swift expected
+    // contiguous Array<NonFrozenPoint> payload bytes — guaranteed wrong-bytes reads on
+    // every call. Post-fix the projection emits SwiftArray<NonFrozenPoint>.FromEnumerable(seq)
+    // and ISwiftObject.MarshalToSwift copies struct payloads by value via VWT.
+    // The same flip applies to dictionary/set/optional containers of NonFrozenStruct
+    // elements; the array shape is the canonical regression carrier.
+
+    public void TestSumPointMagnitudesEmpty()
+    {
+        var sum = TestLibFunctions.SumPointMagnitudes(Array.Empty<NonFrozenPoint>());
+        AssertEqual(0.0, sum, "Empty NonFrozenPoint array sum is 0");
+        TestLogger.Info("SumPointMagnitudes([]) = 0");
+    }
+
+    public void TestSumPointMagnitudesPayloadByValue()
+    {
+        // Each point's distance-from-origin must equal sqrt(x² + y²) — pre-fix this
+        // produced garbage because Swift dereferenced uninitialized payload bytes.
+        var points = new[]
+        {
+            new NonFrozenPoint(3.0, 4.0),    // |p| = 5
+            new NonFrozenPoint(0.0, 0.0),    // |p| = 0
+            new NonFrozenPoint(6.0, 8.0),    // |p| = 10
+        };
+        var sum = TestLibFunctions.SumPointMagnitudes(points);
+        AssertEqual(15.0, sum, "Sum of point magnitudes = 5 + 0 + 10");
+        TestLogger.Info($"SumPointMagnitudes([(3,4),(0,0),(6,8)]) = {sum}");
+    }
+
+    public void TestScalePointsRoundTrip()
+    {
+        // Round-trip: SwiftArray<NonFrozenPoint> as parameter AND return.
+        var points = new[]
+        {
+            new NonFrozenPoint(1.0, 2.0),
+            new NonFrozenPoint(-3.0, 4.5),
+        };
+        var scaled = TestLibFunctions.ScalePoints(points, 2.0);
+        AssertEqual(2, scaled.Count, "Scaled count = 2");
+        AssertEqual(2.0, scaled[0].X, "scaled[0].X = 2.0");
+        AssertEqual(4.0, scaled[0].Y, "scaled[0].Y = 4.0");
+        AssertEqual(-6.0, scaled[1].X, "scaled[1].X = -6.0");
+        AssertEqual(9.0, scaled[1].Y, "scaled[1].Y = 9.0");
+        TestLogger.Info("ScalePoints round-trip preserved per-element values");
+    }
+
+    #endregion
+
     #region Pass 2 — O3: Array of Class Instances Property (TeamRoster)
 
     public void TestTeamRosterCreation()

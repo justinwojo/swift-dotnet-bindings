@@ -4,10 +4,15 @@
 namespace BindingsGeneration;
 
 /// <summary>
-/// Projection for Swift.Set&lt;T&gt; ↔ C# IReadOnlySet&lt;T&gt; (return) or IEnumerable&lt;T&gt; (parameter).
+/// Projection for Swift.Set&lt;T&gt; ↔ C# IReadOnlySet&lt;T&gt; (both directions).
 /// Composes with an inner element projection for element-wise marshalling.
 ///
 /// Parameter direction: FromEnumerable + PayloadBuffer, with optional element conversion + disposal.
+///   The public parameter type is IReadOnlySet&lt;T&gt; (not IEnumerable&lt;T&gt;) so the C# type
+///   system communicates the Swift `Set&lt;T&gt;` uniqueness invariant to consumers — passing
+///   a `List` or `T[]` would silently dedupe inside the Swift wrapper, hiding bugs at the
+///   API boundary. Callers wanting a quick conversion can use `.ToHashSet()` on any
+///   IEnumerable. See `gap-0.10.0-swift-set-parameter-becomes-ienumerable-default-lost.md`.
 /// Return direction: MarshalFromSwift + ToHashSet with element conversion lambda.
 /// </summary>
 public class SetProjection : ITypeProjection
@@ -29,9 +34,10 @@ public class SetProjection : ITypeProjection
     /// </summary>
     public bool UsesObjCContainerBridge => _elementProjection.UsesObjCContainerBridge;
 
-    public string PublicType => _isParameter
-        ? $"IEnumerable<{_elementProjection.PublicType}>"
-        : $"IReadOnlySet<{_elementProjection.PublicType}>";
+    // Both directions surface as IReadOnlySet<T>. Parameter-side keeps the same
+    // FromEnumerable plumbing (IReadOnlySet<T> implements IEnumerable<T>) — the
+    // change is type-system fidelity at the public API surface only.
+    public string PublicType => $"IReadOnlySet<{_elementProjection.PublicType}>";
 
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
@@ -50,9 +56,19 @@ public class SetProjection : ITypeProjection
     {
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
+        // When SwiftContainerGenericType matches the C# public type, the SwiftSet<T>
+        // container holds typed wrapper instances directly (e.g. SwiftSet<NonFrozenStruct>).
+        // FromEnumerable then dispatches to ISwiftObject.MarshalToSwift per element, which
+        // copies the struct's payload bytes by value via VWT into each contiguous slot.
+        // Applying the per-element conversion (e.g. e.Payload.DangerousGetHandle()) would
+        // silently downgrade the storage to 1-word IntPtr slots — same ABI-mismatch class
+        // as bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…. Mirrors ArrayProjection.
+        var skipPerElementConversion = elemConversion != null
+            && rawElem == _elementProjection.PublicType;
+        var needsConversion = elemConversion != null && !skipPerElementConversion;
         var setup = new List<MarshalStatement>();
 
-        if (elemConversion != null && _elementProjection.ElementRequiresDisposal)
+        if (needsConversion && _elementProjection.ElementRequiresDisposal)
         {
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}Converted = {paramName}.Select(e => {elemConversion}).ToList();"));
@@ -74,7 +90,7 @@ public class SetProjection : ITypeProjection
 
             return (setup, $"{paramName}SwiftInner");
         }
-        else if (elemConversion != null)
+        else if (needsConversion)
         {
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}Containers = {paramName}.Select(e => {elemConversion});"));
@@ -202,7 +218,9 @@ public class SetProjection : ITypeProjection
 
         var rawElem = _elementProjection.SwiftContainerGenericType;
         var elemConversion = _elementProjection.GetParameterElementConversion("e");
-        if (elemConversion != null)
+        // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
+        // matches the C# public type, FromEnumerable wants the typed wrapper directly.
+        if (elemConversion != null && rawElem != _elementProjection.PublicType)
             return $"SwiftSet<{rawElem}>.FromEnumerable({elementVar}.Select(e => {elemConversion}))";
         return $"SwiftSet<{rawElem}>.FromEnumerable({elementVar})";
     }

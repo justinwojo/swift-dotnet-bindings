@@ -64,6 +64,16 @@ internal static class CdeclMarshallingHelper
         if (optProj.InnerProjection is ClassProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
             return false;
 
+        // Optional<NonFrozenStruct> direct-param: OptionalProjection already emits a complete,
+        // self-contained plan for this case — `IntPtr {name}Pointee = ... ; IntPtr {name}Buffer
+        // = (IntPtr)(&{name}Pointee);` — and the wrapper signature is the resilient
+        // `(_ p: UnsafeRawPointer, ...)` reading `Optional<UnsafeMutableRawPointer>` (8-byte
+        // pointer-or-null buffer). No `{name}Swift` SwiftOptional is created, so calling
+        // RenderWithHandleOverride here would emit a duplicate `{name}Buffer` declaration
+        // (CS0128) referencing an undefined `{name}Swift` (CS0103).
+        if (optProj.InnerProjection is NonFrozenStructProjection)
+            return false;
+
         // Optional<ValueType> needs pointer override
         return true;
     }

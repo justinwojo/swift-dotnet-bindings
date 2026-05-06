@@ -87,9 +87,16 @@ public class OptionalProjection : ITypeProjection
             return $"({elementVar} is {{ }} {patVar} ? {patVar}.Handle : IntPtr.Zero)";
 
         // Tagged Optional path: build a SwiftOptional<inner> wrapper per element.
+        // When the inner's SwiftContainerGenericType matches its PublicType (e.g. NonFrozenStruct),
+        // SwiftOptional<TStruct>.NewSome takes the typed wrapper directly so ISwiftObject.MarshalToSwift
+        // copies the struct's payload bytes by value. Applying the per-element conversion here
+        // (e.g. .Payload.DangerousGetHandle()) would yield SwiftOptional<TStruct>.NewSome(IntPtr),
+        // which is a type mismatch.
         var optType = $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
         var innerConv = _innerProjection.GetParameterElementConversion(patVar);
-        var someArg = innerConv ?? patVar;
+        var skipInnerConv = innerConv != null
+            && _innerProjection.SwiftContainerGenericType == _innerProjection.PublicType;
+        var someArg = (skipInnerConv ? null : innerConv) ?? patVar;
         return $"({elementVar} is {{ }} {patVar} ? {optType}.NewSome({someArg}) : {optType}.NewNone())";
     }
 
@@ -150,9 +157,10 @@ public class OptionalProjection : ITypeProjection
             };
         }
 
-        // Swift class types also use nullable pointer ABI (nil pointer = None, object pointer = Some).
-        // Using SwiftOptional<IntPtr> would create Optional<Swift.Int> metadata (9 bytes) instead of
-        // Optional<ClassName> (8 bytes), causing a PayloadBuffer assert on Mono.
+        // Swift class types use nullable pointer ABI as DIRECT params: the @_cdecl
+        // wrapper signature is `(_ p: UnsafeMutableRawPointer?, ...)` so the nullable
+        // pointer is read directly from the parameter slot (no extra indirection).
+        // C# passes either the class payload pointer or IntPtr.Zero verbatim.
         if (_innerProjection is ClassProjection)
         {
             return new MarshalPlan
@@ -163,6 +171,44 @@ public class OptionalProjection : ITypeProjection
                         $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Payload.DangerousGetHandle() : IntPtr.Zero;")
                 },
                 PInvokeExpression = $"{paramName}Buffer"
+            };
+        }
+
+        // Non-frozen struct DIRECT-param Optional: the @_cdecl wrapper signature is
+        // `(_ p: UnsafeRawPointer, ...)` and the wrapper reads
+        // `p.assumingMemoryBound(to: UnsafeMutableRawPointer?.self).pointee`. That is,
+        // `p` is a pointer to an 8-byte buffer containing `Optional<UnsafeMutableRawPointer>`
+        // (the resilient ABI of `Optional<NonFrozenStruct>` — a single pointer slot,
+        // 0 = nil, otherwise a pointer to the struct's payload bytes).
+        //
+        // So C# must:
+        //   1. compute the inner pointer-or-null (DangerousGetHandle / IntPtr.Zero),
+        //   2. write it into a stack-local IntPtr,
+        //   3. pass &stackLocal as the buffer pointer.
+        //
+        // Passing the inner pointer directly (the ClassProjection shape) would make
+        // Swift read the first 8 bytes of the *struct's payload* as the pointer-or-null,
+        // which is garbage. Using SwiftOptional<TStruct> (the fall-through path with
+        // SwiftContainerGenericType = TStruct) packs sizeof(T)+1 bytes of struct-by-value
+        // payload — also wrong shape.
+        //
+        // NOTE: this is the *direct-param* shape only. When NonFrozenStruct is the inner
+        // type of a *container element* (e.g. `[T?]`), the per-element ABI IS struct-by-value
+        // (sizeof(T)+1 tag bytes); that path is handled by GetParameterElementConversion
+        // above, which builds SwiftOptional&lt;TStruct&gt;.NewSome(value).
+        if (_innerProjection is NonFrozenStructProjection)
+        {
+            return new MarshalPlan
+            {
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Pointee = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Payload.DangerousGetHandle() : IntPtr.Zero;"),
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Buffer = (IntPtr)(&{paramName}Pointee);")
+                },
+                PInvokeExpression = $"{paramName}Buffer",
+                RequiresUnsafe = true
             };
         }
 

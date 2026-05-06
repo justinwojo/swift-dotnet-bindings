@@ -701,16 +701,22 @@ public class ComplexProjectionTests
     [Fact]
     public void Optional_ElementConversion_NonFrozenStructInner_BuildsSwiftOptionalWrapper()
     {
-        // Array<Optional<NonFrozenStruct>> — per-element conversion builds tagged SwiftOptional<IntPtr>
-        // (non-frozen structs are 9 bytes: 8-byte payload pointer + 1-byte tag).
+        // Array<Optional<NonFrozenStruct>> — per-element conversion builds tagged
+        // SwiftOptional<TStruct> over the typed wrapper, NOT SwiftOptional<IntPtr>.
+        // The tagged-optional slot's `Some` payload holds an ISwiftObject, which is
+        // copied into Swift's Array<Optional<TStruct>> storage by value via VWT.
+        // Lowering Some to a raw IntPtr would silently downgrade the slot to a
+        // 1-word handle — see bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
         var inner = new NonFrozenStructProjection("Tips.Rule");
         var proj = new OptionalProjection(inner);
         var conv = proj.GetParameterElementConversion("e");
 
         Assert.NotNull(conv);
-        Assert.Contains("SwiftOptional<IntPtr>.NewSome", conv);
-        Assert.Contains("SwiftOptional<IntPtr>.NewNone", conv);
-        Assert.Contains("Payload.DangerousGetHandle()", conv);
+        Assert.Contains("SwiftOptional<Tips.Rule>.NewSome", conv);
+        Assert.Contains("SwiftOptional<Tips.Rule>.NewNone", conv);
+        // Some-arg passes the typed wrapper directly — no DangerousGetHandle in
+        // the container-element path.
+        Assert.DoesNotContain("Payload.DangerousGetHandle()", conv);
     }
 
     [Fact]
@@ -740,10 +746,15 @@ public class ComplexProjectionTests
     [Fact]
     public void Optional_SwiftContainerGenericType_NonFrozenStructInner_IsTaggedSwiftOptional()
     {
-        // For non-frozen structs inside Optional, the container element type IS SwiftOptional<IntPtr>
-        // (9 bytes: payload pointer + discriminator byte) — no nil-pointer optimization.
+        // For non-frozen structs inside Optional, the container element type is the
+        // tagged SwiftOptional<TStruct> over the typed wrapper — NOT SwiftOptional<IntPtr>.
+        // SwiftArray<SwiftOptional<TStruct>>'s per-slot storage routes through
+        // ISwiftObject.MarshalToSwift / VWT.InitializeWithCopy, which expects the typed
+        // wrapper so the struct's payload bytes are copied by value into the contiguous
+        // Array<Optional<TStruct>> slot the @_cdecl wrapper maps with
+        // assumingMemoryBound(to: Array<Optional<TStruct>>.self).
         var proj = new OptionalProjection(new NonFrozenStructProjection("Tips.Rule"));
-        Assert.Equal("SwiftOptional<IntPtr>", proj.SwiftContainerGenericType);
+        Assert.Equal("SwiftOptional<Tips.Rule>", proj.SwiftContainerGenericType);
     }
 
     [Fact]

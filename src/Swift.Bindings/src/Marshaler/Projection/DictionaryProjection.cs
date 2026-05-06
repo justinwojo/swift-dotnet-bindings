@@ -64,13 +64,23 @@ public class DictionaryProjection : ITypeProjection
         var rawV = _valueProjection.SwiftContainerGenericType;
         var keyConv = _keyProjection.GetParameterElementConversion("kvp.Key");
         var valConv = _valueProjection.GetParameterElementConversion("kvp.Value");
-        var needsConversion = keyConv != null || valConv != null;
+        // When SwiftContainerGenericType matches the C# public type for a key or value
+        // projection (e.g. SwiftDictionary<K, NonFrozenStruct>), the per-slot storage holds
+        // the typed wrapper directly and FromDictionary dispatches to ISwiftObject.MarshalToSwift.
+        // Applying the per-element conversion (e.g. e.Payload.DangerousGetHandle()) would
+        // silently downgrade that slot to a 1-word IntPtr — same ABI-mismatch class as
+        // bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-… Mirrors ArrayProjection / SetProjection.
+        var skipKeyConv = keyConv != null && rawK == _keyProjection.PublicType;
+        var skipValConv = valConv != null && rawV == _valueProjection.PublicType;
+        var effectiveKeyConv = skipKeyConv ? null : keyConv;
+        var effectiveValConv = skipValConv ? null : valConv;
+        var needsConversion = effectiveKeyConv != null || effectiveValConv != null;
         var setup = new List<MarshalStatement>();
 
         if (needsConversion)
         {
-            var keyExpr = keyConv ?? "kvp.Key";
-            var valExpr = valConv ?? "kvp.Value";
+            var keyExpr = effectiveKeyConv ?? "kvp.Key";
+            var valExpr = effectiveValConv ?? "kvp.Value";
 
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}Converted = {paramName}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})).ToList();"));
@@ -83,13 +93,16 @@ public class DictionaryProjection : ITypeProjection
                     $"{paramName}SwiftInner = SwiftDictionary<{rawK}, {rawV}>.FromDictionary({paramName}Converted);")
             };
 
+            // Disposal applies only to projections whose conversion was actually emitted.
+            // When the conversion is skipped (typed-wrapper passthrough), the original
+            // wrapper instances aren't owned by this call site and must not be disposed.
             var finallyBody = new List<MarshalStatement>();
-            if (_keyProjection.ElementRequiresDisposal)
+            if (_keyProjection.ElementRequiresDisposal && effectiveKeyConv != null)
             {
                 finallyBody.Add(new MarshalStatement.Line(
                     $"foreach (var _item in {paramName}Converted) _item.Key.Dispose();"));
             }
-            if (_valueProjection.ElementRequiresDisposal)
+            if (_valueProjection.ElementRequiresDisposal && effectiveValConv != null)
             {
                 finallyBody.Add(new MarshalStatement.Line(
                     $"foreach (var _item in {paramName}Converted) _item.Value.Dispose();"));

@@ -35,6 +35,19 @@ public class NonFrozenStructProjection : ITypeProjection
     /// </summary>
     public string MarshalFromSwiftType => _typeName;
 
+    /// <summary>
+    /// When this projection is the inner element of a Swift container
+    /// (SwiftArray, SwiftDictionary, SwiftSet, SwiftOptional), the container's
+    /// per-element storage holds the struct's payload bytes by value — *not* a
+    /// pointer. So the generic type parameter must be the C# wrapper type
+    /// (which implements ISwiftObject and routes through MarshalToSwift /
+    /// VWT.InitializeWithCopy for per-element marshalling), not IntPtr.
+    /// Using IntPtr produces SwiftArray&lt;IntPtr&gt; whose 1-word-per-slot
+    /// storage cannot represent the inline TStruct layout the Swift side
+    /// expects via assumingMemoryBound(to: Array&lt;TStruct&gt;.self).
+    /// </summary>
+    public string SwiftContainerGenericType => _typeName;
+
     public MarshalPlan GetParameterPlan(string paramName)
     {
         return new MarshalPlan
@@ -65,7 +78,25 @@ public class NonFrozenStructProjection : ITypeProjection
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
-    public string? GetParameterElementConversion(string elementVar) => $"{elementVar}.Payload.DangerousGetHandle()";
+    /// <summary>
+    /// Returns <c>e.Payload.DangerousGetHandle()</c> — extracts the struct's payload
+    /// pointer as IntPtr. Used by:
+    ///  - <see cref="ClosureProjection"/> when invoking a Swift-supplied closure with a
+    ///    NonFrozenStruct C# arg: the function pointer expects IntPtr (1-word handle),
+    ///    so the lambda body passes <c>arg.Payload.DangerousGetHandle()</c>.
+    ///  - ProtocolProxyEmitter / AccessorConversionVisitors paths that bridge between
+    ///    a typed C# wrapper and an IntPtr-typed Swift entry point.
+    ///
+    /// NOTE: Swift-container projections (<see cref="ArrayProjection"/>,
+    /// <see cref="DictionaryProjection"/>, <see cref="SetProjection"/>, and
+    /// <see cref="OptionalProjection"/>'s container-element path) detect
+    /// "<c>SwiftContainerGenericType == PublicType</c>" and SKIP this per-element
+    /// conversion — for <c>SwiftArray&lt;TStruct&gt;</c> they want the typed wrapper
+    /// directly so <c>ISwiftObject.MarshalToSwift</c> copies the struct payload bytes
+    /// by value into the contiguous Swift array slot.
+    /// </summary>
+    public string? GetParameterElementConversion(string elementVar) =>
+        $"{elementVar}.Payload.DangerousGetHandle()";
 
     /// <summary>
     /// No return element conversion needed. When used inside Optional, ToNullable() handles

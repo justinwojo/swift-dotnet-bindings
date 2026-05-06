@@ -4,6 +4,33 @@
 > consumer-experience audit of
 > [SwiftBindings.Apple.StoreKit2](https://github.com/justinwojo/swift-dotnet-packages)
 > (Apple StoreKit framework, 26.2.2).
+>
+> **Status: RESOLVED in Bundle 04 #9.**
+>
+> - **Type fidelity:** `SetProjection.PublicType` now returns
+>   `IReadOnlySet<T>` for both parameter and return positions (was
+>   `IEnumerable<T>` on the parameter side, dropping the uniqueness
+>   invariant at the public API surface). Callers must materialise an
+>   actual set on the C# side (`HashSet<T>` is the natural shape).
+> - **Default surface:** the empty-literal `= []` default already
+>   surfaces as a no-arg trim overload via
+>   `DefaultParameterOverloadEmitter` for sync, async, and
+>   collection-defaulted parameters. The bug doc's "default lost"
+>   claim was overstated — the generic-method skip
+>   (`PurchaseAsync<T0>` at StoreKit2.cs:24282) is the only family
+>   where the trim overload is currently missing, and it's tracked
+>   separately under generic-method default-overload emission.
+> - **Validation:** `BindingTests` Layer-B coverage in
+>   `SetParameterDefaultTests` (sync explicit, sync trim, dedupe
+>   semantics, async explicit, async trim) — sync paths pass on
+>   Mono JIT and NativeAOT. Async paths pass on Mono JIT and are
+>   skipped on NativeAOT pending Bundle 10 #50 (Defect B in
+>   `bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…` — async
+>   `using var` lifetime mismatch; same fix shape applies to every
+>   `SwiftSet<T>` / `SwiftArray<T>` / `SwiftDictionary<K,V>` async
+>   parameter). Existing Set-parameter callers in
+>   `URLContainerBridgeTests`, `ClosureOverloadCollisionTests` updated
+>   to construct `HashSet<T>` to match the new public surface.
 
 ## Summary
 

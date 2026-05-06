@@ -5,6 +5,23 @@
 > consumer-experience audit (Round 5). See
 > [`audit-weatherkit-musickit-2026-05-05.md`](../../swift-dotnet-packages/audit-weatherkit-musickit-2026-05-05.md)
 > finding **O-3**.
+>
+> **Status:**
+> - **Defect A (wrong serialization shape) — RESOLVED in Bundle 04** via
+>   `NonFrozenStructProjection.SwiftContainerGenericType` returning the typed
+>   wrapper and a mirrored skip-conversion rule in
+>   `ProtocolProxyEmitter.Receivers.cs`. Validated by `nuke validate`
+>   (Kingfisher, RealityFoundation, RealityKit, StripePayments + 3 cascade
+>   libs IMPROVED), `nuke binding-tests --sim --device` (sim 1832→1835,
+>   device 1845→1848 IMPROVEMENT — `TestSumPointMagnitudesEmpty`,
+>   `TestSumPointMagnitudesPayloadByValue`, `TestScalePointsRoundTrip` pass on
+>   both Mono JIT and NativeAOT).
+> - **Defect B (async `using var` lifetime) — CARVED OUT to Bundle 10** under
+>   the closure-lifetime infrastructure umbrella. Tracked separately because
+>   it shares the holder/cleanup machinery with Bundle 10's
+>   `DeferDeallocate`/captured-closure work. The structural fix follows the
+>   `_asyncCallHolder` + `DeferredSafeHandleRelease` precedent already in
+>   `WrapperEmitter.Async.cs` / `AsyncHarnessEmitter.cs`.
 
 ## Summary
 

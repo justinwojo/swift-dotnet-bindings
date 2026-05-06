@@ -694,7 +694,11 @@ public partial class ProtocolProxyEmitter
     {
         var rawElem = set.ElementProjection.SwiftContainerGenericType;
         var elemConv = set.ElementProjection.GetParameterElementConversion("e");
-        if (elemConv != null)
+        // Skip per-element conversion when SwiftContainerGenericType matches the C# public type
+        // (e.g. NonFrozenStruct): SwiftSet<TWrapper>.FromEnumerable wants typed wrappers directly so
+        // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value into each slot.
+        // Mirrors the SetProjection.BuildContainerSetup skip-conversion rule.
+        if (elemConv != null && rawElem != set.ElementProjection.PublicType)
             return $"SwiftSet<{rawElem}>.FromEnumerable({varName}.Select(e => {elemConv}))";
         return $"SwiftSet<{rawElem}>.FromEnumerable({varName})";
     }
@@ -703,7 +707,8 @@ public partial class ProtocolProxyEmitter
     {
         var rawElem = arr.ElementProjection.SwiftContainerGenericType;
         var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
-        if (elemConv != null)
+        // Same skip-conversion rule as ArrayProjection.BuildContainerSetup.
+        if (elemConv != null && rawElem != arr.ElementProjection.PublicType)
             return $"SwiftArray<{rawElem}>.FromEnumerable({varName}.Select(e => {elemConv}))";
         return $"SwiftArray<{rawElem}>.FromEnumerable({varName})";
     }
@@ -714,10 +719,18 @@ public partial class ProtocolProxyEmitter
         var rawV = dict.ValueProjection.SwiftContainerGenericType;
         var keyConv = dict.KeyProjection.GetParameterElementConversion("kvp.Key");
         var valConv = dict.ValueProjection.GetParameterElementConversion("kvp.Value");
-        if (keyConv != null || valConv != null)
+        // Same skip-conversion rule as DictionaryProjection.BuildContainerSetup — when
+        // SwiftContainerGenericType matches the C# public type for a key or value projection,
+        // FromDictionary expects typed wrappers (not IntPtr handles) and ISwiftObject.MarshalToSwift
+        // copies struct payload bytes by value via VWT.
+        var skipKeyConv = keyConv != null && rawK == dict.KeyProjection.PublicType;
+        var skipValConv = valConv != null && rawV == dict.ValueProjection.PublicType;
+        var effectiveKeyConv = skipKeyConv ? null : keyConv;
+        var effectiveValConv = skipValConv ? null : valConv;
+        if (effectiveKeyConv != null || effectiveValConv != null)
         {
-            var keyExpr = keyConv ?? "kvp.Key";
-            var valExpr = valConv ?? "kvp.Value";
+            var keyExpr = effectiveKeyConv ?? "kvp.Key";
+            var valExpr = effectiveValConv ?? "kvp.Value";
             return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName}.Select(kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName})";
@@ -746,10 +759,16 @@ public partial class ProtocolProxyEmitter
             ClosureProjection => null,
             // ObjC-rooted classes use .Handle (ObjC pointer), not .Payload
             ObjCRootedClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Handle) : SwiftOptional<{optType}>.NewNone())",
-            // Class/NonFrozenStruct: optType is IntPtr (PInvokeType), but varName is the public C# type.
-            // Extract IntPtr via .Payload.DangerousGetHandle() — matches GetParameterElementConversion.
+            // Class: OptionalProjection.SwiftContainerGenericType returns "IntPtr" (nil-pointer-optimized),
+            // so optType=IntPtr and we pass a raw IntPtr handle.
             ClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",
-            NonFrozenStructProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",
+            // NonFrozenStruct: optType IS the typed wrapper (NonFrozenStructProjection.SwiftContainerGenericType
+            // returns _typeName). SwiftOptional<TWrapper>.NewSome takes the typed wrapper directly so
+            // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value via VWT.
+            // Lowering the Some-arg to .Payload.DangerousGetHandle() would type-mismatch (passing IntPtr
+            // where the typed wrapper is expected) — same ABI-mismatch class as
+            // bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-….
+            NonFrozenStructProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val) : SwiftOptional<{optType}>.NewNone())",
             // Blittable, SimpleEnum, etc. — MarshalToSwiftBuffer writes raw bytes via Unsafe.Write<T>,
             // so C# int? (Nullable<int>) is NOT layout-compatible with SwiftOptional<int> (a class).
             // Must explicitly wrap in SwiftOptional<T>.NewSome/NewNone.
@@ -954,9 +973,17 @@ public partial class ProtocolProxyEmitter
         {
             var containerType = dictExist.PInvokeType;
             var keyConv = dictProj.KeyProjection.GetParameterElementConversion("kvp.Key");
-            var keyExpr = keyConv ?? "kvp.Key";
-            var valConv = dictExist.GetParameterElementConversion("kvp.Value");
             var abiKeyType = dictProj.KeyProjection.SwiftContainerGenericType;
+            // Skip per-element key conversion when SwiftContainerGenericType matches the C# public type
+            // (e.g. NonFrozenStruct like Swift.AnyHashable): SwiftDictionary<TWrapper, V>.FromDictionary
+            // wants typed wrappers directly so ISwiftObject.MarshalToSwift copies the struct's payload
+            // bytes by value into each slot. Lowering to .Payload.DangerousGetHandle() would yield
+            // Dictionary<nint, V> and fail to convert to IEnumerable<KeyValuePair<TWrapper, V>>.
+            // Mirrors the skip-conversion rule in DictionaryProjection.BuildContainerSetup and
+            // BuildDictionarySetterReceiverExpression.
+            var skipKeyConv = keyConv != null && abiKeyType == dictProj.KeyProjection.PublicType;
+            var keyExpr = skipKeyConv ? "kvp.Key" : (keyConv ?? "kvp.Key");
+            var valConv = dictExist.GetParameterElementConversion("kvp.Value");
             return $"SwiftDictionary<{abiKeyType}, {containerType}>.FromDictionary({varName}.ToDictionary(kvp => {keyExpr}, kvp => {valConv}))";
         }
 

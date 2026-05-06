@@ -76,4 +76,71 @@ public class ClassPayloadEnumTests : TestBase
             "TryGetShipped returns false on Pending");
         counter?.Dispose();
     }
+
+    /// Regression test for bug-0.10.0-enum-case-payload-extractor-missing.md.
+    /// Locks in the StripeFinancialConnections.Result emission shape: a Result-style
+    /// enum with a *labeled* class success payload, a no-payload cancel case, and a
+    /// labeled `any Swift.Error` failure case. Pre-fix only the AnyError-payload case
+    /// in the same enum got factory + TryGet; the labeled-class-payload `completed`
+    /// case got just the CaseTag. The compile-time fact that
+    /// `LabeledClassResult.Completed(...)` and `TryGetCompleted` resolve below is
+    /// itself the structural assertion — pre-fix the fixture would not compile.
+    public void TestLabeledClassResult_Completed_ExtractsLabeledSession()
+    {
+        using var result = TestLibFunctions.MakeLabeledCompletedResult("session-42");
+        AssertEqual(LabeledClassResult.CaseTag.Completed, result.Tag, "Tag == Completed");
+
+        AssertTrue(result.TryGetCompleted(out var session), "TryGetCompleted returns true");
+        using (session)
+        {
+            AssertEqual("session-42", session!.Id, "Labeled class payload (FCSession.id) round-trips");
+        }
+    }
+
+    public void TestLabeledClassResult_Failed_ExtractsAnyError()
+    {
+        using var result = TestLibFunctions.MakeLabeledFailedResult("denied");
+        AssertEqual(LabeledClassResult.CaseTag.Failed, result.Tag, "Tag == Failed");
+
+        AssertTrue(result.TryGetFailed(out var error), "TryGetFailed returns true on Failed");
+        // AnyError is a struct; the TryGet returning true (above) is the structural
+        // assertion that the AnyError payload was extracted.
+        // C#-side authored Completed factory must round-trip too — exercises the path
+        // that was missing pre-fix.
+        AssertFalse(result.TryGetCompleted(out var bogusSession),
+            "TryGetCompleted returns false on Failed");
+        bogusSession?.Dispose();
+    }
+
+    public void TestLabeledClassResult_Canceled_NoPayloadExtraction()
+    {
+        using var result = TestLibFunctions.MakeLabeledCanceledResult();
+        AssertEqual(LabeledClassResult.CaseTag.Canceled, result.Tag, "Tag == Canceled");
+
+        AssertFalse(result.TryGetCompleted(out var bogusSession),
+            "TryGetCompleted returns false on Canceled");
+        bogusSession?.Dispose();
+        AssertFalse(result.TryGetFailed(out var bogusError),
+            "TryGetFailed returns false on Canceled");
+    }
+
+    /// Locks in the C#-side factory path for the labeled-class case. Pre-fix the
+    /// `Completed` factory wasn't emitted at all, so consumers couldn't construct
+    /// a `Result.completed(session: ...)` from C#. Round-trips the C#-built instance
+    /// through Tag + TryGet to confirm the factory's PInvoke shape is correct.
+    public void TestLabeledClassResult_Completed_FactoryRoundTrip()
+    {
+        using var session = new LabeledFCSession("c#-built");
+        using var result = LabeledClassResult.Completed(session);
+        AssertEqual(LabeledClassResult.CaseTag.Completed, result.Tag,
+            "C#-built Completed has correct tag");
+
+        AssertTrue(result.TryGetCompleted(out var roundTrip),
+            "TryGetCompleted returns true on C#-built Completed");
+        using (roundTrip)
+        {
+            AssertEqual("c#-built", roundTrip!.Id,
+                "C#-side factory round-trips the labeled class payload");
+        }
+    }
 }

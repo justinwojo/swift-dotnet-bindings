@@ -102,6 +102,23 @@ public class CdeclMarshallingHelperTests
     }
 
     [Fact]
+    public void NeedsCdeclPointerOverride_OptionalWithNonFrozenStructInner_ReturnsFalse()
+    {
+        // OptionalProjection's NonFrozenStruct branch already emits a complete plan:
+        //   IntPtr {name}Pointee = ...;
+        //   IntPtr {name}Buffer = (IntPtr)(&{name}Pointee);
+        // No `{name}Swift` SwiftOptional is created. Returning true here would route the
+        // plan through RenderWithHandleOverride, which always appends
+        //   IntPtr {name}Buffer = {name}Swift.Payload.DangerousGetHandle();
+        // producing a duplicate `{name}Buffer` declaration (CS0128) and a reference to
+        // an undefined `{name}Swift` (CS0103). Regression caught in Kingfisher /
+        // RealityFoundation / StripePayments enum-case factories during 0.10.0.
+        var inner = new NonFrozenStructProjection("MyStruct");
+        var projection = new OptionalProjection(inner);
+        Assert.False(CdeclMarshallingHelper.NeedsCdeclPointerOverride(projection));
+    }
+
+    [Fact]
     public void NeedsCdeclPointerOverride_BlittableProjection_ReturnsFalse()
     {
         // Non-collection, non-optional doesn't need override

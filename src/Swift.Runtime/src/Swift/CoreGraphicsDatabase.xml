@@ -14,30 +14,44 @@
         <entity managedNameSpace="Swift" managedTypeName="CGRect">
             <typedeclaration kind="struct" name="CGRect" module="CoreGraphics" mangledName="$sSo6CGRectV" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <!-- Opaque CoreGraphics reference-like types mapped to raw handles -->
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGImage" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <!-- CoreGraphics CFType reference types — routed to the canonical
+             dotnet/macios CoreGraphics.* wrappers. The C# type name has the
+             "CoreGraphics." prefix, which IsCoreFoundationType keys on so the
+             ObjC bridge call uses GetINativeObject<T>(ptr, owns:false)
+             (CFRetain/CFRelease semantics) instead of GetNSObject<T>.
+             See bug-0.10.0-cgimage-projected-as-intptr.md. -->
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGImage" objcBridged="true">
+            <typedeclaration kind="class" name="CGImage" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGImageRef" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGImage" objcBridged="true">
+            <typedeclaration kind="class" name="CGImageRef" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGColor" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGColor" objcBridged="true">
+            <typedeclaration kind="class" name="CGColor" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGColorRef" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGColor" objcBridged="true">
+            <typedeclaration kind="class" name="CGColorRef" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGColorSpace" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGColorSpace" objcBridged="true">
+            <typedeclaration kind="class" name="CGColorSpace" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGColorSpaceRef" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGColorSpace" objcBridged="true">
+            <typedeclaration kind="class" name="CGColorSpaceRef" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGContext" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGContext" objcBridged="true">
+            <typedeclaration kind="class" name="CGContext" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
-        <entity managedNameSpace="System" managedTypeName="IntPtr">
-            <typedeclaration kind="struct" name="CGContextRef" module="CoreGraphics" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGContext" objcBridged="true">
+            <typedeclaration kind="class" name="CGContextRef" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGPath" objcBridged="true">
+            <typedeclaration kind="class" name="CGPath" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGFont" objcBridged="true">
+            <typedeclaration kind="class" name="CGFont" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="CoreGraphics" managedTypeName="CGGradient" objcBridged="true">
+            <typedeclaration kind="class" name="CGGradient" module="CoreGraphics" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <!-- CGBlendMode — integer enum -->
         <entity managedNameSpace="CoreGraphics" managedTypeName="CGBlendMode">
