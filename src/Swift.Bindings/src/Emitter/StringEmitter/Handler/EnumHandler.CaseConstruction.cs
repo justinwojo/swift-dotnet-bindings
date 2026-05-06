@@ -144,6 +144,14 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// </summary>");
             }
 
+            // Mirror Swift @available on the case onto the C# factory method —
+            // matches SimpleEnum's per-case emission. Without this, deprecated /
+            // platform-restricted enum cases (Family-F-3: 9 LottiePlaybackMode
+            // cases marked @available(*, deprecated)) lower to factory methods
+            // with no [Obsolete] / [SupportedOSPlatform] guard.
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+                csWriter, caseDecl, parentDecl: enumDecl, emitObsolete: true);
+
             var parameterString = string.Join(", ", parameters.Select(p => $"{p.publicType} {p.name}"));
             // C10: Use unique local variable name to avoid CS0136 if a parameter is also named "result"
             var resultVarName = parameters.Any(p => p.name == "result") ? "__enumResult" : "result";

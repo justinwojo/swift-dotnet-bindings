@@ -582,7 +582,8 @@ public static class ConstrainedExistentialBridge
         {
             if (ann.Platform == null || ann.IntroducedVersion == null)
                 continue;
-            // Map Swift platform names to .NET SupportedOSPlatform identifiers
+            // Map Swift platform names to .NET SupportedOSPlatform identifiers.
+            // Mirrors AvailabilityAttributeEmitter.PlatformMapping — keep in sync.
             var dotnetPlatform = ann.Platform switch
             {
                 "iOS" => "ios",
@@ -590,9 +591,10 @@ public static class ConstrainedExistentialBridge
                 "tvOS" => "tvos",
                 "watchOS" => "watchos",
                 "macCatalyst" => "maccatalyst",
+                "visionOS" => "visionos",
                 _ => null
             };
-            if (dotnetPlatform == null) continue; // Skip visionOS — no .NET equivalent yet
+            if (dotnetPlatform == null) continue;
             var version = ann.IntroducedVersion.Contains('.') ? ann.IntroducedVersion : ann.IntroducedVersion + ".0";
             csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{dotnetPlatform}{version}\")]");
         }

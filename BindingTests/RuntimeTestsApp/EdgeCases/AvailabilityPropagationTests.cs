@@ -160,4 +160,191 @@ public class AvailabilityPropagationTests : TestBase
             "floor was lost in emission.");
     }
 
+    // ---------------------------------------------------------------------
+    // Family-F sub-shapes — Layer A coverage of the bug shapes documented in
+    // bug-0.10.0-spurious-obsolete-on-recommended-overload.md. Synthetic
+    // fixtures live in BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/
+    // AvailabilityFamilyF.swift.
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// F-1 (Nuke). <c>OverloadDeprecationCarrier</c> has two
+    /// <c>lookup(_:)</c> overloads; only the <c>String</c> variant is
+    /// <c>@available(*, deprecated, ...)</c>. The lowered C# binding must
+    /// place <c>[Obsolete]</c> on the deprecated overload only — the
+    /// pre-fix emitter looked the deprecation up by printedName and
+    /// broadcast it across the overload set, including onto the very
+    /// overload the deprecation message recommended switching to.
+    /// </summary>
+    public void TestF1_DeprecationDoesNotBroadcastAcrossOverloads()
+    {
+        var carrierType = typeof(OverloadDeprecationCarrier);
+        var lookupOverloads = carrierType.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(m => m.Name.Equals("Lookup", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        TestLogger.Info($"OverloadDeprecationCarrier.Lookup overloads: {lookupOverloads.Length}");
+        AssertTrue(lookupOverloads.Length == 2,
+            $"Expected 2 OverloadDeprecationCarrier.Lookup overloads, found {lookupOverloads.Length}. " +
+            "If this fires, the Swift fixture or emitter dropped one overload — F-1 cannot be tested.");
+
+        var intOverload = lookupOverloads.FirstOrDefault(m =>
+            m.GetParameters().Length == 1 &&
+            m.GetParameters()[0].ParameterType == typeof(int));
+        var stringOverload = lookupOverloads.FirstOrDefault(m =>
+            m.GetParameters().Length == 1 &&
+            m.GetParameters()[0].ParameterType == typeof(string));
+        AssertTrue(intOverload is not null, "Lookup(int) overload must exist on the lowered binding.");
+        AssertTrue(stringOverload is not null, "Lookup(string) overload must exist on the lowered binding.");
+
+        var intObsolete = intOverload!.GetCustomAttributes<ObsoleteAttribute>(inherit: false).ToArray();
+        var stringObsolete = stringOverload!.GetCustomAttributes<ObsoleteAttribute>(inherit: false).ToArray();
+        TestLogger.Info($"Lookup(int) [Obsolete] count: {intObsolete.Length}");
+        TestLogger.Info($"Lookup(string) [Obsolete] count: {stringObsolete.Length}");
+
+        AssertTrue(intObsolete.Length == 0,
+            "Lookup(int) is the recommended overload and must NOT carry [Obsolete]. " +
+            "If this fires, F-1 has regressed and deprecation is being broadcast across " +
+            "the overload set again. Consumers will see CS0618 on the API the deprecation " +
+            "message tells them to switch to.");
+
+        AssertTrue(stringObsolete.Length == 1,
+            "Lookup(string) is the deprecated overload and must carry exactly one [Obsolete]. " +
+            "If this fires, the per-overload disambiguation lost the deprecation entirely.");
+    }
+
+    // F-2 (StripeApplePay) is covered by the unit test
+    // `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
+    // in SwiftInterfaceAccessParserTests.cs. A BindingTests fixture for F-2
+    // is intentionally omitted — see the matching note in
+    // BindingTests/Sources/SwiftBindingsTestLib/EdgeCases/AvailabilityFamilyF.swift.
+
+    /// <summary>
+    /// F-3 (Lottie). <c>PlaybackTransport.progressAt(_:)</c> is the only
+    /// enum case marked <c>@available(*, deprecated, ...)</c>. The lowered
+    /// C# factory method (<c>PlaybackTransport.ProgressAt(double)</c> or
+    /// whatever the emitter PascalCases it to) must carry
+    /// <c>[Obsolete]</c>; the non-deprecated factory methods must not.
+    /// </summary>
+    public void TestF3_DeprecatedEnumCaseFactoryCarriesObsolete()
+    {
+        // PlaybackTransport lowers to a static factory class (one factory
+        // per case). We look up the factory method by name-substring so a
+        // naming-strategy change doesn't false-positive.
+        var modeType = typeof(PlaybackTransport);
+        var factories = modeType.GetMethods(BindingFlags.Public | BindingFlags.Static).ToArray();
+        TestLogger.Info($"PlaybackTransport static factories: [{string.Join(", ", factories.Select(m => m.Name))}]");
+
+        var progressFactory = factories.FirstOrDefault(m => m.Name.Contains("ProgressAt"));
+        var frameFactory = factories.FirstOrDefault(m => m.Name.Contains("FrameAt"));
+        AssertTrue(progressFactory is not null,
+            "PlaybackTransport must expose a ProgressAt factory method. " +
+            "If this fires, the per-case lowering dropped the case — F-3 cannot be tested.");
+        AssertTrue(frameFactory is not null,
+            "PlaybackTransport must expose a FrameAt factory method. " +
+            "If this fires, the per-case lowering dropped the case — F-3 cannot be tested.");
+
+        var progressObsolete = progressFactory!.GetCustomAttributes<ObsoleteAttribute>(inherit: false).ToArray();
+        var frameObsolete = frameFactory!.GetCustomAttributes<ObsoleteAttribute>(inherit: false).ToArray();
+        TestLogger.Info($"ProgressAt [Obsolete] count: {progressObsolete.Length}");
+        TestLogger.Info($"FrameAt [Obsolete] count: {frameObsolete.Length}");
+
+        AssertTrue(progressObsolete.Length == 1,
+            "PlaybackTransport.ProgressAt factory must carry exactly one [Obsolete]. " +
+            "If this fires, F-3 has regressed: deprecation on enum cases is no " +
+            "longer flowing through to the lowered C# factory method.");
+        AssertTrue(frameObsolete.Length == 0,
+            "PlaybackTransport.FrameAt is the recommended factory and must NOT carry [Obsolete]. " +
+            "If this fires, deprecation is leaking to non-deprecated cases (the F-1 " +
+            "broadcast bug recurring at the case-factory level).");
+    }
+
+    /// <summary>
+    /// F-4 (StoreKit2). Two <c>commit(...)</c> overloads are gated to
+    /// different iOS versions. The lowered overloads must keep their own
+    /// versions — pre-fix, <c>AddRange</c>-style accumulation merged the
+    /// two sets and broadcast the union across both overloads, so a
+    /// consumer at iOS 17 could compile a call to the iOS-18-only
+    /// overload and crash at runtime.
+    /// </summary>
+    public void TestF4_DistinctOverloadVersionsStayDistinct()
+    {
+        var carrierType = typeof(VersionedOverloadCarrier);
+        var commitOverloads = carrierType.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+            .Where(m => m.Name.Equals("Commit", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        TestLogger.Info($"VersionedOverloadCarrier.Commit overloads: {commitOverloads.Length}");
+        AssertTrue(commitOverloads.Length == 2,
+            $"Expected 2 Commit overloads, found {commitOverloads.Length}. " +
+            "If this fires, the Swift fixture or emitter dropped one overload — F-4 cannot be tested.");
+
+        var intOverload = commitOverloads.FirstOrDefault(m =>
+            m.GetParameters().Length == 1 &&
+            m.GetParameters()[0].ParameterType == typeof(int));
+        var stringOverload = commitOverloads.FirstOrDefault(m =>
+            m.GetParameters().Length == 1 &&
+            m.GetParameters()[0].ParameterType == typeof(string));
+        AssertTrue(intOverload is not null, "Commit(int) overload must exist.");
+        AssertTrue(stringOverload is not null, "Commit(string) overload must exist.");
+
+        var intAttrs = intOverload!.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
+        var stringAttrs = stringOverload!.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
+        TestLogger.Info($"Commit(int) SupportedOSPlatform: " +
+            $"[{string.Join(", ", intAttrs.Select(a => a.PlatformName))}]");
+        TestLogger.Info($"Commit(string) SupportedOSPlatform: " +
+            $"[{string.Join(", ", stringAttrs.Select(a => a.PlatformName))}]");
+
+        var intHasIos17 = intAttrs.Any(a =>
+            string.Equals(a.PlatformName, "ios17.0", StringComparison.OrdinalIgnoreCase));
+        var intHasIos18 = intAttrs.Any(a =>
+            string.Equals(a.PlatformName, "ios18.0", StringComparison.OrdinalIgnoreCase));
+        var stringHasIos17 = stringAttrs.Any(a =>
+            string.Equals(a.PlatformName, "ios17.0", StringComparison.OrdinalIgnoreCase));
+        var stringHasIos18 = stringAttrs.Any(a =>
+            string.Equals(a.PlatformName, "ios18.0", StringComparison.OrdinalIgnoreCase));
+
+        AssertTrue(intHasIos17,
+            "Commit(int) is gated @available(iOS 17.0, *) and must carry SupportedOSPlatform(\"ios17.0\").");
+        AssertTrue(!intHasIos18,
+            "Commit(int) MUST NOT carry SupportedOSPlatform(\"ios18.0\"). " +
+            "If this fires, F-4 has regressed: the iOS 18 floor from the sibling " +
+            "Commit(string) overload is being broadcast across the set.");
+        AssertTrue(stringHasIos18,
+            "Commit(string) is gated @available(iOS 18.0, *) and must carry SupportedOSPlatform(\"ios18.0\").");
+        AssertTrue(!stringHasIos17,
+            "Commit(string) MUST NOT carry SupportedOSPlatform(\"ios17.0\"). " +
+            "If this fires, the merged-version regression has returned and a consumer " +
+            "at iOS 17 can compile a call that crashes at runtime on iOS 17.x.");
+    }
+
+    /// <summary>
+    /// F-5 (MusicKit). A type whose Swift <c>@available</c> list explicitly
+    /// names <c>visionOS 1.0</c> must lower to a C# type with
+    /// <c>[SupportedOSPlatform("visionos1.0")]</c>. Pre-fix, PlatformMapping
+    /// had no entry for visionOS and the emitter silently dropped the
+    /// clause across ~every MusicKit type.
+    /// </summary>
+    public void TestF5_VisionOSPlatformSurvivesLowering()
+    {
+        var carrierType = typeof(VisionPlatformCarrier);
+        var attrs = carrierType.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
+        TestLogger.Info($"VisionPlatformCarrier SupportedOSPlatform attrs: " +
+            $"[{string.Join(", ", attrs.Select(a => a.PlatformName))}]");
+
+        var visionOS = attrs.FirstOrDefault(a =>
+            string.Equals(a.PlatformName, "visionos1.0", StringComparison.OrdinalIgnoreCase));
+        AssertTrue(visionOS is not null,
+            "VisionPlatformCarrier must carry SupportedOSPlatform(\"visionos1.0\"). " +
+            "If this fires, F-5 has regressed: visionOS is being silently dropped " +
+            "from the lowered C# attribute set. The MusicKit consumer experience " +
+            "regresses to spurious platform-availability warnings on visionOS.");
+
+        // Sanity: the iOS / macOS / tvOS clauses must still come through —
+        // the visionOS fix must not disrupt the existing platform mappings.
+        var hasIos = attrs.Any(a =>
+            string.Equals(a.PlatformName, "ios15.0", StringComparison.OrdinalIgnoreCase));
+        AssertTrue(hasIos,
+            "Sibling iOS clause must still survive lowering alongside visionOS — " +
+            "if this fires, the F-5 fix accidentally regressed the existing platform mappings.");
+    }
+
 }

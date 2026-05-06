@@ -122,8 +122,11 @@ public class AvailabilityAttributeEmitterTests
     }
 
     [Fact]
-    public void VisionOS_NoOutput()
+    public void VisionOS_EmitsSupportedOSPlatform()
     {
+        // Family-F-5: visionOS was previously skipped wholesale. The
+        // PlatformMapping now includes visionOS → visionos so 453 markers in
+        // SwiftBindings.Apple.MusicKit lower correctly.
         var (csWriter, stringWriter) = CreateWriter();
         var decl = CreateDecl(new List<AvailabilityAnnotation>
         {
@@ -131,7 +134,27 @@ public class AvailabilityAttributeEmitterTests
         });
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, decl);
         csWriter.Flush();
-        Assert.Equal("", stringWriter.ToString());
+        Assert.Contains(
+            "[global::System.Runtime.Versioning.SupportedOSPlatform(\"visionos1.0\")]",
+            stringWriter.ToString());
+    }
+
+    [Fact]
+    public void VisionOS_FromAnnotations_EmitsSupportedOSPlatform()
+    {
+        // Mirror EmitFromAnnotations path — specialization emitters that merge
+        // availability from method + parent + conformer must also propagate
+        // visionOS, not skip it.
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("visionOS", "1.0", null, null, false, false, null, null)
+        };
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, annotations);
+        csWriter.Flush();
+        Assert.Contains(
+            "[global::System.Runtime.Versioning.SupportedOSPlatform(\"visionos1.0\")]",
+            stringWriter.ToString());
     }
 
     [Fact]

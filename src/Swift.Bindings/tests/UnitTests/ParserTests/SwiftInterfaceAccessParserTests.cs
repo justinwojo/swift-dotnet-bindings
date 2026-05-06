@@ -3535,4 +3535,223 @@ public class DisposeBag {
     }
 
     #endregion
+
+    #region Family-F overload disambiguation + protocol requirement availability
+
+    /// <summary>
+    /// Family-F-1 (Nuke <c>data(for:)</c>): one overload deprecated, the recommended
+    /// overload has no <c>@available</c>. The parser must scope the deprecation to
+    /// the deprecated overload only — the bare <c>"X.data(for:)"</c> key must NOT
+    /// resolve to the deprecation, otherwise <c>SwiftABIParser.ApplyMemberAvailability</c>
+    /// broadcasts <c>[Obsolete]</c> across both C# overloads.
+    /// </summary>
+    [Fact]
+    public void GetAvailabilityAnnotations_F1_DeprecatedOverloadDoesNotBroadcast()
+    {
+        var swiftInterface = """
+            public class ImagePipeline {
+              public func data(for request: ImageRequest) async throws -> Foundation.Data
+              @available(*, deprecated, message: "Use the variant that accepts ImageRequest")
+              public func data(for url: Foundation.URL) async throws -> Foundation.Data
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            // The bare key is poisoned (ambiguous overloads) and must NOT carry the
+            // deprecation — otherwise the recommended overload's ABI lookup hits it
+            // and gets a spurious [Obsolete].
+            Assert.False(result.ContainsKey("ImagePipeline.data(for:)"));
+            // The deprecated overload is keyed under its disamb suffix.
+            Assert.True(result.ContainsKey("ImagePipeline.data(for:)|URL"));
+            Assert.Contains(result["ImagePipeline.data(for:)|URL"],
+                a => a.IsUnconditionallyDeprecated &&
+                     a.Message == "Use the variant that accepts ImageRequest");
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Family-F-4 (StoreKit2 <c>Product.purchase(confirmIn:options:)</c>): two
+    /// overloads with DIFFERENT <c>@available</c> versions. Without disambiguation,
+    /// <c>AddRange</c> concatenates them and both C# overloads emit a merged
+    /// version set.
+    /// </summary>
+    [Fact]
+    public void GetAvailabilityAnnotations_F4_OverloadsKeepDistinctVersions()
+    {
+        var swiftInterface = """
+            public struct Product {
+              @available(iOS 17.0, *)
+              public func purchase(confirmIn scene: some UIScene, options: Set<Int>) async throws -> Int
+              @available(iOS 18.2, *)
+              public func purchase(confirmIn viewController: UIKit.UIViewController, options: Set<Int>) async throws -> Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            // Bare key is poisoned: both overloads carry @available, so concatenation
+            // would surface both versions on each. Disamb keys keep them apart.
+            Assert.False(result.ContainsKey("Product.purchase(confirmIn:options:)"));
+
+            var sceneKey = "Product.purchase(confirmIn:options:)|UIScene,Set<Int>";
+            var vcKey = "Product.purchase(confirmIn:options:)|UIViewController,Set<Int>";
+            Assert.True(result.ContainsKey(sceneKey), $"missing: {sceneKey}");
+            Assert.True(result.ContainsKey(vcKey), $"missing: {vcKey}");
+
+            Assert.Single(result[sceneKey]);
+            Assert.Single(result[vcKey]);
+            Assert.Equal("17.0", result[sceneKey][0].IntroducedVersion);
+            Assert.Equal("18.2", result[vcKey][0].IntroducedVersion);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Single-overload baseline: bare key is preserved (no disamb suffix) so any
+    /// downstream consumer that can't compute a sig still hits.
+    /// </summary>
+    [Fact]
+    public void GetAvailabilityAnnotations_SingleOverload_KeepsBareKey()
+    {
+        var swiftInterface = """
+            public class Pipeline {
+              @available(iOS 16.0, *)
+              public func fetch(url: Foundation.URL) async throws -> Foundation.Data
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("Pipeline.fetch(url:)"));
+            Assert.False(result.ContainsKey("Pipeline.fetch(url:)|URL"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Family-F-2 (StripeApplePay <c>@objc optional func</c>): protocol requirements
+    /// have NO access modifier in the swiftinterface. Without the bare-regex
+    /// fallback inside protocol scope, the <c>@available</c> floor is silently
+    /// dropped and the C# binding crashes on iOS &lt; floor.
+    /// </summary>
+    [Fact]
+    public void GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier()
+    {
+        var swiftInterface = """
+            @objc public protocol PaymentDelegate {
+              @available(iOS 15.0, *)
+              @objc optional func paymentSheetWillPresent()
+
+              @available(iOS 16.0, *)
+              var supportedNetworks: [Int] { get }
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("PaymentDelegate.paymentSheetWillPresent()"),
+                "protocol-method @available must be harvested even without `public` modifier");
+            Assert.Contains(result["PaymentDelegate.paymentSheetWillPresent()"],
+                a => a.Platform == "iOS" && a.IntroducedVersion == "15.0");
+
+            Assert.True(result.ContainsKey("PaymentDelegate.supportedNetworks"));
+            Assert.Contains(result["PaymentDelegate.supportedNetworks"],
+                a => a.Platform == "iOS" && a.IntroducedVersion == "16.0");
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Inline-attribute regression: when an <c>@available(...)</c> sits on the same
+    /// line as the member decl (and another overload exists), the parameter-clause
+    /// finder must skip the attribute's own argument list before locating the real
+    /// parameter clause. Pre-fix, <c>ExtractParamTypesForSignature</c> would grab
+    /// the FIRST <c>(</c> in the line — the attribute's <c>(iOS 17.0, *)</c> — and
+    /// produce a bogus disamb signature. The bare key would then store the wrong
+    /// annotation set, and the ABI-side lookup (using a real param-typed key like
+    /// <c>|Int</c>) would miss, dropping availability for the inline-attributed
+    /// overload entirely.
+    /// </summary>
+    [Fact]
+    public void GetAvailabilityAnnotations_InlineAvailable_OverloadParamTypesParsedCorrectly()
+    {
+        var swiftInterface = """
+            public struct S {
+              @available(iOS 17.0, *) public func f(_ x: Swift.Int) -> Swift.Int
+              public func f(_ x: Swift.String) -> Swift.Int
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            // Bare key must be poisoned (two overloads share the printedName).
+            Assert.False(result.ContainsKey("S.f(_:)"));
+            // The Int overload carries iOS 17.0 — keyed by its real param type, not
+            // the attribute's argument list.
+            var intKey = "S.f(_:)|Int";
+            Assert.True(result.ContainsKey(intKey),
+                $"missing '{intKey}'; parser likely captured the @available argument list as params");
+            Assert.Contains(result[intKey],
+                a => a.Platform == "iOS" && a.IntroducedVersion == "17.0");
+            // No annotations expected for the String overload.
+            Assert.False(result.ContainsKey("S.f(_:)|String"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Direct unit test for the attribute-skipping helper. Mirrors the input shapes
+    /// the regex parser sees in practice (single attribute, multiple attributes,
+    /// attribute without args, mixed with modifiers).
+    /// </summary>
+    [Theory]
+    [InlineData("@available(iOS 17.0, *) public func f(_ x: Int)", "Int")]
+    [InlineData("@available(*, deprecated) @objc(something) public func f(_ x: Int)", "Int")]
+    [InlineData("@objc public func f(_ x: Int)", "Int")]
+    [InlineData("public func f(_ x: Int)", "Int")]
+    [InlineData("@available(iOS 17.0, *)\n  public func f(_ x: Set<Int>)", "Set<Int>")]
+    // Dot-qualified attribute names (e.g. `@_Concurrency.MainActor`,
+    // `@Module.Actor`) must be consumed as a single attribute. If the helper
+    // stopped at the dot, the next `@available(...)`'s argument list would be
+    // misidentified as the parameter clause.
+    [InlineData("@_Concurrency.MainActor @available(iOS 17.0, *) public func f(_ x: Int)", "Int")]
+    [InlineData("@_Concurrency.MainActor public func f(_ x: Set<Int>)", "Set<Int>")]
+    public void ExtractParamTypesForSignature_SkipsLeadingAttributes(string memberText, string expectedJoined)
+    {
+        var types = SwiftInterfaceAccessParser.ExtractParamTypesForSignature(memberText);
+        Assert.Equal(expectedJoined, MemberSignatureNormalizer.BuildSignature(types));
+    }
+
+    /// <summary>
+    /// Family-F-5 (visionOS): the <c>@available(visionOS 1.0, *)</c> shorthand must
+    /// produce a normalized "visionOS" platform annotation.
+    /// </summary>
+    [Fact]
+    public void GetAvailabilityAnnotations_F5_VisionOSShorthand()
+    {
+        var swiftInterface = """
+            public struct Spatial {
+              @available(visionOS 1.0, *)
+              public func play() async
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetAvailabilityAnnotations(path);
+            Assert.True(result.ContainsKey("Spatial.play()"));
+            Assert.Contains(result["Spatial.play()"],
+                a => a.Platform == "visionOS" && a.IntroducedVersion == "1.0");
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
 }

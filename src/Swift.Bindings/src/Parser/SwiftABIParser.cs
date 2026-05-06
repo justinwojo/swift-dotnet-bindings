@@ -301,12 +301,57 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Sets availability annotations on a member declaration from swiftinterface data.
+        /// When <paramref name="signatureNode"/> is provided, the lookup first tries the
+        /// disamb-suffixed key <c>"{TypePath}.{printedName}|sig"</c> before falling back
+        /// to the bare key. This is how Family-F-1 / Family-F-4 are resolved without
+        /// requiring a separate ambiguous-key set: producers store overloads under their
+        /// disamb keys whenever 2+ overloads share a printedName, and the bare key is
+        /// LEFT EMPTY so an unmatched bare-key lookup safely returns nothing rather
+        /// than misapplying another overload's annotations.
         /// </summary>
-        private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName)
+        private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName, Node? signatureNode = null)
         {
-            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (_facts.AvailabilityAnnotations.TryGetValue(key, out var annotations))
+            var bareKey = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            if (signatureNode != null)
+            {
+                var sig = ComputeAbiParamSignature(signatureNode);
+                if (!string.IsNullOrEmpty(sig))
+                {
+                    var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, sig);
+                    if (_facts.AvailabilityAnnotations.TryGetValue(disambKey, out var disambAnnotations))
+                    {
+                        decl.AvailabilityAnnotations = disambAnnotations;
+                        return;
+                    }
+                }
+            }
+            if (_facts.AvailabilityAnnotations.TryGetValue(bareKey, out var annotations))
                 decl.AvailabilityAnnotations = annotations;
+        }
+
+        /// <summary>
+        /// Computes the same parameter-type signature the swiftinterface parser does,
+        /// but reading from an ABI JSON function/init/subscript node instead of source
+        /// text. <paramref name="node"/>'s <c>Children</c> contain the parameters
+        /// (skipping index 0 — that's the return type for funcs/inits; subscripts also
+        /// place the return type at index 0). Each child's <c>printedName</c> is
+        /// normalized through <see cref="MemberSignatureNormalizer.NormalizeParamType"/>
+        /// so it matches the producer-side normalization. Returns an empty string when
+        /// the node has no parameter children.
+        /// </summary>
+        private static string ComputeAbiParamSignature(Node node)
+        {
+            if (node.Children == null) return string.Empty;
+            var raw = new List<string>();
+            int i = 0;
+            foreach (var child in node.Children)
+            {
+                // Index 0 of a Function/Constructor/Subscript Children list is the
+                // return type; the parser-side signature only lists parameters.
+                if (i++ == 0) continue;
+                raw.Add(child.PrintedName ?? string.Empty);
+            }
+            return MemberSignatureNormalizer.BuildSignature(raw);
         }
 
         /// <summary>
@@ -1696,7 +1741,7 @@ namespace BindingsGeneration
             if (parentDecl is TypeDecl parentType)
             {
                 ApplyMemberActorIsolation(methodDecl, parentType, node.PrintedName);
-                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName);
+                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName, node);
                 ApplyMemberPosition(methodDecl, parentType, node.PrintedName);
             }
             else if (parentDecl is ModuleDecl)
@@ -1707,9 +1752,20 @@ namespace BindingsGeneration
                     methodDecl.IsActorIsolated = true;
                 if (_facts.MainActorIsolatedMembers.Contains(node.PrintedName))
                     methodDecl.IsMainActorIsolated = true;
-                // Free function availability: keyed by bare printedName in swiftinterface
-                if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
+                // Free function availability: keyed by bare printedName, with optional
+                // disamb suffix when overload disambiguation is needed.
+                var freeSig = ComputeAbiParamSignature(node);
+                if (!string.IsNullOrEmpty(freeSig) &&
+                    _facts.AvailabilityAnnotations.TryGetValue(
+                        MemberSignatureNormalizer.ComposeKey(node.PrintedName, freeSig),
+                        out var disambFree))
+                {
+                    methodDecl.AvailabilityAnnotations = disambFree;
+                }
+                else if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
+                {
                     methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
+                }
                 // Free function position uses the same bare-printedName key the parser
                 // emitted under FreeFunctionLine.
                 if (_facts.AvailabilityAnnotationPositions.TryGetValue(node.PrintedName, out var freeFuncPos))
@@ -2249,7 +2305,7 @@ namespace BindingsGeneration
             };
             if (parentDecl is TypeDecl subscriptParentType)
             {
-                ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName);
+                ApplyMemberAvailability(decl, subscriptParentType, node.PrintedName, node);
                 ApplyMemberPosition(decl, subscriptParentType, node.PrintedName);
             }
             // Propagate subscript availability to accessor MethodDecls (same rationale as

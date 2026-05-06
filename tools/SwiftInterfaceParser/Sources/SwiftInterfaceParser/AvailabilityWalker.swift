@@ -79,15 +79,46 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     /// Scope tracking. `name` is the simple type name (or first-dot-stripped path
     /// for extensions). `isExtension` matches the regex tracker's flag.
+    /// `isProtocol` is true when the scope is a `protocol` body — used to lift
+    /// the modifier-shape gate on protocol requirements (Family-F-2: protocol
+    /// methods have no `public`/`open` modifier and are otherwise skipped by the
+    /// shape regex, dropping their `@available` clauses).
     private struct Scope {
         let name: String
         let isExtension: Bool
+        let isProtocol: Bool
         /// Annotations declared on the extension decl itself, applied to every
         /// member inside. Only populated when `isExtension == true`. Mirrors the
         /// regex tracker's pending-OR-inline exclusivity (line 145-157).
         let extensionScopeAttributes: [AttributeSyntax]
     }
     private var scopeStack: [Scope] = []
+
+    /// True when the innermost non-extension scope is a protocol body. Mirrors
+    /// `SwiftInterfaceContextTracker.IsInsideProtocol` on the .NET side.
+    private var isInsideProtocol: Bool {
+        for scope in scopeStack.reversed() where !scope.isExtension {
+            return scope.isProtocol
+        }
+        return false
+    }
+
+    /// Per-decl staging for overload disambiguation. The walker stages every
+    /// member-keyed annotation here during the visit pass, then `finalize()`
+    /// folds them into `availabilityAnnotations` with bare-vs-disamb keys decided
+    /// by `memberSignatures` (the set of distinct param-sigs seen for each bare
+    /// key). Single-overload bare keys keep the legacy bare-key storage so any
+    /// .NET-side consumer that can't compute a sig still hits.
+    private struct StagedAnnotation {
+        let bareKey: String
+        let paramSig: String
+        let annotations: [AvailabilityAnnotationJson]
+        let position: SourcePositionJson?
+    }
+    private var stagedMemberAnnotations: [StagedAnnotation] = []
+    /// Set of distinct param signatures seen for each bare key. 2+ entries =
+    /// overloaded → disambiguate.
+    private var memberSignatures: [String: Set<String>] = [:]
 
     // Modifier-shape gates mirroring the regex's PublicFuncRegex / PublicInitRegex /
     // PublicVarRegex / subscript regex. ORDER matters in the regex (anchored
@@ -119,10 +150,86 @@ final class AvailabilityWalker: SyntaxVisitor {
         let tree = Parser.parse(source: source)
         let walker = AvailabilityWalker(filePath: filePath, source: source)
         walker.walk(tree)
+        walker.finalize()
         return AvailabilityResult(
             availabilityAnnotations: walker.availabilityAnnotations,
             availabilityAnnotationPositions: walker.availabilityAnnotationPositions
         )
+    }
+
+    /// Folds staged member annotations into `availabilityAnnotations` after the
+    /// visit pass completes. Mirrors the .NET-side staging logic in
+    /// `SwiftInterfaceAccessParser.GetAvailabilityAnnotations`:
+    ///   - bare key has 1 distinct sig → store under bare key (legacy)
+    ///   - bare key has 2+ distinct sigs → store each annotation list under
+    ///     `{bareKey}|{sig}` and remove the bare-key position entry so an
+    ///     unmatched .NET-side bare-key lookup misses cleanly rather than
+    ///     misapplying another overload's annotations (Family-F-1 / F-4).
+    private func finalize() {
+        let positionsByBareKey = availabilityAnnotationPositions
+        for staged in stagedMemberAnnotations {
+            let distinctSigs = memberSignatures[staged.bareKey]?.count ?? 1
+            let storageKey: String
+            if distinctSigs <= 1 {
+                storageKey = staged.bareKey
+            } else {
+                storageKey = staged.paramSig.isEmpty
+                    ? staged.bareKey
+                    : "\(staged.bareKey)|\(staged.paramSig)"
+                if availabilityAnnotationPositions[storageKey] == nil,
+                   let bp = positionsByBareKey[staged.bareKey] {
+                    availabilityAnnotationPositions[storageKey] = bp
+                }
+            }
+            if availabilityAnnotations[storageKey] != nil {
+                availabilityAnnotations[storageKey]!.append(contentsOf: staged.annotations)
+            } else {
+                availabilityAnnotations[storageKey] = staged.annotations
+            }
+            if availabilityAnnotationPositions[storageKey] == nil,
+               let pos = staged.position {
+                availabilityAnnotationPositions[storageKey] = pos
+            }
+        }
+        // Drop bare-key positions that won't have a matching annotation entry
+        // (every overload was ambiguous and got disamb-keyed). Otherwise the
+        // position dict has orphan entries pointing at the wrong overload.
+        for (bareKey, sigs) in memberSignatures where sigs.count > 1 {
+            if availabilityAnnotations[bareKey] == nil {
+                availabilityAnnotationPositions.removeValue(forKey: bareKey)
+            }
+        }
+    }
+
+    /// Records that a member-line decl with the given bare key was seen. Called
+    /// for every member-shape match (whether or not it has @available) so the
+    /// overload-count check in `finalize()` covers decls without annotations
+    /// (Family-F-1: the recommended overload has no annotations but its presence
+    /// must trigger disambiguation).
+    private func recordMemberSignature(bareKey: String, paramSig: String) {
+        var set = memberSignatures[bareKey] ?? Set<String>()
+        set.insert(paramSig)
+        memberSignatures[bareKey] = set
+    }
+
+    /// Stage member annotations for the post-walk finalize pass. The bareKey
+    /// here is what `memberKey(printedName:)` produced; finalize() decides
+    /// whether to actually store under bare or disamb.
+    private func stageMemberAnnotations(bareKey: String, paramSig: String,
+                                        annotations: [AvailabilityAnnotationJson],
+                                        anchor: TokenSyntax, declEnd: AbsolutePosition) {
+        let position = declarationPosition(anchor: anchor, declEnd: declEnd)
+        if availabilityAnnotationPositions[bareKey] == nil, let pos = position {
+            availabilityAnnotationPositions[bareKey] = pos
+        }
+        if !annotations.isEmpty {
+            stagedMemberAnnotations.append(StagedAnnotation(
+                bareKey: bareKey,
+                paramSig: paramSig,
+                annotations: annotations,
+                position: position
+            ))
+        }
     }
 
     private var qualifiedTypePath: String {
@@ -421,14 +528,15 @@ final class AvailabilityWalker: SyntaxVisitor {
                                 modifiers: DeclModifierListSyntax,
                                 attributes: AttributeListSyntax,
                                 keyword: TokenSyntax,
-                                leftBrace: TokenSyntax) -> SyntaxVisitorContinueKind {
+                                leftBrace: TokenSyntax,
+                                isProtocol: Bool = false) -> SyntaxVisitorContinueKind {
         // `PublicTypeDeclRegex` ends in bare `(\w+)` — backtick-escaped names
         // (`public struct \`class\``) miss the regex capture, so SwiftSyntax must
         // also skip pushing them.
         if matchesPublicTypeShape(modifiers),
            RegexShape.isWordIdentifier(name),
            typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
-            let qualified = pushTypeScope(name: name)
+            let qualified = pushTypeScope(name: name, isProtocol: isProtocol)
             scopePushed.append(true)
             let anchor = declAnchorToken(modifiers: modifiers, fallback: keyword)
             let declEnd = leftBrace.position
@@ -481,7 +589,8 @@ final class AvailabilityWalker: SyntaxVisitor {
             modifiers: node.modifiers,
             attributes: node.attributes,
             keyword: node.protocolKeyword,
-            leftBrace: node.memberBlock.leftBrace)
+            leftBrace: node.memberBlock.leftBrace,
+            isProtocol: true)
     }
     override func visitPost(_ node: ProtocolDeclSyntax) { popTypeDecl() }
 
@@ -538,7 +647,7 @@ final class AvailabilityWalker: SyntaxVisitor {
             }
         }
         let scopeAttrs: [AttributeSyntax] = !pending.isEmpty ? pending : inline
-        scopeStack.append(Scope(name: stripped, isExtension: true, extensionScopeAttributes: scopeAttrs))
+        scopeStack.append(Scope(name: stripped, isExtension: true, isProtocol: false, extensionScopeAttributes: scopeAttrs))
         extensionScopePushed.append(true)
         // Note: extension decls themselves do NOT emit a key into
         // `availabilityAnnotations` — the regex parser handles them via
@@ -552,17 +661,22 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
     }
 
-    private func pushTypeScope(name: String) -> String {
-        scopeStack.append(Scope(name: name, isExtension: false, extensionScopeAttributes: []))
+    private func pushTypeScope(name: String, isProtocol: Bool = false) -> String {
+        scopeStack.append(Scope(name: name, isExtension: false, isProtocol: isProtocol, extensionScopeAttributes: []))
         return qualifiedTypePath
     }
 
     // MARK: - Member declarations
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Order-strict shape gate matching PublicFuncRegex.
-        guard matchesPublicFuncShape(node.modifiers) else {
-            return .skipChildren
+        // Order-strict shape gate matching PublicFuncRegex. SKIPPED inside protocol
+        // bodies — protocol requirements have no access modifier in swiftinterface
+        // text (Family-F-2). The .NET-side regex parser uses bare regexes inside
+        // protocol scope; we mirror that here.
+        if !isInsideProtocol {
+            guard matchesPublicFuncShape(node.modifiers) else {
+                return .skipChildren
+            }
         }
         // PublicFuncRegex now also matches operator-character runs (`==`, `+`, …)
         // so static-func operator declarations propagate the enclosing extension's
@@ -578,30 +692,39 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         let printed = buildPrintedName(funcName: node.name.text, params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
+        let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
+        recordMemberSignature(bareKey: key, paramSig: paramSig)
+        let annotations = collectAnnotations(declAttrs: node.attributes)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.funcKeyword)
-        // Decl signature ends at the closing paren of the param clause + optional
-        // return type / where clause. Use the body's `{` if present, else the
-        // signature's last token.
         let declEnd = node.body?.leftBrace.position ?? declSignatureEnd(node)
-        emitDeclAnnotations(key: key, decl: node.attributes, anchor: anchor, declEnd: declEnd)
+        stageMemberAnnotations(bareKey: key, paramSig: paramSig, annotations: annotations,
+                               anchor: anchor, declEnd: declEnd)
         return .skipChildren
     }
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
-        guard matchesPublicInitShape(node.modifiers) else {
-            return .skipChildren
+        if !isInsideProtocol {
+            guard matchesPublicInitShape(node.modifiers) else {
+                return .skipChildren
+            }
         }
         let printed = buildPrintedName(funcName: "init", params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
+        let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
+        recordMemberSignature(bareKey: key, paramSig: paramSig)
+        let annotations = collectAnnotations(declAttrs: node.attributes)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.initKeyword)
         let declEnd = node.body?.leftBrace.position ?? declSignatureEnd(node)
-        emitDeclAnnotations(key: key, decl: node.attributes, anchor: anchor, declEnd: declEnd)
+        stageMemberAnnotations(bareKey: key, paramSig: paramSig, annotations: annotations,
+                               anchor: anchor, declEnd: declEnd)
         return .skipChildren
     }
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
-        guard matchesPublicVarShape(node.modifiers) else {
-            return .skipChildren
+        if !isInsideProtocol {
+            guard matchesPublicVarShape(node.modifiers) else {
+                return .skipChildren
+            }
         }
         // First-binding identifier: regex `PublicVarRegex` captures only the first
         // `(\w+)` after `var`/`let`. Mirror.
@@ -615,23 +738,34 @@ final class AvailabilityWalker: SyntaxVisitor {
             return .skipChildren
         }
         let key = memberKey(printedName: identifier.identifier.text)
+        // Vars cannot be overloaded; sig is empty. Recording still ensures the
+        // bare-key path stays the storage path.
+        recordMemberSignature(bareKey: key, paramSig: "")
+        let annotations = collectAnnotations(declAttrs: node.attributes)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.bindingSpecifier)
         let declEnd = signatureEndForVar(node)
-        emitDeclAnnotations(key: key, decl: node.attributes, anchor: anchor, declEnd: declEnd)
+        stageMemberAnnotations(bareKey: key, paramSig: "", annotations: annotations,
+                               anchor: anchor, declEnd: declEnd)
         return .skipChildren
     }
 
     override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
-        guard matchesPublicSubscriptShape(node.modifiers) else {
-            return .skipChildren
+        if !isInsideProtocol {
+            guard matchesPublicSubscriptShape(node.modifiers) else {
+                return .skipChildren
+            }
         }
         // SubscriptDecl's printedName format from `ExtractSubscriptPrintedName`:
         // `subscript(label1:label2:)` using external labels (`_` or external word).
         let printed = buildPrintedNameForSubscript(params: node.parameterClause)
         let key = memberKey(printedName: printed)
+        let paramSig = AvailabilityWalker.buildParamSignature(params: node.parameterClause)
+        recordMemberSignature(bareKey: key, paramSig: paramSig)
+        let annotations = collectAnnotations(declAttrs: node.attributes)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.subscriptKeyword)
         let declEnd = signatureEndForSubscript(node)
-        emitDeclAnnotations(key: key, decl: node.attributes, anchor: anchor, declEnd: declEnd)
+        stageMemberAnnotations(bareKey: key, paramSig: paramSig, annotations: annotations,
+                               anchor: anchor, declEnd: declEnd)
         return .skipChildren
     }
 
@@ -684,6 +818,167 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         if labels.isEmpty { return "\(funcName)()" }
         return "\(funcName)(\(labels.map { "\($0):" }.joined()))"
+    }
+
+    /// Build the parameter-type signature used to disambiguate overloads that share
+    /// a `printedName`. Mirrors `MemberSignatureNormalizer.BuildSignature` on the
+    /// .NET side: per-parameter normalization (strip ownership/opaque modifiers,
+    /// optionality, generic args, take last `.`-segment, drop backticks) joined
+    /// with `,`. Returns an empty string when there are no parameters.
+    static func buildParamSignature(params: FunctionParameterClauseSyntax) -> String {
+        let paramList = params.parameters
+        if paramList.isEmpty { return "" }
+        var tails: [String] = []
+        for param in paramList {
+            let raw = param.type.trimmedDescription
+            tails.append(normalizeParamType(raw))
+        }
+        return tails.joined(separator: ",")
+    }
+
+    /// Mirrors `MemberSignatureNormalizer.NormalizeParamType` on the .NET side. Both
+    /// sides MUST collapse to the same string for the disamb keys to match. Generic
+    /// argument lists are preserved and normalized recursively so overloads
+    /// distinguished only by their generic specialization (`Array<Int>` vs
+    /// `Array<String>`) keep distinct signatures — stripping the generics outright
+    /// would reintroduce the Family-F broadcast / merge bug.
+    static func normalizeParamType(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        let prefixes = ["inout", "borrowing", "consuming", "some", "any", "__owned", "__shared"]
+        var stripped = true
+        while stripped {
+            stripped = false
+            for prefix in prefixes {
+                if s.hasPrefix(prefix + " ") {
+                    s = String(s.dropFirst(prefix.count + 1))
+                        .trimmingCharacters(in: .whitespaces)
+                    stripped = true
+                    break
+                }
+            }
+        }
+        // Drop default-value tail.
+        if let eqIdx = s.firstIndex(of: "=") {
+            s = String(s[..<eqIdx]).trimmingCharacters(in: .whitespaces)
+        }
+        // Strip trailing `?` / `!` BEFORE peeling off generics so `Array<Int>?`
+        // recurses into `Array<Int>` correctly.
+        while let last = s.last, last == "?" || last == "!" {
+            s = String(s.dropLast())
+        }
+        s = s.trimmingCharacters(in: .whitespaces)
+
+        // Canonicalize collection sugar (`[T]` → `Array<T>`, `[K: V]` →
+        // `Dictionary<K,V>`). Mirrors the .NET-side step so both parsers
+        // converge on the nominal form before the generic split.
+        s = canonicalizeCollectionSugar(s)
+
+        // Split off the outer generic argument list (if any). Use the FIRST `<`
+        // and require the string to end with `>`; the inside is normalized
+        // recursively so nested generics like `Dictionary<String, Array<Int>>`
+        // round-trip cleanly.
+        var outer: String
+        var argsInner: String? = nil
+        if let ltIdx = s.firstIndex(of: "<"), s.last == ">", s.distance(from: s.startIndex, to: ltIdx) > 0 {
+            outer = String(s[..<ltIdx]).trimmingCharacters(in: .whitespaces)
+            let afterLt = s.index(after: ltIdx)
+            let beforeGt = s.index(before: s.endIndex)
+            argsInner = String(s[afterLt..<beforeGt])
+        } else {
+            outer = s
+        }
+
+        // Take last `.`-segment of the outer head.
+        if let lastDot = outer.lastIndex(of: ".") {
+            outer = String(outer[outer.index(after: lastDot)...])
+        }
+        // Strip backticks on the outer head.
+        if outer.count >= 2, outer.hasPrefix("`"), outer.hasSuffix("`") {
+            outer = String(outer.dropFirst().dropLast())
+        }
+
+        guard let argsInner = argsInner else { return outer }
+
+        // Recursively normalize each comma-split argument, then reassemble.
+        let parts = splitTopLevelCommas(argsInner).map { normalizeParamType($0) }
+        return outer + "<" + parts.joined(separator: ",") + ">"
+    }
+
+    /// Folds Swift collection sugar to the equivalent nominal generic form.
+    /// Mirrors `MemberSignatureNormalizer.CanonicalizeCollectionSugar` on the
+    /// .NET side. Returns the input unchanged when it isn't a single
+    /// bracket-enclosed run.
+    private static func canonicalizeCollectionSugar(_ s: String) -> String {
+        guard s.count >= 2, s.hasPrefix("["), s.hasSuffix("]") else { return s }
+
+        // Verify the outer brackets enclose the WHOLE string.
+        var depth = 0
+        var idx = s.startIndex
+        while idx < s.endIndex {
+            let c = s[idx]
+            if c == "(" || c == "[" || c == "<" {
+                depth += 1
+            } else if c == ")" || c == "]" || c == ">" {
+                depth -= 1
+                if depth == 0 && idx != s.index(before: s.endIndex) {
+                    return s
+                }
+            }
+            idx = s.index(after: idx)
+        }
+        if depth != 0 { return s }
+
+        let inner = String(s.dropFirst().dropLast())
+
+        // Find a top-level `:` that separates dictionary key/value.
+        depth = 0
+        var colonOffset: Int? = nil
+        for (offset, c) in inner.enumerated() {
+            if c == "(" || c == "[" || c == "<" {
+                depth += 1
+            } else if c == ")" || c == "]" || c == ">" {
+                depth -= 1
+            } else if c == ":" && depth == 0 {
+                colonOffset = offset
+                break
+            }
+        }
+
+        guard let colonOffset = colonOffset else {
+            return "Array<" + inner.trimmingCharacters(in: .whitespaces) + ">"
+        }
+
+        let colonIdx = inner.index(inner.startIndex, offsetBy: colonOffset)
+        let key = String(inner[..<colonIdx]).trimmingCharacters(in: .whitespaces)
+        let val = String(inner[inner.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
+        return "Dictionary<" + key + "," + val + ">"
+    }
+
+    /// Splits `text` on commas at depth-0 with respect to `(`, `[`, and `<`.
+    /// Mirrors `MemberSignatureNormalizer.SplitTopLevelCommas` — necessary because
+    /// `Dictionary<String, Array<Int>>`'s outer comma must split, but the inner
+    /// args of `Array<Int>` must not.
+    private static func splitTopLevelCommas(_ text: String) -> [String] {
+        var results: [String] = []
+        var depth = 0
+        var start = text.startIndex
+        var i = text.startIndex
+        while i < text.endIndex {
+            let c = text[i]
+            if c == "(" || c == "[" || c == "<" {
+                depth += 1
+            } else if c == ")" || c == "]" || c == ">" {
+                depth -= 1
+            } else if c == "," && depth == 0 {
+                results.append(String(text[start..<i]))
+                start = text.index(after: i)
+            }
+            i = text.index(after: i)
+        }
+        if start <= text.endIndex {
+            results.append(String(text[start..<text.endIndex]))
+        }
+        return results
     }
 
     private func buildPrintedNameForSubscript(params: FunctionParameterClauseSyntax) -> String {

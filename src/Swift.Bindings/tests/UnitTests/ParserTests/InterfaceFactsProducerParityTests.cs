@@ -232,6 +232,30 @@ public class InterfaceFactsProducerParityTests
                 "extension Mod.T {\n" +
                 "  public func added()\n" +
                 "}\n" },
+            new object[] { "ProtocolRequirementWithoutAccessModifier",
+                // Family-F-2 (StripeApplePay): a bare protocol requirement carries no
+                // explicit `public` modifier, but the @available annotation MUST still
+                // be captured. Pre-fix, the regex parser's modifier gate swallowed the
+                // requirement and silently dropped the annotation. The .NET-side fix
+                // is covered by `GetAvailabilityAnnotations_F2_…` in
+                // SwiftInterfaceAccessParserTests; this corpus case asserts that the
+                // SwiftSyntax-side AvailabilityWalker produces byte-equal output for
+                // the same shape so the dual-parser contract holds.
+                "public protocol HasOptional {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  func ping()\n" +
+                "}\n" },
+            new object[] { "OverloadedInlineAvailableWithCollectionSugar",
+                // Inline @available on an overloaded member where one variant uses
+                // Swift collection sugar (`[T]`) and the other uses an explicit
+                // generic. The .NET-side disamb suffix and the SwiftSyntax-side
+                // suffix MUST converge byte-equal — otherwise the producer stages
+                // the annotation under a key the consumer never looks up.
+                "public struct Holder {\n" +
+                "  @available(iOS 17.0, *)\n" +
+                "  public func f(_ xs: [Swift.Int]) -> Swift.Int\n" +
+                "  public func f(_ xs: Swift.Set<Swift.Int>) -> Swift.Int\n" +
+                "}\n" },
         };
 
     /// <summary>

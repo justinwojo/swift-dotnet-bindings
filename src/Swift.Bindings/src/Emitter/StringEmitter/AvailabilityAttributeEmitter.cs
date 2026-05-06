@@ -16,6 +16,12 @@ internal static class AvailabilityAttributeEmitter
         ["tvOS"] = "tvos",
         ["watchOS"] = "watchos",
         ["macCatalyst"] = "maccatalyst",
+        // .NET 6+ recognizes "visionos" via System.Runtime.Versioning.OSPlatform.
+        // Without this entry the `@available(visionOS 1.0, *)` clause from the
+        // swiftinterface is silently elided (Family-F-5: 453 dropped markers in
+        // SwiftBindings.Apple.MusicKit alone). Map verbatim so visionOS-targeting
+        // consumers see CA1416 narrow correctly.
+        ["visionOS"] = "visionos",
     };
 
     /// <summary>
@@ -43,10 +49,6 @@ internal static class AvailabilityAttributeEmitter
         bool obsoleteEmitted = false;
         foreach (var annotation in decl.AvailabilityAnnotations)
         {
-            // Skip visionOS (no .NET equivalent yet)
-            if (annotation.Platform == "visionOS")
-                continue;
-
             // Platform-specific attributes
             if (annotation.Platform != null && PlatformMapping.TryGetValue(annotation.Platform, out var dotnetPlatform))
             {
@@ -124,7 +126,6 @@ internal static class AvailabilityAttributeEmitter
         var strictest = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var ann in annotations)
         {
-            if (ann.Platform == "visionOS") continue;
             if (ann.Platform == null || ann.IntroducedVersion == null) continue;
             if (!PlatformMapping.TryGetValue(ann.Platform, out var dotnetPlatform)) continue;
 
@@ -175,8 +176,6 @@ internal static class AvailabilityAttributeEmitter
         foreach (var ann in setterAvailability)
         {
             if (ann.Platform == null || ann.IntroducedVersion == null)
-                continue;
-            if (ann.Platform == "visionOS")
                 continue;
             if (!PlatformMapping.TryGetValue(ann.Platform, out var dotnetPlatform))
                 continue;

@@ -17,7 +17,9 @@
     <!-- SB0001: Mono JIT crash risk warnings (test code intentionally calls these methods) -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- CA1418: 'visionos' missing from the .NET 10.0.107 analyzer's KnownPlatforms list
+         on the plain net10.0-ios TFM. See the matching note in CompileCheck.csproj. -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <!-- Avoid InstallNameTool failure with libSwiftBindingsRuntime.dylib.tmp -->

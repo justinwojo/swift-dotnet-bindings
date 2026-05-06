@@ -16,9 +16,12 @@ namespace BindingsGeneration;
 /// </summary>
 internal sealed class SwiftInterfaceContextTracker
 {
-    // Regex for type declarations: matches class/struct/enum/actor/protocol
+    // Regex for type declarations: matches class/struct/enum/actor/protocol.
+    // Group 1 captures the keyword so the tracker can flag protocol scopes
+    // separately — protocol requirements lack any access modifier in
+    // swiftinterface text and need a relaxed member-line regex (Family-F-2).
     private static readonly Regex TypeDeclRegex = new(
-        @"(?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)",
+        @"(?:public|internal|open)\s+(?:final\s+)?(class|struct|enum|actor|protocol)\s+(\w+)",
         RegexOptions.Compiled);
 
     // Regex for extension declarations
@@ -43,7 +46,29 @@ internal sealed class SwiftInterfaceContextTracker
         @"(?:public|open)\s+(?:convenience\s+)?init\s*\(",
         RegexOptions.Compiled);
 
-    private readonly Stack<(string Name, int Depth, bool IsExtension)> _typeStack = new();
+    // Bare regexes for protocol-requirement shapes — protocol members in a
+    // swiftinterface have no access modifier (`func foo()`, `var bar: Int { get }`,
+    // `init?(...)`). Used only when the enclosing scope is a protocol; without these
+    // F-2 (StripeApplePay-style `@available` on a protocol method requirement) is
+    // silently elided. UNANCHORED so leading attribute prefixes
+    // (e.g. `@objc optional func foo()`) and the `optional` modifier match.
+    private static readonly Regex ProtocolFuncRegex = new(
+        @"(?:static\s+|class\s+)?(?:mutating\s+)?func\s+(\w+)\s*(?:<[^>]*>\s*)?\(",
+        RegexOptions.Compiled);
+
+    private static readonly Regex ProtocolVarRegex = new(
+        @"(?:static\s+|class\s+)?(?:var|let)\s+(\w+)",
+        RegexOptions.Compiled);
+
+    private static readonly Regex ProtocolInitRegex = new(
+        @"(?:convenience\s+)?init[?!]?\s*\(",
+        RegexOptions.Compiled);
+
+    private static readonly Regex ProtocolSubscriptRegex = new(
+        @"(?:static\s+)?subscript\s*[\(<]",
+        RegexOptions.Compiled);
+
+    private readonly Stack<(string Name, int Depth, bool IsExtension, bool IsProtocol)> _typeStack = new();
     private int _braceDepth;
     private readonly List<string> _pendingAnnotationLines = new();
     private List<string>? _extensionScopeAnnotations;
@@ -60,6 +85,25 @@ internal sealed class SwiftInterfaceContextTracker
     public IReadOnlyList<string> PendingAnnotationLines => _pendingAnnotationLines;
 
     public bool IsInsideExtension => _typeStack.Any(t => t.IsExtension);
+
+    /// <summary>
+    /// True when the innermost non-extension type scope is a <c>protocol</c> body.
+    /// Member-line classification reaches for the bare-shape regexes only inside
+    /// protocols (members have no access modifier there), so callers gate the
+    /// fallback on this predicate.
+    /// </summary>
+    public bool IsInsideProtocol
+    {
+        get
+        {
+            foreach (var t in _typeStack)
+            {
+                if (t.IsExtension) continue;
+                return t.IsProtocol;
+            }
+            return false;
+        }
+    }
 
     public int TypeDepth => _typeStack.Count;
 
@@ -111,8 +155,13 @@ internal sealed class SwiftInterfaceContextTracker
 
         var (openBraces, closeBraces) = SwiftInterfaceAccessParser.CountBraces(rawLine);
 
-        // Check if this is a pure annotation line (starts with @, no declaration)
-        if (trimmedLine.StartsWith("@") && !IsDeclarationLine(trimmedLine) && openBraces == 0)
+        // Check if this is a pure annotation line (starts with @, no declaration).
+        // Inside a protocol body the declaration shape regexes are relaxed (no
+        // `public`/`open` modifier required), so the same line can BE a declaration
+        // here while it would have been classified as annotation-only outside a
+        // protocol — e.g., `@objc optional func foo()` is a protocol requirement,
+        // not an annotation. Family-F-2.
+        if (trimmedLine.StartsWith("@") && !IsDeclarationLine(trimmedLine, IsInsideProtocol) && openBraces == 0)
         {
             _pendingAnnotationLines.Add(trimmedLine);
             _braceDepth += openBraces - closeBraces;
@@ -124,8 +173,10 @@ internal sealed class SwiftInterfaceContextTracker
         var typeMatch = TypeDeclRegex.Match(trimmedLine);
         if (typeMatch.Success && openBraces > 0)
         {
-            var typeName = typeMatch.Groups[1].Value;
-            _typeStack.Push((typeName, _braceDepth, false));
+            var typeKeyword = typeMatch.Groups[1].Value;
+            var typeName = typeMatch.Groups[2].Value;
+            var isProtocol = typeKeyword == "protocol";
+            _typeStack.Push((typeName, _braceDepth, false, isProtocol));
 
             _braceDepth += openBraces - closeBraces;
             PopTypeStackIfNeeded();
@@ -155,7 +206,7 @@ internal sealed class SwiftInterfaceContextTracker
                 if (inlineAnnotations.Count > 0)
                     _extensionScopeAnnotations = inlineAnnotations;
             }
-            _typeStack.Push((typeName, _braceDepth, true));
+            _typeStack.Push((typeName, _braceDepth, true, false));
 
             _braceDepth += openBraces - closeBraces;
             PopTypeStackIfNeeded();
@@ -163,7 +214,7 @@ internal sealed class SwiftInterfaceContextTracker
         }
 
         // Check for member declaration (func, var, init, subscript)
-        if (_typeStack.Count > 0 && IsMemberLine(trimmedLine))
+        if (_typeStack.Count > 0 && IsMemberLine(trimmedLine, IsInsideProtocol))
         {
             // Check for multi-line signature
             if (HasUnmatchedOpenParen(trimmedLine))
@@ -182,7 +233,7 @@ internal sealed class SwiftInterfaceContextTracker
 
         // Check for free function at module level (not inside a type) that may span multiple lines.
         // Same multi-line continuation logic as type members above, but for top-level functions.
-        if (_typeStack.Count == 0 && IsMemberLine(trimmedLine))
+        if (_typeStack.Count == 0 && IsMemberLine(trimmedLine, insideProtocol: false))
         {
             if (HasUnmatchedOpenParen(trimmedLine))
             {
@@ -227,8 +278,11 @@ internal sealed class SwiftInterfaceContextTracker
 
     /// <summary>
     /// Extracts the printed name (e.g., "funcName(_:bar:)") from a member declaration line.
+    /// When <paramref name="insideProtocol"/> is true, falls back to bare-shape regexes
+    /// (no <c>public</c>/<c>open</c> prefix required) so protocol requirements like
+    /// <c>@objc optional func foo()</c> are recognised — fixes Family-F-2.
     /// </summary>
-    public static string? ExtractMemberPrintedName(string line)
+    public static string? ExtractMemberPrintedName(string line, bool insideProtocol = false)
     {
         var funcMatch = PublicFuncRegex.Match(line);
         if (funcMatch.Success)
@@ -248,6 +302,23 @@ internal sealed class SwiftInterfaceContextTracker
         var caseMatch = EnumCasePrintedNameRegex.Match(line);
         if (caseMatch.Success)
             return ExtractEnumCasePrintedName(line, caseMatch);
+
+        if (insideProtocol)
+        {
+            var pFunc = ProtocolFuncRegex.Match(line);
+            if (pFunc.Success)
+                return SwiftInterfaceAccessParser.ExtractPrintedName(line, pFunc.Groups[1].Value);
+
+            if (ProtocolInitRegex.IsMatch(line))
+                return SwiftInterfaceAccessParser.ExtractPrintedName(line, "init");
+
+            var pVar = ProtocolVarRegex.Match(line);
+            if (pVar.Success)
+                return pVar.Groups[1].Value;
+
+            if (ProtocolSubscriptRegex.IsMatch(line))
+                return ExtractSubscriptPrintedName(line);
+        }
 
         return null;
     }
@@ -548,28 +619,55 @@ internal sealed class SwiftInterfaceContextTracker
         }
     }
 
-    private static bool IsDeclarationLine(string trimmedLine)
+    private static bool IsDeclarationLine(string trimmedLine, bool insideProtocol = false)
     {
         // Check if line contains a type or member declaration (not just annotations).
         // Enum cases are also declarations — IsEnumCaseLine handles inline-annotated
         // forms like `@available(...) case foo` so the line escapes AnnotationOnly
         // classification, which would otherwise leak the case text into the next
         // declaration's pending annotations.
-        return TypeDeclRegex.IsMatch(trimmedLine) ||
-               ExtensionDeclRegex.IsMatch(trimmedLine) ||
-               PublicFuncRegex.IsMatch(trimmedLine) ||
-               PublicVarRegex.IsMatch(trimmedLine) ||
-               PublicInitRegex.IsMatch(trimmedLine) ||
-               IsEnumCaseLine(trimmedLine);
+        if (TypeDeclRegex.IsMatch(trimmedLine) ||
+            ExtensionDeclRegex.IsMatch(trimmedLine) ||
+            PublicFuncRegex.IsMatch(trimmedLine) ||
+            PublicVarRegex.IsMatch(trimmedLine) ||
+            PublicInitRegex.IsMatch(trimmedLine) ||
+            IsEnumCaseLine(trimmedLine))
+        {
+            return true;
+        }
+        if (insideProtocol)
+        {
+            return ProtocolFuncRegex.IsMatch(trimmedLine) ||
+                   ProtocolInitRegex.IsMatch(trimmedLine) ||
+                   ProtocolVarRegex.IsMatch(trimmedLine) ||
+                   ProtocolSubscriptRegex.IsMatch(trimmedLine);
+        }
+        return false;
     }
 
-    private static bool IsMemberLine(string trimmedLine)
+    private static bool IsMemberLine(string trimmedLine, bool insideProtocol)
     {
-        return PublicFuncRegex.IsMatch(trimmedLine) ||
-               PublicVarRegex.IsMatch(trimmedLine) ||
-               PublicInitRegex.IsMatch(trimmedLine) ||
-               Regex.IsMatch(trimmedLine, @"(?:public|open)\s+(?:static\s+)?subscript\s*[\(<]") ||
-               IsEnumCaseLine(trimmedLine);
+        if (PublicFuncRegex.IsMatch(trimmedLine) ||
+            PublicVarRegex.IsMatch(trimmedLine) ||
+            PublicInitRegex.IsMatch(trimmedLine) ||
+            Regex.IsMatch(trimmedLine, @"(?:public|open)\s+(?:static\s+)?subscript\s*[\(<]") ||
+            IsEnumCaseLine(trimmedLine))
+        {
+            return true;
+        }
+        // Inside a protocol body: bare requirements (no access modifier). Required
+        // so `@available(...) func foo()` or `@objc optional func bar()` declarations
+        // get classified as member lines and have their availability harvested
+        // (Family-F-2 — without this the @available is dropped and the C# binding
+        // crashes on iOS &lt; floor).
+        if (insideProtocol)
+        {
+            return ProtocolFuncRegex.IsMatch(trimmedLine) ||
+                   ProtocolInitRegex.IsMatch(trimmedLine) ||
+                   ProtocolVarRegex.IsMatch(trimmedLine) ||
+                   ProtocolSubscriptRegex.IsMatch(trimmedLine);
+        }
+        return false;
     }
 
     private static bool HasUnmatchedOpenParen(string line)

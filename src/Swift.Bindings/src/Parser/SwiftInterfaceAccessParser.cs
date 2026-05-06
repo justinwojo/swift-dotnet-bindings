@@ -3697,6 +3697,18 @@ public static class SwiftInterfaceAccessParser
         var lines = File.ReadAllLines(swiftInterfacePath);
         var tracker = new SwiftInterfaceContextTracker();
 
+        // Staged member-level annotations. We only fold them into <c>result</c>
+        // after the full pass so the disamb-vs-bare key decision can see every
+        // distinct overload of a bare key. Tuple shape: (bareKey, paramSig,
+        // annotations). Type-level and enum-case annotations are not subject to
+        // overload disambiguation and write straight to <c>result</c>.
+        var stagedAnnotations = new List<(string BareKey, string ParamSig, List<AvailabilityAnnotation> Annotations)>();
+        // bareKey → set of distinct param-type signatures seen for that key.
+        // A key with 2+ entries means overloads exist and we MUST disambiguate
+        // (Family-F-1 broadcast / Family-F-4 version-set merge). A key with 1
+        // entry is unambiguous and stores under the bare key directly.
+        var memberSignatures = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
         for (int lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
             var line = lines[lineIndex];
@@ -3760,16 +3772,20 @@ public static class SwiftInterfaceAccessParser
                     }
                     else
                     {
-                        var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                        var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(
+                            memberText, tracker.IsInsideProtocol);
                         if (printedName != null)
                         {
+                            var paramSig = MemberSignatureNormalizer.BuildSignature(
+                                ExtractParamTypesForSignature(memberText));
+                            var bareKey = tracker.BuildMemberKey(printedName);
+                            RecordMemberSignature(memberSignatures, bareKey, paramSig);
                             var annotations = CollectAvailabilityAnnotations(memberText, tracker);
                             if (annotations.Count > 0)
                             {
-                                var key = tracker.BuildMemberKey(printedName);
-                                AddAnnotations(result, key, annotations);
-                                if (!positions.ContainsKey(key))
-                                    positions[key] = pos;
+                                stagedAnnotations.Add((bareKey, paramSig, annotations));
+                                if (!positions.ContainsKey(bareKey))
+                                    positions[bareKey] = pos;
                             }
                         }
                     }
@@ -3784,10 +3800,13 @@ public static class SwiftInterfaceAccessParser
                     var freeFuncName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(freeFuncText);
                     if (freeFuncName != null)
                     {
+                        var paramSig = MemberSignatureNormalizer.BuildSignature(
+                            ExtractParamTypesForSignature(freeFuncText));
+                        RecordMemberSignature(memberSignatures, freeFuncName, paramSig);
                         var annotations = CollectAvailabilityAnnotations(freeFuncText, tracker);
                         if (annotations.Count > 0)
                         {
-                            AddAnnotations(result, freeFuncName, annotations);
+                            stagedAnnotations.Add((freeFuncName, paramSig, annotations));
                             if (!positions.ContainsKey(freeFuncName))
                                 positions[freeFuncName] = pos;
                         }
@@ -3805,7 +3824,149 @@ public static class SwiftInterfaceAccessParser
             }
         }
 
+        // Fold staged member annotations into the final dict. For each bare key:
+        //   - 0 distinct sigs:      impossible (only staged when annotations seen)
+        //   - 1 distinct sig:       single overload — store under bare key (legacy
+        //                           behaviour preserved so ABI-side bare-key lookups
+        //                           still hit when the consumer can't compute a sig).
+        //   - 2+ distinct sigs:     overloaded — store EACH per-decl annotation
+        //                           list under its disamb-suffixed key only. We do
+        //                           NOT also write to the bare key — bare-key
+        //                           lookups for ambiguous overloads must miss
+        //                           rather than misapply (Family-F-1 fix: the
+        //                           "recommended" overload's bare-key lookup misses
+        //                           and the C# binding emits no [Obsolete]).
+        // The same flat List&lt;AvailabilityAnnotation&gt; value type is preserved so
+        // every downstream consumer (ABI parser, JSON wire format, attribute
+        // emitter) keeps working unchanged.
+        var positionsByBareKey = new Dictionary<string, SourcePosition>(positions);
+        foreach (var (bareKey, paramSig, annotations) in stagedAnnotations)
+        {
+            var distinctSigs = memberSignatures.TryGetValue(bareKey, out var sigs) ? sigs.Count : 1;
+            string storageKey;
+            if (distinctSigs <= 1)
+            {
+                storageKey = bareKey;
+            }
+            else
+            {
+                storageKey = MemberSignatureNormalizer.ComposeKey(bareKey, paramSig);
+                // Mirror the bare-key position to the disamb key so callers that
+                // resolve by disamb still get a position. The bare-key position
+                // is removed below to prevent stale lookups when ALL overloads
+                // are ambiguous (no bare-key annotations remain).
+                if (positionsByBareKey.TryGetValue(bareKey, out var bp) && !positions.ContainsKey(storageKey))
+                    positions[storageKey] = bp;
+            }
+            AddAnnotations(result, storageKey, annotations);
+        }
+        // Remove bare-key positions that won't have a matching annotation entry
+        // (every overload was ambiguous and got disamb-keyed). Otherwise the
+        // position dict has orphan entries that point at the wrong overload.
+        foreach (var bareKey in memberSignatures.Keys)
+        {
+            if (memberSignatures[bareKey].Count > 1 && !result.ContainsKey(bareKey))
+                positions.Remove(bareKey);
+        }
         return result;
+    }
+
+    private static void RecordMemberSignature(
+        Dictionary<string, HashSet<string>> map, string bareKey, string sig)
+    {
+        if (!map.TryGetValue(bareKey, out var set))
+        {
+            set = new HashSet<string>(StringComparer.Ordinal);
+            map[bareKey] = set;
+        }
+        set.Add(sig);
+    }
+
+    /// <summary>
+    /// Pulls the parameter clause out of a single-line (or completed multi-line)
+    /// member decl and returns its per-parameter raw type strings. Returns an
+    /// empty list for vars / enum cases / parens-less syntax. Intended only for
+    /// availability-key disambiguation — not for binding-emitter parameter
+    /// extraction (which has its own much richer logic).
+    /// <para/>
+    /// Skips leading attribute clauses (e.g. <c>@available(iOS 17.0, *)</c>,
+    /// <c>@objc(SymbolName)</c>) before locating the parameter-clause's opening
+    /// paren. Without this, an inline <c>@available</c> on the same line as the
+    /// member decl would have its argument list misidentified as the parameter
+    /// clause — producing bogus disamb signatures and silently dropping
+    /// availability for inline-attributed overloaded members.
+    /// </summary>
+    internal static List<string> ExtractParamTypesForSignature(string memberText)
+    {
+        int searchStart = SkipLeadingAttributes(memberText, 0);
+        var paren = memberText.IndexOf('(', searchStart);
+        if (paren < 0) return new List<string>();
+        int depth = 0, end = -1;
+        for (int i = paren; i < memberText.Length; i++)
+        {
+            if (memberText[i] == '(') depth++;
+            else if (memberText[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { end = i; break; }
+            }
+        }
+        if (end < 0) return new List<string>();
+        var clause = memberText.Substring(paren + 1, end - paren - 1);
+        return MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(clause);
+    }
+
+    /// <summary>
+    /// Walks past any leading <c>@&lt;qualified-ident&gt;</c> attribute clauses
+    /// (each with an optional balanced <c>(...)</c> argument list) starting at
+    /// <paramref name="start"/>, and returns the index of the first non-attribute
+    /// character. Whitespace between attributes is skipped. The attribute name
+    /// portion accepts dot-qualified forms (<c>@_Concurrency.MainActor</c>,
+    /// <c>@Module.Actor</c>) — without this, the helper would stop at the first
+    /// <c>.</c> mid-name and the next <c>(</c> could be misidentified as the
+    /// parameter clause. Used by <see cref="ExtractParamTypesForSignature"/> so
+    /// inline-attributed members like
+    /// <c>@_Concurrency.MainActor @available(iOS 17.0, *) public func f(_ x: Int)</c>
+    /// resolve their parameter-clause parens correctly.
+    /// </summary>
+    internal static int SkipLeadingAttributes(string text, int start)
+    {
+        int i = start;
+        while (i < text.Length)
+        {
+            while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+            if (i >= text.Length || text[i] != '@') break;
+            i++; // past '@'
+            // Attribute name: dot-qualified identifier sequence
+            // (`@Module.Actor`, `@_Concurrency.MainActor`). At least one ident
+            // run is required; further `.<ident>` segments are consumed greedily.
+            while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_')) i++;
+            while (i < text.Length && text[i] == '.' && i + 1 < text.Length &&
+                   (char.IsLetter(text[i + 1]) || text[i + 1] == '_'))
+            {
+                i++; // past '.'
+                while (i < text.Length && (char.IsLetterOrDigit(text[i]) || text[i] == '_')) i++;
+            }
+            // Optional whitespace between the attribute name and its arg list.
+            int afterName = i;
+            while (afterName < text.Length && char.IsWhiteSpace(text[afterName])) afterName++;
+            if (afterName < text.Length && text[afterName] == '(')
+            {
+                int depth = 0;
+                int j = afterName;
+                for (; j < text.Length; j++)
+                {
+                    if (text[j] == '(') depth++;
+                    else if (text[j] == ')')
+                    {
+                        depth--;
+                        if (depth == 0) { j++; break; }
+                    }
+                }
+                i = j;
+            }
+        }
+        return i;
     }
 
     /// <summary>
