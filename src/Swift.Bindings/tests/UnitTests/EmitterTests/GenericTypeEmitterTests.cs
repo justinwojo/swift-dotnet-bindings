@@ -619,7 +619,9 @@ public class GenericTypeEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDimension"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
                 MetadataAccessor = "",
-                Flags = TypeRecordFlags.None,
+                // ObjCBridged matches the production FoundationDatabase.xml entry
+                // (`objcBridged="true"`) and gates the class-bound promotion path.
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
             })
         });
@@ -682,7 +684,9 @@ public class GenericTypeEmitterTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDimension"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
                 MetadataAccessor = "",
-                Flags = TypeRecordFlags.None,
+                // ObjCBridged matches the production FoundationDatabase.xml entry
+                // (`objcBridged="true"`) and gates the class-bound promotion path.
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class,
             })
         });

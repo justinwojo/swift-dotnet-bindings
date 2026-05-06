@@ -169,16 +169,20 @@ public static class GenericTypeEmitter
 
                     // Class-bound generic constraint (`<T : SomeClass>`). The parser tags
                     // every `:` clause as ConformanceKind.Protocol because it has no
-                    // type-database access; consult the resolved record's Kind here so a
-                    // class target emits the C# class name instead of an `I{Name}` form.
-                    // The record's CSharpTypeName carries the projected class name
-                    // (e.g. `Foundation.Dimension` → `Foundation.NSDimension` via the
-                    // FoundationDatabase.xml mapping). Mirrors the parallel skip in
-                    // PInvokeHelperEmitter.FlattenConformances: class constraints add no
-                    // PWT arg, only a compile-time C# bound.
+                    // type-database access; consult the resolved record's Kind here so an
+                    // ObjC-bridged class target (Foundation.Dimension, NSDate, …) emits
+                    // the C# class name instead of an `I{Name}` form. The record's
+                    // CSharpTypeName carries the projected class name (e.g.
+                    // `Foundation.Dimension` → `Foundation.NSDimension` via the
+                    // FoundationDatabase.xml mapping). Gated on ObjCBridged so non-bridged
+                    // hand-registered Swift class records continue through the historical
+                    // permissive `I`-prefixed interface path (matches the
+                    // `MethodValidationGates.TryGetClassConstraintTarget` contract used
+                    // for the cross-module branch lower down).
                     if (typeDatabase != null
                         && typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var maybeClassRecord)
-                        && maybeClassRecord.Kind == TypeRecordKind.Class)
+                        && maybeClassRecord.Kind == TypeRecordKind.Class
+                        && maybeClassRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
                     {
                         paramConstraints.Add(maybeClassRecord.CSharpTypeName.FullyQualifiedName);
                         hasClassBoundConstraint = true;

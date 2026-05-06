@@ -181,12 +181,16 @@ namespace BindingsGeneration
                 {
                     // Class-bound generic constraint (`<T : SomeClass>`). The parser tags
                     // every `:` clause as ConformanceKind.Protocol; consult the resolved
-                    // record's Kind to recognise the class-target case. Class constraints
-                    // emit the projected C# class name (e.g. `Foundation.NSDimension`)
-                    // and contribute no PWT lookup — mirrors the parallel handling in
-                    // PInvokeHelperEmitter.FlattenConformances and GenericTypeEmitter.
+                    // record's Kind/Flags to recognise the ObjC-bridged class target case
+                    // (Foundation.Dimension, NSDate, …). Class constraints emit the
+                    // projected C# class name and contribute no PWT lookup — mirrors
+                    // GenericTypeEmitter and PInvokeHelperEmitter.FlattenConformances.
+                    // Gated on ObjCBridged so non-bridged hand-registered Swift class
+                    // records continue through the historical permissive `I`-prefixed
+                    // interface path lower down.
                     if (_env.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var maybeClassRecord)
-                        && maybeClassRecord.Kind == TypeRecordKind.Class)
+                        && maybeClassRecord.Kind == TypeRecordKind.Class
+                        && maybeClassRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
                     {
                         paramConstraints.Add(maybeClassRecord.CSharpTypeName.FullyQualifiedName);
                         hasClassBoundConstraint = true;
