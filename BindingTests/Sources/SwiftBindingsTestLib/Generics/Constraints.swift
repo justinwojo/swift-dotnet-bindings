@@ -555,3 +555,58 @@ public func readSelfReqAnchored(_ value: any SelfReqAnchored) -> String {
     return "stamp:\(value.anchorTag)"
 }
 
+// MARK: - Class-bounded type-level generic (WeatherKit Trend<Dimension> shape)
+//
+// Regression coverage for
+// `bug-0.10.0-foundation-dimension-constraint-not-projected.md` (Bundle 04 #5).
+// WeatherKit declares `Trend<Dimension> where Dimension : Foundation.Dimension`
+// (and TrendBaseline / Percentiles in the same family). Pre-fix the parser
+// tagged the `:` constraint as `ConformanceKind.Protocol` and PInvokeHelper-
+// Emitter's flatten-conformances gate added it to the `unresolved` list when
+// the type-database record's `Kind` came back `Class`, tombstoning the entire
+// generic struct as `IndeterminatePwtShape`.
+//
+// Post-fix:
+//   - PInvokeHelperEmitter recognises the class record and skips silently
+//     (Swift's metadata accessor takes only a TypeMetadata arg for class-bound
+//     params — no PWT arg).
+//   - GenericTypeEmitter / WrapperEmitter.Signature emit the C# class name
+//     for the constraint (`where T0 : SwiftBindingsTestLib.UnitBase`) instead
+//     of an `I{Name}` form, AND skip the `ISwiftObject` seed (class
+//     constraint already implies `ISwiftObject` and must come first per
+//     CS0405/CS0406).
+//
+// The fixture is intentionally cross-class-hierarchy local to
+// SwiftBindingsTestLib so the regression is observable without a Foundation
+// dependency. The Foundation.Dimension cross-module case is handled by the
+// `<entity>` entry added to FoundationDatabase.xml.
+
+/// Open base class for the class-bounded generic constraint test.
+open class UnitBase {
+    public let unitLabel: String
+    public init(unitLabel: String) { self.unitLabel = unitLabel }
+}
+
+/// Concrete subclass to instantiate `UnitBox<UnitKilometer>` from C#.
+public class UnitKilometer: UnitBase {
+    public init() { super.init(unitLabel: "km") }
+}
+
+/// Generic struct constrained over `UnitBase` — direct analogue of
+/// WeatherKit's `Trend<Dimension> where Dimension : Foundation.Dimension`.
+/// Pre-fix this projected as `// Unsupported: type 'UnitBox' —
+/// IndeterminatePwtShape`. Post-fix it emits as
+/// `public partial class UnitBox<T0> where T0 : SwiftBindingsTestLib.UnitBase`
+/// and the property accessor on `Unit` is reachable from C#.
+public struct UnitBox<U> where U: UnitBase {
+    public let unit: U
+    public init(unit: U) { self.unit = unit }
+    public var unitLabel: String { unit.unitLabel }
+}
+
+/// Factory returning a concrete `UnitBox<UnitKilometer>`. Avoids exercising
+/// the generic-method dispatch path for construction so the test focuses on
+/// the type-level constraint emission.
+public func makeUnitKilometerBox() -> UnitBox<UnitKilometer> {
+    return UnitBox(unit: UnitKilometer())
+}

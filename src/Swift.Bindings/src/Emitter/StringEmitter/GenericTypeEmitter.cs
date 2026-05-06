@@ -142,6 +142,13 @@ public static class GenericTypeEmitter
             // class constraint first ahead of any interface constraints.
             string? classConstraint = null;
 
+            // Track whether any class-bound constraint was emitted on this param. Class
+            // constraints already imply ISwiftObject (every Swift class projects to a
+            // C#-side `ISwiftObject` subtype), so the marker-protocol seeding logic
+            // below must NOT re-prepend `ISwiftObject` to a `where T : ClassName` clause
+            // (would give an invalid C# constraint order).
+            bool hasClassBoundConstraint = false;
+
             // Add protocol conformance constraints
             foreach (var conformance in param.GenericConformances)
             {
@@ -159,6 +166,24 @@ public static class GenericTypeEmitter
                     // Skip constraints from unsupported framework modules (e.g. SwiftUI.View).
                     if (IsUnsupportedConstraintModule(conformance.ConformanceTarget.Module))
                         continue;
+
+                    // Class-bound generic constraint (`<T : SomeClass>`). The parser tags
+                    // every `:` clause as ConformanceKind.Protocol because it has no
+                    // type-database access; consult the resolved record's Kind here so a
+                    // class target emits the C# class name instead of an `I{Name}` form.
+                    // The record's CSharpTypeName carries the projected class name
+                    // (e.g. `Foundation.Dimension` → `Foundation.NSDimension` via the
+                    // FoundationDatabase.xml mapping). Mirrors the parallel skip in
+                    // PInvokeHelperEmitter.FlattenConformances: class constraints add no
+                    // PWT arg, only a compile-time C# bound.
+                    if (typeDatabase != null
+                        && typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var maybeClassRecord)
+                        && maybeClassRecord.Kind == TypeRecordKind.Class)
+                    {
+                        paramConstraints.Add(maybeClassRecord.CSharpTypeName.FullyQualifiedName);
+                        hasClassBoundConstraint = true;
+                        continue;
+                    }
 
                     // Skip protocols with associated types (they generate generic interfaces
                     // which can't be used as constraints without type arguments)
@@ -243,10 +268,18 @@ public static class GenericTypeEmitter
             // require `T : ISwiftObject`. Drop the seed only when there are zero protocol
             // conformances at all, so unconstrained generics accept blittable args
             // (Vector3, float, uint, …) instead of failing CS0315 at call sites.
+            //
+            // Class-bound constraints (`where T : SomeClass`) already imply ISwiftObject
+            // (every projected Swift class derives from `SwiftObject` and implements
+            // `ISwiftObject`), AND a class-type constraint MUST appear before any
+            // interface constraint per C# CS0405/CS0406 rules. Re-seeding `ISwiftObject`
+            // in front would move an interface ahead of the class constraint and break
+            // compilation. Skip the seed when a class bound is already present.
             bool hasAnyProtocolConformance = HasAnyNonMarkerProtocolConformance(param);
             if (paramConstraints.Count > 0 || hasAnyProtocolConformance)
             {
-                paramConstraints.Insert(0, "ISwiftObject");
+                if (!hasClassBoundConstraint)
+                    paramConstraints.Insert(0, "ISwiftObject");
                 constraints.Add($"{typeParamName} : {string.Join(", ", paramConstraints)}");
             }
         }

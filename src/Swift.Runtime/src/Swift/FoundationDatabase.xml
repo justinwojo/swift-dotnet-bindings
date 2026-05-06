@@ -272,37 +272,58 @@
             <typedeclaration kind="class" name="Unit" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <!-- Dimension — abstract base of the unit-with-converter hierarchy
+             (NSDimension in ObjC). Sits between Foundation.Unit and the concrete
+             UnitTemperature/UnitLength/… subclasses. WeatherKit and other
+             frameworks use it as a generic class-bound constraint
+             (`Trend<Dimension> where Dimension : Foundation.Dimension`). Without
+             this entry the constraint falls into PInvokeHelperEmitter's
+             unresolved bucket and the consuming generic emits as
+             IndeterminatePwtShape — see
+             `bug-0.10.0-foundation-dimension-constraint-not-projected.md`. -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSDimension">
+            <typedeclaration kind="class" name="Dimension" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitTemperature">
             <typedeclaration kind="class" name="UnitTemperature" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitLength">
             <typedeclaration kind="class" name="UnitLength" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitMass">
             <typedeclaration kind="class" name="UnitMass" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitSpeed">
             <typedeclaration kind="class" name="UnitSpeed" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitDuration">
             <typedeclaration kind="class" name="UnitDuration" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitPressure">
             <typedeclaration kind="class" name="UnitPressure" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitAngle">
             <typedeclaration kind="class" name="UnitAngle" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUnitInformationStorage">
             <typedeclaration kind="class" name="UnitInformationStorage" module="Foundation"
-                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true"
+                             superclass="Foundation.Dimension" />
         </entity>
     </entities>
 </swifttypedatabase>

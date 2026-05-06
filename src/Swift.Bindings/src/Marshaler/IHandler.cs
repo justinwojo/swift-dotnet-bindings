@@ -266,6 +266,22 @@ namespace BindingsGeneration
                         continue;
                     }
 
+                    // Namespace-facade short-circuit: a top-level public struct
+                    // with no member surface (no properties, methods, inits,
+                    // operators, subscripts, conformances) and at least one
+                    // nested type is the canonical Swift "uninhabited type as
+                    // namespace" idiom. Emit it as a real C# nested namespace
+                    // so consumers can write `using BlinkID.BlinkIDSDK;` instead
+                    // of `using static BlinkID.BlinkIDSDK;` or fully-qualifying
+                    // every type. See bug-0.10.0-namespace-facade-as-static-class.md.
+                    if (NamespaceFacadeDetector.IsNamespaceFacade(structDecl))
+                    {
+                        NamespaceFacadeEmitter.Emit(
+                            csWriter, swiftWriter, structDecl, conductor, typeDatabase, context,
+                            (decls, ctx) => HandleBaseDecl(csWriter, swiftWriter, decls, conductor, typeDatabase, ctx));
+                        continue;
+                    }
+
                     if (conductor.TryGetTypeHandler(structDecl, out var handler))
                     {
                         var env = handler.Marshal(structDecl, typeDatabase);
@@ -317,6 +333,22 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is EnumDecl enumDecl)
                 {
+                    // Namespace-facade short-circuit: a caseless public enum
+                    // with no member surface beyond nested types is the
+                    // canonical Swift "uninhabited enum as namespace" idiom
+                    // (e.g., `public enum Constants { struct Foo { … } }`).
+                    // Emit as a real C# nested namespace instead of the
+                    // default `static partial class` so consumers see a
+                    // first-class namespace rather than a member-access
+                    // container. See bug-0.10.0-namespace-facade-as-static-class.md.
+                    if (NamespaceFacadeDetector.IsNamespaceFacade(enumDecl))
+                    {
+                        NamespaceFacadeEmitter.Emit(
+                            csWriter, swiftWriter, enumDecl, conductor, typeDatabase, context,
+                            (decls, ctx) => HandleBaseDecl(csWriter, swiftWriter, decls, conductor, typeDatabase, ctx));
+                        continue;
+                    }
+
                     if (conductor.TryGetTypeHandler(enumDecl, out var handler))
                     {
                         var env = handler.Marshal(enumDecl, typeDatabase);

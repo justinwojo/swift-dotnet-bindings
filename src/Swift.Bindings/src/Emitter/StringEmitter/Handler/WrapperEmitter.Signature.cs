@@ -175,9 +175,24 @@ namespace BindingsGeneration
                 // the class constraint to come first ahead of any interface
                 // constraints. See <see cref="MethodValidationGates.TryGetClassConstraintTarget"/>.
                 string? classConstraint = null;
+                bool hasClassBoundConstraint = false;
 
                 foreach (var conformance in param.GenericConformances)
                 {
+                    // Class-bound generic constraint (`<T : SomeClass>`). The parser tags
+                    // every `:` clause as ConformanceKind.Protocol; consult the resolved
+                    // record's Kind to recognise the class-target case. Class constraints
+                    // emit the projected C# class name (e.g. `Foundation.NSDimension`)
+                    // and contribute no PWT lookup — mirrors the parallel handling in
+                    // PInvokeHelperEmitter.FlattenConformances and GenericTypeEmitter.
+                    if (_env.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var maybeClassRecord)
+                        && maybeClassRecord.Kind == TypeRecordKind.Class)
+                    {
+                        paramConstraints.Add(maybeClassRecord.CSharpTypeName.FullyQualifiedName);
+                        hasClassBoundConstraint = true;
+                        continue;
+                    }
+
                     // Protocol records → interface constraint (existing path).
                     // Resolve emission namespace via the umbrella fallback so a
                     // method-level constraint on a protocol re-exported through an
@@ -235,7 +250,11 @@ namespace BindingsGeneration
                 if (paramConstraints.Count == 0 && !hasAnyProtocolConformance)
                     continue;
 
-                paramConstraints.Insert(0, "ISwiftObject");
+                // Class-bound constraints already imply ISwiftObject, and the class
+                // constraint must appear FIRST in C# (CS0405/CS0406). Skip the
+                // ISwiftObject seed when a class bound is already present.
+                if (!hasClassBoundConstraint)
+                    paramConstraints.Insert(0, "ISwiftObject");
                 constraints.Add($"where {csName} : {string.Join(", ", paramConstraints)}");
             }
 

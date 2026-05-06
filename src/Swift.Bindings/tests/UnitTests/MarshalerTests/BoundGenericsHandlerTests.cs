@@ -525,6 +525,95 @@ public class BoundGenericsHandlerTests
     }
 
     [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ExternalClassBoundConstraint_TypeDatabaseSubclass_ReturnsFalse()
+    {
+        // Codex round-1 P2 finding: external XML/database-owned subclasses
+        // (e.g. Foundation.UnitTemperature satisfying Foundation.Dimension)
+        // must satisfy a class-bound generic constraint even though they have
+        // no local TypeDecl. Without this path, the typeArgumentDecl == null
+        // short-circuit returns false and the consuming member is silently
+        // skipped — exactly the bug-shape described in
+        // bug-0.10.0-foundation-dimension-constraint-not-projected.md.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Foundation.Dimension"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDimension"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Class,
+            },
+            ["Foundation.UnitTemperature"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUnitTemperature"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.UnitTemperature"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridged,
+                Kind = TypeRecordKind.Class,
+                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
+            },
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        // Measurement<T> where T : Foundation.Dimension. Class-bound, not protocol.
+        CreateGenericStructDecl("MeasurementBag", moduleDecl, "T", "Foundation.Dimension");
+
+        var boundGeneric = new NamedTypeSpec("TestModule.MeasurementBag",
+            new NamedTypeSpec("Foundation.UnitTemperature"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.False(found);
+        Assert.Equal(string.Empty, details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ExternalClassBoundConstraint_UnrelatedClass_ReturnsTrue()
+    {
+        // Negative case: a TypeDatabase-known class with no relation to the
+        // class-bound constraint must still fail. Confirms the class-walk only
+        // accepts genuine subclasses, not arbitrary class kinds.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Foundation.Dimension"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDimension"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            },
+            ["Foundation.UnrelatedClass"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUnrelatedClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.UnrelatedClass"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+                SuperclassTypeName = null,
+            },
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        CreateGenericStructDecl("MeasurementBag", moduleDecl, "T", "Foundation.Dimension");
+
+        var boundGeneric = new NamedTypeSpec("TestModule.MeasurementBag",
+            new NamedTypeSpec("Foundation.UnrelatedClass"));
+        var contextDecl = CreatePropertyContext(boundGeneric, moduleDecl);
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, contextDecl, out var details);
+
+        Assert.True(found);
+        Assert.Contains("does not satisfy constraint", details);
+    }
+
+    [Fact]
     public void TryGetFirstUnsatisfiedConstraint_InheritedProtocolConstraint_ReturnsFalse()
     {
         // Setup: Wrapper<U> where U: ChildProtocol, Container<T> where T: ParentProtocol

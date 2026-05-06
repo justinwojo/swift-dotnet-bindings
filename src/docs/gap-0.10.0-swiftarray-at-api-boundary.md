@@ -4,6 +4,34 @@
 > consumer-experience audit of
 > [SwiftBindings.BlinkIDUX](https://github.com/justinwojo/swift-dotnet-packages)
 > 7.7.0 generated bindings.
+>
+> **Status: RESOLVED in Bundle 04 #8** for the AsyncStream<T> family. The
+> `AsyncStreamHandler` element-type translator now substitutes
+> `Swift.Array<T>` → `IReadOnlyList<T>`, `Swift.Set<T>` → `IReadOnlySet<T>`,
+> and `Swift.Dictionary<K, V>` → `IReadOnlyDictionary<K, V>` at the public
+> API boundary, while the internal `SwiftAsyncStream<T>` channel storage
+> retains the runtime helper container (`SwiftArray<T>` etc.) so
+> `SwiftMarshal.MarshalFromSwift<TElement>` in the channel's element
+> callback can still deserialize the Swift payload. The covariance of
+> `IAsyncEnumerable<out T>` plus the inheritance
+> `SwiftArray<T> : IReadOnlyList<T>` (and matching `SwiftSet<T> :
+> IReadOnlySet<T>`, `SwiftDictionary<K, V> : IReadOnlyDictionary<K, V>`)
+> closes the loop at the property getter return.
+>
+> Coverage: unit tests in `AsyncStreamHandlerTests`
+> (`GetCSharpAsyncEnumerableType_With{Array,Set,Dictionary}OfXElement_*`
+> + `GetCSharpInternalChannelElementType_With*_RetainsSwift*`); BindingTests
+> compile-time assertion `TestAsyncValueSourceBatchesBoundaryType` plus the
+> Swift fixture `AsyncValueSource.batches: AsyncStream<[Int32]>`. Other
+> AsyncStream property shapes that don't involve nested Swift collection
+> containers are unaffected by the change.
+>
+> Out of scope: non-AsyncStream return positions (e.g., a method directly
+> returning `[T]` is already projected as `IReadOnlyList<T>` via
+> `ArrayProjection.PublicType`); other generic-instantiation positions
+> like `Task<X>` and `Tuple<X, Y>` are not covered by this fix and would
+> need an analogous boundary-substitution pass on whatever projector
+> generates those signatures.
 
 ## Summary
 

@@ -1204,6 +1204,30 @@ public class BoundGenericsHandler
             return false;
 
         var typeArgumentName = SwiftTypeName.FromTypeSpec(namedTypeArgument);
+
+        // Class-bound constraint (`<T : SomeClass>`). The parser tags every `:`
+        // clause as ConformanceKind.Protocol; consult the resolved typedb record
+        // to recognise the class-target case. A class-bound constraint is satisfied
+        // when the type argument is the same class or inherits (transitively) from
+        // it — class subtyping, not protocol conformance. Mirrors Swift's class-
+        // constraint semantics. See
+        // `bug-0.10.0-foundation-dimension-constraint-not-projected.md` (Bundle 04 #5).
+        //
+        // Run this BEFORE the FindTypeDecl resolution so external XML/database-
+        // owned subclasses (e.g. `Foundation.UnitTemperature` satisfying
+        // `Foundation.Dimension`) are recognised — those types have no local
+        // TypeDecl and would otherwise hit the `typeArgumentDecl == null`
+        // short-circuit and return false, silently skipping members that take
+        // a `T : Dimension` argument.
+        if (_typeDatabase.TryGetTypeRecord(protocolConstraint, out var constraintRecord) &&
+            constraintRecord.Kind == TypeRecordKind.Class)
+        {
+            if (typeArgumentName == protocolConstraint)
+                return true;
+            if (IsSubclassOfViaTypeDatabase(typeArgumentName, protocolConstraint))
+                return true;
+        }
+
         var typeArgumentDecl = FindTypeDecl(moduleDecl, typeArgumentName);
 
         if (typeArgumentDecl == null)
@@ -1227,6 +1251,20 @@ public class BoundGenericsHandler
         if (typeArgumentDecl is ProtocolDecl && typeArgumentName == protocolConstraint)
             return true;
 
+        // Locally-declared class-bound case: still walk the local SuperclassNames
+        // chain in addition to the TypeDatabase walk above, because not every
+        // local class hierarchy round-trips through the TypeDatabase (the
+        // hierarchy is populated lazily by `ResolveClassHierarchy` for the
+        // current module's decls).
+        if (constraintRecord != null &&
+            constraintRecord.Kind == TypeRecordKind.Class &&
+            typeArgumentDecl is ClassDecl typeArgClass)
+        {
+            var constraintQualifiedName = protocolConstraint.ModuleQualifiedName;
+            if (typeArgClass.SuperclassNames.Any(n => n == constraintQualifiedName))
+                return true;
+        }
+
         // Check if the type argument has a direct conformance to the protocol constraint.
         if (HasConformance(typeArgumentDecl, protocolConstraint))
             return true;
@@ -1234,6 +1272,33 @@ public class BoundGenericsHandler
         // Check transitive conformance: ConcreteType : ChildProtocol should satisfy
         // T : ParentProtocol when ChildProtocol : ParentProtocol.
         return HasTransitiveConformance(typeArgumentDecl, protocolConstraint, moduleDecl);
+    }
+
+    /// <summary>
+    /// Walks the TypeDatabase superclass chain from <paramref name="typeArgumentName"/>
+    /// looking for an exact match against <paramref name="classConstraint"/>. Used when
+    /// the type argument is an XML/database-owned class (e.g. Foundation unit subclasses)
+    /// that has no local <see cref="TypeDecl"/> — without this path, those types fail
+    /// the class-bound constraint check and their members are silently skipped from the
+    /// generated bindings. Caps the walk at 64 hops to avoid pathological infinite loops
+    /// in malformed databases.
+    /// </summary>
+    private bool IsSubclassOfViaTypeDatabase(SwiftTypeName typeArgumentName, SwiftTypeName classConstraint)
+    {
+        var current = typeArgumentName;
+        for (int i = 0; i < 64; i++)
+        {
+            if (!_typeDatabase.TryGetTypeRecord(current, out var record))
+                return false;
+            if (record.Kind != TypeRecordKind.Class)
+                return false;
+            if (record.SuperclassTypeName == null)
+                return false;
+            if (record.SuperclassTypeName == classConstraint)
+                return true;
+            current = record.SuperclassTypeName;
+        }
+        return false;
     }
 
     /// <summary>

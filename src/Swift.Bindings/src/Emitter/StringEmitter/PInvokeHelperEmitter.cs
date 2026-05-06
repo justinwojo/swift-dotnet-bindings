@@ -258,8 +258,36 @@ public class PInvokeHelperContext
                 // P/Invoke then uses the wrong ABI. We now RECORD the unresolved
                 // constraint; the skip gate fails emission closed so the regression
                 // surfaces instead of producing a silently broken binding.
-                if (!typeDatabase.TryGetTypeRecord(target, out var record) ||
-                    record.Kind != TypeRecordKind.Protocol)
+                //
+                // Class-bound generic constraints (`<T : SomeClass>`) are an exception:
+                // per the Swift ABI a class constraint contributes only a TypeMetadata
+                // arg (already counted in `typeParams.Count`) and does NOT add a
+                // separate witness-table arg. The parser tags every `:` clause as
+                // `ConformanceKind.Protocol` because it has no type-database access,
+                // so we use the resolved record's `Kind == Class` to recognise the
+                // class-constraint case here. No PWT entry, no `unresolved` row, and
+                // therefore no IndeterminatePwtShape skip — matching what Swift's
+                // metadata accessor actually expects on the stack.
+                if (!typeDatabase.TryGetTypeRecord(target, out var record))
+                {
+                    unresolved.Add(new UnresolvedPwtConstraint(
+                        GenericParamIndex: i,
+                        GenericParamCsName: csName,
+                        ProtocolName: target.Name,
+                        ProtocolModuleQualifiedName: target.ModuleQualifiedName,
+                        Reason: "protocol not projected in the type database"));
+                    continue;
+                }
+                if (record.Kind == TypeRecordKind.Class)
+                {
+                    // Class constraint: no witness table, no metadata-accessor arg.
+                    // The C# `where T : ClassName` lives on the type/method declaration
+                    // (emitted by GenericTypeEmitter / WrapperEmitter.Signature) and
+                    // gives consumers compile-time class-bound type safety without
+                    // touching the runtime ABI.
+                    continue;
+                }
+                if (record.Kind != TypeRecordKind.Protocol)
                 {
                     unresolved.Add(new UnresolvedPwtConstraint(
                         GenericParamIndex: i,

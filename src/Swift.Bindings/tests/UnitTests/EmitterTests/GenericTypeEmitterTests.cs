@@ -597,6 +597,112 @@ public class GenericTypeEmitterTests
 
     #endregion
 
+    #region Class-Bound Generic Constraint Tests
+
+    [Fact]
+    public void GetWhereClause_ClassBoundConstraint_EmitsClassNameNotInterfaceName()
+    {
+        // Regression coverage for `bug-0.10.0-foundation-dimension-constraint-not-projected.md`
+        // (Bundle 04 #5). The parser tags every `:` clause as ConformanceKind.Protocol because
+        // it has no type-database access; the emitter must consult the resolved record to
+        // recognise class targets. Class-bound generics emit the projected C# class name as
+        // the constraint, not an `I{Name}` form, AND skip the ISwiftObject seed because the
+        // class constraint must come first in the C# clause (CS0405/CS0406) and already
+        // implies ISwiftObject.
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("UnitBox", "TestModule",
+            new List<string> { "Foundation.Dimension" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDimension"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.Contains("Foundation.NSDimension", result);
+        // No IDimension synthesis — that would emit a non-existent interface.
+        Assert.DoesNotContain("IDimension", result);
+        // Class constraint already implies ISwiftObject; re-seeding would put an
+        // interface ahead of a class constraint and break compilation.
+        Assert.DoesNotContain("ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_ClassPlusProtocolConstraint_EmitsClassFirstThenProtocol()
+    {
+        // When a generic param is bound by both a class and a protocol, C# requires the
+        // class constraint to come first (CS0405). The emitter visits conformances in
+        // declaration order and inserts ISwiftObject only when no class bound is present;
+        // in this case the class bound is present, so no seeding happens, and the
+        // surviving paramConstraints list is `[ClassName, IProtoName]`.
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
+                ConformanceKind.Protocol),
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Tracker"),
+                ConformanceKind.Protocol),
+        };
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", conformances, new List<GenericParameterConformance>())
+        };
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var typeDecl = new StructDecl
+        {
+            Name = "TrackedUnitBox",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TrackedUnitBox"),
+            MangledName = "$s10TestModule14TrackedUnitBoxV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule14TrackedUnitBoxVMa",
+            GenericParameters = genericParams,
+        };
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSDimension"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Dimension"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class,
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        // Class name appears before the protocol interface name; ISwiftObject is not
+        // injected. Same-module Tracker protocol is kept (matches IsKept-same-module test).
+        Assert.Contains("Foundation.NSDimension", result);
+        Assert.Contains("ITracker", result);
+        var classIdx = result.IndexOf("Foundation.NSDimension", StringComparison.Ordinal);
+        var protoIdx = result.IndexOf("ITracker", StringComparison.Ordinal);
+        Assert.True(classIdx >= 0 && protoIdx >= 0);
+        Assert.True(classIdx < protoIdx,
+            "Class constraint must precede protocol constraint per CS0405.");
+        Assert.DoesNotContain("ISwiftObject", result);
+    }
+
+    #endregion
+
     private static StructDecl CreateNonGenericStruct()
     {
         return new StructDecl

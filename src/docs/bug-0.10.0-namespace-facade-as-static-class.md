@@ -5,6 +5,34 @@
 > from 7.6.2 → 7.7.0, where Microblink moved ~25 public types under a new
 > outer `BlinkIDSDK` struct.
 
+> **Status: RESOLVED in Bundle 04 #3.**
+> A new strict predicate (`NamespaceFacadeDetector.IsNamespaceFacade`) recognises
+> the canonical "uninhabited type as namespace" idiom — a top-level
+> `public struct`/`public enum` with **zero** properties, methods, operators,
+> subscripts, generic parameters, enum cases, and **zero non-marker** protocol
+> conformances (the parser auto-attaches `Swift.Copyable` + `Swift.Escapable`
+> to every value type, plus `Swift.Sendable` when applicable; those stdlib
+> markers are filtered out before the count check). When the predicate matches,
+> a new `NamespaceFacadeEmitter.Emit` writes a real C# `namespace {Name} { … }`
+> block at the current indent (the module namespace is already open), pushes
+> the facade onto the type-nesting stack so nested-type Swift wrappers see
+> module-qualified Swift identifiers (`BlinkID.BlinkIDSDK.Foo`), and recurses
+> into `Types` via the standard `IHandler.HandleBaseDecl` dispatch path.
+> Interception lives in `IHandler.HandleBaseDecl` for both the `StructDecl`
+> and `EnumDecl` branches, before the per-handler dispatch.
+>
+> **Coverage:** 11 unit tests for the predicate
+> (`NamespaceFacadeDetectorTests` — positive struct + caseless-enum cases,
+> implicit-marker conformances accepted, every disqualifier negative-tested
+> including `ClassDecl`); BindingTests Swift fixture
+> (`Types/NamespaceFacade.swift` exercising both struct- and enum-flavoured
+> facades plus a free-function return type that forces the lifted-namespace
+> reference); 5 RuntimeTestsApp tests (`NamespaceFacadeTests`) whose
+> `using SwiftBindingsTestLib.LocalFacade;` / `using SwiftBindingsTestLib.LocalFacadeEnum;`
+> directives at the top of the file are themselves the regression gate —
+> pre-fix those usings would fail with CS0138 because `LocalFacade` was a
+> type, not a namespace.
+
 ## Summary
 
 When a Swift module uses the canonical "uninhabited type as namespace" idiom —

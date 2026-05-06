@@ -101,4 +101,21 @@ public class AsyncValueSource {
             continuation.finish()
         }
     }
+
+    /// AsyncStream whose element type is a Swift array. Regression coverage for
+    /// `gap-0.10.0-swiftarray-at-api-boundary.md` (Bundle 04 #8): pre-fix the property
+    /// surfaced as `IAsyncEnumerable<Swift.SwiftArray<Int32>>`, leaking the runtime
+    /// helper type at the public API boundary. Post-fix the property surfaces as
+    /// `IAsyncEnumerable<IReadOnlyList<Int32>>` while the channel still stores
+    /// `SwiftArray<Int32>` internally — covariance (`IAsyncEnumerable<out T>` plus
+    /// `SwiftArray<T> : IReadOnlyList<T>`) closes the loop. Mirrors BlinkIDUX's
+    /// `BlinkIDEventStream.stream: AsyncStream<[UIEvent]>` discovery case.
+    public var batches: AsyncStream<[Int32]> {
+        AsyncStream { continuation in
+            continuation.yield([1, 2, 3])
+            continuation.yield([4, 5])
+            continuation.yield([6])
+            continuation.finish()
+        }
+    }
 }

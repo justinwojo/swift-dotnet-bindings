@@ -23,7 +23,11 @@ public static class AsyncStreamEmitter
         AsyncStreamHandler asyncStreamHandler,
         string callbackName)
     {
-        var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
+        // Channel storage type — preserves SwiftArray<T> etc. so SwiftMarshal.MarshalFromSwift<T>
+        // in SwiftAsyncStream.OnElement can deserialize the Swift payload. The public-API
+        // IAsyncEnumerable<T> uses the boundary projection type and resolves via
+        // IAsyncEnumerable<out T> covariance at the property getter return.
+        var elementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
 
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
@@ -57,7 +61,10 @@ public static class AsyncStreamEmitter
         AsyncStreamHandler asyncStreamHandler,
         string callbackName)
     {
-        var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
+        // Must match the channel-storage type used in EmitElementCallback —
+        // FromContext casts the GCHandle target back to SwiftAsyncStream<TElement>,
+        // and a mismatch between the OnElement and OnComplete <T> would break the cast.
+        var elementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
 
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
@@ -190,8 +197,18 @@ public static class AsyncStreamEmitter
         string? containingTypeName = null,
         Dictionary<string, string>? propertyRenames = null)
     {
-        var elementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
-        var asyncEnumerableType = $"IAsyncEnumerable<{elementType}>";
+        // Public element type — substitutes Swift collection containers
+        // (SwiftArray<T> → IReadOnlyList<T>, etc.) for the consumer-facing
+        // IAsyncEnumerable<T> return. See gap-0.10.0-swiftarray-at-api-boundary.md.
+        var publicElementType = asyncStreamHandler.GetCSharpElementType(propertyDecl.SwiftTypeSpec);
+        // Channel storage type — keeps SwiftArray<T> etc. so SwiftAsyncStream<TElement>'s
+        // SwiftMarshal.MarshalFromSwift<TElement> in OnElement can deserialize the Swift
+        // payload. The `return stream;` resolves to IAsyncEnumerable<publicElement> via
+        // IAsyncEnumerable<out T> covariance and the inheritance
+        // SwiftArray<T>:IReadOnlyList<T> / SwiftSet<T>:IReadOnlySet<T> /
+        // SwiftDictionary<K,V>:IReadOnlyDictionary<K,V>.
+        var channelElementType = asyncStreamHandler.GetCSharpInternalChannelElementType(propertyDecl.SwiftTypeSpec);
+        var asyncEnumerableType = $"IAsyncEnumerable<{publicElementType}>";
         var isStatic = propertyDecl.IsStatic;
         var staticModifier = isStatic ? "static " : "";
         var baseName = NameProvider.GetPropertyName(propertyDecl.Name, containingTypeName);
@@ -209,7 +226,7 @@ public static class AsyncStreamEmitter
                 {
                     unsafe
                     {
-                        var stream = new SwiftAsyncStream<{{elementType}}>();
+                        var stream = new SwiftAsyncStream<{{channelElementType}}>();
                         PInvoke_{{swiftWrapperName}}(
                             {{selfArg}}&{{callbackName}}_OnElement,
                             &{{callbackName}}_OnComplete,

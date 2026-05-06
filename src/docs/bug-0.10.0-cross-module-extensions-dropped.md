@@ -4,6 +4,64 @@
 > consumer-experience audit of
 > [SwiftBindings.Stripe](https://github.com/justinwojo/swift-dotnet-packages)
 > (StripePayments 26.2.1).
+>
+> **Status: SPLIT to Bundle 12 (carve-out from Bundle 04 #4).** Fixing this
+> requires new emission infrastructure that doesn't fit the Bundle 04
+> projection-bug pattern. Documented routing gaps below; full fix tracked
+> separately.
+
+## Routing gaps (as of Bundle 04 closure)
+
+Three call paths exist for cross-module extensions in the parser/emitter
+pipeline; only one of them currently produces output for the bug shape
+above.
+
+1. **Apple/system-module extensions (e.g. `extension Swift.KeyPath` in
+   RichTextKit)** — handled today. SwiftABIParser sets
+   `moduleNameOverride` for nodes whose `node.ModuleName` is in
+   `IsKnownAppleOrSystemModule`, building a `ClassDecl` with a foreign
+   `SwiftTypeName.Module`. ClassHandler dispatches to
+   `CrossModuleExtensionEmitter`, which emits a
+   `static partial class {Type}{Module}Extensions` with `this`-prefixed
+   instance methods. Wired and verified by static analysis of
+   `ClassHandler.cs` lines 101–108.
+2. **ObjC foreign-type extensions (e.g. `extension UIKit.UIView` in a
+   Swift module)** — handled today by `ForeignTypeExtensionEmitter`,
+   gated through `IsForeignObjCClassType`.
+3. **Third-party Swift-module extensions (the Stripe shape:
+   `extension StripeCore.STPAPIClient` declared in StripePayments;
+   also reproduced by `extension SwiftBindingsTestLibDependency.DependencyPoint`
+   in BindingTests)** — DROPPED. `SwiftABIParser` lines 826–833 skip the
+   re-export entirely; the swiftinterface fallback puts the members on
+   `ExtensionMemberCandidates`, `ResolveForeignExtensions` correctly
+   classifies them as foreign, but `ForeignTypeExtensionEmitter` rejects
+   non-ObjC foreign types at `IsForeignObjCClassType` and the candidates
+   end up nowhere.
+
+The fix tracked in Bundle 12 needs to thread a fourth path: synthesize
+a cross-module emission shape for foreign-Swift-module receivers using
+the same emit shape as path 1 (`{Type}{Module}Extensions` with
+`this`-prefixed methods), so consumer C# code in module B can call
+extension members on a type owned by module A through the natural
+extension-method idiom.
+
+## Test coverage today
+
+`BindingTests/Sources/SwiftBindingsTestLib/CrossModule/CrossModuleUsage.swift`
+lines 144–154 declare the extension shape:
+
+```swift
+extension DependencyPoint {
+    public func scaled(by factor: Double) -> DependencyPoint
+    public var manhattanDistance: Double { … }
+}
+```
+
+Neither member appears in `BindingTests/output/SwiftBindingsTestLib.cs` or
+`BindingTests/output/SwiftBindingsTestLibDependency.cs`. The fixture is
+intentionally left in source as a regression sentinel — once Bundle 12
+lands, both members should surface as `DependencyPointSwiftBindingsTestLibExtensions`
+static methods on the consuming module's binding.
 
 ## Summary
 

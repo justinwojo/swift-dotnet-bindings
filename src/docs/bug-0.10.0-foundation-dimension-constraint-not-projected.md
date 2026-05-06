@@ -5,6 +5,66 @@
 > consumer-experience audit (Round 5). See
 > [`audit-weatherkit-musickit-2026-05-05.md`](../../swift-dotnet-packages/audit-weatherkit-musickit-2026-05-05.md)
 > finding **O-10**.
+>
+> **Status: RESOLVED in Bundle 04 #5.** The generator now recognises
+> class-bound generic constraints — both at the type level
+> (`struct Trend<Dimension> where Dimension : Foundation.Dimension`)
+> and at the method level — across four cooperating sites:
+>
+> - `PInvokeHelperEmitter.FlattenConformances` recognises the
+>   `TypeRecordKind.Class` record and skips silently. Per the Swift
+>   ABI, class constraints don't add a witness-table arg per
+>   constraint; the metadata accessor takes only the `TypeMetadata`
+>   arg already counted by `typeParams.Count`. Pre-fix the class
+>   record fell through the `record.Kind != Protocol` branch and got
+>   added to `unresolved`, tombstoning the parent type with
+>   `IndeterminatePwtShape`.
+> - `GenericTypeEmitter.GetWhereClause` and
+>   `WrapperEmitter.Signature.BuildWhereClause` emit the projected
+>   C# class name (e.g. `SwiftBindingsTestLib.UnitBase`,
+>   `Foundation.NSDimension`) instead of the `I{Name}` interface
+>   form, AND skip the `ISwiftObject` seed — a class constraint
+>   already implies `ISwiftObject` and must come first per
+>   CS0405/CS0406 ordering rules.
+> - `BoundGenericsHandler.SatisfiesConstraint` walks the
+>   `SuperclassNames` chain on `ClassDecl` to accept subclass
+>   type arguments AND walks `TypeRecord.SuperclassTypeName`
+>   transitively via the TypeDatabase to accept external/XML-only
+>   subclasses (e.g. `Foundation.UnitTemperature` → `Foundation.Dimension`).
+>   The TypeDatabase walk runs BEFORE the local-decl resolution so
+>   external concrete subclasses don't fall through the
+>   `typeArgumentDecl == null` short-circuit and silently tombstone
+>   the consuming member.
+> - `FoundationDatabase.xml` registers `Foundation.Dimension` →
+>   `Foundation.NSDimension` (objcBridged class) so the cross-module
+>   WeatherKit case (`Trend<Dimension>` from the `WeatherKit` module)
+>   resolves through the same path as the local fixture. Each unit
+>   subclass entry (`UnitTemperature`, `UnitLength`, `UnitMass`,
+>   `UnitSpeed`, `UnitDuration`, `UnitPressure`, `UnitAngle`,
+>   `UnitInformationStorage`) declares
+>   `superclass="Foundation.Dimension"` so the
+>   `IsSubclassOfViaTypeDatabase` walk recognises them as
+>   `Dimension`-bounded.
+>
+> Coverage: BindingTests fixture
+> (`Generics/Constraints.swift::UnitBase`/`UnitKilometer`/`UnitBox<U>`
+> mirroring WeatherKit's `Trend<Dimension>` shape locally without a
+> Foundation dependency); runtime tests
+> (`Generics/UnitBoxClassConstraintTests.cs`) covering factory
+> construction, metadata-accessor-driven property getter, class-typed
+> property getter returning the concrete subclass, and direct C#
+> constructor; unit tests
+> (`GenericTypeEmitterTests.GetWhereClause_ClassBoundConstraint_*`
+> and `_ClassPlusProtocolConstraint_*`) verifying class-name emission,
+> ISwiftObject seed suppression, and CS0405-correct ordering.
+>
+> Out of scope: existential lowering for `any Foundation.Dimension`
+> at use sites (the second hypothesis below) — not needed because
+> the class-constraint branch resolves the projection directly.
+> The `HistoricalComparison` enum-case payload cascade in WeatherKit
+> still depends on Family C async availability and on
+> [`gap-0.10.0-multispecialization-drops-generic-property-accessors.md`](gap-0.10.0-multispecialization-drops-generic-property-accessors.md)
+> (M-2); those are tracked separately.
 
 ## Summary
 

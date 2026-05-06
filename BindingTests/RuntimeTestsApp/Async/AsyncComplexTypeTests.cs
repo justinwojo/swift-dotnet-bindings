@@ -329,4 +329,26 @@ public class AsyncComplexTypeTests : TestBase
     }
 
     #endregion
+
+    #region Bundle 04 #8: AsyncStream<[T]> boundary projection
+    // Regression coverage for `gap-0.10.0-swiftarray-at-api-boundary.md`. Pre-fix the
+    // generated property surfaced `IAsyncEnumerable<Swift.SwiftArray<int>>`, leaking
+    // the runtime helper container at the public API boundary. Post-fix the property
+    // surfaces `IAsyncEnumerable<IReadOnlyList<int>>`. This test method is compile-only
+    // coverage — the assignment below fails to compile if the boundary type is wrong.
+    // Same Tier-3 caveat as TestAsyncValueSourceCreation applies for runtime iteration.
+#pragma warning disable CS0219 // assigned but never used — the assignment IS the test.
+    public void TestAsyncValueSourceBatchesBoundaryType()
+    {
+        var source = new AsyncValueSource();
+        // Compile-time assertion: `Batches` projects as IAsyncEnumerable<IReadOnlyList<int>>,
+        // not IAsyncEnumerable<Swift.SwiftArray<int>>. Will fail CS0029 / CS0266 if the
+        // generator regresses to surfacing SwiftArray<T> at the public API boundary.
+        IAsyncEnumerable<IReadOnlyList<int>> batches = source.Batches;
+        AssertNotNull(batches, "AsyncValueSource.Batches is IAsyncEnumerable<IReadOnlyList<int>>");
+        TestLogger.Info("AsyncValueSource.Batches surfaces IReadOnlyList<int>, not SwiftArray<int>");
+    }
+#pragma warning restore CS0219
+
+    #endregion
 }

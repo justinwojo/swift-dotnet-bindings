@@ -182,6 +182,111 @@ public class AsyncStreamHandlerTests
         Assert.Equal("IAsyncEnumerable<object>", result);
     }
 
+    // Bundle 04 #8: AsyncStream<[T]> surfaces as IAsyncEnumerable<IReadOnlyList<T>> at the
+    // public API boundary instead of leaking SwiftArray<T> (the runtime helper container).
+    // See gap-0.10.0-swiftarray-at-api-boundary.md.
+    [Fact]
+    public void GetCSharpAsyncEnumerableType_WithArrayOfIntElement_ProjectsToReadOnlyList()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        // AsyncStream<[Int]>
+        var element = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", element);
+
+        var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
+
+        Assert.Equal("IAsyncEnumerable<IReadOnlyList<long>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpAsyncEnumerableType_WithSetOfIntElement_ProjectsToReadOnlySet()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        // AsyncStream<Set<Int>>
+        var element = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", element);
+
+        var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
+
+        Assert.Equal("IAsyncEnumerable<IReadOnlySet<long>>", result);
+    }
+
+    [Fact]
+    public void GetCSharpAsyncEnumerableType_WithDictionaryOfStringIntElement_ProjectsToReadOnlyDictionary()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        // AsyncStream<[String: Int]>
+        var element = new NamedTypeSpec(
+            "Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", element);
+
+        var result = handler.GetCSharpAsyncEnumerableType(typeSpec);
+
+        Assert.Equal("IAsyncEnumerable<IReadOnlyDictionary<Swift.SwiftString, long>>", result);
+    }
+
+    #endregion
+
+    #region Boundary projection — channel storage type retains SwiftArray/SwiftSet/SwiftDictionary
+
+    // The internal SwiftAsyncStream<T> channel storage type must retain the runtime
+    // helper container (SwiftArray<T> etc.) because SwiftMarshal.MarshalFromSwift<T> in
+    // the channel's OnElement deserializes the Swift payload into that exact runtime
+    // container. The public boundary projection only applies to the consumer-facing
+    // IAsyncEnumerable<T>; covariance closes the loop at the property getter return.
+    [Fact]
+    public void GetCSharpInternalChannelElementType_WithArrayOfInt_RetainsSwiftArray()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        var element = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", element);
+
+        var result = handler.GetCSharpInternalChannelElementType(typeSpec);
+
+        Assert.Equal("Swift.SwiftArray<long>", result);
+    }
+
+    [Fact]
+    public void GetCSharpInternalChannelElementType_WithSetOfInt_RetainsSwiftSet()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        var element = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", element);
+
+        var result = handler.GetCSharpInternalChannelElementType(typeSpec);
+
+        Assert.Equal("Swift.SwiftSet<long>", result);
+    }
+
+    [Fact]
+    public void GetCSharpInternalChannelElementType_WithDictionaryOfStringInt_RetainsSwiftDictionary()
+    {
+        var typeDatabase = new MockTypeDatabase();
+        var handler = new AsyncStreamHandler(typeDatabase);
+
+        var element = new NamedTypeSpec(
+            "Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Int"));
+        var typeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", element);
+
+        var result = handler.GetCSharpInternalChannelElementType(typeSpec);
+
+        Assert.Equal("Swift.SwiftDictionary<Swift.SwiftString, long>", result);
+    }
+
     #endregion
 
     #region Throwing Stream Tests
@@ -266,6 +371,32 @@ public class AsyncStreamHandlerTests
                     SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
                     MetadataAccessor = "",
                     Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct
+                },
+                // Bundle 04 #8: needed for boundary projection / channel-storage tests of
+                // AsyncStream<[T]>, AsyncStream<Set<T>>, AsyncStream<[K: V]>.
+                ["Swift.Array"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Set"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftSet"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Set"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct
+                },
+                ["Swift.Dictionary"] = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftDictionary"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Dictionary"),
+                    MetadataAccessor = "",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
                     Kind = TypeRecordKind.Struct
                 }
             };
