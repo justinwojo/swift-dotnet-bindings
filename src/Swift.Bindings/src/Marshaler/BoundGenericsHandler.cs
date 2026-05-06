@@ -53,12 +53,21 @@ public class BoundGenericsHandler
     /// Core bound-generic check on a raw <see cref="TypeSpec"/>.
     /// A type is considered bound generic when it is a <see cref="NamedTypeSpec"/> that contains
     /// generic parameters, is NOT an optional closure, and is NOT a pointer type.
+    ///
+    /// Direct existentials (<c>any P</c>, <c>any P&lt;X&gt;</c>) are intentionally
+    /// excluded: even when the protocol carries generic arguments, the runtime ABI is an
+    /// existential container — boxed via <see cref="ExistentialHandler"/> with proxy
+    /// dispatch — not a parametric struct. Treating <c>any P&lt;X&gt;</c> as a bound
+    /// generic would route the parameter through the concrete-type marshaller and emit
+    /// <c>arg.Payload</c> / <c>SafeHandlePin</c> against an interface reference (CS1061).
+    /// See <c>gap-0.10.0-everyprotocol-and-existentials.md</c> Cases 1 and 2.
     /// </summary>
     private bool IsBoundGenericTypeSpec(TypeSpec? typeSpec) =>
         typeSpec is NamedTypeSpec namedTypeSpec &&
         namedTypeSpec.ContainsGenericParameters &&
         !_closureHandler.IsOptionalClosure(typeSpec) &&
-        !IsPointerType(namedTypeSpec);
+        !IsPointerType(namedTypeSpec) &&
+        !_existentialHandler.IsExistential(typeSpec);
 
     /// <summary>
     /// Determines whether the specified property declaration represents a bound generic type.
@@ -302,12 +311,37 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
-    /// Tries to find the first existential type argument within a bound generic type.
+    /// Tries to find the first existential type ARGUMENT carried by a bound-generic
+    /// container — e.g. <c>Array&lt;any P&gt;</c>, <c>Optional&lt;any P&gt;</c>,
+    /// <c>Dictionary&lt;K, any P&gt;</c>. Direct existential parameters
+    /// (<c>any P</c>, <c>any P&lt;X&gt;</c>) are intentionally excluded: they are
+    /// routed through <see cref="ExistentialHandler"/> with their own gates and
+    /// projection (see <c>gap-0.10.0-everyprotocol-and-existentials.md</c>). If
+    /// this method matched on the outer existential too, parameters of type
+    /// <c>any P&lt;X&gt;</c> would short-circuit at the bound-generic-existential
+    /// gate and never reach the constrained-existential lowering.
     /// </summary>
     /// <param name="typeSpec">The type specification to inspect.</param>
-    /// <param name="existentialType">The first existential type encountered.</param>
-    /// <returns><c>true</c> if an existential type argument was found; otherwise, <c>false</c>.</returns>
+    /// <param name="existentialType">The first existential type argument encountered.</param>
+    /// <returns><c>true</c> if a nested existential type argument was found; otherwise, <c>false</c>.</returns>
     public bool TryGetFirstExistentialTypeArgument(TypeSpec typeSpec, out string existentialType)
+    {
+        existentialType = string.Empty;
+        // Direct existentials are not "bound-generic-with-existential-arg" — they're
+        // existentials handled separately. Inner-position existentials (Array<any P>)
+        // are still caught by the descent below because the recursive call uses
+        // `TryGetExistentialInsideTypeArgs`.
+        if (_existentialHandler.IsExistential(typeSpec))
+            return false;
+
+        return TryGetExistentialInsideTypeArgs(typeSpec, out existentialType);
+    }
+
+    /// <summary>
+    /// Recursive helper: at every nested position, both direct existentials and
+    /// existentials carried inside further generic args count as a hit.
+    /// </summary>
+    private bool TryGetExistentialInsideTypeArgs(TypeSpec typeSpec, out string existentialType)
     {
         if (_existentialHandler.IsExistential(typeSpec))
         {
@@ -320,7 +354,7 @@ public class BoundGenericsHandler
             case NamedTypeSpec namedTypeSpec:
                 foreach (var genericParameter in namedTypeSpec.GenericParameters)
                 {
-                    if (TryGetFirstExistentialTypeArgument(genericParameter, out existentialType))
+                    if (TryGetExistentialInsideTypeArgs(genericParameter, out existentialType))
                     {
                         return true;
                     }
@@ -329,19 +363,19 @@ public class BoundGenericsHandler
             case TupleTypeSpec tupleTypeSpec:
                 foreach (var element in tupleTypeSpec.Elements)
                 {
-                    if (TryGetFirstExistentialTypeArgument(element, out existentialType))
+                    if (TryGetExistentialInsideTypeArgs(element, out existentialType))
                     {
                         return true;
                     }
                 }
                 break;
             case ClosureTypeSpec closureTypeSpec:
-                if (TryGetFirstExistentialTypeArgument(closureTypeSpec.Arguments, out existentialType))
+                if (TryGetExistentialInsideTypeArgs(closureTypeSpec.Arguments, out existentialType))
                 {
                     return true;
                 }
 
-                if (TryGetFirstExistentialTypeArgument(closureTypeSpec.ReturnType, out existentialType))
+                if (TryGetExistentialInsideTypeArgs(closureTypeSpec.ReturnType, out existentialType))
                 {
                     return true;
                 }

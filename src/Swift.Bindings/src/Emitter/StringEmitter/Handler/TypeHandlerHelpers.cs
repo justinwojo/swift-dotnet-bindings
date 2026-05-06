@@ -423,7 +423,14 @@ namespace BindingsGeneration
             {
                 if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
                 {
-                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_structDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                    // Closed-constrained existentials project to typed C# interfaces (e.g. ILabelledContainer<SwiftString>),
+                    // but for a single-PAT conforming type the conformance dictionary is keyed on typeof(object) — so the
+                    // typed lookup misses. Fall back to the object key for any generic-protocol lookup; if no object entry
+                    // exists, the fallback is a no-op and the throw path runs.
+                    if (!(typeof(TProtocol).IsGenericType && _protocolConformanceSymbols.TryGetValue(typeof(object), out symbolName)))
+                    {
+                        throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_structDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                    }
                 }
 
                 return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);
@@ -524,6 +531,45 @@ namespace BindingsGeneration
                 csWriter.WriteLine("/// Use a 'using' block or call Dispose(). Failure to dispose may leak native memory.");
                 csWriter.WriteLine("/// </remarks>");
             }
+        }
+
+        /// <summary>
+        /// Emits a Swift-Sendable XML doc remark and the <c>[SwiftSendable]</c> marker
+        /// attribute when the Swift type's conformance list contains <c>Swift.Sendable</c>.
+        /// .NET has no native equivalent of Sendable, so the projection is purely informational
+        /// — but losing the signal entirely (current 0.10.0 behaviour) forces consumers back
+        /// into the swiftinterface to decide whether locking is needed.
+        /// </summary>
+        internal static void EmitSwiftSendableAnnotation(CSharpWriter csWriter, TypeDecl typeDecl)
+        {
+            if (!IsSwiftSendable(typeDecl))
+                return;
+            csWriter.WriteLine("/// <remarks>");
+            csWriter.WriteLine("/// The underlying Swift type conforms to <c>Sendable</c>; instances may be shared");
+            csWriter.WriteLine("/// across .NET threads without external synchronization.");
+            csWriter.WriteLine("/// </remarks>");
+            csWriter.WriteLine("[global::Swift.SwiftSendable]");
+        }
+
+        private static bool IsSwiftSendable(TypeDecl typeDecl)
+        {
+            // Sendable is one of the four marker protocols (Sendable / Copyable / Escapable /
+            // SendableMetatype). Only Sendable carries the cross-thread guarantee — the other
+            // three are about lifetime / move semantics and have no .NET analogue worth surfacing.
+            var conformances = typeDecl switch
+            {
+                StructDecl s => s.Conformances,
+                ClassDecl c => c.Conformances,
+                EnumDecl e => e.Conformances,
+                _ => null
+            };
+            if (conformances == null) return false;
+            foreach (var c in conformances)
+            {
+                if (c.Protocol.Name == "Sendable") return true;
+                if (c.Protocol.ModuleQualifiedName == "Swift.Sendable") return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -883,9 +929,10 @@ internal static class ProtocolConformanceHelper
         var interfaces = new List<string> { typeof(ISwiftObject).Name, nameof(IDisposable) };
         var emitted = new HashSet<string>(interfaces);
 
-        // Only classes and structs get Equatable interface (they have Equals via SwiftEquatable)
-        // Enums with associated values are emitted as C# classes without Equals implementation
-        bool canEmitEquatable = typeDecl is ClassDecl or StructDecl;
+        // Classes, structs, and enums-as-class all participate in IEquatable<T>.
+        // Enums with associated values are projected as C# classes that go through
+        // the @_cdecl Swift equality wrapper just like reference-projected structs.
+        bool canEmitEquatable = typeDecl is ClassDecl or StructDecl or EnumDecl;
 
         IEnumerable<TypeConformance> conformances = typeDecl switch
         {
@@ -984,6 +1031,58 @@ internal static class ProtocolConformanceHelper
             }
         }
 
+        // Closed-constrained PAT projection (gap-0.10.0-everyprotocol-and-existentials.md
+        // Case 1 nominal-assignability closure): when a conformer's PAT bindings are all
+        // concrete (e.g. StringLabel: LabelledContainer where Label == String), emit the
+        // closed generic interface in the implements list so consumers can pass
+        // `new StringLabel(...)` where `ILabelledContainer<SwiftString>` is expected.
+        // ShouldEmitConformance() above filters PATs out of the main loop, so without this
+        // step the conformer would surface as IExistentialBoxable-only and the typed call
+        // site would fail CS0029.
+        //
+        // Open PATs (e.g. GenericContainer<U>: LabelledContainer where Label == U) are
+        // explicitly excluded by TryResolveClosedPatBindings — the closed interface depends
+        // on a conformer-side type parameter and the typeof(object) PAT box still applies.
+        //
+        // Pairs with the typed-PAT runtime fallback at the boxing site (this file ~line 421)
+        // and the multi-PAT guard below.
+        if (conformanceValidator != null)
+        {
+            foreach (var conformance in conformances)
+            {
+                if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord))
+                    continue;
+                if (!protoRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                    continue;
+                if (protoRecord.Kind != TypeRecordKind.Protocol)
+                    continue;
+
+                var protocolDecl = conformanceValidator.FindProtocol(conformance.Protocol.ModuleQualifiedName);
+                if (protocolDecl == null)
+                    continue;
+
+                // Don't double-emit if Self-requirement path already covered this conformance,
+                // or if HasEmittableInterfaceMembers/CanFullyImplementProtocol would reject it.
+                if (!conformanceValidator.HasEmittableInterfaceMembers(protocolDecl))
+                    continue;
+                if (!conformanceValidator.CanFullyImplementProtocol(typeDecl, protocolDecl))
+                    continue;
+
+                if (!conformanceValidator.TryResolveClosedPatBindings(typeDecl, protocolDecl, out var bindings))
+                    continue;
+
+                var resolvedModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
+                var baseName = NameProvider.GetInterfaceName(
+                    conformance.Protocol.Name, typeNameWithGenerics, resolvedModule, moduleName);
+                var closedIface = $"{baseName}<{string.Join(", ", bindings)}>";
+                if (emitted.Add(closedIface))
+                {
+                    interfaces.Add(closedIface);
+                    hasProtocolConformance = true;
+                }
+            }
+        }
+
         // PAT conformances: the generic interface (e.g., ITaggedAssociator<TSelf>) can't be
         // referenced without type arguments, so we don't add it to the interface list. But we
         // still need IExistentialBoxable so the concrete type can be boxed when passed through
@@ -1005,6 +1104,22 @@ internal static class ProtocolConformanceHelper
         // (e.g., passing ECB where 'any BlockMode' is needed) via ExistentialContainerFactory.GetOrCreate.
         if (hasProtocolConformance)
             interfaces.Add("Swift.Runtime.IExistentialBoxable");
+
+        // AsyncSequence → IAsyncEnumerable<TElement> adoption. Without this,
+        // `await foreach (var x in seq)` fails to compile for every Swift type
+        // that conforms to AsyncSequence (StoreKit Transactions, MusicKit
+        // MusicSubscription.Updates, Stripe progress observers, ...). The
+        // GetAsyncEnumerator method body is emitted by the corresponding type
+        // handler — adding the interface here keeps interface declaration and
+        // member emission in sync.
+        var asyncSeq = new AsyncSequenceHandler(typeDatabase);
+        if (AsyncSequenceHandler.IsAsyncSequence(typeDecl) &&
+            asyncSeq.TryResolveElementCSharpType(typeDecl, out var elementCSharpType))
+        {
+            var ifaceName = $"global::System.Collections.Generic.IAsyncEnumerable<{elementCSharpType}>";
+            if (emitted.Add(ifaceName))
+                interfaces.Add(ifaceName);
+        }
 
         return interfaces;
     }
@@ -1087,9 +1202,18 @@ internal static class ProtocolConformanceHelper
             if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                 continue;
 
-            // Skip Self-requirement protocols — no proxy, no EveryProtocol, no runtime PWT lookup
+            // Skip Self-requirement protocols — no proxy, no EveryProtocol, no runtime PWT lookup.
+            // EXCEPTION: Swift.Hashable is consumed at runtime by SwiftHashable.GetHashCode,
+            // which performs a PWT lookup keyed on typeof(ISwiftHashable). Without this entry
+            // the lookup falls back to a structural FNV hash over marshalled bytes, which is
+            // wrong for SafeHandle-backed reference types (the bytes are heap pointers, so
+            // two equal-by-content instances hash differently). Equatable's runtime path goes
+            // through the @_cdecl == wrapper, so it does not need a dict entry.
+            bool isHashable = conformance.Protocol.ModuleQualifiedName == "Swift.Hashable"
+                || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module));
             if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
-                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) &&
+                !isHashable)
                 continue;
 
             var resolvedProtocolModule = ResolveProtocolEmissionModule(conformance, typeDatabase);

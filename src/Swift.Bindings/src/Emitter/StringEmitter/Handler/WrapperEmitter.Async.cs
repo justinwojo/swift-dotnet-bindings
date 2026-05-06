@@ -1727,13 +1727,27 @@ namespace BindingsGeneration
                     // performs its own InitializeWithCopy into a managed buffer, so we must
                     // VWT-Destroy the carrier (using Optional<T>'s metadata) before SBW_Free —
                     // otherwise the carrier's +1 leaks each call.
+                    //
+                    // We DO NOT call SwiftOptional<T>.ToNullable() here: for unconstrained generic T,
+                    // C# specifies `T?` as a nullable annotation (NOT Nullable<T>), so the method's
+                    // runtime return type collapses to T. When T is a value type and the Optional is
+                    // None, ToNullable returns `default(T)` (e.g. 0 for int) which silently widens to
+                    // `int?` HasValue=true at the callsite — the None case is lost. The HasValue
+                    // branch with an explicit cast forces the conditional's common type to the proper
+                    // Nullable<T>, preserving null for None.
                     marshalResultCode =
-                        $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();\n" +
+                        $"var _swiftOpt = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n" +
+                        $"                                var result = _swiftOpt.HasValue ? ({_wrapperSignature.ReturnType})_swiftOpt.Some : default;\n" +
                         $"                                var _vwtMetadata = SwiftObjectHelper<{optionalMarshalType}>.GetTypeMetadata();\n" +
                         $"                                _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);";
                 }
                 else
-                    marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr).ToNullable();";
+                {
+                    // See HasValue-vs-ToNullable rationale on the carrierNeedsDestroy branch above.
+                    marshalResultCode =
+                        $"var _swiftOpt = SwiftMarshal.MarshalFromSwift<{optionalMarshalType}>(resultPtr);\n" +
+                        $"                                var result = _swiftOpt.HasValue ? ({_wrapperSignature.ReturnType})_swiftOpt.Some : default;";
+                }
             }
             else if (newFromPayloadTakesOwnership)
             {

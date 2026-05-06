@@ -115,6 +115,94 @@ public class ProtocolConformanceValidator
     }
 
     /// <summary>
+    /// Resolves a conformer's PAT (Protocol-with-Associated-Type) bindings to fully-qualified
+    /// C# type names when ALL bindings are concrete (closed PAT). Returns false for OPEN PATs
+    /// where any binding depends on a conformer-side generic type parameter, an associated-type
+    /// reference (<c>Self.Element</c>), or a nested generic — leaving such conformances opaque
+    /// at the C# nominal-assignability layer and routed exclusively through the typeof(object)
+    /// PAT box.
+    ///
+    /// Used by <see cref="ProtocolConformanceHelper.GetImplementedInterfaces"/> to emit the
+    /// closed generic interface in a conformer's implements list (e.g.
+    /// <c>StringLabel : ILabelledContainer&lt;Swift.SwiftString&gt;</c>) so that consumers can
+    /// pass the conformer where a typed existential parameter is expected. Pairs with the
+    /// runtime typed-PAT fallback in the per-type
+    /// <c>GetProtocolConformanceDescriptor&lt;TProtocol&gt;()</c> body — together they close
+    /// gap-0.10.0-everyprotocol-and-existentials.md Cases 1 + 2.
+    /// </summary>
+    /// <param name="conformer">The conforming type (StructDecl/ClassDecl/EnumDecl).</param>
+    /// <param name="protocolDecl">The PAT protocol whose bindings to resolve.</param>
+    /// <param name="bindingCSharpNames">The fully-qualified C# names for each associated type, in declaration order. Empty when the method returns false.</param>
+    /// <returns>True iff every associated type binds to a concrete TypeRecord-resolvable type.</returns>
+    public bool TryResolveClosedPatBindings(
+        TypeDecl conformer,
+        ProtocolDecl protocolDecl,
+        out List<string> bindingCSharpNames)
+    {
+        bindingCSharpNames = new List<string>();
+
+        if (protocolDecl.AssociatedTypes.Count == 0)
+            return false;
+
+        if (conformer.SwiftTypeName == null || protocolDecl.SwiftTypeName == null)
+            return false;
+
+        var conformerKey = conformer.SwiftTypeName.ModuleQualifiedName;
+        var protocolKey = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+
+        foreach (var at in protocolDecl.AssociatedTypes)
+        {
+            if (!_moduleDecl.ConformanceGraph.TryResolve(conformerKey, protocolKey, at.Name, out var resolved) ||
+                resolved is null)
+            {
+                return false;
+            }
+
+            // Open PAT: binding is the conformer's own generic type parameter (e.g.,
+            // GenericContainer<U> where Label == U). The closed interface depends on a
+            // conformer-side parameter and the typeof(object) PAT box still applies.
+            if (resolved is NamedTypeSpec named && TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                return false;
+
+            // Open PAT: binding is an associated-type reference (e.g., Self.Element).
+            // These never resolve to a concrete C# type.
+            if (resolved is AssociatedTypeReferenceSpec)
+                return false;
+
+            // Conservative: nested generics (e.g., Label == Array<Int>) require recursive lowering.
+            // Mirrors the same gating ExistentialHandler.TryResolveExistentialGenericArgs uses.
+            if (resolved is NamedTypeSpec n && n.GenericParameters.Count > 0)
+                return false;
+
+            // Resolve to fully-qualified C# type name via the type database.
+            string? csName = null;
+            if (resolved is NamedTypeSpec resolvedNamed)
+            {
+                try
+                {
+                    var argSwiftName = SwiftTypeName.FromTypeSpec(resolvedNamed);
+                    if (_typeDatabase.TryGetTypeRecord(argSwiftName, out var argRecord) &&
+                        argRecord.CSharpTypeName != null)
+                    {
+                        csName = argRecord.CSharpTypeName.FullyQualifiedName;
+                    }
+                }
+                catch
+                {
+                    csName = null;
+                }
+            }
+
+            if (string.IsNullOrEmpty(csName))
+                return false;
+
+            bindingCSharpNames.Add(csName!);
+        }
+
+        return bindingCSharpNames.Count == protocolDecl.AssociatedTypes.Count;
+    }
+
+    /// <summary>
     /// Checks if a CONCRETE TYPE can fully implement a protocol interface.
     /// Validates the TYPE'S MEMBERS (not protocol requirements) against interface.
     /// </summary>

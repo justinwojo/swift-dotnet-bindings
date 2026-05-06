@@ -194,6 +194,11 @@ namespace BindingsGeneration
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string? emittedMemberCountStr = typeDeclarationNode?.Attributes?["emittedMemberCount"]?.Value;
                 int? emittedMemberCount = emittedMemberCountStr != null ? int.Parse(emittedMemberCountStr) : null;
+                // Optional — only present on protocol records produced by 0.10.0+ generators.
+                // Null on legacy databases; the constrained-existential consumer falls back
+                // to AnyType when it can't verify the protocol's interface arity.
+                string? associatedTypeCountStr = typeDeclarationNode?.Attributes?["associatedTypeCount"]?.Value;
+                int? associatedTypeCount = associatedTypeCountStr != null ? int.Parse(associatedTypeCountStr) : null;
                 string? superclassStr = typeDeclarationNode?.Attributes?["superclass"]?.Value;
                 // Whether the class body emitted PInvoke_getMetadata (Class kind only).
                 // Absent on legacy databases that predate this field — keep as null so the
@@ -309,6 +314,7 @@ namespace BindingsGeneration
                     NativeTypeName = nativeTypeName,
                     RawValueTypeName = rawValueType,
                     EmittedMemberCount = emittedMemberCount,
+                    AssociatedTypeCount = associatedTypeCount,
                     SuperclassTypeName = superclassStr != null && !superclassStr.Contains('<')
                         ? SwiftTypeName.FromModuleQualifiedName(superclassStr)
                         : null,

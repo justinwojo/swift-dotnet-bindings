@@ -42,6 +42,38 @@ public final class SendableConfig: Sendable {
     }
 }
 
+// MARK: - Sendable Enum
+
+/// An enum that conforms to Sendable. Mirrors how Apple frameworks declare
+/// payload-bearing enums (e.g. `WeatherCondition`) that are still safe to
+/// share across actor / Task boundaries.
+/// Tests: Sendable conformance on enum types must surface as the
+/// `[SwiftSendable]` marker attribute on the generated C# class.
+public enum SendableSeverity: Sendable {
+    case info
+    case warning(code: Int32)
+    case fatal(message: String)
+}
+
+/// Bare Sendable struct with no other conformances — guards against the
+/// generator only annotating types that already pick up an attribute for
+/// some other reason.
+public struct SendableTokenOnly: Sendable {
+    public let value: Int32
+    public init(value: Int32) {
+        self.value = value
+    }
+}
+
+/// A struct with NO Sendable conformance, used as the negative control in
+/// the `[SwiftSendable]` projection test.
+public struct NotSendablePlain {
+    public var value: Int32
+    public init(value: Int32) {
+        self.value = value
+    }
+}
+
 // MARK: - @Sendable Closure
 
 /// Accepts a @Sendable closure, which must be safe to call from any concurrency domain.

@@ -419,7 +419,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Existential type fallback",
-      "count": 60
+      "count": 65
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",

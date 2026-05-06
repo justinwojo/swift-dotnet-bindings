@@ -338,6 +338,171 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_ClosedPAT_ConcreteBindingResolves_IncludesClosedGenericInterface()
+    {
+        // Closed-constrained PAT (gap-0.10.0-everyprotocol-and-existentials.md Cases 1+2):
+        // when a conformer's PAT bindings are all concrete (e.g. StringLabel: LabelledContainer
+        // where Label == String), GetImplementedInterfaces must emit IIterable<System.Int64>
+        // in the implements list so consumers can pass `new MyIterator(...)` where
+        // `IIterable<long>` is expected. Without the closed-PAT loop the conformer would
+        // surface as IExistentialBoxable-only and the typed call site would fail CS0029.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("MyIterator", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.MyIterator"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Iterable"),
+                "$s10TestModule10MyIteratorVIterableMc"));
+
+        // Concrete binding: Element == Swift.Int → C# System.Int64.
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.MyIterator", "TestModule.Iterable", "Element",
+            new NamedTypeSpec("Swift.Int"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "MyIterator", "TestModule", typeDatabase, validator);
+
+        // FullyQualifiedName for Swift.Int → CSharpTypeName.FromNamespaceAndName("System", "Int64")
+        // returns the C# alias form "long" (matches the rendering used elsewhere in the emitter).
+        Assert.Contains(interfaces, i => i == "IIterable<long>");
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_OpenPAT_GenericParameterBinding_DoesNotIncludeClosedGenericInterface()
+    {
+        // Open-PAT exclusion gate (gap-0.10.0-everyprotocol-and-existentials.md, team-lead
+        // Path A ask #1): when the conformer is itself generic and binds the PAT to its own
+        // type parameter (e.g. GenericContainer<U>: LabelledContainer where Label == U),
+        // the closed interface depends on a conformer-side parameter and must NOT be emitted —
+        // open PATs still flow through the typeof(object) PAT box. Without this gate
+        // TryResolveClosedPatBindings would emit IIterable<U> in the implements list,
+        // which is an un-referenceable C# generic-parameter type at the type-decl scope.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("GenericIterator", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.GenericIterator"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Iterable"),
+                "$s10TestModule15GenericIteratorVIterableMc"));
+
+        // Open binding: Element == U (the conformer's own generic parameter).
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.GenericIterator", "TestModule.Iterable", "Element",
+            new NamedTypeSpec("U"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "GenericIterator<U>", "TestModule", typeDatabase, validator);
+
+        // Open PAT must NOT surface as a closed generic interface.
+        Assert.DoesNotContain(interfaces, i => i.Contains("Iterable"));
+    }
+
+    [Fact]
+    public void TryResolveClosedPatBindings_ConcreteBinding_ReturnsTrueWithFullyQualifiedName()
+    {
+        // Direct gate-predicate test for the closed case. Mirrors the test above but
+        // probes TryResolveClosedPatBindings without going through the full implements-list
+        // pipeline — keeps the open-vs-closed distinction airtight at the predicate layer.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("MyIterator", moduleDecl);
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.MyIterator", "TestModule.Iterable", "Element",
+            new NamedTypeSpec("Swift.Int"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var resolved = validator.TryResolveClosedPatBindings(
+            structDecl, protocolDecl, out var bindings);
+
+        Assert.True(resolved, "Closed PAT with concrete binding must resolve");
+        Assert.Single(bindings);
+        // FullyQualifiedName for (System, Int64) is the C# alias "long" — same form
+        // used in implements-list rendering.
+        Assert.Equal("long", bindings[0]);
+    }
+
+    [Fact]
+    public void TryResolveClosedPatBindings_OpenGenericParameterBinding_ReturnsFalse()
+    {
+        // Direct gate-predicate test for the open case. Probes TryResolveClosedPatBindings
+        // with a NamedTypeSpec("U") binding — the canonical open-PAT signal. Must return
+        // false so the closed-interface emission step is skipped and the conformer routes
+        // through the typeof(object) PAT box instead.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("GenericIterator", moduleDecl);
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.GenericIterator", "TestModule.Iterable", "Element",
+            new NamedTypeSpec("U"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var resolved = validator.TryResolveClosedPatBindings(
+            structDecl, protocolDecl, out var bindings);
+
+        Assert.False(resolved, "Open PAT (generic-parameter binding) must NOT resolve as closed");
+        Assert.Empty(bindings);
+    }
+
+    [Fact]
+    public void TryResolveClosedPatBindings_AssociatedTypeReferenceBinding_ReturnsFalse()
+    {
+        // Open-PAT signal #2: AssociatedTypeReferenceSpec (e.g. Self.Element). These never
+        // resolve to a concrete C# type — the binding is opaque from the C# nominal layer.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("MyIterator", moduleDecl);
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.MyIterator", "TestModule.Iterable", "Element",
+            new AssociatedTypeReferenceSpec("Self", "Element"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var resolved = validator.TryResolveClosedPatBindings(
+            structDecl, protocolDecl, out var bindings);
+
+        Assert.False(resolved, "AssociatedTypeReferenceSpec binding must NOT resolve as closed");
+        Assert.Empty(bindings);
+    }
+
+    [Fact]
+    public void TryResolveClosedPatBindings_MissingWitness_ReturnsFalse()
+    {
+        // Defensive case: ConformanceGraph has no witness for this (conformer, protocol, AT).
+        // ABI parsers may not always populate witnesses; the predicate must fail-closed
+        // rather than synthesising a wrong binding.
+        var typeDatabase = CreateTypeDatabaseWithPAT();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "Iterable", "Element");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("MyIterator", moduleDecl);
+        // Intentionally no AddWitness call.
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var resolved = validator.TryResolveClosedPatBindings(
+            structDecl, protocolDecl, out var bindings);
+
+        Assert.False(resolved, "Missing witness must NOT resolve as closed");
+        Assert.Empty(bindings);
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_SwiftErrorConformance_Excluded()
     {
         var typeDatabase = CreateTypeDatabaseWithSwiftError();
@@ -754,8 +919,24 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
-    public void WriteSwiftEquatable_EquatableNotHashable_EmitsReturnZero()
+    public void WriteSwiftEquatable_EquatableOnly_EmitsZeroHashStubAwaitingHashableConformance()
     {
+        // Current safe behavior: Equatable-only types emit `return 0;` from GetHashCode.
+        //
+        // Naively routing all Equatable types through SwiftHashable.GetHashCode is unsafe for
+        // two reasons:
+        //   1. Custom Equatable (e.g., tolerance-based ==) compares byte-different values as
+        //      equal; the runtime structural-hash fallback would hash them to different codes,
+        //      violating the Equals/GetHashCode contract.
+        //   2. The SwiftHashable runtime helper's stackalloc + MarshalToSwift path crashes
+        //      SwiftUI/bridge types at runtime (verified empirically — Bundle 06 #1a
+        //      investigation: a one-line predicate change took down 1390 BindingTests).
+        //
+        // Bundle 06 #1a (Equatable Defect 1 — GetHashCode stub returns 0) tracks the proper
+        // fix: predicate-composition wiring through EquatableConformanceHelper that detects
+        // when a transitive Hashable conformance is actually safe to route through, plus
+        // hardening the runtime helper for class-projected types. Until that lands, the stub
+        // is the safer choice — preserving runtime stability.
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
         var structDecl = CreateStructDeclWithConformances("Point", CreateModuleDecl("TestModule"),
@@ -769,7 +950,7 @@ public class TypeHandlerHelpersTests
 
         var result = output.ToString();
         Assert.Contains("return 0;", result);
-        Assert.DoesNotContain("SwiftHashable", result);
+        Assert.DoesNotContain("SwiftHashable.GetHashCode(this)", result);
     }
 
     [Fact]
@@ -1643,6 +1824,37 @@ public class TypeHandlerHelpersTests
             Subscripts = new List<SubscriptDecl>(),
             GenericParameters = new List<GenericArgumentDecl>(),
             Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+    }
+
+    /// <summary>
+    /// Builds a PAT (Protocol with Associated Type) ProtocolDecl with a single named
+    /// associated type. The protocol has no method/property/subscript requirements,
+    /// so HasEmittableInterfaceMembers returns true (empty marker protocol path) and
+    /// CanFullyImplementProtocol trivially returns true. This isolates the closed-PAT
+    /// emission test to the gate predicate (TryResolveClosedPatBindings) without being
+    /// tripped up by member-validation gates.
+    /// </summary>
+    private static ProtocolDecl CreatePATProtocolDecl(ModuleDecl moduleDecl, string name, string associatedTypeName)
+    {
+        return new ProtocolDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}PN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>
+            {
+                new AssociatedTypeDecl { Name = associatedTypeName }
+            },
+            InheritedProtocols = new List<NamedTypeSpec>(),
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl
         };

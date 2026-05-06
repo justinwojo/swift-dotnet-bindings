@@ -115,3 +115,28 @@ public struct AsyncMutatingCounter {
         return value
     }
 }
+
+// MARK: - Async Optional Return diagnostics
+//
+// Repro for an async-callback Optional<Int32> marshalling regression: the
+// async-wrapper emit allocates a result buffer in Swift, writes the
+// Optional via `initializeMemory`, and hands the pointer to a C# callback
+// which reads it via `SwiftOptional<int>`. When `next()` returns `nil`,
+// C# was reading `Some(0)` instead of `None` — pinning down whether that
+// reproduces on a top-level async function isolates the bug from the
+// iterator-method bridge introduced for AsyncSequence.
+
+/// Async function that always returns `nil`. The C# binding must surface
+/// this as an `int? = null`, NOT `0`. Used as a smoke test for the
+/// async-return Optional<Int32> marshal path.
+public func sbwAsyncReturnNoneInt() async -> Int32? {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    return nil
+}
+
+/// Async function that always returns `Some(7)`. Pairs with
+/// `sbwAsyncReturnNoneInt` to confirm the Some-side still works.
+public func sbwAsyncReturnSomeSeven() async -> Int32? {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    return 7
+}

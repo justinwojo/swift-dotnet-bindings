@@ -58,3 +58,98 @@ public struct Tag: Equatable {
         self.value = value
     }
 }
+
+// MARK: - Extension-Declared Hashable (MusicItemID pattern)
+
+/// `Tag` declares only `Equatable` on the type itself; Hashable is added via
+/// extension. The generator must pick this up and emit a non-stub
+/// GetHashCode just like a primary-conformance Hashable type.
+extension Tag: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(key)
+        hasher.combine(value)
+    }
+}
+
+/// Frozen struct that adopts Hashable purely via extension (no Hashable in
+/// the primary declaration). Verifies the predicate widening covers the
+/// frozen path as well as the non-frozen one above.
+@frozen
+public struct LabeledScore: Equatable {
+    public let label: String
+    public let score: Int32
+
+    public init(label: String, score: Int32) {
+        self.label = label
+        self.score = score
+    }
+}
+
+extension LabeledScore: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(label)
+        hasher.combine(score)
+    }
+}
+
+// MARK: - Synthesised-Extension Hashable
+
+/// Frozen struct whose Hashable conformance is added via an extension with NO
+/// body — Swift auto-synthesises `hash(into:)` from the stored properties.
+/// Contrasts with `LabeledScore` above, which carries a hand-written
+/// `hash(into:)` in its extension. Both forms surface in the generator's
+/// conformance list as a same-shape `Swift.Hashable` entry, so the predicate
+/// widening MUST cover both — otherwise the synthesised form silently regresses
+/// to the 0-stub GetHashCode while the manual form works.
+@frozen
+public struct PointKey: Equatable {
+    public let x: Int32
+    public let y: Int32
+
+    public init(x: Int32, y: Int32) {
+        self.x = x
+        self.y = y
+    }
+}
+
+extension PointKey: Hashable {}
+
+/// Non-frozen counterpart to `PointKey` for the synthesised-extension form on
+/// a SafeHandle-backed C# projection (the validation-library shape). Combined
+/// with `Tag` (manual extension), this pins both extension shapes for the
+/// non-frozen path.
+public struct LabelKey: Equatable {
+    public let category: String
+    public let index: Int32
+
+    public init(category: String, index: Int32) {
+        self.category = category
+        self.index = index
+    }
+}
+
+extension LabelKey: Hashable {}
+
+// MARK: - SafeHandle-Backed Hashable Class (MusicItemID-shape, intra-tree)
+
+/// A non-frozen reference type that conforms to Hashable. Mirrors the
+/// MusicKit `MusicItemID` shape that exposed Equatable Defect 1 in
+/// validation: a SafeHandle-backed C# class whose GetHashCode used to
+/// return a constant 0 because the Hashable witness wasn't being
+/// recognised on classes. The runtime SwiftHashable bridge has to fold a
+/// stable value here for Dictionary&lt;HashedHandle, V&gt; to work.
+public class HashedHandle: Hashable {
+    public let identifier: String
+
+    public init(identifier: String) {
+        self.identifier = identifier
+    }
+
+    public static func == (lhs: HashedHandle, rhs: HashedHandle) -> Bool {
+        return lhs.identifier == rhs.identifier
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(identifier)
+    }
+}

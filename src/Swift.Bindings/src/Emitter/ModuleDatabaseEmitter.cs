@@ -173,6 +173,16 @@ namespace BindingsGeneration
             if (record.Kind == TypeRecordKind.Protocol && record.EmittedMemberCount.HasValue)
                 writer.WriteAttributeString("emittedMemberCount", record.EmittedMemberCount.Value.ToString());
 
+            // Total associated-type count (protocols only). Drives constrained-existential
+            // projection: a 3-AT protocol used as `any P<X, Y>` (2 args, primary-AT sugar)
+            // must NOT project to `IP<X, Y>` since the interface emits all 3 ATs as type
+            // parameters. Omit when null so legacy module databases keep loading as null;
+            // the consumer treats null as "unverifiable" and skips strongly-typed
+            // projection — preserving pre-fix behavior on cross-module references that
+            // predate this attribute.
+            if (record.Kind == TypeRecordKind.Protocol && record.AssociatedTypeCount.HasValue)
+                writer.WriteAttributeString("associatedTypeCount", record.AssociatedTypeCount.Value.ToString());
+
             // Superclass type name (classes only)
             if (record.SuperclassTypeName != null)
                 writer.WriteAttributeString("superclass", record.SuperclassTypeName.ModuleQualifiedName);

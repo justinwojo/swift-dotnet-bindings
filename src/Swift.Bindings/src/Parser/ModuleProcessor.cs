@@ -1289,6 +1289,11 @@ namespace BindingsGeneration
                 Kind = TypeRecordKind.Protocol,
                 ProtocolDescriptorSymbol = ConvertProtocolTypeToDescriptorSymbol(protocolDecl.MangledName),
                 ProtocolConformances = BuildInheritedProtocolConformances(protocolDecl.InheritedProtocols),
+                // Total associated-type count drives constrained-existential projection: the
+                // C# interface declares one type parameter per associated type, so a use
+                // site `any P<X, Y>` against a 3-AT protocol must NOT project to
+                // `IP<X, Y>` (arity mismatch). See ExistentialHandler.TryResolveExistentialGenericArgs.
+                AssociatedTypeCount = protocolDecl.AssociatedTypes.Count,
             };
 
             if (!protocolDecl.IsSpiProtected)

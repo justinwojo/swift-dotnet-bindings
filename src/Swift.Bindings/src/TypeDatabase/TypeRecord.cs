@@ -205,6 +205,24 @@ public record TypeRecord
     public string? AbiFieldLayout { get; init; }
 
     /// <summary>
+    /// For <see cref="TypeRecordKind.Protocol"/> records: the total number of associated
+    /// types declared by the protocol — including non-primary ones (e.g.
+    /// <c>protocol P&lt;Frame, Event&gt; { associatedtype Result; associatedtype Frame;
+    /// associatedtype Event }</c> has 3). Null for non-protocol kinds and for legacy
+    /// module databases that predate this field.
+    ///
+    /// Used by <see cref="BindingsGeneration.ExistentialHandler"/> to decide whether a
+    /// constrained existential <c>any P&lt;X, Y&gt;</c> can project to the strongly-typed
+    /// interface <c>IP&lt;X, Y&gt;</c>: the C# interface declares one type parameter per
+    /// associated type (<see cref="ProtocolHandler.GetInterfaceNameWithGenerics"/>), so
+    /// when the existential's argument count is less than the total associated type
+    /// count (Swift's primary-associated-type sugar exposes only some), the projection
+    /// must fall back to <c>AnyType</c> to avoid emitting an arity-mismatched
+    /// <c>IP&lt;X, Y&gt;</c> reference.
+    /// </summary>
+    public int? AssociatedTypeCount { get; init; }
+
+    /// <summary>
     /// For Protocol kind: the mangled symbol of the protocol descriptor (e.g.
     /// <c>$s6Lottie16AnyInterpolatableMp</c>). Null for non-protocol kinds.
     /// Used by the type-metadata-accessor emitter to construct dynamic

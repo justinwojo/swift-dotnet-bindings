@@ -149,6 +149,7 @@ namespace BindingsGeneration
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
                 else if (isProjectedAsClass)
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, structDecl);
+                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, structDecl);
                 if (structDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 if (isProjectedAsClass)
@@ -381,6 +382,11 @@ namespace BindingsGeneration
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
+
+                // AsyncSequence → IAsyncEnumerable<T>: emit GetAsyncEnumerator that
+                // adapts the Swift iterator's NextAsync(ct) → Task<T?> to
+                // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
+                AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, structDecl, env.TypeDatabase);
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

@@ -191,6 +191,7 @@ namespace BindingsGeneration
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
                 else
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, enumDecl);
+                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, enumDecl);
                 if (enumDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
@@ -390,14 +391,39 @@ namespace BindingsGeneration
                 propertyNames.Add(NameProvider.GetFinalMemberName(
                     NameProvider.GetCaseName(caseDecl.Name, caseNameMap), propertyRenames));
 
-            // Record enum operators — equality operators are handled by C# enum semantics
-            // (RawValue comparison), other operators are unsupported on enum types.
+            // Record enum operators. Equality operators are emitted below through the
+            // EnumEqualityMethodsWriter for Equatable enums-as-class; for simple raw-value enums
+            // (lowered as C# enum value types) C# already provides == / != natively. Other
+            // operators are unsupported on enum types.
+            //
+            // The EnumEqualityMethodsWriter routes both `==` and `!=` through a single
+            // @_cdecl wrapper that calls Swift's own `lhs == rhs` — that is the authoritative
+            // Swift dispatch whether the conformance is synthesized or user-declared. We
+            // therefore never delegate to OperatorHandler for enums and we don't track
+            // "explicit ==/!=" separately: OperatorHandler isn't dispatched on this path and
+            // suppressing one side would produce an asymmetric pair (CS0216).
             foreach (var operatorDecl in enumDecl.Operators)
             {
-                if (operatorDecl.Name == "==" || operatorDecl.Name == "!=")
+                if (operatorDecl.OperatorSymbol == "==" || operatorDecl.OperatorSymbol == "!=")
                     ReportCollector.RecordMemberEmitted(operatorDecl);
                 else
                     ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedType, $"Operator '{operatorDecl.Name}' is not supported on enum types.");
+            }
+
+            // Bridge Swift's Equatable conformance to .NET's Equals/GetHashCode/IEquatable<T>
+            // for enums lowered as classes (associated-value enums, non-frozen complex enums).
+            // Without this the synthesized C# class returns object reference equality and the
+            // Swift `==` semantics are silently dropped.
+            if (enumDecl.Conformances.Any(c => c.Protocol.Name == "Equatable"))
+            {
+                var enumEqualityWriter = new EnumEqualityMethodsWriter(
+                    csWriter,
+                    enumDecl,
+                    typeNameWithGenerics,
+                    swiftWriter,
+                    context.GetEmissionContext(),
+                    env.TypeDatabase.AsyncLibraryName);
+                enumEqualityWriter.WriteSwiftEquatableImplementation();
             }
 
             // Record enum constructors as emitted (case constructors handle initialization)
@@ -648,6 +674,198 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
             }
+        }
+    }
+
+    /// <summary>
+    /// Emits Equals / GetHashCode / operator== / operator!= / IEquatable&lt;T&gt;.Equals
+    /// for an Equatable enum that lowers to a C# class. The bridge mirrors the
+    /// reference-projected struct path: a Swift @_cdecl wrapper performs the
+    /// per-case Swift `==` and the C# methods route through it via the SafeHandle
+    /// payload pointer (the same buffer pointer used everywhere else in the enum
+    /// projection).
+    /// </summary>
+    /// <remarks>
+    /// Without this writer, an Equatable Swift enum-as-class falls through to
+    /// <see cref="object.Equals(object?)"/> reference equality and silently drops the Swift
+    /// semantics — see <c>bug-0.10.0-equatable-not-lowered.md</c> Defect 2.
+    /// </remarks>
+    public class EnumEqualityMethodsWriter
+    {
+        private readonly System.CodeDom.Compiler.IndentedTextWriter _writer;
+        private readonly EnumDecl _enumDecl;
+        private readonly string _typeNameWithGenerics;
+        private readonly bool _implementsHashable;
+        private readonly SwiftWriter? _swiftWriter;
+        private readonly ModuleEmissionContext? _emissionContext;
+        private readonly string? _wrapperLibraryName;
+
+        public EnumEqualityMethodsWriter(
+            CSharpWriter csWriter,
+            EnumDecl enumDecl,
+            string typeNameWithGenerics,
+            SwiftWriter? swiftWriter,
+            ModuleEmissionContext? emissionContext,
+            string? wrapperLibraryName)
+        {
+            _writer = csWriter;
+            _enumDecl = enumDecl;
+            _typeNameWithGenerics = typeNameWithGenerics;
+            // Mirror the struct/class rule: Equatable does NOT imply Hashable, because a
+            // custom Equatable can match byte-different values that the structural-hash
+            // fallback would distinguish — violating the Equals/GetHashCode contract. Routing
+            // Equatable through SwiftHashable.GetHashCode also crashes SwiftUI/bridge types
+            // at runtime (Bundle 06 #1a — needs proper predicate-composition wiring).
+            _implementsHashable = enumDecl.Conformances.Any(c =>
+                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                c.Protocol.Name == "OptionSet" ||
+                c.Protocol.Name == "RawRepresentable");
+            _swiftWriter = swiftWriter;
+            _emissionContext = emissionContext;
+            _wrapperLibraryName = wrapperLibraryName;
+        }
+
+        public void WriteSwiftEquatableImplementation()
+        {
+            var eqSymbol = TryEmitSwiftEqualityWrapper();
+            if (eqSymbol != null)
+                EmitEqualityPInvoke(eqSymbol);
+
+            // Reference-shaped enum-as-class: extract the buffer pointer through the
+            // generated `Payload` SafeHandle (same surface as struct-projected-as-class).
+            string equalsExpr(string lhs, string rhs)
+            {
+                if (eqSymbol == null) return $"Swift.Runtime.SwiftEquatable.Equals({lhs}, {rhs})";
+                return $"_PInvoke_eq_pinned({lhs}, {rhs})";
+            }
+
+            if (eqSymbol != null)
+            {
+                _writer.WriteLines($$"""
+                private static bool _PInvoke_eq_pinned({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+                {
+                    bool _eqAddedLeft = false;
+                    bool _eqAddedRight = false;
+                    try
+                    {
+                        left.Payload.DangerousAddRef(ref _eqAddedLeft);
+                        right.Payload.DangerousAddRef(ref _eqAddedRight);
+                        return PInvoke_eq(left.Payload.DangerousGetHandle(), right.Payload.DangerousGetHandle());
+                    }
+                    finally
+                    {
+                        if (_eqAddedRight) right.Payload.DangerousRelease();
+                        if (_eqAddedLeft) left.Payload.DangerousRelease();
+                    }
+                }
+                """);
+                _writer.WriteLine();
+            }
+
+            var hashCodeBody = _implementsHashable
+                ? "return Swift.Runtime.SwiftHashable.GetHashCode(this);"
+                : "return 0;";
+            _writer.WriteLines($$"""
+            public override bool Equals(object? obj)
+            {
+                return obj is {{_typeNameWithGenerics}} other && {{equalsExpr("this", "other")}};
+            }
+
+            public override int GetHashCode()
+            {
+                {{hashCodeBody}}
+            }
+            """);
+            _writer.WriteLine();
+
+            // Always emit both operators as a matched pair. The @_cdecl wrapper calls
+            // Swift's `lhs == rhs`, which dispatches to either the synthesized or
+            // user-declared `==` — that single source-of-truth feeds both C# operators
+            // and prevents CS0216 (require matching `==`/`!=`).
+            _writer.WriteLines($$"""
+            public static bool operator ==({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
+            {
+                if (left is null) return right is null;
+                if (right is null) return false;
+                return {{equalsExpr("left", "right")}};
+            }
+            """);
+            _writer.WriteLine();
+
+            _writer.WriteLines($$"""
+            public static bool operator !=({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
+            {
+                if (left is null) return right is not null;
+                if (right is null) return true;
+                return !{{equalsExpr("left", "right")}};
+            }
+            """);
+            _writer.WriteLine();
+
+            _writer.WriteLines($$"""
+            public bool Equals({{_typeNameWithGenerics}}? other)
+            {
+                if (other is null) return false;
+                return {{equalsExpr("this", "other")}};
+            }
+            """);
+            _writer.WriteLine();
+        }
+
+        private static string GetEqualitySymbolName(EnumDecl enumDecl)
+        {
+            var moduleName = enumDecl.ModuleDecl?.Name ?? "Unknown";
+            var safeTypeName = enumDecl.Name.Replace(".", "_");
+            var hash = EmitterUtility.DeterministicHash8(enumDecl.MangledName ?? enumDecl.Name);
+            return $"SBW_{moduleName}_{safeTypeName}_eq_{hash}";
+        }
+
+        private string? TryEmitSwiftEqualityWrapper()
+        {
+            if (_swiftWriter == null || _emissionContext == null || _wrapperLibraryName == null)
+                return null;
+
+            // Generic enums can't be instantiated by a non-generic @_cdecl wrapper.
+            if (_enumDecl.GenericParameters.Count > 0)
+                return null;
+
+            var symbolName = GetEqualitySymbolName(_enumDecl);
+
+            if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
+                return symbolName;
+
+            var swiftTypeName = _enumDecl.SwiftTypeName.ToString();
+
+            // Enums with payloads are value types in Swift just like structs, so the
+            // wrapper takes typed pointers via assumingMemoryBound — NOT
+            // Unmanaged<AnyObject>.fromOpaque (that path is for ARC reference types).
+            bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_enumDecl, false);
+            var equalityOperator = _enumDecl.Operators
+                .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
+            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                equalityOperator?.AvailabilityAnnotations, _enumDecl);
+            _swiftWriter.WriteLine();
+            WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
+            _swiftWriter.WriteLines($$"""
+            public func {{symbolName}}(_ lhs: UnsafeRawPointer, _ rhs: UnsafeRawPointer) -> UInt8 {
+                let l = lhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
+                let r = rhs.assumingMemoryBound(to: {{swiftTypeName}}.self).pointee
+                return (l == r) ? 1 : 0
+            }
+            """);
+
+            return symbolName;
+        }
+
+        private void EmitEqualityPInvoke(string symbolName)
+        {
+            _writer.WriteLines($$"""
+            [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
+            [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
+            private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
+            """);
+            _writer.WriteLine();
         }
     }
 }

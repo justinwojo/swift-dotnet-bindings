@@ -308,7 +308,14 @@ namespace BindingsGeneration
             {
                 if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
                 {
-                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_enumDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                    // Closed-constrained existentials project to typed C# interfaces (e.g. ILabelledContainer<SwiftString>),
+                    // but for a single-PAT conforming type the conformance dictionary is keyed on typeof(object) — so the
+                    // typed lookup misses. Fall back to the object key for any generic-protocol lookup; if no object entry
+                    // exists, the fallback is a no-op and the throw path runs.
+                    if (!(typeof(TProtocol).IsGenericType && _protocolConformanceSymbols.TryGetValue(typeof(object), out symbolName)))
+                    {
+                        throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_enumDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                    }
                 }
 
                 return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);

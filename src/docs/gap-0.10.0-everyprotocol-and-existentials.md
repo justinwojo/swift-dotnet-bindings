@@ -5,6 +5,71 @@
 > [SwiftBindings.BlinkIDUX](https://github.com/justinwojo/swift-dotnet-packages),
 > and several other libraries during a 2026-05-05 audit.
 
+## Status — Cases 1 + 2 Resolved; Case 3 → Bundle 11b
+
+- **Case 1** (`any Foo` property/parameter collapse to `object`/`Swift.AnyType`): resolved.
+  The generator now projects single-protocol existentials to the generated `IFoo` interface.
+- **Case 2** (typed existential receives concrete-class instance): resolved by Case 1's
+  projection — the same `IFoo` surface is consumed for both shapes.
+- **Case 3** (consumer-implemented `IFoo` proxy → `EveryProtocol`-style throwing stubs):
+  deferred to **Bundle 11b** (proxy-dispatch). Requires the runtime existential-container
+  infrastructure plus codegen for forward-dispatching wrappers per protocol method.
+
+### Typed-PAT runtime conformance lookup — design constraint
+
+The closed-constrained existential projection (Case 1, e.g. `any LabelledContainer<String>`
+→ `ILabelledContainer<SwiftString>`) requires a runtime fallback in the generated
+`GetProtocolConformanceDescriptor<TProtocol>()` body, because a single-PAT conformer's
+`_protocolConformanceSymbols` dictionary is keyed on `typeof(object)` (the lowered C# type
+for an unparameterised `object` parameter) rather than on the closed generic interface
+type the typed boxing site uses. The fallback is:
+
+```csharp
+if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
+{
+    if (!(typeof(TProtocol).IsGenericType &&
+          _protocolConformanceSymbols.TryGetValue(typeof(object), out symbolName)))
+    {
+        throw new SwiftRuntimeException(...);
+    }
+}
+```
+
+**Constraint analysis** — this fallback is robust by construction in three ways:
+
+1. **`IsGenericType` gate** — only generic-protocol lookups (typed PATs like
+   `IFoo<X>`) hit the typeof(object) fallback. Non-PAT typed lookups (`IBar`)
+   take the exact-typed-key path and never reach the fallback. The two key
+   spaces don't overlap, so a type that conforms to both `any P<X>` (PAT) and
+   `any Q` (non-PAT, possibly closed existential) cannot collide on lookup.
+
+2. **Multi-PAT upstream guard** — `CountPatConformances == 1`
+   (`TypeHandlerHelpers.cs` `GetImplementedInterfaces` + `GenerateProtocolConformanceDictionaryEntries` +
+   `GetConformanceProtocolNames`) suppresses the typeof(object) dict entry,
+   the `IExistentialBoxable` interface, AND the conformance-factory registration
+   when a type has 2+ PAT conformances. So a multi-PAT conformer surfaces as a
+   clear `InvalidCastException` at the boxing call site, not silent
+   wrong-witness-table dispatch.
+
+3. **`object` lookup is never typed-issued** — production C# call sites for
+   typed boxing always use the closed generic interface (e.g.
+   `BoxAsExistential1<ILabelledContainer<SwiftString>>()`); the unparameterised
+   `BoxAsExistential1<object>()` shape is reserved for internal lowering
+   paths that already know they want the PAT entry.
+
+These three together mean a Swift type with both a PAT conformance and any
+number of orthogonal non-PAT conformances resolves correctly: each lookup
+takes its respective branch (typed key for non-PAT, IsGenericType-gated
+fallback for PAT) without crosstalk. No fixture is required to assert this
+because the property holds at the C#-type-system level (`IsGenericType` /
+typed-key uniqueness), not at runtime witness-table content.
+
+If a future protocol shape violates this — e.g. a non-PAT generic protocol
+that surfaces as `IBar<X>` with `IsGenericType=true` AND coexists with a PAT
+conformer — the multi-PAT guard at `TypeHandlerHelpers.cs:1014–1023` would
+need to widen to also count generic non-PAT conformances. Flag in this
+document if observed in validation.
+
 ## Summary
 
 Two related shortfalls in how Swift existential / protocol-typed values

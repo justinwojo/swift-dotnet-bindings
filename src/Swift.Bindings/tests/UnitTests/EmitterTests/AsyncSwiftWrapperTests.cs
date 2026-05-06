@@ -214,9 +214,13 @@ public class AsyncSwiftWrapperTests
         // Optional<@frozen struct with String field>: Swift wrapper calls
         // initializeMemory(as: Optional<DataResult>.self, repeating: result, count: 1), so for
         // .some the carrier holds its own +1 on the embedded String. The C# side marshals via
-        // `SwiftOptional<DataResult>.ToNullable()` which NewFromPayload-copies into a managed
-        // buffer (independent +1). Without VWT Destroy on the carrier via Optional<T>'s
-        // metadata before SBW_Free, the carrier's +1 leaks each call.
+        // SwiftOptional<DataResult> + a HasValue?Some:default projection (NOT ToNullable —
+        // for unconstrained generic T, ToNullable would collapse None to default(T) and lose
+        // the null distinction; the explicit-cast HasValue branch preserves Nullable<T>'s null
+        // for None). The Some branch goes through SwiftOptional<T>.NewFromPayload which
+        // InitializeWithCopy-copies into a managed buffer (independent +1). Without VWT
+        // Destroy on the carrier via Optional<T>'s metadata before SBW_Free, the carrier's
+        // +1 leaks each call.
         var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
             returnTypeName: "TestModule.DataResult",
             returnKind: TypeRecordKind.Struct,
@@ -227,9 +231,12 @@ public class AsyncSwiftWrapperTests
         // T's copy witness on .some, leaving +1 on internal refs.
         Assert.Contains("initializeMemory(as: Swift.Optional<TestModule.DataResult>.self, repeating:", swiftOutput);
 
-        // C# side: plain ToNullable marshal, followed by VWT Destroy on the carrier using
-        // SwiftOptional<T>'s metadata (matches the Optional<T> layout on Swift side).
-        Assert.Contains("MarshalFromSwift<SwiftOptional<TestModule.DataResult>>(resultPtr).ToNullable()", csOutput);
+        // C# side: HasValue?Some:default projection through SwiftOptional<T>, followed by VWT
+        // Destroy on the carrier using SwiftOptional<T>'s metadata (matches the Optional<T>
+        // layout on Swift side).
+        Assert.Contains("MarshalFromSwift<SwiftOptional<TestModule.DataResult>>(resultPtr)", csOutput);
+        Assert.Contains("_swiftOpt.HasValue", csOutput);
+        Assert.Contains("_swiftOpt.Some", csOutput);
         Assert.Contains("SwiftObjectHelper<SwiftOptional<TestModule.DataResult>>.GetTypeMetadata()", csOutput);
         Assert.Contains("Destroy((void*)resultPtr", csOutput);
         Assert.Contains("SBW_Free(resultPtr)", csOutput);
@@ -247,7 +254,12 @@ public class AsyncSwiftWrapperTests
             returnKind: TypeRecordKind.Struct,
             wrapInOptional: true);
 
-        Assert.Contains("MarshalFromSwift<SwiftOptional<TestModule.DataResult>>(resultPtr).ToNullable()", csOutput);
+        // POD path: same HasValue?Some:default projection (preserves null for None on
+        // unconstrained generic T), but no carrier-destroy because the trivial copy witness
+        // leaves no retained refs.
+        Assert.Contains("MarshalFromSwift<SwiftOptional<TestModule.DataResult>>(resultPtr)", csOutput);
+        Assert.Contains("_swiftOpt.HasValue", csOutput);
+        Assert.Contains("_swiftOpt.Some", csOutput);
         Assert.DoesNotContain("Destroy((void*)resultPtr", csOutput);
         Assert.Contains("SBW_Free(resultPtr)", csOutput);
     }

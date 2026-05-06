@@ -226,6 +226,7 @@ namespace BindingsGeneration
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
                 else
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, classDecl);
+                TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, classDecl);
                 if (classDecl.Name.StartsWith("_"))
                     csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 var classDeclaration = $"public partial class {typeNameWithGenerics} : {string.Join(", ", interfaces)}";
@@ -372,6 +373,11 @@ namespace BindingsGeneration
                         csWriter, swiftWriter, classDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
+
+                // AsyncSequence → IAsyncEnumerable<T>: emit GetAsyncEnumerator that
+                // adapts the Swift iterator's NextAsync(ct) → Task<T?> to
+                // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
+                AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, classDecl, env.TypeDatabase);
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -1007,7 +1013,14 @@ namespace BindingsGeneration
             {
                 if (!_protocolConformanceSymbols.TryGetValue(typeof(TProtocol), out var symbolName))
                 {
-                    throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_classDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                    // Closed-constrained existentials project to typed C# interfaces (e.g. ILabelledContainer<SwiftString>),
+                    // but for a single-PAT conforming type the conformance dictionary is keyed on typeof(object) — so the
+                    // typed lookup misses. Fall back to the object key for any generic-protocol lookup; if no object entry
+                    // exists, the fallback is a no-op and the throw path runs.
+                    if (!(typeof(TProtocol).IsGenericType && _protocolConformanceSymbols.TryGetValue(typeof(object), out symbolName)))
+                    {
+                        throw new SwiftRuntimeException($"Attempted to retrieve protocol conformance descriptor for type {{_classDecl.Name}} and protocol {typeof(TProtocol).Name}, but no conformance was found.");
+                    }
                 }
 
                 return ProtocolConformanceDescriptor.LoadFromSymbol("{{libPath}}", symbolName);

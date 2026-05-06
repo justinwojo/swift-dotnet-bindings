@@ -509,6 +509,17 @@ public class ExistentialHandler
                 if (typeRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
                     typeRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
                 {
+                    // Constrained existential — `any P<Concrete>` — binds the associated
+                    // types at the use site, so the PAT degradation does NOT apply: the
+                    // surface is fully closed-form. Project as `IP<X, Y>` if every
+                    // argument resolves through the type database. (Cases 1 and 2 in
+                    // gap-0.10.0-everyprotocol-and-existentials.md.)
+                    if (firstProtocol.GenericParameters.Count > 0 &&
+                        TryResolveExistentialGenericArgs(firstProtocol, out var constrainedArgs))
+                    {
+                        return BuildGenericInterfaceName(firstProtocol, constrainedArgs);
+                    }
+
                     // PAT protocol with known conformers → ExistentialUnion (try-cast pattern)
                     // instead of falling back to object which makes the member unusable.
                     if (SpecializationEngine != null)
@@ -526,11 +537,20 @@ public class ExistentialHandler
                 return "object";
             }
 
-            // Generic protocol existentials (e.g., "any EventStream<τ_0_0.Event>")
-            // have associated type refs we can't resolve to concrete C# types.
-            // Use AnyType to preserve API surface (not "object" which triggers member pruning).
+            // Generic protocol existentials (e.g., "any EventStream<UIEvent>",
+            // "any AsyncSequence<SampleBuffer>"). When every generic argument is concrete
+            // (no τ_n_m placeholders) we can preserve the strongly-typed surface as
+            // IProtocol<X, Y>. When any argument is an unresolved generic parameter or
+            // an associated-type reference, fall back to AnyType — that preserves the
+            // API surface without synthesising broken closed-form C# (the previous
+            // 0.10.0 behaviour collapsed every generic existential to AnyType, see
+            // gap-0.10.0-everyprotocol-and-existentials.md Cases 1 and 2).
             if (firstProtocol.GenericParameters.Count > 0)
+            {
+                if (TryResolveExistentialGenericArgs(firstProtocol, out var resolvedArgs))
+                    return BuildGenericInterfaceName(firstProtocol, resolvedArgs);
                 return TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName;
+            }
 
             var firstProtocolTypeName = SwiftTypeName.FromTypeSpec(firstProtocol);
             var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(firstProtocolTypeName, _typeDatabase);
@@ -552,6 +572,104 @@ public class ExistentialHandler
 
         // Multi-protocol: generate combined interface name
         return GetCompositionInterfaceName(protocolList);
+    }
+
+    /// <summary>
+    /// Builds the closed-form interface reference (e.g.
+    /// <c>SwiftBindingsTestLib.ILabelledContainer&lt;string&gt;</c>) for a constrained
+    /// existential whose generic arguments have already been resolved by
+    /// <see cref="TryResolveExistentialGenericArgs"/>. Cross-module references are
+    /// qualified with the protocol's emission module so that Apple-supplement
+    /// shapes resolve correctly.
+    /// </summary>
+    private string BuildGenericInterfaceName(NamedTypeSpec protocolSpec, List<string> resolvedArgs)
+    {
+        var protoTypeName = SwiftTypeName.FromTypeSpec(protocolSpec);
+        var protoEmissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(protoTypeName, _typeDatabase);
+        var protoInterfaceName = NameProvider.GetInterfaceName(protocolSpec.NameWithoutModule, moduleName: protoEmissionModule);
+        if (!string.IsNullOrEmpty(CurrentModuleName) &&
+            !string.IsNullOrEmpty(protoEmissionModule) &&
+            protoEmissionModule != CurrentModuleName &&
+            protoEmissionModule != "Swift")
+        {
+            protoInterfaceName = $"{protoEmissionModule}.{protoInterfaceName}";
+        }
+        return $"{protoInterfaceName}<{string.Join(", ", resolvedArgs)}>";
+    }
+
+    /// <summary>
+    /// Attempts to lower every generic argument of a protocol existential to its closed-form
+    /// C# type name. Returns false if any argument is a generic-parameter placeholder
+    /// (<c>τ_n_m</c>), an associated-type reference, or otherwise unresolvable through
+    /// the type database — in which case the caller falls back to <c>Swift.AnyType</c>.
+    /// Mirrors the gating used by <see cref="IsConstrainedExistential"/>: the protocol's
+    /// generic args must be concrete <see cref="NamedTypeSpec"/>s with TypeRecords.
+    /// </summary>
+    private bool TryResolveExistentialGenericArgs(NamedTypeSpec protocolSpec, out List<string> resolvedArgs)
+    {
+        resolvedArgs = new List<string>(protocolSpec.GenericParameters.Count);
+
+        // Primary-associated-type sugar: Swift lets `protocol P<Frame, Event>` declare
+        // only some of its associated types as primary, so a use site `any P<X, Y>`
+        // can supply fewer generic args than the protocol's interface arity (the
+        // ProtocolHandler emits one C# type parameter per associated type, including
+        // non-primary ones — see GetInterfaceNameWithGenerics). Without this gate, a
+        // 3-AT protocol referenced as `any P<X, Y>` would compile to `IP<X, Y>` and
+        // fail with CS0305 "requires 3 type arguments".
+        //
+        // We require an exact arity match against the protocol's persisted
+        // AssociatedTypeCount. Null (legacy module databases that predate the
+        // attribute) is treated as "unverifiable" and falls through to the prior
+        // permissive behavior — that path was already correct for protocols whose
+        // primary == total associated types, which is the dominant shape.
+        try
+        {
+            var protoSwiftName = SwiftTypeName.FromTypeSpec(protocolSpec);
+            if (_typeDatabase.TryGetTypeRecord(protoSwiftName, out var protoRecord) &&
+                protoRecord.AssociatedTypeCount.HasValue &&
+                protoRecord.AssociatedTypeCount.Value != protocolSpec.GenericParameters.Count)
+            {
+                return false;
+            }
+        }
+        catch
+        {
+            // Fall through — the per-arg loop below will still bail on unresolvable
+            // arguments, so we never emit a half-resolved arity-mismatched reference.
+        }
+
+        foreach (var gp in protocolSpec.GenericParameters)
+        {
+            if (gp is not NamedTypeSpec named || TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                return false;
+
+            // Nested generics (e.g. any Foo<Array<Int>>) require the same resolution path
+            // for each layer; without recursive lowering we'd emit `Array` instead of
+            // `SwiftArray<Swift.SwiftInt>`. Out of scope for the conservative fix —
+            // bail to AnyType so the consumer stays opaque rather than miscompiles.
+            if (named.GenericParameters.Count > 0)
+                return false;
+
+            string? csName = null;
+            try
+            {
+                var argSwiftName = SwiftTypeName.FromTypeSpec(named);
+                if (_typeDatabase.TryGetTypeRecord(argSwiftName, out var argRecord) &&
+                    argRecord.CSharpTypeName != null)
+                {
+                    csName = argRecord.CSharpTypeName.FullyQualifiedName;
+                }
+            }
+            catch
+            {
+                csName = null;
+            }
+
+            if (string.IsNullOrEmpty(csName))
+                return false;
+            resolvedArgs.Add(csName!);
+        }
+        return resolvedArgs.Count > 0;
     }
 
     /// <summary>
