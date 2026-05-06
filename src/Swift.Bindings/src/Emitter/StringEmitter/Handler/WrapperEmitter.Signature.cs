@@ -181,16 +181,21 @@ namespace BindingsGeneration
                 {
                     // Class-bound generic constraint (`<T : SomeClass>`). The parser tags
                     // every `:` clause as ConformanceKind.Protocol; consult the resolved
-                    // record's Kind/Flags to recognise the ObjC-bridged class target case
-                    // (Foundation.Dimension, NSDate, …). Class constraints emit the
-                    // projected C# class name and contribute no PWT lookup — mirrors
-                    // GenericTypeEmitter and PInvokeHelperEmitter.FlattenConformances.
-                    // Gated on ObjCBridged so non-bridged hand-registered Swift class
-                    // records continue through the historical permissive `I`-prefixed
-                    // interface path lower down.
+                    // record's Kind/Flags to recognise the class-target case. Class
+                    // constraints emit the projected C# class name and contribute no PWT
+                    // lookup — mirrors GenericTypeEmitter and
+                    // PInvokeHelperEmitter.FlattenConformances.
+                    //
+                    // Gating: promote when (a) the class is registered in the same module
+                    // as the consuming method — covers same-module Swift classes — OR
+                    // (b) the class is ObjC-bridged — covers Foundation/UIKit hand-
+                    // registered classes. Non-ObjC-bridged cross-module class records
+                    // fall through to the historical permissive `I`-prefixed interface
+                    // path lower down.
                     if (_env.TypeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var maybeClassRecord)
                         && maybeClassRecord.Kind == TypeRecordKind.Class
-                        && maybeClassRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
+                        && (conformance.ConformanceTarget.Module == (_env.MethodDecl.ModuleDecl?.Name ?? "")
+                            || maybeClassRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged)))
                     {
                         paramConstraints.Add(maybeClassRecord.CSharpTypeName.FullyQualifiedName);
                         hasClassBoundConstraint = true;
