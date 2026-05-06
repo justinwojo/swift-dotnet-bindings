@@ -5,15 +5,23 @@ import Foundation
 
 /// JSON contract version. Bump only on shape-change (rename / type change / removal /
 /// semantic redefinition). Additive evolution — new optional fact fields, new map
-/// dictionaries — stays at v1 because the host binary is vendored in the NuGet package
-/// alongside the .NET generator and both sides ship in lockstep. The .NET-side
-/// `UnmappedMemberHandling.Disallow` setting still catches accidental one-sided drift
-/// at deserialize time, so additive evolution does not require a version bump but does
-/// require updating both `Facts` here and `InterfaceFactsJsonPayload` on the .NET side
-/// in the same commit.
+/// dictionaries — stays at the current version because the host binary is vendored in
+/// the NuGet package alongside the .NET generator and both sides ship in lockstep. The
+/// .NET-side `UnmappedMemberHandling.Disallow` setting still catches accidental
+/// one-sided drift at deserialize time, so additive evolution does not require a
+/// version bump but does require updating both `Facts` here and
+/// `InterfaceFactsJsonPayload` on the .NET side in the same commit.
+///
+/// v2: `availabilityAnnotations` and `availabilityAnnotationPositions` keys were
+/// redefined from "bare `Type.printedName`" to "bare key OR `Type.printedName|paramSig`
+/// disambiguation key" so per-overload availability stops broadcasting across siblings.
+/// A v1 producer's bare-key-only output silently mis-maps under the v2 consumer's disamb
+/// lookup, which is exactly the failure mode the schema check exists to catch — pinning
+/// the version forces a clear "rebuild the host binary" error rather than mis-emitted
+/// `[Obsolete]` attributes on every overload.
 ///
 /// On the .NET side, see `InterfaceFactsJson.SchemaVersion` — values must match.
-let kSchemaVersion = 1
+let kSchemaVersion = 2
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

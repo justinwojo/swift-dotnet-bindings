@@ -38,25 +38,35 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 /// there is no in-the-wild "older .NET reading newer host output" path under normal use.
 /// Policy:
 /// <list type="bullet">
-/// <item><b>Additive evolution stays at v1.</b> Adding a new optional fact field
+/// <item><b>Additive evolution stays at the current version.</b> Adding a new optional fact field
 ///   (new property on <see cref="InterfaceFactsJsonPayload"/>, plus the matching field on
 ///   <see cref="Facts"/> in <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>,
 ///   plus a new <see cref="InterfaceFactKind"/> enum value when applicable) does NOT need
 ///   a version bump as long as both ends move together in the same commit. The
 ///   <c>UnmappedMemberHandling.Disallow</c> check still catches accidental one-sided drift
 ///   at deserialize time.</item>
-/// <item><b>Bump to v2 only on shape change.</b> Renaming a property, changing a property
-///   type, removing a property, or changing the meaning of an existing field is breaking;
-///   that's when <see cref="ExpectedSchemaVersion"/> moves.</item>
+/// <item><b>Bump to the next version on shape change.</b> Renaming a property, changing a
+///   property type, removing a property, or changing the meaning of an existing field is
+///   breaking; that's when <see cref="ExpectedSchemaVersion"/> moves.</item>
 /// </list>
-/// Each session adding facts to <see cref="InterfaceFactsJsonPayload"/> is additive, so v1
-/// stays put through the M2 migration window.
+/// Version history:
+/// <list type="bullet">
+/// <item><b>v1</b> — initial wire format (M2 migration window).</item>
+/// <item><b>v2</b> (Bundle 09) — <c>availabilityAnnotations</c> and
+///   <c>availabilityAnnotationPositions</c> keys redefined from "bare
+///   <c>Type.printedName</c>" to "bare key OR <c>Type.printedName|paramSig</c>
+///   disambiguation key" so per-overload availability stops broadcasting across siblings.
+///   A v1 producer's bare-key-only output silently mis-maps under the v2 consumer's
+///   disamb lookup; pinning the version makes a stale host binary fail fast with the
+///   "rebuild the host binary" error rather than emit incorrect <c>[Obsolete]</c>
+///   attributes on every overload.</item>
+/// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 1;
+    public const int ExpectedSchemaVersion = 2;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }
