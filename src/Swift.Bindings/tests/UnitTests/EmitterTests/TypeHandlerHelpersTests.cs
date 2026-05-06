@@ -372,6 +372,67 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_PATProtocolWithSelfRequirement_DoesNotIncludeClosedGenericInterface()
+    {
+        // Self-requirement + associated-type protocols (e.g. CryptoKit.HashFunction:
+        // `protocol HashFunction { associatedtype Digest; init(); func finalize() -> Self.Digest }`)
+        // project to `IFoo<TSelf> where TSelf : IFoo<TSelf>` (CRTP) — the associated types
+        // are folded into Self and don't appear in the C# interface signature. The closed-PAT
+        // loop must yield to the Self-requirement branch; substituting an associated-type
+        // binding for TSelf produces CS0311 (TSelf constraint unsatisfiable, Digest is not an
+        // IFoo) and CS0535 (missing protocol method impls) on every conformer. Regression
+        // pin: this scenario silently broke CryptoKit (Sha3256 et al.) when the closed-PAT
+        // loop landed in Bundle 06 without a HasSelfRequirement gate.
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.HashFunction"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IHashFunction"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.HashFunction"),
+                MetadataAccessor = "",
+                // Both flags set — mirrors CryptoKit.HashFunction's TypeRecord.
+                Flags = TypeRecordFlags.HasAssociatedTypes | TypeRecordFlags.HasSelfRequirement,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocolDecl = CreatePATProtocolDecl(moduleDecl, "HashFunction", "Digest");
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var structDecl = CreateStructDeclWithConformances("Sha256", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Sha256"),
+                SwiftTypeName.FromModuleQualifiedName("TestModule.HashFunction"),
+                "$s10TestModule6Sha256VAA12HashFunctionAAMc"));
+
+        // Concrete Digest binding — the closed-PAT loop would happily resolve this
+        // and emit `IHashFunction<long>`, which is exactly the wrong thing.
+        moduleDecl.ConformanceGraph.AddWitness(
+            "TestModule.Sha256", "TestModule.HashFunction", "Digest",
+            new NamedTypeSpec("Swift.Int"));
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Sha256", "TestModule", typeDatabase, validator);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("IHashFunction"));
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_OpenPAT_GenericParameterBinding_DoesNotIncludeClosedGenericInterface()
     {
         // Open-PAT exclusion gate (gap-0.10.0-everyprotocol-and-existentials.md, team-lead

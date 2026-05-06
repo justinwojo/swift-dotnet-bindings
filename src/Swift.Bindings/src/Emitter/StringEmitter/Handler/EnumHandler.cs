@@ -188,7 +188,10 @@ namespace BindingsGeneration
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(enumDecl, env.TypeDatabase);
                 if (opaqueEmittable == 0 && opaqueSkipped > 0)
+                {
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                    context.GetEmissionContext()?.AddEmittedOpaqueType(enumDecl.SwiftTypeName.ModuleQualifiedName);
+                }
                 else
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, enumDecl);
                 TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, enumDecl);

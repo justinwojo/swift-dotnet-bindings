@@ -32,8 +32,17 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
             // an `[UnsupportedSwiftType("Existential type fallback", …)]` annotation
             // that contradicts the strongly-typed projection.
             // (gap-0.10.0-everyprotocol-and-existentials.md Cases 1 + 2.)
+            //
+            // Plain (no-generic-args) existentials over a real protocol with no
+            // associated types and no Self requirement also project cleanly to
+            // `IP` through the standard existential proxy. Suppress the fallback
+            // there too — emitting `[UnsupportedSwiftType("Existential type fallback", …)]`
+            // on a member whose body uses the working proxy is build-noise that
+            // hides genuine obsoletes (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md
+            // Site 1: Lottie `DotLottieFile.NamedAsync(…, IDotLottieCacheProvider?, …)`).
             TypeDatabaseExtensions.AnyTypeFallbackInfo? fallback =
-                HasResolvableConcreteGenericArgs(named, context.Database)
+                HasResolvableConcreteGenericArgs(named, context.Database) ||
+                IsProjectablePlainExistential(named, context.Database)
                     ? null
                     : new TypeDatabaseExtensions.AnyTypeFallbackInfo(
                         "Existential type fallback",
@@ -48,6 +57,51 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
 
         result = null;
         return false;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="named"/> is a no-generic-args existential
+    /// (`any P`) whose underlying protocol projects cleanly through the standard
+    /// existential proxy — i.e. exists in the database with <c>Kind=Protocol</c>,
+    /// carries neither <c>HasSelfRequirement</c> nor <c>HasAssociatedTypes</c>,
+    /// and is neither a marker protocol (Sendable, Escapable, Copyable,
+    /// SendableMetatype) nor an ObjC-existential-bridged protocol. Marker and
+    /// ObjC-bridged protocols are filtered out by
+    /// <see cref="ExistentialHandler.GetEffectiveProtocols"/>, so a single-protocol
+    /// existential over either one collapses to <c>object</c> in
+    /// <see cref="ExistentialHandler.GetPublicExistentialType"/> — that IS a real
+    /// surface degradation and the fallback annotation must fire. Mirrors only the
+    /// projection branch that returns <c>I{Name}</c> for plain protocols.
+    /// </summary>
+    private static bool IsProjectablePlainExistential(NamedTypeSpec named, ITypeDatabase typeDatabase)
+    {
+        if (named.GenericParameters.Count != 0)
+            return false;
+
+        // Parity with ExistentialHandler.GetEffectiveProtocols: marker and
+        // ObjC-bridged protocols are stripped before projection. The single-protocol
+        // path then sees an empty effective list and returns "object", not I{Name}.
+        if (ExistentialHandler.IsMarkerProtocol(named))
+            return false;
+        if (TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(named))
+            return false;
+
+        try
+        {
+            var protoSwiftName = SwiftTypeName.FromTypeSpec(named);
+            if (!typeDatabase.TryGetTypeRecord(protoSwiftName, out var protoRecord))
+                return false;
+            if (protoRecord.Kind != TypeRecordKind.Protocol)
+                return false;
+            if (protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
+                protoRecord.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
+                return false;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool HasResolvableConcreteGenericArgs(NamedTypeSpec named, ITypeDatabase typeDatabase)

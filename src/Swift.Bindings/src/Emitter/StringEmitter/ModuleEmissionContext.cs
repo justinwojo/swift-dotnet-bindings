@@ -726,6 +726,26 @@ public sealed class ModuleEmissionContext
         return !string.IsNullOrEmpty(moduleQualifiedName) && _silentTombstones.Contains(moduleQualifiedName);
     }
 
+    private readonly HashSet<string> _emittedOpaqueTypes = new();
+
+    /// <summary>
+    /// Module-qualified names of types where a handler actually emitted the
+    /// <c>[OpaqueSwiftType]</c> annotation at the class header. The registrar pre-pass
+    /// in <see cref="SilentTombstoneRegistrar"/> claims to mirror that decision; this set
+    /// is the ground-truth side of the invariant <c>SilentTombstones ⊆ EmittedOpaqueTypes</c>,
+    /// asserted before <c>binding-emission-report.json</c> is written. A break means the
+    /// registrar's predicate has drifted from handler reality and a metadata-cookie reference
+    /// to a tombstoned type would dangle.
+    /// </summary>
+    public IReadOnlyCollection<string> EmittedOpaqueTypes => _emittedOpaqueTypes;
+
+    /// <summary>Records that a handler actually emitted a <c>[OpaqueSwiftType]</c> annotation.</summary>
+    public void AddEmittedOpaqueType(string moduleQualifiedName)
+    {
+        if (!string.IsNullOrEmpty(moduleQualifiedName))
+            _emittedOpaqueTypes.Add(moduleQualifiedName);
+    }
+
     // ==================== Native ARM64 Thunks ====================
 
     private readonly System.Text.StringBuilder _assemblyBuilder = new();

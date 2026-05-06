@@ -17,8 +17,12 @@ namespace BindingsGeneration;
 /// The predicate in <see cref="WouldEmitAsOpaqueTombstone"/> MUST mirror the
 /// handler-time decisions exactly; a false positive pollutes <c>binding-emission-report.json</c>
 /// and produces spurious SB0002 at call sites that reference a perfectly-usable type
-/// (e.g., a simple C# enum or a namespace static class). See the comments on each
-/// early-return for which handler it pairs with.
+/// (e.g., a simple C# enum or a namespace static class). It also breaks the cookie-resolution
+/// invariant — a tombstoned type that no handler actually emits leaves dangling
+/// <c>GetTypeMetadataOrThrow&lt;T&gt;()</c> references in the generated source.
+/// <see cref="EmissionReportEmitter.AssertSilentTombstoneInvariant"/> verifies the
+/// registry ⊆ actually-emitted invariant before report write and throws on divergence.
+/// See the comments on each early-return for which handler it pairs with.
 ///
 /// Registration key is <see cref="SwiftTypeName.ModuleQualifiedName"/>, so nested
 /// types like <c>Module.Outer.Inner</c> match the lookup against

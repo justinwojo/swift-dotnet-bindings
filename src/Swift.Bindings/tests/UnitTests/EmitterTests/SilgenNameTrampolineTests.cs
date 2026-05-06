@@ -579,24 +579,20 @@ public class SilgenNameTrampolineTests
     }
 
     [Fact]
-    public void Async_WithClosureParam_NoConversion_LegacyFallbackEmitted_Bundle7Deferred()
+    public void Async_WithClosureParam_NoConversion_SkippedAsAbiUnsafe()
     {
-        // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper — DEFERRED to Bundle 7.
+        // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper.
         //
         // An async method whose signature carries a non-baseline closure parameter is rejected
-        // by HasCdeclCompatibleFunctionShape (no @_cdecl wrapper produced). In xcframework mode
-        // the legacy path then emits an `@_silgen_name` Swift trampoline plus a CallConvSwift
-        // P/Invoke into Swift's async ABI. That P/Invoke is genuinely ABI-unsafe at runtime,
-        // but Bundle 02's IsSkippedWrapperDirectPInvoke trigger over-fired — the same flag
-        // state appears on simple-signature async on generic class parents
-        // (AsyncGenericContainer&lt;T&gt;.processAsync, fetchOrThrow) that empirically work
-        // through the legacy path. Flipping the skip on for the closure case requires a
-        // signature-level discriminator (existential params, complex non-blittable returns)
-        // that Bundle 7 owns.
-        //
-        // This test pins the Bundle 02 status quo: the legacy @_silgen_name + CallConvSwift
-        // path is still emitted. Bundle 7 will replace these assertions with the skip-path
-        // expectations once the refined trigger lands.
+        // by HasCdeclCompatibleFunctionShape (no @_cdecl wrapper produced). Pre-Bundle 7 the
+        // legacy path emitted an `@_silgen_name` Swift trampoline plus a CallConvSwift P/Invoke
+        // into Swift's async ABI — genuinely ABI-unsafe at runtime: closure ownership transfer
+        // needs the destroy-thunk projection that lives only on the cdecl-wrapped path. The
+        // Bundle 7 refined trigger in WrapperValidation.IsSkippedWrapperDirectPInvoke now
+        // recognises this shape (async + closure param) and skips the method with an
+        // "ABI-unsafe direct call" diagnostic instead of emitting a working-looking-but-broken
+        // API. The mirror unit-level test lives in
+        // AbiSafetyTests.IsSkippedWrapperDirectPInvoke_AsyncWithClosureParam_ReturnsTrue.
         var typeDatabase = CreateAsyncTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
@@ -613,13 +609,12 @@ public class SilgenNameTrampolineTests
 
         var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
-        // Legacy fallback: @_silgen_name trampoline is emitted (no @_cdecl, since the closure
-        // param fails the cdecl-shape check).
-        Assert.Contains("@_silgen_name", swiftOutput);
+        // Skip path: no Swift trampoline, no C# P/Invoke, an Unsupported comment in C#.
+        Assert.DoesNotContain("@_silgen_name", swiftOutput);
         Assert.DoesNotContain("@_cdecl", swiftOutput);
-        // C# emits a CallConvSwift P/Invoke into the trampoline. Bundle 7 will flip this to
-        // the unsupported-comment path when the refined ABI-unsafety trigger is wired.
-        Assert.Contains("CallConvSwift", csOutput);
+        Assert.DoesNotContain("CallConvSwift", csOutput);
+        Assert.Contains("// Unsupported:", csOutput);
+        Assert.Contains("ABI-unsafe", csOutput);
     }
 
     #endregion

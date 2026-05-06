@@ -37,6 +37,154 @@ public class StrategyTests
     }
 
     [Fact]
+    public void ExistentialStrategy_PlainExistentialOverPlainProtocol_SuppressesFallback()
+    {
+        // `any DotLottieCacheProvider` over a plain protocol (no associated types,
+        // no Self requirement) projects cleanly to `IDotLottieCacheProvider` through
+        // the standard existential proxy. Emitting `[UnsupportedSwiftType("Existential
+        // type fallback", …)]` on a member whose body uses the working proxy is
+        // build-noise that hides genuine obsoletes
+        // (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md Site 1).
+        var db = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Lottie", "/tmp/Lottie.dylib");
+        var protoName = SwiftTypeName.FromModuleQualifiedName("Lottie.DotLottieCacheProvider");
+        module.RegisterType(protoName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Lottie", "IDotLottieCacheProvider"),
+            SwiftTypeName = protoName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol,
+        });
+        db.AddModuleDatabase(module);
+        var strategy = new ExistentialStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Lottie.DotLottieCacheProvider") { IsAny = true },
+            new ResolutionContext(db),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.Equal(TypeDatabaseExtensions.AnyType, result!.Record);
+        Assert.Null(result.SyntheticFallback);
+    }
+
+    [Fact]
+    public void ExistentialStrategy_PlainExistentialOverPATProtocol_KeepsFallback()
+    {
+        // `any P` where P has associated types degrades to `object` in the existential
+        // projection (PAT can't be expressed without type arguments). The fallback
+        // annotation stays — the surface IS opaque.
+        var db = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Sample", "/tmp/Sample.dylib");
+        var protoName = SwiftTypeName.FromModuleQualifiedName("Sample.Container");
+        module.RegisterType(protoName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Sample", "IContainer"),
+            SwiftTypeName = protoName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.HasAssociatedTypes,
+            Kind = TypeRecordKind.Protocol,
+        });
+        db.AddModuleDatabase(module);
+        var strategy = new ExistentialStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Sample.Container") { IsAny = true },
+            new ResolutionContext(db),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.SyntheticFallback);
+        Assert.Equal("Existential type fallback", result.SyntheticFallback!.Value.Reason);
+    }
+
+    [Theory]
+    [InlineData("Swift.Sendable")]
+    [InlineData("Swift.Escapable")]
+    [InlineData("Swift.Copyable")]
+    [InlineData("Swift.SendableMetatype")]
+    public void ExistentialStrategy_PlainExistentialOverMarkerProtocol_KeepsFallback(string markerName)
+    {
+        // Marker protocols (Sendable, Escapable, Copyable, SendableMetatype) are
+        // stripped by ExistentialHandler.GetEffectiveProtocols, so a single-protocol
+        // existential over a marker collapses to `object` rather than `IMarker`.
+        // The fallback annotation must fire — the surface IS opaque.
+        var db = new TypeDatabase();
+        var module = new ModuleTypeDatabase("Swift", "/tmp/Swift.dylib");
+        var protoName = SwiftTypeName.FromModuleQualifiedName(markerName);
+        module.RegisterType(protoName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "I" + protoName.Name),
+            SwiftTypeName = protoName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol,
+        });
+        db.AddModuleDatabase(module);
+        var strategy = new ExistentialStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec(markerName) { IsAny = true },
+            new ResolutionContext(db),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.SyntheticFallback);
+        Assert.Equal("Existential type fallback", result.SyntheticFallback!.Value.Reason);
+    }
+
+    [Fact]
+    public void ExistentialStrategy_PlainExistentialOverObjCBridgedProtocol_KeepsFallback()
+    {
+        // ObjC-existential-bridged protocols (e.g. `any UIKit.UIScrollViewDelegate`)
+        // are stripped by ExistentialHandler.GetEffectiveProtocols. The
+        // single-protocol path then sees an empty effective list and returns
+        // "object", not `IUIScrollViewDelegate`. The fallback annotation must fire.
+        // (UIKit is registered in AppleFrameworkRegistry with the "UI" objcPrefix,
+        // so the Apple registry classifies UIKit.UIScrollViewDelegate as ObjC-bridged.)
+        var db = new TypeDatabase();
+        var module = new ModuleTypeDatabase("UIKit", "/tmp/UIKit.dylib");
+        var protoName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIScrollViewDelegate");
+        module.RegisterType(protoName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "IUIScrollViewDelegate"),
+            SwiftTypeName = protoName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol,
+        });
+        db.AddModuleDatabase(module);
+        var strategy = new ExistentialStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("UIKit.UIScrollViewDelegate") { IsAny = true },
+            new ResolutionContext(db),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.SyntheticFallback);
+        Assert.Equal("Existential type fallback", result.SyntheticFallback!.Value.Reason);
+    }
+
+    [Fact]
+    public void ExistentialStrategy_PlainExistentialUnknownProtocol_KeepsFallback()
+    {
+        // No TypeRecord for the protocol — projection can't pick `IP`, falls back
+        // to `object`. The fallback annotation must fire so the consumer sees the
+        // degradation.
+        var strategy = new ExistentialStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Unknown.Protocol") { IsAny = true },
+            new ResolutionContext(EmptyDatabase()),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.SyntheticFallback);
+    }
+
+    [Fact]
     public void ExistentialStrategy_DoesNotMatchSwiftAny()
     {
         // Swift.Any / Swift.AnyObject are intentionally NOT existentials —

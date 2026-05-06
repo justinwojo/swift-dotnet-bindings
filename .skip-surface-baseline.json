@@ -1,11 +1,11 @@
 {
-  "git_sha": "e996e968",
+  "git_sha": "24feb06e",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "ObsoleteSB0001",
       "reason": "No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI",
-      "count": 49
+      "count": 50
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -417,9 +417,45 @@
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method 'enumerate' — closure signature not yet supported (Parameter 'arg0' has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method 'install' — closure signature not yet supported (Parameter 'arg0' has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method 'purchaseAsync' — parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method 'runAsync' — parameter or return type not yet supported (wrapper not emitted; direct call would be ABI-unsafe)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method 'runRequest' — parameter or return type not yet supported (unbridgeable async-throwing closure)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method 'validate' — closure signature not yet supported (Parameter 'arg0' has unsupported closure type that cannot be marshalled.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Existential type fallback",
-      "count": 65
+      "count": 67
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLibDependency.cs",

@@ -420,10 +420,17 @@ namespace BindingsGeneration
                     {
                         if (methodDecl.IsConstructor)
                         {
-                            // Constructors can't be renamed — skip as before
+                            // Constructors can't be renamed — skip as before. The other
+                            // overload that owns this projected key was already emitted in
+                            // the same class body, so writing a `// Unsupported: method
+                            // 'init' — C# signature collides…` comment into csWriter here
+                            // would land directly above whatever is emitted next and read
+                            // as if it applied to that working member. Record the skip in
+                            // report.json (the audit trail) but suppress the source-level
+                            // comment (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md
+                            // Site 3: Lottie `AnimationKeypath(IEnumerable<string>)`).
                             _logger.LogDebug($"Skipping constructor '{methodDecl.Name}' - projected C# signature collides: {projectedKey}");
                             ReportCollector.RecordMemberSkipped(methodDecl, SkipReason.DuplicateSignature, $"Projected C# constructor signature collides: {projectedKey}");
-                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, SkipReason.DuplicateSignature);
                             continue;
                         }
 

@@ -1057,6 +1057,17 @@ internal static class ProtocolConformanceHelper
                 if (protoRecord.Kind != TypeRecordKind.Protocol)
                     continue;
 
+                // Self-requirement protocols project to `IFoo<TSelf> where TSelf : IFoo<TSelf>`
+                // (CRTP) — the associated types are folded into Self and don't appear in the
+                // C# interface signature. Substituting an associated-type binding for TSelf
+                // (e.g. `IHashFunction<SHA256Digest>` instead of `IHashFunction<SHA256>`)
+                // produces CS0311 (TSelf constraint unsatisfiable) and CS0535 (missing protocol
+                // method impls) on every CryptoKit hash function. The Self-requirement branch
+                // in the main loop (~line 1006) already owns the correct emission for these
+                // protocols, so the closed-PAT projection must yield to it.
+                if (protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                    continue;
+
                 var protocolDecl = conformanceValidator.FindProtocol(conformance.Protocol.ModuleQualifiedName);
                 if (protocolDecl == null)
                     continue;

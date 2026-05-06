@@ -223,7 +223,10 @@ namespace BindingsGeneration
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, classDecl, emitObsolete: true);
                 var (opaqueEmittable, opaqueSkipped) = MemberEmissionValidator.CountEmittableMembers(classDecl, env.TypeDatabase);
                 if (opaqueEmittable == 0 && opaqueSkipped > 0)
+                {
                     TypeAnnotationHelper.EmitOpaqueTypeAnnotation(csWriter, opaqueSkipped);
+                    context.GetEmissionContext()?.AddEmittedOpaqueType(classDecl.SwiftTypeName.ModuleQualifiedName);
+                }
                 else
                     TypeAnnotationHelper.EmitDisposalRemarks(csWriter, classDecl);
                 TypeAnnotationHelper.EmitSwiftSendableAnnotation(csWriter, classDecl);

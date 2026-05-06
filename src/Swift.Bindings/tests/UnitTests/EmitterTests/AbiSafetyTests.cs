@@ -2750,22 +2750,18 @@ public class AbiSafetyTests
 
     #region IsSkippedWrapperDirectPInvoke Tests
     //
-    // Bundle 02 — ABI correctness. IsSkippedWrapperDirectPInvoke is a CROSS-BUNDLE SCAFFOLD:
-    // Bundle 02 wires the predicate up at the MethodHandler call site (so the skip path is
-    // exercised in tests) but the body returns false unconditionally. Bundle 7 will replace
-    // the scaffold with a refined trigger that matches the genuine ABI-unsafe shape
-    // (existential params like `some UIScene`, complex non-blittable returns) without
-    // catching simple-signature async on generic class parents that empirically work with
-    // the legacy CallConvSwift direct-PInvoke path.
-    //
-    // (bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper — StoreKit
-    // Product.purchase(confirmIn: some UIScene) — deferred to Bundle 7.)
+    // ABI correctness — Bundle 7 refined detector for
+    // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper (StoreKit
+    // Product.purchase(confirmIn: some UIScene)).
     //
     // The flag-family early returns (UsesCdeclWrapper / UsesNativeThunk /
     // HasOptionalPointerWrapper / HasClosureCdeclWrapper / UsesWrapperLibrary) are part of the
-    // scaffold contract — Bundle 7's refined trigger sits BEHIND those guards, so any method
-    // routed through a real wrapper symbol is exempt no matter what the trigger does.
-    // The tests below pin those guards plus the non-xcframework-mode early return.
+    // contract — the refined trigger sits BEHIND those guards, so any method routed through a
+    // real wrapper symbol is exempt regardless of signature shape. The signature-level trigger
+    // fires only on async methods whose shape the legacy direct-CallConvSwift path can't
+    // service correctly: method-level generics, closure params, existential params. Sync
+    // methods and simple-signature async on generic class parents are intentionally NOT
+    // flagged — they go through SB0001 (sync) or work empirically (simple async).
 
     [Fact]
     public void IsSkippedWrapperDirectPInvoke_NotXCFrameworkMode_ReturnsFalse()
@@ -2785,29 +2781,126 @@ public class AbiSafetyTests
     }
 
     [Fact]
-    public void IsSkippedWrapperDirectPInvoke_AsyncWithoutWrapperFlag_Bundle02Scaffold_ReturnsFalse()
+    public void IsSkippedWrapperDirectPInvoke_AsyncSimpleSignature_ReturnsFalse()
     {
-        // bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper — DEFERRED to Bundle 7.
-        //
-        // The naive trigger ("async with no wrapper flags in xcframework mode") over-fires:
-        // it matches both the genuine ABI-unsafe shape (StoreKit Product.purchase(confirmIn:
-        // some UIScene)) AND simple-signature async methods on generic class parents that
-        // empirically work with the legacy CallConvSwift direct-PInvoke path
-        // (e.g. AsyncGenericContainer<T>.processAsync, fetchOrThrow). The two cases reach
-        // the predicate with identical flag state, so discriminating them requires deeper
-        // signature analysis (existential params, complex non-blittable returns) that
-        // Bundle 02 doesn't add. Until Bundle 7 lands the refined trigger, the predicate
-        // returns false and the skip path is dormant.
-        //
-        // This test pins the Bundle 02 contract: an async method with no wrapper flags must
-        // NOT be skipped in xcframework mode. Bundle 7 will add a sibling test that fires
-        // the trigger on a method whose signature carries an existential param.
+        // Async with no method-level generics, no closure params, no existential params,
+        // no wrapper flag — the legacy CallConvSwift direct-PInvoke path is empirically
+        // safe for this shape (e.g. AsyncGenericContainer<T>.processAsync, fetchOrThrow).
+        // The discriminator must NOT fire here: an over-fire would silently drop working
+        // async APIs from emission.
         var (moduleDecl, typeDb) = CreateTestEnvironment();
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
         var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var method = CreateMethod("processAsync", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithMethodLevelGeneric_ReturnsTrue()
+    {
+        // StoreKit Product.purchase(confirmIn: some UIScene) shape: the Swift `some Protocol`
+        // parameter compiles to a method-level generic, which the cdecl wrapper emitter can't
+        // service (no metatype-capturing wrapper). The legacy direct path has nowhere to plumb
+        // the metatype either — calling it would be ABI-unsafe.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Product", moduleDecl);
         var method = CreateMethod("purchase", parentDecl, moduleDecl);
         method.IsAsync = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T0", "T0", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncOnGenericParentNoMethodOwnGeneric_ReturnsFalse()
+    {
+        // AsyncGenericContainer<T>.processAsync() shape: the parent class is generic, but
+        // the method itself has no own generic params. The parser folds the parent's generic
+        // signature into MethodDecl.GenericParameters, so MethodDecl.IsGeneric is true even
+        // though there is no method-own generic to plumb. Predicate must use
+        // HasMethodOwnGenericParameters and return false here so the legacy direct path keeps
+        // working for plain async methods on generic types.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("AsyncGenericContainer", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var method = CreateMethod("processAsync", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithExistentialParam_ReturnsTrue()
+    {
+        // Async + `any Protocol` (or protocol composition) parameter: PWT passing through the
+        // legacy direct-CallConvSwift async path is under-specified. Skip with diagnostic.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var existentialParam = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Validator") });
+        var method = CreateMethodWithParam("loadAsync", existentialParam, "validator", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_AsyncWithClosureParam_ReturnsTrue()
+    {
+        // Async + closure param: closure ownership transfer needs the destroy-thunk projection
+        // that only the cdecl-wrapped path plumbs through. Mirrors the SilgenName trampoline
+        // pinned-test fixture (Fetcher.fetchWithCallback). The legacy @_silgen_name +
+        // CallConvSwift trampoline cannot bridge a Swift async to a cdecl callback.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Fetcher", moduleDecl);
+        var closureParam = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        closureParam.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodWithParam("fetchWithCallback", closureParam, "callback", parentDecl, moduleDecl);
+        method.IsAsync = true;
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));
+    }
+
+    [Fact]
+    public void IsSkippedWrapperDirectPInvoke_SyncWithExoticParam_ReturnsFalse()
+    {
+        // The discriminator is async-specific. Sync methods with closure / existential params
+        // have their own diagnostic path (SB0001 / HasNonBlittablePInvokeTypes for non-blittable
+        // shapes). The Bundle 7 trigger must NOT shadow that path.
+        var (moduleDecl, typeDb) = CreateTestEnvironment();
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Validator", moduleDecl);
+        var existentialParam = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Predicate") });
+        var method = CreateMethodWithParam("validate", existentialParam, "predicate", parentDecl, moduleDecl);
+        method.IsAsync = false;
         var env = new MethodEnvironment(method, typeDb);
 
         Assert.False(WrapperValidation.IsSkippedWrapperDirectPInvoke(env));

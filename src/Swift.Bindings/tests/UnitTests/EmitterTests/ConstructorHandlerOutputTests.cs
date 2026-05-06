@@ -430,6 +430,49 @@ public class ConstructorHandlerOutputTests
         Assert.DoesNotContain("SBW_", swiftOutput);
     }
 
+    [Fact]
+    public void Emit_TwoConstructorsCollidingOnProjectedKey_SecondSkipped_NoUnsupportedComment()
+    {
+        // Two Swift constructors with different argument labels project to the same C#
+        // constructor signature (labels are stripped from the projected dedup key,
+        // parameter types are kept). The first one wins emission; the second hits the
+        // constructor branch in IHandler.HandleBaseDecl's projected-key collision check.
+        //
+        // C# can't disambiguate constructors with a numeric suffix (constructors don't
+        // have names), so the second one is skipped. We must record the skip in
+        // report.json (audit trail) but NOT write a `// Unsupported: method 'init' (C#
+        // signature collides …)` comment to the C# source — that comment would land
+        // directly above whatever the emitter writes next and read as if it applied to
+        // the working overload that *did* emit
+        // (gap-0.10.0-misleading-unsupported-attribute-on-working-members.md Site 3:
+        // Lottie `AnimationKeypath(IEnumerable<string>)`).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Widget", moduleDecl, typeDatabase);
+
+        // init(a: Int) and init(b: Int) — different labels, same projected key (`ctor(System.Int64)`).
+        CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("a", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+        CreateConstructorDeclForClass("init", parentDecl, moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("b", new NamedTypeSpec("Swift.Int"), moduleDecl)
+            });
+
+        var csOutput = EmitClass(parentDecl, typeDatabase);
+
+        // First constructor emits successfully.
+        Assert.Contains("public Widget(", csOutput);
+
+        // Second constructor's collision must NOT produce a `// Unsupported: method 'init' …`
+        // comment. The audit trail lives in report.json (ReportCollector); the C# source
+        // must stay clean so the comment doesn't misattribute to the next emitted member.
+        Assert.DoesNotContain("// Unsupported: method 'init'", csOutput);
+    }
+
     #endregion
 
     private static TypeDatabase CreateTypeDatabase()
@@ -811,5 +854,25 @@ public class ConstructorHandlerOutputTests
         handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csOutput.ToString(), swiftOutput.ToString());
+    }
+
+    /// <summary>
+    /// Drives the full ClassHandler.Marshal + Emit path so IHandler.HandleBaseDecl runs over
+    /// the class's members. Use this instead of <see cref="EmitConstructor"/> when the test
+    /// needs to exercise primary/projected dedup loops, collision suffixing, or any other
+    /// behavior that lives in the iteration loop rather than in the per-member handler.
+    /// </summary>
+    private static string EmitClass(ClassDecl classDecl, TypeDatabase typeDatabase)
+    {
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var handler = new ClassHandler(new NullLogger<ClassHandler>());
+        var env = handler.Marshal(classDecl, typeDatabase);
+        var conductor = new Conductor(new NullLoggerFactory());
+        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+
+        return csOutput.ToString();
     }
 }

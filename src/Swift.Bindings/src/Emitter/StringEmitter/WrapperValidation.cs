@@ -1542,34 +1542,48 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Scaffold predicate for the "async into the raw Swift ABI" detection planned in Bundle 7.
-    /// Returns <c>true</c> when a method has no wrapper flag and is in xcframework mode —
-    /// the conditions where Bundle 7 will gate SB0001 ABI-unsafe diagnostics.
+    /// Detects the genuine ABI-unsafe direct-CallConvSwift case: an async method that lost
+    /// its <c>@_cdecl</c> wrapper and would otherwise emit a P/Invoke against Swift's mangled
+    /// async symbol with <see cref="CallConvSwift"/>. The Swift async ABI is not stable
+    /// for direct P/Invoke — continuation tracking, executor hopping, and error propagation
+    /// are all under-specified at this boundary — so the method must be skipped with a
+    /// diagnostic instead of emitted as a working-looking-but-broken API.
     ///
-    /// <para><b>Bundle 02 scope:</b> this predicate is currently a no-op for the
-    /// <c>direct-callconvswift-pinvoke-for-skipped-wrapper</c> case (StoreKit
-    /// <c>Product.purchase(confirmIn: some UIScene)</c>): the bug 1 emission-time gate
-    /// was withdrawn after it was found to over-fire on simple-signature async methods on
+    /// <para><b>Discriminator:</b> behind the flag-family early-returns (any wrapper flag means
+    /// a real Swift symbol exists with Swift CC, which is safe), the predicate fires only
+    /// for async methods whose signature carries a feature the legacy direct path cannot
+    /// service correctly:</para>
+    /// <list type="bullet">
+    /// <item><b>Method-level generics</b> (e.g. <c>some Protocol</c> in StoreKit
+    /// <c>Product.purchase(confirmIn: some UIScene)</c>) — the cdecl wrapper would need to
+    /// emit a generic Swift function that captures the metatype, which the wrapper emitter
+    /// doesn't yet support. The legacy path has no place to plumb the metatype.</item>
+    /// <item><b>Closure parameters</b> on async methods — closure ownership transfer needs the
+    /// destroy-thunk projection that lives only on the cdecl-wrapped path. The legacy
+    /// <c>@_silgen_name</c> trampoline cannot bridge a Swift async to a cdecl callback.
+    /// Pinned by <c>SilgenNameTrampolineTests.Async_WithClosureParam_NoConversion_*</c>.</item>
+    /// <item><b>Existential parameters</b> (<c>any Protocol</c>, protocol compositions) on
+    /// async methods — PWT passing is ABI-unsafe through the legacy path.</item>
+    /// </list>
+    ///
+    /// <para><b>Empirically working paths intentionally NOT flagged:</b> async methods on
     /// generic class parents (<c>AsyncGenericContainer&lt;T&gt;.processAsync</c>,
-    /// <c>fetchOrThrow</c>) that empirically work with the legacy CallConvSwift direct-PInvoke
-    /// path. A correct discriminator must distinguish "wrapper rejected because the signature
-    /// has ABI-incompatible features" from "wrapper not emitted because the method is on a
-    /// generic-class parent and the legacy direct path is intentional and works." Both reach
-    /// here with identical method-flag state, so flag-only inspection cannot tell them apart.
-    /// Bundle 7 owns the refined detector (and the SB0001 / WorkaroundRecommendations integration
-    /// in <c>gap-0.10.0-misleading-unsupported-attribute-on-working-members</c>).</para>
+    /// <c>fetchOrThrow</c>) where the metatype is captured at instance-construction time
+    /// via the existing PWT machinery. Sync methods through the legacy path are also out of
+    /// scope here — they go through SB0001 / <see cref="HasNonBlittablePInvokeTypes"/>.</para>
     ///
     /// <para><b>Out of scope:</b> the wrapper-library "symbol missing in wrapper dylib" case
-    /// (bug-0.10.0-generic-async-wrapper-symbol-missing — MusicKit
+    /// (<c>bug-0.10.0-generic-async-wrapper-symbol-missing</c> — MusicKit
     /// <c>MusicPlayer.Queue.insert&lt;S: Sequence&gt;</c>) cannot be detected from method
     /// flags alone: many legitimate paths (ArraySlice, default-parameter, metatype-array,
     /// protocol-extension wrappers) set <see cref="MethodDecl.UsesWrapperLibrary"/> without
-    /// a @_cdecl-flag because they emit @_silgen_name wrappers whose symbols ARE present in
-    /// the wrapper dylib. Distinguishing real misses requires a wrapper-export cross-reference
-    /// and is tracked under the same bundle.</para>
+    /// a <c>@_cdecl</c> flag because they emit <c>@_silgen_name</c> wrappers whose symbols
+    /// ARE present in the wrapper dylib. Distinguishing real misses requires a wrapper-export
+    /// cross-reference and is owned by Session C.</para>
     /// </summary>
     /// <param name="env">The method environment (after all wrapper flags have been resolved).</param>
-    /// <returns>Always <c>false</c> in Bundle 02. Bundle 7 will refine this.</returns>
+    /// <returns><c>true</c> when the C# emission must skip this method with an
+    /// "ABI-unsafe direct call" diagnostic; <c>false</c> when the legacy path is safe.</returns>
     public static bool IsSkippedWrapperDirectPInvoke(MethodEnvironment env)
     {
         // Predicate is xcframework-mode only. Outside xcframework mode the wrapper library
@@ -1595,9 +1609,33 @@ public static class WrapperValidation
         if (env.MethodDecl.UsesWrapperLibrary)
             return false;
 
-        // Bundle 7 will replace this no-op return with a refined trigger that matches the
-        // genuine ABI-unsafe shape (existential params, complex non-blittable returns) without
-        // catching simple-signature async on generic class parents that empirically work.
+        // Sync methods through the legacy direct-CallConvSwift path are diagnosed via SB0001
+        // / HasNonBlittablePInvokeTypes (they're emitted with an [Obsolete] warning, not
+        // skipped). The Bundle 7 trigger is async-specific because the Swift async ABI is the
+        // boundary that's under-specified for direct P/Invoke.
+        if (!env.MethodDecl.IsAsync)
+            return false;
+
+        // Method-level generics on async: `some Protocol` and explicit `<T>` parameters
+        // require per-call metatype passing the legacy async path can't synthesise. Use
+        // HasMethodOwnGenericParameters to exclude parent-type generics (the parser folds
+        // the parent's generic signature into MethodDecl.GenericParameters), so plain async
+        // methods on `Container<T>` continue to flow through the legacy path.
+        if (HasMethodOwnGenericParameters(env.MethodDecl))
+            return true;
+
+        // Async + closure / existential parameter: closures need the destroy-thunk projection
+        // that only the cdecl wrapper plumbs through; existentials (any Protocol /
+        // ProtocolListTypeSpec) need PWT passing. Skip the return slot (CSSignature[0]).
+        foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
+        {
+            if (env.ClosureHandler.IsClosure(arg))
+                return true;
+            if (env.ExistentialHandler.IsExistential(arg.SwiftTypeSpec))
+                return true;
+        }
+
+        // Simple-signature async — legacy direct path is empirically safe.
         return false;
     }
 

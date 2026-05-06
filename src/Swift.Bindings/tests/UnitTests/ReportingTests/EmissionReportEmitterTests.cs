@@ -114,4 +114,39 @@ public class EmissionReportEmitterTests
         Assert.False(ctx.IsSilentTombstone("WeatherKit.Weather"));
         Assert.False(ctx.IsSilentTombstone(""));
     }
+
+    [Fact]
+    public void AssertSilentTombstoneInvariant_AllRegisteredAlsoEmitted_DoesNotThrow()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.AddSilentTombstone("MusicKit.MusicAttributeProperty");
+        ctx.AddSilentTombstone("MusicKit.MusicRelationshipProperty");
+        ctx.AddEmittedOpaqueType("MusicKit.MusicAttributeProperty");
+        ctx.AddEmittedOpaqueType("MusicKit.MusicRelationshipProperty");
+        ctx.AddEmittedOpaqueType("MusicKit.SomeOtherOpaqueType"); // emitted-but-not-tombstoned is fine
+
+        EmissionReportEmitter.AssertSilentTombstoneInvariant(ctx, "MusicKit");
+    }
+
+    [Fact]
+    public void AssertSilentTombstoneInvariant_RegisteredButNotEmitted_Throws()
+    {
+        var ctx = new ModuleEmissionContext();
+        ctx.AddSilentTombstone("MusicKit.MusicAttributeProperty");
+        ctx.AddSilentTombstone("MusicKit.RegisteredButNotEmitted");
+        ctx.AddEmittedOpaqueType("MusicKit.MusicAttributeProperty");
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => EmissionReportEmitter.AssertSilentTombstoneInvariant(ctx, "MusicKit"));
+        Assert.Contains("MusicKit.RegisteredButNotEmitted", ex.Message);
+        Assert.Contains("Silent tombstone invariant violated", ex.Message);
+        Assert.Contains("module 'MusicKit'", ex.Message);
+    }
+
+    [Fact]
+    public void AssertSilentTombstoneInvariant_EmptyContext_DoesNotThrow()
+    {
+        var ctx = new ModuleEmissionContext();
+        EmissionReportEmitter.AssertSilentTombstoneInvariant(ctx, "TestModule");
+    }
 }

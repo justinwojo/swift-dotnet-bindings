@@ -26,8 +26,17 @@ public class EmissionReport
 
     /// <summary>
     /// Module-qualified names of types that were emitted with [OpaqueSwiftType] but have
-    /// zero usable surface (all members skipped). Call sites whose return type is a silent
-    /// tombstone are flagged with the SB0002 diagnostic so audits can grep them out.
+    /// zero usable surface (all members skipped). The type IS present as a C# class
+    /// declaration — metadata-cookie references to it resolve correctly — but the surface
+    /// is opaque-only (the consumer can hold an instance but cannot call any methods on it).
+    /// Call sites whose return type is a silent tombstone are flagged with the SB0002
+    /// diagnostic so audits can grep them out.
+    ///
+    /// Invariant: every name here also appears in <see cref="ModuleEmissionContext.EmittedOpaqueTypes"/>.
+    /// <see cref="EmissionReportEmitter.Emit"/> throws on divergence — a break would mean
+    /// the registrar predicate (<c>SilentTombstoneRegistrar.WouldEmitAsOpaqueTombstone</c>)
+    /// has drifted from handler reality and a metadata-cookie reference to a tombstoned
+    /// type would dangle in the generated source.
     /// </summary>
     [JsonProperty("silentTombstones")]
     public List<string> SilentTombstones { get; set; } = new();
@@ -59,6 +68,8 @@ public static class EmissionReportEmitter
         ArgumentNullException.ThrowIfNull(emissionContext);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentNullException.ThrowIfNull(logger);
+
+        AssertSilentTombstoneInvariant(emissionContext, moduleName);
 
         var report = BuildReport(emissionContext, moduleName);
 
@@ -93,6 +104,34 @@ public static class EmissionReportEmitter
             logger.LogInformation("Emission: {Count} silent tombstones (types emitted with [OpaqueSwiftType] but zero usable members)",
                 report.SilentTombstones.Count);
         }
+    }
+
+    /// <summary>
+    /// Verifies that every silent tombstone the registrar pre-pass recorded was actually
+    /// emitted as a <c>[OpaqueSwiftType]</c> declaration by a handler. A break means
+    /// <see cref="SilentTombstoneRegistrar.WouldEmitAsOpaqueTombstone"/> returned <c>true</c>
+    /// for a type that no handler emitted — leaving any metadata-cookie reference to that
+    /// type unresolved in the generated source. Throws to fail the build loudly so the
+    /// drift can be diagnosed and the registrar's predicate brought back in sync.
+    /// </summary>
+    internal static void AssertSilentTombstoneInvariant(ModuleEmissionContext emissionContext, string moduleName)
+    {
+        var divergent = emissionContext.SilentTombstones
+            .Where(name => !emissionContext.EmittedOpaqueTypes.Contains(name))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+        if (divergent.Count == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"Silent tombstone invariant violated in module '{moduleName}': "
+            + $"{divergent.Count} type(s) registered by SilentTombstoneRegistrar were not emitted "
+            + "with [OpaqueSwiftType] by any handler. Metadata-cookie references to these types "
+            + "would dangle. Likely cause: an early-return predicate in "
+            + "SilentTombstoneRegistrar.WouldEmitAsOpaqueTombstone is missing a case that the "
+            + "handler-side opaque-emission gate excludes, or a handler suppressed emission via "
+            + "a path the registrar does not model. "
+            + $"Divergent types: {string.Join(", ", divergent)}");
     }
 
     internal static EmissionReport BuildReport(ModuleEmissionContext emissionContext, string moduleName)
