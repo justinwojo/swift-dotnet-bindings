@@ -146,3 +146,76 @@ Generator audit gate: every `IEquatable<T>` / `GetHashCode` override
 declared on a generic type should have its corresponding Swift
 extension's `where ... : Equatable` constraint mirrored to the C#
 generic parameter list.
+
+## Resolution
+
+Took the conservative-drop path described in the original Hypothesis
+section. Extending the parser to thread conditional `where` clauses
+through ABI JSON / `genericSig` would require the Swift + C#
+`kSchemaVersion` lockstep bump documented in
+`feedback_swift_interface_parser_schema_version`, which is out of
+scope for 0.10.0. The drop preserves the long-term option to upgrade
+to precise constraint mirroring later — the helper added here is the
+single switch.
+
+### Where the gate lives
+
+`src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EquatableConformanceHelper.cs`
+exposes `IsConformanceUnconditionalForCSharp(TypeDecl, ITypeDatabase?,
+string protocolModuleQualifiedName)`. The method returns `true` only
+when **every** generic parameter of `typeDecl` carries a constraint
+that transitively conforms to the requested protocol. The walk
+follows `TypeRecord.ProtocolConformances` edges so Swift's
+`Hashable → Equatable` refinement is recognised — a generic parameter
+constrained to `Hashable` correctly counts as `Equatable`. Non-generic
+types short-circuit to `true` (they cannot carry a conditional
+conformance).
+
+### Wired into five emission sites
+
+1. `TypeHandlerHelpers.GetImplementedInterfaces` — drops the
+   `IEquatable<...>` interface line in the class declaration.
+2. `TypeHandlerHelpers.EqualityMethodsWriter` — gates the
+   `Equals` / `GetHashCode` / `==` / `!=` body emission for structs.
+3. `ClassHandler.ClassEqualityMethodsWriter` — same for classes.
+4. `FrozenStructHandler` — threads `env.TypeDatabase` through.
+5. `NonFrozenStructHandler` — threads `env.TypeDatabase` through.
+
+The two writer constructors gained an `ITypeDatabase?` parameter so
+the helper can resolve protocol-refinement edges at emit time.
+
+### Tests
+
+Five new Layer A tests in
+`src/Swift.Bindings/tests/UnitTests/EmitterTests/TypeHandlerHelpersTests.cs`:
+
+- `GetImplementedInterfaces_GenericTypeConditionalEquatable_OmitsIEquatable`
+  — `MusicItemCollection<MusicItemType : MusicItem>`: `MusicItem` does
+  not refine `Equatable`, so `IEquatable<...>` is omitted.
+- `GetImplementedInterfaces_GenericTypeWithEquatableConstraint_IncludesIEquatable`
+  — `where T : Equatable` ⇒ kept.
+- `GetImplementedInterfaces_GenericTypeWithHashableConstraint_IncludesIEquatable`
+  — `where T : Hashable` ⇒ kept via refinement walk.
+- `GetImplementedInterfaces_NonGenericType_AlwaysIncludesIEquatable`
+  — non-generic types unaffected.
+- `GetImplementedInterfaces_MultiParamGeneric_OneUnconstrained_OmitsIEquatable`
+  — every parameter must satisfy the constraint; one unconstrained
+  parameter is enough to drop `IEquatable`.
+
+Two pre-existing tests were adjusted to declare `T : Equatable`
+(plus a `Swift.Equatable` Protocol record in their custom
+`TypeDatabase`) so they continue to assert the unconditional path:
+`Emit_ClassHandler_GenericClass_UsesTypeArgumentsInSelfReferences`
+and `ClassEquality_GenericClass_SkipsCdecl`.
+
+### Verified end-to-end
+
+`nuke validate --filter MusicKit` regenerated MusicKit.cs and all four
+`MusicItemCollection`-shape generic types (`MusicItemCollection`,
+`MusicLibraryResponse`, `MusicLibrarySection`,
+`MusicLibrarySectionedResponse`) now emit **without**
+`IEquatable<...>` and without the `Equals` / `GetHashCode` /
+`==` / `!=` body. Non-generic types still emit `IEquatable<...>` as
+before, and `nuke validate --filter StoreKit2` confirmed the Bundle 5
+sibling fix (`some UIScene` → `where T0 : UIKit.UIScene`) is
+preserved.

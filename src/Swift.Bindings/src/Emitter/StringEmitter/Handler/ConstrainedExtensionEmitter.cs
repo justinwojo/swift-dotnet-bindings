@@ -250,6 +250,19 @@ public static class ConstrainedExtensionEmitter
         }
     }
 
+    /// <summary>
+    /// Classifies the return shape of a constrained-extension property for emission.
+    /// </summary>
+    private enum CEReturnShape
+    {
+        /// <summary>Swift.String — returned via Utf8Slice in a 16-byte caller buffer.</summary>
+        String,
+        /// <summary>Swift primitive (Int*, Bool, Float, Double, ...) — returned by value.</summary>
+        Primitive,
+        /// <summary>Resilient (non-frozen) Swift struct (e.g. Foundation.Data) — returned via indirect-result buffer sized by the type's VWT.</summary>
+        NonFrozenStruct,
+    }
+
     private static bool TryEmitPropertyExtension(
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
@@ -264,12 +277,18 @@ public static class ConstrainedExtensionEmitter
         List<Action> pinvokeDeclarations,
         ILogger logger)
     {
-        bool isString = WitnessDispatchEmitter.IsStringType(property.SwiftTypeSpec);
-
-        // For non-string types, classify return type.
-        // Only primitive returns are supported — ObjC classes, Swift classes, and non-frozen
-        // structs need IntPtr/indirect-result marshalling that this emitter doesn't implement.
-        if (!isString)
+        // Classify return shape. String and Primitive are returned by value; NonFrozenStruct
+        // (e.g. Foundation.Data on StoreKit2's VerificationResult.headerData) needs the
+        // indirect-result buffer shape used by ExtensionMarshallingHelper. Other shapes
+        // (frozen-as-value structs like Foundation.Date / Foundation.UUID, ObjC classes,
+        // Swift classes, and generic-parameter returns like VerificationResult.payloadValue)
+        // remain unsupported here — see the doc resolution for follow-up scope.
+        CEReturnShape shape;
+        if (WitnessDispatchEmitter.IsStringType(property.SwiftTypeSpec))
+        {
+            shape = CEReturnShape.String;
+        }
+        else
         {
             var returnCategory = ClassifyReturnType(property.SwiftTypeSpec, typeDatabase);
             if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
@@ -279,17 +298,23 @@ public static class ConstrainedExtensionEmitter
                     property.Name);
                 return false;
             }
-            if (returnCategory.Value != ReturnKind.Primitive)
+            shape = returnCategory.Value switch
+            {
+                ReturnKind.Primitive => CEReturnShape.Primitive,
+                ReturnKind.NonFrozenStruct => CEReturnShape.NonFrozenStruct,
+                _ => (CEReturnShape)(-1),
+            };
+            if ((int)shape < 0)
             {
                 logger.LogDebug(
-                    "ConstrainedExtensionEmitter: Skipping property {Name} — non-primitive return ({ReturnKind}) requires complex marshalling.",
+                    "ConstrainedExtensionEmitter: Skipping property {Name} — return kind {ReturnKind} is not yet supported in constrained-extension emission.",
                     property.Name, returnCategory.Value);
                 return false;
             }
         }
 
         var propertyName = NameProvider.ToPascalCase(property.Name);
-        var csharpReturnType = isString
+        var csharpReturnType = shape == CEReturnShape.String
             ? "string"
             : ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase);
 
@@ -307,35 +332,72 @@ public static class ConstrainedExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        if (isString)
+        switch (shape)
         {
-            // String: allocate buffer, call P/Invoke, marshal Utf8Slice to string
-            csWriter.WriteLine("unsafe");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("void* _cdeclBuf = null;");
-            csWriter.WriteLine("try");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("_cdeclBuf = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)(nint.Size * 2));");
-            csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
-            csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr, self.Payload.DangerousGetHandle());");
-            csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.WriteLine("finally");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-            csWriter.WriteLine("System.Runtime.InteropServices.NativeMemory.Free(_cdeclBuf);");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-        }
-        else
-        {
-            // Primitive: direct P/Invoke call
-            csWriter.WriteLine($"return NativeMethods.{symbolName}(self.Payload.DangerousGetHandle());");
+            case CEReturnShape.String:
+                // String: allocate Utf8Slice buffer, call P/Invoke, marshal Utf8Slice to string
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("void* _cdeclBuf = null;");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("_cdeclBuf = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)(nint.Size * 2));");
+                csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
+                csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr, self.Payload.DangerousGetHandle());");
+                csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("System.Runtime.InteropServices.NativeMemory.Free(_cdeclBuf);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                break;
+
+            case CEReturnShape.Primitive:
+                // Primitive: direct P/Invoke call
+                csWriter.WriteLine($"return NativeMethods.{symbolName}(self.Payload.DangerousGetHandle());");
+                break;
+
+            case CEReturnShape.NonFrozenStruct:
+                // Indirect-result shape: allocate VWT-sized buffer, pass SwiftIndirectResult
+                // to the @_cdecl wrapper, then marshal the value out. Must match the existing
+                // PropertyHandler emission so MarshalFromSwift<T> sees the same layout.
+                //
+                // Ownership: for non-frozen structs / classes projected as ISwiftObject,
+                // SwiftMarshal.MarshalFromSwift<T>(buffer) wraps the buffer in the returned
+                // SafeHandle and the wrapper takes ownership. We must NOT free on the
+                // success path (use-after-free / double-free on disposal of the returned
+                // object). The try / catch+Free+rethrow shape mirrors
+                // ExtensionMarshallingHelper.cs:263 (ReturnKind.NonFrozenStruct): on the
+                // exceptional path the wrapper call or MarshalFromSwift throws before
+                // ownership transfers, so the buffer must be freed to avoid a leak; on
+                // the success path control returns through MarshalFromSwift before
+                // reaching the catch and the SafeHandle owns the buffer thereafter.
+                csWriter.WriteLines($$"""
+                    unsafe
+                    {
+                        var metadata = SwiftObjectHelper<{{csharpReturnType}}>.GetTypeMetadata();
+                        IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(metadata.Size);
+                        try
+                        {
+                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                            return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
+                        }
+                        catch
+                        {
+                            System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                            throw;
+                        }
+                    }
+                    """);
+                break;
         }
 
         csWriter.Indent--;
@@ -343,27 +405,33 @@ public static class ConstrainedExtensionEmitter
 
         // ----- Swift @_cdecl wrapper -----
         EmitSwiftGetterWrapper(swiftWriter, property, parentTypeDecl, concreteTypeName,
-            symbolName, moduleName, isString, emissionContext);
+            symbolName, moduleName, shape, emissionContext);
 
         // ----- Queue P/Invoke declaration -----
         var capturedSymbol = symbolName;
-        var capturedIsString = isString;
+        var capturedShape = shape;
         var capturedReturnType = csharpReturnType;
         pinvokeDeclarations.Add(() =>
         {
             var pinvokeParams = new List<string>();
             string pinvokeReturnType;
 
-            if (capturedIsString)
+            switch (capturedShape)
             {
-                pinvokeParams.Add("IntPtr resultPtr");
-                pinvokeParams.Add("IntPtr _self");
-                pinvokeReturnType = "void";
-            }
-            else
-            {
-                pinvokeParams.Add("IntPtr _self");
-                pinvokeReturnType = capturedReturnType;
+                case CEReturnShape.String:
+                    pinvokeParams.Add("IntPtr resultPtr");
+                    pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "void";
+                    break;
+                case CEReturnShape.NonFrozenStruct:
+                    pinvokeParams.Add("SwiftIndirectResult indirectResult");
+                    pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "void";
+                    break;
+                default: // Primitive
+                    pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = capturedReturnType;
+                    break;
             }
 
             PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
@@ -389,7 +457,7 @@ public static class ConstrainedExtensionEmitter
         SwiftTypeName concreteTypeName,
         string symbolName,
         string moduleName,
-        bool isString,
+        CEReturnShape shape,
         ModuleEmissionContext emissionContext)
     {
         var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
@@ -397,7 +465,7 @@ public static class ConstrainedExtensionEmitter
         var closedGenericSwiftType = $"{parentSwiftName}<{concreteSwiftName}>";
 
         // Ensure SBW_Utf8Slice is available for string properties
-        if (isString)
+        if (shape == CEReturnShape.String)
         {
             Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
             Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, emissionContext);
@@ -409,13 +477,16 @@ public static class ConstrainedExtensionEmitter
             // Concrete specialization — no generic dispatch needed.
             """);
 
-        // Build parameter list
+        // Build parameter list — String and NonFrozenStruct use indirect-result style
+        // (a caller-provided buffer in resultPtr); Primitive returns by value.
         var swiftParams = new List<string>();
-        if (isString)
+        if (shape == CEReturnShape.String || shape == CEReturnShape.NonFrozenStruct)
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
         swiftParams.Add("_ self_: UnsafeRawPointer");
 
-        var returnClause = isString ? "" : $" -> {RenderSwiftReturnType(property)}";
+        var returnClause = shape == CEReturnShape.Primitive
+            ? $" -> {RenderSwiftReturnType(property)}"
+            : "";
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Swift function name uses hash to avoid collisions
@@ -427,7 +498,7 @@ public static class ConstrainedExtensionEmitter
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
-        // Reconstruct self from pointer — structs use memory binding, classes use Unmanaged
+        // Reconstruct self from pointer — structs / enums use memory binding, classes use Unmanaged
         if (parentTypeDecl is ClassDecl)
             swiftWriter.WriteLine($"let obj = Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
         else
@@ -435,13 +506,25 @@ public static class ConstrainedExtensionEmitter
 
         // Emit getter body
         var propAccess = $"obj.{property.Name}";
-        if (isString)
+        switch (shape)
         {
-            StringReturnEmitter.EmitGetterBody(swiftWriter, propAccess);
-        }
-        else
-        {
-            swiftWriter.WriteLine($"return {propAccess}");
+            case CEReturnShape.String:
+                StringReturnEmitter.EmitGetterBody(swiftWriter, propAccess);
+                break;
+            case CEReturnShape.Primitive:
+                swiftWriter.WriteLine($"return {propAccess}");
+                break;
+            case CEReturnShape.NonFrozenStruct:
+                // Indirect-result write — matches PropertyHandler's emission shape so
+                // `MarshalFromSwift<T>(buffer)` reads the correct VWT-sized layout.
+                // Module-qualified type spec is required for .initializeMemory(as:) —
+                // unqualified names (e.g. `P256.Signing.ECDSASignature`) won't resolve
+                // unless the wrapper file imports the source module (e.g. CryptoKit),
+                // which we can't guarantee. Fully qualified (`CryptoKit.P256.…`)
+                // resolves through the framework's transitive imports.
+                swiftWriter.WriteLine($"let result = {propAccess}");
+                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {RenderSwiftReturnType(property)}.self, repeating: result, count: 1)");
+                break;
         }
 
         swiftWriter.Indent--;
@@ -450,7 +533,7 @@ public static class ConstrainedExtensionEmitter
 
     private static string RenderSwiftReturnType(PropertyDecl property)
     {
-        return ExistentialBypassEmitter.RenderSwiftTypeSpec(property.SwiftTypeSpec);
+        return ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(property.SwiftTypeSpec);
     }
 
     private static string? ResolveCSharpName(SwiftTypeName swiftTypeName, ITypeDatabase typeDatabase)

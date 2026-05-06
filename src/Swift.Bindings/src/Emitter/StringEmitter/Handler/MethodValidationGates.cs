@@ -141,6 +141,92 @@ internal static class MethodValidationGates
     }
 
     /// <summary>
+    /// Recognizes the "<c>some Protocol</c> resolves to an ObjC-bridged class" shape and
+    /// hands back the C# fully-qualified class name to use as a base-class constraint.
+    /// Returns <c>true</c> when the conformance target's TypeRecord exists with
+    /// <see cref="TypeRecordKind.Class"/> and the <see cref="TypeRecordFlags.ObjCBridged"/>
+    /// flag — the synthetic shape produced by
+    /// <see cref="TypeDatabaseExtensions.CreateObjCBridgedTypeRecord"/> for Apple-framework
+    /// protocols (e.g. <c>UIKit.UIScene</c>) that .NET iOS bindings expose as concrete types
+    /// in the framework's namespace rather than as <c>I{Protocol}</c> interfaces.
+    /// <para/>
+    /// The corresponding C# constraint is a base-class constraint
+    /// (<c>where T : UIKit.UIScene</c>) — without an <c>ISwiftObject</c> seed, since
+    /// ObjC-bridged classes do not implement <c>ISwiftObject</c>. The body's PWT extraction
+    /// path already filters non-protocol conformance targets in
+    /// <c>MethodMarshalPlanBuilder.BuildWitnessTableStatements</c> via
+    /// <see cref="IsProtocolAvailableForConstraint"/>, so the constraint shift carries no
+    /// extra @_cdecl/PInvoke ABI cascade.
+    /// <para/>
+    /// Distinct from the protocol path (<see cref="IsProtocolAvailableForConstraint"/>) so
+    /// callers can compose interface AND class constraints cleanly when both surface on the
+    /// same parameter — the C# constraint syntax requires the class constraint first, then
+    /// interfaces. Today we don't emit <c>ISwiftObject</c> alongside an ObjC class, but the
+    /// helper's shape leaves room for future Swift-rooted class constraints to retain the
+    /// seed.
+    /// </summary>
+    internal static bool TryGetClassConstraintTarget(
+        SwiftTypeName conformanceTargetTypeName,
+        ITypeDatabase typeDatabase,
+        out string csClassName)
+    {
+        // Registered records always win — if the type is in the database, trust the
+        // recorded Kind/Flags. Only treat as a class constraint when the record itself
+        // is an ObjC-bridged Class.
+        if (typeDatabase.TryGetTypeRecord(conformanceTargetTypeName, out var record))
+        {
+            if (record.Kind == TypeRecordKind.Class &&
+                record.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
+            {
+                csClassName = record.CSharpTypeName.FullyQualifiedName;
+                return true;
+            }
+
+            csClassName = string.Empty;
+            return false;
+        }
+
+        // Fallback: autoBridge framework types (UIKit, AppKit, ...) are NOT pre-loaded
+        // into the TypeDatabase — they synthesize on demand via
+        // <see cref="TypeDatabaseExtensions.CreateObjCBridgedTypeRecord"/>. The
+        // <c>some UIScene</c> case lands here because UIKit is autoBridge and the
+        // generator only seeds module-local + dep-module records up front. Mirror the
+        // "type not in DB, but ObjC class" branch the rest of the emitter uses
+        // (e.g. <see cref="TypeDatabaseExtensions.GetTypeRecordOrThrow"/>). This
+        // branch only fires when the type is absent from the DB, so a registered
+        // record above always takes precedence.
+        //
+        // BUT: <see cref="TypeDatabaseExtensions.IsObjCClassSwiftType"/> is overly
+        // permissive — it returns true for ANY non-value-type symbol in an autoBridge
+        // module, including Swift-only protocols like <c>Foundation.DataProtocol</c>
+        // and <c>Foundation.ContiguousBytes</c>. CreateObjCBridgedTypeRecord
+        // unconditionally synthesizes <see cref="TypeRecordKind.Class"/>, so the
+        // synthetic record lies for those names. Promoting them to class constraints
+        // produces uncompilable C# (`where T : Foundation.DataProtocol` doesn't
+        // resolve — there is no such .NET type).
+        //
+        // Discriminator: the name must either (a) appear in the explicit
+        // Foundation Swift → .NET ObjC name registry, OR (b) start with a known
+        // ObjC class prefix (NS/UI/CA/...). UIKit.UIScene matches (b);
+        // Foundation.Data matches (a); Foundation.DataProtocol matches neither.
+        if (TypeDatabaseExtensions.IsObjCClassSwiftType(conformanceTargetTypeName)
+            && (AppleFrameworkRegistry.TryGetNetTypeName(conformanceTargetTypeName.ModuleQualifiedName, out _)
+                || AppleFrameworkRegistry.HasObjCClassPrefix(conformanceTargetTypeName.ModuleQualifiedName)))
+        {
+            var synthetic = TypeDatabaseExtensions.CreateObjCBridgedTypeRecord(conformanceTargetTypeName);
+            if (synthetic.Kind == TypeRecordKind.Class &&
+                synthetic.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
+            {
+                csClassName = synthetic.CSharpTypeName.FullyQualifiedName;
+                return true;
+            }
+        }
+
+        csClassName = string.Empty;
+        return false;
+    }
+
+    /// <summary>
     /// Returns true if the conformance is part of the parent type's baseline constraints
     /// for the matching generic parameter. Parent-baseline constraints are already handled
     /// by the type-level where clause and should not be re-checked at the method level.

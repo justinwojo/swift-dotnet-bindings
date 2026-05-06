@@ -179,3 +179,108 @@ on the same MultiSpecialization shape (covered there as Family C in
 Cross-reference in
 [SDK-0.10.0-BLOCKERS.md](../../swift-dotnet-packages/SDK-0.10.0-BLOCKERS.md)
 under Round 5 / M-2.
+
+## Resolution
+
+Partial fix in 0.10.0: the StoreKit2 canonical case
+(`VerificationResult<SignedType>` with `where SignedType ==
+{Transaction, AppTransaction, RenewalInfo}` extension properties) is
+now lowered correctly. The fix has two parts.
+
+### Part 1 — wire EnumHandler to the constrained-extension emitter
+
+`VerificationResult<SignedType>` is a `@frozen public enum`. The
+existing `ConstrainedExtensionEmitter` was already wired into
+`ClassHandler`, `FrozenStructHandler`, and `NonFrozenStructHandler`,
+but **not** into `EnumHandler` — so generic enums whose properties
+are defined in `where T == Concrete` extensions were
+validator-suppressed at the open-generic level (correctly: the
+mangled symbol is bound to the closed instantiation) AND never
+re-surfaced as closed-generic extension methods. Result: the entire
+property surface vanished.
+
+`src/Swift.Bindings/src/Emitter/StringEmitter/Handler/EnumHandler.cs`
+now invokes `ConstrainedExtensionEmitter.EmitConstrainedExtensions`
+after closing the enum class, mirroring the wiring in the three
+other handlers.
+
+### Part 2 — non-frozen-struct return shape in ConstrainedExtensionEmitter
+
+`VerificationResult<Transaction>.signature` returns a non-frozen
+`ECDSASignature` (resilient struct, indirect-result ABI). The
+emitter previously handled only String and primitive returns. A new
+`CEReturnShape` discriminator (`String` / `Primitive` /
+`NonFrozenStruct`) drives `TryEmitPropertyExtension`:
+
+- **NonFrozenStruct**: the C# extension method allocates a
+  VWT-sized buffer via `SwiftObjectHelper<T>.GetTypeMetadata().Size`,
+  PInvokes with `(SwiftIndirectResult indirectResult, IntPtr _self)`,
+  then `SwiftMarshal.MarshalFromSwift<T>(buffer)`. The Swift `@_cdecl`
+  wrapper takes `_ resultPtr: UnsafeMutableRawPointer` and writes the
+  value with `resultPtr.initializeMemory(as: T.self, repeating:
+  result, count: 1)`.
+- **String** / **Primitive**: unchanged (UTF-8 slice helper for
+  String, plain return for primitives).
+
+`src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ConstrainedExtensionEmitter.cs`.
+
+### Layer A coverage
+
+Two new emission tests in
+`src/Swift.Bindings/tests/UnitTests/EmitterTests/ConstrainedExtensionEmitterTests.cs`:
+
+- `EmitConstrainedExtensions_GenericEnum_StringProperty_EmitsExtensionMethodAndUtf8Slice`
+  — generic enum + `where T == Concrete` extension property of type
+  `String`, asserts UTF-8 slice helper + `(IntPtr resultPtr, IntPtr
+  _self)` PInvoke.
+- `EmitConstrainedExtensions_GenericEnum_NonFrozenStructProperty_UsesIndirectResult`
+  — same shape, non-frozen struct return, asserts VWT buffer
+  allocation, `SwiftIndirectResult` PInvoke arg, and
+  `resultPtr.initializeMemory(as:repeating:count:)` Swift wrapper.
+
+The eight pre-existing `ConstrainedExtensionEmitter` tests still
+pass (10/10 total).
+
+### Verified end-to-end
+
+`nuke validate --filter StoreKit2` now emits three new extension
+classes
+`VerificationResult{AppTransaction|Transaction|RenewalInfo}Extensions`
+on the closed instantiations, exposing `GetJwsRepresentation`
+(string) and `GetSignature` (resilient struct returning
+`ECDSASignature`) per concrete type. The Swift wrappers are emitted
+into the companion swift file with the indirect-result shape
+described above. `nuke validate --filter WeatherKit` confirms no
+`Forecast<T>.Summary` regression.
+
+### Remaining scope (deferred)
+
+The fix covers String and non-frozen-struct return shapes — enough
+to resolve the StoreKit2 `jwsRepresentation` + `signature` blocker
+described in the original Impact section. The following sub-shapes
+are tracked as follow-ups, not blockers for 0.10.0:
+
+- **Foundation value types as return** (`Data`, `Date`, `UUID`):
+  these are registered as `frozen="true"
+  requiresMemoryManagement="false"`, so
+  `ExtensionMarshallingHelper.ClassifyReturnType` returns null
+  ("Frozen value-type struct not supported yet"). Affects
+  `headerData`, `payloadData`, `signatureData`, `signedData`,
+  `signedDate`, `deviceVerification`, `deviceVerificationNonce`.
+  These remain skipped.
+- **`payloadValue` / `unsafePayloadValue`**: skip under
+  `AnyTypeFallback` because the projected return is the open
+  generic parameter `SignedType`. The fix would be to substitute
+  the concrete specialization at extension-method emit time. Out of
+  scope for this pass; tracked separately.
+- **WeatherKit query types** (`[OpaqueSwiftType(2)]` tombstones)
+  and **MusicKit `MusicLibraryRequest<T>` accessors**: same
+  `MultiSpecialization` shape, but the constrained extensions
+  contain methods (not just properties) and additional return
+  shapes (closure parameters, structured result types). Worth
+  revisiting as a unified pass once Bundle 11/11b lands.
+
+The single-switch design means future shapes (frozen value types,
+`SignedType`-as-return, methods) extend
+`ConstrainedExtensionEmitter` in the same place rather than
+spreading across the four handler call-sites.

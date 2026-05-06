@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Generics;
@@ -63,6 +65,55 @@ public class OpaqueParamTests : TestBase
         TestLogger.Info($"opaqueLabelCharacterCount(OpaqueTag(\"\")) = {count}");
         AssertEqual(0, count,
             "opaqueLabelCharacterCount must return 0 for an empty opaqueLabel.");
+    }
+
+    /// <summary>
+    /// Bundle 05 #1 (some-protocol over-broad) regression: when Swift
+    /// declares <c>some OpaqueDescribable</c> at parameter position the
+    /// generator must emit the bound protocol type as a generic-parameter
+    /// constraint. Pre-fix the constraint synthesizer dropped the protocol
+    /// name and emitted <c>where T : ISwiftObject</c> only — letting
+    /// callers pass any <see cref="ISwiftObject"/>, which would crash at
+    /// runtime when Swift projected metadata against a missing witness
+    /// table. Post-fix the constraint set must include
+    /// <c>IOpaqueDescribable</c>.
+    /// </summary>
+    public void TestOpaqueLabelCharacterCount_ConstraintIncludesBoundProtocol()
+    {
+        // Filter on name + generic arity + parameter count rather than calling
+        // GetMethod(name) directly. A bare GetMethod(name) lookup throws
+        // AmbiguousMatchException the moment a future overload of
+        // OpaqueLabelCharacterCount lands (e.g. an Encodable-stdlib variant or
+        // a non-generic erased helper). The filter form keeps the assertion
+        // narrowly targeted at the specific generated generic method we care
+        // about — one generic parameter, one value parameter — so adding an
+        // unrelated overload to the fixture does not silently break the test.
+        var candidates = typeof(SwiftBindingsTestLib.Functions)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.Name == nameof(SwiftBindingsTestLib.Functions.OpaqueLabelCharacterCount))
+            .Where(m => m.IsGenericMethodDefinition)
+            .Where(m => m.GetGenericArguments().Length == 1)
+            .Where(m => m.GetParameters().Length == 1)
+            .ToArray();
+
+        AssertEqual(1, candidates.Length,
+            "Exactly one OpaqueLabelCharacterCount<T> method overload (1 generic, 1 parameter) " +
+            "must be discoverable via reflection. A different count means the fixture has " +
+            "drifted (overload added or removed) and the constraint assertion below is " +
+            "no longer aimed at the generated some-protocol entry point.");
+
+        var method = candidates[0];
+        var generics = method.GetGenericArguments();
+        var constraints = generics[0].GetGenericParameterConstraints();
+        var names = constraints.Select(c => c.Name).ToArray();
+        TestLogger.Info($"OpaqueLabelCharacterCount<T> constraints: [{string.Join(", ", names)}]");
+
+        AssertTrue(
+            constraints.Any(c => c == typeof(IOpaqueDescribable)),
+            "Bundle 05 #1: generic-parameter constraint set must include IOpaqueDescribable. " +
+            "Without it the over-broad ISwiftObject-only constraint allows mismatched " +
+            "ISwiftObject types to compile and crash at runtime when Swift's witness-table " +
+            "lookup fails.");
     }
 
 }

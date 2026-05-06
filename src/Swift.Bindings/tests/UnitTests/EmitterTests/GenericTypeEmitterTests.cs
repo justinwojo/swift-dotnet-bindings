@@ -447,6 +447,156 @@ public class GenericTypeEmitterTests
 
     #endregion
 
+    #region ObjC-Bridged Class-As-Constraint Tests (some-protocol over-broad)
+
+    [Fact]
+    public void GetWhereClause_ObjCBridgedClassConformanceTarget_EmitsBaseClassConstraint()
+    {
+        // Reproduces the StoreKit `purchase(confirmIn: some UIScene)` shape: the
+        // `some UIScene` opaque parameter lowers to a synthetic generic with a
+        // protocol conformance pointing at `UIKit.UIScene`. The TypeDatabase
+        // resolves `UIKit.UIScene` to a synthetic ObjC-bridged Class record (via
+        // CreateObjCBridgedTypeRecord) because UIKit is an autoBridge module in
+        // apple-frameworks.json. The where-clause emitter must recognize this
+        // and emit `where T : UIKit.UIScene` (a base-class constraint), NOT the
+        // over-broad `where T : ISwiftObject` fallback.
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("PurchaseHelper", "StoreKit",
+            new List<string> { "UIKit.UIScene" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIScene"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        // Class constraint must be present and ISwiftObject must NOT be seeded —
+        // ObjC-bridged classes do not implement ISwiftObject, so seeding it
+        // would produce an unsatisfiable constraint (no type can be both an
+        // ObjC class deriving from UIKit.UIScene AND a Swift-class implementing
+        // ISwiftObject).
+        Assert.Contains("UIKit.UIScene", result);
+        Assert.DoesNotContain("ISwiftObject", result);
+        Assert.DoesNotContain("IUIScene", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_ObjCBridgedClassConstraint_PrecedesAdditionalInterfaces()
+    {
+        // C# `where` syntax requires class constraints to appear ahead of any
+        // interface constraints. When a generic param has both an ObjC-bridged
+        // class conformance AND a registered interface conformance, the class
+        // must come first. This is the corner case that motivates the explicit
+        // ordering in the where-clause emitter.
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"),
+                ConformanceKind.Protocol),
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("StoreKit.Confirmable"),
+                ConformanceKind.Protocol),
+        };
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", conformances, new List<GenericParameterConformance>()),
+        };
+        var moduleDecl = CreateModuleDecl("StoreKit");
+        var typeDecl = new StructDecl
+        {
+            Name = "MixedConstraint",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("StoreKit.MixedConstraint"),
+            MangledName = "$s8StoreKit15MixedConstraintV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s8StoreKit15MixedConstraintVMa",
+            GenericParameters = genericParams,
+        };
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIScene"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            }),
+            (SwiftTypeName.FromModuleQualifiedName("StoreKit.Confirmable"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("StoreKit", "IConfirmable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("StoreKit.Confirmable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        var classIndex = result.IndexOf("UIKit.UIScene", StringComparison.Ordinal);
+        var interfaceIndex = result.IndexOf("IConfirmable", StringComparison.Ordinal);
+        Assert.True(classIndex >= 0, "Class constraint must be present.");
+        Assert.True(interfaceIndex >= 0, "Surviving interface constraint must be present.");
+        Assert.True(classIndex < interfaceIndex,
+            "Class constraint must appear before interface constraints to satisfy C# where-clause syntax.");
+        Assert.DoesNotContain("ISwiftObject", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_NonObjCBridgedCrossModuleClass_DoesNotPromoteToBaseClassConstraint()
+    {
+        // Scoping guard: only ObjC-bridged Class records (the synthetic shape
+        // from CreateObjCBridgedTypeRecord) should be promoted to base-class
+        // constraints. A regular Swift cross-module class registered without
+        // the ObjCBridged flag must continue through the historical permissive
+        // path that emits an "I"-prefixed interface name regardless of declared
+        // Kind. This prevents an accidental class-constraint regression from
+        // spilling out to hand-registered Swift class records.
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Container", "Alamofire",
+            new List<string> { "OtherModule.PlainClass" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("OtherModule.PlainClass"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "PlainClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.PlainClass"),
+                MetadataAccessor = "$s11OtherModule10PlainClassCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        // Without the ObjCBridged flag, the record is NOT promoted to a base-class
+        // constraint — the historical permissive path emits the "I"-prefixed
+        // interface name and keeps ISwiftObject seeded.
+        Assert.DoesNotContain("where T : OtherModule.PlainClass", result);
+        Assert.DoesNotContain("where T : PlainClass", result);
+        Assert.Contains("ISwiftObject", result);
+        Assert.Contains("IPlainClass", result);
+    }
+
+    #endregion
+
     private static StructDecl CreateNonGenericStruct()
     {
         return new StructDecl

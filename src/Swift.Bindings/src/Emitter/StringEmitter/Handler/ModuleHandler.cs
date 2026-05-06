@@ -505,16 +505,16 @@ namespace BindingsGeneration
         {
             foreach (var type in types)
             {
+                // Methods/Properties live on the TypeDecl base, so EnumDecl carries them too —
+                // a previous switch-on-subtype here silently dropped enum properties whose
+                // types belonged to a non-imported Apple framework. The constrained-extension
+                // emitter on a generic enum (StoreKit2 `VerificationResult<SignedType>` →
+                // `signature: P256.Signing.ECDSASignature`) hit this: the `@_cdecl` wrapper
+                // referenced `CryptoKit.P256.…` but `import CryptoKit` was never added.
+
                 // Check methods — @_cdecl wrappers reference parameter and return types from ALL methods,
                 // not just async ones. Missing imports cause "cannot find type 'X' in scope" errors.
-                var methods = type switch
-                {
-                    StructDecl s => s.Methods,
-                    ClassDecl c => c.Methods,
-                    _ => Enumerable.Empty<MethodDecl>()
-                };
-
-                foreach (var method in methods)
+                foreach (var method in type.Methods)
                 {
                     foreach (var sig in method.CSSignature)
                     {
@@ -523,16 +523,34 @@ namespace BindingsGeneration
                 }
 
                 // Check properties — @_cdecl wrappers also reference property types
-                var properties = type switch
-                {
-                    StructDecl s => s.Properties,
-                    ClassDecl c => c.Properties,
-                    _ => Enumerable.Empty<PropertyDecl>()
-                };
-
-                foreach (var property in properties)
+                foreach (var property in type.Properties)
                 {
                     ScanTypeSpecForImports(property.SwiftTypeSpec, neededImports);
+                }
+
+                // Check operators — emitted wrappers reference the underlying method's
+                // parameter and return types just like ordinary methods. Skipping these
+                // lets a concrete type's `static func == (lhs:rhs:)` reference a framework
+                // type (e.g. CryptoKit.Curve25519 marker) without `import CryptoKit` in
+                // the wrapper, producing "cannot find type in scope" at swiftc.
+                foreach (var op in type.Operators)
+                {
+                    foreach (var sig in op.UnderlyingMethod.CSSignature)
+                    {
+                        ScanTypeSpecForImports(sig.SwiftTypeSpec, neededImports);
+                    }
+                }
+
+                // Check subscripts — subscript return types and index parameter types
+                // appear in the @_cdecl wrapper and need their framework imports too.
+                // Protocol subscripts are handled separately in ScanProtocolsForFrameworkImports.
+                foreach (var subscript in type.Subscripts)
+                {
+                    ScanTypeSpecForImports(subscript.ReturnTypeSpec, neededImports);
+                    foreach (var param in subscript.IndexParameters)
+                    {
+                        ScanTypeSpecForImports(param.SwiftTypeSpec, neededImports);
+                    }
                 }
 
                 // Recursively check nested types

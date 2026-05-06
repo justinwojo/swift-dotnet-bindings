@@ -419,6 +419,22 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+                // Emit constrained-extension specialization classes (e.g.
+                // `extension VerificationResult where SignedType == AppTransaction`)
+                // for generic enums. Mirrors the wiring in ClassHandler /
+                // FrozenStructHandler / NonFrozenStructHandler — without it,
+                // properties on a generic enum's `where T == Concrete` extensions
+                // are validator-suppressed at the open-generic level (correct, the
+                // mangled symbol is bound to the closed instantiation) AND never
+                // re-surfaced as closed-generic extension methods, so consumers
+                // lose the property surface entirely. StoreKit2's
+                // `VerificationResult<SignedType>.jwsRepresentation` etc. are the
+                // canonical case — see
+                // src/docs/Resolved/gap-0.10.0-multispecialization-drops-generic-property-accessors.md.
+                ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+                    csWriter, swiftWriter, enumDecl,
+                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+
                 // Emit P/Invoke helper class(es) after the main enum.
                 // If this is a nested generic inside a generic parent, defer emission
                 // (emitting here would still be inside the outer generic type → CS7042).

@@ -63,6 +63,156 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void GetImplementedInterfaces_GenericTypeConditionalEquatable_OmitsIEquatable()
+    {
+        // Regression: bug-0.10.0-unconditional-equatable-on-conditional-swift-generic.
+        // A Swift generic struct/class whose Equatable conformance is conditional
+        // (`extension Foo : Equatable where T : Equatable`) must NOT emit IEquatable<Foo<T>>
+        // when the C# generic-parameter constraints don't guarantee T's witness.
+        // Without this gate, the witness-bound P/Invoke crashes at runtime.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("MusicKit");
+        var structDecl = CreateStructDeclWithConformances("MusicItemCollection", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("MusicKit.MusicItemCollection"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        // T constrained to MusicItem (a non-Equatable protocol) — conformance is conditional.
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "MusicItemType",
+            new List<GenericParameterConformance>
+            {
+                new(
+                    new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("MusicKit.MusicItem"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "MusicItemCollection<TMusicItemType>", "MusicKit", typeDatabase);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("IEquatable"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_GenericTypeWithEquatableConstraint_IncludesIEquatable()
+    {
+        // The complement: a generic type whose generic parameter IS constrained to Equatable
+        // (directly) — the C# constraint set guarantees the witness, so IEquatable<Foo<T>> is
+        // safe to emit.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Box", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>
+            {
+                new(
+                    new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Box<T>", "TestModule", typeDatabase);
+
+        Assert.Contains(interfaces, i => i.Contains("IEquatable<Box<T>>"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_GenericTypeWithHashableConstraint_IncludesIEquatable()
+    {
+        // Hashable refines Equatable in Swift's stdlib — a `where T : Hashable` constraint
+        // also guarantees the Equatable witness, so IEquatable<Foo<T>> remains safe.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Cache", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Cache"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>
+            {
+                new(
+                    new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Cache<T>", "TestModule", typeDatabase);
+
+        Assert.Contains(interfaces, i => i.Contains("IEquatable<Cache<T>>"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_NonGenericType_AlwaysIncludesIEquatable()
+    {
+        // Non-generic types have no conditional conformances by construction — Equatable
+        // emission must be unaffected by the conditional-witness gate.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Pair", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Pair"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Pair", "TestModule", typeDatabase);
+
+        Assert.Contains(interfaces, i => i.Contains("IEquatable<Pair>"));
+    }
+
+    [Fact]
+    public void GetImplementedInterfaces_MultiParamGeneric_OneUnconstrained_OmitsIEquatable()
+    {
+        // Multi-parameter generic where ONE parameter has Equatable but the other doesn't —
+        // Swift's conditional Equatable would gate on BOTH parameters, so we cannot guarantee
+        // the witness. Drop IEquatable.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("Pair", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Pair"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0",
+            "T",
+            new List<GenericParameterConformance>
+            {
+                new(
+                    new[] { "τ_0_0" },
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+        structDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_1",
+            "U",
+            new List<GenericParameterConformance>(), // no constraint
+            new List<GenericParameterConformance>()));
+
+        var interfaces = ProtocolConformanceHelper.GetImplementedInterfaces(
+            structDecl, "Pair<T, U>", "TestModule", typeDatabase);
+
+        Assert.DoesNotContain(interfaces, i => i.Contains("IEquatable"));
+    }
+
+    [Fact]
     public void GetImplementedInterfaces_CrossModuleProtocol_NoTypeRecord_Excluded()
     {
         var typeDatabase = CreateTypeDatabase();
@@ -963,6 +1113,10 @@ public class TypeHandlerHelpersTests
     public void ClassEquality_GenericClass_SkipsCdecl()
     {
         // Generic classes can't have @_cdecl wrappers (can't instantiate generic from wrapper).
+        // Use a T : Equatable constraint so EquatableConformanceHelper accepts the conformance
+        // as unconditional — without that, generic conditional Equatable is dropped entirely
+        // (the bug-0.10.0-unconditional-equatable-on-conditional-swift-generic fix). This test
+        // is specifically about the wrapper-skip path on a *valid* generic Equatable case.
         var csOutput = new StringWriter();
         var csWriter = new CSharpWriter(csOutput);
         var swiftOutput = new StringWriter();
@@ -974,7 +1128,17 @@ public class TypeHandlerHelpersTests
                 SwiftTypeName.FromModuleQualifiedName("TestModule.Container"),
                 SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
                 "$sMc"));
-        classDecl.GenericParameters.Add(new GenericArgumentDecl("T", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
+        classDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "T",
+            "T",
+            new List<GenericParameterConformance>
+            {
+                new(
+                    new[] { "T" },
+                    SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                    ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
 
         var writer = new ClassEqualityMethodsWriter(csWriter, classDecl, "Container<T>",
             false, false, swiftWriter, emissionContext, "TestModuleSwiftBindings");

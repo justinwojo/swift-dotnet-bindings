@@ -134,6 +134,13 @@ public static class GenericTypeEmitter
             // Collect protocol conformance constraints first; ISwiftObject is seeded only
             // if at least one protocol survives filtering (see method summary above).
             var paramConstraints = new List<string>();
+            // Captures an ObjC-bridged class form of a Swift protocol constraint
+            // (e.g. `some UIScene` / `T : UIScene` whose record is the synthetic
+            // `UIKit.UIScene` class created by `CreateObjCBridgedTypeRecord`).
+            // Class constraints displace `ISwiftObject` because ObjC-bridged classes
+            // do not implement `ISwiftObject` and the C# `where` syntax requires the
+            // class constraint first ahead of any interface constraints.
+            string? classConstraint = null;
 
             // Add protocol conformance constraints
             foreach (var conformance in param.GenericConformances)
@@ -176,12 +183,33 @@ public static class GenericTypeEmitter
                     if (typeDatabase != null
                         && conformance.ConformanceTarget.Module != (typeDecl.ModuleDecl?.Name ?? ""))
                     {
+                        // Cross-module ObjC-bridged "@protocol UIScene" → C# class
+                        // `UIKit.UIScene`. Capture as the type-level class constraint
+                        // and continue. First match wins; multiple class targets on
+                        // the same param are unrepresentable in C# (single-inheritance)
+                        // anyway, so subsequent ObjC-class targets are ignored.
+                        // <see cref="MethodValidationGates.TryGetClassConstraintTarget"/>
+                        // also covers autoBridge framework types (UIKit/AppKit/...)
+                        // that synthesize on demand instead of being pre-registered.
+                        if (classConstraint == null
+                            && MethodValidationGates.TryGetClassConstraintTarget(
+                                conformance.ConformanceTarget, typeDatabase, out var csClassName))
+                        {
+                            classConstraint = csClassName;
+                            continue;
+                        }
+
                         if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var constraintRecord))
                             continue;
                         // Skip well-known stdlib protocols that map to runtime types (not interfaces).
                         // e.g., Swift.Error → AnyError (no IError interface is emitted)
                         if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(constraintRecord))
                             continue;
+                        // Other Kind values (Struct, Enum, Protocol) fall through to
+                        // the historical interface-name emission below — that path is
+                        // intentionally permissive (cross-module records get "I"-prefixed
+                        // interface names regardless of declared Kind, which keeps the
+                        // existing supplement-resolved-as-Struct cases compiling).
                     }
 
                     // Convert Swift protocol name to C# interface name. Use the resolved
@@ -194,6 +222,18 @@ public static class GenericTypeEmitter
                     var interfaceName = NameProvider.GetInterfaceName(conformance.ConformanceTarget.Name, moduleName: resolvedConstraintModule, currentModuleName: typeDecl.ModuleDecl?.Name ?? "");
                     paramConstraints.Add(interfaceName);
                 }
+            }
+
+            if (classConstraint != null)
+            {
+                // ObjC-bridged class constraint (e.g. `where T : UIKit.UIScene`):
+                // emit the class first; ISwiftObject is NOT seeded because ObjC-bridged
+                // classes do not implement ISwiftObject. Any surviving interface
+                // constraints are appended after the class per C# `where` syntax.
+                var ordered = new List<string> { classConstraint };
+                ordered.AddRange(paramConstraints);
+                constraints.Add($"{typeParamName} : {string.Join(", ", ordered)}");
+                continue;
             }
 
             // Seed ISwiftObject when the Swift param carries ANY non-Sendable protocol

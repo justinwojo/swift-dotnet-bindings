@@ -510,6 +510,91 @@ public class ConditionalExtensionConstraintTests
 
     #endregion
 
+    #region TryGetClassConstraintTarget Tests
+
+    // The class-constraint helper recognizes the "some Protocol resolved to ObjC-bridged class"
+    // shape used by autoBridge framework modules (UIKit, AppKit, …). The gate is narrow on
+    // purpose: only Kind=Class WITH the ObjCBridged flag promotes — Swift-rooted classes,
+    // protocol records, struct records, and enum records all stay on the historical
+    // interface-name path.
+
+    [Fact]
+    public void TryGetClassConstraintTarget_ObjCBridgedClass_ReturnsCSharpClassName()
+    {
+        // UIKit.UIScene resolves through CreateObjCBridgedTypeRecord → Kind=Class +
+        // ObjCBridged. Promote to a base-class constraint with the framework's C# name.
+        var typeDatabase = CreateTypeDatabase(
+            ("UIKit.UIScene", TypeRecordKind.Class, TypeRecordFlags.ObjCBridged));
+
+        var result = MethodValidationGates.TryGetClassConstraintTarget(
+            SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"), typeDatabase, out var csClassName);
+
+        Assert.True(result, "ObjC-bridged Class records must promote to a base-class constraint target.");
+        Assert.Equal("TestModule.UIScene", csClassName);
+    }
+
+    [Fact]
+    public void TryGetClassConstraintTarget_ProtocolRecord_ReturnsFalse()
+    {
+        // Protocol records stay on the I-prefixed interface path; do not promote.
+        var typeDatabase = CreateTypeDatabase(
+            ("MyModule.MyProtocol", TypeRecordKind.Protocol, TypeRecordFlags.None));
+
+        var result = MethodValidationGates.TryGetClassConstraintTarget(
+            SwiftTypeName.FromModuleQualifiedName("MyModule.MyProtocol"), typeDatabase, out var csClassName);
+
+        Assert.False(result, "Protocol records must not promote to a class constraint.");
+        Assert.Equal(string.Empty, csClassName);
+    }
+
+    [Fact]
+    public void TryGetClassConstraintTarget_NonObjCBridgedClass_ReturnsFalse()
+    {
+        // A plain Swift class record without ObjCBridged flag must NOT promote — the
+        // helper is the targeted hook for the synthetic UIKit/AppKit shape only.
+        var typeDatabase = CreateTypeDatabase(
+            ("MyModule.PlainClass", TypeRecordKind.Class, TypeRecordFlags.None));
+
+        var result = MethodValidationGates.TryGetClassConstraintTarget(
+            SwiftTypeName.FromModuleQualifiedName("MyModule.PlainClass"), typeDatabase, out var csClassName);
+
+        Assert.False(result, "Plain Swift Class records (no ObjCBridged flag) must not promote.");
+        Assert.Equal(string.Empty, csClassName);
+    }
+
+    [Fact]
+    public void TryGetClassConstraintTarget_UnknownType_ReturnsFalse()
+    {
+        // Records not present in the TypeDatabase fail closed.
+        var typeDatabase = CreateTypeDatabase();
+
+        var result = MethodValidationGates.TryGetClassConstraintTarget(
+            SwiftTypeName.FromModuleQualifiedName("Unknown.Type"), typeDatabase, out var csClassName);
+
+        Assert.False(result, "Unknown types must not promote to a class constraint.");
+        Assert.Equal(string.Empty, csClassName);
+    }
+
+    [Fact]
+    public void TryGetClassConstraintTarget_AutoBridgeFrameworkTypeNotInDatabase_SynthesizesClassConstraint()
+    {
+        // Regression test for the StoreKit2 `some UIScene` constraint bug.
+        // UIKit is an autoBridge framework module — its types are NOT pre-loaded into
+        // the TypeDatabase; they synthesize on demand via CreateObjCBridgedTypeRecord.
+        // Without this fallback, the helper would have returned false here and the
+        // generic constraint would have collapsed to `where T0 : ISwiftObject` instead
+        // of the protocol-specific `where T0 : UIKit.UIScene`.
+        var typeDatabase = CreateTypeDatabase(); // empty DB — no UIKit pre-registration
+
+        var result = MethodValidationGates.TryGetClassConstraintTarget(
+            SwiftTypeName.FromModuleQualifiedName("UIKit.UIScene"), typeDatabase, out var csClassName);
+
+        Assert.True(result, "AutoBridge framework types absent from the DB must still promote via synthesis.");
+        Assert.Equal("UIKit.UIScene", csClassName);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private static MockTypeDatabase CreateTypeDatabase(

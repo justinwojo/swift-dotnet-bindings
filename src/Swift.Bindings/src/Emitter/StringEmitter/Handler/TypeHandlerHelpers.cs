@@ -555,22 +555,42 @@ namespace BindingsGeneration
         private readonly string? _wrapperLibraryName;
 
         public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics)
-            : this(csWriter, structDecl, refType, typeNameWithGenerics, false, false)
+            : this(csWriter, structDecl, refType, typeNameWithGenerics, false, false, typeDatabase: null)
         {
         }
 
         public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
+            : this(csWriter, structDecl, refType, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator, typeDatabase: null)
+        {
+        }
+
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, ITypeDatabase? typeDatabase)
         {
             _writer = csWriter;
             _structDecl = structDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
-            _implementsEquatable = _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+
+            // Filter Equatable / Hashable conformances through the conditional-witness gate so
+            // generic types whose Swift conformance is conditional (e.g.
+            // `extension Foo : Equatable where T : Equatable`) drop their typed equality / hash
+            // surface. The ABI JSON does not preserve the where-clause; without this filter
+            // the generated `Equals(T?)` / `GetHashCode()` would dispatch to a runtime
+            // protocol-witness lookup that traps when the consumer instantiates with a
+            // non-Equatable T.
+            bool equatableUnconditional = EquatableConformanceHelper.IsConformanceUnconditionalForCSharp(
+                _structDecl, typeDatabase, EquatableConformanceHelper.SwiftEquatableModuleQualifiedName);
+            bool hashableUnconditional = EquatableConformanceHelper.IsConformanceUnconditionalForCSharp(
+                _structDecl, typeDatabase, EquatableConformanceHelper.SwiftHashableModuleQualifiedName);
+
+            _implementsEquatable = equatableUnconditional
+                && _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             // OptionSet and RawRepresentable imply Hashable in Swift — ABI may not list it explicitly.
-            _implementsHashable = _structDecl.Conformances.Any(c =>
-                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
-                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
-                c.Protocol.Name == "OptionSet" ||
-                c.Protocol.Name == "RawRepresentable");
+            _implementsHashable = hashableUnconditional
+                && _structDecl.Conformances.Any(c =>
+                    c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                    (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                    c.Protocol.Name == "OptionSet" ||
+                    c.Protocol.Name == "RawRepresentable");
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
@@ -581,8 +601,8 @@ namespace BindingsGeneration
         /// emits @_cdecl equality wrappers instead of using SwiftEquatable.Equals (which uses
         /// CallConvSwift and crashes on NativeAOT).
         /// </summary>
-        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, SwiftWriter? swiftWriter, ModuleEmissionContext? emissionContext, string? wrapperLibraryName)
-            : this(csWriter, structDecl, refType, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator)
+        public EqualityMethodsWriter(CSharpWriter csWriter, StructDecl structDecl, bool refType, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, SwiftWriter? swiftWriter, ModuleEmissionContext? emissionContext, string? wrapperLibraryName, ITypeDatabase? typeDatabase = null)
+            : this(csWriter, structDecl, refType, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator, typeDatabase)
         {
             _swiftWriter = swiftWriter;
             _emissionContext = emissionContext;
@@ -890,6 +910,16 @@ internal static class ProtocolConformanceHelper
                     continue;
 
                 if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
+                    continue;
+
+                // Drop IEquatable<T> on generic types whose Equatable conformance can't be proven
+                // unconditional via the type's generic-parameter constraints. Swift expresses these
+                // through `extension Foo : Equatable where T : Equatable`, but the ABI JSON loses
+                // the where clause. Emitting IEquatable<T> + the witness-bound P/Invoke
+                // unconditionally crashes the Swift runtime when the consumer instantiates with a
+                // non-Equatable T. See EquatableConformanceHelper for the refinement-walk rule.
+                if (!EquatableConformanceHelper.IsConformanceUnconditionalForCSharp(
+                        typeDecl, typeDatabase, "Swift.Equatable"))
                     continue;
 
                 var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, conformance.Protocol.Module, moduleName);

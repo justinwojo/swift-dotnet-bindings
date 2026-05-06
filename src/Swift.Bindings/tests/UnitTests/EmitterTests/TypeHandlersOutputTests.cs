@@ -154,7 +154,27 @@ public class TypeHandlersOutputTests
     [Fact]
     public void Emit_ClassHandler_GenericClass_UsesTypeArgumentsInSelfReferences()
     {
-        var typeDatabase = CreateTypeDatabase();
+        // Test exercises type-argument substitution in IEquatable<Keyframe<T>> and
+        // typeof(IEquatable<Keyframe<T>>). To keep IEquatable emitted on a generic, the
+        // type's Equatable conformance must be unconditional in C# terms — i.e. T must be
+        // constrained to Equatable. EquatableConformanceHelper drops typed equality on
+        // generic conditional Equatable to fix
+        // bug-0.10.0-unconditional-equatable-on-conditional-swift-generic. Register
+        // Swift.Equatable as a Protocol so the constraint resolves cleanly through the
+        // PWT/where-clause emitters.
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "IEquatable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
         var moduleDecl = CreateModuleDecl("TestModule");
         var classDecl = new ClassDecl
         {
@@ -168,10 +188,20 @@ public class TypeHandlersOutputTests
             Subscripts = new List<SubscriptDecl>(),
             GenericParameters = new List<GenericArgumentDecl>
             {
+                // T : Equatable so the type's Equatable conformance is unconditional in C# terms
+                // (matches the Swift `extension Keyframe : Equatable where T : Equatable` shape).
+                // EquatableConformanceHelper drops typed equality on generic types whose
+                // Equatable witness can't be guaranteed from the C# constraint set.
                 new(
                     "τ_0_0",
                     "T",
-                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance>
+                    {
+                        new(
+                            new[] { "τ_0_0" },
+                            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                            ConformanceKind.Protocol)
+                    },
                     new List<GenericParameterConformance>())
             },
             Conformances = new List<TypeConformance>

@@ -334,7 +334,7 @@ namespace BindingsGeneration
 
                 // Emit ISwiftObject implementation
                 var iSwiftObjectWriter = new ClassISwiftObjectMethodWriter(csWriter, env.TypeDatabase, moduleDecl, classDecl, typeNameWithGenerics, pinvokeHelperContext, swiftWriter, context.GetEmissionContext(), hasBoxable: interfaces.Contains("Swift.Runtime.IExistentialBoxable"));
-                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality, swiftWriter, context.GetEmissionContext(), env.TypeDatabase.AsyncLibraryName);
+                var equatableWriter = new ClassEqualityMethodsWriter(csWriter, classDecl, typeNameWithGenerics, hasEquality, hasInequality, swiftWriter, context.GetEmissionContext(), env.TypeDatabase.AsyncLibraryName, env.TypeDatabase);
 
                 // Derived classes emit equality if they have their own IEquatable<DerivedType>
                 // (IEquatable<Derived> is a different interface from IEquatable<Base>).
@@ -1156,18 +1156,35 @@ namespace BindingsGeneration
         private readonly string? _wrapperLibraryName;
 
         public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator)
+            : this(csWriter, classDecl, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator, typeDatabase: null)
+        {
+        }
+
+        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, ITypeDatabase? typeDatabase)
         {
             _writer = csWriter;
             _classDecl = classDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
-            _implementsEquatable = _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
+
+            // Filter Equatable / Hashable conformances through the conditional-witness gate so
+            // generic class types whose Swift conformance is conditional drop their typed
+            // equality / hash surface. See EquatableConformanceHelper for the rule and the
+            // matching struct-side code path in TypeHandlerHelpers.EqualityMethodsWriter.
+            bool equatableUnconditional = EquatableConformanceHelper.IsConformanceUnconditionalForCSharp(
+                _classDecl, typeDatabase, EquatableConformanceHelper.SwiftEquatableModuleQualifiedName);
+            bool hashableUnconditional = EquatableConformanceHelper.IsConformanceUnconditionalForCSharp(
+                _classDecl, typeDatabase, EquatableConformanceHelper.SwiftHashableModuleQualifiedName);
+
+            _implementsEquatable = equatableUnconditional
+                && _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             // OptionSet, RawRepresentable, and SetAlgebra imply Hashable in Swift.
             // The ABI JSON may not list Hashable explicitly for types that get it transitively.
-            _implementsHashable = _classDecl.Conformances.Any(c =>
-                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
-                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
-                c.Protocol.Name == "OptionSet" ||
-                c.Protocol.Name == "RawRepresentable");
+            _implementsHashable = hashableUnconditional
+                && _classDecl.Conformances.Any(c =>
+                    c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                    (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                    c.Protocol.Name == "OptionSet" ||
+                    c.Protocol.Name == "RawRepresentable");
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }
@@ -1177,8 +1194,8 @@ namespace BindingsGeneration
         /// emits @_cdecl equality wrappers instead of using SwiftEquatable.Equals (which uses
         /// CallConvSwift and crashes on NativeAOT).
         /// </summary>
-        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, SwiftWriter? swiftWriter, ModuleEmissionContext? emissionContext, string? wrapperLibraryName)
-            : this(csWriter, classDecl, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator)
+        public ClassEqualityMethodsWriter(CSharpWriter csWriter, ClassDecl classDecl, string typeNameWithGenerics, bool hasExplicitEqualityOperator, bool hasExplicitInequalityOperator, SwiftWriter? swiftWriter, ModuleEmissionContext? emissionContext, string? wrapperLibraryName, ITypeDatabase? typeDatabase = null)
+            : this(csWriter, classDecl, typeNameWithGenerics, hasExplicitEqualityOperator, hasExplicitInequalityOperator, typeDatabase)
         {
             _swiftWriter = swiftWriter;
             _emissionContext = emissionContext;

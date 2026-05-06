@@ -168,25 +168,67 @@ namespace BindingsGeneration
                 // happens after based on whether the Swift param has ANY non-Sendable
                 // protocol conformance (filtered or otherwise).
                 var paramConstraints = new List<string>();
+                // Captures the ObjC-bridged class form of `some Protocol` constraints
+                // (e.g. `some UIScene` → `where T : UIKit.UIScene`). Class constraints
+                // displace the `ISwiftObject` seed because ObjC-bridged classes do
+                // not implement `ISwiftObject`; the C# `where` syntax also requires
+                // the class constraint to come first ahead of any interface
+                // constraints. See <see cref="MethodValidationGates.TryGetClassConstraintTarget"/>.
+                string? classConstraint = null;
 
                 foreach (var conformance in param.GenericConformances)
                 {
-                    // Skip unknown protocols and protocols with associated types
-                    // (protocols with associated types generate generic interfaces which can't be used as constraints)
-                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
-                        continue;
-
+                    // Protocol records → interface constraint (existing path).
                     // Resolve emission namespace via the umbrella fallback so a
                     // method-level constraint on a protocol re-exported through an
                     // umbrella module (e.g. `where T : RealityKit.IEvent` in ABI)
                     // emits the dep-module qualification.
-                    var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(
-                        conformance.ConformanceTarget, _env.TypeDatabase);
-                    var interfaceName = NameProvider.GetInterfaceName(
-                        conformance.ConformanceTarget.Name,
-                        moduleName: emissionModule,
-                        currentModuleName: _env.MethodDecl.ModuleDecl?.Name ?? "");
-                    paramConstraints.Add(interfaceName);
+                    if (IsProtocolAvailableForConstraint(conformance.ConformanceTarget))
+                    {
+                        var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(
+                            conformance.ConformanceTarget, _env.TypeDatabase);
+                        var interfaceName = NameProvider.GetInterfaceName(
+                            conformance.ConformanceTarget.Name,
+                            moduleName: emissionModule,
+                            currentModuleName: _env.MethodDecl.ModuleDecl?.Name ?? "");
+                        paramConstraints.Add(interfaceName);
+                        continue;
+                    }
+
+                    // ObjC-bridged class records ("@protocol UIScene" projected as the
+                    // class `UIKit.UIScene` in MAUI iOS bindings) → class constraint.
+                    // First match wins; multiple class targets on the same param are
+                    // unrepresentable in C# anyway (single-inheritance) so we keep the
+                    // first projected one and let downstream validation surface the
+                    // (so far hypothetical) collision.
+                    if (classConstraint == null &&
+                        MethodValidationGates.TryGetClassConstraintTarget(
+                            conformance.ConformanceTarget, _env.TypeDatabase, out var csClassName))
+                    {
+                        classConstraint = csClassName;
+                        continue;
+                    }
+
+                    // Otherwise: associated-type / Self-requirement / unknown / well-
+                    // known runtime-only protocol — drop from the C# constraint list,
+                    // ISwiftObject seeding below preserves the descriptor-symbol PWT
+                    // path.
+                }
+
+                if (classConstraint != null)
+                {
+                    // ObjC-bridged class constraint: emit `where T : UIKit.UIScene`
+                    // without ISwiftObject. This is correct for the StoreKit
+                    // `some UIScene` shape — the consumer gets compile-time type
+                    // safety, and the body's metadata path already routes through
+                    // the unconstrained `TypeMetadata.GetTypeMetadataOrThrow<T>()`
+                    // helper. Other surviving interface constraints (rare with this
+                    // shape today) are appended after the class constraint per C#
+                    // syntax requirements.
+                    var ordered = new List<string> { classConstraint };
+                    ordered.AddRange(paramConstraints);
+                    constraints.Add($"where {csName} : {string.Join(", ", ordered)}");
+                    continue;
                 }
 
                 bool hasAnyProtocolConformance = HasAnyNonMarkerProtocolConformance(param);
