@@ -447,3 +447,147 @@ public struct ThrowingByteCollector {
     public var bytesSeen: Int { _bytesSeen }
     public var accepted: Bool { _accepted }
 }
+
+// MARK: - CSM-sync trim-overload fixtures (Phase 3a / option (b))
+//
+// Exercises the new wiring in `ConcreteProtocolSpecializationEmitter.TryEmitConcreteOverload`
+// → `EmitTrimOverloadsForCsmSync` → `DefaultParameterOverloadEmitter.TryEmitOverloads`.
+// The shape mirrors the StoreKit2 `purchase(confirmIn:options: Set<…> = [])` gap-doc
+// reference, but ports the class-bound generic to a `DataProtocol` constraint that's
+// already wired through `specialization-hints.json` (two conformers: `Foundation.Data`
+// and `[UInt8]`).
+//
+// Two trailing defaults are intentional and load-bearing:
+//   • `options: Set<Int> = []` — non-mappable Swift default. Bypasses the trim
+//     emitter's `AllTrailingDefaultsAreCSharpMappable` early-return and forces real
+//     trim emission. C# primary signature gets `IReadOnlySet<int> options` with NO
+//     inline default (the Set<Int> = [] expression has no compile-time C# constant).
+//   • `tag: Int = N` — C#-mappable Swift default. The CSM-sync primary auto-trims
+//     both, so the most-trimmed trim variant (`Append(data)`) collides with the
+//     primary and is correctly suppressed by the seeded EmittedProjectedSignatures
+//     dedup. The intermediate trim variant (`Append(data, options)` — drops only
+//     `tag`) is the new public API the wiring lights up: callers can now pass an
+//     explicit `options` set while letting Swift fill `tag`.
+//
+// On the async path the same two-default mix produces visible trim variants for
+// both `trim=2` (`AppendAsync(source, ct)` — drops both) and `trim=1`
+// (`AppendAsync(source, options, ct)` — drops only `tag`) — see AsyncGenericSequence.swift.
+
+/// Sync no-throws + DataProtocol method generic + two trailing defaults
+/// (one non-mappable Set, one mappable Int).
+/// CSM-sync primary auto-trims both defaults: `Append(this DefaultedHasher self, byte[] data)`.
+/// Trim variant exposed by Phase 3a wiring: `Append(this DefaultedHasher self, byte[] data, IReadOnlySet<int> options)`.
+public struct DefaultedHasher {
+    private var _calls: Int = 0
+    private var _lastCount: Int = 0
+    private var _lastTag: Int = 0
+    private var _lastOptionsCount: Int = 0
+
+    public init() {}
+
+    public mutating func append<D: DataProtocol>(
+        _ data: D,
+        options: Set<Int> = [],
+        tag: Int = 7
+    ) {
+        _calls += 1
+        _lastCount = data.count
+        _lastTag = tag
+        _lastOptionsCount = options.count
+    }
+
+    public var calls: Int { _calls }
+    public var lastCount: Int { _lastCount }
+    public var lastTag: Int { _lastTag }
+    public var lastOptionsCount: Int { _lastOptionsCount }
+}
+
+/// Phase 3a Codex r1 Medium negative-finding fixture: same shape as
+/// `DefaultedHasher` (DataProtocol-bound generic, two trailing defaults
+/// `options: Set<Int> = []` and `tag: Int = 7`) plus a trailing Swift
+/// compiler-injected debug param `file: StaticString = #file`.
+///
+/// The Codex r1 Medium hypothesised an off-by-N in `EmitTrimOverloadsForCsmSync`
+/// when the trim emitter was fed a CSSignature containing trailing debug
+/// defaults: `BuildOverloadDecl` removes raw trailing args while
+/// `CountTrailingDefaults` skips debugs, so the auto-trim seed key would target
+/// the wrong projected shape and over-suppress a legitimately-new trim variant.
+///
+/// Empirically not reachable: the parser strips trailing
+/// `#file/#line/#column/#function` defaults from `CSSignature` before the
+/// emitter sees them. A diagnostic dump on this fixture (recorded in
+/// gap-0.10.0-generic-method-default-overload-missing.md) confirmed
+/// CSSignature is `[data, options, tag]` — three args, no `file`. The two
+/// helpers therefore agree on the arg set and emission is symmetric with the
+/// no-debug-param `DefaultedHasher` case.
+///
+/// Expected public API (identical to `DefaultedHasher`):
+///   • Auto-trim primary: `Append(byte[] data)` — Swift fills options=[], tag=7, file=#file.
+///   • Trim variant exposing options:
+///     `Append(byte[] data, IReadOnlySet<nint> options)` — Swift fills tag and file.
+///
+/// `DefaultedTrimOverloadWithFileTests` pins the runtime semantics. If a future
+/// parser change ever started passing trailing debug defaults through to the
+/// emitter, the assertions in those tests (or the structural symmetry against
+/// `DefaultedTrimOverloadTests`) would fail before any consumer noticed.
+public struct DefaultedHasherWithFile {
+    private var _calls: Int = 0
+    private var _lastCount: Int = 0
+    private var _lastTag: Int = 0
+    private var _lastOptionsCount: Int = 0
+    private var _lastFile: String = ""
+
+    public init() {}
+
+    public mutating func append<D: DataProtocol>(
+        _ data: D,
+        options: Set<Int> = [],
+        tag: Int = 7,
+        file: StaticString = #file
+    ) {
+        _calls += 1
+        _lastCount = data.count
+        _lastTag = tag
+        _lastOptionsCount = options.count
+        _lastFile = String(describing: file)
+    }
+
+    public var calls: Int { _calls }
+    public var lastCount: Int { _lastCount }
+    public var lastTag: Int { _lastTag }
+    public var lastOptionsCount: Int { _lastOptionsCount }
+    /// Surfaces the captured `#file` so the test can assert the debug param
+    /// participated in the call (Swift filled it from the call site). Pre-fix
+    /// this is uninspectable because the trim variant doesn't compile.
+    public var lastFile: String { _lastFile }
+}
+
+/// Sync throws + DataProtocol method generic + two trailing defaults
+/// (one non-mappable Set, one mappable Int).
+/// CSM-sync primary auto-trims both: `AppendOrThrow(this DefaultedThrowingHasher self, byte[] data)`.
+/// Trim variant: `AppendOrThrow(this DefaultedThrowingHasher self, byte[] data, IReadOnlySet<int> options)`.
+public struct DefaultedThrowingHasher {
+    private var _calls: Int = 0
+    private var _lastCount: Int = 0
+    private var _lastTag: Int = 0
+    private var _lastOptionsCount: Int = 0
+
+    public init() {}
+
+    public mutating func appendOrThrow<D: DataProtocol>(
+        _ data: D,
+        options: Set<Int> = [],
+        tag: Int = 11
+    ) throws {
+        if data.count == 0 { throw BytesValidationError.empty }
+        _calls += 1
+        _lastCount = data.count
+        _lastTag = tag
+        _lastOptionsCount = options.count
+    }
+
+    public var calls: Int { _calls }
+    public var lastCount: Int { _lastCount }
+    public var lastTag: Int { _lastTag }
+    public var lastOptionsCount: Int { _lastOptionsCount }
+}

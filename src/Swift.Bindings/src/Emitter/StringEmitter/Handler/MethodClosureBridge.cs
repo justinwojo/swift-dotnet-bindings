@@ -699,13 +699,21 @@ public static class MethodClosureBridge
             // call, and the closing braces. `optOverrides[i]` replaces the argument expression
             // at slot `i` (used by the Optional<any Error> if-let branches to inject `nil` or
             // `UnsafeMutableRawPointer(mutating:__ptr)` explicitly).
-            void EmitCdeclInvocation(string baseIndent, Dictionary<int, string> optOverrides)
+            //
+            // `firstLinePrefix` is prepended to the FIRST line emitted by this helper (either
+            // the outermost `withUnsafePointer(...) { ... in` or the direct cdecl call). The
+            // adapter closure has a non-void Bool return AND a multi-statement body whenever
+            // an observe line, heap allocs, or optional-existential branches are present —
+            // Swift requires explicit `return` on the last value-producing statement. Inner
+            // withUnsafePointer trailing closures stay single-expression and auto-return.
+            void EmitCdeclInvocation(string baseIndent, Dictionary<int, string> optOverrides, string firstLinePrefix)
             {
                 var currentIndent = baseIndent;
                 for (int w = 0; w < analysis.pointerWrapArgs.Count; w++)
                 {
                     var (pwIdx, _) = analysis.pointerWrapArgs[w];
-                    swiftWriter.WriteLine($"{currentIndent}withUnsafePointer(to: __p{ci.Index}_{pwIdx}) {{ __ptr{ci.Index}_{pwIdx} in");
+                    var linePrefix = (w == 0) ? firstLinePrefix : "";
+                    swiftWriter.WriteLine($"{currentIndent}{linePrefix}withUnsafePointer(to: __p{ci.Index}_{pwIdx}) {{ __ptr{ci.Index}_{pwIdx} in");
                     currentIndent += indent;
                 }
 
@@ -740,7 +748,8 @@ public static class MethodClosureBridge
                 var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
                 if (!ci.Spec.ReturnType.IsEmptyTuple)
                     cdeclExpr += " != 0";
-                swiftWriter.WriteLine($"{currentIndent}{cdeclExpr}");
+                var cdeclLinePrefix = (analysis.pointerWrapArgs.Count == 0) ? firstLinePrefix : "";
+                swiftWriter.WriteLine($"{currentIndent}{cdeclLinePrefix}{cdeclExpr}");
 
                 for (int w = analysis.pointerWrapArgs.Count - 1; w >= 0; w--)
                 {
@@ -749,11 +758,18 @@ public static class MethodClosureBridge
                 }
             }
 
+            // Adapter closures have a non-void Bool return whenever the original Swift closure
+            // returned a non-Void type. Adding `_ = _box_N` (escaping) or heap allocs makes the
+            // body multi-statement, so the last value-producing statement needs explicit `return`.
+            // Always emitting `return` for non-void is harmless even in single-expression bodies.
+            // (Distinct name from the outer-scope `returnPrefix` used by the method-call emission.)
+            var closureReturnPrefix = ci.Spec.ReturnType.IsEmptyTuple ? "" : "return ";
+
             if (analysis.optionalExistentialArgs.Count == 0)
             {
                 if (analysis.pointerWrapArgs.Count > 0 || analysis.heapAllocArgs.Count > 0)
                 {
-                    EmitCdeclInvocation(bodyBaseIndent, new Dictionary<int, string>());
+                    EmitCdeclInvocation(bodyBaseIndent, new Dictionary<int, string>(), closureReturnPrefix);
                 }
                 else
                 {
@@ -768,7 +784,7 @@ public static class MethodClosureBridge
                     var cdeclExpr = $"{cdeclVarName}({string.Join(", ", cdeclCallArgs)})";
                     if (!ci.Spec.ReturnType.IsEmptyTuple)
                         cdeclExpr += " != 0";
-                    swiftWriter.WriteLine($"{bodyBaseIndent}{cdeclExpr}");
+                    swiftWriter.WriteLine($"{bodyBaseIndent}{closureReturnPrefix}{cdeclExpr}");
                 }
             }
             else if (analysis.optionalExistentialArgs.Count == 1)
@@ -776,20 +792,28 @@ public static class MethodClosureBridge
                 // Pattern A: `(any Error)?` — nil passes IntPtr.Zero to cdecl, non-nil passes a
                 // pointer to a withUnsafePointer-borrowed ExistentialContainer. Two cdecl calls
                 // (one per branch) are simpler than trying to lift the pointer out of the block.
+                //
+                // The `if-let / else` is a Swift statement (not expression), so each branch needs
+                // its own `return` for non-void adapters. The if-branch puts `return` on the
+                // manually-emitted outer withUnsafePointer; the inner trailing closure stays
+                // single-expression and auto-returns. The else-branch passes `closureReturnPrefix`
+                // through to EmitCdeclInvocation.
                 var (optIdx, _) = analysis.optionalExistentialArgs[0];
                 var valName = $"__val{ci.Index}_{optIdx}";
                 var ptrName = $"__ptr{ci.Index}_{optIdx}";
                 swiftWriter.WriteLine($"{bodyBaseIndent}if let {valName} = __p{ci.Index}_{optIdx} {{");
                 var ifBodyIndent = bodyBaseIndent + indent;
-                swiftWriter.WriteLine($"{ifBodyIndent}withUnsafePointer(to: {valName}) {{ {ptrName} in");
+                swiftWriter.WriteLine($"{ifBodyIndent}{closureReturnPrefix}withUnsafePointer(to: {valName}) {{ {ptrName} in");
                 EmitCdeclInvocation(
                     ifBodyIndent + indent,
-                    new Dictionary<int, string> { [optIdx] = $"UnsafeMutableRawPointer(mutating: {ptrName})" });
+                    new Dictionary<int, string> { [optIdx] = $"UnsafeMutableRawPointer(mutating: {ptrName})" },
+                    firstLinePrefix: "");
                 swiftWriter.WriteLine($"{ifBodyIndent}}}");
                 swiftWriter.WriteLine($"{bodyBaseIndent}}} else {{");
                 EmitCdeclInvocation(
                     bodyBaseIndent + indent,
-                    new Dictionary<int, string> { [optIdx] = "nil" });
+                    new Dictionary<int, string> { [optIdx] = "nil" },
+                    closureReturnPrefix);
                 swiftWriter.WriteLine($"{bodyBaseIndent}}}");
             }
             else

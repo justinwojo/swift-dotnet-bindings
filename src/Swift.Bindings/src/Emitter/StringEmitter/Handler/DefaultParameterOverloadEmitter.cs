@@ -587,6 +587,16 @@ public static class DefaultParameterOverloadEmitter
             bool isStatic = originalMethodDecl.MethodType == MethodType.Static;
             var staticKeyword = isStatic ? "static " : "";
             var selfPrefix = isStatic ? "Self" : "self";
+            // Mutating methods on value types (struct/enum) require the `mutating` keyword on
+            // the @_silgen_name shim — otherwise `self.{originalMethod}(...)` inside the
+            // wrapper body fails to compile against an immutable `self`, the wrapper is
+            // dropped from the dylib, and the @_cdecl trampoline that calls
+            // `.pointee.{shim}(...)` references a missing symbol → EntryPointNotFoundException.
+            // Classes don't need it (mutation flows through the reference).
+            bool needsMutating = !isStatic
+                && originalMethodDecl.IsMutating
+                && !(parentTypeDecl is ClassDecl);
+            var mutatingKeyword = needsMutating ? "mutating " : "";
 
             // Availability must sit on the extension itself — the `extension ... {` line
             // references the target type, so an inner-function @available is too late.
@@ -595,7 +605,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent++;
 
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            swiftWriter.WriteLine($"public {staticKeyword}{mutatingKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -623,8 +633,13 @@ public static class DefaultParameterOverloadEmitter
     /// <summary>
     /// Creates a projected C# method key for an overload, matching the format used by
     /// HandleBaseDecl's GetProjectedCSharpMethodKey. (C6/C7)
+    /// Internal so the CSM-sync emitter can pre-populate <see cref="MethodEnvironment.EmittedProjectedSignatures"/>
+    /// with the auto-trim primary's key (Phase 3a, gap-0.10.0-generic-method-default-overload-missing.md
+    /// option (b)) — without that seed, the most-trimmed trim variant would collide
+    /// with the CSM-sync primary (which already auto-fills all trailing defaults via
+    /// Swift) and produce a CS0111 duplicate-method error.
     /// </summary>
-    private static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase)
+    internal static string GetProjectedOverloadKey(MethodDecl overloadDecl, ITypeDatabase typeDatabase)
     {
         var returnTypeSpec = overloadDecl.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         bool hasReturnValue = returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple;
@@ -918,10 +933,16 @@ public static class DefaultParameterOverloadEmitter
             bool isStatic = methodDecl.MethodType == MethodType.Static;
             var staticKeyword = isStatic ? "static " : "";
             var selfPrefix = isStatic ? "Self" : "self";
+            // Mirror the EmitSwiftWrapper rule: mutating methods on value types need
+            // `mutating` on the @_silgen_name shim so `self.<originalMethod>(...)` compiles.
+            bool dbgNeedsMutating = !isStatic
+                && methodDecl.IsMutating
+                && !(parentTypeDecl is ClassDecl);
+            var dbgMutatingKeyword = dbgNeedsMutating ? "mutating " : "";
             swiftWriter.WriteLine($"extension {swiftModuleQualifiedName} {{");
             swiftWriter.Indent++;
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            swiftWriter.WriteLine($"public {staticKeyword}{dbgMutatingKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
             swiftWriter.Indent++;
             foreach (var line in derefLines) swiftWriter.WriteLine(line);
             var callExpr = $"{tryPrefix}{awaitPrefix}{selfPrefix}.{NameProvider.ParserNameToSwift(methodDecl)}({callArgString})";

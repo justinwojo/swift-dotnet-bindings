@@ -73,6 +73,28 @@ public static partial class ConcreteProtocolSpecializationEmitter
         originalMethod.WasEmitted = true;
         synthesized.WasEmitted = true;
 
+        // Phase 3a (option (b) of gap-0.10.0-generic-method-default-overload-missing.md):
+        // Emit trim overloads on the per-conformer specialized signature. The synthesized
+        // MethodDecl has GenericParameters cleared (IsGeneric == false) and CSSignature
+        // substituted with concrete conformer types, so the trim emitter's own bail on
+        // method-level generics no longer fires and HasDefaultArg flags ride through.
+        // Each trim variant emits its own _dbw_*/DBW_* Swift symbol whose body re-invokes
+        // the original generic Swift method with the conformer-typed kept args; Swift
+        // dispatches the generic at the call site and fills the trimmed defaults.
+        //
+        // Unlike the CSM-sync path, the CSM-async primary preserves mappable trailing
+        // defaults inline (e.g. `nint tag = 13` on the C# surface), so a trim variant
+        // that drops only the mappable suffix produces a signature ambiguous with the
+        // primary at the call site (`AppendAsync(source, options)` would match both
+        // `AppendAsync(source, options, tag = 13, ct)` and the trim-1 variant
+        // `AppendAsync(source, options, ct)`). Pre-populate the projected-signature
+        // dedup set with the keys the primary already covers via its inline mappable
+        // defaults — those trim depths are redundant and would produce CS0121.
+        env.EmittedProjectedSignatures = BuildMappableSuffixShadowKeys(synthesized, typeDatabase);
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, env, logger, emissionContext);
+
         logger.LogInformation(
             "Emitted concrete async specialization: {Type}.{Method}<{Conformer}> → {Symbol}_async",
             parentTypeDecl.Name, originalMethod.Name, conformer.SwiftQualifiedName, cdeclSymbol);
@@ -373,6 +395,54 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
         result.Add(inner.Substring(start));
         return result;
+    }
+
+    // ─── Trim-emitter dedup seeding ─────────────────────────────────────
+
+    /// <summary>
+    /// Computes the projected-overload keys for trim depths the CSM-async primary
+    /// already covers via its inline mappable defaults.
+    ///
+    /// The CSM-async primary preserves trailing defaults: mappable ones render as
+    /// inline C# defaults (`nint tag = 13`), non-mappable ones force the caller to
+    /// pass an explicit value (`IReadOnlySet&lt;nint&gt; options`). A trim variant that
+    /// drops only the mappable suffix would be ambiguous with the primary at the call
+    /// site — both signatures resolve for the same kept-prefix args. Walk the
+    /// rightmost contiguous run of mappable trailing defaults and add the trim key
+    /// for each depth so <see cref="DefaultParameterOverloadEmitter.TryEmitOverloads"/>
+    /// skips them via <see cref="MethodEnvironment.EmittedProjectedSignatures"/>.
+    ///
+    /// Stops at the first non-mappable trailing default — deeper trims drop a
+    /// non-mappable param that the primary cannot omit, so they expose a genuinely
+    /// new public surface and must still emit.
+    /// </summary>
+    private static HashSet<string> BuildMappableSuffixShadowKeys(
+        MethodDecl synthesized, ITypeDatabase typeDatabase)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var args = synthesized.CSSignature.Skip(1).ToList();
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(synthesized);
+
+        int suffixLen = 0;
+        for (int i = args.Count - 1; i >= 0; i--)
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(args[i]))
+                continue;
+            if (!args[i].HasDefaultArg)
+                break;
+            if (args[i].SwiftDefaultExpression == null)
+                break;
+            var mapped = SwiftDefaultValueMapper.TryMapToCSharpDefault(
+                args[i].SwiftDefaultExpression!, args[i].SwiftTypeSpec, typeDatabase,
+                visibleGenericNames);
+            if (mapped == null)
+                break;
+
+            suffixLen++;
+            var trimDecl = DefaultParameterOverloadEmitter.BuildOverloadDecl(synthesized, suffixLen);
+            keys.Add(DefaultParameterOverloadEmitter.GetProjectedOverloadKey(trimDecl, typeDatabase));
+        }
+        return keys;
     }
 
     // ─── Signature key ──────────────────────────────────────────────────

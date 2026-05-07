@@ -346,11 +346,158 @@ public static partial class ConcreteProtocolSpecializationEmitter
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
             emissionContext, mergedAvailability, isExtension);
 
+        // --- Phase 3a (option (b) of gap-0.10.0-generic-method-default-overload-missing.md) ---
+        // Wire DefaultParameterOverloadEmitter so per-conformer specialized methods get
+        // trim-overload shortcuts for trailing default params (the StoreKit
+        // `purchase(confirmIn:options: = [])` shape, but on the sync side). The CSM-sync
+        // primary above already auto-fills all trailing defaults via Swift, so its public
+        // surface matches the maximally-trimmed trim variant. Pre-populate the projected
+        // signature set with the auto-trim primary's key to suppress the duplicate; less-
+        // trimmed variants (one default exposed, two defaults exposed, …) emit cleanly
+        // because their signatures are strictly longer than the auto-trim primary.
+        // Constructors are out of scope for this wiring — sync CSM constructors take a
+        // bespoke `From{Conformer}(…)` factory shape that the standard overload emitter
+        // doesn't model. Generic constructors with collection-typed defaults (e.g.
+        // `init<S: P>(..., options: Set<Int> = [], tag: Int = 1)`) therefore only get the
+        // CSM factory shape that auto-fills every default; intermediate factory overloads
+        // exposing `options` while letting Swift fill `tag` are not currently emitted.
+        // Tracked alongside option (a) in the gap-doc.
+        //
+        // The original Codex r1 review hypothesised an off-by-N when a method combines
+        // a non-mappable trailing default with a Swift compiler-injected debug param
+        // (#file, #line, #column, #function): BuildOverloadDecl removes raw trailing
+        // args while CountTrailingDefaults skips debugs, so the auto-trim seed key
+        // could target the wrong shape. Empirical verification on a purpose-built
+        // fixture (DefaultedHasherWithFile, see DefaultedTrimOverloadWithFileTests)
+        // showed this is not reachable: the parser strips trailing debug defaults
+        // from CSSignature before the emitter sees them, so the two helpers agree
+        // on the arg set. The IsDebugParameter skip in CountTrailingDefaults is
+        // harmless under that invariant; if a future parser change started passing
+        // debug args through, CountTrailingDefaults and BuildOverloadDecl would
+        // disagree at this seeding site, and the fix would be to drop
+        // `trailingDefaults + trailingDebugCount` raw args when computing the
+        // auto-trim seed key.
+        if (!isConstructor)
+        {
+            EmitTrimOverloadsForCsmSync(
+                csWriter, swiftWriter, method, parentTypeDecl, pairing,
+                cdeclSymbol, typeDatabase, emissionContext, mergedAvailability, logger);
+        }
+
         logger.LogInformation(
             "Emitted concrete specialization: {Type}.{Method}<{Pairing}>",
             parentTypeDecl.Name, method.Name, safeConformerName);
 
         return true;
+    }
+
+    /// <summary>
+    /// Phase 3a Layer 2 (option (b) of <c>gap-0.10.0-generic-method-default-overload-missing.md</c>):
+    /// emit trim overloads on top of a CSM-sync per-conformer specialized method.
+    /// Substitutes the pairing's generic params into the original method's CSSignature
+    /// (mirroring CSM-async <c>TryBuildEmissionPlan</c>), clears the GenericParameters
+    /// list so the trim emitter's <c>methodDecl.IsGeneric</c> bail no longer fires, and
+    /// pre-populates the projected-signature dedup set with the CSM-sync primary's key
+    /// so the most-trimmed trim variant doesn't produce a CS0111 duplicate.
+    /// </summary>
+    private static void EmitTrimOverloadsForCsmSync(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        string cdeclSymbol,
+        ITypeDatabase typeDatabase,
+        ModuleEmissionContext emissionContext,
+        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
+        ILogger logger)
+    {
+        // Build conformer TypeSpecs for substitution. Mirrors IsEmittableAsyncPairing's
+        // preparation step in the async path.
+        var conformerTypeSpecs = new NamedTypeSpec[pairing.Length];
+        for (int i = 0; i < pairing.Length; i++)
+        {
+            if (!TryBuildConformerTypeSpec(pairing[i].Conformer, out conformerTypeSpecs[i]))
+            {
+                logger.LogDebug(
+                    "CSM-sync trim: Skipping {Method} — could not build conformer TypeSpec for {Conformer}.",
+                    method.Name, pairing[i].Conformer.SwiftQualifiedName);
+                return;
+            }
+        }
+
+        // Substitute generic params sequentially, same approach as async TryBuildEmissionPlan.
+        // Bail on any unresolved associated-type reference so we never emit a trim shim
+        // whose Swift body would reference a placeholder type.
+        var substitutedSignature = new List<ArgumentDecl>(method.CSSignature);
+        for (int i = 0; i < pairing.Length; i++)
+        {
+            var genericName = pairing[i].Param.GenericParam.TypeName;
+            var altGenericName = GetAlternateDepthName(genericName);
+            bool substitutionOk = true;
+
+            for (int j = 0; j < substitutedSignature.Count; j++)
+            {
+                var arg = substitutedSignature[j];
+                var substituted = SubstituteTypeSpec(
+                    arg.SwiftTypeSpec, genericName, altGenericName,
+                    conformerTypeSpecs[i], pairing[i].Conformer, ref substitutionOk);
+                if (!substitutionOk)
+                {
+                    logger.LogDebug(
+                        "CSM-sync trim: Skipping {Method}+{Conformer} — substitution failed (unresolved associated type).",
+                        method.Name, pairing[i].Conformer.SwiftQualifiedName);
+                    return;
+                }
+
+                substitutedSignature[j] = arg with
+                {
+                    SwiftTypeSpec = substituted,
+                    IsGeneric = arg.IsGeneric && ReferenceEquals(substituted, arg.SwiftTypeSpec) ? arg.IsGeneric : false,
+                };
+            }
+        }
+
+        // Synthesize a non-generic MethodDecl with substituted CSSignature. The trim
+        // emitter checks methodDecl.IsGeneric (==> GenericParameters.Count > 0) and
+        // bails on generic methods, so clearing the list re-enables emission. Default
+        // arg flags ride through unchanged on each ArgumentDecl.
+        //
+        // MangledName is set to the per-conformer cdeclSymbol so DefaultParameterOverloadEmitter
+        // .BuildWrapperSymbol's DeterministicHash8(methodDecl.MangledName) produces a unique
+        // DBW_ symbol per conformer pairing — without this, sibling conformer iterations
+        // would all hash the original generic method's mangled name and collide on the
+        // same `DBW_{TypeName}_{MethodName}_{hash}_{trim}` symbol in the wrapper dylib.
+        var synthesized = method with
+        {
+            MangledName = cdeclSymbol,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = substitutedSignature,
+            RawGenericSig = null,
+            AvailabilityAnnotations = mergedAvailability is null
+                ? null
+                : new List<AvailabilityAnnotation>(mergedAvailability),
+            WasEmitted = false,
+        };
+
+        var trailingDefaults = DefaultParameterOverloadEmitter.CountTrailingDefaults(synthesized);
+        if (trailingDefaults == 0)
+            return; // No trailing defaults → nothing for the trim emitter to do.
+
+        var trimEnv = new MethodEnvironment(synthesized, typeDatabase);
+
+        // Pre-populate the projected-signature set with the auto-trim primary's key.
+        // The CSM-sync primary above (EmitCSharpMethod) emits a public surface that
+        // skips every HasDefaultArg arg, which is exactly the shape of the maximally-
+        // trimmed trim variant (trim == trailingDefaults). Without this seed, the trim
+        // emitter would happily emit a duplicate method and Roslyn would reject the
+        // generated source with CS0111.
+        var autoTrimPrimaryDecl = DefaultParameterOverloadEmitter.BuildOverloadDecl(synthesized, trailingDefaults);
+        var autoTrimPrimaryKey = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(autoTrimPrimaryDecl, typeDatabase);
+        trimEnv.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal) { autoTrimPrimaryKey };
+
+        DefaultParameterOverloadEmitter.TryEmitOverloads(
+            csWriter, swiftWriter, trimEnv, logger, emissionContext);
     }
 
     /// <summary>
