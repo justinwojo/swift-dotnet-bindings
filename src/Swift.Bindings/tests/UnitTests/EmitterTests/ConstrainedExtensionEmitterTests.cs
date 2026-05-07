@@ -362,6 +362,77 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("resultPtr.initializeMemory(as: TestModule.SigBlob.self, repeating: result, count: 1)", swiftOutput);
     }
 
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_FoundationDateProperty_ReturnsDateTimeOffsetViaEpoch()
+    {
+        // StoreKit2 VerificationResult<SignedType>.signedDate shape: extension property
+        // returning Foundation.Date (frozen value-type with timeIntervalSinceReferenceDate
+        // ABI). Should emit a System.DateTimeOffset return + epoch arithmetic, with the
+        // P/Invoke signature returning Double directly (no indirect-result buffer).
+        var (csOutput, swiftOutput) = EmitForGenericEnumWithProperty(
+            propertyName: "signedDate",
+            returnTypeName: "Foundation.Date");
+
+        Assert.Contains("public static System.DateTimeOffset GetSignedDate(this Wrapper<TestModule.ConcreteA> self)", csOutput);
+        // P/Invoke takes only _self and returns double — Date is NOT routed through indirect-result.
+        Assert.Contains("partial double SBW_CEGet_TestModule_Wrapper_ConcreteA_signedDate(IntPtr _self)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult indirectResult, IntPtr _self", csOutput.Replace("\r", "")); // sanity: not the indirect shape
+        // Epoch arithmetic mirrors DateProjection.GetReturnPlan(Direct).
+        Assert.Contains("AddSeconds(seconds)", csOutput);
+        Assert.Contains("new System.DateTimeOffset(2001, 1, 1, 0, 0, 0, System.TimeSpan.Zero)", csOutput);
+
+        // Swift wrapper returns Double directly via timeIntervalSinceReferenceDate.
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_signedDate\")", swiftOutput);
+        Assert.Contains("-> Double", swiftOutput);
+        Assert.Contains("return obj.signedDate.timeIntervalSinceReferenceDate", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_FoundationUUIDProperty_UsesIndirectResultAndGuidCast()
+    {
+        // StoreKit2 VerificationResult<SignedType>.deviceVerificationNonce shape:
+        // extension property returning Foundation.UUID (frozen 16-byte tuple) — emit a
+        // System.Guid return via indirect-result buffer + memcpy.
+        var (csOutput, swiftOutput) = EmitForGenericEnumWithProperty(
+            propertyName: "deviceVerificationNonce",
+            returnTypeName: "Foundation.UUID");
+
+        Assert.Contains("public static System.Guid GetDeviceVerificationNonce(this Wrapper<TestModule.ConcreteA> self)", csOutput);
+        Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
+        Assert.Contains("NativeMemory.Alloc(16)", csOutput);
+        // Buffer is freed in finally — value is copied out before the buffer is released.
+        Assert.Contains("*(System.Guid*)buffer", csOutput);
+        Assert.Contains("finally", csOutput);
+        Assert.Contains("NativeMemory.Free((void*)buffer)", csOutput);
+
+        // Swift wrapper writes the UUID into the caller buffer.
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_deviceVerificationNonce\")", swiftOutput);
+        Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
+        Assert.Contains("resultPtr.initializeMemory(as: Foundation.UUID.self, repeating: result, count: 1)", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_FoundationDataProperty_UsesIndirectResultAndToByteArray()
+    {
+        // StoreKit2 VerificationResult<SignedType>.headerData shape: extension property
+        // returning Foundation.Data — emit a byte[] return via indirect-result buffer +
+        // (*(Swift.Foundation.Data*)buffer).ToByteArray() + free in finally.
+        var (csOutput, swiftOutput) = EmitForGenericEnumWithProperty(
+            propertyName: "headerData",
+            returnTypeName: "Foundation.Data");
+
+        Assert.Contains("public static byte[] GetHeaderData(this Wrapper<TestModule.ConcreteA> self)", csOutput);
+        Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
+        Assert.Contains("NativeMemory.Alloc(16)", csOutput);
+        Assert.Contains("(*(Swift.Foundation.Data*)(void*)buffer).ToByteArray()", csOutput);
+        Assert.Contains("finally", csOutput);
+        Assert.Contains("NativeMemory.Free((void*)buffer)", csOutput);
+
+        // Swift wrapper writes the Data into the caller buffer (it's a 16-byte struct).
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_headerData\")", swiftOutput);
+        Assert.Contains("resultPtr.initializeMemory(as: Foundation.Data.self, repeating: result, count: 1)", swiftOutput);
+    }
+
     /// <summary>
     /// Emission harness: builds a generic enum (`Wrapper&lt;T&gt;`) with a single
     /// `where T == TestModule.ConcreteA` extension property, runs

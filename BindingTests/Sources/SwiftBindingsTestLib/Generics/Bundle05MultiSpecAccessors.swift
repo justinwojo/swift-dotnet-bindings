@@ -114,6 +114,64 @@ extension Bundle05Container where Key == Bundle05SpecKeyB {
     }
 }
 
+// MARK: Foundation value-type return-shape accessors
+//
+// Cover the three Foundation frozen value-type return shapes the
+// multispecialization fix needs after Bundle 05 — `Date` (Double-by-value
+// at the ABI boundary; epoch-arithmetic to System.DateTimeOffset on the
+// C# side), `UUID` (16-byte indirect-result; reinterpreted as
+// System.Guid), and `Data` (16-byte indirect-result; projected as byte[]
+// via Swift.Foundation.Data.ToByteArray()). These are exactly the shapes
+// blocking StoreKit2's `VerificationResult<SignedType>.signedDate /
+// .deviceVerificationNonce / .headerData|payloadData|signatureData|...`
+// after the SignedType case shipped earlier in 0.10.0. Each is bound to
+// the alpha specialization so the existing fixture infrastructure (alpha
+// factory + alpha-only properties) carries them without adding new
+// generic types.
+extension Bundle05Container where Key == Bundle05SpecKeyA {
+    /// Foundation.Date round-trip — the C# side should receive a
+    /// System.DateTimeOffset whose `.UtcDateTime` matches the Swift
+    /// reference epoch + (id) seconds. Validates that the P/Invoke
+    /// returns `Double` directly (no indirect-result buffer) and that
+    /// the C# emit applies `SwiftEpoch.AddSeconds(...)`.
+    public var alphaSignedDate: Date {
+        // Reference date 2001-01-01 UTC + id seconds; cleanly addresses
+        // both positive and zero offsets so the test can assert on
+        // `.UtcDateTime.Year == 2001` after epoch arithmetic.
+        return Date(timeIntervalSinceReferenceDate: TimeInterval(id))
+    }
+
+    /// Foundation.UUID round-trip — a deterministic UUID built from the
+    /// `id`, so the test can assert the exact 16-byte value returned by
+    /// the indirect-result wrapper. Validates the
+    /// `*(System.Guid*)buffer` cast + finally-Free shape.
+    public var alphaDeviceVerificationNonce: UUID {
+        // Pack `id` into the trailing 4 bytes; leave the leading 12 as
+        // zero so the runtime test can compare against an explicit Guid
+        // literal without depending on UUID-init nondeterminism.
+        let bytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                             UInt8((Int(id) >> 24) & 0xFF),
+                             UInt8((Int(id) >> 16) & 0xFF),
+                             UInt8((Int(id) >>  8) & 0xFF),
+                             UInt8( Int(id)        & 0xFF))
+        return UUID(uuid: bytes)
+    }
+
+    /// Foundation.Data round-trip — returns a Data populated with a
+    /// known byte pattern. Validates the
+    /// `(*(Swift.Foundation.Data*)buffer).ToByteArray()` cast on the C#
+    /// side and the `.initializeMemory(as: Foundation.Data.self, ...)`
+    /// emission on the Swift side.
+    public var alphaHeaderData: Data {
+        // Length bound to id; trailing byte = (id & 0xFF). The runtime
+        // test can assert both the count and that bytes[count-1] == id.
+        let count = max(1, Int(id))
+        var bytes = [UInt8](repeating: 0xAB, count: count)
+        bytes[count - 1] = UInt8(Int(id) & 0xFF)
+        return Data(bytes)
+    }
+}
+
 // MARK: Closed-generic factories
 
 /// Alpha-specialized factory so the C# binding has a reachable

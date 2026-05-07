@@ -119,4 +119,110 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
         // disposal ran after the wrapper had already freed the buffer in
         // finally; the SafeHandle's release path then double-freed.
     }
+
+    /// <summary>
+    /// Foundation.Date return shape regression coverage. The
+    /// <c>alphaSignedDate</c> accessor returns a Swift <c>Date</c>, which
+    /// drives the generator down
+    /// <c>ConstrainedExtensionEmitter.CEReturnShape.FoundationDate</c> —
+    /// the path StoreKit2's <c>VerificationResult.signedDate</c> needs.
+    /// The Swift wrapper returns <c>timeIntervalSinceReferenceDate</c> as
+    /// a single <c>Double</c> (no indirect-result buffer); the C# side
+    /// applies the Swift epoch (2001-01-01 UTC) + AddSeconds and returns
+    /// a <c>System.DateTimeOffset</c>.
+    /// </summary>
+    public void TestAlphaSpecialization_AlphaSignedDateRoundTrip()
+    {
+        using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(60);
+        var date = alpha.GetAlphaSignedDate();
+        // Swift epoch (2001-01-01 UTC) + 60 seconds = 2001-01-01 00:01:00 UTC.
+        var expected = new DateTimeOffset(2001, 1, 1, 0, 1, 0, TimeSpan.Zero);
+        AssertEqual(expected, date,
+            "Bundle 05 #3: Foundation.Date constrained-extension property must " +
+            "round-trip as System.DateTimeOffset relative to the Swift " +
+            "reference epoch (2001-01-01 UTC). A regression in the FoundationDate " +
+            "shape (e.g. routing through the indirect-result path or using a " +
+            "wrong epoch) would shift the result by 31 years (Unix epoch) or by " +
+            "the boundary buffer's uninitialized bytes.");
+    }
+
+    /// <summary>
+    /// Foundation.UUID return shape regression coverage. The
+    /// <c>alphaDeviceVerificationNonce</c> accessor returns a Swift
+    /// <c>UUID</c>, driving the generator down
+    /// <c>CEReturnShape.FoundationUUID</c> — the path StoreKit2's
+    /// <c>VerificationResult.deviceVerificationNonce</c> needs. The
+    /// fixture packs the parent's <c>id</c> into the trailing 4 bytes
+    /// of the UUID so the test can assert the exact bytes round-trip
+    /// through the indirect-result + System.Guid memcpy path.
+    /// </summary>
+    public void TestAlphaSpecialization_AlphaDeviceVerificationNonceRoundTrip()
+    {
+        using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(0x42);
+        var nonce = alpha.GetAlphaDeviceVerificationNonce();
+        var bytes = nonce.ToByteArray();
+        AssertEqual(16, bytes.Length,
+            "System.Guid bytes must be 16. Any other length implies the " +
+            "indirect-result buffer was misallocated or the cast to *Guid* " +
+            "read past the buffer.");
+        // System.Guid.ToByteArray() emits the legacy little-endian-first-3-fields
+        // layout. Swift UUID writes the tuple in source order (uuid_t.0 first).
+        // The fixture packs id=0x42 into the LAST tuple byte (uuid_t.15), and
+        // ToByteArray() preserves the byte-15 position, so bytes[15] must be 0x42.
+        AssertEqual((byte)0x42, bytes[15],
+            "Bundle 05 #3: trailing UUID byte must round-trip as 0x42 " +
+            "(matching the id packed by alphaDeviceVerificationNonce). A " +
+            "regression in the FoundationUUID shape (e.g. wrong indirect-" +
+            "result alignment or a missing initializeMemory call on the Swift " +
+            "side) would either zero or scramble this byte.");
+        // Leading 12 bytes are deliberately zero — confirm a few to catch a " +
+        // wholesale buffer corruption regression.
+        AssertEqual((byte)0, bytes[0], "Leading UUID byte 0 must be 0.");
+        AssertEqual((byte)0, bytes[8], "Mid UUID byte 8 must be 0.");
+    }
+
+    /// <summary>
+    /// Foundation.Data return shape regression coverage. The
+    /// <c>alphaHeaderData</c> accessor returns a Swift <c>Data</c>,
+    /// driving the generator down <c>CEReturnShape.FoundationData</c> —
+    /// the path StoreKit2's <c>VerificationResult.headerData</c> /
+    /// <c>.payloadData</c> / <c>.signatureData</c> /
+    /// <c>.signedData</c> / <c>.deviceVerification</c> need (all
+    /// previously skipped under MultiSpecialization). The fixture
+    /// trails the parent's <c>id</c> as the final byte, so the test
+    /// can assert both the count and the trailing byte round-trip
+    /// through the indirect-result + Swift.Foundation.Data.ToByteArray
+    /// path.
+    /// </summary>
+    public void TestAlphaSpecialization_AlphaHeaderDataRoundTrip()
+    {
+        using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(8);
+        var bytes = alpha.GetAlphaHeaderData();
+        AssertEqual(8, bytes.Length,
+            "Bundle 05 #3: Foundation.Data.count must round-trip as 8 " +
+            "(matching MakeBundle05ContainerAlpha(8)). A regression in the " +
+            "FoundationData shape (e.g. wrong indirect-result alignment or " +
+            "ToByteArray called on a freed buffer) would crash or return an " +
+            "empty array.");
+        AssertEqual((byte)0xAB, bytes[0],
+            "Leading byte must be 0xAB (the fixture's fill pattern). A wholesale " +
+            "buffer corruption regression would scramble this.");
+        AssertEqual((byte)8, bytes[7],
+            "Trailing byte must be id=8. Validates that ToByteArray()'s " +
+            "CopyBytes P/Invoke read the Swift Data buffer correctly after the " +
+            "indirect-result write, then freed the wrapper buffer in finally " +
+            "without affecting the bytes already copied to managed memory.");
+
+        // Force GC to stress the buffer-free-in-finally path: ToByteArray()
+        // copies bytes into a managed array BEFORE we leave the try block, so
+        // the managed array must remain valid even after the indirect-result
+        // buffer is freed. A regression that returned a pointer-aliased array
+        // would crash on this read.
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        AssertEqual((byte)8, bytes[7],
+            "After GC.Collect, the trailing byte must still read 8. A regression " +
+            "where ToByteArray() returned a buffer-aliased view (instead of a " +
+            "managed copy) would either crash here or read scrambled bytes.");
+    }
 }

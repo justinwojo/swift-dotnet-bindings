@@ -259,8 +259,14 @@ public static class ConstrainedExtensionEmitter
         String,
         /// <summary>Swift primitive (Int*, Bool, Float, Double, ...) — returned by value.</summary>
         Primitive,
-        /// <summary>Resilient (non-frozen) Swift struct (e.g. Foundation.Data) — returned via indirect-result buffer sized by the type's VWT.</summary>
+        /// <summary>Resilient (non-frozen) Swift struct (e.g. CryptoKit.P256.Signing.ECDSASignature) — returned via indirect-result buffer sized by the type's VWT. Buffer ownership transfers to the returned SafeHandle.</summary>
         NonFrozenStruct,
+        /// <summary>Foundation.Date — Swift ABI is Double (timeIntervalSinceReferenceDate); converted to System.DateTimeOffset via the Swift epoch.</summary>
+        FoundationDate,
+        /// <summary>Foundation.UUID — frozen 16-byte value-type; returned via indirect-result, copied to System.Guid, buffer freed in finally.</summary>
+        FoundationUUID,
+        /// <summary>Foundation.Data — frozen 16-byte struct (flags + object pointer); returned via indirect-result, projected as byte[] via Swift.Foundation.Data.ToByteArray(), buffer freed in finally.</summary>
+        FoundationData,
     }
 
     private static bool TryEmitPropertyExtension(
@@ -278,15 +284,29 @@ public static class ConstrainedExtensionEmitter
         ILogger logger)
     {
         // Classify return shape. String and Primitive are returned by value; NonFrozenStruct
-        // (e.g. Foundation.Data on StoreKit2's VerificationResult.headerData) needs the
-        // indirect-result buffer shape used by ExtensionMarshallingHelper. Other shapes
-        // (frozen-as-value structs like Foundation.Date / Foundation.UUID, ObjC classes,
-        // Swift classes, and generic-parameter returns like VerificationResult.payloadValue)
-        // remain unsupported here — see the doc resolution for follow-up scope.
+        // (e.g. CryptoKit.P256.Signing.ECDSASignature) uses an indirect-result buffer whose
+        // ownership transfers to the returned SafeHandle. Foundation value types
+        // (Date / UUID / Data) are detected directly here — they're frozen but require
+        // type-specific marshalling at the C# boundary (epoch arithmetic for Date,
+        // memcpy-to-Guid for UUID, .ToByteArray() for Data). Other shapes (ObjC classes,
+        // Swift classes, generic-parameter returns like VerificationResult.payloadValue,
+        // and other frozen value-type structs) remain unsupported.
         CEReturnShape shape;
         if (WitnessDispatchEmitter.IsStringType(property.SwiftTypeSpec))
         {
             shape = CEReturnShape.String;
+        }
+        else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.Date"))
+        {
+            shape = CEReturnShape.FoundationDate;
+        }
+        else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.UUID"))
+        {
+            shape = CEReturnShape.FoundationUUID;
+        }
+        else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.Data"))
+        {
+            shape = CEReturnShape.FoundationData;
         }
         else
         {
@@ -314,9 +334,14 @@ public static class ConstrainedExtensionEmitter
         }
 
         var propertyName = NameProvider.ToPascalCase(property.Name);
-        var csharpReturnType = shape == CEReturnShape.String
-            ? "string"
-            : ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase);
+        var csharpReturnType = shape switch
+        {
+            CEReturnShape.String => "string",
+            CEReturnShape.FoundationDate => "System.DateTimeOffset",
+            CEReturnShape.FoundationUUID => "System.Guid",
+            CEReturnShape.FoundationData => "byte[]",
+            _ => ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase),
+        };
 
         // Build @_cdecl symbol name
         var safeConcreteName = SanitizeTypeName(concreteTypeName.Name);
@@ -398,6 +423,65 @@ public static class ConstrainedExtensionEmitter
                     }
                     """);
                 break;
+
+            case CEReturnShape.FoundationDate:
+                // Date is `frozen=true requiresMemoryManagement=false`; its Swift ABI is a
+                // single `Double` carrying `timeIntervalSinceReferenceDate` (seconds since
+                // 2001-01-01 UTC). Project to System.DateTimeOffset via the same Swift epoch
+                // constant used by DateProjection.GetReturnPlan(Direct).
+                csWriter.WriteLine(
+                    $"var seconds = NativeMethods.{symbolName}(self.Payload.DangerousGetHandle());");
+                csWriter.WriteLine(
+                    $"return {DateProjection.SwiftEpoch}.AddSeconds(seconds);");
+                break;
+
+            case CEReturnShape.FoundationUUID:
+                // UUID is a frozen 16-byte tuple of UInt8s. Mirror the existing
+                // BlittableProjection("System.Guid") shape: read 16 bytes from the
+                // indirect-result buffer as a System.Guid, free the buffer in finally
+                // (the value is copied out before we leave the try block).
+                csWriter.WriteLines($$"""
+                    unsafe
+                    {
+                        IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
+                        try
+                        {
+                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                            return *(System.Guid*)buffer;
+                        }
+                        finally
+                        {
+                            System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                        }
+                    }
+                    """);
+                break;
+
+            case CEReturnShape.FoundationData:
+                // Foundation.Data is `frozen=true requiresMemoryManagement=false` with a
+                // 16-byte Swift layout (long _flags + IntPtr _object). Mirror the
+                // (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray() pattern used by
+                // WrapperEmitter.Return.cs:1316. The Data struct is value-copied out of the
+                // buffer before we free it; ToByteArray() then copies the underlying bytes
+                // via Swift's CopyBytes P/Invoke before returning.
+                csWriter.WriteLines($$"""
+                    unsafe
+                    {
+                        IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
+                        try
+                        {
+                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            NativeMethods.{{symbolName}}(indirectResult, self.Payload.DangerousGetHandle());
+                            return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
+                        }
+                        finally
+                        {
+                            System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                        }
+                    }
+                    """);
+                break;
         }
 
         csWriter.Indent--;
@@ -424,9 +508,16 @@ public static class ConstrainedExtensionEmitter
                     pinvokeReturnType = "void";
                     break;
                 case CEReturnShape.NonFrozenStruct:
+                case CEReturnShape.FoundationUUID:
+                case CEReturnShape.FoundationData:
                     pinvokeParams.Add("SwiftIndirectResult indirectResult");
                     pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = "void";
+                    break;
+                case CEReturnShape.FoundationDate:
+                    // Date returns timeIntervalSinceReferenceDate as a single Double in xmm0/d0.
+                    pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "double";
                     break;
                 default: // Primitive
                     pinvokeParams.Add("IntPtr _self");
@@ -477,16 +568,23 @@ public static class ConstrainedExtensionEmitter
             // Concrete specialization — no generic dispatch needed.
             """);
 
-        // Build parameter list — String and NonFrozenStruct use indirect-result style
-        // (a caller-provided buffer in resultPtr); Primitive returns by value.
+        // Build parameter list — indirect-result shapes use a caller-provided buffer
+        // (resultPtr first); Primitive and FoundationDate return by value.
         var swiftParams = new List<string>();
-        if (shape == CEReturnShape.String || shape == CEReturnShape.NonFrozenStruct)
+        bool usesIndirectResult = shape == CEReturnShape.String
+            || shape == CEReturnShape.NonFrozenStruct
+            || shape == CEReturnShape.FoundationUUID
+            || shape == CEReturnShape.FoundationData;
+        if (usesIndirectResult)
             swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
         swiftParams.Add("_ self_: UnsafeRawPointer");
 
-        var returnClause = shape == CEReturnShape.Primitive
-            ? $" -> {RenderSwiftReturnType(property)}"
-            : "";
+        var returnClause = shape switch
+        {
+            CEReturnShape.Primitive => $" -> {RenderSwiftReturnType(property)}",
+            CEReturnShape.FoundationDate => " -> Double",
+            _ => "",
+        };
         var swiftParamString = string.Join(", ", swiftParams);
 
         // Swift function name uses hash to avoid collisions
@@ -524,6 +622,28 @@ public static class ConstrainedExtensionEmitter
                 // resolves through the framework's transitive imports.
                 swiftWriter.WriteLine($"let result = {propAccess}");
                 swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {RenderSwiftReturnType(property)}.self, repeating: result, count: 1)");
+                break;
+            case CEReturnShape.FoundationDate:
+                // Foundation.Date.timeIntervalSinceReferenceDate is a TimeInterval (= Double)
+                // counting seconds since 2001-01-01 UTC, which is exactly the Swift epoch
+                // DateProjection consumes on the C# side. No buffer write needed.
+                swiftWriter.WriteLine($"return {propAccess}.timeIntervalSinceReferenceDate");
+                break;
+            case CEReturnShape.FoundationUUID:
+                // Foundation.UUID is a frozen 16-byte struct. Write its bytes into the
+                // indirect-result buffer; the C# side reads them as System.Guid via
+                // `*(System.Guid*)buffer`. Layout matches BlittableProjection("System.Guid").
+                swiftWriter.WriteLine($"let result = {propAccess}");
+                swiftWriter.WriteLine("resultPtr.initializeMemory(as: Foundation.UUID.self, repeating: result, count: 1)");
+                break;
+            case CEReturnShape.FoundationData:
+                // Foundation.Data is a frozen 16-byte struct (flags + storage pointer); the
+                // 16-byte value-type is written into the indirect-result buffer. The C# side
+                // reads it as Swift.Foundation.Data and calls .ToByteArray() to materialize
+                // the byte[]; the runtime ARC ownership of the underlying storage is held by
+                // the value while we read it.
+                swiftWriter.WriteLine($"let result = {propAccess}");
+                swiftWriter.WriteLine("resultPtr.initializeMemory(as: Foundation.Data.self, repeating: result, count: 1)");
                 break;
         }
 
@@ -574,4 +694,13 @@ public static class ConstrainedExtensionEmitter
         "nint" or "nuint" or "decimal" or "string" => true,
         _ => false
     };
+
+    /// <summary>
+    /// Tests whether a TypeSpec is the named Foundation value type (e.g. "Foundation.Data").
+    /// Mirrors the bare-name predicate used elsewhere in the emitter (e.g. WrapperEmitter.Return.cs).
+    /// </summary>
+    private static bool IsFoundationType(TypeSpec? typeSpec, string moduleQualifiedName)
+    {
+        return typeSpec is NamedTypeSpec named && named.Name == moduleQualifiedName;
+    }
 }

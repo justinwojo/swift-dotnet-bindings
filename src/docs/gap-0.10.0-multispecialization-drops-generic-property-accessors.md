@@ -253,34 +253,116 @@ into the companion swift file with the indirect-result shape
 described above. `nuke validate --filter WeatherKit` confirms no
 `Forecast<T>.Summary` regression.
 
+### Part 3 — Foundation value-type returns (Date / UUID / Data)
+
+Extends `ConstrainedExtensionEmitter` with three new
+`CEReturnShape` cases — `FoundationDate`, `FoundationUUID`,
+`FoundationData` — detected via `IsFoundationType` early branches
+in `TryEmitPropertyExtension` (mirroring the existing String
+detection branch). Each has its own emit shape:
+
+- **FoundationDate**: P/Invoke returns `Double` directly (no
+  indirect-result buffer); the C# body applies the Swift epoch
+  (`new System.DateTimeOffset(2001, 1, 1, 0, 0, 0, System.TimeSpan.Zero)
+  .AddSeconds(seconds)`), mirroring `DateProjection.GetReturnPlan(Direct)`.
+  Swift wrapper returns `obj.{prop}.timeIntervalSinceReferenceDate`.
+- **FoundationUUID**: indirect-result via `SwiftIndirectResult`;
+  the wrapper writes the 16-byte tuple into the buffer with
+  `initializeMemory(as: Foundation.UUID.self, ...)`. C# body reads
+  the bytes back as `*(System.Guid*)buffer` and frees the buffer
+  in `finally` (the value is value-copied out before we leave the
+  try block). Layout matches the existing
+  `BlittableProjection("System.Guid")` shape.
+- **FoundationData**: indirect-result; the wrapper writes the
+  16-byte `Foundation.Data` struct (flags + storage pointer) into
+  the buffer. C# body uses
+  `(*(Swift.Foundation.Data*)(void*)buffer).ToByteArray()` to
+  materialize a managed `byte[]` (matches the
+  `WrapperEmitter.Return.cs:1316` pattern used elsewhere); buffer
+  freed in `finally` after `ToByteArray` has copied the bytes
+  through Swift's `CopyBytes` P/Invoke.
+
+This unblocks the seven StoreKit2 properties left over after Part
+1+2: `headerData`, `payloadData`, `signatureData`, `signedData`,
+`deviceVerification` (Data), `signedDate` (Date), and
+`deviceVerificationNonce` (UUID). Same shape applies to any
+`extension Foo where Param == Concrete` block whose properties
+return Foundation value types — most multispec accessor surfaces
+on real frameworks fall in this set.
+
+### Layer A coverage (Part 3)
+
+Three new emission tests in
+`src/Swift.Bindings/tests/UnitTests/EmitterTests/ConstrainedExtensionEmitterTests.cs`:
+
+- `EmitConstrainedExtensions_GenericEnum_FoundationDateProperty_ReturnsDateTimeOffsetViaEpoch`
+  — Date return: asserts `System.DateTimeOffset` C# return type,
+  the `partial double SBW_CEGet_*(IntPtr _self)` direct P/Invoke
+  shape, the epoch + `AddSeconds(seconds)` arithmetic, and the
+  Swift `-> Double` + `timeIntervalSinceReferenceDate` shape.
+- `EmitConstrainedExtensions_GenericEnum_FoundationUUIDProperty_UsesIndirectResultAndGuidCast`
+  — UUID return: asserts `System.Guid` C# return type, the
+  `SwiftIndirectResult` P/Invoke parameter, the
+  `*(System.Guid*)buffer` cast, the `finally`-Free shape, and the
+  Swift `initializeMemory(as: Foundation.UUID.self, ...)`
+  emission.
+- `EmitConstrainedExtensions_GenericEnum_FoundationDataProperty_UsesIndirectResultAndToByteArray`
+  — Data return: asserts `byte[]` C# return type, the
+  `(*(Swift.Foundation.Data*)(void*)buffer).ToByteArray()` cast,
+  the `finally`-Free shape, and the Swift
+  `initializeMemory(as: Foundation.Data.self, ...)` emission.
+
+### Layer B coverage (Part 3)
+
+Three new BindingTests added to the existing Bundle 05
+multispecialization fixture and runtime test class:
+
+- `Bundle05Container<Bundle05SpecKeyA>.alphaSignedDate` (Date) →
+  `TestAlphaSpecialization_AlphaSignedDateRoundTrip`: asserts the
+  round-trip date matches the Swift epoch + `id` seconds.
+- `Bundle05Container<Bundle05SpecKeyA>.alphaDeviceVerificationNonce`
+  (UUID) →
+  `TestAlphaSpecialization_AlphaDeviceVerificationNonceRoundTrip`:
+  packs `id` into the trailing tuple byte, asserts byte-for-byte
+  round-trip through the indirect-result + System.Guid memcpy
+  path.
+- `Bundle05Container<Bundle05SpecKeyA>.alphaHeaderData` (Data) →
+  `TestAlphaSpecialization_AlphaHeaderDataRoundTrip`: asserts
+  count + leading + trailing byte after `ToByteArray()`, with a
+  GC-collect mid-test to confirm the managed byte[] doesn't alias
+  the freed wrapper buffer.
+
+Sim pass count ratcheted from 1918 → 1921 with these three tests.
+
+### Verified end-to-end (Part 3)
+
+`nuke binding-tests --sim --class-filter Bundle05MultiSpecAccessorsTests`
+now runs 6 tests (3 pre-existing + 3 new), all passing.
+
 ### Remaining scope (deferred)
 
-The fix covers String and non-frozen-struct return shapes — enough
-to resolve the StoreKit2 `jwsRepresentation` + `signature` blocker
-described in the original Impact section. The following sub-shapes
-are tracked as follow-ups, not blockers for 0.10.0:
+The combined Part 1+2+3 fix covers String, non-frozen-struct, and
+Foundation value-type return shapes — enough to resolve the
+StoreKit2 multispec property surface in full (modulo the
+open-generic `payloadValue` case below). The following sub-shapes
+are tracked as follow-ups:
 
-- **Foundation value types as return** (`Data`, `Date`, `UUID`):
-  these are registered as `frozen="true"
-  requiresMemoryManagement="false"`, so
-  `ExtensionMarshallingHelper.ClassifyReturnType` returns null
-  ("Frozen value-type struct not supported yet"). Affects
-  `headerData`, `payloadData`, `signatureData`, `signedData`,
-  `signedDate`, `deviceVerification`, `deviceVerificationNonce`.
-  These remain skipped.
 - **`payloadValue` / `unsafePayloadValue`**: skip under
   `AnyTypeFallback` because the projected return is the open
   generic parameter `SignedType`. The fix would be to substitute
-  the concrete specialization at extension-method emit time. Out of
-  scope for this pass; tracked separately.
+  the concrete specialization at extension-method emit time. Out
+  of scope; tracked separately.
 - **WeatherKit query types** (`[OpaqueSwiftType(2)]` tombstones)
   and **MusicKit `MusicLibraryRequest<T>` accessors**: same
   `MultiSpecialization` shape, but the constrained extensions
   contain methods (not just properties) and additional return
-  shapes (closure parameters, structured result types). Worth
-  revisiting as a unified pass once Bundle 11/11b lands.
+  shapes (closure parameters, structured result types).
+  `ConstrainedExtensionEmitter` only iterates `typeDecl.Properties`
+  today; extending it to methods is a parallel
+  `FindConstrainedMethodSpecializations` + `TryEmitMethodExtension`
+  pair. Worth a unified pass once Bundle 11/11b lands.
 
-The single-switch design means future shapes (frozen value types,
-`SignedType`-as-return, methods) extend
+The single-switch design means future shapes (open-generic
+`SignedType`-as-return, constrained-extension methods) extend
 `ConstrainedExtensionEmitter` in the same place rather than
 spreading across the four handler call-sites.
