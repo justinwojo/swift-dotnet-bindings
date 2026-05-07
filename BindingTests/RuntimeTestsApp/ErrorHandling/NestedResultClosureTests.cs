@@ -61,12 +61,20 @@ public class NestedResultClosureTests : TestBase
             shouldFail: false,
             completion: result =>
             {
-                if (result.IsSuccess && result.TryGetSuccess(out var session))
+                // SwiftResult<TSuccess, TFailure> is IDisposable — its SafeHandle
+                // wraps a heap copy of the Swift Result payload. Dispose it before
+                // returning so the callback doesn't leak a SafeHandle per call.
+                // The captured class payload (`session`) is retained independently
+                // of this handle, so it remains live after the using block exits.
+                using (result)
                 {
-                    captured = new SessionControllerSnapshot(
-                        Token: session!.Token.ToString(),
-                        Theme: session.Configuration.Theme);
-                    session.Dispose();
+                    if (result.IsSuccess && result.TryGetSuccess(out var session))
+                    {
+                        captured = new SessionControllerSnapshot(
+                            Token: session!.Token.ToString(),
+                            Theme: session.Configuration.Theme);
+                        session.Dispose();
+                    }
                 }
             });
 
@@ -93,11 +101,17 @@ public class NestedResultClosureTests : TestBase
             shouldFail: true,
             completion: result =>
             {
-                if (result.IsFailure && result.TryGetFailure(out var raw))
+                // Dispose the SwiftResult SafeHandle once we've copied out the
+                // information we need — the AnyError snapshot lives on its
+                // own and doesn't depend on the result's storage.
+                using (result)
                 {
-                    firedFailure = true;
-                    var anyError = new AnyError(raw);
-                    capturedDescription = anyError.LocalizedDescription;
+                    if (result.IsFailure && result.TryGetFailure(out var raw))
+                    {
+                        firedFailure = true;
+                        var anyError = new AnyError(raw);
+                        capturedDescription = anyError.LocalizedDescription;
+                    }
                 }
             });
 
@@ -183,9 +197,15 @@ public class NestedResultClosureTests : TestBase
             shouldFail: false,
             completion: result =>
             {
-                if (result.IsSuccess && result.TryGetSuccess(out var s))
+                // Dispose the SwiftResult SafeHandle inside the callback —
+                // the extracted class payload (`s`) is retained independently
+                // and remains live after the using block exits.
+                using (result)
                 {
-                    session = s;
+                    if (result.IsSuccess && result.TryGetSuccess(out var s))
+                    {
+                        session = s;
+                    }
                 }
             });
         AssertTrue(session is not null, "SessionController.Create should produce a live instance");
@@ -231,9 +251,15 @@ public class NestedResultClosureTests : TestBase
             shouldFail: false,
             completion: result =>
             {
-                if (result.IsSuccess && result.TryGetSuccess(out var s))
+                // Dispose the SwiftResult SafeHandle inside the callback —
+                // the extracted class payload (`s`) is retained independently
+                // and remains live after the using block exits.
+                using (result)
                 {
-                    session = s;
+                    if (result.IsSuccess && result.TryGetSuccess(out var s))
+                    {
+                        session = s;
+                    }
                 }
             });
         AssertTrue(session is not null, "SessionController.Create should produce a live instance");

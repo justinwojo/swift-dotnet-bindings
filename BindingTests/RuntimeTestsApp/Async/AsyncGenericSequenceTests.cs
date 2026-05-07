@@ -3,6 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Async;
@@ -106,28 +107,33 @@ public class AsyncGenericSequenceTests : TestBase
     {
         // The fix preserves async-throws plumbing for the surviving overloads:
         // `shouldThrow: true` makes the Swift body raise AsyncError.requestedThrow,
-        // which the CSM-async harness must surface as a faulted Task. Pre-fix
-        // this branch never even reached the throw — the wrapper symbol was
-        // missing for the chosen overload — so this is also implicit coverage
-        // that the right overload was selected and the wrapper is reachable.
+        // which the CSM-async harness must surface as a faulted Task with a
+        // SwiftException — the type the CSM-async harness raises for thrown
+        // Swift errors. Pinning the exact type also rules out
+        // EntryPointNotFoundException (the pre-fix failure mode for a
+        // missing wrapper symbol) silently greening this test: a missing
+        // wrapper would surface as P/Invoke resolution failure, not as a
+        // SwiftException, so this assertion is implicit coverage that the
+        // right overload was selected and the wrapper is reachable.
         using var roster = Functions.MakeAnimalAsyncRoster(firstName: "Otter", secondName: "Seal");
         var animals = new List<Animal>
         {
             new Animal(name: "Lynx", sound: "Hiss"),
         };
 
-        bool threw = false;
+        SwiftException? caught = null;
         try
         {
             await roster.InsertAsync(animals, 0, shouldThrow: true);
         }
-        catch (Exception ex)
+        catch (SwiftException ex)
         {
-            threw = true;
-            TestLogger.Info($"InsertAsync(shouldThrow: true) threw: {ex.GetType().Name}: {ex.Message}");
+            caught = ex;
+            TestLogger.Info($"InsertAsync(shouldThrow: true) threw SwiftException: {ex.Message}");
         }
 
-        AssertTrue(threw, "InsertAsync(shouldThrow: true) should fault the Task");
+        AssertTrue(caught is not null,
+            "InsertAsync(shouldThrow: true) should fault the Task with a SwiftException");
         AssertEqual(2, (int)roster.Count, "Roster should be unchanged after a thrown async insert");
     }
 }

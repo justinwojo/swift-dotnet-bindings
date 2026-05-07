@@ -98,7 +98,7 @@ The bug surfaces on every concrete-element overload at:
 
 (The fifth, generic-S overload at `:38266` fails earlier on PInvoke
 resolution — see **O-1**
-[`bug-0.10.0-generic-async-wrapper-symbol-missing.md`](bug-0.10.0-generic-async-wrapper-symbol-missing.md).
+[`bug-0.10.0-generic-async-wrapper-symbol-missing.md`](Resolved/bug-0.10.0-generic-async-wrapper-symbol-missing.md).
 With O-1 fixed, the generic overload would land here and hit the same
 bug.)
 
