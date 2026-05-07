@@ -1,5 +1,5 @@
 {
-  "git_sha": "9f02a9b7",
+  "git_sha": "c1f69967",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -12,28 +12,28 @@
       "CryptoKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27764,
+        "lines": 27769,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27764,
+        "lines": 27769,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27764,
+        "lines": 27769,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "CryptoKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27638,
+        "lines": 27643,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -47,7 +47,7 @@
       "LiveCommunicationKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8730,
+        "lines": 8734,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -68,42 +68,42 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 58196,
+        "lines": 58360,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 52300,
+        "lines": 52456,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 52491,
+        "lines": 52647,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57419,
+        "lines": 57583,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "ProximityReader": {
         "compile": "ok",
         "errors": 0,
-        "lines": 34792,
+        "lines": 34798,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "ProximityReader@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 34792,
+        "lines": 34798,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -117,70 +117,70 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 184355,
+        "lines": 184383,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RoomPlan": {
         "compile": "ok",
         "errors": 0,
-        "lines": 11215,
+        "lines": 11217,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33329,
+        "lines": 33759,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 29732,
+        "lines": 30162,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33329,
+        "lines": 33759,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 28738,
+        "lines": 29168,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10235,
+        "lines": 10247,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9144,
+        "lines": 9156,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10235,
+        "lines": 10247,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8372,
+        "lines": 8384,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -222,21 +222,21 @@
       "WorkoutKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10449,
+        "lines": 10453,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WorkoutKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9657,
+        "lines": 9661,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "WorkoutKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10449,
+        "lines": 10453,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -390,7 +390,7 @@
       "StripeApplePay": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1394,
+        "lines": 1293,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -411,7 +411,7 @@
       "StripeConnect": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7529,
+        "lines": 7530,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -453,7 +453,7 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 68445,
+        "lines": 68366,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -467,7 +467,7 @@
       "StripePaymentsUI": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6633,
+        "lines": 6321,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -579,14 +579,14 @@
       "FSPagerView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4053,
+        "lines": 3856,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SwiftyGif": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1339,
+        "lines": 1185,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -944,13 +944,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1918,
+      "pass": 1921,
       "fail": 0,
       "skip": 57,
       "crash": 0
     },
     "device": {
-      "pass": 1918,
+      "pass": 1937,
       "fail": 0,
       "skip": 41,
       "crash": 0
