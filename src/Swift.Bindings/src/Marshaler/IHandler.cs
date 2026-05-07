@@ -375,6 +375,16 @@ namespace BindingsGeneration
                         {
                             if (validationResult.IsSynthesized)
                                 ReportCollector.RecordMemberSynthesized(methodDecl);
+                            else if (validationResult.IsRoutedElsewhere)
+                            {
+                                // The open-form member is suppressed because concrete
+                                // specializations (CSM-async per-conformer overloads, or
+                                // CSM-sync generic-parent extensions) provide the public
+                                // surface. Do not emit a `// Unsupported:` comment (it would
+                                // mislead consumers reading the generated source — the API
+                                // IS callable via the alternate overloads) and do not record
+                                // as a skipped member.
+                            }
                             else
                             {
                                 ReportCollector.RecordMemberSkipped(methodDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");

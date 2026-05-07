@@ -203,8 +203,12 @@ public class MemberValidationPipeline
                 methodDecl, parentTypeForCsm, _typeDatabase, specEngineForCsm,
                 context.EmissionContext))
         {
-            return ValidationResult.Skip(SkipReason.GenericProtocolConstraint,
-                "Routed to concrete specialization.");
+            // The open-generic form is intentionally suppressed; per-conformer concrete
+            // specializations are emitted by ConcreteProtocolSpecializationEmitter and
+            // expose the supported public surface. This is NOT an unsupported outcome —
+            // do not emit `// Unsupported:` or record as skipped.
+            return ValidationResult.RoutedElsewhere(
+                "Routed to concrete CSM-async specialization.");
         }
 
         // Phase 4a (sync, generic parent): CSM emits concrete overloads as extension
@@ -223,8 +227,12 @@ public class MemberValidationPipeline
             ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent(
                 methodDecl, parentTypeForSyncCsm, _typeDatabase, specEngineForSyncCsm))
         {
-            return ValidationResult.Skip(SkipReason.GenericProtocolConstraint,
-                "Routed to concrete specialization (generic parent extension).");
+            // The open-generic form is intentionally suppressed; per-conformer concrete
+            // overloads are emitted as extension methods on a {Type}{ParentConformer}CsmExtensions
+            // class and shadow-resolve via static dispatch. This is NOT an unsupported outcome —
+            // do not emit `// Unsupported:` or record as skipped.
+            return ValidationResult.RoutedElsewhere(
+                "Routed to concrete CSM-sync specialization (generic parent extension).");
         }
 
         if (!methodDecl.IsConstructor &&

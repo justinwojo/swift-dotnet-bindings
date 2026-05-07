@@ -57,21 +57,43 @@ public sealed class ValidationResult
     /// </summary>
     public bool IsSynthesized { get; }
 
-    private ValidationResult(bool shouldEmit, SkipReason? reason, string? details, bool isSynthesized)
+    /// <summary>
+    /// True if the open-form member is intentionally suppressed because an alternate
+    /// emission path (e.g., concrete CSM specializations) provides the supported
+    /// public surface. Validation runs BEFORE the CSM emission pass — the eligibility
+    /// predicates pre-flight that emission rather than observing it. Callers MUST NOT
+    /// emit a <c>// Unsupported:</c> source comment or record this as a
+    /// skipped/degraded member; the public API is callable via the alternate overloads
+    /// (per-conformer specialized methods or extension methods). The
+    /// <see cref="Details"/> string carries diagnostic context only.
+    /// </summary>
+    public bool IsRoutedElsewhere { get; }
+
+    private ValidationResult(bool shouldEmit, SkipReason? reason, string? details, bool isSynthesized, bool isRoutedElsewhere)
     {
         ShouldEmit = shouldEmit;
         Reason = reason;
         Details = details;
         IsSynthesized = isSynthesized;
+        IsRoutedElsewhere = isRoutedElsewhere;
     }
 
-    public static readonly ValidationResult Emit = new(true, null, null, false);
+    public static readonly ValidationResult Emit = new(true, null, null, false, false);
 
     public static ValidationResult Skip(SkipReason reason, string details) =>
-        new(false, reason, details, false);
+        new(false, reason, details, false, false);
 
     public static ValidationResult Synthesized(string details) =>
-        new(false, null, details, true);
+        new(false, null, details, true, false);
+
+    /// <summary>
+    /// The open-form member is intentionally suppressed because concrete specializations
+    /// (e.g., CSM-async or CSM-sync per-conformer overloads) are emitted in its place by
+    /// the CSM path. The public API surface is callable via those concrete overloads, so
+    /// this is NOT an "unsupported" outcome and must not be reported as one.
+    /// </summary>
+    public static ValidationResult RoutedElsewhere(string details) =>
+        new(false, null, details, false, true);
 }
 
 /// <summary>
