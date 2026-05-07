@@ -46,6 +46,12 @@
          happy without introducing the Mono-side compile-time edge. -->
     <type fullname="SwiftBindingsTestLib.SwiftInterop.Bug16SpiRequirementProtocolProxy" preserve="all" />
     <type fullname="SwiftBindingsTestLib.SwiftInterop.Bug17HiddenRequirementProtocolProxy" preserve="all" />
+    <!-- F-2 availability-propagation runtime test (AvailabilityPropagationTests
+         .TestF2_ProtocolProxyClassInheritsAvailability) reflects on the proxy
+         class to verify it inherits @available platform attributes. Same trim
+         shape as the Bug16/Bug17 entries above; same comment about the JIT-vs-AOT
+         tradeoff applies. -->
+    <type fullname="SwiftBindingsTestLib.SwiftInterop.AvailabilityGatedProtocolF2Proxy" preserve="all" />
   </assembly>
 
   <!-- Swift.Runtime + System.ValueTuple roots are NOT defined here. They live in
