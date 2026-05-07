@@ -332,10 +332,11 @@ public class AvailabilityPropagationTests : TestBase
     public void TestF2_ProtocolProxyClassInheritsAvailability()
     {
         // The proxy class is named `{ProtocolName}Proxy` and lives in the
-        // same namespace as the interface. Resolve via reflection so we
-        // don't take a hard dependency on the symbol — the proxy is
-        // EditorBrowsableState.Never and the test verifies it exists.
-        var proxyTypeName = "SwiftBindingsTestLib.AvailabilityGatedProtocolF2Proxy";
+        // SwiftInterop sub-namespace (proxies are deliberately segregated
+        // there so they don't clutter the public surface). Resolve via
+        // reflection — the proxy is EditorBrowsableState.Never and the
+        // test verifies it exists with the expected availability metadata.
+        var proxyTypeName = "SwiftBindingsTestLib.SwiftInterop.AvailabilityGatedProtocolF2Proxy";
         var proxyType = typeof(SwiftBindingsTestLib.AvailabilityGatedProtocolF2Conformer)
             .Assembly.GetType(proxyTypeName);
         AssertTrue(proxyType is not null,
