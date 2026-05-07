@@ -50,6 +50,12 @@ namespace BindingsGeneration
         private const string ExtensionDefaultPropertyMessage = "This property uses a Swift protocol extension default. Access it on the concrete type instead.";
         private const string ExtensionDefaultMethodMessage = "This method uses a Swift protocol extension default. Call it on the concrete type instead.";
 
+        // ObjC `@objc optional` lowering: emit a DIM whose body silently no-ops (returns
+        // `default` for value-bearing members, an empty block for `void`). Consumers of
+        // the C# interface only have to implement the optional member when they care —
+        // matching the Swift / ObjC contract where the framework no-ops or substitutes
+        // a default when the conformer hasn't supplied one.
+
         private SortedDictionary<string, List<string>>? _compositionCollector;
 
         /// <summary>
@@ -114,6 +120,7 @@ namespace BindingsGeneration
             // Emit properties as interface members
             var skippedPropertyNames = new HashSet<string>();
             var closureSkippedPropertyNames = new HashSet<string>(); // Closure properties: in interface, proxy needs stub
+            var optionalDimPropertyNames = new HashSet<string>(); // @objc optional properties: in interface as DIM, proxy skips entirely
             var staticAbstractPropertyNames = new HashSet<string>(); // Static properties emitted as static abstract
             foreach (var propertyDecl in protocolDecl.Properties)
             {
@@ -188,6 +195,22 @@ namespace BindingsGeneration
                         protoQualifiedName, propertyDecl.Name, requiresSetter: protoHasSetter);
                 }
 
+                // ObjC `@objc optional` properties: emit as DIM with a no-op default body
+                // so consumers don't have to implement them. The DIM lives on the interface,
+                // so the proxy must skip emitting an implementation (let the DIM run); track
+                // both in `skippedPropertyNames` (proxy skip) and `optionalDimPropertyNames`
+                // (so the canonical property-name set re-includes the DIM, mirroring how
+                // closure-skipped properties are added back below).
+                if (propertyDecl.IsObjCOptional)
+                {
+                    skippedPropertyNames.Add(propertyDecl.Name);
+                    optionalDimPropertyNames.Add(propertyDecl.Name);
+                    EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isExtensionDefault: false, isStaticAbstract: false, isObjCOptional: true);
+                    emittedInterfaceMemberCount++;
+                    ReportCollector.RecordMemberEmitted(propertyDecl);
+                    continue;
+                }
+
                 EmitInterfaceProperty(bodyWriter, propertyDecl, env.TypeDatabase, closureHandler, protocolDecl, isPropertyExtDefault);
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(propertyDecl);
@@ -207,6 +230,10 @@ namespace BindingsGeneration
             // interface members that can collide with method names).
             foreach (var closurePropName in closureSkippedPropertyNames)
                 emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(closurePropName));
+            // Same for `@objc optional` properties: the DIM is in the interface, so its
+            // C# name participates in method/property collision detection.
+            foreach (var optionalPropName in optionalDimPropertyNames)
+                emittedCSharpPropertyNames.Add(NameProvider.GetPropertyName(optionalPropName));
 
             // Publish the actually-emitted property-name set so downstream emitters that
             // need to compute this protocol's exact C# member names (proxy explicit-interface
@@ -379,6 +406,20 @@ namespace BindingsGeneration
                     var extMethodKey = ProtocolExtensionEmitter.BuildMethodKey(methodDecl);
                     isExtensionDefault = extensionDefaultsIndex.HasMethodDefault(
                         protoQualifiedName, extMethodKey);
+                }
+
+                // ObjC `@objc optional` methods: emit as DIM with a no-op default body
+                // so consumers don't have to implement them. Track for proxy skip.
+                if (methodDecl.IsObjCOptional)
+                {
+                    skippedMethodKeys.Add(methodKey);
+                    EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault: false, isStaticAbstract: false, emissionCtx: emissionCtx, isObjCOptional: true);
+                    emittedInterfaceMemberCount++;
+                    ReportCollector.RecordMemberEmitted(methodDecl);
+                    // Skip the nint→int DIM overload for optional members; the no-op DIM
+                    // already covers the convenience-overload role and a second DIM with
+                    // the same projected name would be a duplicate.
+                    continue;
                 }
 
                 EmitInterfaceMethod(bodyWriter, methodDecl, env.TypeDatabase, closureHandler, protocolDecl, emittedCSharpPropertyNames, isExtensionDefault, emissionCtx: emissionCtx);
@@ -609,7 +650,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a property declaration for an interface.
         /// </summary>
-        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false, bool isStaticAbstract = false)
+        private void EmitInterfaceProperty(CSharpWriter csWriter, PropertyDecl propertyDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, bool isExtensionDefault = false, bool isStaticAbstract = false, bool isObjCOptional = false)
         {
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
 
@@ -718,6 +759,34 @@ namespace BindingsGeneration
                     csWriter.WriteLine("}");
                 }
             }
+            else if (isObjCOptional)
+            {
+                // `@objc optional` lowering: DIM with `default` getter and no-op setter so
+                // consumers can leave the optional unimplemented without CS0535.
+                if (hasGetter && hasSetter)
+                {
+                    csWriter.WriteLine($"{csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("get => default!;");
+                    csWriter.WriteLine("set { }");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                else if (hasGetter)
+                {
+                    csWriter.WriteLine($"{csharpTypeName} {propertyName} => default!;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"{csharpTypeName} {propertyName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("set { }");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+            }
             else
             {
                 csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
@@ -793,7 +862,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a method declaration for an interface.
         /// </summary>
-        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false, bool isStaticAbstract = false, ModuleEmissionContext? emissionCtx = null)
+        private void EmitInterfaceMethod(CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, IReadOnlySet<string>? propertyNames = null, bool isExtensionDefault = false, bool isStaticAbstract = false, ModuleEmissionContext? emissionCtx = null, bool isObjCOptional = false)
         {
             // Note: Constructor, static, duplicate, and AnyType generic arg checks
             // are handled at the loop level in Emit(). This method is only called
@@ -900,6 +969,34 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLine($"=> throw new global::System.NotSupportedException(\"{ExtensionDefaultMethodMessage}\");");
                 csWriter.Indent--;
+            }
+            else if (isObjCOptional)
+            {
+                // `@objc optional` lowering: DIM whose body silently no-ops. void methods get
+                // `{ }`, value-bearing methods get `=> default!;`. Consumers override only
+                // when they care; ignoring the optional method matches Swift / ObjC semantics.
+                if (returnType == "void" || returnType == "Task")
+                {
+                    csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
+                    if (returnType == "Task")
+                    {
+                        csWriter.Indent++;
+                        csWriter.WriteLine("=> global::System.Threading.Tasks.Task.CompletedTask;");
+                        csWriter.Indent--;
+                    }
+                    else
+                    {
+                        csWriter.WriteLine("{");
+                        csWriter.WriteLine("}");
+                    }
+                }
+                else
+                {
+                    csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("=> default!;");
+                    csWriter.Indent--;
+                }
             }
             else
             {

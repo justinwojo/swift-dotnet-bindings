@@ -4098,4 +4098,174 @@ public class ProtocolHandlerOutputTests
     }
 
     #endregion
+
+    #region @objc optional DIM Emission
+
+    [Fact]
+    public void Emit_ObjCOptionalVoidMethod_EmitsAsDIMWithEmptyBody()
+    {
+        // Protocol with one mandatory method and one `@objc optional` void method.
+        // The optional method must be a DIM with `{ }` body so consumers can leave it
+        // unimplemented; the mandatory method stays an interface requirement.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var optionalMethod = CreateMethodDecl("optionalCallback", moduleDecl);
+        optionalMethod.IsObjCOptional = true;
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "OptionalCallbacks",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.OptionalCallbacks"),
+            MangledName = "$s10TestModule17OptionalCallbacksP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>
+            {
+                CreateMethodDecl("requiredCallback", moduleDecl),
+                optionalMethod
+            },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Mandatory method stays an interface requirement (no body).
+        Assert.Contains("void RequiredCallback();", csOutput);
+        // Optional method emits a DIM with empty `{ }` body — no consumer implementation needed.
+        Assert.Contains("void OptionalCallback()", csOutput);
+        Assert.DoesNotContain("void OptionalCallback();", csOutput);
+        // The DIM body must NOT throw (that's the extension-default pattern, not optional).
+        // Optional methods should silently no-op so legacy ObjC delegate semantics are preserved.
+        var optionalIndex = csOutput.IndexOf("void OptionalCallback()");
+        var nextSemicolon = csOutput.IndexOf(';', optionalIndex);
+        var nextBrace = csOutput.IndexOf('}', optionalIndex);
+        Assert.True(nextBrace > 0 && (nextSemicolon < 0 || nextBrace < nextSemicolon),
+            "Optional void method body should be `{ }`, not throw NotSupportedException.");
+    }
+
+    [Fact]
+    public void Emit_ObjCOptionalReturningMethod_EmitsDefaultExpressionBody()
+    {
+        // `@objc optional func progressTotal() -> Int` → DIM whose body is `=> default!;`.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var optionalMethod = new MethodDecl
+        {
+            Name = "progressTotal",
+            MangledName = "$s10TestModule13progressTotalSiyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsObjCOptional = true,
+            Visibility = Visibility.Public
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "ProgressReporter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.ProgressReporter"),
+            MangledName = "$s10TestModule16ProgressReporterP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { optionalMethod },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // Inspect emitted method declaration; allow NameProvider whatever name it derives.
+        Assert.Matches(@"long\s+\w+\(\)\s*\n?\s*=>\s+default!;", csOutput);
+        Assert.DoesNotContain("ProgressTotal();", csOutput); // no plain interface requirement form
+    }
+
+    [Fact]
+    public void Emit_ObjCOptionalGetterProperty_EmitsExpressionBodyDIM()
+    {
+        // `@objc optional var label: Int { get }` → `long Label => default!;` DIM.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var optionalProperty = new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            IsObjCOptional = true,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl
+                {
+                    Method = new MethodDecl
+                    {
+                        Name = "label_Get",
+                        MangledName = "$s10TestModule5labelSivg",
+                        MethodType = MethodType.Instance,
+                        IsConstructor = false,
+                        CSSignature = new List<ArgumentDecl> { CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl) },
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        ParentDecl = null,
+                        ModuleDecl = moduleDecl,
+                        Throws = false,
+                        IsAsync = false,
+                        Visibility = Visibility.Public
+                    }
+                }
+            },
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "Labelled",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Labelled"),
+            MangledName = "$s10TestModule8LabelledP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl> { optionalProperty },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        Assert.Contains("long Label => default!;", csOutput);
+        Assert.DoesNotContain("long Label { get; }", csOutput);
+    }
+
+    #endregion
 }
