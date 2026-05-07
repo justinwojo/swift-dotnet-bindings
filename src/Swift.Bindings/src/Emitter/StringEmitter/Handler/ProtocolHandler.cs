@@ -972,27 +972,36 @@ namespace BindingsGeneration
             }
             else if (isObjCOptional)
             {
-                // `@objc optional` lowering: DIM whose body silently no-ops. void methods get
-                // `{ }`, value-bearing methods get `=> default!;`. Consumers override only
-                // when they care; ignoring the optional method matches Swift / ObjC semantics.
-                if (returnType == "void" || returnType == "Task")
+                // `@objc optional` lowering: DIM whose body silently no-ops. Three shapes:
+                //   * void              → empty block `{ }`
+                //   * bare Task         → `=> Task.CompletedTask;` (awaiting null Task NREs)
+                //   * Task<T>           → `=> Task.FromResult<T>(default!);` (same reason)
+                //   * everything else   → `=> default!;`
+                // Consumers override only when they care; ignoring matches ObjC semantics.
+                csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
+                if (returnType == "void")
                 {
-                    csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
-                    if (returnType == "Task")
-                    {
-                        csWriter.Indent++;
-                        csWriter.WriteLine("=> global::System.Threading.Tasks.Task.CompletedTask;");
-                        csWriter.Indent--;
-                    }
-                    else
-                    {
-                        csWriter.WriteLine("{");
-                        csWriter.WriteLine("}");
-                    }
+                    csWriter.WriteLine("{");
+                    csWriter.WriteLine("}");
+                }
+                else if (returnType == "Task")
+                {
+                    csWriter.Indent++;
+                    csWriter.WriteLine("=> global::System.Threading.Tasks.Task.CompletedTask;");
+                    csWriter.Indent--;
+                }
+                else if (returnType.StartsWith("Task<", StringComparison.Ordinal) && returnType.EndsWith(">", StringComparison.Ordinal))
+                {
+                    // Extract the inner generic argument; `Task<long>` → `long`. The DIM must
+                    // return a non-null Task so callers that `await` it observe `default(T)`
+                    // instead of NRE'ing on a null reference.
+                    var inner = returnType.Substring("Task<".Length, returnType.Length - "Task<".Length - 1);
+                    csWriter.Indent++;
+                    csWriter.WriteLine($"=> global::System.Threading.Tasks.Task.FromResult<{inner}>(default!);");
+                    csWriter.Indent--;
                 }
                 else
                 {
-                    csWriter.WriteLine($"{returnType} {methodName}({string.Join(", ", parameters)})");
                     csWriter.Indent++;
                     csWriter.WriteLine("=> default!;");
                     csWriter.Indent--;

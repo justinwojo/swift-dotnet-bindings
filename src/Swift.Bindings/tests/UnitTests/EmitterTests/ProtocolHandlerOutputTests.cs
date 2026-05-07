@@ -4267,5 +4267,60 @@ public class ProtocolHandlerOutputTests
         Assert.DoesNotContain("long Label { get; }", csOutput);
     }
 
+    [Fact]
+    public void Emit_ObjCOptionalAsyncReturningMethod_EmitsTaskFromResultDIM()
+    {
+        // `@objc optional func fetchValue() async -> Int` lowers to `Task<long>` —
+        // which MUST emit `=> Task.FromResult<long>(default!);` rather than `=> default!;`.
+        // The naive form yields a null Task and any consumer that `await`s it NREs.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var optionalAsync = new MethodDecl
+        {
+            Name = "fetchValue",
+            MangledName = "$s10TestModule10fetchValueSiyYaF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = true,
+            IsObjCOptional = true,
+            Visibility = Visibility.Public
+        };
+
+        var protocolDecl = new ProtocolDecl
+        {
+            Name = "AsyncFetcher",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.AsyncFetcher"),
+            MangledName = "$s10TestModule12AsyncFetcherP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { optionalAsync },
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProtocol(protocolDecl, typeDatabase);
+
+        // The DIM body must use Task.FromResult<long>(default!) — NOT `=> default!;`.
+        Assert.Matches(@"Task<long>\s+\w+\([^)]*\)\s*\n?\s*=>\s+global::System\.Threading\.Tasks\.Task\.FromResult<long>\(default!\);", csOutput);
+        // Negative: must NOT fall through to the bare `=> default!;` body for Task<T>.
+        Assert.DoesNotMatch(@"Task<long>\s+\w+\([^)]*\)\s*\n?\s*=>\s+default!;", csOutput);
+    }
+
     #endregion
 }

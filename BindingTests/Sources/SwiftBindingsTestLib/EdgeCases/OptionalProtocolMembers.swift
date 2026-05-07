@@ -33,6 +33,10 @@ import Foundation
 
     /// Optional get-only property. DIM body is `=> default!;`.
     @objc optional var optionalLabel: Int32 { get }
+
+    /// Optional async returning method. DIM body must be
+    /// `=> Task.FromResult<long>(default!);` so unawaited calls don't NRE.
+    @objc optional func fetchValue() async -> Int32
 }
 
 /// Lightweight Swift conformer used by the round-trip test. Implements only

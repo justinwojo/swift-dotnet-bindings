@@ -82,6 +82,19 @@ public class OptionalProtocolMembersTests : TestBase
         AssertEqual(0, observed, "Optional getter DIM yields default(int32)");
     }
 
+    public void TestOptionalAsyncReturningDIMReturnsTaskFromResult()
+    {
+        // The DIM for `@objc optional func fetchValue() async -> Int32` must be
+        // `=> Task.FromResult<int>(default!);`. The naive `=> default!;` form
+        // returns null Task and any consumer that `await`s it NREs.
+        IOptionalCallbackDelegate iface = new MinimalCSharpConformer();
+        var task = iface.FetchValueAsync();
+        AssertNotNull(task, "Optional async DIM must return a non-null Task");
+        // Synchronously wait — Task.FromResult is already completed.
+        var observed = task!.GetAwaiter().GetResult();
+        AssertEqual(0, observed, "Optional async DIM yields default(int32)");
+    }
+
     public void TestOptionalMembersAreDIMsViaReflection()
     {
         // Reflection-level guard: optional members must NOT carry the
