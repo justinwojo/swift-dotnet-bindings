@@ -165,40 +165,85 @@ namespace BindingsGeneration
             // 3. Select platform slice
             var slice = SelectSlice(slices, platformTarget, logger, platformInfo);
 
-            // 4. Detect static xcframework (LibraryPath without .framework)
-            if (!slice.LibraryPath.Contains(".framework"))
+            // 4. Locate the Modules directory. Frameworks ("Foo.framework") wrap
+            //    Modules/ under the bundle; bare-binary slices (libFoo.a /
+            //    libFoo.dylib) expose Modules/ at the slice root. Both shapes
+            //    are valid Swift framework distributions in the wild.
+            var sliceRoot = Path.Combine(xcframeworkPath, slice.LibraryIdentifier);
+            var modulesDir = ComputeModulesDir(sliceRoot, slice.LibraryPath);
+
+            // 5. Detection-order rule: Swift evidence wins over binary kind.
+            //    If a complete .swiftmodule (with abi.json or swiftinterface)
+            //    sits in the slice, take the Swift binding path regardless of
+            //    whether the binary is a Mach-O dylib or a static `ar archive`.
+            //    Static Swift frameworks (e.g. Mappedin's 6.2.0 distribution)
+            //    ship an ar-archive binary alongside a complete .swiftmodule —
+            //    binding generation only consumes the swiftmodule + abi.json,
+            //    so the static-vs-dynamic distinction does not matter for us.
+            //    Without this peek, the binary-kind probe at step 7 would
+            //    misroute the slice into the ObjC fallback path.
+            var selectedArch = slice.SupportedArchitectures.Contains("arm64")
+                ? "arm64"
+                : slice.SupportedArchitectures[0];
+            var swiftEvidence = TryDiscoverSwiftEvidence(modulesDir, selectedArch);
+
+            // 6. If no Swift evidence, reject bare-static slices early so the
+            //    caller can route to the ObjC fallback. .framework-wrapped
+            //    slices fall through to the dynamic-binary check at step 7.
+            if (swiftEvidence == null && !slice.LibraryPath.Contains(".framework"))
             {
                 throw new StaticLibraryException(
                     "SWIFTBIND101: Static xcframeworks (.a archives) are not supported for Swift binding. " +
                     "This may be an ObjC framework distributed as a static library.");
             }
 
-            // 5. Find dylib and verify it's dynamic
-            // Infer BinaryPath from LibraryPath if missing (wrapper xcframeworks may omit it)
+            // 7. Resolve the binary path. Wrapper xcframeworks may omit
+            //    BinaryPath in Info.plist, so infer it from LibraryPath.
             var binaryPath = slice.BinaryPath;
-            if (string.IsNullOrEmpty(binaryPath) && slice.LibraryPath.EndsWith(".framework", StringComparison.Ordinal))
+            if (string.IsNullOrEmpty(binaryPath))
             {
-                var frameworkName = Path.GetFileNameWithoutExtension(slice.LibraryPath);
-                binaryPath = $"{slice.LibraryPath}/{frameworkName}";
+                if (slice.LibraryPath.EndsWith(".framework", StringComparison.Ordinal))
+                {
+                    var frameworkName = Path.GetFileNameWithoutExtension(slice.LibraryPath);
+                    binaryPath = $"{slice.LibraryPath}/{frameworkName}";
+                }
+                else
+                {
+                    // Bare-binary slice: LibraryPath itself is the binary file.
+                    binaryPath = slice.LibraryPath;
+                }
             }
             var dylibPath = Path.Combine(xcframeworkPath, slice.LibraryIdentifier, binaryPath);
             if (!File.Exists(dylibPath))
             {
                 throw new FileNotFoundException($"Dylib not found at expected path: '{dylibPath}'.");
             }
-            VerifyDynamicLibrary(dylibPath, commandRunner);
 
-            // 6. Discover Swift module
-            var modulesDir = Path.Combine(xcframeworkPath, slice.LibraryIdentifier, slice.LibraryPath, "Modules");
-            var (swiftModuleDir, moduleName) = DiscoverSwiftModule(modulesDir);
+            // 8. Verify the binary is dynamic — but only when Swift evidence is
+            //    absent. With Swift evidence present we accept either dylib or
+            //    static archive (see step 5). For ObjC-shaped slices missing
+            //    Swift evidence, this throws StaticLibraryException → ObjC fallback.
+            if (swiftEvidence == null)
+            {
+                VerifyDynamicLibrary(dylibPath, commandRunner);
+            }
 
-            // 7. Select architecture
-            var selectedArch = slice.SupportedArchitectures.Contains("arm64")
-                ? "arm64"
-                : slice.SupportedArchitectures[0];
+            // 9. Discover Swift module (or reuse the early-discovered one).
+            string swiftModuleDir;
+            string moduleName;
+            if (swiftEvidence != null)
+            {
+                swiftModuleDir = swiftEvidence.SwiftModuleDir;
+                moduleName = swiftEvidence.ModuleName;
+            }
+            else
+            {
+                (swiftModuleDir, moduleName) = DiscoverSwiftModule(modulesDir);
+            }
 
-            // 8. Find swiftinterface
-            var swiftInterfacePath = FindSwiftInterface(swiftModuleDir, selectedArch);
+            // 10. Find swiftinterface
+            var swiftInterfacePath = swiftEvidence?.SwiftInterfacePath
+                ?? FindSwiftInterface(swiftModuleDir, selectedArch);
             if (swiftInterfacePath != null)
             {
                 logger.LogInformation("Found Swift interface: {Path}", swiftInterfacePath);
@@ -208,12 +253,12 @@ namespace BindingsGeneration
                 logger.LogInformation("No swiftinterface found; internal member detection will be limited.");
             }
 
-            // 9. Find or generate ABI JSON
+            // 11. Find or generate ABI JSON
             var abiJsonPath = FindOrGenerateAbiJson(
                 swiftModuleDir, selectedArch, swiftInterfacePath, slice,
                 moduleName, outputDirectory, commandRunner, logger);
 
-            // 10. Find or generate TBD
+            // 12. Find or generate TBD
             var tbdPath = FindOrGenerateTbd(
                 swiftModuleDir, dylibPath, moduleName, outputDirectory, commandRunner, logger);
 
@@ -781,6 +826,42 @@ namespace BindingsGeneration
             return fallback;
         }
 
+        /// <summary>
+        /// Modules directory location for a slice. Frameworks
+        /// ("Foo.framework") wrap Modules under the bundle; bare-binary slices
+        /// (libFoo.a / libFoo.dylib) expose Modules at the slice root.
+        /// </summary>
+        private static string ComputeModulesDir(string sliceRoot, string libraryPath)
+        {
+            if (libraryPath.EndsWith(".framework", StringComparison.OrdinalIgnoreCase))
+                return Path.Combine(sliceRoot, libraryPath, "Modules");
+            return Path.Combine(sliceRoot, "Modules");
+        }
+
+        /// <summary>
+        /// Early Swift-evidence peek used by the detection-order rule. If a
+        /// .swiftmodule is present and contains either an arch-matching
+        /// .swiftinterface or any .abi.json, returns its location so the
+        /// resolver can take the Swift path regardless of binary kind.
+        /// Returns null when no usable Swift module is found.
+        /// </summary>
+        private static SwiftEvidence? TryDiscoverSwiftEvidence(string modulesDir, string selectedArch)
+        {
+            if (!Directory.Exists(modulesDir))
+                return null;
+            var swiftModules = Directory.GetDirectories(modulesDir, "*.swiftmodule");
+            if (swiftModules.Length != 1)
+                return null;
+            var moduleDir = swiftModules[0];
+            var swiftInterface = FindSwiftInterface(moduleDir, selectedArch);
+            var hasAbi = Directory.GetFiles(moduleDir, "*.abi.json").Length > 0;
+            if (swiftInterface == null && !hasAbi)
+                return null;
+            return new SwiftEvidence(moduleDir, Path.GetFileNameWithoutExtension(moduleDir), swiftInterface);
+        }
+
+        private sealed record SwiftEvidence(string SwiftModuleDir, string ModuleName, string? SwiftInterfacePath);
+
         private static void VerifyDynamicLibrary(string binaryPath, ICommandRunner commandRunner)
         {
             var (exitCode, stdout, stderr) = commandRunner.Run("file", $"\"{binaryPath}\"");
@@ -959,10 +1040,25 @@ namespace BindingsGeneration
                 return tbdFiles[0];
             }
 
-            // Generate via tapi
-            logger.LogInformation("No TBD found. Generating from dylib...");
             Directory.CreateDirectory(outputDirectory);
             var tbdOutputPath = Path.Combine(outputDirectory, $"{moduleName}.tbd");
+
+            // tapi stubify only accepts Mach-O dynamic libraries. Static Swift
+            // frameworks (e.g. Mappedin 6.2.0) ship an `ar archive` binary
+            // alongside a complete .swiftmodule; rarer distributions ship
+            // bare Mach-O object files or universal-of-static binaries. The
+            // binding generator only consumes mangled symbols from the TBD,
+            // so we synthesize a minimal JSON TBD from `nm -gU` rather than
+            // failing here. `nm` reads all three of those shapes.
+            if (RequiresTbdSynthesis(dylibPath, commandRunner))
+            {
+                logger.LogInformation("Non-dylib binary detected. Synthesizing TBD from nm symbols...");
+                SynthesizeTbdFromStaticArchive(dylibPath, moduleName, tbdOutputPath, commandRunner);
+                return tbdOutputPath;
+            }
+
+            // Generate via tapi
+            logger.LogInformation("No TBD found. Generating from dylib...");
 
             var (exitCode, _, stderr) = commandRunner.Run(
                 "xcrun",
@@ -976,6 +1072,167 @@ namespace BindingsGeneration
             }
 
             return tbdOutputPath;
+        }
+
+        private static bool RequiresTbdSynthesis(string binaryPath, ICommandRunner commandRunner)
+        {
+            var (exitCode, stdout, _) = commandRunner.Run(
+                "file",
+                $"\"{binaryPath}\"",
+                timeoutMs: 10000);
+            if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+            {
+                // `file` couldn't classify the binary; let tapi stubify try
+                // and surface its own error if it also rejects the input.
+                return false;
+            }
+            // tapi stubify accepts only Mach-O dylibs. After we've confirmed
+            // Swift evidence upstream, anything that isn't a dylib is a
+            // non-dylib static distribution we need to synthesize a TBD for —
+            // `current ar archive` (Mappedin), `Mach-O 64-bit object`,
+            // universal binaries wrapping either, etc. Universal Mach-O dylibs
+            // still report "dynamically linked shared library" inside the
+            // slice listing, so the negative match is safe.
+            return !stdout.Contains("dynamically linked shared library", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void SynthesizeTbdFromStaticArchive(
+            string archivePath,
+            string moduleName,
+            string tbdOutputPath,
+            ICommandRunner commandRunner)
+        {
+            var (exitCode, stdout, stderr) = commandRunner.Run(
+                "nm",
+                $"-gU \"{archivePath}\"",
+                timeoutMs: 60000);
+            if (exitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"SWIFTBIND104: Failed to enumerate symbols from static archive '{archivePath}': {stderr}. " +
+                    "Ensure Xcode command-line tools are installed: xcode-select --install");
+            }
+
+            var symbols = ParseNmSymbols(stdout);
+
+            // Minimal JSON TBD v5 — only the fields the in-process parser reads:
+            //   tapi_tbd_version, main_library.{install_names, target_info,
+            //   exported_symbols[].text.global[]}.
+            // The binding generator demangles symbols by name; install-name and
+            // target tuples are not consulted by downstream code paths.
+            var sb = new System.Text.StringBuilder();
+            sb.Append('{').Append('\n');
+            sb.Append("  \"tapi_tbd_version\": 5,\n");
+            sb.Append("  \"main_library\": {\n");
+            sb.Append("    \"target_info\": [{ \"target\": \"arm64-ios\" }],\n");
+            sb.Append("    \"install_names\": [{ \"name\": \"@rpath/")
+              .Append(JsonEscape(moduleName))
+              .Append("\" }],\n");
+            sb.Append("    \"exported_symbols\": [{\n");
+            sb.Append("      \"text\": {\n");
+            sb.Append("        \"global\": [");
+            var first = true;
+            foreach (var sym in symbols)
+            {
+                if (!first) sb.Append(',');
+                sb.Append('\n').Append("          \"").Append(JsonEscape(sym)).Append('"');
+                first = false;
+            }
+            sb.Append(first ? "]" : "\n        ]").Append('\n');
+            sb.Append("      }\n");
+            sb.Append("    }]\n");
+            sb.Append("  }\n");
+            sb.Append("}\n");
+            File.WriteAllText(tbdOutputPath, sb.ToString());
+        }
+
+        private static List<string> ParseNmSymbols(string nmOutput)
+        {
+            // `nm -gU` on an archive emits per-object headers (`Foo-1.o:`)
+            // followed by `<hex>  <type>  <name>` rows. The name field can
+            // legitimately contain whitespace — Swift's reflection metadata
+            // surfaces entries like `_symbolic SS` and
+            // `_symbolic _____ 14Module0A8TypeV` — so we cannot just take the
+            // last token. Skip address (run of non-whitespace), skip the
+            // single-char type code, then take the rest of the line as the
+            // symbol name. Dedup because archives may repeat a symbol across
+            // member objects (linkonce/coalesced/etc.).
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var result = new List<string>();
+            foreach (var raw in nmOutput.Split('\n'))
+            {
+                var line = raw.TrimEnd();
+                if (string.IsNullOrEmpty(line))
+                {
+                    continue;
+                }
+                if (line.EndsWith(":"))
+                {
+                    continue; // object-file header
+                }
+                var name = ExtractNmSymbolName(line);
+                if (name == null)
+                {
+                    continue;
+                }
+                if (seen.Add(name))
+                {
+                    result.Add(name);
+                }
+            }
+            return result;
+        }
+
+        private static string? ExtractNmSymbolName(string line)
+        {
+            int i = 0;
+            // Leading whitespace (defensive — TrimStart equivalent).
+            while (i < line.Length && char.IsWhiteSpace(line[i])) i++;
+            // Address column (run of non-whitespace; may be empty for
+            // undefined symbols, but `-U` excludes those).
+            while (i < line.Length && !char.IsWhiteSpace(line[i])) i++;
+            // Whitespace separator.
+            while (i < line.Length && char.IsWhiteSpace(line[i])) i++;
+            // Type column — exactly one non-whitespace character.
+            if (i >= line.Length) return null;
+            i++;
+            // Whitespace separator.
+            while (i < line.Length && char.IsWhiteSpace(line[i])) i++;
+            // Remainder is the symbol name (may contain spaces).
+            if (i >= line.Length) return null;
+            return line.Substring(i);
+        }
+
+        private static string JsonEscape(string value)
+        {
+            // Mangled Swift symbol names contain only ASCII alphanumerics, `$`,
+            // and `_`, so plain quote/backslash escaping is sufficient. We
+            // still guard for safety against module-name surprises.
+            var sb = new System.Text.StringBuilder(value.Length);
+            foreach (var c in value)
+            {
+                switch (c)
+                {
+                    case '"': sb.Append("\\\""); break;
+                    case '\\': sb.Append("\\\\"); break;
+                    case '\b': sb.Append("\\b"); break;
+                    case '\f': sb.Append("\\f"); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < 0x20)
+                        {
+                            sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        }
+                        else
+                        {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+            return sb.ToString();
         }
     }
 }

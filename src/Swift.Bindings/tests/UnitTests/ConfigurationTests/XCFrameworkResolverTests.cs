@@ -820,14 +820,13 @@ namespace BindingsGeneration.Tests
         [InlineData("current ar archive random library")]                                                               // .a archive
         [InlineData("Mach-O 64-bit object arm64")]                                                                      // Static .framework (SwiftProtobuf pattern)
         [InlineData("Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit object x86_64] [arm64]")]      // Universal static
-        public void Resolve_StaticBinary_DetectsStatic(string fileOutput)
+        public void Resolve_StaticBinary_NoSwiftEvidence_DetectsStatic(string fileOutput)
         {
+            // True ObjC static framework: static binary, NO .swiftmodule. Resolver
+            // throws StaticLibraryException so the caller can route to ObjC fallback.
             using var fixture = new XCFrameworkFixture();
             fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("StaticLib"));
-            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "StaticLib.framework", "StaticLib.framework/StaticLib");
-            // Create full module structure so the error comes from file command, not module discovery
-            var moduleDir = fixture.CreateSwiftModule(sliceDir, "StaticLib.framework", "StaticLib");
-            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateSlice("ios-arm64-simulator", "StaticLib.framework", "StaticLib.framework/StaticLib");
 
             var runner = new MockCommandRunner();
             runner.SetResponse("file", 0, fileOutput);
@@ -846,9 +845,7 @@ namespace BindingsGeneration.Tests
             // so Program.cs can fall back to ObjC resolution.
             using var fixture = new XCFrameworkFixture();
             fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("StaticLib"));
-            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "StaticLib.framework", "StaticLib.framework/StaticLib");
-            var moduleDir = fixture.CreateSwiftModule(sliceDir, "StaticLib.framework", "StaticLib");
-            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateSlice("ios-arm64-simulator", "StaticLib.framework", "StaticLib.framework/StaticLib");
 
             var runner = new MockCommandRunner();
             runner.SetResponse("file", 0, "current ar archive random library");
@@ -871,14 +868,226 @@ namespace BindingsGeneration.Tests
             Assert.True(caughtStatic, "StaticLibraryException should be catchable distinctly from InvalidOperationException");
         }
 
+        [Theory]
+        [InlineData("current ar archive random library")]                                                               // .a archive (Mappedin shape)
+        [InlineData("Mach-O 64-bit object arm64")]                                                                      // Static Mach-O object
+        [InlineData("Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit object x86_64] [arm64]")]      // Universal static
+        public void Resolve_StaticFrameworkBinary_WithSwiftInterface_TakesSwiftPath(string fileOutput)
+        {
+            // Mappedin 6.2.0 shape: a `.framework` whose binary is a static `ar`
+            // archive paired with a complete `Modules/<Mod>.swiftmodule/...`.
+            // The detection-order rule routes this to the Swift binding path
+            // because Swift evidence is present, regardless of binary kind.
+            // No `.tbd` planted: this exercises the static-archive synthesis
+            // path so the test catches downstream regressions, not just step 7
+            // routing.
+            using var fixture = new XCFrameworkFixture();
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Mappedin"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Mappedin.framework", "Mappedin.framework/Mappedin");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Mappedin.framework", "Mappedin");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+
+            var runner = new MockCommandRunner();
+            // VerifyDynamicLibrary at step 8 must NOT run on Swift-evidence
+            // slices. `file` is, however, invoked downstream by IsStaticArchive
+            // when synthesizing a TBD — that call is driven by the response
+            // below.
+            runner.SetResponse("file", 0, fileOutput);
+            runner.SetResponse("nm", 0,
+                "Mappedin-1.o:\n0000000000000000 T _$s8Mappedin1FunctionV6methodyyF\n");
+
+            var result = XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            Assert.Equal("Mappedin", result.ModuleName);
+            Assert.NotNull(result.SwiftInterfacePath);
+            Assert.Contains("Mappedin.framework/Mappedin", result.DylibPath);
+            // Detection-order proof: tapi stubify was never reached.
+            Assert.DoesNotContain(runner.Invocations, i => i.Arguments.Contains("tapi stubify"));
+            // Synthesis proof: nm fed the TBD generator.
+            Assert.Contains(runner.Invocations, i => i.Command == "nm" && i.Arguments.Contains("-gU"));
+            // The synthesized TBD must be parseable by the in-process JSON parser.
+            Assert.True(File.Exists(result.TbdPath));
+            var tbdJson = File.ReadAllText(result.TbdPath);
+            Assert.Contains("\"tapi_tbd_version\"", tbdJson);
+            Assert.Contains("$s8Mappedin1FunctionV6methodyyF", tbdJson);
+        }
+
+        [Fact]
+        public void Resolve_BareStaticArchive_WithSwiftInterface_TakesSwiftPath()
+        {
+            // BindingTests/Fixtures/StaticSwift shape: a bare `libFoo.a` slice
+            // with `Modules/Foo.swiftmodule/` at the slice root (NOT wrapped
+            // under a .framework bundle). Common for Swift packages emitting
+            // `-static -emit-library` directly.
+            using var fixture = new XCFrameworkFixture();
+            var plist = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>libStaticSwiftLib.a</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            fixture.WriteInfoPlist(plist);
+            var sliceDir = Path.Combine(fixture.RootPath, "ios-arm64-simulator");
+            Directory.CreateDirectory(sliceDir);
+            File.WriteAllText(Path.Combine(sliceDir, "libStaticSwiftLib.a"), "");
+            var moduleDir = Path.Combine(sliceDir, "Modules", "StaticSwiftLib.swiftmodule");
+            Directory.CreateDirectory(moduleDir);
+            File.WriteAllText(Path.Combine(moduleDir, "arm64-apple-ios-simulator.swiftinterface"), "// swift-interface");
+            File.WriteAllText(Path.Combine(moduleDir, "arm64-apple-ios-simulator.abi.json"), "{}");
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "current ar archive random library");
+            runner.SetResponse("nm", 0,
+                "StaticSwiftLib-1.o:\n0000000000000120 T _$s14StaticSwiftLib0A8GreetingV5greet4nameS2S_tF\n");
+
+            var result = XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            Assert.Equal("StaticSwiftLib", result.ModuleName);
+            Assert.NotNull(result.SwiftInterfacePath);
+            Assert.EndsWith("libStaticSwiftLib.a", result.DylibPath);
+            Assert.DoesNotContain(runner.Invocations, i => i.Arguments.Contains("tapi stubify"));
+            Assert.Contains(runner.Invocations, i => i.Command == "nm" && i.Arguments.Contains("-gU"));
+            Assert.True(File.Exists(result.TbdPath));
+        }
+
+        [Fact]
+        public void Resolve_StaticArchive_TbdSynthesis_ProducesParseableJson()
+        {
+            // Direct coverage of the JSON-TBD synthesis path: feed a realistic
+            // `nm -gU` listing (multiple object headers, duplicate symbols
+            // across members, non-Swift entries) and confirm the generator
+            // emits valid JSON with deduped symbol names.
+            using var fixture = new XCFrameworkFixture();
+            fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Sample"));
+            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Sample.framework", "Sample.framework/Sample");
+            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Sample.framework", "Sample");
+            fixture.CreateSwiftInterface(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+
+            var nmOutput =
+                "Sample-1.o:\n" +
+                "0000000000000000 T _$s6Sample1AV3fooyyF\n" +
+                "0000000000000010 T _$s6Sample1BV3baryyF\n" +
+                "0000000000000020 S _$s6Sample1AVMn\n" +
+                "Sample-2.o:\n" +
+                "0000000000000000 T _$s6Sample1AV3fooyyF\n" +   // duplicate
+                "0000000000000030 T ___swift_memcpy16_8\n" +     // non-Swift global
+                "0000000000000040 T _objc_class_$_SampleClass\n" +
+                // Multi-token symbolic refs from Swift reflection metadata —
+                // must round-trip whole, not just the last whitespace token.
+                "0000000000000050 S _symbolic SS\n" +
+                "0000000000000060 S _symbolic _____ 6Sample1AV\n";
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 0, "current ar archive random library");
+            runner.SetResponse("nm", 0, nmOutput);
+
+            var result = XCFrameworkResolver.Resolve(
+                fixture.RootPath, fixture.OutputPath,
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner);
+
+            Assert.True(File.Exists(result.TbdPath));
+            var tbdJson = File.ReadAllText(result.TbdPath);
+
+            // Structural shape — JsonTbdFormatParser keys the parse on these.
+            Assert.Contains("\"tapi_tbd_version\"", tbdJson);
+            Assert.Contains("\"main_library\"", tbdJson);
+            Assert.Contains("\"exported_symbols\"", tbdJson);
+            Assert.Contains("\"global\"", tbdJson);
+
+            // Symbol deduplication — the duplicated `_$s6Sample1AV3fooyyF`
+            // must appear exactly once in the synthesized TBD.
+            var firstIdx = tbdJson.IndexOf("$s6Sample1AV3fooyyF", StringComparison.Ordinal);
+            var secondIdx = tbdJson.IndexOf("$s6Sample1AV3fooyyF", firstIdx + 1, StringComparison.Ordinal);
+            Assert.True(firstIdx > 0, "expected first occurrence of the deduped symbol");
+            Assert.Equal(-1, secondIdx);
+
+            // Roundtrip: the synthesized JSON must parse cleanly via the
+            // in-process JsonTbdFormatParser used by the binding generator.
+            using var doc = System.Text.Json.JsonDocument.Parse(tbdJson);
+            var root = doc.RootElement;
+            Assert.Equal(5, root.GetProperty("tapi_tbd_version").GetInt32());
+            var globals = root.GetProperty("main_library")
+                              .GetProperty("exported_symbols")[0]
+                              .GetProperty("text")
+                              .GetProperty("global");
+            // Every symbol from nm (Swift, runtime helpers, ObjC globals) is
+            // emitted as-is — Symbol classification happens downstream.
+            var emitted = new HashSet<string>();
+            foreach (var sym in globals.EnumerateArray())
+                emitted.Add(sym.GetString()!);
+            Assert.Contains("_$s6Sample1AV3fooyyF", emitted);
+            Assert.Contains("_$s6Sample1BV3baryyF", emitted);
+            Assert.Contains("___swift_memcpy16_8", emitted);
+            Assert.Contains("_objc_class_$_SampleClass", emitted);
+            // Full multi-token names must round-trip — taking only the last
+            // whitespace-delimited token would emit `SS` / `6Sample1AV`.
+            Assert.Contains("_symbolic SS", emitted);
+            Assert.Contains("_symbolic _____ 6Sample1AV", emitted);
+            Assert.DoesNotContain("SS", emitted);
+        }
+
+        [Fact]
+        public void Resolve_BareStaticArchive_NoSwiftEvidence_DetectsStatic()
+        {
+            // True ObjC static archive (no Modules/ alongside) — must still
+            // throw StaticLibraryException so the caller routes to ObjC fallback.
+            using var fixture = new XCFrameworkFixture();
+            var plist = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>BinaryPath</key><string>libObjC.a</string>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>libObjC.a</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                </dict>
+                </plist>
+                """;
+            fixture.WriteInfoPlist(plist);
+            var sliceDir = Path.Combine(fixture.RootPath, "ios-arm64-simulator");
+            Directory.CreateDirectory(sliceDir);
+            File.WriteAllText(Path.Combine(sliceDir, "libObjC.a"), "");
+
+            var ex = Assert.Throws<StaticLibraryException>(() =>
+                XCFrameworkResolver.Resolve(
+                    fixture.RootPath, fixture.OutputPath,
+                    XCFrameworkPlatformTarget.Simulator, NullLogger.Instance));
+            Assert.Contains("Static xcframeworks", ex.Message);
+        }
+
         [Fact]
         public void Resolve_FileCommandFails_ThrowsActionableError()
         {
+            // No Swift evidence (.swiftmodule absent) so the resolver actually
+            // invokes `file` — this is the path that surfaces the actionable
+            // "install xcode-select" error when the host lacks command-line tools.
             using var fixture = new XCFrameworkFixture();
             fixture.WriteInfoPlist(XCFrameworkModuleDiscoveryTests.MakeSimplePlist("Lib"));
-            var sliceDir = fixture.CreateSlice("ios-arm64-simulator", "Lib.framework", "Lib.framework/Lib");
-            var moduleDir = fixture.CreateSwiftModule(sliceDir, "Lib.framework", "Lib");
-            fixture.CreateAbiJson(moduleDir, "arm64-apple-ios-simulator");
+            fixture.CreateSlice("ios-arm64-simulator", "Lib.framework", "Lib.framework/Lib");
 
             var runner = new MockCommandRunner();
             runner.SetResponse("file", 1, "", "file: command not found");
