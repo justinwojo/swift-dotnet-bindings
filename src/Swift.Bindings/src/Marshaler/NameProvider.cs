@@ -589,6 +589,9 @@ public static class NameProvider
 
     /// <summary>
     /// Primitive Swift type names that should produce generic "value" parameter names.
+    /// Includes Apple numeric typealiases (CGFloat, TimeInterval, NSInteger, …) that
+    /// are semantically primitive doubles/ints. Without this, Swift `_: CGFloat`
+    /// parameters would camelcase to nonsense names like `cGFloat`.
     /// </summary>
     private static readonly HashSet<string> _primitiveTypeNames = new()
     {
@@ -596,6 +599,9 @@ public static class NameProvider
         "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
         "Float", "Float16", "Float32", "Float64", "Double",
         "String", "Character",
+        // Apple numeric primitive aliases (CoreGraphics / Foundation / ObjC bridging)
+        "CGFloat", "TimeInterval", "NSTimeInterval",
+        "NSInteger", "NSUInteger",
     };
 
     /// <summary>

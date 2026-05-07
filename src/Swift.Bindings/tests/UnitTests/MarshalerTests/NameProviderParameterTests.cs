@@ -260,6 +260,35 @@ public class NameProviderParameterTests
         Assert.Equal("flag", NameProvider.GetCSharpParameterName(arg));
     }
 
+    [Theory]
+    // Repro for gap-0.10.0-underscore-argument-labels-leak-as-parameter-names.md.
+    // Apple numeric typealiases (CGFloat, TimeInterval, NSInteger, NSUInteger,
+    // NSTimeInterval) are semantically primitive doubles/ints. Pre-fix, the
+    // emitter's DeriveParameterNameFromType camelcased the typedef name into
+    // nonsense parameter names like `cGFloat` / `nSInteger` (Lottie:6249,
+    // SDK-0.10.0-BLOCKERS Round 4 / M-8). Post-fix, all five collapse to the
+    // generic "value" — matching the existing `Swift.Double` / `Swift.Int` shape.
+    [InlineData("CGFloat")]
+    [InlineData("TimeInterval")]
+    [InlineData("NSTimeInterval")]
+    [InlineData("NSInteger")]
+    [InlineData("NSUInteger")]
+    public void Arg0_AppleNumericAlias_BecomesValue(string typeName)
+    {
+        var arg = MakeArgWithType("arg0", typeName);
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Theory]
+    [InlineData("CGFloat")]
+    [InlineData("TimeInterval")]
+    public void Underscore_AppleNumericAlias_BecomesValue(string typeName)
+    {
+        // Same fix on the literal underscore-argument-name path.
+        var arg = MakeArgWithType("_", typeName);
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
+    }
+
     [Fact]
     public void PrivateName_Preferred_OverTypeDerivation()
     {
