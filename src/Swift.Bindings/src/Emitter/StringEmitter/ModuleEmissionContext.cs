@@ -287,6 +287,51 @@ public sealed class ModuleEmissionContext
     /// <summary>Marks an extractor P/Invoke as emitted. Returns true if newly added.</summary>
     public bool TryAddExtractorPInvoke(string key) => _errorDescExtractorPInvokeTypes.Add(key);
 
+    // ==================== Error Type Registry (Phase 4 plain-throws bridge) ====================
+
+    private readonly Dictionary<string, int> _errorTypeIds = new(StringComparer.Ordinal);
+    private readonly List<string> _errorTypeOrder = new();
+
+    /// <summary>
+    /// Whether the per-module error-type registry has been computed by
+    /// <see cref="ErrorEnumRegistryEmitter"/>'s precompute pass. Idempotent guard.
+    /// </summary>
+    public bool ErrorTypeRegistryComputed { get; set; }
+
+    /// <summary>
+    /// Per-module registry mapping Swift error type's module-qualified name → assigned id (>= 1).
+    /// Built deterministically by <see cref="ErrorEnumRegistryEmitter"/> at module-emission start
+    /// (alphabetical ordering for cross-run stability). id 0 is reserved for "untyped" (the
+    /// existing string-only fallback path); any non-zero value indexes into this registry so
+    /// the C# async-callback dispatcher can reconstruct a typed <c>SwiftException&lt;TError&gt;</c>.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> ErrorTypeIds => _errorTypeIds;
+
+    /// <summary>
+    /// Insertion-ordered Swift module-qualified type names. Consumers (Swift cascade emitter,
+    /// C# dictionary emitter) iterate this rather than the dictionary so emit order matches
+    /// the registered id order.
+    /// </summary>
+    public IReadOnlyList<string> ErrorTypeOrder => _errorTypeOrder;
+
+    /// <summary>
+    /// Registers a Swift error type and returns its assigned id. Idempotent: re-registration
+    /// returns the existing id without renumbering. The first registration assigns id 1.
+    /// </summary>
+    public int RegisterErrorTypeId(string swiftModuleQualifiedName)
+    {
+        if (_errorTypeIds.TryGetValue(swiftModuleQualifiedName, out var existing))
+            return existing;
+        var newId = _errorTypeIds.Count + 1;
+        _errorTypeIds[swiftModuleQualifiedName] = newId;
+        _errorTypeOrder.Add(swiftModuleQualifiedName);
+        return newId;
+    }
+
+    /// <summary>Tries to look up the registered id for a Swift error type.</summary>
+    public bool TryGetErrorTypeId(string swiftModuleQualifiedName, out int id) =>
+        _errorTypeIds.TryGetValue(swiftModuleQualifiedName, out id);
+
     // ==================== Generic Closure Bridge ====================
 
     private readonly HashSet<string> _genericClosureBridgeTypes = new();
