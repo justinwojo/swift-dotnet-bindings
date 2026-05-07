@@ -171,7 +171,7 @@ After fix:
 
 ```csharp
 try { await WeatherService.Shared.WeatherAsync(loc); }
-catch (WeatherException ex) when (ex.Error == WeatherError.PermissionDenied)
+catch (SwiftException<WeatherError> ex) when (ex.Error == WeatherError.PermissionDenied)
 {
     // typed dispatch on Swift case
 }
@@ -179,9 +179,9 @@ catch (WeatherException ex) when (ex.Error == WeatherError.PermissionDenied)
 
 …should compile and dispatch correctly. The generator should:
 
-- Emit a `WeatherException : Exception` paired with the
-  `WeatherError` enum, exposing `Error` and any associated-value
-  accessors.
+- Emit `SwiftException<WeatherError>` for plain-throws async methods
+  whose dynamic error type matches a known Error-conforming enum,
+  exposing `Error` and any associated-value accessors.
 - Modify the Swift wrapper to encode the error case (and
   `RawRepresentable` payload, if any) on the wire instead of
   stringifying.
@@ -190,3 +190,113 @@ catch (WeatherException ex) when (ex.Error == WeatherError.PermissionDenied)
 
 Pair with **O-7** in the next SDK iteration's "type-system fidelity"
 priority slot.
+
+## Implementation design (D2 investigation, 2026-05-07)
+
+### What's already shipped (typed-throws path)
+
+The generator already supports Swift 6's typed throws (`throws(T)` syntax) end-to-end:
+
+- `MethodDecl.HasTypedThrows` is true for `func foo() async throws(T)`.
+- `WrapperEmitter.cs:114` resolves the typed error type via
+  `TypeDatabase.TryGetTypeRecord(ThrownErrorType)` and sets
+  `useTypedErrorCallback = true`.
+- `WrapperEmitter.Async.cs:2087-2191` emits a 5-param callback
+  `(errorPtr, errorSize, errorMessagePtr, isCancellation, task)` instead of
+  the 3-param untyped callback.
+- The C# error path uses `SwiftMarshal.MarshalFromSwift<TError>(errorPtr)` to
+  reconstruct the error and throws `SwiftException<TError>`.
+- `Swift.Runtime/SwiftException.cs` defines `SwiftException<TError>` with
+  the typed `Error` property.
+- `BindingTests/Sources/SwiftBindingsTestLib/ErrorHandling/TypedThrows.swift`
+  exercises the path with `ParseError`, `RangeError`, and
+  `TypedThrowingParser.asyncParse(...) async throws(ParseError)`.
+
+### What's missing (this bug — plain-throws bridging)
+
+WeatherKit/MusicKit/StoreKit2 declare `func f() async throws -> T` (plain
+throws), not `throws(WeatherError)`. The Swift compiler doesn't statically
+encode the error type. So `MethodDecl.HasTypedThrows` is false and the
+generator falls through to the stringification path.
+
+To bridge plain-throws methods to typed exceptions, we need:
+
+1. **Module-scope error-enum enumeration**. At module-emission time, walk
+   every `EnumDecl` (and `StructDecl` / `ClassDecl`) that declares
+   `Error` / `LocalizedError` / `Foundation.LocalizedError` conformance and
+   build a per-module registry: `errorTypeId → SwiftType`. Output the
+   registry to the C# side as a static `Dictionary<int, Type>` plus a
+   matching Swift-side switch.
+
+2. **Wire format extension**. The 5-param error callback grows a
+   discriminator: `(errorPtr, errorSize, errorMessagePtr, isCancellation, task,
+   errorTypeId)`. `errorTypeId == 0` means untyped (existing fallback);
+   any other value indexes into the registry.
+
+3. **Swift wrapper conditional encoding**. The catch block performs an
+   ordered cascade of `as?` casts against each known error type:
+
+   ```swift
+   } catch {
+       if let typed = error as? WeatherError {
+           let buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<WeatherError>.stride, alignment: ...)
+           buf.initializeMemory(as: WeatherError.self, repeating: typed, count: 1)
+           callback(taskHolder, taskIndex, nil, buf, MemoryLayout<WeatherError>.stride,
+                    String(describing: error).utf8CStringPtr,
+                    /* isCancellation */ 0, /* errorTypeId */ 1, /* task */ task)
+       } else if let typed = error as? OtherError {
+           ...
+       } else {
+           // existing stringification fallback
+       }
+   }
+   ```
+
+   The cascade lives in a per-module helper `_dispatchSwiftError(_:_:...)`
+   shared across all wrappers in the module so the body emits once instead
+   of per-method.
+
+4. **C# callback dispatch on errorTypeId**. The 6-param C# callback
+   inspects `errorTypeId`, looks up the C# type via the registry, and uses
+   `MarshalFromSwift<TError>` to reconstruct the typed error. Throws
+   `SwiftException<TError>` (typed) when the id is non-zero, falls back to
+   `SwiftException` (untyped) when the id is zero.
+
+5. **Reuse Session B `_SBClosureCtx` owner-token**. The Swift-allocated
+   error buffer follows the same Swift-ARC-owned-box ownership shape
+   established for closures: the wrapper allocates the box, hands it to
+   the callback, and the C# side calls `SBW_Free` after MarshalFromSwift
+   takes ownership (or in `finally` for value-copy errors). This is
+   identical to the current typed-throws path's
+   `typedErrorTransfersOwnershipAsync` shape — the new path inherits it
+   without modification.
+
+### Why this is multi-session work
+
+Layer 1 is mechanical (one new emitter pass + module-scope registry build).
+Layer 2 is a wire-format change that ripples through five emission sites
+(`WrapperEmitter.Async.cs` 5-param callback, `AsyncHarnessEmitter.cs`
+helper-extracted twin, plus the runtime-side `SBW_*` symbol surface for
+the cascade helper). Layer 3 is the new emit pass for the Swift-side
+cascade helper plus per-method conditional. Layer 4 is the C# dispatcher
+update. Layer 5 is verifying the existing transfer-ownership logic still
+holds for plain-throws errors that may carry payload buffers (associated
+values).
+
+The mechanical changes are straightforward but the testing surface is
+broad: every existing typed-throws test has to keep passing, every
+plain-throws test has to keep passing, and the new path's catch-cascade
+ordering has to be deterministic across re-runs (alphabetical by error
+type name is the obvious ordering).
+
+A careful single-session implementation would need ~6 emit-site edits,
+~4 runtime additions, fixture coverage for at least 3 module shapes
+(simple enum, enum with associated values, struct error) and runtime
+tests on both Mono JIT and NativeAOT to catch the wire-format change
+breaking either runtime's marshalling.
+
+D2 investigation summary: groundwork for layers 1-5 is identified and the
+existing typed-throws scaffolding (5-param callback, `SwiftException<T>`,
+`MarshalFromSwift<T>`, transfer-ownership tracking) is the right base.
+The bug stays open as a definite-scope follow-up; estimated landing in
+the next dedicated error-bridging session (Session D3 or E pre-release).
