@@ -56,6 +56,17 @@ public static class DefaultParameterOverloadEmitter
         // unresolved generic type parameters (τ_0_0, τ_0_1, etc.) in Swift source code.
         // Class-level generics are handled by the parent-type check above; this catches
         // method-level generics that produce raw ABI type params in the wrapper signature.
+        //
+        // Lifting this for the StoreKit2 `purchase<S: UIScene>(... options: Set<…> = [])`
+        // shape requires not just threading the method-own generic params + where-clause
+        // through the @_silgen_name shim (mechanically straightforward via
+        // AsyncHarnessEmitter.BuildMethodOwnGenericParams + WrapperEmitterHelpers
+        // .BuildSwiftWhereClause — see gap-0.10.0-generic-method-default-overload-missing.md)
+        // but also extending the async-generic dispatch on the C# side to bind the trim
+        // overload's P/Invoke to the new DBW_ symbol with matching metadata + witness
+        // threading. Today the primary async generic emission path bails wholesale for
+        // non-CSM-specialized class-bound protocol generics (the StoreKit case), so the
+        // trim overload has nothing to attach to.
         if (methodDecl.IsGeneric)
             return;
 
