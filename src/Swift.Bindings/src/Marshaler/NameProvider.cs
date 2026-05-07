@@ -602,6 +602,7 @@ public static class NameProvider
         // Apple numeric primitive aliases (CoreGraphics / Foundation / ObjC bridging)
         "CGFloat", "TimeInterval", "NSTimeInterval",
         "NSInteger", "NSUInteger",
+        "CFTimeInterval", "CFAbsoluteTime", "CFIndex",
     };
 
     /// <summary>
