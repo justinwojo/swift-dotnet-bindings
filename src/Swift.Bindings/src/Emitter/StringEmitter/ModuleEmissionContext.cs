@@ -835,6 +835,16 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public bool ClosureContextHelpersEmitted { get; set; }
 
+    /// <summary>
+    /// Set by <c>ProtocolExtensionEmitter.EmitClosureSwiftWrapper</c> when the buffered
+    /// protocol-extension wrapper lines reference <c>_sbWrapClosureContext</c>. Read by
+    /// <c>EmitSwiftWrappers</c> before flushing the buffer, to ensure the helper is
+    /// emitted into the wrapper Swift source first. Without this flag the helper would
+    /// be missing for modules whose only escaping closure user is a protocol extension
+    /// (no MCB / NCB site fired in the same module).
+    /// </summary>
+    public bool ProtocolExtUsesClosureContextHelper { get; set; }
+
     // ==================== Concrete Protocol Specialization ====================
 
     /// <summary>

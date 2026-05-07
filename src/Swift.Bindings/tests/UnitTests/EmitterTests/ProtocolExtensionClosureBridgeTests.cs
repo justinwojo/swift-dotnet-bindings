@@ -33,6 +33,24 @@ public class ProtocolExtensionClosureBridgeTests
     #region TryEmit gate: no closure parameter returns false
 
     [Fact]
+    public void TryEmit_ThrowingMethod_ReturnsFalse()
+    {
+        var (csWriter, swiftWriter, output) = CreateWriters();
+        var method = CreateProtocolExtMethodWithClosure(
+            "subscribe",
+            new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty));
+        method.Throws = true;
+        var env = CreateMethodEnvironment(method);
+
+        var result = ProtocolExtensionClosureBridge.TryEmit(csWriter, swiftWriter, env, CreateClassDecl("MyProtocol"));
+
+        // PExtCB has no Swift error out-param / HandleSwiftError handling, so throwing
+        // protocol-extension closure methods must fail closed (matching MCB/NCB).
+        Assert.False(result);
+        Assert.Empty(output.ToString());
+    }
+
+    [Fact]
     public void TryEmit_NoClosure_ReturnsFalse()
     {
         var (csWriter, swiftWriter, output) = CreateWriters();
@@ -173,6 +191,73 @@ public class ProtocolExtensionClosureBridgeTests
         var result = csOutput.ToString();
         // Protocol extension P/Invoke ABI: self_ comes first
         Assert.Contains("IntPtr self_", result);
+    }
+
+    #endregion
+
+    #region Throw-window: escaping closure pre-declares GCHandle and __transferred
+
+    [Fact]
+    public void TryEmit_EscapingClosure_PreDeclaresGCHandleAndTransferredFlag()
+    {
+        var (csWriter, swiftWriter, csOutput) = CreateWriters();
+        var closureSpec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateProtocolExtMethodWithClosure("observe", closureSpec);
+        var env = CreateMethodEnvironment(method);
+        var parentDecl = CreateClassDecl("MyProtocol");
+
+        ProtocolExtensionClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var result = csOutput.ToString();
+        // Pre-declared GCHandle so finally can free it after a throw between alloc and the
+        // P/Invoke returning successfully.
+        Assert.Contains("GCHandle __gcHandle = default;", result);
+        // Transferred flag is set only after a successful P/Invoke return so the finally
+        // skips Free() on the happy path (Swift owns the handle via the _SBClosureCtx box).
+        Assert.Contains("bool __transferred = false;", result);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingClosure_WrapsCallInTryFinally()
+    {
+        var (csWriter, swiftWriter, csOutput) = CreateWriters();
+        var closureSpec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateProtocolExtMethodWithClosure("observe", closureSpec);
+        var env = CreateMethodEnvironment(method);
+        var parentDecl = CreateClassDecl("MyProtocol");
+
+        ProtocolExtensionClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var result = csOutput.ToString();
+        // Try/finally wraps the P/Invoke section. The finally only frees when ownership
+        // transfer never moved into Swift (e.g. throw before/during the P/Invoke).
+        Assert.Contains("try", result);
+        Assert.Contains("finally", result);
+        Assert.Contains("__transferred = true;", result);
+        Assert.Contains("if (!__transferred && __gcHandle.IsAllocated) __gcHandle.Free();", result);
+    }
+
+    [Fact]
+    public void TryEmit_NonEscapingClosure_NoTryFinally()
+    {
+        // Non-escaping protocol extension closure: trampoline fires synchronously, the GCHandle
+        // can become unreachable on return — same behaviour as pre-existing PExtCB output. The
+        // throw-window fix only fires for escaping closures where Swift assumes ownership.
+        var (csWriter, swiftWriter, csOutput) = CreateWriters();
+        var closureSpec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty);
+        var method = CreateProtocolExtMethodWithClosure("forEach", closureSpec);
+        var env = CreateMethodEnvironment(method);
+        var parentDecl = CreateClassDecl("MyProtocol");
+
+        ProtocolExtensionClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        var result = csOutput.ToString();
+        Assert.DoesNotContain("__transferred", result);
+        Assert.DoesNotContain("finally", result);
+        // GCHandle is still pre-declared at method scope (consistent with MCB / NCB layout).
+        Assert.Contains("GCHandle __gcHandle = default;", result);
     }
 
     #endregion

@@ -1281,6 +1281,55 @@ public class MethodClosureBridgeTests
         Assert.DoesNotContain("Unmanaged<ImageRequest>", swift);
     }
 
+    // ─── Throw-window + _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ───
+
+    [Fact]
+    public void TryEmit_EscapingClosure_PreDeclaresGCHandleAndTransferredFlag()
+    {
+        // Throw-window regression test: verifies the C# bridge pre-declares the GCHandle and
+        // a per-closure transferred flag at method scope so a finally block can free the handle
+        // when ownership transfer to Swift never completed (e.g. a throw between alloc and the
+        // P/Invoke returning successfully). Pairs with the _SBClosureCtx box construction in
+        // the Swift wrapper which owns the handle on the happy path.
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        Assert.Contains("GCHandle __gcHandle = default;", cs);
+        Assert.Contains("bool __transferred = false;", cs);
+        Assert.Contains("try", cs);
+        Assert.Contains("finally", cs);
+        Assert.Contains("__transferred = true;", cs);
+        Assert.Contains("if (!__transferred && __gcHandle.IsAllocated) __gcHandle.Free();", cs);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingClosure_SwiftWrapperConstructsClosureContextBox()
+    {
+        // Swift-side regression test: the wrapper must wrap the GCHandle pointer in an
+        // _SBClosureCtx box (deinit upcalls C# and frees the handle exactly once when Swift
+        // releases the closure) and explicitly capture _box in the synthesized closure so its
+        // lifetime tracks the closure via Swift ARC. Without the capture, the box is released
+        // after the wrapper returns and the C# delegate is freed mid-callback.
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("_sbWrapClosureContext", swift);
+        Assert.Contains("[_box", swift);
+        Assert.Contains("_ = _box", swift);
+    }
+
     // ─── IsEligible: generic parent types ─────────────────────────────
 
     [Fact]

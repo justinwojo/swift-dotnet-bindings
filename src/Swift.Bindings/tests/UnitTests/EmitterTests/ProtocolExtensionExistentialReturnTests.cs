@@ -490,6 +490,52 @@ public class ProtocolExtensionExistentialReturnTests
         Assert.DoesNotContain("Unmanaged.passRetained", wrapperLines);
     }
 
+    // ─── _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ──────
+
+    [Fact]
+    public void EscapingClosure_SwiftWrapperWrapsContextInClosureContextBox()
+    {
+        // The protocol-extension Swift wrapper for an @escaping closure must wrap the GCHandle
+        // pointer in an _SBClosureCtx box (whose deinit upcalls C# and frees the handle when
+        // Swift releases the closure) and explicitly capture _box in the synthesized inline
+        // closure so its lifetime tracks the closure via Swift ARC.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyClass", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("subscribe",
+                "public func subscribe(_ handler: @escaping () -> Swift.Void)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        Assert.Contains("_sbWrapClosureContext", wrapperLines);
+        Assert.Contains("let _box: AnyObject = _sbWrapClosureContext", wrapperLines);
+        Assert.Contains("[_box]", wrapperLines);
+        // Body observes the captured box so the optimizer cannot release it before the closure runs.
+        Assert.Contains("_ = _box", wrapperLines);
+        // EmitSwiftWrappers must emit the helper before flushing the buffer — flag is read there.
+        Assert.True(ctx.ProtocolExtUsesClosureContextHelper);
+    }
+
+    [Fact]
+    public void NonEscapingClosure_SwiftWrapperOmitsClosureContextBox()
+    {
+        // Non-escaping closures don't need the box — Swift cannot retain them past the call,
+        // and the C# wrapper's `finally` already frees the GCHandle deterministically.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyClass", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("forEach",
+                "public func forEach(_ handler: () -> Swift.Void)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        Assert.DoesNotContain("_sbWrapClosureContext", wrapperLines);
+        Assert.DoesNotContain("_box", wrapperLines);
+        Assert.False(ctx.ProtocolExtUsesClosureContextHelper);
+    }
+
     // ─── ModuleProcessor computes InheritedRequirementsOnly flag ──────
 
     [Fact]

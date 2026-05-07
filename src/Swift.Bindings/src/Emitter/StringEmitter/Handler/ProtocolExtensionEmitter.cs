@@ -92,6 +92,14 @@ public static class ProtocolExtensionEmitter
         if (ctx.ProtocolExtSwiftWrapperLines.Count == 0)
             return;
 
+        // Emit `_sbWrapClosureContext` and its dlsym-cached factory before the
+        // buffered wrapper bodies are flushed — they reference the helper by name.
+        // Idempotent across paths (NCB / MCB may have already emitted it earlier).
+        if (ctx.ProtocolExtUsesClosureContextHelper)
+        {
+            ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
+        }
+
         swiftWriter.WriteLine();
         swiftWriter.WriteLine("// --- Protocol extension method wrappers ---");
         foreach (var line in ctx.ProtocolExtSwiftWrapperLines)
@@ -510,8 +518,13 @@ public static class ProtocolExtensionEmitter
         var beforeColon = paramDecl.Substring(0, colonIdx).Trim();
         var afterColon = paramDecl.Substring(colonIdx + 1).Trim();
 
-        // Remove @escaping, @Sendable, @autoclosure attributes
-        afterColon = StripSwiftAttributes(afterColon);
+        // Strip @escaping, @Sendable, @autoclosure attributes from the type string before
+        // handing it to TypeSpecParser (which doesn't accept Swift parameter attributes), and
+        // capture which closure-attributes were present so they can be reattached to the
+        // parsed ClosureTypeSpec. The escaping flag is load-bearing for the _SBClosureCtx
+        // owner-token wiring (Bug 1 Cat 3 / Bug 3 Case 2).
+        var (strippedType, attrNames) = StripSwiftAttributes(afterColon);
+        afterColon = strippedType;
 
         // Remove default value (e.g., "= true", "= .init()", "= StatementArguments()")
         var defaultIdx = FindDefaultValueStart(afterColon);
@@ -538,25 +551,43 @@ public static class ProtocolExtensionEmitter
         if (typeSpec == null)
             return null;
 
+        // Reattach closure-affecting attributes that the parser would not have seen.
+        if (typeSpec is ClosureTypeSpec parsedClosure)
+        {
+            foreach (var attrName in attrNames)
+            {
+                if (!parsedClosure.Attributes.Exists(a => a.Name == attrName))
+                    parsedClosure.Attributes.Add(new TypeSpecAttribute(attrName));
+            }
+        }
+
         return (label, typeSpec, afterColon);
     }
 
     /// <summary>
-    /// Strips Swift parameter attributes like @escaping, @Sendable, @autoclosure.
+    /// Strips Swift parameter attributes like @escaping, @Sendable, @autoclosure from the
+    /// front of <paramref name="typeStr"/> and returns the remaining type along with the
+    /// list of attribute names that were stripped (in order). Also strips the "inout"
+    /// prefix without recording it. The attribute list lets callers reattach
+    /// closure-affecting attributes (notably <c>escaping</c>) to the parsed TypeSpec.
     /// </summary>
-    private static string StripSwiftAttributes(string typeStr)
+    private static (string remaining, List<string> attrNames) StripSwiftAttributes(string typeStr)
     {
-        // Remove leading @attributes (can appear multiple times)
+        var attrNames = new List<string>();
         while (typeStr.StartsWith("@"))
         {
             var spaceIdx = typeStr.IndexOf(' ');
             if (spaceIdx < 0) break;
+            // Capture the attribute name (without the '@' and without any parameter list)
+            var attrToken = typeStr.Substring(1, spaceIdx - 1);
+            var parenIdx = attrToken.IndexOf('(');
+            var attrName = parenIdx >= 0 ? attrToken.Substring(0, parenIdx) : attrToken;
+            attrNames.Add(attrName);
             typeStr = typeStr.Substring(spaceIdx + 1).TrimStart();
         }
-        // Also handle "inout" prefix
         if (typeStr.StartsWith("inout "))
             typeStr = typeStr.Substring(6).TrimStart();
-        return typeStr;
+        return (typeStr, attrNames);
     }
 
     /// <summary>
@@ -1610,6 +1641,19 @@ public static class ProtocolExtensionEmitter
 
         ctx.AddProtocolExtWrapperLine($"    let cdecl = unsafeBitCast({closureParamName}FuncPtr, to: {cdeclTypeStr})");
 
+        // Wrap the GCHandle context pointer in a Swift-ARC-owned `_SBClosureCtx` box for
+        // escaping closures so the box's deinit upcalls C# and frees the handle exactly
+        // once when Swift releases the captured closure (Bug 1 Cat 3 / Bug 3 Case 2).
+        // Non-escaping closures do not retain past the call — their handles are freed by
+        // the C# wrapper's `finally`. The `_box` constant becomes part of the closure's
+        // capture list so its lifetime tracks the closure.
+        bool isEscapingProtoExt = closureTypeSpec.IsEscaping;
+        if (isEscapingProtoExt)
+        {
+            ctx.AddProtocolExtWrapperLine($"    let _box: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureParamName}Context!)");
+            ctx.ProtocolExtUsesClosureContextHelper = true;
+        }
+
         // Build the inline closure that calls the cdecl callback
         var closureSwiftArgs = new List<string>();
         int argIdx = 0;
@@ -1624,12 +1668,32 @@ public static class ProtocolExtensionEmitter
             ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec.ReturnType);
         var throwsKeyword = closureTypeSpec.Throws ? " throws" : "";
 
-        // For zero-parameter closures, omit the parameter list and `in` keyword.
-        // `{ in ... }` is a syntax error; `{ ... }` is correct for parameterless closures.
-        var closureParamList = closureArgs.Count > 0
-            ? $" {string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"))} in"
-            : "";
+        // Capture list `[_box]` for escaping closures keeps the owner-token alive for the
+        // closure's full Swift-ARC lifetime. For zero-parameter closures, omit the parameter
+        // list and `in` keyword (Swift treats `{ in ... }` as a syntax error) — but escaping
+        // zero-arg closures still need an explicit `in` after `[_box]`.
+        string closureParamList;
+        if (closureArgs.Count > 0)
+        {
+            var args = string.Join(", ", Enumerable.Range(0, closureArgs.Count).Select(i => $"__arg{i}"));
+            closureParamList = isEscapingProtoExt
+                ? $" [_box] {args} in"
+                : $" {args} in";
+        }
+        else
+        {
+            closureParamList = isEscapingProtoExt
+                ? " [_box] in"
+                : "";
+        }
         ctx.AddProtocolExtWrapperLine($"    let __closure: ({string.Join(", ", closureSwiftArgs.Select(a => a.Split(':')[1].Trim()))}){throwsKeyword} -> {closureReturnStr} = {{{closureParamList}");
+
+        if (isEscapingProtoExt)
+        {
+            // Observe `_box` inside the body so the capture list is non-vacuous and the
+            // optimizer cannot release the box before the closure runs.
+            ctx.AddProtocolExtWrapperLine("        _ = _box");
+        }
 
         // For each arg: allocate buffer, copy, pass to cdecl
         for (int i = 0; i < closureArgs.Count; i++)

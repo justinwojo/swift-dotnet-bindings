@@ -28,6 +28,7 @@ public static class ProtocolExtensionClosureBridge
     {
         var method = env.MethodDecl;
         if (!method.IsProtocolExtensionMethod) return false;
+        if (method.Throws) return false;
 
         // Find the closure parameter
         ClosureTypeSpec? closureTypeSpec = null;
@@ -450,8 +451,28 @@ public static class ProtocolExtensionClosureBridge
             }
         }
 
-        // Allocate GCHandle — intentionally leaked for @escaping closure lifetime
-        csWriter.WriteLine("var __gcHandle = GCHandle.Alloc(__inner);");
+        // Pre-declare GCHandle (and per-closure transfer flag for escaping closures) at
+        // method scope so a throw between alloc and the P/Invoke returning successfully
+        // (e.g. ObjectDisposedException from Payload.DangerousGetHandle on a previous arg,
+        // or DllNotFoundException on entry-point resolution) frees the handle in `finally`.
+        // For escaping closures Swift assumes lifetime ownership through the `_SBClosureCtx`
+        // box deinit upcall on the happy path; the finally only frees handles whose
+        // ownership never moved into Swift. PExtCB only handles direct ClosureTypeSpec
+        // (no Optional<Closure>), so `IsEscaping` alone is the right gate.
+        bool isEscaping = closureTypeSpec.IsEscaping;
+        csWriter.WriteLine("GCHandle __gcHandle = default;");
+        if (isEscaping)
+        {
+            csWriter.WriteLine("bool __transferred = false;");
+        }
+        csWriter.WriteLine("__gcHandle = GCHandle.Alloc(__inner);");
+
+        if (isEscaping)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
 
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
@@ -485,16 +506,42 @@ public static class ProtocolExtensionClosureBridge
         if (returnsClass)
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            if (isEscaping)
+            {
+                csWriter.WriteLine("__transferred = true;");
+            }
             csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
         }
         else if (!returnSpec.IsEmptyTuple)
         {
-            // Primitive return — P/Invoke returns the value directly
-            csWriter.WriteLine($"return {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            // Primitive return — capture before marking transfer so the flag is only flipped
+            // on a successful P/Invoke return.
+            csWriter.WriteLine($"var __pinvokeResult = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            if (isEscaping)
+            {
+                csWriter.WriteLine("__transferred = true;");
+            }
+            csWriter.WriteLine("return __pinvokeResult;");
         }
         else
         {
             csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            if (isEscaping)
+            {
+                csWriter.WriteLine("__transferred = true;");
+            }
+        }
+
+        if (isEscaping)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (!__transferred && __gcHandle.IsAllocated) __gcHandle.Free();");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         csWriter.Indent--;

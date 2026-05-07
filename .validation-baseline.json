@@ -1,5 +1,5 @@
 {
-  "git_sha": "061fcb47",
+  "git_sha": "9f02a9b7",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -117,7 +117,7 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 184344,
+        "lines": 184355,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -243,7 +243,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56851,
+        "lines": 56871,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,7 +278,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 99969,
+        "lines": 99989,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -593,7 +593,7 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4228,
+        "lines": 4238,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -944,13 +944,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1900,
+      "pass": 1902,
       "fail": 0,
       "skip": 56,
       "crash": 0
     },
     "device": {
-      "pass": 1915,
+      "pass": 1918,
       "fail": 0,
       "skip": 41,
       "crash": 0

@@ -771,6 +771,93 @@ public class NestedClosureBridgeTests
         Assert.True(method.UsesFreeFunctionWrapper);
     }
 
+    // ─── Throw-window + _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ───
+
+    [Fact]
+    public void TryEmit_EscapingOuter_PreDeclaresGCHandleAndTransferredFlag()
+    {
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // Pre-declared GCHandle at method scope so finally can free it after a throw between
+        // alloc and the P/Invoke returning successfully (e.g. ObjectDisposedException on a
+        // previous arg, DllNotFoundException on entry-point resolution).
+        Assert.Contains("GCHandle __gcHandle_0 = default;", cs);
+        // For escaping outer closures the transferred flag is set only after a successful
+        // P/Invoke return; the finally only frees handles whose ownership never moved into Swift.
+        Assert.Contains("bool __transferred_0 = false;", cs);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingOuter_WrapsCallInTryFinallyWithConditionalFree()
+    {
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        Assert.Contains("try", cs);
+        Assert.Contains("finally", cs);
+        Assert.Contains("__transferred_0 = true;", cs);
+        Assert.Contains("if (!__transferred_0 && __gcHandle_0.IsAllocated) __gcHandle_0.Free();", cs);
+    }
+
+    [Fact]
+    public void TryEmit_EscapingOuter_AllocsHappenInsideTryBlock()
+    {
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var cs = csOutput.ToString();
+        // GCHandle.Alloc must live inside the try so an OOM mid-loop frees any
+        // handle already taken — leaving allocs outside the try would leak the
+        // earlier handle when a later alloc throws.
+        var tryIdx = cs.IndexOf("try");
+        var allocIdx = cs.IndexOf("__gcHandle_0 = GCHandle.Alloc");
+        Assert.True(tryIdx >= 0, "Expected try block in escaping NCB output");
+        Assert.True(allocIdx >= 0, "Expected GCHandle.Alloc in NCB output");
+        Assert.True(tryIdx < allocIdx, $"Expected try block (index {tryIdx}) to precede GCHandle.Alloc (index {allocIdx})");
+    }
+
+    [Fact]
+    public void TryEmit_EscapingOuter_SwiftWrapperConstructsClosureContextBox()
+    {
+        var (method, typeDatabase) = CreateMethodWithNestedClosure();
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csWriter = new CSharpWriter(new StringWriter());
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+
+        NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        var swift = swiftOutput.ToString();
+        // For each escaping outer the Swift wrapper wraps the GCHandle pointer in an
+        // _SBClosureCtx box (whose deinit upcalls C# and frees the handle exactly once).
+        Assert.Contains("_sbWrapClosureContext", swift);
+        Assert.Contains("let _box_0:", swift);
+        // The synthesized adapter closure must explicitly capture _box_0 to track its
+        // lifetime via Swift ARC.
+        Assert.Contains("[_box_0]", swift);
+        // Body observes the captured box so the optimizer cannot release it before the
+        // closure runs (capture-list values are otherwise unused locals).
+        Assert.Contains("_ = _box_0", swift);
+    }
+
     // ─── Helper Methods ───────────────────────────────────────────────
 
     /// <summary>

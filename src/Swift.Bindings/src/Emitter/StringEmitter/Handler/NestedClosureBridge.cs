@@ -31,7 +31,7 @@ public static class NestedClosureBridge
     private record NestedClosureInfo(
         ClosureTypeSpec OuterSpec, ArgumentDecl Arg, List<TypeSpec> OuterArgs,
         List<InnerClosureInfo> InnerClosures, List<TypeSpec> OuterNonClosureArgs,
-        string CallbackBaseName, string ParamName, int Index);
+        string CallbackBaseName, string ParamName, int Index, bool IsEffectivelyEscaping);
     /// <summary>
     /// Checks if a method is eligible for the NestedClosureBridge pattern.
     /// </summary>
@@ -180,9 +180,15 @@ public static class NestedClosureBridge
             // doesn't silently rename the first symbol from bare NCB_{hash} to NCB_{hash}_0.
             var baseName = $"NCB_{mangledHash}_{closureIndex}";
 
+            // Escaping (or Optional<closure>, which is always escaping per constraints.md)
+            // outer closures get a Swift-ARC owner-token box around the GCHandle context so
+            // the GCHandle is freed when Swift releases the closure (Bug 1 Cat 3 / Bug 3 Case 2).
+            var isEffectivelyEscaping = WrapperValidation.IsEffectivelyEscaping(
+                cts, arg.SwiftTypeSpec, env.ClosureHandler);
+
             nestedClosures.Add(new NestedClosureInfo(
                 cts, arg, outerArgs, innerClosures, outerNonClosureArgs,
-                baseName, paramName, closureIndex));
+                baseName, paramName, closureIndex, isEffectivelyEscaping));
 
             closureIndex++;
         }
@@ -208,7 +214,7 @@ public static class NestedClosureBridge
         // Emit a single Swift wrapper that receives all outer closures' funcPtr/context pairs
         // and dispatches to the original method. The wrapper symbol matches the first outer
         // closure's callback base name (always indexed _0 per Session 2 naming convention).
-        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, nestedClosures, passableNonClosureParams);
+        EmitSwiftWrapper(swiftWriter, method, env, parentDecl, nestedClosures, passableNonClosureParams, ctx);
 
         // Set method flags for wrapper library routing
         method.UsesWrapperLibrary = true;
@@ -259,8 +265,16 @@ public static class NestedClosureBridge
         MethodEnvironment env,
         TypeDecl? parentDecl,
         List<NestedClosureInfo> nestedClosures,
-        List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams)
+        List<(ArgumentDecl arg, string csName, string csType, MethodClosureBridge.ParamAbiCategory category)> passableNonClosureParams,
+        ModuleEmissionContext? ctx = null)
     {
+        // Emit the per-module `_sbWrapClosureContext` helper if any outer closure is escaping
+        // — its `_SBClosureCtx` box upcalls SwiftClosureContext.DestroyClosureContext from
+        // deinit, freeing the GCHandle exactly once when Swift releases the closure
+        // (Bug 1 Cat 3 / Bug 3 Case 2).
+        if (nestedClosures.Any(nc => nc.IsEffectivelyEscaping))
+            ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
+
         bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
         var typeName = parentDecl?.SwiftTypeName?.ModuleQualifiedName ?? parentDecl?.Name ?? "";
         bool multiOuter = nestedClosures.Count > 1;
@@ -344,13 +358,22 @@ public static class NestedClosureBridge
             EmitInnerTrampolinesForOuter(swiftWriter, nc, multiOuter, env);
         }
 
-        // Reconstruct each outer cdecl function from its funcPtr.
+        // Reconstruct each outer cdecl function from its funcPtr. For escaping outers, also
+        // wrap the GCHandle context in a Swift-ARC owner-token `_SBClosureCtx` box; the outer
+        // adapter closure captures `_box_N` via its capture list so the box's lifetime tracks
+        // the stored closure's. When Swift releases the closure, the box's deinit upcalls the
+        // C# free callback (Bug 1 Cat 3 / Bug 3 Case 2).
         foreach (var nc in nestedClosures)
         {
             var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
             var cdeclType = BuildOuterCdeclType(nc, env);
             var cdeclVar = multiOuter ? $"cdecl{nc.Index}" : "cdecl";
             swiftWriter.WriteLine($"    let {cdeclVar} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
+
+            if (nc.IsEffectivelyEscaping)
+            {
+                swiftWriter.WriteLine($"    let _box_{nc.Index}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+            }
         }
         swiftWriter.WriteLine();
 
@@ -527,7 +550,11 @@ public static class NestedClosureBridge
             ? string.Join(", ", nonClosureCallArgs) + ", "
             : "";
 
-        swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{methodSwiftName}({prefixStr}{callLabel}{{ {outerParamStr} in");
+        // Escaping outer closures explicitly capture their `_box_N` owner-token (Bug 1 Cat 3 /
+        // Bug 3 Case 2). The capture pulls the box into the stored closure so Swift ARC tracks its
+        // lifetime — when Swift releases the closure, the box's deinit upcalls the C# free callback.
+        var captureList = nc.IsEffectivelyEscaping ? $"[_box_{nc.Index}] " : "";
+        swiftWriter.WriteLine($"    {returnPrefix}{callTarget}.{methodSwiftName}({prefixStr}{callLabel}{{ {captureList}{outerParamStr} in");
         EmitOuterAdapterBody(swiftWriter, nc, multiOuter, indent: "        ", env);
         swiftWriter.WriteLine($"    }}){returnSuffix}");
     }
@@ -574,7 +601,9 @@ public static class NestedClosureBridge
                     outerParamDecls.Add($"__op{i}");
                 var outerParamStr = string.Join(", ", outerParamDecls);
 
-                swiftWriter.WriteLine($"        {label}{{ {outerParamStr} in");
+                // Escaping outer: capture `_box_N` to track its lifetime via Swift ARC.
+                var captureList = nc.IsEffectivelyEscaping ? $"[_box_{nc.Index}] " : "";
+                swiftWriter.WriteLine($"        {label}{{ {captureList}{outerParamStr} in");
                 EmitOuterAdapterBody(swiftWriter, nc, multiOuter: true, indent: "            ", env);
                 swiftWriter.WriteLine($"        }}{trailingComma}");
             }
@@ -604,6 +633,12 @@ public static class NestedClosureBridge
         var cdeclVar = multiOuter ? $"cdecl{nc.Index}" : "cdecl";
         var closureCsName = NameProvider.StripVerbatimPrefix(NameProvider.GetCSharpParameterName(nc.Arg));
         var contextVar = $"{closureCsName}Context";
+
+        // Observe the captured box explicitly so the optimizer cannot elide it. Without
+        // this, the capture-list-only reference can be dropped, breaking the lifetime
+        // contract that drives the deinit upcall (Bug 1 Cat 3 / Bug 3 Case 2).
+        if (nc.IsEffectivelyEscaping)
+            swiftWriter.WriteLine($"{indent}_ = _box_{nc.Index}");
 
         var cdeclCallArgs = new List<string>();
         for (int i = 0; i < nc.OuterArgs.Count; i++)
@@ -976,10 +1011,36 @@ public static class NestedClosureBridge
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
 
-        // Allocate GCHandle for each outer closure delegate
+        // Pre-declare GCHandle (and per-escaping-closure transfer flag) at method scope so a
+        // throw between alloc and the P/Invoke returning successfully (e.g. ObjectDisposedException
+        // from Payload.DangerousGetHandle on a previous arg, or DllNotFoundException on entry-point
+        // resolution) frees the handle in `finally`. For escaping outer closures Swift assumes
+        // lifetime ownership through the `_SBClosureCtx` box deinit upcall on the happy path; the
+        // finally only frees handles whose ownership never moved into Swift. For non-escaping
+        // outers the trampoline fires synchronously inside the call and the handle becomes
+        // unreachable on return — same behaviour as MCB / pre-existing NCB output.
         foreach (var nc in nestedClosures)
         {
-            csWriter.WriteLine($"var __gcHandle_{nc.Index} = GCHandle.Alloc({nc.ParamName});");
+            csWriter.WriteLine($"GCHandle __gcHandle_{nc.Index} = default;");
+            if (nc.IsEffectivelyEscaping)
+            {
+                csWriter.WriteLine($"bool __transferred_{nc.Index} = false;");
+            }
+        }
+
+        bool anyEscaping = nestedClosures.Any(nc => nc.IsEffectivelyEscaping);
+        if (anyEscaping)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
+        // Allocate GCHandle for each outer closure delegate. Allocs live inside
+        // the try so that an OOM mid-loop frees any handle already taken.
+        foreach (var nc in nestedClosures)
+        {
+            csWriter.WriteLine($"__gcHandle_{nc.Index} = GCHandle.Alloc({nc.ParamName});");
         }
 
         // Build P/Invoke call arguments
@@ -1022,20 +1083,56 @@ public static class NestedClosureBridge
         if (returnsClass)
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
             csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
         }
         else if (!returnSpec.IsEmptyTuple)
         {
-            csWriter.WriteLine($"return {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            // Primitive return — capture before marking transfer so the flag is only flipped
+            // on a successful P/Invoke return.
+            csWriter.WriteLine($"var __pinvokeResult = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+            csWriter.WriteLine("return __pinvokeResult;");
         }
         else
         {
             csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+        }
+
+        if (anyEscaping)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            foreach (var nc in nestedClosures)
+            {
+                if (!nc.IsEffectivelyEscaping) continue;
+                csWriter.WriteLine($"if (!__transferred_{nc.Index} && __gcHandle_{nc.Index}.IsAllocated) __gcHandle_{nc.Index}.Free();");
+            }
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the per-closure `__transferred_{index} = true;` lines for all escaping outer closures,
+    /// to be placed immediately after a successful P/Invoke call in <see cref="EmitPublicMethod"/>.
+    /// Paired with the finally block emitted there which frees handles when transfer is still false.
+    /// </summary>
+    private static void EmitClosureOwnershipTransferred(CSharpWriter csWriter, List<NestedClosureInfo> nestedClosures)
+    {
+        foreach (var nc in nestedClosures)
+        {
+            if (!nc.IsEffectivelyEscaping) continue;
+            csWriter.WriteLine($"__transferred_{nc.Index} = true;");
+        }
     }
 
     // ─── Arg Marshalling ───────────────────────────────────────────────
