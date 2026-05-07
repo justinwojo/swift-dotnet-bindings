@@ -31,7 +31,8 @@ public static class MethodClosureBridge
         string CallbackBaseName,
         string ParamName,
         int Index,
-        bool IsOptional);
+        bool IsOptional,
+        bool IsEffectivelyEscaping);
 
     /// <summary>
     /// Checks if a method is eligible for the MethodClosureBridge pattern.
@@ -175,8 +176,13 @@ public static class MethodClosureBridge
                 // pass nil to the target method when funcPtr is nil. Per constraints.md,
                 // Optional closures are always escaping (GCHandle still leaked on non-nil path).
                 var isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
+                // Escaping (or Optional<closure>, which is always escaping per constraints.md)
+                // closures get a Swift-ARC owner-token box around the GCHandle context so
+                // the GCHandle is freed when Swift releases the closure (Bug 1 Cat 3 / Bug 3 Case 2).
+                var isEffectivelyEscaping = WrapperValidation.IsEffectivelyEscaping(
+                    cts, arg.SwiftTypeSpec, env.ClosureHandler);
 
-                closures.Add(new ClosureInfo(cts, arg, cArgs, retIsVoid, cbName, paramName, closureIndex, isOptional));
+                closures.Add(new ClosureInfo(cts, arg, cArgs, retIsVoid, cbName, paramName, closureIndex, isOptional, isEffectivelyEscaping));
                 closureArgSet.Add(arg);
                 closureIndex++;
             }
@@ -198,6 +204,11 @@ public static class MethodClosureBridge
             var (csType, category) = GetNonClosureParamCSharpType(arg, env);
             passableNonClosureParams.Add((arg, csName, csType, category));
         }
+
+        // Emit closure-context owner-token helpers if any closure is escaping.
+        // Idempotent per module — first MCB site that needs them emits, others no-op.
+        if (closures.Any(c => c.IsEffectivelyEscaping))
+            ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
 
         // Emit Swift wrapper
         EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closures, passableNonClosureParams);
@@ -366,6 +377,10 @@ public static class MethodClosureBridge
         // Reconstruct cdecl functions from pointers — one per non-Optional closure.
         // Optional closures defer cdecl reconstruction to inside their `.map` adapter so
         // we never force-unwrap a nil funcPtr when the caller passed null.
+        // For escaping non-Optional closures, also wrap the GCHandle context in a Swift
+        // ARC-owned `_SBClosureCtx` box (Bug 1 Cat 3 / Bug 3 Case 2). The adapter closure
+        // captures `_box_X` via its capture list so the box's lifetime tracks the closure's;
+        // when Swift releases the closure, the box's deinit upcalls the C# free callback.
         foreach (var ci in closures)
         {
             if (ci.IsOptional) continue;
@@ -381,6 +396,11 @@ public static class MethodClosureBridge
             var cdeclType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
             var cdeclVarName = closures.Count > 1 ? $"cdecl{ci.Index}" : "cdecl";
             swiftWriter.WriteLine($"    let {cdeclVarName} = unsafeBitCast({closureCsName}FuncPtr!, to: {cdeclType})");
+
+            if (ci.IsEffectivelyEscaping)
+            {
+                swiftWriter.WriteLine($"    let _box_{ci.Index}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+            }
         }
 
         // For non-generic parents, unwrap self from the explicit pointer parameter.
@@ -527,11 +547,17 @@ public static class MethodClosureBridge
                     if (!ci.Spec.ReturnType.IsEmptyTuple)
                         cdeclCall += " != 0";
 
+                    // Escaping closures explicitly capture the owner-token box so its lifetime
+                    // tracks the stored closure (Bug 1 Cat 3 / Bug 3 Case 2).
+                    var captureList = ci.IsEffectivelyEscaping ? $"[_box_{ci.Index}] " : "";
+                    var observeBox = ci.IsEffectivelyEscaping ? $"_ = _box_{ci.Index}; " : "";
                     var closureParamStr = string.Join(", ", analysis.paramDecls);
                     var callLabel = GetSwiftArgLabel(ci.Arg);
                     var closureBody = analysis.paramDecls.Count > 0
-                        ? $"{{ {closureParamStr} in {cdeclCall} }}"
-                        : $"{{ {cdeclCall} }}";
+                        ? $"{{ {captureList}{closureParamStr} in {observeBox}{cdeclCall} }}"
+                        : ci.IsEffectivelyEscaping
+                            ? $"{{ {captureList}in {observeBox}{cdeclCall} }}"
+                            : $"{{ {cdeclCall} }}";
                     allCallArgs.Add($"{callLabel}{closureBody}");
                 }
                 else if (passableByArg.TryGetValue(arg, out var passable))
@@ -598,12 +624,19 @@ public static class MethodClosureBridge
             // map closure using the locally bound pointer.
             var adapterType = ci.IsOptional ? $"({closureType})?" : closureType;
 
+            // Escaping closures explicitly capture the owner-token box (Bug 1 Cat 3 / Bug 3 Case 2).
+            // Capture list pulls `_box_N` into the stored closure so Swift ARC tracks its lifetime;
+            // when Swift releases the closure, the box's deinit upcalls the C# free callback.
+            var captureList = ci.IsEffectivelyEscaping ? $"[_box_{ci.Index}] " : "";
+            var observeBoxLine = ci.IsEffectivelyEscaping ? $"_ = _box_{ci.Index}" : null;
+
             var closureParamStr = string.Join(", ", analysis.paramDecls);
             if (ci.IsOptional)
             {
                 // `let __adapter0: ((ArgType) -> RetType)? = handlerFuncPtr.map { __fp in
                 //     let cdecl = unsafeBitCast(__fp, to: (@convention(c) ...).self)
-                //     return { __p0_0, ... in ... cdecl(...) ... }
+                //     let _box_0: AnyObject = _sbWrapClosureContext(handlerContext!)
+                //     return { [_box_0] __p0_0, ... in _ = _box_0; cdecl(...) ... }
                 // }`
                 var cdeclParamTypes = new List<string>();
                 for (int i = 0; i < ci.ClosureArgs.Count; i++)
@@ -613,22 +646,42 @@ public static class MethodClosureBridge
                 var cdeclRebindType = $"(@convention(c) ({string.Join(", ", cdeclParamTypes)}) -> {cdeclReturnType}).self";
                 swiftWriter.WriteLine($"{indent}let {adapterName}: {adapterType} = {closureCsName}FuncPtr.map {{ __fp in");
                 swiftWriter.WriteLine($"{indent}{indent}let {cdeclVarName} = unsafeBitCast(__fp, to: {cdeclRebindType})");
-                var returnPrefixInner = analysis.paramDecls.Count > 0
-                    ? $"return {{ {closureParamStr} in"
-                    : "return {";
+                if (ci.IsEffectivelyEscaping)
+                {
+                    // Pair invariant: when funcPtr is non-nil, context is non-nil (set together
+                    // by the C# wrapper). Force-unwrap is safe here.
+                    swiftWriter.WriteLine($"{indent}{indent}let _box_{ci.Index}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({closureCsName}Context!)");
+                }
+                string returnPrefixInner;
+                if (analysis.paramDecls.Count > 0)
+                    returnPrefixInner = $"return {{ {captureList}{closureParamStr} in";
+                else if (ci.IsEffectivelyEscaping)
+                    returnPrefixInner = $"return {{ {captureList}in";
+                else
+                    returnPrefixInner = "return {";
                 swiftWriter.WriteLine($"{indent}{indent}{returnPrefixInner}");
             }
             else
             {
-                var adapterOpen = analysis.paramDecls.Count > 0
-                    ? $"{{ {closureParamStr} in"
-                    : "{";
+                string adapterOpen;
+                if (analysis.paramDecls.Count > 0)
+                    adapterOpen = $"{{ {captureList}{closureParamStr} in";
+                else if (ci.IsEffectivelyEscaping)
+                    adapterOpen = $"{{ {captureList}in";
+                else
+                    adapterOpen = "{";
                 swiftWriter.WriteLine($"{indent}let {adapterName}: {adapterType} = {adapterOpen}");
             }
 
             // Optional adapters have two extra open braces (`.map { __fp in` and `return {...}`),
             // so their body sits one extra indent level deeper and closes with an extra `}`.
             var bodyBaseIndent = ci.IsOptional ? indent + indent + indent : indent + indent;
+
+            // Defensive observability for the captured box — Swift's capture list already
+            // retains it, but a `_ = _box_N` reference makes the dependency obvious to
+            // static analyzers and survives any future refactor that drops the capture list.
+            if (observeBoxLine != null)
+                swiftWriter.WriteLine($"{bodyBaseIndent}{observeBoxLine}");
 
             // D1: Heap allocations sit outside any if-let branch — they're independent of
             // optional-existential nil-vs-not and C# takes ownership either way (VWT Destroy
@@ -819,12 +872,12 @@ public static class MethodClosureBridge
             innerTypeArgs.Add(GetCallbackParamType(closureArgs[i], env));
         }
 
-        // GCHandle is intentionally leaked: MCB is gated on ABI shape (bound generic /
-        // complex enum / any-Error existential), not on lifetime semantics, and at least
-        // one MCB-eligible signature (AsyncCallbackClosures.processMultiple) fires the
-        // closure many times. A trampoline-side Free here would corrupt calls 2..N.
-        // Proper fix is the Swift-side owner-token deinit upcall — deferred to 0.11.
-        // See bug-0.10.0-callback-trampoline-gchandle-leak.md §"0.10.0 status".
+        // GCHandle is freed Swift-side: for escaping closures the wrapper wraps `contextPtr`
+        // in an `_SBClosureCtx` ARC box; when Swift releases the closure (and thus the box),
+        // the box's deinit upcalls the C# free callback registered by
+        // `SwiftClosureContext.EnsureRegistered`, freeing the GCHandle exactly once. The
+        // trampoline must therefore NOT free the handle — multi-shot closures (e.g.,
+        // AsyncCallbackClosures.processMultiple) would corrupt calls 2..N.
 
         if (!closureReturnIsVoid)
         {
@@ -1061,11 +1114,13 @@ public static class MethodClosureBridge
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";
 
-        // Build inner callback delegates — one per closure
+        // Build inner callback delegates — one per closure.
         // Each maps cdecl-typed args to user-typed args.
         // For Optional closures, guard the GCHandle alloc + funcPtr wiring on the delegate
-        // being non-null so callers can pass null; GCHandle is still leaked on the non-null
-        // path because Optional closures are always escaping (constraints.md).
+        // being non-null so callers can pass null. For escaping (incl. Optional<closure>) the
+        // GCHandle is freed Swift-side via the `_SBClosureCtx` box deinit upcall on the
+        // happy path; the finally below only frees when ownership transfer never completed
+        // (e.g. the P/Invoke threw before Swift constructed the box).
         for (int c = 0; c < closures.Count; c++)
         {
             var ci = closures[c];
@@ -1079,6 +1134,17 @@ public static class MethodClosureBridge
                 var cbType = GetCallbackParamType(ci.ClosureArgs[i], env);
                 innerTypeArgs.Add(cbType);
                 innerParamDecls.Add($"{cbType} __p{i}");
+            }
+
+            // Pre-declare the GCHandle at method scope so the finally block can free it
+            // when ownership transfer doesn't complete. For Optional closures the alloc
+            // sits inside an `if (param != null)` block; pre-declaring keeps the variable
+            // visible to finally regardless. For escaping closures, also declare a
+            // per-closure transfer flag set only after the P/Invoke returns successfully.
+            csWriter.WriteLine($"GCHandle __gcHandle{innerSuffix} = default;");
+            if (ci.IsEffectivelyEscaping)
+            {
+                csWriter.WriteLine($"bool __transferred{innerSuffix} = false;");
             }
 
             if (ci.IsOptional)
@@ -1128,8 +1194,11 @@ public static class MethodClosureBridge
                 }
             }
 
-            // Allocate GCHandle — intentionally leaked for @escaping closure lifetime
-            csWriter.WriteLine($"var __gcHandle{innerSuffix} = GCHandle.Alloc(__inner{innerSuffix});");
+            // Allocate GCHandle. For escaping closures Swift takes lifetime ownership through
+            // the `_SBClosureCtx` box (deinit upcalls the C# free callback). For non-escaping
+            // closures the trampoline is invoked synchronously inside the call; the handle
+            // becomes unreachable on return — a known small leak, not introduced here.
+            csWriter.WriteLine($"__gcHandle{innerSuffix} = GCHandle.Alloc(__inner{innerSuffix});");
 
             if (ci.IsOptional)
             {
@@ -1138,6 +1207,20 @@ public static class MethodClosureBridge
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
             }
+        }
+
+        // Wrap the P/Invoke section in try/finally when any closure is escaping so a throw
+        // anywhere between GCHandle.Alloc and the P/Invoke returning successfully (e.g. an
+        // argument expression like `Payload.DangerousGetHandle()` raising
+        // ObjectDisposedException, or the entry point failing to resolve) frees the handle
+        // instead of leaking it. The `__transferred{suffix}` flag is set only after the
+        // P/Invoke returns; the finally frees handles whose ownership never moved into Swift.
+        bool anyEscaping = closures.Any(ci => ci.IsEffectivelyEscaping);
+        if (anyEscaping)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
         }
 
         // Utf8Slice params: allocate UTF-8 bytes up front; pin via `fixed` around the P/Invoke call below.
@@ -1219,16 +1302,21 @@ public static class MethodClosureBridge
         if (returnsClass)
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, closures);
             csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
         }
         else if (!returnSpec.IsEmptyTuple)
         {
-            // Primitive return
-            csWriter.WriteLine($"return {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            // Primitive return — capture before marking transfer so the flag is only flipped
+            // on a successful P/Invoke return.
+            csWriter.WriteLine($"var __pinvokeResult = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, closures);
+            csWriter.WriteLine("return __pinvokeResult;");
         }
         else
         {
             csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+            EmitClosureOwnershipTransferred(csWriter, closures);
         }
 
         for (int i = 0; i < utf8SliceLocals.Count; i++)
@@ -1237,9 +1325,43 @@ public static class MethodClosureBridge
             csWriter.WriteLine("}");
         }
 
+        if (anyEscaping)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            for (int c = 0; c < closures.Count; c++)
+            {
+                var ci = closures[c];
+                if (!ci.IsEffectivelyEscaping) continue;
+                var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
+                csWriter.WriteLine($"if (!__transferred{innerSuffix} && __gcHandle{innerSuffix}.IsAllocated) __gcHandle{innerSuffix}.Free();");
+            }
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the per-closure `__transferred{suffix} = true;` lines for all escaping closures,
+    /// to be placed immediately after a successful P/Invoke call in <see cref="EmitPublicMethod"/>.
+    /// Paired with the finally block emitted there which frees handles when transfer is still false.
+    /// </summary>
+    private static void EmitClosureOwnershipTransferred(CSharpWriter csWriter, List<ClosureInfo> closures)
+    {
+        for (int c = 0; c < closures.Count; c++)
+        {
+            var ci = closures[c];
+            if (!ci.IsEffectivelyEscaping) continue;
+            var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
+            csWriter.WriteLine($"__transferred{innerSuffix} = true;");
+        }
     }
 
     // ─── Arg Marshalling ───────────────────────────────────────────────

@@ -823,6 +823,18 @@ public sealed class ModuleEmissionContext
         return _setVtableEmitted.Contains(protocolName);
     }
 
+    // ==================== Escaping-Closure Context Owner Token ====================
+
+    /// <summary>
+    /// Whether the per-module Swift helpers that wrap an escaping closure's GCHandle
+    /// pointer in an <c>_SBClosureCtx</c> box (resolved via <c>dlsym</c> from the
+    /// already-loaded <c>libSwiftBindingsRuntime.dylib</c>) have been emitted into
+    /// the wrapper source. Each wrapper module emits the dlsym lookup + box-factory
+    /// helpers exactly once; per-closure adapter code refers to the helper by a
+    /// fixed name. Bridges Bug 1 Cat 3 / Bug 3 Case 2.
+    /// </summary>
+    public bool ClosureContextHelpersEmitted { get; set; }
+
     // ==================== Concrete Protocol Specialization ====================
 
     /// <summary>

@@ -4,6 +4,38 @@
 > consumer-experience audit of
 > [SwiftBindings.Nuke](https://github.com/justinwojo/swift-dotnet-packages)
 > 13.0.5 generated bindings.
+>
+> **Status: PRIMARY PATHS RESOLVED on 2026-05-06** — the two paths in
+> Nuke 13.0.5 (and the equivalent `SwiftClosureData` direct-context
+> pattern) now wrap the GCHandle context in a Swift-ARC-owned
+> `_SBClosureCtx` box exported from `libSwiftBindingsRuntime.dylib`. When
+> Swift releases the closure, the box's `deinit` upcalls a C# free
+> callback registered by `SwiftClosureContext.EnsureRegistered`, freeing
+> the GCHandle exactly once. Restricted to escaping closures; non-escaping
+> closures still free in the C# wrapper's `finally`. See
+> `src/Swift.Runtime/swift/SwiftBindingsRuntime.swift` (factory and
+> destroy-callback setter), `SwiftClosureContext.cs` (C# trampoline),
+> `ClosureContextHelperEmitter.cs` (per-module Swift helpers), and the
+> escaping-closure code paths in `ClosureEmitter.SwiftWrapper.cs`,
+> `MethodWrapperEmitter.cs`, `ConstructorWrapperEmitter.cs`,
+> `PropertyWrapperEmitter.cs`, and `MethodClosureBridge.cs`.
+>
+> **Carry-over scope gap (next session):** two adjacent emitter paths
+> still alloc a `GCHandle` for an escaping closure delegate without
+> routing through `_SBClosureCtx` and without a try/finally + transferred
+> flag around the P/Invoke. They are
+> `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/NestedClosureBridge.cs`
+> (alloc at line 982, raw context at line 1009; Swift wrapper at line 347
+> reconstructs only the cdecl funcPtr) and
+> `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ProtocolExtensionClosureBridge.cs`
+> (alloc at line 454, raw context at line 468; emitter binds straight to
+> the mangled symbol and currently emits no Swift wrapper at all). Both
+> need (a) the alloc-before-P/Invoke leak window closed with the same
+> `__transferred` pattern used in `MethodClosureBridge`, and (b)
+> `_SBClosureCtx` ownership wiring so retained escaping closures are
+> freed via the box's `deinit` upcall instead of leaking for the process
+> lifetime. `ProtocolExtensionClosureBridge` will need wrapper emission
+> introduced for the box-construction step.
 
 ## Summary
 

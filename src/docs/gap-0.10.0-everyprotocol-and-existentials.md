@@ -218,7 +218,7 @@ dispatch code. The dispatch should:
    back across.
 
 This is the same pattern as the closure trampoline in
-[bug-0.10.0-callback-trampoline-gchandle-leak.md](./bug-0.10.0-callback-trampoline-gchandle-leak.md)
+[Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md](./Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md)
 but per-protocol-member rather than per-closure-arg, with
 `SwiftClosureMarshaller`-equivalent runtime support.
 

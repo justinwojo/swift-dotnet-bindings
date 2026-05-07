@@ -364,6 +364,71 @@ public func sbw_swiftRelease(_ ptr: UnsafeMutableRawPointer) {
     Unmanaged<AnyObject>.fromOpaque(ptr).release()
 }
 
+// MARK: - Escaping-Closure Context Owner Token
+//
+// Single root cause for two 0.10.x leaks:
+//   - bug-0.10.0-callback-trampoline-gchandle-leak.md (Cat 2/3/4)
+//   - bug-0.10.0-async-task-wrapper-leaks-existential-heap.md (Case 2)
+//
+// Both leak the same way: C# allocates a `GCHandle` for the captured managed
+// delegate, packs the pinned `IntPtr` into a Swift `@escaping` closure context,
+// and never frees the handle — neither in the wrapper's `finally` (Swift may
+// retain the closure past the call) nor in the trampoline (multi-shot closures
+// fire many times).
+//
+// The owner-token model: wrap each escaping-closure C# context in a Swift
+// reference-counted box owned solely by Swift. Swift's ARC drops the box when
+// the closure is released; the box's `deinit` upcalls the registered C# free
+// callback exactly once with the original opaque pointer, freeing the
+// GCHandle. Single-shot, multi-shot, observer, and property-setter shapes all
+// converge on the same lifetime contract.
+//
+// Restricted to escaping closures: non-escaping closures still free in the
+// wrapper's `finally` (the original Cat 1 path), where Swift cannot retain
+// the closure past the call.
+//
+// `@unchecked Sendable`: Apple-framework callbacks crossing actor boundaries
+// (e.g. `@Sendable` callbacks under Swift 6 strict concurrency) need to box
+// the context across isolation domains. The box itself contains only an
+// opaque pointer — Swift's ARC machinery is already thread-safe — so the
+// `@unchecked` is sound, not a guarantee waived.
+
+private final class _SBClosureCtx: @unchecked Sendable {
+    let ctx: UnsafeMutableRawPointer
+    init(ctx: UnsafeMutableRawPointer) { self.ctx = ctx }
+    deinit {
+        if let cb = _sbClosureCtxDestroy {
+            cb(ctx)
+        }
+    }
+}
+
+private var _sbClosureCtxDestroy: (@convention(c) (UnsafeMutableRawPointer) -> Void)?
+
+/// Registers the C# destroy callback fired when an `_SBClosureCtx` is released.
+/// Called once at process startup from the Swift.Runtime `[ModuleInitializer]`.
+/// Subsequent calls overwrite — the C# side guards against double-registration.
+@_cdecl("SwiftBindings_SetClosureContextDestroyCallback")
+public func swiftBindingsSetClosureContextDestroyCallback(
+    _ callback: @convention(c) (UnsafeMutableRawPointer) -> Void
+) {
+    _sbClosureCtxDestroy = callback
+}
+
+/// Allocates a new closure-context box wrapping `ctx` and returns it as an
+/// opaque +1-retained pointer. The wrapper Swift takes ownership via
+/// `Unmanaged<AnyObject>.fromOpaque(_).takeRetainedValue()` and captures the
+/// resulting `AnyObject` explicitly in adapter closures. When the closure (and
+/// thus the box) is released, the box's deinit fires the registered C#
+/// destroy callback exactly once with the original `ctx`.
+@_cdecl("SwiftBindings_NewClosureContext")
+public func swiftBindingsNewClosureContext(
+    _ ctx: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer {
+    let box = _SBClosureCtx(ctx: ctx)
+    return Unmanaged.passRetained(box).toOpaque()
+}
+
 // MARK: - CoreGraphics Type Metadata
 //
 // CGPoint, CGRect, CGSize are Clang-imported types whose metadata descriptors

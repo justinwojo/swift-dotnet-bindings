@@ -424,9 +424,13 @@ public static class ConstructorWrapperEmitter
                             swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
 
                             bool isOptional = env.ClosureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
+                            bool isEscaping = WrapperValidation.IsEffectivelyEscaping(
+                                closureTypeSpec, arg.SwiftTypeSpec, env.ClosureHandler);
+                            if (isEscaping)
+                                ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
                             closureAdapterLines.AddRange(
                                 ClosureEmitter.GetSwiftClosureAdapterCode(
-                                    csName, closureTypeSpec, env.ClosureHandler, isOptional));
+                                    csName, closureTypeSpec, env.ClosureHandler, isOptional, isEscaping));
 
                             var adapterName = $"_adapted_{csName}";
                             var argLabel = omitLabels ? "" : ClosureEmitter.GetSwiftArgLabelForCdecl(arg);

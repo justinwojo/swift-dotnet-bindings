@@ -1137,15 +1137,17 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // Free GCHandle for non-escaping closures only (callback fires synchronously).
-                // Escaping closures are intentionally leaked: Swift may store the function pointer +
-                // context beyond the P/Invoke return (e.g., EventHandler.onComplete stored for later
-                // fire()). Freeing here would leave Swift with a stale GCHandle context.
-                // The callback thunk also does NOT free — escaping closures may fire multiple times.
-                // Async+throwing closures also intentionally leak — see AsyncClosureHelper.RunAsync.
-                // Optional closures in Swift are always escaping by definition (no @noescape Optional<Closure>
-                // exists), but the inner ClosureTypeSpec may not have the escaping attribute because the ABI
-                // parser only propagates it to top-level closure nodes, not those inside Optional wrappers.
+                // Free GCHandle for non-escaping closures (callback fires synchronously).
+                // For cdecl-wrapped escaping closures, Swift's `_SBClosureCtx` ARC box
+                // owns the GCHandle once the P/Invoke returns: free here only if the
+                // call never reached the Swift wrapper body (transfer flag still false).
+                // Async+throwing closures still intentionally leak on this path — see
+                // AsyncClosureHelper.RunAsync. Legacy SwiftClosureData escaping closures
+                // (non-cdecl path) also leak, since no `_SBClosureCtx` is constructed.
+                // Optional closures in Swift are always escaping by definition (no
+                // @noescape Optional<Closure> exists), but the inner ClosureTypeSpec may
+                // not have the escaping attribute because the ABI parser only propagates
+                // it to top-level closure nodes, not those inside Optional wrappers.
                 if (_env.ClosureHandler.IsClosure(argumentDecl))
                 {
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
@@ -1165,11 +1167,18 @@ namespace BindingsGeneration
                         !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
                         !isEffectivelyEscaping)
                     {
-                        // Async closures (throwing + non-throwing baselines) share the
-                        // intentional GCHandle leak — Swift may retain/invoke them past
-                        // the call's return, so freeing here would dangle the handle.
-                        // See AsyncClosureHelper.RunAsync/RunAsyncNonThrowing remarks.
                         csWriter.WriteLine($"if ({csName}Handle.IsAllocated) {csName}Handle.Free();");
+                    }
+                    else if (_env.MethodDecl.HasCdeclClosureMarshalling &&
+                        _env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
+                        !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
+                        isEffectivelyEscaping)
+                    {
+                        // Cdecl escaping closure: Swift owns the GCHandle once the wrapper
+                        // body ran. If we never got there (Transferred still false), free
+                        // here to close the alloc-but-no-call leak window.
+                        csWriter.WriteLine($"if (!{csName}Transferred && {csName}Handle.IsAllocated) {csName}Handle.Free();");
                     }
                 }
             }

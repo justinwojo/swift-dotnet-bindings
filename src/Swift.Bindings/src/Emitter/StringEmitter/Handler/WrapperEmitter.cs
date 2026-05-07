@@ -547,13 +547,50 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits the PInvoke call.
+        /// Emits the PInvoke call, then marks ownership transfer for any cdecl-wrapped
+        /// escaping closure. Once control returns from the P/Invoke, Swift's wrapper has
+        /// already constructed the `_SBClosureCtx` box at function entry — Swift ARC owns
+        /// the GCHandle, so the C# `finally` must skip its own free. If the call never
+        /// reaches the wrapper body (e.g. C# marshalling throws first, or the entry point
+        /// cannot be resolved), the flag stays false and the `finally` frees the handle.
         /// </summary>
         /// <param name="writer">The IndentedTextWriter instance.</param>
         private void EmitPInvokeCall(CSharpWriter csWriter)
         {
             csWriter.WriteLine(_syncPlan.PInvokeCallStatement);
+            EmitClosureOwnershipTransferred(csWriter);
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// After a successful P/Invoke return, set the per-closure transfer flag so the
+        /// finally block knows Swift's <c>_SBClosureCtx</c> now owns the GCHandle. See
+        /// <see cref="EmitPInvokeCall"/> for the lifecycle rationale.
+        /// </summary>
+        private void EmitClosureOwnershipTransferred(CSharpWriter csWriter)
+        {
+            if (!_env.MethodDecl.HasCdeclClosureMarshalling)
+                return;
+
+            var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
+            foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
+            {
+                var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argumentDecl)!;
+                if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) ||
+                    !_env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount) ||
+                    _env.ClosureHandler.IsAsyncClosure(closureTypeSpec) ||
+                    _env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) ||
+                    _env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
+                {
+                    continue;
+                }
+
+                if (!WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
+                    continue;
+
+                var csName = NameProvider.GetCSharpParameterName(argumentDecl);
+                csWriter.WriteLine($"{csName}Transferred = true;");
+            }
         }
 
         /// <summary>

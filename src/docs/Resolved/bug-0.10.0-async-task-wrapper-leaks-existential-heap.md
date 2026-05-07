@@ -5,18 +5,21 @@
 > [SwiftBindings.Stripe](https://github.com/justinwojo/swift-dotnet-packages)
 > (StripePayments 26.2.1 + StripeFinancialConnections 26.2.1).
 >
-> **Status:** Case 1 resolved — `MethodHandler.TryEmitCompletionHandlerOverload`
-> emits a delegating async overload that calls the sync method (which frees the
-> heap in its `finally`), so the async path no longer leaks. BindingTests
-> coverage:
-> `ClosureEdgeCaseTests.TestBug3Case1AsyncOverloadDelegatesThroughExistential`.
-> Case 2 (property-setter handler subscription) is **deferred to 0.11**
-> alongside Bug 1 Cat 3/4 — both share the same root cause (no Swift-side
-> ARC-driven destroy of an escaping closure context) and will share the same
-> fix (box-owner-token deinit upcall). See
+> **Status: RESOLVED on 2026-05-06.** Case 1 was resolved earlier by
+> `MethodHandler.TryEmitCompletionHandlerOverload` (the delegating async
+> overload calls the sync method, which frees the heap in its `finally`).
+> Case 2 (property-setter handler subscription) is now resolved by the
+> same closure-context owner-token mechanism that fixes Bug 1 Cat 3:
+> `PropertyWrapperEmitter.cs` emits the `_sbWrapClosureContext` adapter
+> for `Optional<closure>` setters with `isEscaping: true`, so when the
+> property is replaced or cleared, Swift releases the previously stored
+> closure, the `_SBClosureCtx` deinit upcalls the C# free callback, and
+> the GCHandle is freed exactly once. BindingTests coverage:
+> `ClosureEdgeCaseTests.TestBug3Case1AsyncOverloadDelegatesThroughExistential`
+> (Case 1) and `OwnershipGCStressTests.TestBundleB_ClosureLifetime_PropertySetterReplace`
+> (Case 2). See
 > [`bug-0.10.0-callback-trampoline-gchandle-leak.md`](./bug-0.10.0-callback-trampoline-gchandle-leak.md)
-> §"0.10.0 status — deferred to 0.11" for the 0.11 fix shape and the four
-> issues from the prior attempt.
+> for the shared mechanism.
 
 ## Summary
 

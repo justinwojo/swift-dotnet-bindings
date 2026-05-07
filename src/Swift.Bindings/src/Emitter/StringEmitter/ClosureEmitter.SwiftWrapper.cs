@@ -107,12 +107,20 @@ public static partial class ClosureEmitter
     /// <param name="closureTypeSpec">The closure type specification.</param>
     /// <param name="closureHandler">The closure handler.</param>
     /// <param name="isOptional">Whether the closure parameter is optional.</param>
+    /// <param name="isEscaping">
+    /// Whether the closure is effectively escaping (true for <c>@escaping</c> or any
+    /// <c>Optional&lt;Closure&gt;</c>). When true, the adapter wraps the captured
+    /// GCHandle context in an <c>_SBClosureCtx</c> box that fires the C# free
+    /// callback on Swift release — bridges Bug 1 Cat 3 / Bug 3 Case 2. When false,
+    /// the original behaviour stands (C# wrapper frees the GCHandle in <c>finally</c>).
+    /// </param>
     /// <returns>Lines of Swift code to create the adapter closure.</returns>
     public static List<string> GetSwiftClosureAdapterCode(
         string paramName,
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
-        bool isOptional)
+        bool isOptional,
+        bool isEscaping = false)
     {
         var lines = new List<string>();
         var isThrowing = closureTypeSpec.Throws;
@@ -126,6 +134,12 @@ public static partial class ClosureEmitter
         // Use param-unique variable name to avoid redeclaration when multiple closures
         var cdeclVarName = $"cdecl_{paramName}";
 
+        // Box ownership token for escaping closures (Bug 1 Cat 3 / Bug 3 Case 2).
+        // When the adapter closure (and thus the box) is released, the box's deinit
+        // fires the registered C# free callback exactly once — single-shot, multi-shot,
+        // and stored-handler shapes all converge on the same lifetime contract.
+        var boxName = $"_box_{paramName}";
+
         if (isOptional)
         {
             // Optional closure: check for null funcPtr
@@ -133,13 +147,17 @@ public static partial class ClosureEmitter
             lines.Add($"var {adapterName}: ({closureSwiftType})? = nil");
             lines.Add($"if let {paramName}FuncPtr = {paramName}FuncPtr {{");
             lines.Add($"    let {cdeclVarName} = unsafeBitCast({paramName}FuncPtr, to: ({conventionCType}).self)");
-            lines.AddRange(BuildAdapterClosureBody(paramName, cdeclVarName, closureTypeSpec, closureHandler, adapterName, isThrowing, isIndirectReturn, indent: "    ", useLet: false));
+            if (isEscaping)
+                lines.Add($"    let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({paramName}Context!)");
+            lines.AddRange(BuildAdapterClosureBody(paramName, cdeclVarName, closureTypeSpec, closureHandler, adapterName, isThrowing, isIndirectReturn, indent: "    ", useLet: false, isEscaping: isEscaping));
             lines.Add("}");
         }
         else
         {
             lines.Add($"let {cdeclVarName} = unsafeBitCast({paramName}FuncPtr!, to: ({conventionCType}).self)");
-            lines.AddRange(BuildAdapterClosureBody(paramName, cdeclVarName, closureTypeSpec, closureHandler, adapterName, isThrowing, isIndirectReturn, indent: "", useLet: true));
+            if (isEscaping)
+                lines.Add($"let {boxName}: AnyObject = {ClosureContextHelperEmitter.WrapFunctionName}({paramName}Context!)");
+            lines.AddRange(BuildAdapterClosureBody(paramName, cdeclVarName, closureTypeSpec, closureHandler, adapterName, isThrowing, isIndirectReturn, indent: "", useLet: true, isEscaping: isEscaping));
         }
 
         return lines;
@@ -158,11 +176,20 @@ public static partial class ClosureEmitter
         bool isThrowing,
         bool isIndirectReturn,
         string indent,
-        bool useLet = false)
+        bool useLet = false,
+        bool isEscaping = false)
     {
         var lines = new List<string>();
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         var letPrefix = useLet ? "let " : "";
+        // Explicit `[box]` capture list for escaping closures so the optimizer can't
+        // elide the GCHandle owner-token reference (Codex round 1 finding —
+        // implicit field capture was eligible for elision).
+        var captureList = isEscaping ? $"[_box_{paramName}] " : "";
+        // Observability statement that pins the box reference inside the closure body —
+        // belt-and-braces against any future Swift escape-analysis change that decides
+        // an unused capture-list entry can be discarded.
+        var observability = isEscaping ? $"{indent}    _ = _box_{paramName}\n" : "";
 
         // Build closure parameter list and identify complex enum args needing heap allocation
         var closureParams = new List<string>();
@@ -414,7 +441,9 @@ public static partial class ClosureEmitter
         {
             // Indirect return: closure writes result to buffer, returns void
             var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
-            lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}) -> {returnSwiftType} in");
+            lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) -> {returnSwiftType} in");
+            if (!string.IsNullOrEmpty(observability))
+                lines.Add(observability.TrimEnd('\n'));
             lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    let resultBuf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{returnSwiftType}>.size, alignment: MemoryLayout<{returnSwiftType}>.alignment)");
             lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
@@ -426,7 +455,9 @@ public static partial class ClosureEmitter
         else if (isThrowing)
         {
             var returnSwiftType = hasReturn ? ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType) : "Void";
-            lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}) throws{returnTypeStr} in");
+            lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) throws{returnTypeStr} in");
+            if (!string.IsNullOrEmpty(observability))
+                lines.Add(observability.TrimEnd('\n'));
             lines.AddRange(heapAllocLines);
             lines.Add($"{indent}    var errorPtr: UnsafeMutableRawPointer? = nil");
 
@@ -454,7 +485,9 @@ public static partial class ClosureEmitter
         else
         {
             // Regular closure
-            lines.Add($"{indent}{letPrefix}{adapterName} = {{ ({closureParamsStr}){returnTypeStr} in");
+            lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}){returnTypeStr} in");
+            if (!string.IsNullOrEmpty(observability))
+                lines.Add(observability.TrimEnd('\n'));
             lines.AddRange(heapAllocLines);
 
             if (hasReturn)
@@ -883,10 +916,14 @@ public static partial class ClosureEmitter
                 swiftParams.Add($"_ {csName}Context: UnsafeMutableRawPointer?");
 
                 bool isOptional = closureHandler.IsOptionalClosure(arg.SwiftTypeSpec);
+                bool isEscaping = WrapperValidation.IsEffectivelyEscaping(
+                    closureTypeSpec, arg.SwiftTypeSpec, closureHandler);
 
                 // Generate adapter code
+                if (isEscaping)
+                    ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, emissionContext);
                 adapterCode.AddRange(GetSwiftClosureAdapterCode(
-                    csName, closureTypeSpec, closureHandler, isOptional));
+                    csName, closureTypeSpec, closureHandler, isOptional, isEscaping));
 
                 // Use adapter in call args
                 var adapterName = $"_adapted_{csName}";

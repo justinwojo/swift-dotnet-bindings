@@ -38,6 +38,12 @@ public static class SwiftFrameworkResolver
         RegisterAlcFallback();
         RegisterForAssembly(typeof(SwiftFrameworkResolver).Assembly);
 
+        // Wire the C# free trampoline that fires from Swift's _SBClosureCtx deinit
+        // (defined in libSwiftBindingsRuntime.dylib). Must run before any wrapper
+        // emits a closure-context box; the wrapper's first allocation can happen
+        // on the very first P/Invoke from a consumer assembly.
+        SwiftClosureContext.EnsureRegistered();
+
         // Pre-register NewFromPayload factories for all non-generic Swift.Runtime ISwiftObject types.
         // On NativeAOT with NuGet packages (not project references), the trimmer may strip
         // explicit interface implementations (ISwiftObject.NewFromPayload), causing

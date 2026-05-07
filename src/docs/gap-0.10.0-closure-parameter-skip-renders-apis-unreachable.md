@@ -181,7 +181,7 @@ off the surrounding feature." Confirmed sites:
 | `Product.currentEntitlements` (AsyncSequence) | Cannot enumerate active entitlements. |
 | `Product.priceFormatStyle` | Consumers must construct `NumberFormatter` manually for price display — no localized format. |
 | `Status.all` (AsyncSequence stream) | Cannot subscribe to subscription status changes; the canonical "renewal lifecycle" listener is unreachable. |
-| `onStorefrontChange(_:)` | Storefront-change observer skipped (also intersects with the GCHandle leak family in [bug-0.10.0-callback-trampoline-gchandle-leak.md](./bug-0.10.0-callback-trampoline-gchandle-leak.md)). |
+| `onStorefrontChange(_:)` | Storefront-change observer skipped (also intersects with the GCHandle leak family in [Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md](./Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md)). |
 
 The `Status.all` and `currentEntitlements` cases share a root with
 [gap-0.10.0-asyncsequence-not-lowered-to-iasyncenumerable.md](./gap-0.10.0-asyncsequence-not-lowered-to-iasyncenumerable.md) —

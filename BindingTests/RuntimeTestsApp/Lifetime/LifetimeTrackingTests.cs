@@ -146,25 +146,14 @@ public class LifetimeTrackingTests : TestBase
 
     /// <summary>
     /// Baseline assertion of the closure GCHandle / wrapper-lifetime fix.
-    /// Requires the Swift-side ARC destroy mechanism (closure-context owner
+    /// Exercises the Swift-side ARC destroy mechanism (closure-context owner
     /// token; informally "Category 3") — the cdecl adapter boxes the C#
-    /// `(funcPtr, GCHandle)` pair in a Swift class whose deinit upcalls a
-    /// registered C# destroy callback. Without that, the GCHandle leaks →
-    /// the C# delegate is permanently rooted → any SafeHandle the delegate
-    /// captured leaks → tracker.live grows.
-    ///
-    /// Deferred to 0.11: a prior 0.10.0 attempt boxed every thunk-bridged
-    /// closure (incl. non-escaping), shipped a non-Sendable Swift class that
-    /// failed Swift 6 strict concurrency in Apple frameworks, used
-    /// `-undefined dynamic_lookup` to paper over linkage, and lost lifetime
-    /// to weak property capture. Codex review (session
-    /// 019dffa9-27b7-7bb1-86f8-1ff2f8288db9) recommended a narrower
-    /// trampoline-Free for "shapes proven single-shot"; round 2 proved no
-    /// such gate exists in the current generator (counterexample:
-    /// AsyncCallbackClosures.processMultiple is MCB-eligible and fires
-    /// multiple times). See bug-0.10.0-callback-trampoline-gchandle-leak.md.
+    /// `(funcPtr, GCHandle)` pair in a Swift `_SBClosureCtx` whose deinit
+    /// upcalls the C# destroy callback registered by
+    /// `SwiftClosureContext.EnsureRegistered`. The GCHandle is freed exactly
+    /// once when Swift releases the closure.
     /// </summary>
-    [Skip("0.10.0: closure-context owner token (Cat 3) deferred to 0.11; see bug-0.10.0-callback-trampoline-gchandle-leak.md")]
+    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestEphemeralClosureReleasesCapturedSafeHandle()
     {
         LifetimeTracker.Reset();

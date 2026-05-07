@@ -227,6 +227,23 @@ internal class MethodMarshalPlanBuilder
             {
                 var csName = NameProvider.GetCSharpParameterName(argument);
                 lines.Add($"GCHandle {csName}Handle = default;");
+
+                // Track ownership transfer for cdecl-wrapped escaping closures.
+                // The Swift wrapper constructs an `_SBClosureCtx` box at function
+                // entry (via `_sbWrapClosureContext`); once the P/Invoke returns,
+                // Swift's ARC owns the GCHandle. The flag is set to true right
+                // after the call so the finally block can distinguish "ownership
+                // crossed into Swift" (skip free — Swift will release via deinit)
+                // from "alloc happened but call never reached the wrapper body"
+                // (free here — closes the leak window when C# marshalling throws
+                // between Alloc and the P/Invoke, or when the entry point cannot
+                // be resolved).
+                if (_env.MethodDecl.HasCdeclClosureMarshalling &&
+                    !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
+                    WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argument.SwiftTypeSpec, _env.ClosureHandler))
+                {
+                    lines.Add($"bool {csName}Transferred = false;");
+                }
             }
         }
 

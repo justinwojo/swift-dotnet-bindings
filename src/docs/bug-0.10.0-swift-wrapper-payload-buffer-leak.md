@@ -14,13 +14,13 @@
 > non-owning shapes, `MarshalOptionalFromSwift<T>` for
 > `Optional<NumericPrimitive>`, etc.) continue to rely on the Swift
 > wrapper's `defer` cleanup. The compounding GCHandle leak at the same
-> call site (Bug 1 Cat 3) remains deferred to 0.11; see
-> [`bug-0.10.0-callback-trampoline-gchandle-leak.md`](./bug-0.10.0-callback-trampoline-gchandle-leak.md).
+> call site (Bug 1 Cat 3) was resolved alongside this fix; see
+> [`Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md`](./Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md).
 
 ## Summary
 
 Distinct from the C#-side `GCHandle` leaks documented in
-[bug-0.10.0-callback-trampoline-gchandle-leak.md](./bug-0.10.0-callback-trampoline-gchandle-leak.md):
+[Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md](./Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md):
 the **Swift wrapper file** itself (the `.swift` file the SDK generates as
 the `@_cdecl` shim layer between Swift APIs and C# PInvoke entry points)
 allocates per-call buffers to hold callback enum payloads, hands them to

@@ -1,5 +1,5 @@
 {
-  "git_sha": "12ca3976",
+  "git_sha": "061fcb47",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -40,7 +40,7 @@
       "FamilyControls": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1522,
+        "lines": 1542,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -110,14 +110,14 @@
       "RealityKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8231,
+        "lines": 8237,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 184317,
+        "lines": 184344,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -131,56 +131,56 @@
       "StoreKit2": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33323,
+        "lines": 33329,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 29726,
+        "lines": 29732,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33323,
+        "lines": 33329,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "StoreKit2@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 28732,
+        "lines": 28738,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10226,
+        "lines": 10235,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9138,
+        "lines": 9144,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10226,
+        "lines": 10235,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "TipKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8366,
+        "lines": 8372,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -243,7 +243,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 56609,
+        "lines": 56851,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,35 +278,35 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 99722,
+        "lines": 99969,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "KeychainAccess": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4580,
+        "lines": 4600,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 60215,
+        "lines": 60369,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 34145,
+        "lines": 34280,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Mappedin": {
         "compile": "ok",
         "errors": 0,
-        "lines": 50514,
+        "lines": 50623,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -320,42 +320,42 @@
       "Mixpanel": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9554,
+        "lines": 9566,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23432,
+        "lines": 23475,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23432,
+        "lines": 23475,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 23432,
+        "lines": 23475,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 12375,
+        "lines": 12378,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10099,
+        "lines": 10102,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -376,7 +376,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 18596,
+        "lines": 18635,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -390,7 +390,7 @@
       "StripeApplePay": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1382,
+        "lines": 1394,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -404,7 +404,7 @@
       "StripeCardScan": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2371,
+        "lines": 2377,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -432,35 +432,35 @@
       "StripeFinancialConnections": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2139,
+        "lines": 2148,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripeIdentity": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1249,
+        "lines": 1252,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripeIssuing": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2219,
+        "lines": 2239,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 68377,
+        "lines": 68445,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 33336,
+        "lines": 33418,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -523,14 +523,14 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10628,
+        "lines": 10640,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Reachability": {
         "compile": "ok",
         "errors": 0,
-        "lines": 1289,
+        "lines": 1295,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -572,7 +572,7 @@
       "SwipeCellKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8752,
+        "lines": 8776,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -593,7 +593,7 @@
       "Quick": {
         "compile": "ok",
         "errors": 0,
-        "lines": 4204,
+        "lines": 4228,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -614,7 +614,7 @@
       "AMPopTip": {
         "compile": "ok",
         "errors": 0,
-        "lines": 3791,
+        "lines": 3815,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -635,7 +635,7 @@
       "SVGView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 13394,
+        "lines": 13397,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -894,14 +894,14 @@
       "WhatsNewKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 8485,
+        "lines": 8491,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "YouTubePlayerKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 32279,
+        "lines": 32282,
         "dep_compile": "none",
         "swift_compile": "ok"
       }
@@ -950,7 +950,7 @@
       "crash": 0
     },
     "device": {
-      "pass": 1910,
+      "pass": 1915,
       "fail": 0,
       "skip": 41,
       "crash": 0

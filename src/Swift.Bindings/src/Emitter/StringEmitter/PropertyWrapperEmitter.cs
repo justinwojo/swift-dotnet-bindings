@@ -560,11 +560,15 @@ public static class PropertyWrapperEmitter
                     {
                         // Optional<closure> setter: accept funcPtr + context, adapt to Swift closure.
                         // Same pattern as method closure parameters in MethodWrapperEmitter.
+                        // Property setters always store the closure beyond the call, so the
+                        // adapter must wrap the GCHandle context in an _SBClosureCtx box —
+                        // closes Bug 3 Case 2 (property-setter handler subscription leak).
                         swiftParams.Add("_ newValueFuncPtr: UnsafeMutableRawPointer?");
                         swiftParams.Add("_ newValueContext: UnsafeMutableRawPointer?");
 
+                        ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
                         var adapterLines = ClosureEmitter.GetSwiftClosureAdapterCode(
-                            "newValue", closureSpec, env.ClosureHandler, isOptional: true);
+                            "newValue", closureSpec, env.ClosureHandler, isOptional: true, isEscaping: true);
                         reconstructionLines.AddRange(adapterLines);
                         cdeclCallArgValueExpr = "_adapted_newValue";
                     }

@@ -372,12 +372,8 @@ public class OwnershipGCStressTests : TestBase
     /// because the GCHandle wrapping the delegate is freed when the Swift
     /// adapter ARC-releases.
     ///
-    /// Deferred to 0.11: requires the Swift-side closure-context owner token
-    /// (`_SBClosureCtx.deinit` upcall to a registered C# destroyer). See
-    /// LifetimeTrackingTests.TestEphemeralClosureReleasesCapturedSafeHandle
-    /// for the full deferral context — same root cause, same fix shape.
     /// </summary>
-    [Skip("0.10.0: closure-context owner token (Cat 3) deferred to 0.11; see bug-0.10.0-callback-trampoline-gchandle-leak.md")]
+    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_EphemeralRepeatCall()
     {
         if (!TestRunFlags.Lifetime)
@@ -457,11 +453,8 @@ public class OwnershipGCStressTests : TestBase
     /// payload-buffer leaks (the actual surface of Bug 2) requires Swift-side
     /// allocation counters that we don't track today.
     ///
-    /// Deferred to 0.11 alongside the rest of Bug 1 Cat 3: requires the
-    /// closure-context owner-token deinit upcall to release the GCHandle
-    /// rooting the C# delegate.
     /// </summary>
-    [Skip("0.10.0: closure-context owner token (Cat 3) deferred to 0.11; see bug-0.10.0-callback-trampoline-gchandle-leak.md")]
+    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_HeapAllocShapeMatrix()
     {
         if (!TestRunFlags.Lifetime)
@@ -558,11 +551,8 @@ public class OwnershipGCStressTests : TestBase
     /// Replacing or clearing `OnValueChanged` should ARC-release the previous
     /// closure storage and free the GCHandle rooting the prior C# delegate.
     ///
-    /// Deferred to 0.11: shares Bug 1 Cat 3's root cause and 0.11 fix shape
-    /// (closure-context owner-token deinit upcall). On 0.10.0 every setter
-    /// call leaks a GCHandle.
     /// </summary>
-    [Skip("0.10.0: closure-context owner token (Cat 3) deferred to 0.11; see bug-0.10.0-callback-trampoline-gchandle-leak.md")]
+    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_PropertySetterReplace()
     {
         if (!TestRunFlags.Lifetime)
@@ -580,12 +570,20 @@ public class OwnershipGCStressTests : TestBase
 
         for (int i = 0; i < Iterations; i++)
         {
+            // The closure captures `captured` via the C# compiler-generated
+            // displayclass; nulling the local *would* zero that displayclass
+            // field and break the synchronous TriggerChange invocation below.
+            // Don't null the local — it goes out of scope at end of iteration,
+            // and the only path keeping the previous iteration's displayclass
+            // alive is Swift's _SBClosureCtx box (via the GCHandle). When the
+            // next iteration replaces holder.OnValueChanged, the old box is
+            // ARC-released → destroy hook fires → GCHandle freed → displayclass
+            // unreachable → SafeHandle finalizes → tracker dealloc++.
             var captured = TestLibFunctions.CreateTrackedObject(i);
             holder.OnValueChanged = v =>
             {
                 _ = captured.IsAlive();
             };
-            captured = null!;
 
             // Trigger the closure once to verify the new assignment is live
             // (defends against silent overwrites that drop the closure on
@@ -640,10 +638,8 @@ public class OwnershipGCStressTests : TestBase
     /// Validates that the closure-context release path is finalizer-safe
     /// across rapid GC churn.
     ///
-    /// Deferred to 0.11 alongside the rest of Bug 1 Cat 3: requires the
-    /// closure-context owner-token deinit upcall to release the GCHandle.
     /// </summary>
-    [Skip("0.10.0: closure-context owner token (Cat 3) deferred to 0.11; see bug-0.10.0-callback-trampoline-gchandle-leak.md")]
+    [SkipOnSimulator("Requires libSwiftBindingsRuntime.dylib; the simulator build sets IncludeSwiftBindingsRuntimeNative=false (InstallNameTool workaround), so the destroy hook degrades to the documented leak fallback. Validated on device (NativeAOT).")]
     public void TestBundleB_ClosureLifetime_GCPressureDuringCall()
     {
         if (!TestRunFlags.Lifetime)

@@ -1645,11 +1645,17 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_MethodWithOptionalClosure_DoesNotFreeGCHandle()
+    public void Emit_MethodWithOptionalClosure_FreesGCHandleOnlyWhenOwnershipNotTransferred()
     {
-        // Regression test for cleanup path (WrapperEmitter.Marshalling line ~980).
-        // Optional closures are always escaping in Swift. Before the fix, the cleanup
-        // code checked only closureTypeSpec.IsEscaping and emitted GCHandle.Free().
+        // Optional closures are always escaping in Swift. The cleanup path used to
+        // free unconditionally on the inner ClosureTypeSpec.IsEscaping check, which
+        // was wrong for the stored-handler shape (Bug 1 Cat 3). After the closure-
+        // context owner-token fix, Swift's `_SBClosureCtx` ARC box owns the GCHandle
+        // once the wrapper body runs, so the C# `finally` must skip its own free in
+        // the steady-state path. The remaining free is gated on a transfer flag —
+        // if the P/Invoke never reached the wrapper body (C# threw between Alloc and
+        // call, or the entry point could not be resolved), the flag stays false and
+        // we close the leak window by freeing here.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
@@ -1672,8 +1678,10 @@ public class MethodHandlerOutputTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.DoesNotContain(".Free()", csOutput);
         Assert.Contains("GCHandle.Alloc", csOutput);
+        Assert.Contains("bool onCompleteTransferred = false;", csOutput);
+        Assert.Contains("onCompleteTransferred = true;", csOutput);
+        Assert.Contains("if (!onCompleteTransferred && onCompleteHandle.IsAllocated) onCompleteHandle.Free();", csOutput);
     }
 
     [Fact]
