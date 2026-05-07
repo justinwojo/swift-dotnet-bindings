@@ -2102,20 +2102,22 @@ namespace BindingsGeneration
             var cancellationBlock = $$"""
                                     if (isCancellation != 0)
                                     {
-                                        // Swift reported CancellationError — find token and cancel the Task
+                                        // Swift reported CancellationError — find token and cancel the Task.
+                                        // Loop variable __cleanupIdx (not "i") avoids any future risk of
+                                        // shadowing a user parameter if this block ever moves into a user method.
                                         global::System.Threading.CancellationToken cancelToken = default;
-                                        for (int i = 1; i < holder.Length; i++)
+                                        for (int __cleanupIdx = 1; __cleanupIdx < holder.Length; __cleanupIdx++)
                                         {
-                                            if (holder[i] is CancellationRegistrationHolder cancelReg)
+                                            if (holder[__cleanupIdx] is CancellationRegistrationHolder cancelReg)
                                             {
                                                 cancelToken = cancelReg.Token;
                                                 cancelReg.Registration.Dispose();
                                             }
-                                            else if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                                            else if (holder[__cleanupIdx] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                                                 Arc.Release(retained.Ptr);
-                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
+                                            else if (holder[__cleanupIdx] is DeferredSafeHandleRelease deferred)
                                                 deferred.Handle.DangerousRelease();
-                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                                            else if (holder[__cleanupIdx] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                                             {
                                                 copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                                 NativeMemory.Free((void*)copyBuffer.Buffer);
@@ -2447,19 +2449,27 @@ namespace BindingsGeneration
         /// <param name="indent">The whitespace indent prefix for each line.</param>
         /// <param name="includeCancellationReg">Whether to include CancellationRegistrationHolder cleanup.</param>
         /// <param name="cancelRegVarName">Variable name for the CancellationRegistrationHolder (to avoid shadowing).</param>
+        /// <remarks>
+        /// Loop variable is named <c>__cleanupIdx</c> rather than <c>i</c> because this
+        /// snippet is inlined into the user-facing async method body (see preCancelCleanup),
+        /// where the user's Swift parameter list may itself include a parameter named
+        /// <c>i</c> (a common convention in stdlib-style methods such as
+        /// <c>insert(contentsOf:before i: Int)</c>). C# CS0136 forbids shadowing an
+        /// enclosing parameter with a local of the same name.
+        /// </remarks>
         private static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
         {
             var cancelRegLine = includeCancellationReg
-                ? $"\n{indent}    else if ({holderVar}[i] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
+                ? $"\n{indent}    else if ({holderVar}[__cleanupIdx] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
                 : "";
             return $$"""
-                {{indent}}for (int i = 1; i < {{holderVar}}.Length; i++)
+                {{indent}}for (int __cleanupIdx = 1; __cleanupIdx < {{holderVar}}.Length; __cleanupIdx++)
                 {{indent}}{
-                {{indent}}    if ({{holderVar}}[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                {{indent}}    if ({{holderVar}}[__cleanupIdx] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
                 {{indent}}        Arc.Release(retained.Ptr);
-                {{indent}}    else if ({{holderVar}}[i] is DeferredSafeHandleRelease deferred)
+                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is DeferredSafeHandleRelease deferred)
                 {{indent}}        deferred.Handle.DangerousRelease();
-                {{indent}}    else if ({{holderVar}}[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
                 {{indent}}    {
                 {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                 {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);

@@ -144,26 +144,34 @@ Cross-reference in
 [SDK-0.10.0-BLOCKERS.md](../../swift-dotnet-packages/SDK-0.10.0-BLOCKERS.md)
 under Round 3 / I-5.
 
-## Status — UNRESOLVED in Bundle 02 / queued for Bundle 11
+## Status — RESOLVED in 0.10.0 (closure-context owner-token, Session B)
 
-Bundle 02 did not produce a fix for the FlowController shape. Investigation
-showed that the wrapper-emit pipeline records the symbol as emitted in the
-report but the Swift wrapper compilation step fails to write it to the
-dylib — a Stripe-specific repro is needed (the test corpus in `BindingTests`
-does not currently reproduce the FlowController nested-static + Result-closure
-shape).
+The MCB pipeline now emits stable `@_cdecl` wrappers for the
+nested-class + `Result<Self, any Error>` / `((any Error)?) -> Void`
+closure shape. The fix landed as part of the closure-context
+owner-token mechanism: the C# `GCHandle` carrying the captured
+delegate is wrapped in a Swift-ARC-owned `_SBClosureCtx` box exported
+from `libSwiftBindingsRuntime.dylib`. When Swift releases the closure,
+the box's `deinit` upcalls a registered C# free callback
+(`SwiftClosureContext.EnsureRegistered`), freeing the handle exactly
+once. With escaping-closure ownership stable, the wrapper-emit
+pipeline no longer drops these methods on the closure-arg cdecl-compat
+predicate, and the symbols cross-reference cleanly between Swift
+emission and C# `[LibraryImport]`.
 
-**Carve-out:** queued for **Bundle 11** (nested-class + Result-closure
-wrapper-emitter rework). Bundle 7's domain is skip-policy / SB0001 emission
-("symbol can't be wrapped, fall through to direct PInvoke + diagnostic"),
-which is the right fit for `bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper.md`
-and `bug-0.10.0-generic-async-wrapper-symbol-missing.md`. Bug 3's resolution
-is the opposite shape — *extend the wrapper emitter so it does write the
-missing symbol*, not declare it unwrappable. Wrapper-emitter rework belongs
-in its own bundle (same pattern as Bundle 10 carving out closure lifetime
-infrastructure from Bundle 03). The post-emit "wrapper symbols actually
-exported" cross-reference gate from Bundle 7 will still catch any *future*
-shape that escapes Bundle 11's coverage.
+**Cross-reference:** the underlying ownership-mechanism work is
+documented in
+`Resolved/bug-0.10.0-callback-trampoline-gchandle-leak.md`. The
+StripePaymentSheet validation baseline now reports
+`compile=ok`/`errors=0`/`swift_compile=ok` (no `MissingWrapperSymbol`
+entries against `FlowController.create`/`update`).
 
-Until Bundle 11 lands, the consumer workaround (use the full-sheet
-`PaymentSheet(...)` ctor flows) stands.
+**Regression coverage:** the BindingTests fixture
+`ErrorHandling/NestedResultClosureFixture.swift` mirrors the Stripe
+shape — nested public class `OnboardingFlow.SessionController` with
+a static factory taking `(Result<Self, any Error>) -> Void`, a sibling
+factory taking `((any Error)?) -> Void`, and an instance method
+taking `((any Error)?) -> Void`. Runtime tests in
+`RuntimeTestsApp/ErrorHandling/NestedResultClosureTests.cs` exercise
+both branches of each closure shape end-to-end through the @_cdecl
+wrapper.

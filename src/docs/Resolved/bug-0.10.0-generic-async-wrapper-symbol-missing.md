@@ -128,21 +128,42 @@ binary and verifies every `[LibraryImport(EntryPoint = ...)]` resolves
 would catch this defect class at SDK-build time. Worth doing — see
 **O-2** for a sibling defect that needs the same gate.
 
-## Status — DEFERRED to Bundle 7
+## Status — RESOLVED in 0.10.0 (CSM-async pairing-filter parity)
 
-Bundle 02 evaluated routing this through
-`WrapperValidation.IsSkippedWrapperDirectPInvoke`, but flag-only inspection
-cannot distinguish a method routed through the wrapper library whose symbol
-*didn't actually get emitted* (this bug — generic-async on `MusicPlayer.Queue.insert`)
-from one routed through the wrapper library whose symbol *did* get emitted
-(every working `@_silgen_name` path: ArraySlice, default-parameter,
-metatype-array, protocol extension). Both set `UsesWrapperLibrary=true` on
-methods without a `@_cdecl` flag.
+The CSM-async pipeline now applies the same bilateral
+associated-type filter that the sync path uses. `IsEmittableAsyncPairing`
+(in `ConcreteProtocolSpecializationEmitter.Async.cs`) takes the
+`MethodDecl` + `TypeDecl` and consults
+`DoesPairingSatisfyAssociatedTypeConstraints` against the type
+database before reserving a wrapper symbol. Same-type
+floors (`where S.Element == Album`) and class-subtype bounds
+(`where S.Element : Animal`) reject mismatched conformers (UInt8,
+SongItem, AlbumItem, …) before any `_async` cdecl trampoline is
+reserved. Only conformers whose recorded `Element` exactly matches —
+or, for class targets, sits anywhere up the
+`TypeRecord.SuperclassTypeName` chain — survive into emission.
 
-The correct discriminator is a wrapper-export cross-reference — load the
-emitted wrapper Swift source (or, preferably, the compiled wrapper dylib's
-exported symbol table via `nm -gU`) and reject any `[LibraryImport]`
-`EntryPoint` that doesn't resolve. That is the same post-emit gate proposed
-in the Fix gate section above and mirrors the SDK-build-time check needed
-for **O-2**. Bundle 7 owns this gate alongside the refined
-ABI-unsafety detector for `bug-0.10.0-direct-callconvswift-pinvoke-for-skipped-wrapper.md`.
+The `[LibraryImport]` set the C# side emits is now exactly the set
+of `_async` wrapper symbols the Swift side compiles into the dylib.
+First call into a generic-async overload no longer
+`EntryPointNotFoundException`s; it dispatches into the matching
+closed-instantiation cdecl trampoline.
+
+**Regression coverage:** the BindingTests fixture
+`Async/AsyncGenericSequence.swift` declares
+`AnimalAsyncRoster.insertAsync<S>(...)
+async throws where S.Element : Animal` — the same class-inheritance
+bound shape as the sync `AnimalRoster.insert` fixture, but routed
+through the CSM-async path. Generated output now contains exactly two
+`InsertAsync` overloads (Animal + Dog); pre-fix the cartesian product
+emitted overloads for UInt8, SongItem, AlbumItem, and ArtistItem too,
+each pointing at a non-existent
+`SBW_CSM_…_Swift_Array_<T>_insertAsync_*_async` symbol. Runtime tests
+in `RuntimeTestsApp/Async/AsyncGenericSequenceTests.cs` exercise the
+Animal overload, the Dog-subclass overload (proving the class-subtype
+walk fired), and the async-throws plumbing on the surviving path.
+
+The post-emit wrapper-export cross-reference gate originally proposed
+under "Fix gate" remains a worthwhile safety net for *future*
+shapes that escape the bilateral filter; that is tracked separately
+on the roadmap and is no longer load-bearing for this specific bug.

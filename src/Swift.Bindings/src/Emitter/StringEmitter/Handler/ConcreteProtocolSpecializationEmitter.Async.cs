@@ -33,7 +33,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (!PassesAsyncMethodLevelGuards(originalMethod, parentTypeDecl, typeDatabase, logger))
             return false;
 
-        if (!IsEmittableAsyncPairing(pairing, typeDatabase, moduleName, out var conformerTypeSpecs, logger, originalMethod.Name))
+        if (!IsEmittableAsyncPairing(originalMethod, parentTypeDecl, pairing, typeDatabase, moduleName, out var conformerTypeSpecs, logger, originalMethod.Name))
             return false;
 
         if (!TryBuildEmissionPlan(
@@ -434,12 +434,18 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
     /// <summary>
     /// Per-pairing CSM-async guards that must hold for every conformer in the pairing:
+    /// associated-type constraint satisfaction (parity with the sync path's bilateral
+    /// filter — class-subtype <c>where S.Element : Animal</c> and same-type
+    /// <c>where S.Element == Album</c> bounds reject mismatched conformers like
+    /// <c>[UInt8]</c> or <c>[SongItem]</c> here, before any wrapper symbol is reserved),
     /// Phase A hint-scope gate, opaque-parameter guard, nested-conformer guard,
     /// NativeTypeName/ObjC-bridged/rooted rejection, and TypeSpec buildability.
     /// Returns the built <paramref name="conformerTypeSpecs"/> on success so callers
     /// don't redo the work.
     /// </summary>
     private static bool IsEmittableAsyncPairing(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
         IReadOnlyList<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing,
         ITypeDatabase typeDatabase,
         string? moduleName,
@@ -448,6 +454,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string? methodNameForLog = null)
     {
         conformerTypeSpecs = new NamedTypeSpec[pairing.Count];
+
+        // Bilateral associated-type filter — parity with the sync path
+        // (CanEmitConcreteOverloadForPairing → DoesPairingSatisfyAssociatedTypeConstraints).
+        // Without this, parent-declared same-type floors and method class-subtype bounds
+        // (e.g. `where S.Element : Animal`) would slip through into the cartesian product
+        // and the engine would emit an `_async` cdecl trampoline + corresponding
+        // `[LibraryImport]` for every Sequence conformer (UInt8, SongItem, AlbumItem, …),
+        // referencing wrapper symbols that the Swift side never compiles. First call →
+        // EntryPointNotFoundException at runtime.
+        if (!DoesPairingSatisfyAssociatedTypeConstraints(method, parentTypeDecl, pairing, typeDatabase))
+        {
+            logger?.LogDebug(
+                "CSM-async: Skipping {Method} — associated-type constraint not satisfied by conformer pairing.",
+                methodNameForLog);
+            return false;
+        }
 
         for (int i = 0; i < pairing.Count; i++)
         {
@@ -561,7 +583,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         foreach (var pairing in CartesianPairings(specializable.SpecializableParams))
         {
             if (!ConformerPairingSatisfiesCoupling(pairing)) continue;
-            if (!IsEmittableAsyncPairing(pairing, typeDatabase, moduleName, out var conformerTypeSpecs)) continue;
+            if (!IsEmittableAsyncPairing(method, parentTypeDecl, pairing, typeDatabase, moduleName, out var conformerTypeSpecs)) continue;
             if (!TryBuildEmissionPlan(
                     method, parentTypeDecl, pairing, conformerTypeSpecs,
                     typeDatabase, moduleName,

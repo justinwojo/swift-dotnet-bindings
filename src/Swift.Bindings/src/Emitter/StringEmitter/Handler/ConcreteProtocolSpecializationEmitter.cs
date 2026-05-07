@@ -1612,7 +1612,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
     internal static bool DoesPairingSatisfyAssociatedTypeConstraints(
         MethodDecl method,
         TypeDecl parentTypeDecl,
-        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        IReadOnlyList<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing,
         ITypeDatabase? typeDatabase = null)
     {
         foreach (var (param, conformer) in pairing)
