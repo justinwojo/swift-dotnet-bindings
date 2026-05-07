@@ -85,14 +85,16 @@ Unit tests catch logic bugs. **BindingTests** catch ABI mismatches, calling-conv
 
 ### Final validation gates (run only what the change warrants)
 
-| What changed | `nuke test` | `nuke validate` | `nuke binding-tests` |
+`nuke test` (unit tests) and `nuke binding-tests` (BindingTests) are the everyday signals — fast, targeted, and the layers where new coverage should land. **`nuke validate` is opt-in**, not part of the routine inner loop: it takes ~5 minutes and re-runs the full real-world library sweep. Only run it for (a) larger refactors / cross-cutting generator or emitter changes where category-wide regression is plausible, (b) pre-release regression sweeps, or (c) when you genuinely want the insight from a validation-libraries run. Don't burn ~5 minutes per change "just in case" — that is what's hurting velocity.
+
+| What changed | `nuke test` | `nuke binding-tests` | `nuke validate` |
 |---|---|---|---|
-| Generator / emitter / parser | Yes | Yes | Yes (default sim run). Add `--device` if calling conventions or marshalling changed. |
-| Runtime (`Swift.Runtime`) | Yes | Only if marshalling changed | Yes (`--skip-regen`). Add `--device` if marshalling changed. |
-| Test infrastructure only | No | No | Just the target touched |
+| Generator / emitter / parser | Yes | Yes (default sim run). Add `--device` if calling conventions or marshalling changed. | Optional — only for cross-cutting changes or pre-release sweeps |
+| Runtime (`Swift.Runtime`) | Yes | Yes (`--skip-regen`). Add `--device` if marshalling changed. | Optional — only if marshalling changed *and* the change plausibly affects multiple libs |
+| Test infrastructure only | No | Just the target touched | No |
 | Docs / research / external repos | No | No | No |
 
-**Zero-regression policy**: `.validation-baseline.json` (`cs_compile` + `swift_compile`), BindingTests pass count, and unit test pass count must all be ≥ baseline before committing. No "will fix later" — applies to every commit.
+**Zero-regression policy**: BindingTests pass count and unit test pass count must be ≥ baseline before committing — these are the per-commit gates. `.validation-baseline.json` (`cs_compile` + `swift_compile`) only needs to be ≥ baseline *when you actually run `nuke validate`*; if you didn't run validate this change, you don't need to defend against it. No "will fix later" for the gates that ran.
 
 ## Known Issues
 

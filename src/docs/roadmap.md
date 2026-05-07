@@ -105,9 +105,6 @@ and found patterns BindingTests had no coverage for.
   Until then, validate stays in scope as a discovery sweep, not a blanket
   per-bundle blocker.
 
-See `src/docs/0.10.0-fix-plan.md` §"Long-term: retire `nuke validate`" for
-the full rationale and the per-bundle classification.
-
 ---
 
 ## Explicitly Out of Scope

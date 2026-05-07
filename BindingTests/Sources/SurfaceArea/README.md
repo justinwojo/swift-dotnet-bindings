@@ -9,8 +9,13 @@ The directory **ships empty** with the scaffolding commit. Each skip-class fix
 bundle contributes its own snippet in the same commit as the fix; shape-class
 projection fixes land coverage in Layer A (a domain test class under
 `BindingTests/Sources/SwiftBindingsTestLib/` plus a generator unit test) instead.
-See `src/docs/0.10.0-fix-plan.md` §"Testing foundation — three layers" for the
-classification rules.
+
+**Routing rule.** Skip-class entries are those whose primary failure mode is
+the generator emitting a skip marker (or silently dropping the API) — those
+land here. Shape-class entries (wrong projection, missing interface adoption,
+lost default value, etc.) compile and run but produce a wrong C# surface;
+those land in Layer A as targeted semantic assertions. Trying to do both in
+one count-based gate muddles the signal.
 
 ## Keying & ratchet
 
