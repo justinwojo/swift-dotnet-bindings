@@ -633,8 +633,9 @@ public static class MethodClosureBridge
             // D1: Heap allocations sit outside any if-let branch — they're independent of
             // optional-existential nil-vs-not and C# takes ownership either way (VWT Destroy
             // + NativeMemory.Free on disposal). Duplicating them per-branch would leak.
-            // Per-invocation buffer leak when C# uses MarshalBorrowedFromSwift instead is
-            // tracked in bug-0.10.0-swift-wrapper-payload-buffer-leak (Bundle 10).
+            // MCB's only heap-alloc branch is the IsComplexEnum case at line ~464; the broader
+            // owning-vs-borrowing split for the non-MCB Swift wrapper lives in
+            // ClosureEmitter.SwiftWrapper.cs. See bug-0.10.0-swift-wrapper-payload-buffer-leak.md.
             foreach (var (idx, swiftType) in analysis.heapAllocArgs)
             {
                 swiftWriter.WriteLine($"{bodyBaseIndent}let __heap{ci.Index}_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
@@ -818,9 +819,12 @@ public static class MethodClosureBridge
             innerTypeArgs.Add(GetCallbackParamType(closureArgs[i], env));
         }
 
-        // GCHandle is freed by the wrapper's finally block, not the trampoline. Single-shot
-        // completion-handler trampoline-side free is tracked under
-        // bug-0.10.0-callback-trampoline-gchandle-leak (Bundle 10).
+        // GCHandle is intentionally leaked: MCB is gated on ABI shape (bound generic /
+        // complex enum / any-Error existential), not on lifetime semantics, and at least
+        // one MCB-eligible signature (AsyncCallbackClosures.processMultiple) fires the
+        // closure many times. A trampoline-side Free here would corrupt calls 2..N.
+        // Proper fix is the Swift-side owner-token deinit upcall — deferred to 0.11.
+        // See bug-0.10.0-callback-trampoline-gchandle-leak.md §"0.10.0 status".
 
         if (!closureReturnIsVoid)
         {

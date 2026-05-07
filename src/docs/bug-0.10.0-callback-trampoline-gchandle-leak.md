@@ -262,3 +262,60 @@ as known leaks.
 that consumers will hit on every screen of every image-loading UI. Pair
 with C1 ([bug-0.10.0-dataloader-validate-uninitialized-buffer.md](./bug-0.10.0-dataloader-validate-uninitialized-buffer.md))
 in the next SDK ship.
+
+## 0.10.0 status — deferred to 0.11
+
+**0.10.0: not fixed.** Cat 1 (non-escaping → C# `finally` Free) is in
+place. Categories 2/3/4 are deferred.
+
+A 0.10.0 attempt at Cat 3 ("box every closure context in a Swift class,
+upcall a C# destroy callback from the box's deinit") was reverted after
+Codex review (session `019dffa9-27b7-7bb1-86f8-1ff2f8288db9`,
+2026-05-06). Issues identified:
+
+1. **Applied to every thunk-bridged closure**, including non-escaping —
+   put a Swift ARC destructor in charge of GCHandle release for
+   synchronous noescape callbacks, with crashes downstream of the new
+   `_SwiftBindings_DestroyClosureContext` upcall.
+2. **`_SBClosureCtx` was not `@unchecked Sendable`** — broke Apple
+   framework wrappers that expose `@Sendable` callbacks under Swift 6
+   strict concurrency.
+3. **Linked the wrapper with `-undefined dynamic_lookup`** to paper over
+   the missing destroy symbol — deprecated on iOS, weakens the entire
+   link step. The destroy hook should be linked directly against the
+   runtime dylib.
+4. **Closure body referenced `box.ctx`** instead of explicitly capturing
+   the box object — the compiler can elide the box, dropping the
+   lifetime contract Cat 3 depends on.
+
+A narrower fallback (Cat 2 trampoline-Free for the MCB single-shot
+pattern) was also blocked by Codex (round 2): MCB is not reliably
+single-shot. Counterexample:
+[`AsyncCallbackClosures.processMultiple`](../../BindingTests/Sources/SwiftBindingsTestLib/Async/AsyncCallbackClosures.swift)
+is MCB-eligible (Result with Error existential) and fires the closure
+many times; appending `handle.Free()` after dispatch would corrupt calls
+2..N. The MCB gate at
+[`MethodClosureBridge.cs:104`](../Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodClosureBridge.cs)
+is ABI-shape based and says nothing about lifetime semantics.
+
+**0.11 fix shape (per Codex):**
+
+- Restrict the box owner-token model to **escaping closures only** (gate
+  on `isEffectivelyEscaping == true`).
+- Mark the Swift box class `@unchecked Sendable`.
+- Export the destroy hook from `libSwiftBindingsRuntime.dylib` and link
+  the wrapper against it normally — no `-undefined dynamic_lookup`.
+- Have the adapter closure body **explicitly capture the box object**,
+  not just read a field on it.
+
+The 0.10.0 surface skips
+[`LifetimeTrackingTests.TestEphemeralClosureReleasesCapturedSafeHandle`](../../BindingTests/RuntimeTestsApp/Lifetime/LifetimeTrackingTests.cs)
+with a pointer to this section. Add a 0.11 entry in `roadmap.md` to
+re-enable.
+
+**Same fix also closes
+[`bug-0.10.0-async-task-wrapper-leaks-existential-heap.md`](bug-0.10.0-async-task-wrapper-leaks-existential-heap.md)
+Case 2** (property-setter handler subscription). Both leaks share the
+same root cause — no Swift-side ARC-driven destroy of an escaping closure
+context — and the box-owner-token deinit upcall is the natural cleanup
+site for both. Track them together when 0.11 work begins.

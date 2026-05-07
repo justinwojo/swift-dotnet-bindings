@@ -144,6 +144,71 @@ public class LifetimeTrackingTests : TestBase
         TestLogger.Info($"CreateMutatingClosure: call counts = {call1}, {call2}, {call3}");
     }
 
+    /// <summary>
+    /// Baseline assertion of the closure GCHandle / wrapper-lifetime fix.
+    /// Requires the Swift-side ARC destroy mechanism (closure-context owner
+    /// token; informally "Category 3") — the cdecl adapter boxes the C#
+    /// `(funcPtr, GCHandle)` pair in a Swift class whose deinit upcalls a
+    /// registered C# destroy callback. Without that, the GCHandle leaks →
+    /// the C# delegate is permanently rooted → any SafeHandle the delegate
+    /// captured leaks → tracker.live grows.
+    ///
+    /// Deferred to 0.11: a prior 0.10.0 attempt boxed every thunk-bridged
+    /// closure (incl. non-escaping), shipped a non-Sendable Swift class that
+    /// failed Swift 6 strict concurrency in Apple frameworks, used
+    /// `-undefined dynamic_lookup` to paper over linkage, and lost lifetime
+    /// to weak property capture. Codex review (session
+    /// 019dffa9-27b7-7bb1-86f8-1ff2f8288db9) recommended a narrower
+    /// trampoline-Free for "shapes proven single-shot"; round 2 proved no
+    /// such gate exists in the current generator (counterexample:
+    /// AsyncCallbackClosures.processMultiple is MCB-eligible and fires
+    /// multiple times). See bug-0.10.0-callback-trampoline-gchandle-leak.md.
+    /// </summary>
+    [Skip("0.10.0: closure-context owner token (Cat 3) deferred to 0.11; see bug-0.10.0-callback-trampoline-gchandle-leak.md")]
+    public void TestEphemeralClosureReleasesCapturedSafeHandle()
+    {
+        LifetimeTracker.Reset();
+
+        // Capture a fresh TrackedObject inside a delegate, pass the delegate
+        // into a Swift closure-accepting API, drop the local reference, then
+        // force finalizers. Post-fix the captured TrackedObject must
+        // deallocate because the GCHandle around the delegate is freed by
+        // the Swift adapter's deinit.
+        {
+            var captured = TestLibFunctions.CreateTrackedObject(101);
+            var (_, _, liveBefore) = LifetimeTracker.GetStats();
+            AssertTrue(liveBefore >= 1, "TrackedObject created (live >= 1)");
+
+            var result = TestLibFunctions.CallWithInt32(x =>
+            {
+                _ = captured.IsAlive();
+                return x + captured.ObjectId;
+            });
+            AssertEqual(42 + 101, result, "Closure invocation includes captured ObjectId");
+
+            // Drop the local reference. Closure delegate is now the only
+            // C# rooting path to `captured` — and only if the GCHandle is
+            // still alive.
+            captured = null!;
+        }
+
+        ForceGC();
+        GC.WaitForPendingFinalizers();
+        ForceGC();
+        Thread.Sleep(50);
+        ForceGC();
+        GC.WaitForPendingFinalizers();
+        ForceGC();
+
+        var (alloc, dealloc, live) = LifetimeTracker.GetStats();
+        TestLogger.Info(
+            $"Ephemeral closure capture lifetime: alloc={alloc} dealloc={dealloc} live={live}");
+
+        // Pre-fix this would be 1 (captured TrackedObject leaked via the
+        // permanently-rooted delegate). Post-fix it must be 0.
+        AssertEqual(0, live, "Captured TrackedObject deallocated after ephemeral closure call");
+    }
+
     #endregion
 
     #region Protocol Conformance

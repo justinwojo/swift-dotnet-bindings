@@ -10,8 +10,13 @@
 > heap in its `finally`), so the async path no longer leaks. BindingTests
 > coverage:
 > `ClosureEdgeCaseTests.TestBug3Case1AsyncOverloadDelegatesThroughExistential`.
-> Case 2 (property-setter handler subscription) is carved out to **Bundle 10**
-> alongside the broader closure-lifetime infrastructure (Bug 1 + Bug 2).
+> Case 2 (property-setter handler subscription) is **deferred to 0.11**
+> alongside Bug 1 Cat 3/4 — both share the same root cause (no Swift-side
+> ARC-driven destroy of an escaping closure context) and will share the same
+> fix (box-owner-token deinit upcall). See
+> [`bug-0.10.0-callback-trampoline-gchandle-leak.md`](./bug-0.10.0-callback-trampoline-gchandle-leak.md)
+> §"0.10.0 status — deferred to 0.11" for the 0.11 fix shape and the four
+> issues from the prior attempt.
 
 ## Summary
 

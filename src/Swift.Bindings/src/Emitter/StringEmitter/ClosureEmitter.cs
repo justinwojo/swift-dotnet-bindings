@@ -117,11 +117,11 @@ public static partial class ClosureEmitter
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
         var contextExtraction = useCdecl ? "contextPtr" : "new IntPtr(context.Value)";
 
-        // Callback never frees the GCHandle — the calling method's finally block handles cleanup.
-        // Escaping closures may fire multiple times (e.g., callMultipleTimes), so freeing in the
-        // callback would crash on the second invocation. Single-shot completion-handler trampoline
-        // free + multi-shot Swift-side destroy thunks are tracked under
-        // bug-0.10.0-callback-trampoline-gchandle-leak (Bundle 10).
+        // Callback never frees the GCHandle — the calling method's finally block handles cleanup
+        // for non-escaping closures (Cat 1). Escaping closures may fire multiple times
+        // (e.g., callMultipleTimes), so freeing in the callback would crash on the second
+        // invocation. Escaping-closure GCHandle leaks are deferred to 0.11 via the Swift-side
+        // owner-token deinit upcall. See bug-0.10.0-callback-trampoline-gchandle-leak.md.
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
@@ -803,6 +803,19 @@ public static partial class ClosureEmitter
             // UAF. The borrowed wrapper that used to live here would dangle the moment the
             // callback returned.
             if (useCdecl && closureHandler.IsNonFrozenStruct(namedType))
+            {
+                var ownedType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
+                return $"SwiftMarshal.MarshalFromSwift<{ownedType}>(new IntPtr(arg{argIndex}))";
+            }
+
+            // Complex enums and ClassWithBufferStruct frozen structs are also heap-allocated
+            // by the Swift adapter (Wrapper emits allocate + initializeMemory), and ownership
+            // is transferred to the C# callback. `MarshalFromSwift<T>` constructs the
+            // ISwiftObject wrapper whose SafeHandle pairs VWT.Destroy + NativeMemory.Free.
+            // Without owning-transfer, capture-out of the borrowed wrapper UAFs on the next
+            // GC cycle (or sooner under GC stress). bug-0.10.0-swift-wrapper-payload-buffer-leak.
+            if (useCdecl && (closureHandler.IsComplexEnum(namedType) ||
+                             closureHandler.IsFrozenStructWithRefFields(namedType)))
             {
                 var ownedType = closureHandler.TranslateTypeSpecToCSharp(typeSpec);
                 return $"SwiftMarshal.MarshalFromSwift<{ownedType}>(new IntPtr(arg{argIndex}))";

@@ -1797,6 +1797,28 @@ public class ClosureHandler
     }
 
     /// <summary>
+    /// Checks if a frozen struct has reference-type fields (ClassWithBufferStruct
+    /// projection). C# treats these as ISwiftObject classes whose Buffer.Payload
+    /// points at the heap-allocated copy — ownership transfer through MarshalFromSwift
+    /// is required so the C# SafeHandle pairs VWT.Destroy + NativeMemory.Free.
+    /// Pure (blittable) frozen structs return false — those are read-by-value with
+    /// Swift-side defer freeing the allocation.
+    /// </summary>
+    public bool IsFrozenStructWithRefFields(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec namedType)
+            return false;
+        if (namedType.ContainsGenericParameters)
+            return false;
+        if (IsGenericTypeParameter(namedType.Name) || !namedType.HasModule())
+            return false;
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
+        if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord))
+            return false;
+        return MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord);
+    }
+
+    /// <summary>
     /// Checks if a type is a class in the type database.
     /// Classes pass as raw pointers (UnsafeMutableRawPointer) in closure callbacks.
     /// </summary>

@@ -4,6 +4,18 @@
 > consumer-experience audit of
 > [SwiftBindings.Stripe](https://github.com/justinwojo/swift-dotnet-packages)
 > (StripeCardScan 26.2.1).
+>
+> **Status:** resolved for 0.10.0 by the heap-arg category split in
+> `ClosureEmitter.SwiftWrapper.cs`: `ComplexEnum` and
+> `FrozenStructWithRefFields` payloads now travel as owning transfers
+> (C# calls `SwiftMarshal.MarshalFromSwift<T>`, which owns the buffer
+> and frees it via VWT Destroy + `NativeMemory.Free` on disposal).
+> Borrowed-payload categories (`MarshalBorrowedFromSwift<T>` for
+> non-owning shapes, `MarshalOptionalFromSwift<T>` for
+> `Optional<NumericPrimitive>`, etc.) continue to rely on the Swift
+> wrapper's `defer` cleanup. The compounding GCHandle leak at the same
+> call site (Bug 1 Cat 3) remains deferred to 0.11; see
+> [`bug-0.10.0-callback-trampoline-gchandle-leak.md`](./bug-0.10.0-callback-trampoline-gchandle-leak.md).
 
 ## Summary
 
