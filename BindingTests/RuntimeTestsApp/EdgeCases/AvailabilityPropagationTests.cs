@@ -317,6 +317,57 @@ public class AvailabilityPropagationTests : TestBase
     }
 
     /// <summary>
+    /// F-2 emitter half. The auto-emitted C# protocol-proxy class for any
+    /// <c>@available</c>-gated protocol must inherit the protocol's
+    /// <c>[SupportedOSPlatform]</c> attribute(s). Pre-fix, the proxy class
+    /// declaration was bare — only the interface carried the attributes —
+    /// so CA1416 fired on the proxy's internal call sites at any consumer
+    /// baseline below the protocol's floor (iOS 15 baseline vs an iOS 16
+    /// protocol). The fix is in
+    /// <c>ProtocolProxyEmitter.EmitProxyClass</c>: emit
+    /// <c>AvailabilityAttributeEmitter.EmitAvailabilityAttributes(..., emitObsolete: false)</c>
+    /// on the proxy class declaration, mirroring the interface emission in
+    /// <c>ProtocolHandler</c>.
+    /// </summary>
+    public void TestF2_ProtocolProxyClassInheritsAvailability()
+    {
+        // The proxy class is named `{ProtocolName}Proxy` and lives in the
+        // same namespace as the interface. Resolve via reflection so we
+        // don't take a hard dependency on the symbol — the proxy is
+        // EditorBrowsableState.Never and the test verifies it exists.
+        var proxyTypeName = "SwiftBindingsTestLib.AvailabilityGatedProtocolF2Proxy";
+        var proxyType = typeof(SwiftBindingsTestLib.AvailabilityGatedProtocolF2Conformer)
+            .Assembly.GetType(proxyTypeName);
+        AssertTrue(proxyType is not null,
+            $"Proxy class {proxyTypeName} must exist on the generated assembly. " +
+            "If this assertion fails, the proxy emitter has regressed and " +
+            "consumer-side IFoo implementations cannot be passed back to Swift.");
+
+        var attrs = proxyType!.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
+        TestLogger.Info($"{proxyTypeName} SupportedOSPlatform attrs: " +
+            $"[{string.Join(", ", attrs.Select(a => a.PlatformName))}]");
+
+        var ios16 = attrs.FirstOrDefault(a =>
+            string.Equals(a.PlatformName, "ios16.0", StringComparison.OrdinalIgnoreCase));
+        AssertTrue(ios16 is not null,
+            $"{proxyTypeName} must carry SupportedOSPlatform(\"ios16.0\") inherited " +
+            "from the source protocol AvailabilityGatedProtocolF2. If this fires, " +
+            "the proxy class @available inheritance has regressed and CA1416 will " +
+            "fire on consumer call sites at the iOS 15 baseline.");
+
+        // Sanity: the interface must still carry the same attribute. The
+        // fix adds the proxy-class side without disturbing the interface
+        // emission ProtocolHandler already produces.
+        var ifaceType = typeof(SwiftBindingsTestLib.IAvailabilityGatedProtocolF2);
+        var ifaceAttrs = ifaceType.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false).ToArray();
+        var ifaceIos16 = ifaceAttrs.FirstOrDefault(a =>
+            string.Equals(a.PlatformName, "ios16.0", StringComparison.OrdinalIgnoreCase));
+        AssertTrue(ifaceIos16 is not null,
+            "IAvailabilityGatedProtocolF2 must still carry SupportedOSPlatform(\"ios16.0\"). " +
+            "If this fires, the proxy-side fix accidentally regressed the interface emission.");
+    }
+
+    /// <summary>
     /// F-5 (MusicKit). A type whose Swift <c>@available</c> list explicitly
     /// names <c>visionOS 1.0</c> must lower to a C# type with
     /// <c>[SupportedOSPlatform("visionos1.0")]</c>. Pre-fix, PlatformMapping

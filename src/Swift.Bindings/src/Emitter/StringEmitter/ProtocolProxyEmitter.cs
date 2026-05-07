@@ -142,6 +142,12 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine($"/// Proxy class that enables C# implementations of the {protocolDecl.Name} protocol.");
         writer.WriteLine($"/// Can wrap either a C# implementation or receive Swift existential containers.");
         writer.WriteLine($"/// </summary>");
+        // Inherit @available platform-gating attributes from the source protocol so
+        // the proxy class type itself carries [SupportedOSPlatform]/[UnsupportedOSPlatform]
+        // rather than relying solely on call-site CA1416 suppression. The interface
+        // declaration emits these in ProtocolHandler with emitObsolete:true; the proxy
+        // class uses emitObsolete:false to avoid duplicating the SB0004 obsolete tag.
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(writer, protocolDecl, emitObsolete: false);
         writer.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
         writer.WriteLine($"public unsafe partial class {proxyClassNameWithGenerics} : {interfaceNameWithGenerics}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>{constraints}");
         writer.WriteLine("{");

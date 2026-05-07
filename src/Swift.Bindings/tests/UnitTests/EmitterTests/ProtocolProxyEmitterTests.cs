@@ -74,6 +74,35 @@ public class ProtocolProxyEmitterTests
         Assert.True(attrIdx < classIdx, "EditorBrowsable attribute should appear before class declaration");
     }
 
+    [Fact]
+    public void EmitProxyClass_InheritsAvailabilityFromProtocol()
+    {
+        // Repro for bug-0.10.0-protocol-proxy-class-doesnt-inherit-available.md.
+        // The proxy class declaration should inherit the source protocol's
+        // [SupportedOSPlatform] so consumer call sites under a lower iOS
+        // baseline don't trip CA1416 against the proxy's internal calls.
+        var protocolDecl = CreateProtocolWithProperty("GatedProtocol", "value", hasGetter: true, hasSetter: false);
+        protocolDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new(Platform: "iOS", IntroducedVersion: "16.0", DeprecatedVersion: null,
+                ObsoletedVersion: null, IsUnconditionallyDeprecated: false,
+                IsUnconditionallyUnavailable: false, Message: null, Renamed: null),
+        };
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // The platform attribute must appear at all
+        Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios16.0\")]", output);
+        // …and must precede the proxy class declaration so it lands on the
+        // class type, not on a member further down.
+        var platformIdx = output.IndexOf("SupportedOSPlatform(\"ios16.0\")");
+        var classIdx = output.IndexOf("public unsafe partial class GatedProtocolProxy");
+        Assert.True(platformIdx >= 0 && classIdx >= 0,
+            "Both SupportedOSPlatform attribute and proxy class declaration must exist.");
+        Assert.True(platformIdx < classIdx,
+            "SupportedOSPlatform should be emitted before the proxy class declaration.");
+    }
+
     #endregion
 
     #region Static Fields Tests

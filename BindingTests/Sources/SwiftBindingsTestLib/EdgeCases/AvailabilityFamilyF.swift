@@ -48,23 +48,45 @@ public struct OverloadDeprecationCarrier {
     }
 }
 
-// MARK: F-2 — covered by unit test only
+// MARK: F-2 — Protocol bare-requirement @available + proxy-class inheritance
 //
-// F-2 is `@available` survival on protocol members declared without an
-// explicit access modifier (the @objc optional func / bare protocol
-// requirement shape from StripeApplePay). It's covered exhaustively by
-// the .NET-side unit test
-// `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
-// in `SwiftInterfaceAccessParserTests.cs` — the parser fix is the entirety
-// of the change, and the unit test asserts the full parser-output contract.
+// F-2 has two halves:
 //
-// A BindingTests fixture for F-2 is intentionally omitted. The auto-emitted
-// protocol-proxy class for any `@available`-gated protocol surfaces a
-// *separate* generator gap: the proxy class type and its constructors
-// don't inherit the protocol's @available, so CA1416 fires on the proxy's
-// internal call sites under the `RuntimeTestsApp` iOS-15 baseline. That
-// proxy gap is a follow-on to Family-F, not a manifestation of the F-2
-// parser bug — adding a F-2 BindingTests fixture would conflate the two.
+// 1. Parser side: `@available` survival on protocol members declared
+//    without an explicit access modifier (the @objc optional func / bare
+//    protocol requirement shape from StripeApplePay). Covered by
+//    `GetAvailabilityAnnotations_F2_ProtocolRequirementWithoutAccessModifier`
+//    in `SwiftInterfaceAccessParserTests.cs`.
+//
+// 2. Emitter side: the auto-emitted protocol-proxy class for any
+//    `@available`-gated protocol must inherit the protocol's
+//    `[SupportedOSPlatform]` so CA1416 doesn't fire on the proxy's
+//    internal call sites at the iOS-15 baseline. Covered by the fixture
+//    below + a reflection-based attribute test in RuntimeTestsApp.
+//
+// The protocol below picks an `iOS 16.0` floor — strictly higher than the
+// `RuntimeTestsApp` iOS-15 baseline — so a missing inherited attribute on
+// the proxy class would surface as CA1416 on consumer call sites.
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+public protocol AvailabilityGatedProtocolF2 {
+    /// Bare requirement, no explicit access modifier — exercises the
+    /// parser's F-2 access-gate path on top of the proxy-class
+    /// availability inheritance check.
+    func gatedTokenValue() -> Int32
+}
+
+/// Concrete Swift conformer used by the round-trip test.
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+public struct AvailabilityGatedProtocolF2Conformer: AvailabilityGatedProtocolF2 {
+    public init() {}
+    public func gatedTokenValue() -> Int32 { return 42 }
+}
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+public func makeAvailabilityGatedProtocolF2Conformer() -> AvailabilityGatedProtocolF2Conformer {
+    return AvailabilityGatedProtocolF2Conformer()
+}
 
 // MARK: F-3 — Enum-case `@available(*, deprecated)` propagates to factory method
 
