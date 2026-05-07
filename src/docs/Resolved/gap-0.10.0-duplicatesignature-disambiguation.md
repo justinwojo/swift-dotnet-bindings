@@ -173,3 +173,53 @@ with optional consumer-controlled override.
 silently drops APIs from the C# surface, with a `binding-report.json`
 "workaround" message that consumers cannot act on. Tracked as P5 in
 [SDK-0.10.0-BLOCKERS.md](../../swift-dotnet-packages/SDK-0.10.0-BLOCKERS.md).
+
+## Resolution
+
+The non-constructor case shipped earlier in 0.10.0:
+`ModuleHandler.cs` now disambiguates colliding non-constructor methods
+(class methods, static methods, free functions) by emitting all
+overloads with deterministic numeric suffixes (`Process`, `Process2`,
+…). Both `MethodWrapperEmitter` and `DefaultParameterOverloadEmitter`
+participate in a shared dedup key so the surface stays consistent across
+trim overloads, generic static-dispatch extensions, and constrained-
+extension methods. Coverage: a regression suite landed under
+`Marshalling/Collisions/ClosureOverloadCollisionTests.{cs,swift}` plus
+`MarshalerTests/CollisionSuffixTests.cs`.
+
+Verified at consumer scope: this fix unblocked Stripe's
+`handleNextAction` and `confirmSetupIntent` (the documented Nuke /
+Lottie / Stripe collision shapes), and added rescued methods across
+fifteen-plus validation libraries.
+
+### Constructor case — documented C# language limitation
+
+Constructors **cannot** be disambiguated by suffix because constructors
+in C# have no name distinct from the type itself; you can only
+distinguish them by parameter list, and the projected (post-type-
+erasure) parameter lists are by definition identical when the conflict
+fires. Renaming one constructor to a static factory method would change
+the public API in a way that breaks symmetric round-tripping with the
+other overload (consumers would have to know which constructor maps to
+which factory). There is no mechanical disambiguation that preserves
+constructor semantics under signature equivalence.
+
+The current behavior — drop both constructors with a `DuplicateSignature`
+skip record in `binding-report.json` — is therefore retained as a
+documented language-limitation case. Consumer-side mitigation:
+
+- For value-type constructors, expose a Swift-side `static func make…`
+  factory upstream that takes the disambiguating parameter shape, or
+  hand-roll a Swift `@_cdecl` shim and PInvoke it from C#.
+- For class constructors with collision-on-projection, the Swift author
+  can rename one constructor to a factory method (not actionable for
+  vendor-shipped frameworks; same caveat as the original "rename via
+  extension" workaround).
+
+This case will not be fixed in the SwiftBindings generator without a
+broader rename-strategy mechanism (see hypothesis (3) in this doc — a
+`library.json` consumer-controlled rename map). That mechanism is out
+of scope for 0.10.0 and tracked separately on the roadmap.
+
+**Status: closed for 0.10.0** — non-ctor case shipped; ctor case
+documented as a C# language limitation.
