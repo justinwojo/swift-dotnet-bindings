@@ -145,11 +145,17 @@ extension Bundle05Container where Key == Bundle05SpecKeyA {
     /// `id`, so the test can assert the exact 16-byte value returned by
     /// the indirect-result wrapper. Validates the
     /// `*(System.Guid*)buffer` cast + finally-Free shape.
+    ///
+    /// The leading 12 bytes carry a distinct, monotonically increasing
+    /// pattern (0x10..0x1B) so a byte-swap regression inside the
+    /// little-endian Int32/Int16 fields of System.Guid (bytes[0..3],
+    /// bytes[4..5], bytes[6..7]) becomes detectable. The trailing 4
+    /// bytes are id-dependent so the test can also pin the parameterized
+    /// portion against the factory input.
     public var alphaDeviceVerificationNonce: UUID {
-        // Pack `id` into the trailing 4 bytes; leave the leading 12 as
-        // zero so the runtime test can compare against an explicit Guid
-        // literal without depending on UUID-init nondeterminism.
-        let bytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        let bytes: uuid_t = (0x10, 0x11, 0x12, 0x13,
+                             0x14, 0x15, 0x16, 0x17,
+                             0x18, 0x19, 0x1A, 0x1B,
                              UInt8((Int(id) >> 24) & 0xFF),
                              UInt8((Int(id) >> 16) & 0xFF),
                              UInt8((Int(id) >>  8) & 0xFF),

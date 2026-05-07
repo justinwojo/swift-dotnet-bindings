@@ -307,6 +307,13 @@ public static class ConstrainedExtensionEmitter
         else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.Data"))
         {
             shape = CEReturnShape.FoundationData;
+            // The emitted getter casts the indirect-result buffer through
+            // Swift.Foundation.Data (line ~476). That type lives in the SwiftBindings.Apple
+            // supplement, which is added to the consumer csproj only when something records
+            // a reference. This emitter bypasses TypeProjectionFactory (which records the
+            // identity for the regular Data path), so record it explicitly here. Date and
+            // UUID need no record — Date marshals as Double and UUID casts to System.Guid.
+            AppleSupplementReferences.Record("Foundation.Data");
         }
         else
         {

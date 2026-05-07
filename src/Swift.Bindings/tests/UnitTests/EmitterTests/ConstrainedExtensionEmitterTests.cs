@@ -433,6 +433,58 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("resultPtr.initializeMemory(as: Foundation.Data.self, repeating: result, count: 1)", swiftOutput);
     }
 
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_FoundationDataProperty_RecordsAppleSupplementReference()
+    {
+        // The emitted getter casts through Swift.Foundation.Data, which lives in the
+        // SwiftBindings.Apple supplement. The csproj emitter only adds the supplement
+        // PackageReference when AppleSupplementReferences.Record was called for an
+        // identity that resolved to the supplement. This emitter bypasses
+        // TypeProjectionFactory (which records "Foundation.Data" itself), so without an
+        // explicit Record call here a binding whose only Foundation.Data usage is via
+        // a constrained-extension property would compile-fail at the consumer.
+        AppleSupplementReferences.Reset();
+        try
+        {
+            EmitForGenericEnumWithProperty(
+                propertyName: "headerData",
+                returnTypeName: "Foundation.Data");
+
+            Assert.Contains("Foundation.Data", AppleSupplementReferences.Current);
+        }
+        finally
+        {
+            // Reset to avoid thread-static state leaking into adjacent tests.
+            AppleSupplementReferences.Reset();
+        }
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_FoundationDateAndUUIDProperties_DoNotRecordAppleSupplement()
+    {
+        // Date marshals as a plain Double (DateProjection.SwiftEpoch is a literal
+        // System.DateTimeOffset constructor) and UUID is read as System.Guid via direct
+        // memory cast — neither path emits any Swift.Foundation.* identifier, so the
+        // supplement reference must NOT be recorded for them.
+        AppleSupplementReferences.Reset();
+        try
+        {
+            EmitForGenericEnumWithProperty(
+                propertyName: "signedDate",
+                returnTypeName: "Foundation.Date");
+            EmitForGenericEnumWithProperty(
+                propertyName: "deviceVerificationNonce",
+                returnTypeName: "Foundation.UUID");
+
+            Assert.DoesNotContain("Foundation.Date", AppleSupplementReferences.Current);
+            Assert.DoesNotContain("Foundation.UUID", AppleSupplementReferences.Current);
+        }
+        finally
+        {
+            AppleSupplementReferences.Reset();
+        }
+    }
+
     /// <summary>
     /// Emission harness: builds a generic enum (`Wrapper&lt;T&gt;`) with a single
     /// `where T == TestModule.ConcreteA` extension property, runs

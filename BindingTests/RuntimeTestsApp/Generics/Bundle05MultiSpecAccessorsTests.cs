@@ -165,20 +165,32 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
             "System.Guid bytes must be 16. Any other length implies the " +
             "indirect-result buffer was misallocated or the cast to *Guid* " +
             "read past the buffer.");
-        // System.Guid.ToByteArray() emits the legacy little-endian-first-3-fields
-        // layout. Swift UUID writes the tuple in source order (uuid_t.0 first).
-        // The fixture packs id=0x42 into the LAST tuple byte (uuid_t.15), and
-        // ToByteArray() preserves the byte-15 position, so bytes[15] must be 0x42.
-        AssertEqual((byte)0x42, bytes[15],
-            "Bundle 05 #3: trailing UUID byte must round-trip as 0x42 " +
-            "(matching the id packed by alphaDeviceVerificationNonce). A " +
-            "regression in the FoundationUUID shape (e.g. wrong indirect-" +
-            "result alignment or a missing initializeMemory call on the Swift " +
-            "side) would either zero or scramble this byte.");
-        // Leading 12 bytes are deliberately zero — confirm a few to catch a " +
-        // wholesale buffer corruption regression.
-        AssertEqual((byte)0, bytes[0], "Leading UUID byte 0 must be 0.");
-        AssertEqual((byte)0, bytes[8], "Mid UUID byte 8 must be 0.");
+
+        // The Swift fixture writes a distinct, monotonically increasing pattern
+        // into the leading 12 bytes (0x10..0x1B) and packs `id` into the trailing
+        // four bytes (bytes[12..15]).
+        //
+        // System.Guid's in-memory layout is { Int32 _a; Int16 _b; Int16 _c; 8x byte }
+        // with sequential layout. On every supported runtime (x86_64, ARM64) that's
+        // little-endian, so MemoryMarshal.TryWrite-based ToByteArray() dumps the
+        // memory directly: bytes[0..15] match what Swift wrote, byte-for-byte.
+        // Asserting all 16 positions catches any byte-swap regression inside the
+        // _a/_b/_c fields (which a single nonzero-trailing-byte fixture would miss).
+        var expected = new byte[]
+        {
+            0x10, 0x11, 0x12, 0x13,
+            0x14, 0x15, 0x16, 0x17,
+            0x18, 0x19, 0x1A, 0x1B,
+            0x00, 0x00, 0x00, 0x42,
+        };
+        for (int i = 0; i < 16; i++)
+        {
+            AssertEqual(expected[i], bytes[i],
+                $"Bundle 05 #3: UUID byte {i} must round-trip as 0x{expected[i]:X2}. " +
+                "A regression in the FoundationUUID shape (wrong indirect-result " +
+                "alignment, missing initializeMemory, or a byte-swap inside the " +
+                "*(Guid*)buffer cast) would scramble one or more positions in this array.");
+        }
     }
 
     /// <summary>
