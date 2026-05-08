@@ -266,6 +266,40 @@ namespace BindingsGeneration
                     emittedClassMethods = list;
                 }
 
+                // Per-type @available annotations. Optional element — null on legacy databases
+                // that predate this field, in which case the cross-module availability merge
+                // falls back to parent-only behavior (the dependency type is treated as
+                // always-available, preserving prior behavior).
+                IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null;
+                XmlNode? availabilityNode = typeDeclarationNode?.SelectSingleNode("availability");
+                if (availabilityNode != null)
+                {
+                    var list = new List<AvailabilityAnnotation>();
+                    foreach (XmlNode? annNode in availabilityNode.ChildNodes)
+                    {
+                        if (annNode?.NodeType != XmlNodeType.Element) continue;
+                        if (annNode.Name != "annotation") continue;
+                        var platform = annNode.Attributes?["platform"]?.Value;
+                        var introduced = annNode.Attributes?["introduced"]?.Value;
+                        var deprecated = annNode.Attributes?["deprecated"]?.Value;
+                        var obsoleted = annNode.Attributes?["obsoleted"]?.Value;
+                        var isUnconditionallyDeprecated = string.Equals(
+                            annNode.Attributes?["unconditionallyDeprecated"]?.Value, "true",
+                            StringComparison.OrdinalIgnoreCase);
+                        var isUnconditionallyUnavailable = string.Equals(
+                            annNode.Attributes?["unavailable"]?.Value, "true",
+                            StringComparison.OrdinalIgnoreCase);
+                        var message = annNode.Attributes?["message"]?.Value;
+                        var renamed = annNode.Attributes?["renamed"]?.Value;
+                        list.Add(new AvailabilityAnnotation(
+                            platform, introduced, deprecated, obsoleted,
+                            isUnconditionallyDeprecated, isUnconditionallyUnavailable,
+                            message, renamed));
+                    }
+                    if (list.Count > 0)
+                        availabilityAnnotations = list;
+                }
+
                 var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{swiftTypeIdentifier}");
                 var csharpTypeName = string.IsNullOrEmpty(@namespace)
                     ? CSharpTypeName.FromKeyword(csharpTypeIdentifier)
@@ -324,6 +358,7 @@ namespace BindingsGeneration
                     ProtocolConformances = protocolConformances,
                     EmittedClassMethods = emittedClassMethods,
                     EmittedMetadataPInvoke = emittedMetadataPInvoke,
+                    AvailabilityAnnotations = availabilityAnnotations,
                 };
 
                 moduleDatabase.RegisterType(swiftTypeName, typeRecord);

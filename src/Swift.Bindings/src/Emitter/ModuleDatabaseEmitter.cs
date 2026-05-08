@@ -259,6 +259,39 @@ namespace BindingsGeneration
                 writer.WriteEndElement();
             }
 
+            // Per-type availability annotations — persisted across the cross-module XML
+            // round-trip so a downstream module can inherit a dependency type's `@available`
+            // floor on a generated wrapper (e.g. `Wrapper<OtherModule.AvailableLaterType>`).
+            // Only emitted when at least one annotation is present; omission round-trips
+            // to null on read, which the consumer treats as "no availability info" (legacy
+            // database or always-available type — same fallback as before this field existed).
+            if (record.AvailabilityAnnotations is { Count: > 0 } annotations)
+            {
+                writer.WriteStartElement("availability");
+                foreach (var ann in annotations)
+                {
+                    writer.WriteStartElement("annotation");
+                    if (ann.Platform != null)
+                        writer.WriteAttributeString("platform", ann.Platform);
+                    if (ann.IntroducedVersion != null)
+                        writer.WriteAttributeString("introduced", ann.IntroducedVersion);
+                    if (ann.DeprecatedVersion != null)
+                        writer.WriteAttributeString("deprecated", ann.DeprecatedVersion);
+                    if (ann.ObsoletedVersion != null)
+                        writer.WriteAttributeString("obsoleted", ann.ObsoletedVersion);
+                    if (ann.IsUnconditionallyDeprecated)
+                        writer.WriteAttributeString("unconditionallyDeprecated", "true");
+                    if (ann.IsUnconditionallyUnavailable)
+                        writer.WriteAttributeString("unavailable", "true");
+                    if (ann.Message != null)
+                        writer.WriteAttributeString("message", ann.Message);
+                    if (ann.Renamed != null)
+                        writer.WriteAttributeString("renamed", ann.Renamed);
+                    writer.WriteEndElement();
+                }
+                writer.WriteEndElement();
+            }
+
             writer.WriteEndElement(); // typedeclaration
             writer.WriteEndElement(); // entity
         }

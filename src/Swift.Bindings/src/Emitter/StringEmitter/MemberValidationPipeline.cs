@@ -249,6 +249,13 @@ public class MemberValidationPipeline
         // so we suppress the open-generic emission and let ConstrainedExtensionEmitter
         // re-surface each specialization as a closed-generic extension method.
         // Mirrors the property gate at lines 345-362 below.
+        //
+        // The emitter only handles a subset (zero-arg sync non-throwing — see
+        // IsEmittableConstrainedExtensionMethod). Methods outside that subset
+        // still need to be suppressed at the open-generic level, but they should
+        // surface as a proper skip with reason rather than RoutedElsewhere —
+        // otherwise an unsupported variant disappears from the diagnostic surface
+        // entirely.
         if (!methodDecl.IsConstructor &&
             !methodDecl.IsAccessor &&
             !methodDecl.IsSubscriptAccessor &&
@@ -256,8 +263,15 @@ public class MemberValidationPipeline
             methodConstrainedParent.IsGeneric &&
             ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(methodDecl) != null)
         {
-            return ValidationResult.RoutedElsewhere(
-                $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.");
+            if (ConstrainedExtensionEmitter.IsEmittableConstrainedExtensionMethod(methodDecl))
+            {
+                return ValidationResult.RoutedElsewhere(
+                    $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.");
+            }
+
+            return ValidationResult.Skip(
+                SkipReason.UnsupportedSignature,
+                $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is out of scope for ConstrainedExtensionEmitter (initial scope: zero-argument sync non-throwing public methods). Method has parameters, async/throws, or non-public visibility.");
         }
 
         // ── Phase 5: Bound generic gates (non-accessor only) ──

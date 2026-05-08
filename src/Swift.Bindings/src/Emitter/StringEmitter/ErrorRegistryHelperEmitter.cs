@@ -93,14 +93,12 @@ public static class ErrorRegistryHelperEmitter
         var dispatchSymbol = GetSwiftDispatchSymbolName(moduleName);
         var cascadeBody = BuildSwiftCascadeBody(ctx, typeDatabase, indent: "    ");
 
-        // Inherit @available from every registered error type — the dispatcher body
-        // references each by name in `as? Type` casts, so the function must be at
-        // least as restrictive as the strictest type. Without this, validate fails
-        // on modules like WeatherKit where `WeatherError` is iOS 16+ but the
-        // dispatcher is unannotated. EmitSwiftAvailability collapses to the strictest
-        // version per platform across the merged list.
-        WrapperEmitterHelpers.EmitSwiftAvailability(
-            swiftWriter, CollectMergedErrorTypeAvailability(ctx));
+        // Per-cast availability lives inside the cascade body via `if #available`
+        // (see BuildSwiftCascadeBody). The dispatcher function itself stays
+        // unannotated so that callers wrapping APIs with looser availability than
+        // the strictest registered error type can still call it — the gated `as?`
+        // block is simply skipped at runtime when the OS doesn't meet that type's
+        // floor, falling through to the untyped tail.
 
         // The helper is a regular Swift function (not @_cdecl) because its first
         // parameter is `any Error` — an existential the C ABI cannot represent.
@@ -284,26 +282,81 @@ public static class ErrorRegistryHelperEmitter
     }
 
     /// <summary>
-    /// Concatenates the per-type availability annotations registered for this module
-    /// into a single list. <see cref="WrapperEmitterHelpers.EmitSwiftAvailability"/>
-    /// collapses to the strictest (max) version per platform, so the dispatcher's
-    /// emitted floor is the union-of-strictest across every registered type.
-    /// Returns null when no registered type carries availability — callers treat
-    /// that as "emit nothing".
+    /// Builds the Swift `if #available(...)` predicate matching this type's own
+    /// availability annotations, or returns null when the type carries no
+    /// annotations (always-available — no gate needed). The predicate covers each
+    /// platform the type explicitly opts into; platforms not listed are unrestricted
+    /// per Swift's <c>*</c> wildcard. Per-cast gating (vs. function-level) lets the
+    /// dispatcher remain callable from looser-availability wrappers in the same
+    /// module — the runtime simply skips a stricter type's `as?` block when the OS
+    /// floor isn't met, falling through to the untyped tail.
     /// </summary>
-    private static IReadOnlyList<AvailabilityAnnotation>? CollectMergedErrorTypeAvailability(ModuleEmissionContext ctx)
+    private static string? BuildSwiftAvailableCondition(IReadOnlyList<AvailabilityAnnotation>? annotations)
     {
-        List<AvailabilityAnnotation>? merged = null;
-        foreach (var swiftTypeName in ctx.ErrorTypeOrder)
+        var keys = WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(annotations);
+        if (keys.Count == 0)
+            return null;
+
+        var parts = new List<string>(keys.Count + 1);
+        foreach (var key in keys)
+            parts.Add(key);
+        parts.Add("*");
+        return $"#available({string.Join(", ", parts)})";
+    }
+
+    /// <summary>
+    /// Builds the Swift `#if` compile-time condition that excludes platforms the
+    /// type is annotated as unavailable on (e.g. <c>@available(macOS, unavailable)</c>).
+    /// Returns null when the type carries no platform-specific unavailable annotations.
+    /// Unlike <c>if #available(...)</c> (a runtime check), `#if !os(...)` is required
+    /// here because Swift's per-platform `unavailable` makes the type itself
+    /// unreferenceable on that target — the cascade body would fail to compile if
+    /// the cast block were left in. Unconditional <c>@available(*, unavailable)</c>
+    /// is suppressed at parse time (see <c>SwiftABIParser.IsTypeUnavailableFromSwiftInterface</c>),
+    /// so it never reaches the registry.
+    /// </summary>
+    private static string? BuildSwiftUnavailablePlatformGuard(IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations == null || annotations.Count == 0)
+            return null;
+
+        var conditions = new List<string>();
+        foreach (var ann in annotations)
         {
-            var perType = ctx.GetErrorTypeAvailability(swiftTypeName);
-            if (perType is { Count: > 0 })
-            {
-                merged ??= new List<AvailabilityAnnotation>();
-                merged.AddRange(perType);
-            }
+            if (!ann.IsUnconditionallyUnavailable) continue;
+            // Platform == null + IsUnconditionallyUnavailable is the global form
+            // (`@available(*, unavailable)`), which the parser already suppresses
+            // upstream of registration. Skip defensively.
+            if (ann.Platform == null) continue;
+            var swiftCondition = MapPlatformToSwiftOsCondition(ann.Platform);
+            if (swiftCondition == null) continue;
+            var negated = $"!{swiftCondition}";
+            if (!conditions.Contains(negated))
+                conditions.Add(negated);
         }
-        return merged;
+        if (conditions.Count == 0)
+            return null;
+        return string.Join(" && ", conditions);
+    }
+
+    /// <summary>
+    /// Maps a swiftinterface @available platform name to the Swift compile-time
+    /// condition that identifies that target. Unknown platforms return null and
+    /// fall through to no compile-time guard — the runtime <c>if #available</c>
+    /// path then handles them correctly for known-version-floor cases.
+    /// </summary>
+    private static string? MapPlatformToSwiftOsCondition(string platform)
+    {
+        return platform switch
+        {
+            "iOS" => "os(iOS)",
+            "macOS" => "os(macOS)",
+            "tvOS" => "os(tvOS)",
+            "watchOS" => "os(watchOS)",
+            "visionOS" => "os(visionOS)",
+            "macCatalyst" => "targetEnvironment(macCatalyst)",
+            _ => null,
+        };
     }
 
     private static string BuildSwiftCascadeBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string indent)
@@ -314,7 +367,31 @@ public static class ErrorRegistryHelperEmitter
         {
             idx++;
             var shape = ClassifyShape(swiftTypeName, typeDatabase);
-            sb.AppendLine($"{indent}if let _typed = error as? {swiftTypeName} {{");
+            var availability = ctx.GetErrorTypeAvailability(swiftTypeName);
+            var availabilityCondition = BuildSwiftAvailableCondition(availability);
+            var unavailableGuard = BuildSwiftUnavailablePlatformGuard(availability);
+
+            // Per-platform `@available(<plat>, unavailable)` requires a compile-time
+            // exclusion: the Swift type itself is unreferenceable on that target, so
+            // the cast block must be `#if`-guarded out — `if #available` is a runtime
+            // check and won't help. Stack `#if`/`#endif` around the per-cast block
+            // when one or more platform-specific unavailable annotations are present.
+            if (unavailableGuard != null)
+                sb.AppendLine($"{indent}#if {unavailableGuard}");
+
+            // When the type carries `@available`, gate its cast block with
+            // `if #available(...)` so the dispatcher function itself stays
+            // unannotated and callable from looser-availability wrappers.
+            // Without an annotation we still need the `if let` test, so we emit
+            // a single combined `if #available(...), let _typed = error as? T`
+            // when both apply, and just `if let _typed = error as? T` otherwise.
+            string conditionLine;
+            if (availabilityCondition != null)
+                conditionLine = $"if {availabilityCondition}, let _typed = error as? {swiftTypeName} {{";
+            else
+                conditionLine = $"if let _typed = error as? {swiftTypeName} {{";
+
+            sb.AppendLine($"{indent}{conditionLine}");
             if (shape == CascadePayloadShape.ClassPointerDirect)
             {
                 // Class-shaped error: hand a +1 retained class pointer directly.
@@ -344,6 +421,8 @@ public static class ErrorRegistryHelperEmitter
                 sb.AppendLine($"{indent}    return");
             }
             sb.AppendLine($"{indent}}}");
+            if (unavailableGuard != null)
+                sb.AppendLine($"{indent}#endif");
         }
         return sb.ToString().TrimEnd();
     }

@@ -296,6 +296,23 @@ public record TypeRecord
     /// member (avoids CS0109 when the parent never emitted one).
     /// </summary>
     public bool? EmittedMetadataPInvoke { get; init; }
+
+    /// <summary>
+    /// Ancestor-merged availability annotations parsed from the producing module's
+    /// swiftinterface (<c>@available(iOS 16.0, ...)</c>, <c>@available(macOS, unavailable)</c>,
+    /// etc.). Includes the type's own annotations plus every nesting ancestor's, so a nested
+    /// type like <c>Outer.Inner</c> carries <c>Outer</c>'s OS floor here even when
+    /// <c>Inner</c> declares no annotations of its own. Persisted across the cross-module
+    /// XML round-trip so a downstream module referencing this type as a same-type-constraint
+    /// concrete (e.g. <c>Wrapper&lt;OtherModule.AvailableLaterType&gt;</c>) can inherit the
+    /// dependency's full <c>@available</c> floor on the emitted wrapper without re-walking the
+    /// foreign module's TypeDecl tree. Merge happens at write time in
+    /// <c>ModuleProcessor</c> via <c>AvailabilityHelpers.MergeAvailabilityFromAncestors</c>.
+    /// Null on legacy databases that predate this field — consumers must fall back to
+    /// parent-only availability merging in that case (the cross-module type behaves as if
+    /// always-available, which preserves the pre-extension behavior).
+    /// </summary>
+    public IReadOnlyList<AvailabilityAnnotation>? AvailabilityAnnotations { get; init; }
 }
 
 /// <summary>

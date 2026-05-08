@@ -263,7 +263,16 @@ public static class ConstrainedExtensionEmitter
             {
                 // Substitution failed — open-generic shape too complex (e.g. nested
                 // generic with multiple parent params, or a param we can't resolve).
-                // Skip this concrete specialization for this property.
+                // Surface a diagnostic so the routed-but-not-emitted member doesn't
+                // disappear from generated output (mirrors the in-emitter shape-bail
+                // diagnostics in TryEmitPropertyExtension / TryEmitMethodExtension).
+                UnsupportedCommentEmitter.EmitMemberSkipped(
+                    csWriter, property.Name, BindingItemKind.Property,
+                    SkipReason.UnsupportedSignature,
+                    $"on {typeDecl.Name}<{concreteTypeName.Name}>: open-generic return substitution unsupported");
+                logger.LogDebug(
+                    "ConstrainedExtensionEmitter: Skipping open-generic-return property {Name} on {Parent}<{Concrete}> — substitution unsupported.",
+                    property.Name, typeDecl.Name, concreteTypeName.Name);
                 continue;
             }
             if (TryEmitPropertyExtension(
@@ -355,12 +364,35 @@ public static class ConstrainedExtensionEmitter
         // and use the property's own SwiftTypeSpec.
         var effectiveReturnTypeSpec = substitutedReturnTypeSpec ?? property.SwiftTypeSpec;
 
+        // Bound-generic returns (e.g. open-generic `Query<T>` substituted to
+        // `Query<Concrete>`) survive substitution but `ClassifyReturnType` rejects
+        // any spec with remaining generic parameters. Drop with an explicit
+        // diagnostic so the unsupported shape stays visible rather than being
+        // absorbed by the generic "unsupported return shape" branch below.
+        if (substitutedReturnTypeSpec != null
+            && effectiveReturnTypeSpec is NamedTypeSpec substitutedPropNamed
+            && substitutedPropNamed.ContainsGenericParameters)
+        {
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, property.Name, BindingItemKind.Property,
+                SkipReason.UnsupportedSignature,
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: bound-generic return ({substitutedPropNamed.Name}) not yet supported");
+            logger.LogDebug(
+                "ConstrainedExtensionEmitter: Skipping property {Name} on {Parent}<{Concrete}> — bound-generic return ({ReturnType}) is not yet supported.",
+                property.Name, parentTypeDecl.Name, concreteTypeName.Name, substitutedPropNamed.Name);
+            return false;
+        }
+
         var classification = ClassifyCEReturnShape(effectiveReturnTypeSpec, typeDatabase);
         if (classification == null)
         {
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, property.Name, BindingItemKind.Property,
+                SkipReason.UnsupportedSignature,
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: unsupported return type");
             logger.LogDebug(
-                "ConstrainedExtensionEmitter: Skipping property {Name} — unsupported return type.",
-                property.Name);
+                "ConstrainedExtensionEmitter: Skipping property {Name} on {Parent}<{Concrete}> — unsupported return type.",
+                property.Name, parentTypeDecl.Name, concreteTypeName.Name);
             return false;
         }
         var (shape, csharpReturnType) = classification.Value;
@@ -513,7 +545,7 @@ public static class ConstrainedExtensionEmitter
 
         // ----- Swift @_cdecl wrapper -----
         EmitSwiftGetterWrapper(swiftWriter, property, parentTypeDecl, concreteTypeName,
-            symbolName, moduleName, shape, emissionContext, effectiveReturnTypeSpec);
+            symbolName, moduleName, shape, emissionContext, effectiveReturnTypeSpec, typeDatabase);
 
         // ----- Queue P/Invoke declaration -----
         var capturedSymbol = symbolName;
@@ -574,7 +606,8 @@ public static class ConstrainedExtensionEmitter
         string moduleName,
         CEReturnShape shape,
         ModuleEmissionContext emissionContext,
-        TypeSpec effectiveReturnTypeSpec)
+        TypeSpec effectiveReturnTypeSpec,
+        ITypeDatabase typeDatabase)
     {
         var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
         var concreteSwiftName = concreteTypeName.ModuleQualifiedName;
@@ -616,8 +649,12 @@ public static class ConstrainedExtensionEmitter
         var hash = EmitterUtility.DeterministicHash8(symbolName);
         var swiftFuncName = $"_sbw_ceget_{property.Name}_{hash}";
 
+        // Substituted open-generic-return paths (`payloadValue`-shape) bind the
+        // wrapper body to the concrete type, so the wrapper's @available must
+        // inherit the concrete type's annotations too — see
+        // MergeWrapperAvailability for the rationale.
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor: false,
-            WrapperEmitterHelpers.MergeAvailability(property.AvailabilityAnnotations, parentTypeDecl));
+            MergeWrapperAvailability(property.AvailabilityAnnotations, parentTypeDecl, concreteTypeName, typeDatabase));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 
@@ -800,6 +837,92 @@ public static class ConstrainedExtensionEmitter
     }
 
     /// <summary>
+    /// Looks up the concrete <see cref="TypeDecl"/> for a same-type constraint's
+    /// target within the parent's module so the wrapper's <c>@available</c> can
+    /// inherit the concrete type's own OS floor. Returns null when the concrete
+    /// type lives in a different module — its annotations stay implicit there
+    /// (the importing module's wrapper won't compile if it references a
+    /// not-yet-available cross-module type, but that's a separate signal). Walks
+    /// the module's type tree (including nested) so per-conformer specializations
+    /// like <c>Product.SubscriptionInfo.RenewalInfo</c> resolve correctly.
+    /// </summary>
+    internal static TypeDecl? FindConcreteTypeDeclInModule(SwiftTypeName concreteTypeName, TypeDecl parentTypeDecl)
+    {
+        var module = parentTypeDecl.ModuleDecl;
+        if (module is null) return null;
+        if (!string.Equals(module.Name, concreteTypeName.Module, StringComparison.Ordinal))
+            return null;
+        return FindNestedTypeDecl(module.Types, concreteTypeName);
+    }
+
+    private static TypeDecl? FindNestedTypeDecl(IEnumerable<TypeDecl> types, SwiftTypeName target)
+    {
+        foreach (var typeDecl in types)
+        {
+            if (string.Equals(typeDecl.SwiftTypeName.ModuleQualifiedName, target.ModuleQualifiedName, StringComparison.Ordinal))
+                return typeDecl;
+            var nested = FindNestedTypeDecl(typeDecl.Types, target);
+            if (nested != null) return nested;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Builds the merged wrapper @available annotation list for a constrained-
+    /// extension wrapper, accounting for substituted-concrete-type availability.
+    /// When the wrapper body references a concrete type whose own
+    /// <c>@available</c> floor is stricter than the parent's, the wrapper must
+    /// inherit that floor too — otherwise the wrapper's <c>@_cdecl</c> compiles
+    /// at the parent's looser floor and references the concrete type before its
+    /// OS introduction. Mirrors the dispatcher per-cast availability rule, scoped
+    /// to the per-specialization wrapper here.
+    ///
+    /// Same-module concretes resolve via the in-memory TypeDecl tree
+    /// (annotations live on <see cref="TypeDecl.AvailabilityAnnotations"/>);
+    /// cross-module concretes fall back to <see cref="ITypeDatabase"/>, which
+    /// reads <see cref="TypeRecord.AvailabilityAnnotations"/> persisted in the
+    /// dependency module's XML. Without this fallback, a wrapper specialization
+    /// that targets a stricter cross-module type would compile at the parent's
+    /// floor and crash on older OSes when the concrete type isn't yet available.
+    ///
+    /// Both lookup paths return ancestor-merged annotations (e.g. nested
+    /// <c>Outer.Inner</c> picks up <c>Outer</c>'s OS floor). For the in-module
+    /// path that's done via <see cref="WrapperEmitterHelpers.MergeAvailabilityFromAncestors"/>
+    /// over the live TypeDecl chain; for the cross-module path the merge happens
+    /// at write time in <c>ModuleProcessor</c>, so the persisted TypeRecord
+    /// already contains the ancestor-walked list.
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation>? MergeWrapperAvailability(
+        IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
+        TypeDecl parentTypeDecl,
+        SwiftTypeName concreteTypeName,
+        ITypeDatabase typeDatabase)
+    {
+        var merged = WrapperEmitterHelpers.MergeAvailability(memberAnnotations, parentTypeDecl);
+        IReadOnlyList<AvailabilityAnnotation>? concreteAnnotations = null;
+        var concreteDecl = FindConcreteTypeDeclInModule(concreteTypeName, parentTypeDecl);
+        if (concreteDecl != null)
+        {
+            concreteAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                memberAnnotations: null, startDecl: concreteDecl);
+        }
+        else if (typeDatabase.TryGetTypeRecord(concreteTypeName, out var concreteRecord)
+            && concreteRecord.AvailabilityAnnotations is { Count: > 0 } recordAnnotations)
+        {
+            concreteAnnotations = recordAnnotations;
+        }
+
+        if (concreteAnnotations is { Count: > 0 })
+        {
+            var combined = new List<AvailabilityAnnotation>(concreteAnnotations);
+            if (merged is { Count: > 0 })
+                combined.AddRange(merged);
+            return combined;
+        }
+        return merged;
+    }
+
+    /// <summary>
     /// Returns properties whose return type spec contains a reference to the
     /// parent's open generic parameter, AND that do not themselves carry a
     /// same-type constraint (so they live on the unconstrained base extension,
@@ -827,6 +950,32 @@ public static class ConstrainedExtensionEmitter
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Single source of truth for whether a same-type-constrained method on a
+    /// generic parent is in the subset this emitter actually re-surfaces as a
+    /// closed-generic extension method. Mirrors the filter in
+    /// <see cref="FindConstrainedMethodSpecializations"/> + the parameter-count
+    /// gate in <see cref="TryEmitMethodExtension"/>: zero-argument, sync,
+    /// non-throwing, non-accessor, non-subscript, non-constructor, public
+    /// methods only. <see cref="MemberValidationPipeline"/> consults this so it
+    /// only marks the supported subset as <c>RoutedElsewhere</c>; methods that
+    /// fall outside still fall through to the normal validation path and surface
+    /// a proper skip reason instead of disappearing silently.
+    /// </summary>
+    public static bool IsEmittableConstrainedExtensionMethod(MethodDecl method)
+    {
+        if (method.IsConstructor) return false;
+        if (method.IsAccessor) return false;
+        if (method.IsSubscriptAccessor) return false;
+        if (method.IsAsync || method.Throws) return false;
+        if (method.Visibility != Visibility.Public) return false;
+        // CSSignature[0] is the return slot; anything beyond it means the method
+        // takes parameters, which the initial method-extension scope does not
+        // marshal. Tracked as a follow-up under the same Fix J doc.
+        if (method.CSSignature.Count > 1) return false;
+        return true;
     }
 
     /// <summary>
@@ -864,11 +1013,13 @@ public static class ConstrainedExtensionEmitter
         var groups = new Dictionary<(string Name, bool IsStatic, string ParamSig), List<MethodDecl>>();
         foreach (var method in typeDecl.Methods)
         {
-            if (method.IsConstructor) continue;     // constructors take a separate factory shape
-            if (method.IsAccessor) continue;         // accessors are routed via PropertyHandler
-            if (method.IsSubscriptAccessor) continue;
-            if (method.IsAsync || method.Throws) continue; // out of scope for first method extension
-            if (method.Visibility != Visibility.Public) continue;
+            // Single source of truth for the supported subset (see
+            // IsEmittableConstrainedExtensionMethod). Out-of-scope variants
+            // (constructors, accessors, async/throws, parametered, non-public)
+            // still drop here, but MemberValidationPipeline's gate consults the
+            // same predicate so they surface a proper skip reason instead of
+            // being silently absorbed by RoutedElsewhere.
+            if (!IsEmittableConstrainedExtensionMethod(method)) continue;
 
             var paramSig = BuildMethodParameterSignature(method);
             var key = (method.Name, method.MethodType == MethodType.Static, paramSig);
@@ -956,11 +1107,14 @@ public static class ConstrainedExtensionEmitter
         var returnTypeSpec = method.CSSignature.Count > 0 ? method.CSSignature[0].SwiftTypeSpec : null;
 
         // Substitute the parent's open generic param if the return spec references
-        // it (e.g. `static func temperature() -> DailyWeatherStatisticsQuery<T>` on
-        // `extension … where T == Concrete` — the substituted return is the closed
-        // generic instantiation). Mirrors the property substitution path so a
-        // method emission for a constrained extension sees the concrete return
-        // shape, not the open-generic shape that ClassifyReturnType bails on.
+        // it. The supported shape is bare-T substitution — `func payloadValue() -> T`
+        // becomes `Concrete` after substitution, and `ClassifyReturnType` accepts
+        // a fully-resolved NamedTypeSpec. Bound-generic returns like
+        // `func temperature() -> Query<T>` substitute to `Query<Concrete>`, which
+        // still has `GenericParameters.Count > 0`; `ClassifyReturnType` rejects
+        // those today and the method drops via the `classification == null`
+        // branch below. The bound-generic-return shape is tracked as a follow-up
+        // under the same Fix J doc rather than being silently mis-emitted here.
         TypeSpec? effectiveReturnTypeSpec = returnTypeSpec;
         if (returnTypeSpec != null && parentTypeDecl.IsGeneric)
         {
@@ -971,13 +1125,34 @@ public static class ConstrainedExtensionEmitter
                 var substituted = SubstituteParentGenericParameter(returnTypeSpec, parentTypeDecl, concreteTypeName);
                 if (substituted == null)
                 {
+                    UnsupportedCommentEmitter.EmitMemberSkipped(
+                        csWriter, method.Name, BindingItemKind.Method,
+                        SkipReason.UnsupportedSignature,
+                        $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: open-generic return substitution unsupported");
                     logger.LogDebug(
-                        "ConstrainedExtensionEmitter: Skipping method {Name} — open-generic return substitution unsupported.",
-                        method.Name);
+                        "ConstrainedExtensionEmitter: Skipping method {Name} on {Parent}<{Concrete}> — open-generic return substitution unsupported.",
+                        method.Name, parentTypeDecl.Name, concreteTypeName.Name);
                     return false;
                 }
                 effectiveReturnTypeSpec = substituted;
             }
+        }
+
+        // Bound-generic returns (Query<Concrete>) survive substitution but
+        // `ClassifyReturnType` rejects any spec with remaining generic
+        // parameters. Drop with an explicit diagnostic so the unsupported shape
+        // is visible rather than swallowed by the generic "unsupported return
+        // shape" branch below.
+        if (effectiveReturnTypeSpec is NamedTypeSpec substitutedNamed && substitutedNamed.ContainsGenericParameters)
+        {
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, method.Name, BindingItemKind.Method,
+                SkipReason.UnsupportedSignature,
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: bound-generic return ({substitutedNamed.Name}) not yet supported");
+            logger.LogDebug(
+                "ConstrainedExtensionEmitter: Skipping method {Name} on {Parent}<{Concrete}> — bound-generic return ({ReturnType}) is not yet supported.",
+                method.Name, parentTypeDecl.Name, concreteTypeName.Name, substitutedNamed.Name);
+            return false;
         }
 
         var classification = ClassifyCEReturnShape(effectiveReturnTypeSpec, typeDatabase);
@@ -988,9 +1163,13 @@ public static class ConstrainedExtensionEmitter
             || (effectiveReturnTypeSpec is TupleTypeSpec t && t == TupleTypeSpec.Empty);
         if (classification == null && !isVoidReturn)
         {
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, method.Name, BindingItemKind.Method,
+                SkipReason.UnsupportedSignature,
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: unsupported return type");
             logger.LogDebug(
-                "ConstrainedExtensionEmitter: Skipping method {Name} — unsupported return type {ReturnType}.",
-                method.Name, effectiveReturnTypeSpec);
+                "ConstrainedExtensionEmitter: Skipping method {Name} on {Parent}<{Concrete}> — unsupported return type {ReturnType}.",
+                method.Name, parentTypeDecl.Name, concreteTypeName.Name, effectiveReturnTypeSpec);
             return false;
         }
 
@@ -1157,7 +1336,7 @@ public static class ConstrainedExtensionEmitter
 
         // ----- Swift @_cdecl wrapper -----
         EmitSwiftMethodWrapper(swiftWriter, method, parentTypeDecl, concreteTypeName,
-            symbolName, moduleName, shape, isStatic, isVoidReturn, effectiveReturnTypeSpec, emissionContext);
+            symbolName, moduleName, shape, isStatic, isVoidReturn, effectiveReturnTypeSpec, emissionContext, typeDatabase);
 
         // ----- Queue P/Invoke declaration -----
         var capturedSymbol = symbolName;
@@ -1225,7 +1404,8 @@ public static class ConstrainedExtensionEmitter
         bool isStatic,
         bool isVoidReturn,
         TypeSpec? effectiveReturnTypeSpec,
-        ModuleEmissionContext emissionContext)
+        ModuleEmissionContext emissionContext,
+        ITypeDatabase typeDatabase)
     {
         var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
         var concreteSwiftName = concreteTypeName.ModuleQualifiedName;
@@ -1269,8 +1449,12 @@ public static class ConstrainedExtensionEmitter
         var hash = EmitterUtility.DeterministicHash8(symbolName);
         var swiftFuncName = $"_sbw_cemethod_{method.Name}_{hash}";
 
+        // Method body calls through the closed-generic instantiation
+        // (`Wrapper<Concrete>.method()`), so the wrapper's @available inherits
+        // the concrete type's annotations alongside the parent's — same shape
+        // as the property side. See MergeWrapperAvailability for rationale.
         WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor: false,
-            WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentTypeDecl));
+            MergeWrapperAvailability(method.AvailabilityAnnotations, parentTypeDecl, concreteTypeName, typeDatabase));
         swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
         swiftWriter.Indent++;
 

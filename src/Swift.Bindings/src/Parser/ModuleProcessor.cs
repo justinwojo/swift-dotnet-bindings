@@ -382,6 +382,8 @@ namespace BindingsGeneration
                 InlineSize = inlineSize,
                 AbiFieldLayout = abiFieldLayout,
                 ProtocolConformances = BuildDirectProtocolConformances(structDecl.Conformances),
+                AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
+                    memberAnnotations: null, startDecl: structDecl),
             };
 
             _moduleDatabase.RegisterType(structDecl.SwiftTypeName, typeRecord);
@@ -707,6 +709,8 @@ namespace BindingsGeneration
                 RawValueTypeName = enumDecl.RawValueTypeName,
                 InlineSize = inlineSize,
                 ProtocolConformances = BuildDirectProtocolConformances(enumDecl.Conformances),
+                AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
+                    memberAnnotations: null, startDecl: enumDecl),
             };
 
             _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);
@@ -746,6 +750,8 @@ namespace BindingsGeneration
                     ? SwiftTypeName.FromModuleQualifiedName(classDecl.DirectSuperclassName)
                     : null,
                 ProtocolConformances = BuildDirectProtocolConformances(classDecl.Conformances),
+                AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
+                    memberAnnotations: null, startDecl: classDecl),
             };
 
             _moduleDatabase.RegisterType(classDecl.SwiftTypeName, typeRecord);
@@ -1294,6 +1300,8 @@ namespace BindingsGeneration
                 // site `any P<X, Y>` against a 3-AT protocol must NOT project to
                 // `IP<X, Y>` (arity mismatch). See ExistentialHandler.TryResolveExistentialGenericArgs.
                 AssociatedTypeCount = protocolDecl.AssociatedTypes.Count,
+                AvailabilityAnnotations = AvailabilityHelpers.MergeAvailabilityFromAncestors(
+                    memberAnnotations: null, startDecl: protocolDecl),
             };
 
             if (!protocolDecl.IsSpiProtected)

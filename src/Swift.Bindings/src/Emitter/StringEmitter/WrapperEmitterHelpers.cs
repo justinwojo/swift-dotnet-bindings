@@ -150,49 +150,24 @@ public static class WrapperEmitterHelpers
     /// @_cdecl wrappers are top-level Swift functions and do NOT inherit the enclosing
     /// type's availability, so both must be explicitly applied to the wrapper.
     ///
-    /// Walks the full parent chain so that nested types like
-    /// <c>StoreKit.Product.SubscriptionInfo.RenewalInfo.AdvancedCommerceInfo.Item</c> pick up
-    /// availability declared on any ancestor (e.g., the iOS 18.4 annotation on
-    /// AdvancedCommerceInfo). EmitSwiftAvailability dedupes by platform+version key, so
-    /// repeated entries from intermediate ancestors are collapsed automatically.
+    /// Delegates to <see cref="AvailabilityHelpers.MergeAvailability"/>; kept here so existing
+    /// emitter call sites read naturally. EmitSwiftAvailability dedupes by platform+version
+    /// key, so repeated entries from intermediate ancestors are collapsed automatically.
     /// </summary>
     public static IReadOnlyList<AvailabilityAnnotation>? MergeAvailability(
         IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
         BaseDecl? parentDecl)
-    {
-        return MergeAvailabilityFromAncestors(memberAnnotations, parentDecl);
-    }
+        => AvailabilityHelpers.MergeAvailability(memberAnnotations, parentDecl);
 
     /// <summary>
-    /// Walks the parent chain of <paramref name="parentDecl"/> and merges every TypeDecl's
-    /// availability annotations with <paramref name="memberAnnotations"/>. Returns null when
-    /// neither the member nor any ancestor declares availability.
+    /// Walks the parent chain of <paramref name="startDecl"/> and merges every TypeDecl's
+    /// availability annotations with <paramref name="memberAnnotations"/>. Delegates to
+    /// <see cref="AvailabilityHelpers.MergeAvailabilityFromAncestors"/>.
     /// </summary>
     public static IReadOnlyList<AvailabilityAnnotation>? MergeAvailabilityFromAncestors(
         IReadOnlyList<AvailabilityAnnotation>? memberAnnotations,
         BaseDecl? startDecl)
-    {
-        List<AvailabilityAnnotation>? merged = null;
-
-        BaseDecl? current = startDecl;
-        while (current is TypeDecl td)
-        {
-            if (td.AvailabilityAnnotations is { Count: > 0 } parentAnnotations)
-            {
-                merged ??= new List<AvailabilityAnnotation>();
-                merged.AddRange(parentAnnotations);
-            }
-            current = td.ParentDecl;
-        }
-
-        if (memberAnnotations is { Count: > 0 })
-        {
-            merged ??= new List<AvailabilityAnnotation>();
-            merged.AddRange(memberAnnotations);
-        }
-
-        return merged;
-    }
+        => AvailabilityHelpers.MergeAvailabilityFromAncestors(memberAnnotations, startDecl);
 
     /// <summary>
     /// Builds a Swift where clause of same-type constraints on the parent type's generic
