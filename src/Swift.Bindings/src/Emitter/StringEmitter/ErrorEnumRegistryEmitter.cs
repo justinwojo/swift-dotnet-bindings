@@ -43,27 +43,42 @@ public static class ErrorEnumRegistryEmitter
             return;
         ctx.ErrorTypeRegistryComputed = true;
 
-        // Collect into an ordered set so id assignment is deterministic across runs.
-        // Cross-module error types referenced by this module are registered by their
-        // own module's registry — Layer 3's cascade helper handles cross-module casts
-        // when it lands. Layer 1 stays scoped to types declared inside this module.
-        var errorTypeNames = new SortedSet<string>(StringComparer.Ordinal);
-        CollectErrorConformingTypes(moduleDecl.Types, errorTypeNames);
+        // Collect into an ordered map so id assignment is deterministic across runs and
+        // each entry retains its source TypeDecl's availability annotations (consumed by
+        // the cascade dispatcher to gate `as?` references against the strictest OS minimum
+        // declared by any registered type — e.g. WeatherError = iOS 16 forces the WeatherKit
+        // dispatcher to `@available(iOS 16, *)`). Cross-module error types referenced by
+        // this module are registered by their own module's registry; Layer 1 stays scoped
+        // to types declared inside this module.
+        var errorTypes = new SortedDictionary<string, IReadOnlyList<AvailabilityAnnotation>?>(StringComparer.Ordinal);
+        CollectErrorConformingTypes(moduleDecl.Types, errorTypes, parentChain: null);
 
-        foreach (var name in errorTypeNames)
-            ctx.RegisterErrorTypeId(name);
+        foreach (var (name, availability) in errorTypes)
+            ctx.RegisterErrorTypeId(name, availability);
     }
 
-    private static void CollectErrorConformingTypes(IEnumerable<TypeDecl> typeDecls, SortedSet<string> sink)
+    private static void CollectErrorConformingTypes(
+        IEnumerable<TypeDecl> typeDecls,
+        SortedDictionary<string, IReadOnlyList<AvailabilityAnnotation>?> sink,
+        BaseDecl? parentChain)
     {
         foreach (var typeDecl in typeDecls)
         {
             if (ConformsToError(typeDecl) && IsInstantiable(typeDecl))
-                sink.Add(typeDecl.SwiftTypeName.ModuleQualifiedName);
+            {
+                // Walk parent chain so a nested error type inherits `@available` from any
+                // ancestor (e.g. `enum SomeService.FetchError` picks up SomeService's
+                // iOS 16 floor). Cdecl wrappers don't inherit ancestor availability
+                // automatically — same reason `MergeAvailabilityFromAncestors` exists for
+                // method/property wrappers.
+                var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+                    typeDecl.AvailabilityAnnotations, typeDecl.ParentDecl);
+                sink[typeDecl.SwiftTypeName.ModuleQualifiedName] = availability;
+            }
 
             // Recurse into nested types — Swift allows nested error enums (e.g.,
             // `extension SomeService { public enum FetchError: Error { ... } }`).
-            CollectErrorConformingTypes(typeDecl.Types, sink);
+            CollectErrorConformingTypes(typeDecl.Types, sink, typeDecl);
         }
     }
 

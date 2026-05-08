@@ -93,6 +93,15 @@ public static class ErrorRegistryHelperEmitter
         var dispatchSymbol = GetSwiftDispatchSymbolName(moduleName);
         var cascadeBody = BuildSwiftCascadeBody(ctx, typeDatabase, indent: "    ");
 
+        // Inherit @available from every registered error type — the dispatcher body
+        // references each by name in `as? Type` casts, so the function must be at
+        // least as restrictive as the strictest type. Without this, validate fails
+        // on modules like WeatherKit where `WeatherError` is iOS 16+ but the
+        // dispatcher is unannotated. EmitSwiftAvailability collapses to the strictest
+        // version per platform across the merged list.
+        WrapperEmitterHelpers.EmitSwiftAvailability(
+            swiftWriter, CollectMergedErrorTypeAvailability(ctx));
+
         // The helper is a regular Swift function (not @_cdecl) because its first
         // parameter is `any Error` — an existential the C ABI cannot represent.
         // It's called directly from generated `} catch { ... }` blocks in the same
@@ -272,6 +281,29 @@ public static class ErrorRegistryHelperEmitter
         BufferOwnedBySafeHandle,
         BufferCopiedNeedsVwtDestroy,
         ClassPointerDirect,
+    }
+
+    /// <summary>
+    /// Concatenates the per-type availability annotations registered for this module
+    /// into a single list. <see cref="WrapperEmitterHelpers.EmitSwiftAvailability"/>
+    /// collapses to the strictest (max) version per platform, so the dispatcher's
+    /// emitted floor is the union-of-strictest across every registered type.
+    /// Returns null when no registered type carries availability — callers treat
+    /// that as "emit nothing".
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation>? CollectMergedErrorTypeAvailability(ModuleEmissionContext ctx)
+    {
+        List<AvailabilityAnnotation>? merged = null;
+        foreach (var swiftTypeName in ctx.ErrorTypeOrder)
+        {
+            var perType = ctx.GetErrorTypeAvailability(swiftTypeName);
+            if (perType is { Count: > 0 })
+            {
+                merged ??= new List<AvailabilityAnnotation>();
+                merged.AddRange(perType);
+            }
+        }
+        return merged;
     }
 
     private static string BuildSwiftCascadeBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string indent)

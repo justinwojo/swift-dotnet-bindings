@@ -291,6 +291,7 @@ public sealed class ModuleEmissionContext
 
     private readonly Dictionary<string, int> _errorTypeIds = new(StringComparer.Ordinal);
     private readonly List<string> _errorTypeOrder = new();
+    private readonly Dictionary<string, IReadOnlyList<AvailabilityAnnotation>?> _errorTypeAvailability = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Whether the per-module error-type registry has been computed by
@@ -318,19 +319,34 @@ public sealed class ModuleEmissionContext
     /// Registers a Swift error type and returns its assigned id. Idempotent: re-registration
     /// returns the existing id without renumbering. The first registration assigns id 1.
     /// </summary>
-    public int RegisterErrorTypeId(string swiftModuleQualifiedName)
+    /// <param name="availabilityAnnotations">
+    /// The error type's <c>@available</c> annotations from the swiftinterface,
+    /// retained for the cascade dispatcher (which references the type name unconditionally
+    /// and needs a matching availability gate to compile against SDKs where the type is
+    /// gated on a newer OS version, e.g. <c>WeatherKit.WeatherError</c> on iOS 16+).
+    /// </param>
+    public int RegisterErrorTypeId(string swiftModuleQualifiedName, IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         if (_errorTypeIds.TryGetValue(swiftModuleQualifiedName, out var existing))
             return existing;
         var newId = _errorTypeIds.Count + 1;
         _errorTypeIds[swiftModuleQualifiedName] = newId;
         _errorTypeOrder.Add(swiftModuleQualifiedName);
+        _errorTypeAvailability[swiftModuleQualifiedName] = availabilityAnnotations;
         return newId;
     }
 
     /// <summary>Tries to look up the registered id for a Swift error type.</summary>
     public bool TryGetErrorTypeId(string swiftModuleQualifiedName, out int id) =>
         _errorTypeIds.TryGetValue(swiftModuleQualifiedName, out id);
+
+    /// <summary>
+    /// Per-error-type availability annotations as recorded at registration time. Returns
+    /// null when no annotations were captured (e.g., legacy callers, or types declared
+    /// without explicit <c>@available</c>).
+    /// </summary>
+    public IReadOnlyList<AvailabilityAnnotation>? GetErrorTypeAvailability(string swiftModuleQualifiedName) =>
+        _errorTypeAvailability.TryGetValue(swiftModuleQualifiedName, out var annotations) ? annotations : null;
 
     /// <summary>
     /// Whether the Swift-side cascade dispatcher
