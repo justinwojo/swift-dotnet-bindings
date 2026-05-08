@@ -5,10 +5,10 @@
 > [SwiftBindings.Stripe](https://github.com/justinwojo/swift-dotnet-packages)
 > (StripePayments 26.2.1).
 >
-> **Status: SPLIT to Bundle 12 (carve-out from Bundle 04 #4).** Fixing this
-> requires new emission infrastructure that doesn't fit the Bundle 04
-> projection-bug pattern. Documented routing gaps below; full fix tracked
-> separately.
+> **Status: OPEN.** In scope for 0.10.0. Fixing this requires new
+> emission infrastructure (a fourth routing path beyond the three listed
+> below) — see "Routing gaps" and "Hypothesis" sections for the shape of
+> the fix.
 
 ## Routing gaps (as of Bundle 04 closure)
 

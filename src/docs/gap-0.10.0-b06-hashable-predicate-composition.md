@@ -1,12 +1,19 @@
 # gap-0.10.0-b06-hashable-predicate-composition
 
+> **Status: OPEN — blocked on runtime hardening prerequisite.** In
+> scope for 0.10.0; sequenced as Session L. The naive generator-side
+> predicate change crashes 1390 tests at runtime; the runtime helper
+> `SwiftHashable.GetHashCode<T>` needs hardening before the generator
+> can route through it. See "Required runtime hardening" below.
+
 ## Summary
 
-Bundle 06 #1a (Equatable Defect 1 — GetHashCode stub returns 0) is intentionally
-deferred. The current safe behavior emits `return 0;` for any type that
-conforms to Equatable but not Hashable, and that stub is preserved for now.
+Bundle 06 #1a (Equatable Defect 1 — GetHashCode stub returns 0) is open
+work. The current safe behavior emits `return 0;` for any type that
+conforms to Equatable but not Hashable; that stub is preserved until
+the runtime hardening lands.
 
-## Why deferred
+## Why a naive flip is unsafe
 
 The naive predicate change — extending `_implementsHashable` in
 `TypeHandlerHelpers.cs`, `ClassHandler.cs`, and `EnumHandler.cs` to also fire on

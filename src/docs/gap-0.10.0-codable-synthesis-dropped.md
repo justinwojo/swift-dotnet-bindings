@@ -122,7 +122,9 @@ same shape; not yet measured. Worth a cross-cutting audit pass.
 
 **Low** for now (workaround exists: hand-roll DTOs). **Medium** if
 caching becomes a primary use case. The fix is structural and
-non-trivial — best deferred until concrete consumer demand surfaces.
+non-trivial. **In scope for 0.10.0** — sequenced as Session F per
+`0.10.0-remaining-sessions.md`; user-locked decision 2026-05-06: ship
+full round-trip, JSON-only.
 
 ## Fix gate
 

@@ -5,8 +5,8 @@
 >
 > **Status: option (b) RESOLVED 2026-05-07 (Session E Phase 3a) for CSM-eligible
 > generics across all four shapes — sync / async / sync-throws / async-throws.
-> Option (a) remains open for non-CSM class-bound generics; tracked as a
-> roadmap candidate (no current consumer blocked).**
+> Option (a) OPEN for non-CSM class-bound generics; in scope for 0.10.0,
+> sequenced as Session M.**
 
 ## Summary
 
@@ -97,7 +97,7 @@ each CSM primary, on both branches:
   the CSM factory shape that auto-fills every default; intermediate factory
   overloads exposing `options` while letting Swift fill `tag` are not emitted
   for constructors. This is a deliberate scoping choice for Phase 3a; tracked
-  alongside option (a) as a roadmap candidate (no current consumer blocked).
+  alongside option (a) as in-scope work for 0.10.0 (Session M).
 
 - **CSM-async** — `ConcreteProtocolSpecializationEmitter.TryEmitConcreteOverloadAsync`
   appends a tail call to the trim emitter using the existing pre-built

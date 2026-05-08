@@ -5,6 +5,32 @@
 > (Round 5). See
 > [`audit-weatherkit-musickit-2026-05-05.md`](../../swift-dotnet-packages/audit-weatherkit-musickit-2026-05-05.md)
 > finding **O-8**.
+>
+> **Status (2026-05-07): MOSTLY RESOLVED — small parity tail open.**
+>
+> All 5 layers of the plain-throws → `SwiftException<TError>` bridge
+> shipped today across four atomic commits:
+>
+> - `bf9a64f8` — Layer 1 (per-module error-type registry built at
+>   pre-pass time; `EnumDecl/StructDecl/ClassDecl.Conformances` walked
+>   for `Swift.Error` / `Foundation.LocalizedError`).
+> - `0146d438` — Layers 2+3+4 (unified 6-param error-callback wire
+>   format across typed/cascade/untyped paths; per-module Swift
+>   cascade dispatcher; C# typed-exception construction with
+>   `errorTypeId` discriminator).
+> - `55070df8` — Layer 5 (per-id ownership audit:
+>   `CascadePayloadShape` enum classifies each registered error as
+>   `ValueCopy` / `BufferOwnedBySafeHandle` / `ClassPointerDirect`,
+>   mirroring `WrapperEmitter.typedErrorTransfersOwnershipAsync`).
+> - `1ea3281b` — VWT-destroy parity for the async typed-throws
+>   frozen-with-memory shape.
+>
+> **Remaining (open):** Codex r1 P1 — class-direct typed-throws
+> parity inside `WrapperEmitter.typedErrorTransfersOwnershipAsync`.
+> The cascade dispatcher already treats class-shaped errors as
+> `ClassPointerDirect`; the matching typed-throws path should mirror
+> this for symmetry. Small follow-up commit (~30-60 min). In scope
+> for 0.10.0.
 
 ## Summary
 

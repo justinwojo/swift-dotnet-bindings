@@ -4,6 +4,31 @@
 > consumer-experience audit of
 > [SwiftBindings.Apple.StoreKit2](https://github.com/justinwojo/swift-dotnet-packages)
 > (Apple StoreKit framework, 26.2.2).
+>
+> **Status: PARTIAL — StoreKit2 + Foundation closed; WeatherKit /
+> MusicKit / open-generic `payloadValue` open.**
+>
+> - **StoreKit2 SignedType surface** (`VerificationResult<T>` JWS
+>   properties — `jwsRepresentation`, `headerData`, `payloadData`,
+>   `signatureData`, `signature`, `signedData`, `signedDate`,
+>   `deviceVerification`, `deviceVerificationNonce`): RESOLVED via
+>   `ConstrainedExtensionEmitter`.
+> - **Foundation value-type returns** (`Date` / `UUID` / `Data` from
+>   StoreKit2 multispec properties): RESOLVED 2026-05-07 via
+>   `16d8b3fa` ("Project Foundation Date/UUID/Data through
+>   ConstrainedExtensionEmitter").
+> - **WeatherKit query types** (`[OpaqueSwiftType(2)]` tombstones) +
+>   **MusicKit `MusicLibraryRequest<T>` accessors**: OPEN. In scope for
+>   0.10.0. Same `MultiSpecialization` shape, but the constrained
+>   extensions contain methods (not just properties) plus closure
+>   parameters and structured result types. Fix is to extend
+>   `ConstrainedExtensionEmitter` to methods — a parallel
+>   `FindConstrainedMethodSpecializations` + `TryEmitMethodExtension`
+>   pair.
+> - **`payloadValue` / `unsafePayloadValue`** (skip under
+>   `AnyTypeFallback` because the projected return is the open generic
+>   parameter `SignedType`): OPEN. In scope for 0.10.0. Fix substitutes
+>   the concrete specialization at extension-method emit time.
 
 ## Summary
 
@@ -339,19 +364,18 @@ Sim pass count ratcheted from 1918 → 1921 with these three tests.
 `nuke binding-tests --sim --class-filter Bundle05MultiSpecAccessorsTests`
 now runs 6 tests (3 pre-existing + 3 new), all passing.
 
-### Remaining scope (deferred)
+### Remaining scope (open)
 
 The combined Part 1+2+3 fix covers String, non-frozen-struct, and
 Foundation value-type return shapes — enough to resolve the
 StoreKit2 multispec property surface in full (modulo the
 open-generic `payloadValue` case below). The following sub-shapes
-are tracked as follow-ups:
+remain open and are sequenced as Session J:
 
 - **`payloadValue` / `unsafePayloadValue`**: skip under
   `AnyTypeFallback` because the projected return is the open
-  generic parameter `SignedType`. The fix would be to substitute
-  the concrete specialization at extension-method emit time. Out
-  of scope; tracked separately.
+  generic parameter `SignedType`. The fix substitutes the concrete
+  specialization at extension-method emit time.
 - **WeatherKit query types** (`[OpaqueSwiftType(2)]` tombstones)
   and **MusicKit `MusicLibraryRequest<T>` accessors**: same
   `MultiSpecialization` shape, but the constrained extensions
@@ -360,7 +384,7 @@ are tracked as follow-ups:
   `ConstrainedExtensionEmitter` only iterates `typeDecl.Properties`
   today; extending it to methods is a parallel
   `FindConstrainedMethodSpecializations` + `TryEmitMethodExtension`
-  pair. Worth a unified pass once Bundle 11/11b lands.
+  pair.
 
 The single-switch design means future shapes (open-generic
 `SignedType`-as-return, constrained-extension methods) extend

@@ -5,15 +5,15 @@
 > [SwiftBindings.BlinkIDUX](https://github.com/justinwojo/swift-dotnet-packages),
 > and several other libraries during a 2026-05-05 audit.
 
-## Status — Cases 1 + 2 Resolved; Case 3 → Bundle 11b
+## Status — Cases 1 + 2 Resolved; Case 3 OPEN
 
 - **Case 1** (`any Foo` property/parameter collapse to `object`/`Swift.AnyType`): resolved.
   The generator now projects single-protocol existentials to the generated `IFoo` interface.
 - **Case 2** (typed existential receives concrete-class instance): resolved by Case 1's
   projection — the same `IFoo` surface is consumed for both shapes.
 - **Case 3** (consumer-implemented `IFoo` proxy → `EveryProtocol`-style throwing stubs):
-  deferred to **Bundle 11b** (proxy-dispatch). Requires the runtime existential-container
-  infrastructure plus codegen for forward-dispatching wrappers per protocol method.
+  **OPEN.** In scope for 0.10.0. Requires the runtime existential-container infrastructure
+  plus codegen for forward-dispatching wrappers per protocol method — sizable infra build.
 
 ### Typed-PAT runtime conformance lookup — design constraint
 

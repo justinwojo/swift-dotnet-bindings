@@ -4,6 +4,16 @@
 > consumer-experience audit of
 > [SwiftBindings.Nuke](https://github.com/justinwojo/swift-dotnet-packages)
 > 13.0.5 generated bindings.
+>
+> **Status: PARTIAL — Layer B shipped, Layer A open.**
+>
+> - **Layer B (SurfaceArea ratchet)** RESOLVED. New
+>   `BindingTests/Sources/SurfaceArea/` snippets + `--skip-surface`
+>   flag track every dropped init/registrar so a regression that
+>   re-drops one shows up in the baseline.
+> - **Layer A (shape work — emit a tombstoned-but-reachable surface
+>   for unmarshalable closures instead of dropping the surrounding
+>   ctor / registrar method)**: OPEN. In scope for 0.10.0.
 
 ## Summary
 

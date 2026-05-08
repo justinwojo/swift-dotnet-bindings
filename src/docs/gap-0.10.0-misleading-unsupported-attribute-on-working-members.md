@@ -4,6 +4,21 @@
 > consumer-experience audit of
 > [SwiftBindings.Lottie](https://github.com/justinwojo/swift-dotnet-packages)
 > (Lottie 4.x).
+>
+> **Status: PARTIAL — Modes 1+2 resolved, Mode 3 open.**
+>
+> - **Mode 1** (`[UnsupportedSwiftType("Existential type fallback", ...)]`
+>   on existential-projected members that DO work): RESOLVED. Existential
+>   fallback is gated on marker / ObjC-bridged / PAT / Self-requirement
+>   so plain protocol existentials no longer carry the misleading
+>   attribute.
+> - **Mode 2** (constructor "Unsupported:" comment placed above
+>   emitted-and-working ctor): RESOLVED. Comment removed.
+> - **Mode 3** (SB0001 `[Obsolete]` over-broadcast — diagnostic stamped
+>   on members whose body actually calls a real Swift symbol via
+>   `CallConvSwift`): OPEN. In scope for 0.10.0. Needs runtime safety
+>   classification per shape so we can tell which "no @_cdecl wrapper"
+>   entries are genuinely unsafe vs. just non-default-cdecl-but-still-correct.
 
 ## Summary
 

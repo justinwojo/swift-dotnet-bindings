@@ -7,7 +7,7 @@
 > finding **O-3**.
 >
 > **Status:**
-> - **Defect A (wrong serialization shape) — RESOLVED in Bundle 04** via
+> - **Defect A (wrong serialization shape) — RESOLVED** via
 >   `NonFrozenStructProjection.SwiftContainerGenericType` returning the typed
 >   wrapper and a mirrored skip-conversion rule in
 >   `ProtocolProxyEmitter.Receivers.cs`. Validated by `nuke validate`
@@ -16,11 +16,9 @@
 >   device 1845→1848 IMPROVEMENT — `TestSumPointMagnitudesEmpty`,
 >   `TestSumPointMagnitudesPayloadByValue`, `TestScalePointsRoundTrip` pass on
 >   both Mono JIT and NativeAOT).
-> - **Defect B (async `using var` lifetime) — CARVED OUT to Bundle 10** under
->   the closure-lifetime infrastructure umbrella. Tracked separately because
->   it shares the holder/cleanup machinery with Bundle 10's
->   `DeferDeallocate`/captured-closure work. The structural fix follows the
->   `_asyncCallHolder` + `DeferredSafeHandleRelease` precedent already in
+> - **Defect B (async `using var` lifetime) — OPEN.** In scope for
+>   0.10.0. The structural fix follows the `_asyncCallHolder` +
+>   `DeferredSafeHandleRelease` precedent already in
 >   `WrapperEmitter.Async.cs` / `AsyncHarnessEmitter.cs`.
 
 ## Summary
