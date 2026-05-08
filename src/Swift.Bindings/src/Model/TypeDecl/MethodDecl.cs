@@ -378,6 +378,19 @@ namespace BindingsGeneration
         /// was a stripped optional closure that should be passed as nil.
         /// </summary>
         public List<(ArgumentDecl Arg, bool IsNilClosure, string ArgLabel)>? OriginalArgsWithNilClosures { get; set; }
+
+        /// <summary>
+        /// When true, this member's signature contains an unsupported closure parameter that
+        /// the generator cannot bridge today. Instead of skipping the member entirely (which
+        /// hides the API from consumers), the emitter writes a tombstoned-but-reachable
+        /// declaration: the unsupported closure parameter projects to <c>object?</c>, the
+        /// member carries <c>[Obsolete(... DiagnosticId = "SB0005")]</c> plus
+        /// <c>[UnsupportedSwiftType("Unsupported closure fallback", ...)]</c>, and the body
+        /// throws <see cref="System.NotSupportedException"/>. Set in HandleBaseDecl /
+        /// ModuleHandler when ValidateMethodEmission returns UnsupportedClosure and the
+        /// member is tombstone-eligible (see ClosureParamTombstoneEmitter.IsEligible).
+        /// </summary>
+        public bool IsClosureParamTombstone { get; set; } = false;
     }
 
     /// <summary>

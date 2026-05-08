@@ -12,7 +12,7 @@ namespace Swift;
 /// projected, and <see cref="SwiftType"/> for the original Swift type name.
 /// See the binding report (<c>binding-report.json</c>) for full details on all type fallbacks.
 /// </summary>
-[AttributeUsage(AttributeTargets.Property | AttributeTargets.Method | AttributeTargets.Parameter)]
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Method | AttributeTargets.Constructor | AttributeTargets.Parameter)]
 public sealed class UnsupportedSwiftTypeAttribute : Attribute
 {
     /// <summary>

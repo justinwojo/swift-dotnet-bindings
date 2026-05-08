@@ -5,7 +5,7 @@
 > [SwiftBindings.Nuke](https://github.com/justinwojo/swift-dotnet-packages)
 > 13.0.5 generated bindings.
 >
-> **Status: PARTIAL — Layer B shipped, Layer A open.**
+> **Status: RESOLVED — both Layer A and Layer B shipped.**
 >
 > - **Layer B (SurfaceArea ratchet)** RESOLVED. New
 >   `BindingTests/Sources/SurfaceArea/` snippets + `--skip-surface`
@@ -13,7 +13,16 @@
 >   re-drops one shows up in the baseline.
 > - **Layer A (shape work — emit a tombstoned-but-reachable surface
 >   for unmarshalable closures instead of dropping the surrounding
->   ctor / registrar method)**: OPEN. In scope for 0.10.0.
+>   ctor / registrar method)** RESOLVED. `ClosureParamTombstoneEmitter`
+>   now emits each member with the unsupported closure parameter
+>   projected to `object?`, decorated with `[UnsupportedSwiftType]` and
+>   `[Obsolete(... DiagnosticId="SB0005")]`, and a body that throws
+>   `NotSupportedException`. Constructors, throwing methods, and
+>   throwing free functions that `NestedClosureBridge` rejects all
+>   route through Layer A. Dedup-key normalization in
+>   `GetProjectedCSharpMethodKey` collapses unsupported closure
+>   parameters to `object?` so two Swift overloads with different
+>   unsupported closure shapes don't emit colliding C# signatures.
 
 ## Summary
 

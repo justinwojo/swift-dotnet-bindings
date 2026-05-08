@@ -163,21 +163,32 @@ namespace BindingsGeneration
                         var validationResult = pipeline.ValidateMethodEmission(methodDecl, null);
                         if (!validationResult.ShouldEmit)
                         {
-                            if (validationResult.IsRoutedElsewhere)
+                            // Closure-param tombstone (Layer A) — same routing as HandleBaseDecl.
+                            if (validationResult.Reason == SkipReason.UnsupportedClosure
+                                && !methodDecl.IsAccessor
+                                && ClosureParamTombstoneEmitter.IsEligible(methodDecl, env.TypeDatabase))
                             {
-                                // Concrete specializations elsewhere provide the public surface;
-                                // do not emit `// Unsupported:` or record as skipped. (Today the
-                                // CSM-routing paths require a TypeDecl parent, so free functions
-                                // never reach this branch — defensive parity with the type-member
-                                // consumer in IHandler.cs.)
+                                methodDecl.IsClosureParamTombstone = true;
+                                // Fall through — dedup + handler.Emit run normally below.
+                            }
+                            else
+                            {
+                                if (validationResult.IsRoutedElsewhere)
+                                {
+                                    // Concrete specializations elsewhere provide the public surface;
+                                    // do not emit `// Unsupported:` or record as skipped. (Today the
+                                    // CSM-routing paths require a TypeDecl parent, so free functions
+                                    // never reach this branch — defensive parity with the type-member
+                                    // consumer in IHandler.cs.)
+                                    csWriter.WriteLine();
+                                    continue;
+                                }
+                                ReportCollector.RecordMemberSkipped(methodDecl,
+                                    validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details ?? "");
+                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details);
                                 csWriter.WriteLine();
                                 continue;
                             }
-                            ReportCollector.RecordMemberSkipped(methodDecl,
-                                validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details ?? "");
-                            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.ModuleInternal, validationResult.Details);
-                            csWriter.WriteLine();
-                            continue;
                         }
 
                         // Primary dedup: Swift-level signature

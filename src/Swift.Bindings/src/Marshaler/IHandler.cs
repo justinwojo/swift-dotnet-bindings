@@ -371,27 +371,42 @@ namespace BindingsGeneration
                     var validationResult = pipeline.ValidateMethodEmission(methodDecl, validationCtx);
                     if (!validationResult.ShouldEmit)
                     {
-                        if (!methodDecl.IsAccessor)
+                        // Closure-param tombstone (Layer A): when the only blocker is an
+                        // unsupported closure parameter shape, emit a tombstoned-but-reachable
+                        // surface so consumers see the API exists. Falls through to the regular
+                        // dedup + handler.Emit pipeline; the handler routes IsClosureParamTombstone
+                        // members to ClosureParamTombstoneEmitter at the top of Emit().
+                        if (validationResult.Reason == SkipReason.UnsupportedClosure
+                            && !methodDecl.IsAccessor
+                            && ClosureParamTombstoneEmitter.IsEligible(methodDecl, typeDatabase))
                         {
-                            if (validationResult.IsSynthesized)
-                                ReportCollector.RecordMemberSynthesized(methodDecl);
-                            else if (validationResult.IsRoutedElsewhere)
-                            {
-                                // The open-form member is suppressed because concrete
-                                // specializations (CSM-async per-conformer overloads, or
-                                // CSM-sync generic-parent extensions) provide the public
-                                // surface. Do not emit a `// Unsupported:` comment (it would
-                                // mislead consumers reading the generated source — the API
-                                // IS callable via the alternate overloads) and do not record
-                                // as a skipped member.
-                            }
-                            else
-                            {
-                                ReportCollector.RecordMemberSkipped(methodDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
-                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details);
-                            }
+                            methodDecl.IsClosureParamTombstone = true;
+                            // Fall through — no `continue`. Dedup + handler.Emit run normally.
                         }
-                        continue;
+                        else
+                        {
+                            if (!methodDecl.IsAccessor)
+                            {
+                                if (validationResult.IsSynthesized)
+                                    ReportCollector.RecordMemberSynthesized(methodDecl);
+                                else if (validationResult.IsRoutedElsewhere)
+                                {
+                                    // The open-form member is suppressed because concrete
+                                    // specializations (CSM-async per-conformer overloads, or
+                                    // CSM-sync generic-parent extensions) provide the public
+                                    // surface. Do not emit a `// Unsupported:` comment (it would
+                                    // mislead consumers reading the generated source — the API
+                                    // IS callable via the alternate overloads) and do not record
+                                    // as a skipped member.
+                                }
+                                else
+                                {
+                                    ReportCollector.RecordMemberSkipped(methodDecl, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details ?? "");
+                                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details);
+                                }
+                            }
+                            continue;
+                        }
                     }
 
                     // Dedup: primary signature dedup (stays in HandleBaseDecl — stateful, shared with post-processors)
@@ -522,6 +537,16 @@ namespace BindingsGeneration
             // dedup (RealityFoundation FromToByAction CS0111 trigger).
             var parentGenericNames = CollectVisibleGenericParamNames(methodDecl);
 
+            // Closure-tombstone (Fix K): when this method routes through
+            // ClosureParamTombstoneEmitter, every unsupported closure parameter is
+            // emitted as `object?` regardless of its Swift shape. The dedup key
+            // must mirror that or two Swift overloads with different unsupported
+            // closure shapes get distinct projected keys but emit the same C#
+            // signature (CS0111). Build the same `object?`-collapsing view here.
+            ClosureHandler? closureHandlerForTombstone = methodDecl.IsClosureParamTombstone
+                ? new ClosureHandler(typeDatabase)
+                : null;
+
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -532,6 +557,15 @@ namespace BindingsGeneration
                 // Empty tuple () params are stripped from the C# signature (zero-sized Void)
                 if (arg.SwiftTypeSpec.IsEmptyTuple)
                     continue;
+                if (closureHandlerForTombstone != null && closureHandlerForTombstone.IsClosure(arg))
+                {
+                    var spec = closureHandlerForTombstone.GetClosureTypeSpec(arg);
+                    if (spec == null || !closureHandlerForTombstone.IsSupportedClosure(spec))
+                    {
+                        paramTypes.Add("object?");
+                        continue;
+                    }
+                }
                 // C11: Optional<Closure> and bare Closure are the same overload in C#
                 // (nullable reference types don't affect overload resolution).
                 // Unwrap Optional<Closure> so both produce the same projected key.

@@ -96,6 +96,19 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
+            // Closure-param tombstone (Layer A): see MethodHandler.Emit for design.
+            if (methodEnv.MethodDecl.IsClosureParamTombstone)
+            {
+                ClosureParamTombstoneEmitter.Emit(csWriter, methodEnv);
+                methodEnv.MethodDecl.WasEmitted = true;
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method, methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
+                    "ClosureParamTombstone",
+                    "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
+                return;
+            }
+
             // SWIFTBIND022: The synchronous `new T(...)` projection is unreachable for
             // constructors on @<CustomActor>-isolated parent types (e.g., @ImagePipelineActor
             // class ImagePrefetcher). Swift 6 has no synchronous entry into a custom global
@@ -733,6 +746,21 @@ namespace BindingsGeneration
             // the handler that was already used during Marshal().
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
+
+            // Closure-param tombstone (Layer A): unsupported closure parameter shape.
+            // Emit a tombstoned-but-reachable surface (object? for the closure, throws at runtime)
+            // so consumers see the API exists. See ClosureParamTombstoneEmitter for scope.
+            if (methodEnv.MethodDecl.IsClosureParamTombstone)
+            {
+                ClosureParamTombstoneEmitter.Emit(csWriter, methodEnv);
+                methodEnv.MethodDecl.WasEmitted = true;
+                ReportCollector.RecordMemberWrapped(
+                    BindingItemKind.Method, methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.MangledName, methodEnv.MethodDecl.ParentDecl,
+                    "ClosureParamTombstone",
+                    "Unsupported closure parameter; emitted as tombstoned-but-reachable surface (SB0005).");
+                return;
+            }
 
             // Phases 3-5 (thunk closure, protocol constraints, bound generic skip gates)
             // are now in MemberValidationPipeline. Only existential type argument

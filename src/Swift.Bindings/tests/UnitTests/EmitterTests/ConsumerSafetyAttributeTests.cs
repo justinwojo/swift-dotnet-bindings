@@ -26,9 +26,10 @@ public class ConsumerSafetyAttributeTests
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var method = CreateMethod("handle", classDecl, moduleDecl);
-        // Swift.String (16-byte frozen+RefFields) makes the P/Invoke signature non-blittable,
-        // so the narrowed SB0001 gate still fires when no wrapper/thunk is present.
-        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
+        // A class-typed param (TestModule.Loader) projects to NonFrozenSafeHandle → SafeHandle
+        // in the direct-CallConvSwift P/Invoke signature, which is genuinely non-blittable on
+        // both Mono and NativeAOT. SB0001 must still fire for this shape.
+        method.CSSignature.Add(CreateArg("loader", new NamedTypeSpec("TestModule.Loader"), moduleDecl));
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
@@ -36,6 +37,24 @@ public class ConsumerSafetyAttributeTests
         Assert.Contains("No @_cdecl wrapper or native thunk available", csOutput);
         Assert.Contains("DiagnosticId = \"SB0001\"", csOutput);
         Assert.DoesNotContain(", true)]", csOutput);
+    }
+
+    [Fact]
+    public void NoWrapperOrThunk_SwiftStringParam_NoObsolete()
+    {
+        // Swift.String projects to FrozenBuffer (SwiftString.Buffer is a two-word blittable
+        // struct of nint+nint). The direct CallConvSwift P/Invoke is correct without a wrapper —
+        // SB0001 must NOT fire. Mode 3 of the gap-0.10.0-misleading-unsupported-attribute fix.
+        // Concrete site: Lottie AnimatedControl.SetLayer(string, UIControlState).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethod("handle", classDecl, moduleDecl);
+        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.DoesNotContain("DiagnosticId = \"SB0001\"", csOutput);
     }
 
     [Fact]
@@ -90,9 +109,10 @@ public class ConsumerSafetyAttributeTests
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Loader", moduleDecl);
         var ctor = CreateConstructor(classDecl, moduleDecl);
-        // Swift.String forces a non-blittable P/Invoke signature so the narrowed
-        // SB0001 gate still triggers without a @_cdecl constructor wrapper.
-        ctor.CSSignature.Add(CreateArg("label", new NamedTypeSpec("Swift.String"), moduleDecl));
+        // Class-typed param (NonFrozenSafeHandle → SafeHandle in P/Invoke) keeps SB0001 in
+        // scope under the narrower SB0001 gate, since SafeHandle is genuinely non-blittable
+        // with CallConvSwift on both Mono and NativeAOT.
+        ctor.CSSignature.Add(CreateArg("loader", new NamedTypeSpec("TestModule.Loader"), moduleDecl));
 
         var (csOutput, _) = EmitConstructor(ctor, typeDatabase);
 
@@ -273,8 +293,9 @@ public class ConsumerSafetyAttributeTests
         var method = CreateMethod("crash", classDecl, moduleDecl, isStatic: true);
         // No @_cdecl wrapper + missing symbol → both warnings combined
         method.IsMissingExportedSymbol = true;
-        // Non-blittable param keeps SB0001 in scope under the narrower blittability gate.
-        method.CSSignature.Add(CreateArg("tag", new NamedTypeSpec("Swift.String"), moduleDecl));
+        // Genuinely non-blittable param (Class → SafeHandle) keeps SB0001 in scope under the
+        // narrower SB0001 gate.
+        method.CSSignature.Add(CreateArg("loader", new NamedTypeSpec("TestModule.Loader"), moduleDecl));
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
@@ -439,8 +460,9 @@ public class ConsumerSafetyAttributeTests
     {
         var moduleDecl = CreateModuleDecl();
         var method = CreateMethod("present", CreateClassDecl("Foo", moduleDecl), moduleDecl);
-        // Non-blittable param so the narrowed SB0001 gate actually fires.
-        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
+        // Genuinely non-blittable Class param (SafeHandle in P/Invoke) so the narrowed
+        // SB0001 gate fires. The propagated async-wrapper attribute mirrors the same gate.
+        method.CSSignature.Add(CreateArg("loader", new NamedTypeSpec("TestModule.Loader"), moduleDecl));
         var env = new MethodEnvironment(method, CreateTypeDatabase());
 
         var attr = MethodHandler.GetSafetyObsoleteAttribute(env);
@@ -448,6 +470,21 @@ public class ConsumerSafetyAttributeTests
         Assert.NotNull(attr);
         Assert.Contains("SB0001", attr);
         Assert.Contains("No @_cdecl wrapper or native thunk available", attr);
+    }
+
+    [Fact]
+    public void GetSafetyObsoleteAttribute_SwiftStringParam_ReturnsNull()
+    {
+        // Swift.String → FrozenBuffer (blittable two-word struct). The propagated async-wrapper
+        // attribute must NOT fire either, mirroring the EmitSafetyObsolete narrowing.
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateMethod("present", CreateClassDecl("Foo", moduleDecl), moduleDecl);
+        method.CSSignature.Add(CreateArg("name", new NamedTypeSpec("Swift.String"), moduleDecl));
+        var env = new MethodEnvironment(method, CreateTypeDatabase());
+
+        var attr = MethodHandler.GetSafetyObsoleteAttribute(env);
+
+        Assert.Null(attr);
     }
 
     [Fact]

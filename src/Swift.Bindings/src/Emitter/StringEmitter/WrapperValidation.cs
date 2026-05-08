@@ -1685,9 +1685,16 @@ public static class WrapperValidation
 
     /// <summary>
     /// Checks whether a method's P/Invoke signature would contain non-blittable types
-    /// (SafeHandle from non-frozen structs, tuples, generic containers) when using
-    /// CallConvSwift. Excludes closures, Tj dispatch, metatype, and other ABI issues
-    /// that cause different runtime crashes — those should not trigger suppression.
+    /// (SafeHandle from non-frozen structs/classes, tuples, generic containers) when using
+    /// CallConvSwift directly with no @_cdecl wrapper or native thunk. Drives SB0001.
+    ///
+    /// Uses the narrower <see cref="IsParamPInvokeNonBlittable"/> /
+    /// <see cref="IsReturnTypePInvokeNonBlittable"/> classifiers which mirror the actual
+    /// ITypeProjection.PInvokeType decisions, rather than the broader
+    /// <see cref="IsParamTypeCdeclRequired"/> classifier that drives @_cdecl wrapper emission.
+    /// This keeps SB0001 from over-broadcasting on shapes whose direct-CallConvSwift P/Invoke
+    /// is genuinely safe (e.g., <c>Swift.String</c> via blittable <c>SwiftString.Buffer</c>,
+    /// complex enums via <c>IntPtr</c>).
     /// </summary>
     internal static bool HasNonBlittablePInvokeTypes(MethodEnvironment env)
     {
@@ -1702,13 +1709,13 @@ public static class WrapperValidation
         if (IsNonFrozenStructInstanceMember(env))
             return true;
 
-        // Check return type for non-blittable types
+        // Check return type for non-blittable types (narrower than IsReturnTypeCdeclRequired)
         var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
-        if (!returnSpec.IsEmptyTuple && IsReturnTypeCdeclRequired(returnSpec, env.TypeDatabase))
+        if (!returnSpec.IsEmptyTuple && IsReturnTypePInvokeNonBlittable(returnSpec, env.TypeDatabase))
             return true;
 
-        // Check parameters for non-blittable types (skip closures — they use function
-        // pointers / IntPtr in P/Invoke, which are blittable)
+        // Check parameters for non-blittable types (narrower than IsParamTypeCdeclRequired).
+        // Skip closures — they use function pointers / IntPtr in P/Invoke, which are blittable.
         foreach (var arg in env.MethodDecl.CSSignature.Skip(1))
         {
             if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
@@ -1717,7 +1724,7 @@ public static class WrapperValidation
                 continue;
             if (env.ClosureHandler.IsClosure(arg))
                 continue;
-            if (IsParamTypeCdeclRequired(arg.SwiftTypeSpec, env))
+            if (IsParamPInvokeNonBlittable(arg.SwiftTypeSpec, env))
                 return true;
         }
 
@@ -1726,7 +1733,8 @@ public static class WrapperValidation
 
     /// <summary>
     /// Property-specific overload: checks whether a property accessor P/Invoke would
-    /// contain non-blittable types when using CallConvSwift.
+    /// contain non-blittable types when using CallConvSwift directly. Uses the narrower
+    /// SB0001 classifiers.
     /// </summary>
     internal static bool HasNonBlittablePInvokeTypes(MethodEnvironment env, PropertyDecl propertyDecl)
     {
@@ -1737,13 +1745,13 @@ public static class WrapperValidation
         var typeSpec = propertyDecl.SwiftTypeSpec;
 
         // Check as return type (getter)
-        if (IsReturnTypeCdeclRequired(typeSpec, env.TypeDatabase))
+        if (IsReturnTypePInvokeNonBlittable(typeSpec, env.TypeDatabase))
             return true;
 
         // Check as parameter type (setter)
         if (propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())
         {
-            if (IsParamTypeCdeclRequired(typeSpec, env))
+            if (IsParamPInvokeNonBlittable(typeSpec, env))
                 return true;
         }
 
@@ -2014,6 +2022,166 @@ public static class WrapperValidation
             typeSpec is NamedTypeSpec namedRet && CdeclParamMapper.IsSystemFrozenStruct(namedRet) &&
             !IsCBridgingModuleType(namedRet) &&
             typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > 8)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// SB0001-specific narrower classifier: returns true only when a parameter would emit a
+    /// non-blittable P/Invoke type for the direct-CallConvSwift path (no @_cdecl wrapper, no
+    /// native thunk). Mirrors the type-projection decisions made in PInvokeEmitter so the
+    /// diagnostic matches what's actually emitted.
+    ///
+    /// Differs from <see cref="IsParamTypeCdeclRequired"/>: that classifier drives @_cdecl
+    /// wrapper emission and is intentionally broader (it also flags ABI-stable shapes the
+    /// generator chooses to wrap when possible). The SB0001 gate must only fire when the
+    /// direct CallConvSwift call is genuinely unsafe — i.e., the actual P/Invoke parameter
+    /// type is non-blittable or has a register layout Mono/NativeAOT can't handle.
+    ///
+    /// Carve-outs vs <see cref="IsParamTypeCdeclRequired"/>:
+    /// <list type="bullet">
+    ///   <item><c>Swift.String</c> (frozen + RequiresMemoryManagement) → FrozenBuffer projection
+    ///         (<c>SwiftString.Buffer</c>, two-word blittable struct).</item>
+    ///   <item>Complex enum (non-Simple) → EnumSafeHandle marker → <c>IntPtr</c> in P/Invoke.</item>
+    /// </list>
+    /// </summary>
+    internal static bool IsParamPInvokeNonBlittable(TypeSpec typeSpec, MethodEnvironment env)
+    {
+        // Primitives are always safe
+        if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
+            return false;
+
+        // ValueTuple → StructLayout.Auto → non-blittable in P/Invoke
+        if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
+            return true;
+
+        // Generic containers (Optional, Array, Dictionary, Set, Result) — direct-CallConvSwift
+        // path goes through SafeHandle / opaque-pointer marshalling that's not blittable. The
+        // OptionalPointer wrapper is the exception, but a method using it has UsesCdeclWrapper /
+        // UsesFreeFunctionWrapper set, which short-circuits the SB0001 gate before this is reached.
+        if (CdeclParamMapper.IsGenericContainerType(typeSpec))
+            return true;
+
+        if (!env.TypeDatabase.TryGetTypeRecord(typeSpec, out var typeRecord))
+            return false;
+
+        // ObjC bridged/rooted/bridgeable types → IntPtr in P/Invoke (blittable)
+        if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
+            MarshallingHelpers.IsObjCRooted(typeRecord) ||
+            MarshallingHelpers.IsObjCBridgeable(typeRecord))
+            return false;
+
+        // Native-remapped types: ObjC-bridgeable already handled above.
+        // Frozen native-remapped (Data, Date) → wrapper struct (blittable Double or two-word struct).
+        // Non-frozen native-remapped → SafeHandle in sync (non-blittable), IntPtr in async (blittable).
+        if (typeRecord.NativeTypeName != null)
+        {
+            if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+                return !env.MethodDecl.IsAsync;
+            return false;
+        }
+
+        // Simple enum → underlying integer (blittable)
+        // Complex enum → EnumSafeHandle marker → IntPtr in P/Invoke (blittable in both sync & async)
+        if (typeRecord.Kind == TypeRecordKind.Enum)
+            return false;
+
+        // Non-frozen struct/class → NonFrozenSafeHandle in sync (SafeHandle in P/Invoke, non-blittable)
+        //                         → NonFrozenIntPtr in async (IntPtr in P/Invoke, blittable)
+        if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return !env.MethodDecl.IsAsync;
+
+        // Frozen struct
+        //  - With memory management → FrozenBuffer projection: {Type}.Buffer (two-word blittable struct)
+        if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            return false;
+
+        //  - Without memory management:
+        //    - System frozen (CGRect, CGSize, etc.): pure C struct, register layout always safe
+        //    - Custom frozen with float/bool fields → GPR/FPR mismatch with .NET CallConvSwift
+        //    - Custom frozen > MaxParamSize bytes → NativeAOT SIGSEGV
+        if (typeSpec is NamedTypeSpec named && CdeclParamMapper.IsSystemFrozenStruct(named))
+            return false;
+
+        if (HasIncompatibleFields(typeRecord))
+            return true;
+
+        if (typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > AbiSizeLimits.MaxParamSize)
+            return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// SB0001-specific narrower classifier for return types: returns true only when the
+    /// direct-CallConvSwift P/Invoke return type is non-blittable or has a register layout
+    /// Mono/NativeAOT can't handle. Mirrors the ITypeProjection.PInvokeType decisions.
+    ///
+    /// Carve-outs vs <see cref="IsReturnTypeCdeclRequired"/>:
+    /// <list type="bullet">
+    ///   <item><c>Swift.String</c> return → FrozenBuffer projection (<c>SwiftString.Buffer</c>,
+    ///         two-word blittable struct returned by-value or via IndirectResult).</item>
+    /// </list>
+    /// Complex enum returns are still flagged: the SwiftIndirectResult marshalling path crashes
+    /// Mono JIT in practice, matching the existing <see cref="IsReturnTypeCdeclRequired"/> rule.
+    /// </summary>
+    internal static bool IsReturnTypePInvokeNonBlittable(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
+            return false;
+
+        if (typeSpec is TupleTypeSpec tts && !tts.IsEmptyTuple)
+            return true;
+
+        // Closure returns route through 16-byte SwiftClosureData passed by-value across CallConvSwift,
+        // which crashes Mono JIT (`!ji->async` multi-register struct return) and NativeAOT (SIGSEGV).
+        if (typeSpec is ClosureTypeSpec)
+            return true;
+
+        if (!typeDatabase.TryGetTypeRecord(typeSpec, out var typeRecord))
+            return false;
+
+        // ObjC bridged/rooted/bridgeable returns → IntPtr (blittable)
+        if (MarshallingHelpers.IsObjCBridged(typeRecord) ||
+            MarshallingHelpers.IsObjCRooted(typeRecord) ||
+            MarshallingHelpers.IsObjCBridgeable(typeRecord))
+            return false;
+
+        // Native-remapped frozen returns → wrapper struct (blittable). Non-frozen native-remapped
+        // returns flow through IntPtr / IndirectResult — still blittable on the return slot.
+        if (typeRecord.NativeTypeName != null)
+            return false;
+
+        // Complex enum returns: SwiftIndirectResult marshalling crashes Mono JIT (matches the
+        // existing IsReturnTypeCdeclRequired rule with empirical evidence).
+        if (typeRecord.Kind == TypeRecordKind.Enum &&
+            !typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return true;
+
+        // Simple enum returns → underlying integer (blittable)
+        if (typeRecord.Kind == TypeRecordKind.Enum)
+            return false;
+
+        // Non-frozen struct/class returns → IntPtr / SwiftIndirectResult (blittable)
+        if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return false;
+
+        // Frozen with memory management → Buffer return (blittable two-word struct)
+        if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
+            return false;
+
+        // Frozen without memory management:
+        //  - System frozen (CGRect, etc.) → pure C register layout, safe
+        //  - Custom frozen with float/bool fields → Mono SIGSEGV on by-value return
+        //  - Custom frozen > MaxParamSize bytes → NativeAOT SIGSEGV
+        if (typeSpec is NamedTypeSpec named && CdeclParamMapper.IsSystemFrozenStruct(named))
+            return false;
+
+        if (HasIncompatibleFields(typeRecord))
+            return true;
+
+        if (typeRecord.InlineSize.HasValue && typeRecord.InlineSize.Value > AbiSizeLimits.MaxParamSize)
             return true;
 
         return false;
