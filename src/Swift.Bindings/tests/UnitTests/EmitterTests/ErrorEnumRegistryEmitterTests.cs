@@ -3,6 +3,7 @@
 
 #nullable enable
 
+using System.Collections.Generic;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -266,6 +267,282 @@ public class ErrorEnumRegistryEmitterTests
     }
 
     [Fact]
+    public void Precompute_SpiProtectedErrorType_NotRegistered()
+    {
+        // @_spi types are suppressed by HandleBaseDecl (IHandler.cs:226) and never reach
+        // the C# emitter. Registering one in the cascade dispatcher would emit code that
+        // references a type the C# binding never declares (CS0234). Falls through to the
+        // untyped SwiftException default branch — the correct degradation.
+        var moduleDecl = BuildModule();
+        var spiError = BuildErrorEnum(moduleDecl, "AttestationError", "Swift.Error");
+        spiError.IsSpiProtected = true;
+        moduleDecl.Types.Add(spiError);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.AttestationError", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_ModuleInternalErrorType_NotRegistered()
+    {
+        // `@usableFromInline internal` types DO get C# bindings (HandleBaseDecl emits
+        // them so they're referenceable when they appear in public signatures of
+        // @inlinable functions — see IHandler.cs:222-225). But the Swift cascade
+        // dispatcher operates from the wrapper module, which only sees `public`
+        // declarations through plain `import Module`; an `as? Module.InternalType`
+        // in the wrapper produces "module 'X' has no member named Y" / "no type
+        // named Y in module 'X'" (real-world example: CryptoSwift's
+        // `@usableFromInline internal class StreamDecryptor.Error`).
+        var moduleDecl = BuildModule();
+        var internalError = BuildErrorEnum(moduleDecl, "StreamDecryptorError", "Swift.Error");
+        internalError.IsModuleInternal = true;
+        moduleDecl.Types.Add(internalError);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.StreamDecryptorError", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_NestedErrorInModuleInternalParent_NotRegistered()
+    {
+        // Same parent-chain principle as the SPI/underscore-suppressed cases: an
+        // `@usableFromInline internal` parent class hides any nested types from the
+        // wrapper module's import-time visibility, so a publicly-spelled nested error
+        // inside it cannot appear in the cascade dispatcher either. Mirrors the
+        // CryptoSwift `StreamDecryptor.Error` shape directly.
+        var moduleDecl = BuildModule();
+        var internalOuter = BuildOuterStruct(moduleDecl, "StreamDecryptor");
+        internalOuter.IsModuleInternal = true;
+        var nestedError = BuildNestedErrorEnum(moduleDecl, internalOuter, "Error", "unsupported");
+        internalOuter.Types.Add(nestedError);
+        moduleDecl.Types.Add(internalOuter);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.StreamDecryptor.Error", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_UnderscoreSuppressedErrorType_NotRegistered()
+    {
+        // Underscore-prefixed types not structurally required are suppressed before any
+        // handler dispatches. The cascade dispatcher would emit a CS0234 reference if
+        // it kept their registry id.
+        var moduleDecl = BuildModule();
+        var underscoreError = BuildErrorEnum(moduleDecl, "_InternalError", "Swift.Error");
+        moduleDecl.Types.Add(underscoreError);
+
+        var ctx = new ModuleEmissionContext();
+        ctx.SetUnderscoreSuppressedNames(new HashSet<string>(StringComparer.Ordinal)
+        {
+            underscoreError.SwiftTypeName.ToString(),
+        });
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule._InternalError", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_NestedInGenericParent_NotRegistered()
+    {
+        // Reproduces the Alamofire / RealityFoundation regression shape:
+        // `DecodableWebSocketMessageDecoder<TValue>.Error` (and the equivalent
+        // `FromToByAction<TValue>.DecodingErrors`). The cascade dispatcher renders
+        // module-qualified names verbatim (`global::Module.Outer.Inner`) and has no
+        // way to synthesize a closed type argument for an open generic parent at
+        // precompute time, so these entries must drop out and the cascade fall through
+        // to untyped SwiftException at runtime.
+        var moduleDecl = BuildModule();
+        var genericOuter = new StructDecl
+        {
+            Name = "DecodableWebSocketMessageDecoder",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DecodableWebSocketMessageDecoder"),
+            MangledName = "",
+            IsFrozen = false,
+            GenericParameters = new()
+            {
+                new GenericArgumentDecl(
+                    TypeName: "TValue",
+                    SugaredTypeName: "TValue",
+                    GenericConformances: new(),
+                    AssosiatedTypeConformances: new()),
+            },
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new(),
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        var nestedError = new EnumDecl
+        {
+            Name = "Error",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.DecodableWebSocketMessageDecoder.Error"),
+            MangledName = "",
+            IsFrozen = true,
+            Cases = new()
+            {
+                new EnumCaseDecl
+                {
+                    Name = "decoding",
+                    MangledName = "",
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                },
+            },
+            GenericParameters = new(),
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("TestModule.DecodableWebSocketMessageDecoder.Error"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                    ProtocolConformanceDescriptor: ""),
+            },
+            MetadataAccessor = "",
+            ParentDecl = genericOuter,
+            ModuleDecl = moduleDecl,
+        };
+        genericOuter.Types.Add(nestedError);
+        moduleDecl.Types.Add(genericOuter);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.DecodableWebSocketMessageDecoder.Error", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_OpenGenericErrorType_NotRegistered()
+    {
+        // A generic struct that itself conforms to Error (e.g. `struct FromToByAction<TValue>: Error`)
+        // would similarly require a generic dispatcher; drop it from the registry.
+        var moduleDecl = BuildModule();
+        var genericError = new StructDecl
+        {
+            Name = "FromToByAction",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FromToByAction"),
+            MangledName = "",
+            IsFrozen = false,
+            GenericParameters = new()
+            {
+                new GenericArgumentDecl(
+                    TypeName: "TValue",
+                    SugaredTypeName: "TValue",
+                    GenericConformances: new(),
+                    AssosiatedTypeConformances: new()),
+            },
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("TestModule.FromToByAction"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                    ProtocolConformanceDescriptor: ""),
+            },
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(genericError);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.FromToByAction", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_RecursionDescendsThroughNonErrorParent_FindsEmittableNested()
+    {
+        // Recursion into nested types must NOT be gated by the parent being itself an
+        // error type. A public non-error outer struct (e.g. PhotogrammetrySession) can
+        // legitimately hold a public, emittable nested error type — both the parent
+        // (skipped from the registry because it's not an error) and the child (registered
+        // because it is) flow through HandleBaseDecl's normal emission path.
+        var moduleDecl = BuildModule();
+        var nonErrorOuter = BuildOuterStruct(moduleDecl, "PhotogrammetrySession");
+        var nestedError = BuildNestedErrorEnum(moduleDecl, nonErrorOuter, "Error", "ioError");
+        nonErrorOuter.Types.Add(nestedError);
+        moduleDecl.Types.Add(nonErrorOuter);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.True(ctx.TryGetErrorTypeId("TestModule.PhotogrammetrySession.Error", out var id));
+        Assert.Equal(1, id);
+    }
+
+    [Fact]
+    public void Precompute_NestedErrorInSpiParent_NotRegistered()
+    {
+        // HandleBaseDecl skips the entire subtree of an @_spi parent — the parent's C#
+        // decl is never written, and its nested types are emitted as nested members of
+        // a missing decl, so they vanish too. The cascade dispatcher must therefore drop
+        // any nested error inside an SPI parent, even when the nested error itself is
+        // public. Without this, the dispatcher emits `Module.SpiOuter.PublicError` and
+        // the C# build fails with CS0234 because `SpiOuter` is not present.
+        var moduleDecl = BuildModule();
+        var spiOuter = BuildOuterStruct(moduleDecl, "SpiOuter");
+        spiOuter.IsSpiProtected = true;
+        var nestedError = BuildNestedErrorEnum(moduleDecl, spiOuter, "Error", "denied");
+        spiOuter.Types.Add(nestedError);
+        moduleDecl.Types.Add(spiOuter);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.SpiOuter.Error", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
+    public void Precompute_NestedErrorInUnderscoreSuppressedParent_NotRegistered()
+    {
+        // Same shape as the SPI-parent case but for the underscore-prefix gate: the
+        // outer `_HiddenInfra` is suppressed by HandleBaseDecl before any nested type
+        // is emitted, so the cascade dispatcher must not register `Module._HiddenInfra.Error`
+        // either.
+        var moduleDecl = BuildModule();
+        var hiddenOuter = BuildOuterStruct(moduleDecl, "_HiddenInfra");
+        var nestedError = BuildNestedErrorEnum(moduleDecl, hiddenOuter, "Error", "boom");
+        hiddenOuter.Types.Add(nestedError);
+        moduleDecl.Types.Add(hiddenOuter);
+
+        var ctx = new ModuleEmissionContext();
+        ctx.SetUnderscoreSuppressedNames(new HashSet<string>(StringComparer.Ordinal)
+        {
+            hiddenOuter.SwiftTypeName.ToString(),
+        });
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule._HiddenInfra.Error", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
     public void Precompute_Idempotent_SecondCallNoOp()
     {
         var moduleDecl = BuildModule();
@@ -329,6 +606,67 @@ public class ErrorEnumRegistryEmitterTests
         Dependencies = new(),
         Protocols = new(),
     };
+
+    private static StructDecl BuildOuterStruct(ModuleDecl moduleDecl, string name)
+    {
+        var swiftName = SwiftTypeName.FromModuleQualifiedName($"{moduleDecl.Name}.{name}");
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = swiftName,
+            MangledName = "",
+            IsFrozen = false,
+            GenericParameters = new(),
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new(),
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+    }
+
+    private static EnumDecl BuildNestedErrorEnum(ModuleDecl moduleDecl, TypeDecl parent, string name, string caseName)
+    {
+        var swiftName = SwiftTypeName.FromModuleQualifiedName(
+            $"{parent.SwiftTypeName.ModuleQualifiedName}.{name}");
+        return new EnumDecl
+        {
+            Name = name,
+            SwiftTypeName = swiftName,
+            MangledName = "",
+            IsFrozen = true,
+            Cases = new()
+            {
+                new EnumCaseDecl
+                {
+                    Name = caseName,
+                    MangledName = "",
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                },
+            },
+            GenericParameters = new(),
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: swiftName,
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Swift.Error"),
+                    ProtocolConformanceDescriptor: ""),
+            },
+            MetadataAccessor = "",
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+        };
+    }
 
     private static EnumDecl BuildErrorEnum(ModuleDecl moduleDecl, string name, string protocolModuleQualifiedName)
     {

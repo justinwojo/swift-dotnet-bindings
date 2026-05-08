@@ -51,7 +51,7 @@ public static class ErrorEnumRegistryEmitter
         // this module are registered by their own module's registry; Layer 1 stays scoped
         // to types declared inside this module.
         var errorTypes = new SortedDictionary<string, IReadOnlyList<AvailabilityAnnotation>?>(StringComparer.Ordinal);
-        CollectErrorConformingTypes(moduleDecl.Types, errorTypes, parentChain: null);
+        CollectErrorConformingTypes(moduleDecl.Types, errorTypes, ctx);
 
         foreach (var (name, availability) in errorTypes)
             ctx.RegisterErrorTypeId(name, availability);
@@ -60,11 +60,11 @@ public static class ErrorEnumRegistryEmitter
     private static void CollectErrorConformingTypes(
         IEnumerable<TypeDecl> typeDecls,
         SortedDictionary<string, IReadOnlyList<AvailabilityAnnotation>?> sink,
-        BaseDecl? parentChain)
+        ModuleEmissionContext ctx)
     {
         foreach (var typeDecl in typeDecls)
         {
-            if (ConformsToError(typeDecl) && IsInstantiable(typeDecl))
+            if (ConformsToError(typeDecl) && IsInstantiable(typeDecl) && IsRegisterable(typeDecl, ctx))
             {
                 // Walk parent chain so a nested error type inherits `@available` from any
                 // ancestor (e.g. `enum SomeService.FetchError` picks up SomeService's
@@ -78,8 +78,107 @@ public static class ErrorEnumRegistryEmitter
 
             // Recurse into nested types — Swift allows nested error enums (e.g.,
             // `extension SomeService { public enum FetchError: Error { ... } }`).
-            CollectErrorConformingTypes(typeDecl.Types, sink, typeDecl);
+            // Recursion is unconditional so we descend through public non-error
+            // outer types (e.g. a plain namespace struct) to reach an emittable
+            // nested error. Nested types whose own parent chain hits an SPI,
+            // @usableFromInline internal, or underscore-suppressed link are still
+            // dropped — IsRegisterable re-walks the chain per-candidate.
+            CollectErrorConformingTypes(typeDecl.Types, sink, ctx);
         }
+    }
+
+    /// <summary>
+    /// Two-stage check: every link in the parent chain must be name-visible to the Swift
+    /// cascade dispatcher's plain <c>import {Module}</c> (per <see cref="IsTypeSkippedByEmitter"/>),
+    /// and no link in the chain can be open-generic. A type failing either stage drops
+    /// from the registry and the cascade falls through to id 0
+    /// (untyped <see cref="SwiftException"/>) — the correct degradation.
+    ///
+    /// The visibility gate is STRICTER than <c>HandleBaseDecl</c>'s skip set because the
+    /// cascade dispatcher operates from the wrapper module's import context, which sees
+    /// only <c>public</c> declarations. C# bindings exist for some types the cascade can't
+    /// reference (e.g. <c>@usableFromInline internal</c>) — those must not get a registry
+    /// id even though their C# class is emitted.
+    /// </summary>
+    private static bool IsRegisterable(TypeDecl typeDecl, ModuleEmissionContext ctx)
+    {
+        // Walk self + every ancestor TypeDecl applying the same skip gates HandleBaseDecl
+        // applies per-decl. If any link in the chain would be skipped from C# emission,
+        // the cascade dispatcher cannot reference this type — drop the registry entry.
+        for (BaseDecl? cursor = typeDecl; cursor is not null; cursor = cursor.ParentDecl)
+        {
+            if (cursor is not TypeDecl cursorTypeDecl)
+                continue;
+            if (IsTypeSkippedByEmitter(cursorTypeDecl, ctx))
+                return false;
+        }
+
+        // Generic-parent gate: the cascade dispatcher renders module-qualified names
+        // verbatim (`global::Module.Outer.Inner`), but a type whose parent chain contains
+        // an open generic (e.g. `Outer<T>.Inner` or `Outer<T>` itself) requires either
+        // a closed type argument or a fresh generic parameter on the dispatcher — neither
+        // of which is available at precompute time. Drop these entries; runtime falls
+        // through to untyped SwiftException.
+        if (typeDecl.IsGeneric || IsNestedInGenericParent(typeDecl))
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Per-decl visibility check for cascade-dispatcher purposes. A type fails this
+    /// gate when the Swift wrapper module's plain <c>import {Module}</c> cannot
+    /// reference it by name — i.e. when an <c>as? Module.SomeType</c> in the cascade
+    /// would fail to compile.
+    ///
+    /// The gate is STRICTER than <c>HandleBaseDecl</c>'s skip set: HandleBaseDecl emits
+    /// C# bindings for <c>@usableFromInline internal</c> types because they appear in
+    /// the public signatures of <c>@inlinable</c> functions and need a referenceable
+    /// C# type. The Swift cascade wrapper, by contrast, sits in a different module
+    /// importing the framework and only sees <c>public</c> declarations — internal
+    /// types (even with <c>@usableFromInline</c>) are name-invisible and produce
+    /// "module X has no member named Y" / "no type named Y in module X" errors.
+    ///
+    /// Filtered types fall through to id 0 (untyped <see cref="SwiftException"/>),
+    /// which is the correct degradation — a typed-throws bridge for an internal type
+    /// the consumer can't name in their own code anyway buys nothing.
+    /// </summary>
+    private static bool IsTypeSkippedByEmitter(TypeDecl typeDecl, ModuleEmissionContext ctx)
+    {
+        // @_spi types are skipped from C# emission AND invisible to plain `import`.
+        if (typeDecl.IsSpiProtected)
+            return true;
+
+        // `@usableFromInline internal` (and plain `internal`) types: C# binding is
+        // emitted, but the wrapper module's `import` only sees `public`. The cascade
+        // dispatcher's `as? Module.Type` would not resolve.
+        if (typeDecl.IsModuleInternal)
+            return true;
+
+        // Underscore-prefixed types not structurally required are suppressed.
+        if (typeDecl.SwiftTypeName != null
+            && ctx.IsUnderscoreSuppressed(typeDecl.SwiftTypeName.ToString()))
+            return true;
+
+        // Apple-supplement-owned types: the framework-package handler skips emission
+        // so consumers reach the supplement's canonical projection instead. The
+        // cascade dispatcher would otherwise reference a type the framework C# never
+        // declares.
+        if (typeDecl.SwiftTypeName != null
+            && AppleSupplementResolver.TryResolve(typeDecl.SwiftTypeName, typeDecl.SwiftTypeName.Module, out _))
+            return true;
+
+        return false;
+    }
+
+    private static bool IsNestedInGenericParent(TypeDecl typeDecl)
+    {
+        for (var parent = typeDecl.ParentDecl; parent is not null; parent = parent.ParentDecl)
+        {
+            if (parent is TypeDecl parentTypeDecl && parentTypeDecl.IsGeneric)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
