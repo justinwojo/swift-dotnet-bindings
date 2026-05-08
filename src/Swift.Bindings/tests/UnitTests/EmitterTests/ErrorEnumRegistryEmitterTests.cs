@@ -124,6 +124,49 @@ public class ErrorEnumRegistryEmitterTests
     }
 
     [Fact]
+    public void Precompute_CaselessNamespaceEnumWithLocalizedError_NotRegistered()
+    {
+        // WeatherKit-shaped pattern: a caseless namespace enum (used as a container for
+        // `static let` constants) that conforms to LocalizedError via extension. The C#
+        // emission projects a caseless enum as a `static class`, which can't be a generic
+        // type argument and can't be cast to. The cascade dispatcher would emit
+        // SwiftException<StaticClass> code that fails to compile, so the registry must
+        // skip these and let the untyped SwiftException fallback handle them at runtime.
+        var moduleDecl = BuildModule();
+        var caselessEnum = new EnumDecl
+        {
+            Name = "WeatherErrorNamespace",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.WeatherErrorNamespace"),
+            MangledName = "",
+            IsFrozen = false,
+            Cases = new(), // <-- Caseless: zero cases.
+            GenericParameters = new(),
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("TestModule.WeatherErrorNamespace"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Foundation.LocalizedError"),
+                    ProtocolConformanceDescriptor: ""),
+            },
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(caselessEnum);
+
+        var ctx = new ModuleEmissionContext();
+        ErrorEnumRegistryEmitter.Precompute(moduleDecl, ctx);
+
+        Assert.False(ctx.TryGetErrorTypeId("TestModule.WeatherErrorNamespace", out _));
+        Assert.Empty(ctx.ErrorTypeOrder);
+    }
+
+    [Fact]
     public void Precompute_NonErrorEnum_NotRegistered()
     {
         var moduleDecl = BuildModule();
@@ -181,7 +224,18 @@ public class ErrorEnumRegistryEmitterTests
             SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.SomeService.FetchError"),
             MangledName = "",
             IsFrozen = true,
-            Cases = new(),
+            // At least one case — caseless enums are filtered out as
+            // namespace-only types by the registry.
+            Cases = new()
+            {
+                new EnumCaseDecl
+                {
+                    Name = "notFound",
+                    MangledName = "",
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                },
+            },
             GenericParameters = new(),
             Properties = new(),
             Methods = new(),
@@ -285,7 +339,19 @@ public class ErrorEnumRegistryEmitterTests
             SwiftTypeName = swiftName,
             MangledName = "",
             IsFrozen = true,
-            Cases = new(),
+            // At least one case so the registry's caseless-namespace filter
+            // (IsInstantiable) treats this as a real error enum, not a
+            // WeatherKit-shaped static namespace.
+            Cases = new()
+            {
+                new EnumCaseDecl
+                {
+                    Name = "someCase",
+                    MangledName = "",
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl,
+                },
+            },
             GenericParameters = new(),
             Properties = new(),
             Methods = new(),

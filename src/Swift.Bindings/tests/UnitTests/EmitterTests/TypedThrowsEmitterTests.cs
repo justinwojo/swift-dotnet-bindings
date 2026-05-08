@@ -128,19 +128,24 @@ public class TypedThrowsEmitterTests
             hasTypedThrows: true,
             errorTypeName: "TestModule.ParseError");
 
-        // C# side: 5-param delegate with error ptr + size + message + isCancellation + task
-        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, void", csOutput);
-        // Error type uses fully-qualified C# name from TypeDatabase
+        // Phase 4 unified wire: 6-param delegate
+        // (errorPtr?, errorSize, msgPtr?, isCancellation, _sbwTask, errorTypeId).
+        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, int, void", csOutput);
+        // Typed-throws body still marshals from the static error type and frees the
+        // Swift-allocated buffer (errorTypeId is 0 on this path, ignored by C#).
         Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
         Assert.Contains("SBW_Free(errorPtr)", csOutput);
         Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
 
-        // Swift side: typed error callback with MemoryLayout + initializeMemory
+        // Swift side: typed error callback with MemoryLayout + initializeMemory.
         // Uses initializeMemory (not copyMemory) to properly retain internal references
         // in error enum associated values (e.g., String fields in ParseError.overflow).
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
         Assert.Contains("initializeMemory(as: TestModule.ParseError.self", swiftOutput);
-        Assert.Contains("UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64", swiftOutput);
+        // Unified Swift signature uses Optional pointers + trailing Int32 errorTypeId.
+        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        // Typed-throws catch passes errorTypeId 0 (C# uses static error type for dispatch).
+        Assert.Contains("_isCancelled, _sbwTask, 0)", swiftOutput);
     }
 
     [Fact]
@@ -150,15 +155,18 @@ public class TypedThrowsEmitterTests
             isAsync: true,
             hasTypedThrows: false);
 
-        // C# side: 3-param delegate (message + isCancellation + task)
-        // Note: DoesNotContain checks are scoped to error-specific patterns
-        // (MarshalFromSwift<int> exists for return value marshalling)
+        // Phase 4 unified wire: even untyped throws emit the 6-param delegate. The C#
+        // body still constructs a bare SwiftException (no marshalling of the payload
+        // pointers, which the Swift catch fills with nil/0). Test fixture has no
+        // registered error types, so the cascade gate is also off — pure untyped.
+        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, int, void", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
         Assert.Contains("SwiftException(errorMessage)", csOutput);
 
-        // Swift side: untyped catch block
-        Assert.Contains("errorCallback($0, _isCancelled, _sbwTask)", swiftOutput);
+        // Swift side: untyped catch passes nil/0 fillers for the payload fields.
+        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)", swiftOutput);
         Assert.DoesNotContain("MemoryLayout<", swiftOutput);
     }
 
@@ -171,11 +179,12 @@ public class TypedThrowsEmitterTests
             errorTypeName: "UnknownModule.UnknownError",
             registerErrorType: false);
 
-        // Should fall back to untyped pattern
+        // Should fall back to untyped pattern (still on the unified 6-param wire).
         Assert.Contains("SwiftException(errorMessage)", csOutput);
         Assert.DoesNotContain("SBW_Free", csOutput);
         Assert.DoesNotContain("SwiftException<", csOutput);
-        Assert.Contains("errorCallback($0, _isCancelled, _sbwTask)", swiftOutput);
+        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)", swiftOutput);
     }
 
     [Fact]
@@ -188,16 +197,17 @@ public class TypedThrowsEmitterTests
             errorTypeName: "TestModule.ParseError",
             isFreeFunction: true);
 
-        // C# side: 5-param delegate with error ptr + size + message + isCancellation + task
-        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, void", csOutput);
+        // Phase 4 unified wire: same 6-param shape across all three paths.
+        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, int, void", csOutput);
         Assert.Contains("MarshalFromSwift<TestModule.ParseError>", csOutput);
         Assert.Contains("SBW_Free(errorPtr)", csOutput);
         Assert.Contains("SwiftException<TestModule.ParseError>", csOutput);
 
-        // Swift side: typed error callback with MemoryLayout + initializeMemory
+        // Swift side: typed error callback with MemoryLayout + initializeMemory.
         Assert.Contains("MemoryLayout<TestModule.ParseError>.size", swiftOutput);
         Assert.Contains("initializeMemory(as: TestModule.ParseError.self", swiftOutput);
-        Assert.Contains("UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64", swiftOutput);
+        Assert.Contains("UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32", swiftOutput);
+        Assert.Contains("_isCancelled, _sbwTask, 0)", swiftOutput);
     }
 
     #endregion

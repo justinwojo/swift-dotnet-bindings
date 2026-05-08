@@ -464,6 +464,53 @@ public class BasicThrowingTests : TestBase
 
     #endregion
 
+    // ===================================================================
+    // Phase 4 plain-throws cascade — SwiftException<TError> dispatch
+    // Plain `async throws` (NOT typed-throws) functions that throw a
+    // registered Error-conforming enum. The per-module cascade dispatcher
+    // should match the runtime error type and surface the strongly-typed
+    // SwiftException<TError> rather than the untyped fallback.
+    // ===================================================================
+
+    #region Plain-throws cascade — Async
+
+    public async Task TestPlainThrowsAsyncDivideSuccess()
+    {
+        var result = await WithTimeout(TestLibFunctions.PlainThrowsAsyncDivideAsync(20, 4), DefaultAsyncTimeout);
+        AssertEqual(5, result, "PlainThrowsAsyncDivideAsync(20, 4) = 5");
+        TestLogger.Info($"PlainThrowsAsyncDivideAsync(20, 4) = {result}");
+    }
+
+    public async Task TestPlainThrowsAsyncDivideCascadeToMathError()
+    {
+        // Plain `async throws` throwing MathError.overflow (registered via
+        // ErrorEnumRegistryEmitter). The cascade dispatcher should hand C# a typed
+        // buffer + matching errorTypeId so the outer await sees
+        // SwiftException<MathError> — NOT the untyped SwiftException fallback.
+        // MathError is a simple no-payload Int32-raw-value enum so it projects to a
+        // C# value-type enum and `.Error` is plain `MathError` (TError? without a
+        // struct constraint stays the underlying type). Asserting against
+        // `.overflow` (raw value 1) instead of `.divisionByZero` (raw value 0)
+        // distinguishes a real cascade payload from a zero-default fallback.
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.PlainThrowsAsyncDivideAsync(int.MinValue, -1),
+                DefaultAsyncTimeout);
+            throw new AssertionException("PlainThrowsAsyncDivideAsync(Int32.MinValue, -1) should have thrown");
+        }
+        catch (SwiftException<MathError> ex)
+        {
+            AssertEqual(MathError.Overflow, ex.Error,
+                "Cascade dispatch should produce MathError.Overflow");
+            AssertTrue(ex.Message.Contains("overflow"),
+                $"Cascade message should contain Swift error description, got: {ex.Message}");
+            TestLogger.Info($"PlainThrowsAsyncDivideAsync cascade: Error={ex.Error}, Message={ex.Message}");
+        }
+    }
+
+    #endregion
+
     #region Pass 2 — S1: Failable Init (SafeDiv, RangedInt)
 
     public void TestSafeDivSuccess()

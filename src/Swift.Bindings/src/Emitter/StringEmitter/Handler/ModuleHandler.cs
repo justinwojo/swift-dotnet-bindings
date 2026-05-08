@@ -270,6 +270,21 @@ namespace BindingsGeneration
                 }
             }
 
+            // Phase 4 plain-throws → SwiftException<TError> bridge: emit the per-module
+            // C# typed-exception dispatcher class (consumed by 6-param error callbacks
+            // emitted from plain-throws async wrappers) and the Swift cascade dispatcher
+            // (called from the `} catch { ... }` blocks of those wrappers). Both no-op
+            // when ErrorTypeOrder is empty for the module. See ErrorRegistryHelperEmitter.
+            {
+                var errorRegistryEmissionCtx = context.GetEmissionContext();
+                var errorRegistryModuleLibPath = env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+                var errorRegistryWrapperLibPath = env.TypeDatabase.AsyncLibraryName ?? errorRegistryModuleLibPath;
+                ErrorRegistryHelperEmitter.EmitCSharpRegistryIfNeeded(
+                    csWriter, moduleDecl.Name, errorRegistryWrapperLibPath, errorRegistryEmissionCtx, env.TypeDatabase);
+                ErrorRegistryHelperEmitter.EmitSwiftCascadeIfNeeded(
+                    swiftWriter, moduleDecl.Name, errorRegistryEmissionCtx, env.TypeDatabase);
+            }
+
             // Emit DllImport framework resolver + NativeAOT factory registration with [ModuleInitializer]
             EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext());
 

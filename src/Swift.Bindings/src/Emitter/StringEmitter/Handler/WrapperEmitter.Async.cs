@@ -733,26 +733,36 @@ namespace BindingsGeneration
                 }
             }
 
-            // For typed throws, the error callback takes 5 params: (errorPtr, errorSize, messagePtr, isCancellation, task)
-            // For untyped throws, it takes 3 params: (messagePtr, isCancellation, task)
-            // isCancellation (Int32): 1 if error is CancellationError, 0 otherwise
-            var errorCallbackSwiftParam = useTypedErrorCallback
-                ? "errorCallback: @escaping @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64) -> Void"
-                : "errorCallback: @escaping @convention(c) (UnsafePointer<CChar>, Int32, Int64) -> Void";
+            // Phase 4 unified wire format: a single 6-param error callback shape covers
+            // typed-throws, plain-throws cascade, and untyped-throws fallback. Param order:
+            //   (errorPtr?, errorSize, messagePtr?, isCancellation, _sbwTask, errorTypeId)
+            // Optional pointers so cancellation / untyped / fallthrough branches can pass nil.
+            // errorTypeId is the wire discriminator: 0 = untyped fallback (bare SwiftException),
+            // > 0 = registry id resolved to SwiftException<TError> by the per-module C# helper.
+            // The typed-throws path uses a static error type known at compile time and ignores
+            // errorTypeId / errorSize on the C# side; it still emits the unified shape so the
+            // generated delegate type is identical across the three branches.
+            const string UnifiedSwiftCallbackSignature =
+                "(UnsafeRawPointer?, Int, UnsafePointer<CChar>?, Int32, Int64, Int32) -> Void";
+            string errorCallbackSwiftParam =
+                $"errorCallback: @escaping @convention(c) {UnifiedSwiftCallbackSignature}";
 
-            // Pre-compute the Swift catch block body for typed vs untyped throws.
+            // Pre-compute the Swift catch block body for typed vs cascade vs untyped throws
+            // (all branches emit the unified-shape callback invocation; only the body around
+            // it differs — typed allocates a static-typed buffer, cascade delegates to the
+            // module dispatcher, untyped passes nil/0 for the unused payload fields).
             string swiftCatchBody = BuildSwiftCatchBody("                        ");
             string swiftCatchBodyExt = BuildSwiftCatchBody("                            ");
 
             bool usesCdecl = _env.MethodDecl.UsesCdeclMethodWrapper;
             // For @_cdecl: param labels become `_` (unlabeled), remove @escaping from @convention(c)
+            string cdeclErrorCallback =
+                $"_ errorCallback: @convention(c) {UnifiedSwiftCallbackSignature}";
             var baseParams = usesCdecl
                 ? new[]
                 {
                     $"_ callback: @convention(c) ({callbackParams}Int64) -> Void",
-                    useTypedErrorCallback
-                        ? "_ errorCallback: @convention(c) (UnsafeRawPointer, Int, UnsafePointer<CChar>, Int32, Int64) -> Void"
-                        : "_ errorCallback: @convention(c) (UnsafePointer<CChar>, Int32, Int64) -> Void",
+                    cdeclErrorCallback,
                     "_ _sbwTask: Int64"
                 }
                 : new[]
@@ -2084,18 +2094,23 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Builds the C# error callback code block (delegate + method) for async wrappers.
-        /// For typed throws, emits a 5-param callback (errorPtr, errorSize, messagePtr, isCancellation, task).
-        /// For untyped throws, emits a 3-param callback (messagePtr, isCancellation, task).
-        /// The isCancellation parameter (Int32) is 1 when the Swift error is CancellationError.
+        /// Phase 4 unified wire format: all branches (typed throws, plain-throws cascade,
+        /// untyped throws) emit the same 6-param callback
+        /// (errorPtr, errorSize, errorMessagePtr, isCancellation, task, errorTypeId).
+        /// Body branches differ — typed marshals a static error type from <c>errorPtr</c>;
+        /// cascade dispatches via the per-module helper using <c>errorTypeId</c>; untyped
+        /// reads only <c>errorMessagePtr</c>, with the payload fields nil/0.
+        /// <c>isCancellation</c> (Int32) is 1 when the Swift error is CancellationError.
         /// </summary>
         private string BuildErrorCallbackBlock(
             string errorCallbackFieldName,
             string errorCallbackMethodName,
             string tcsType)
         {
-            // Common cancellation handling code — used by both typed and untyped paths.
+            // Common cancellation handling code — used by typed, cascade, and untyped paths.
             // When isCancellation is set, find the CancellationToken from the holder and call TrySetCanceled.
-            // For typed throws, the Swift-allocated error buffer must also be freed.
+            // For typed throws, the Swift-allocated error buffer must also be freed; for cascade,
+            // SBW_Free runs inside the dispatcher helper's `finally` so no extra free here.
             var freeErrorInCancellation = useTypedErrorCallback
                 ? "\n                                        SBW_Free(errorPtr);"
                 : "";
@@ -2166,6 +2181,29 @@ namespace BindingsGeneration
                                     directTcs.TrySetException(new SwiftException<{{typedThrowsCSharpErrorType}}>(typedError, errorMessage));
                 """;
             }
+            else if (useCascadeErrorCallback)
+            {
+                // Phase 4 plain-throws cascade: 6-param wire format. The Swift cascade
+                // dispatcher (_SBW_dispatchSwiftError_{Module}) hands us errorTypeId +
+                // a typed buffer for registered error types, or id 0 for untyped fallthrough.
+                // The per-module C# helper class (_SbwModuleErrorRegistry_{Module}) consumes
+                // the wire fields and returns the appropriate SwiftException / SwiftException<TError>.
+                // The helper handles SBW_Free in its own finally — no extra free here.
+                var moduleName = _env.MethodDecl.ModuleDecl?.Name
+                    ?? throw new InvalidOperationException("MethodDecl.ModuleDecl required for cascade callback");
+                var helperClassName = ErrorRegistryHelperEmitter.GetCSharpHelperClassName(moduleName);
+                holderErrorBody = $$"""
+                                        var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                        var exception = global::{{moduleName}}.{{helperClassName}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage);
+                                        // Free copy buffer memory for non-frozen params and release retained self
+                {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
+                                        holderTcs.TrySetException(exception);
+                """;
+                directErrorBody = $$"""
+                                    var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
+                                    directTcs.TrySetException(global::{{moduleName}}.{{helperClassName}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage));
+                """;
+            }
             else
             {
                 holderErrorBody = $$"""
@@ -2181,14 +2219,15 @@ namespace BindingsGeneration
                 """;
             }
 
-            // Build delegate and method signatures based on typed vs untyped throws
+            // Phase 4 unified wire format: typed-throws, plain-throws cascade, and untyped
+            // throws all emit the same 6-param C# delegate. Body branches above still differ
+            // (typed marshals a static error type, cascade dispatches via per-module helper,
+            // untyped reads only the message), but the wire and delegate type are uniform.
+            // SBW_Free is only declared for the typed-throws branch — cascade frees inside
+            // the per-module helper; untyped never allocates payload memory.
             var freePInvokeDecl = useTypedErrorCallback ? GetFreePInvokeDeclIfNeeded() : "";
-            var delegateParams = useTypedErrorCallback
-                ? "IntPtr, nint, IntPtr, int, IntPtr, void"
-                : "IntPtr, int, IntPtr, void";
-            var methodParams = useTypedErrorCallback
-                ? "IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task"
-                : "IntPtr errorMessagePtr, int isCancellation, IntPtr task";
+            const string delegateParams = "IntPtr, nint, IntPtr, int, IntPtr, int, void";
+            const string methodParams = "IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task, int errorTypeId";
 
             return $$"""
                         {{freePInvokeDecl}}{{AsyncFieldVisibility}} static unsafe delegate* unmanaged[Cdecl]<{{delegateParams}}> {{errorCallbackFieldName}} = &{{errorCallbackMethodName}};
@@ -2246,16 +2285,18 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the Swift catch block body for typed vs untyped throws, parameterized by indent.
+        /// Builds the Swift catch block body for typed/cascade/untyped throws, parameterized by indent.
         /// </summary>
         private string BuildSwiftCatchBody(string indent)
         {
             if (useTypedErrorCallback)
             {
-                // Cancellation must be handled before the force-cast to the typed error.
-                // CancellationError is not the typed error type, so `error as! T` would trap.
-                // For cancellation: allocate a zeroed buffer (C# only reads _isCancelled flag).
-                // For typed errors: cast and copy the error value into the buffer.
+                // Typed-throws path. Cancellation must be handled before the force-cast to
+                // the typed error — CancellationError is not the typed error type, so
+                // `error as! T` would trap. Cancellation: allocate a zeroed buffer (C# only
+                // reads _isCancelled flag). Typed errors: cast and copy into the buffer.
+                // Wire format is the unified 6-param shape; errorTypeId is 0 because the
+                // typed-throws C# body uses the static error type (never consults the id).
                 return
                     $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
                     $"{indent}let _errSize = MemoryLayout<{typedThrowsSwiftErrorType}>.size\n" +
@@ -2266,15 +2307,34 @@ namespace BindingsGeneration
                     $"{indent}}}\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
                     $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
-                    $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, _sbwTask)\n" +
+                    $"{indent}    errorCallback(UnsafeRawPointer(_errPtr), Int(Int64(_errSize)), _msgPtr, _isCancelled, _sbwTask, 0)\n" +
                     $"{indent}}}";
+            }
+            else if (useCascadeErrorCallback)
+            {
+                // Phase 4 plain-throws cascade: delegate to the per-module dispatcher helper
+                // (_SBW_dispatchSwiftError_{Module}) which handles cancellation, the
+                // alphabetical `as?` cascade against registered error types, typed-buffer
+                // allocation, and the unified 6-param callback invocation. The helper falls
+                // through to errorTypeId 0 when no registered type matches; C# treats id 0
+                // as untyped SwiftException fallback.
+                var moduleName = _env.MethodDecl.ModuleDecl?.Name
+                    ?? throw new InvalidOperationException("MethodDecl.ModuleDecl required for cascade catch body");
+                var dispatchSymbol = ErrorRegistryHelperEmitter.GetSwiftDispatchSymbolName(moduleName);
+                return $"{dispatchSymbol}(error, _sbwTask, errorCallback)";
             }
             else
             {
+                // Untyped fallback: the module has no registered Error-conforming types so
+                // the cascade has nothing to dispatch against. Pass the unified shape with
+                // nil payload pointer, zero size, and errorTypeId 0 — the C# body reads only
+                // the message field, but the wire matches the typed/cascade delegate type.
                 return
                     $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
                     $"{indent}let errorMessage = String(describing: error)\n" +
-                    $"{indent}errorMessage.withCString {{ errorCallback($0, _isCancelled, _sbwTask) }}";
+                    $"{indent}errorMessage.withCString {{ _msgPtr in\n" +
+                    $"{indent}    errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)\n" +
+                    $"{indent}}}";
             }
         }
 

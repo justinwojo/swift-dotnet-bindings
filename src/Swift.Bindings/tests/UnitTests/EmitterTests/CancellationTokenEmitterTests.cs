@@ -296,11 +296,16 @@ public class CancellationTokenEmitterTests
     #region Swift Error Callback Signature Tests
 
     [Fact]
-    public void AsyncWrapper_UntypedThrows_ErrorCallbackHas3Params()
+    public void AsyncWrapper_UntypedThrows_ErrorCallbackUsesUnifiedSixParam()
     {
+        // Phase 4 unified wire format: typed-throws, plain-throws cascade, and untyped
+        // throws all share a single 6-param shape
+        // (errorPtr?, errorSize, msgPtr?, isCancellation, _sbwTask, errorTypeId).
+        // Untyped fixture has no registered error types, so the body passes
+        // (nil, 0, _msgPtr, _isCancelled, _sbwTask, 0).
         var (csOutput, swiftOutput) = GenerateAsyncMethod();
-        Assert.Contains("_isCancelled, _sbwTask", swiftOutput);
-        Assert.Contains("IntPtr, int, IntPtr, void>", csOutput);
+        Assert.Contains("_isCancelled, _sbwTask, 0", swiftOutput);
+        Assert.Contains("IntPtr, nint, IntPtr, int, IntPtr, int, void>", csOutput);
     }
 
     #endregion

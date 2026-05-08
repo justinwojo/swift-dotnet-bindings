@@ -31,6 +31,10 @@ namespace BindingsGeneration
         private readonly string? typedThrowsSwiftErrorType;  // e.g., "SwiftBindingsTestLib.ParseError"
         private readonly string? typedThrowsCSharpErrorType;  // e.g., "ParseError"
         private readonly bool typedErrorTransfersOwnershipAsync; // true when MarshalFromSwift takes ownership of error buffer
+        // Phase 4 plain-throws → typed-exception cascade: true when this is a plain-throws
+        // async method (Throws but not HasTypedThrows) AND the module has registered error
+        // types via ErrorEnumRegistryEmitter. Drives the 6-param cascade-dispatch wire format.
+        private readonly bool useCascadeErrorCallback;
         private readonly SyncMethodPlan _syncPlan;
         private readonly ModuleEmissionContext _emissionContext;
         private bool _needsUnsafeBody;
@@ -131,6 +135,16 @@ namespace BindingsGeneration
                     typedErrorTransfersOwnershipAsync = isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass || isClassError;
                 }
             }
+
+            // Phase 4 plain-throws cascade: distinct from useTypedErrorCallback (which handles
+            // statically-typed `throws(T)`). A plain `async throws` method fires the cascade
+            // path only when the module has at least one Error-conforming type registered via
+            // ErrorEnumRegistryEmitter — otherwise there's nothing to cascade against and the
+            // existing 3-param stringification fallback stays in effect.
+            useCascadeErrorCallback = !useTypedErrorCallback
+                && _requiresSwiftAsync
+                && _env.MethodDecl.Throws
+                && _emissionContext.ErrorTypeOrder.Count > 0;
 
             // Frozen struct value types need a fixed block to pin 'this' and get a pointer.
             // Two cases: (1) setters modify the struct in-place (pointer semantics),

@@ -332,6 +332,18 @@ public sealed class ModuleEmissionContext
     public bool TryGetErrorTypeId(string swiftModuleQualifiedName, out int id) =>
         _errorTypeIds.TryGetValue(swiftModuleQualifiedName, out id);
 
+    /// <summary>
+    /// Whether the Swift-side cascade dispatcher
+    /// (<see cref="ErrorRegistryHelperEmitter"/>) has been emitted for this module.
+    /// </summary>
+    public bool ErrorRegistryHelperEmittedSwift { get; set; }
+
+    /// <summary>
+    /// Whether the C#-side typed-exception dispatcher class
+    /// (<see cref="ErrorRegistryHelperEmitter"/>) has been emitted for this module.
+    /// </summary>
+    public bool ErrorRegistryHelperEmittedCSharp { get; set; }
+
     // ==================== Generic Closure Bridge ====================
 
     private readonly HashSet<string> _genericClosureBridgeTypes = new();
