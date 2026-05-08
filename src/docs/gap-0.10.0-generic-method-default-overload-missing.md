@@ -296,6 +296,175 @@ at the top of that emitter), and the per-conformer specialized trim path
 needs the trim overload's signature collision logic to dedup against the
 specialized primary overloads.
 
+## Fix M implementation pickup notes (2026-05-07)
+
+Captured during the α1 session that shipped Fix J only. Fix M is moved to its
+own dedicated session because the option-(a) build is substantially larger than
+the original "small-medium" sizing — the audit below is the load-bearing part
+that the fresh-session pickup needs. Read this section together with the
+"Why option (a) is bigger than just lifting the bail" section above; they're
+complementary (the section above covers the architectural shape, this section
+covers the specific entry points and call sites).
+
+### Layer 1 location (mechanical)
+
+The Swift-side bail is at `DefaultParameterOverloadEmitter.cs:59-60`
+(`if (methodDecl.IsGeneric) return false;` — both the no-throws and throws
+branches). Lifting it requires threading two strings into the three
+func-decl emit sites in `EmitSwiftWrapper`:
+
+- `methodOwnGenericParams` — `<T0>` style. Already built by
+  `AsyncHarnessEmitter.BuildMethodOwnGenericParams(methodDecl)` (public
+  static helper, sync-safe). Uses `τ_0_N` / `T0` canonicalization.
+- `methodOwnWhereClause` — ` where T0: ConstraintProto`. Build via
+  `WrapperEmitterHelpers.BuildSwiftWhereClause(methodDecl)` (existing
+  public helper).
+
+Three func-decl emit sites in `EmitSwiftWrapper`: free function, constructor,
+type method. Mechanical insertion — both helpers already exist and the resulting
+shim shape `public static func _dbw_…<T0>(…) async throws -> Result where T0:
+ConstraintProto` was verified to compile cleanly during the D2 investigation.
+
+**Layer 1 alone is dead code.** D2 confirmed empirically: the Swift shim emits,
+but the C# call site never resolves it because `MethodGenericBridgeEmitter`
+rejects async/throws (gate at lines 49-50:
+`if (methodDecl.IsAsync) return false; if (methodDecl.Throws) return false;`).
+Validated by adding an exact-shape fixture
+`AsyncPurchaseReceipt.confirm<S: AsyncSceneMarker>(…, options: Set<…> = [])`
+and observing the generated `SwiftBindingsTestLib.cs` only carried the
+`Unsupported: …` diagnostic — no primary explicit overload, so no trim symbol
+ever bound.
+
+### Layer 2 architecture options
+
+The C# side needs a primary explicit overload before the trim variant has
+anything to bind to. Three weighed paths:
+
+**Option A — Synthesize a non-generic MethodDecl clone with placeholder
+substitution.** Mirror the CSM-sync trim pattern: substitute the open generic
+param with a placeholder type (e.g. `ISwiftObject` or a per-conformer concrete
+type) in `CSSignature`, clear `GenericParameters`, and route the synthesized
+decl through the existing trim emitter. Issue: the placeholder substitution
+must compile-check at the C# call site, and `ISwiftObject` is a bare interface
+without the witness threading the trim P/Invoke needs to match the new
+`DBW_…` symbol. Per-conformer substitution exists for CSM but the StoreKit
+shape has no `specialization-hints.json` entry — adding one makes this
+class-bound case CSM-routed (option (b)), defeating the purpose.
+
+**Option B — Call `BuildSwiftAsyncWrapperCode` directly with custom
+existential-opening strings + manual TCS plumbing.** `BuildSwiftAsyncWrapperCode`
+is a public entry on `WrapperEmitter.Async.cs` accepting parameter strings,
+which the existential-opening dispatcher
+(`Unmanaged<AnyObject>.fromOpaque(_{label}).takeUnretainedValue() as! any
+{protocol}`) could feed. Gate at `WrapperEmitter.Async.cs:1089` is the only
+Swift-side block on method-own generics — `EmitAsyncWrapper(csWriter)` already
+supports method-own generics on the C# side (sync emission already produces
+`<T0> where T0: …` for the C# signature; what's missing is the Swift-side
+shim emitting an `@_cdecl` that opens the existential).
+
+The TCS bridge (Task<TaskCompletionSource> pattern used by every async
+emission) is reusable from `AsyncHarnessEmitter.EmitAsyncWrapper` — that
+emitter dispatches by return shape (tuple, string, array-string, collection,
+complex, primitive) and each branch synthesizes its own callback marshalling.
+Reusing the existing dispatch keeps the new code shape identical to today's
+async emission for the non-generic case, with the only delta being the
+existential-opening one-liner inside the Swift shim body.
+
+**Option C — Build a full async-throws path inline in
+`MethodGenericBridgeEmitter`.** Lift the two async/throws gates at
+`MethodGenericBridgeEmitter.cs:49-50` and add the `@_cdecl`-incompatible
+trampoline shape: an `@_cdecl` Swift func that takes `_self: IntPtr`, opens
+the existential, dispatches into a `Task` via `Task.detached`, and pumps the
+result through a C function pointer callback (the same shape
+`AsyncHarnessEmitter` synthesizes for ordinary async methods). The
+`@_cdecl can't throw` constraint — which is why `MethodGenericBridgeEmitter`
+originally bailed on throws — already has a workaround in the async path:
+errors flow through the callback's error parameter, not through Swift's
+throwing-function ABI.
+
+**Recommended starting point: Option B.** It reuses the most existing code
+(`BuildSwiftAsyncWrapperCode` + `EmitAsyncWrapper` + the existential-opening
+pattern from sync `MethodGenericBridgeEmitter`), and isolates the new logic
+to one bridge between two existing public entry points. Option A is shortest
+on paper but the placeholder type problem isn't solvable cleanly without CSM.
+Option C duplicates ~1500 lines of `AsyncHarnessEmitter` machinery inside
+`MethodGenericBridgeEmitter`.
+
+### Concrete entry points to wire
+
+- `MethodGenericBridgeEmitter.cs:49-50` — bail to lift (the existing sync
+  path's existential-opening dispatch is the template for what async/throws
+  needs to extend to).
+- `MethodGenericBridgeEmitter.cs` sync existential-opening Swift wrapper —
+  uses `Unmanaged<AnyObject>.fromOpaque(_{label}).takeUnretainedValue() as!
+  any {protocol}` for the parent generic param. C# emits `ISwiftObject` for
+  the generic param and `IntPtr` for the P/Invoke parameter. The async-throws
+  variant needs the same opening but inside the Swift `Task` body, with the
+  callback pumping results back across the cdecl boundary.
+- `WrapperEmitter.Async.cs:1089` — the only Swift-side gate blocking
+  method-own generics on the async path. Gate exists because the original
+  async emitter assumed non-generic methods only; the C# side
+  (`EmitAsyncWrapper(csWriter)`) already supports method-own generics.
+- `AsyncHarnessEmitter.cs` (1590 lines) — `BuildMethodOwnGenericParams`
+  (public static), `BuildSwiftAsyncWrapperCode` (public, accepts strings),
+  `EmitAsyncWrapper` (return-shape dispatch). The harness already supplies
+  every component the shim needs; the bridge is "build the shim's Swift body
+  with existential-opening, then hand off to the harness for the C#-side
+  TCS+callback wire-up."
+- `DefaultParameterOverloadEmitter.cs:59-60` — Layer 1 bail. Lift this last,
+  after Layer 2 has produced a primary explicit overload to bind against.
+  Until Layer 2 lands, lifting this writes a `_dbw_…` symbol nothing
+  resolves.
+
+### Trap: CSM-async synthesizes non-generic clone
+
+The CSM-async resolution shipped in D2 `3192be1f` synthesizes a non-generic
+MethodDecl clone (concrete conformer types substituted into `CSSignature`,
+`GenericParameters = []`) so the trim emitter sees no `IsGeneric` on the
+already-specialized signature. **Do not mistake this for a Layer 2 template.**
+The CSM path has the conformer type to substitute with; the option-(a) shape
+has no per-conformer routing because there's no `specialization-hints.json`
+entry. The CSM clone trick works only when you can pre-bind a concrete
+conformer at emit time. For class-bound non-CSM, the existential stays
+existential and the Swift shim has to open it dynamically at every call.
+
+### Sizing
+
+Original "small-medium" estimate was based on the doc's "two layers needed"
+reading. The actual scope after audit:
+
+- ~800–1200 lines of new code: a new `AsyncMethodGenericBridgeEmitter`
+  parallel to `MethodGenericBridgeEmitter`, plus the trim-overload threading.
+- Deep `AsyncHarnessEmitter` integration: must reuse return-shape dispatch
+  for every existing async emission path (collection, primitive, complex,
+  tuple, string), so the bridge is a thin shim over the harness, not a
+  parallel implementation.
+- Test surface: cover the StoreKit `Product.purchase` shape plus all four
+  variants (sync / async / sync-throws / async-throws) on a class-bound
+  protocol with a trailing collection default.
+
+This is **its own session**, not a tail of α1. Sequenced as Session M.
+
+### Trim-overload binding (the layer 2 endpoint)
+
+The trim overload's P/Invoke needs to bind the new `DBW_…` symbol with
+matching metadata + witness threading. Today the trim emitter generates a
+P/Invoke that targets a symbol the wrapper dylib never exports for the
+non-CSM async/throws shapes. After Layer 2 lands the primary explicit
+overload, the trim emitter's existing logic produces the dbw symbol; the
+remaining work is teaching the trim emitter to route through the new bridge
+(rather than the synthesized-MethodDecl path used for CSM) when the source
+method is class-bound non-CSM.
+
+The C# side of the trim overload already supports the closed-shape case for
+sync — `EmitAsyncWrapper(csWriter)`'s method-own generics path emits a
+generic-method C# signature with the method-own type parameter and `where`
+clause. What changes for async/throws is the Swift-side shim: it now lives in
+the new bridge, which means the trim emitter's symbol-dedup logic
+(`MethodEnvironment.EmittedProjectedSignatures`) must seed against the new
+bridge's primary key rather than the CSM-async pre-built `synthesized`
+MethodDecl key.
+
 ## Severity
 
 **Type-fidelity — Low.** Ergonomic loss only on the still-open option (a) shape;

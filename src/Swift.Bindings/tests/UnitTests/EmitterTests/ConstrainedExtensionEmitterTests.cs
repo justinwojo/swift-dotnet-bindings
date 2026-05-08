@@ -615,4 +615,566 @@ public class ConstrainedExtensionEmitterTests
             AvailabilityAnnotations = null
         };
     }
+
+    // ==================== Fix J: method specializations + open-generic returns ====================
+    //
+    // Coverage for the Fix J extensions in ConstrainedExtensionEmitter:
+    //   - ExtractSameTypeConstraintForMethod parallels the property-side helper for
+    //     MethodDecl shapes (constraints live on the method's GenericParameters
+    //     rather than on a getter accessor).
+    //   - FindConstrainedMethodSpecializations groups methods by (name, isStatic, paramSig)
+    //     and accepts only all-constrained sibling groups, mirroring the property path.
+    //   - FindOpenGenericReturnProperties surfaces the `payloadValue` shape: properties
+    //     on the unconstrained base extension whose return spec references the parent's
+    //     open generic param.
+    //   - SubstituteParentGenericParameter rewrites the return spec for a single-param
+    //     parent. Multi-param parents return null (caller drops the surface for that
+    //     specialization rather than guess which name to substitute).
+
+    [Fact]
+    public void ExtractSameTypeConstraintForMethod_WithConcreteConstraint_ReturnsTarget()
+    {
+        var method = CreateMethodWithConcreteConstraint("temperature", "TestModule.ConcreteA",
+            new NamedTypeSpec("Swift.String"));
+        var result = ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(method);
+
+        Assert.NotNull(result);
+        Assert.Equal("TestModule", result!.Module);
+        Assert.Equal("ConcreteA", result.Name);
+    }
+
+    [Fact]
+    public void ExtractSameTypeConstraintForMethod_WithProtocolConstraint_ReturnsNull()
+    {
+        // Protocol conformances are not same-type — only ConformanceKind.ConcreteType
+        // counts as a constrained-extension specialization.
+        var method = CreateMethodWithProtocolConstraint("foo", "TestModule.SomeProtocol");
+        var result = ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(method);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ExtractSameTypeConstraintForMethod_NoGenericParams_ReturnsNull()
+    {
+        var method = CreateUnconstrainedMethod("foo");
+        var result = ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(method);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void FindConstrainedMethodSpecializations_NoGenericType_ReturnsEmpty()
+    {
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        // No methods at all
+        var result = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindConstrainedMethodSpecializations_SingleSpecPerName_GroupsByConcreteType()
+    {
+        // Canonical WeatherKit shape: static factory `temperature()` defined on two
+        // different `where T == Concrete` extensions. Each surfaces under its
+        // concrete type separately.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        typeDecl.Methods.Add(CreateMethodWithConcreteConstraint("temperature", "TestModule.Alpha",
+            new NamedTypeSpec("Swift.String"), isStatic: true));
+        typeDecl.Methods.Add(CreateMethodWithConcreteConstraint("humidity", "TestModule.Beta",
+            new NamedTypeSpec("Swift.String"), isStatic: true));
+
+        var result = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
+        Assert.Equal(2, result.Count);
+
+        var alpha = SwiftTypeName.FromModuleQualifiedName("TestModule.Alpha");
+        var beta = SwiftTypeName.FromModuleQualifiedName("TestModule.Beta");
+        Assert.True(result.ContainsKey(alpha));
+        Assert.True(result.ContainsKey(beta));
+        Assert.Single(result[alpha]);
+        Assert.Equal("temperature", result[alpha][0].Name);
+        Assert.Single(result[beta]);
+        Assert.Equal("humidity", result[beta][0].Name);
+    }
+
+    [Fact]
+    public void FindConstrainedMethodSpecializations_MixedConstrainedAndUnconstrained_RejectsGroup()
+    {
+        // Mirrors the property-side rule: if any sibling in a (name, isStatic, paramSig)
+        // group lacks a same-type constraint, the whole group is dropped to avoid
+        // namespace collision with the open-generic emission of the same overload.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        typeDecl.Methods.Add(CreateMethodWithConcreteConstraint("foo", "TestModule.Alpha",
+            new NamedTypeSpec("Swift.String"), isStatic: true));
+        typeDecl.Methods.Add(CreateUnconstrainedMethod("foo", isStatic: true));
+
+        var result = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindConstrainedMethodSpecializations_AsyncMethod_Skipped()
+    {
+        // Async/throws are out of scope for the first method-extension pass — see
+        // gates inside FindConstrainedMethodSpecializations. Sync-only siblings
+        // therefore won't collide with hypothetical async overloads of the same name.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        var asyncMethod = CreateMethodWithConcreteConstraint("foo", "TestModule.Alpha",
+            new NamedTypeSpec("Swift.String"), isStatic: true);
+        asyncMethod.IsAsync = true;
+        typeDecl.Methods.Add(asyncMethod);
+
+        var result = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindConstrainedMethodSpecializations_ConstructorMethod_Skipped()
+    {
+        // Constructors take a bespoke `From{Conformer}` factory shape that the
+        // standard constrained-extension method emitter doesn't model.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        var ctor = CreateMethodWithConcreteConstraint("init", "TestModule.Alpha",
+            new NamedTypeSpec("Swift.String"), isStatic: false);
+        ctor.IsConstructor = true;
+        typeDecl.Methods.Add(ctor);
+
+        var result = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindOpenGenericReturnProperties_PropertyReferencingParentParam_IsCollected()
+    {
+        // payloadValue shape: extension property on the unconstrained base extension
+        // whose return type is the parent's open generic param itself
+        // (e.g. `var payloadValue: SignedType { get }`). The parser canonicalizes
+        // generic-param refs as τ_0_0; matching the parent's `TypeName` field.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "SignedType");
+        typeDecl.Properties.Add(CreateOpenGenericReturnProperty(
+            "payloadValue", new NamedTypeSpec("τ_0_0"), isStatic: false));
+
+        var result = ConstrainedExtensionEmitter.FindOpenGenericReturnProperties(typeDecl);
+        Assert.Single(result);
+        Assert.Equal("payloadValue", result[0].Name);
+    }
+
+    [Fact]
+    public void FindOpenGenericReturnProperties_StaticProperty_Excluded()
+    {
+        // The current emit shape passes `self.Payload.DangerousGetHandle()` and
+        // there is no `self` for static accessors — exclude them up front.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "SignedType");
+        typeDecl.Properties.Add(CreateOpenGenericReturnProperty(
+            "payloadValue", new NamedTypeSpec("τ_0_0"), isStatic: true));
+
+        var result = ConstrainedExtensionEmitter.FindOpenGenericReturnProperties(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindOpenGenericReturnProperties_ConstrainedProperty_NotCollected()
+    {
+        // Properties carrying their own `where T == Concrete` constraint already
+        // surface via FindConstrainedSpecializations — they are not in the
+        // open-generic-return surface.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        typeDecl.Properties.Add(CreatePropertyWithConstraint(
+            "payloadValue", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("τ_0_0")));
+
+        var result = ConstrainedExtensionEmitter.FindOpenGenericReturnProperties(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void FindOpenGenericReturnProperties_ReturnSpecDoesNotReferenceParentParam_Excluded()
+    {
+        // Unconstrained property whose return type is `Swift.String` — does not
+        // reference the parent param, so it surfaces via the normal property path
+        // and is not in the open-generic-return surface.
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        typeDecl.Properties.Add(CreateUnconstrainedProperty("plain"));
+
+        var result = ConstrainedExtensionEmitter.FindOpenGenericReturnProperties(typeDecl);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SubstituteParentGenericParameter_DirectHit_ReturnsConcreteSpec()
+    {
+        // payloadValue: SignedType — direct substitution of the open param. The
+        // parser uses the canonical τ_0_0 form for generic-param refs, so the
+        // input TypeSpec must use that spelling.
+        var parent = CreateGenericStructDecl("Wrapper", "SignedType");
+        var concrete = SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteA");
+
+        var result = ConstrainedExtensionEmitter.SubstituteParentGenericParameter(
+            new NamedTypeSpec("τ_0_0"), parent, concrete);
+
+        Assert.NotNull(result);
+        Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("TestModule.ConcreteA", ((NamedTypeSpec)result!).Name);
+    }
+
+    [Fact]
+    public void SubstituteParentGenericParameter_MultiParamParent_ReturnsNull()
+    {
+        // Multi-param parents are intentionally unsupported — there's no signal in
+        // the constrained-extension grouping for which open name maps to which
+        // concrete name. Caller drops the open-generic-return surface for that
+        // specialization rather than guess.
+        var parent = CreateGenericStructDecl("Wrapper", "T");
+        parent.GenericParameters.Add(new GenericArgumentDecl("τ_0_1", "U", new(), new()));
+
+        var concrete = SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteA");
+
+        var result = ConstrainedExtensionEmitter.SubstituteParentGenericParameter(
+            new NamedTypeSpec("τ_0_0"), parent, concrete);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void SubstituteParentGenericParameter_TupleSpec_ReturnsNull()
+    {
+        // Tuple / closure / nested-type substitutions are intentionally unsupported
+        // for the initial open-generic-return surface — they expand the matrix
+        // significantly without matching canonical Apple-framework shapes.
+        var parent = CreateGenericStructDecl("Wrapper", "T");
+        var concrete = SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteA");
+
+        var tuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("τ_0_0"),
+            new NamedTypeSpec("Swift.Int"),
+        });
+
+        var result = ConstrainedExtensionEmitter.SubstituteParentGenericParameter(
+            tuple, parent, concrete);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void SubstituteParentGenericParameter_GenericArgSubstitution_ReturnsRewrittenSpec()
+    {
+        // Nested case: `Optional<T>` should rewrite the inner `T` in place,
+        // preserving the outer Optional shape so the renderer downstream still
+        // produces a valid ABI signature.
+        var parent = CreateGenericStructDecl("Wrapper", "T");
+        var concrete = SwiftTypeName.FromModuleQualifiedName("TestModule.ConcreteA");
+
+        var optionalT = new NamedTypeSpec("Swift.Optional", new[] { (TypeSpec)new NamedTypeSpec("τ_0_0") });
+
+        var result = ConstrainedExtensionEmitter.SubstituteParentGenericParameter(
+            optionalT, parent, concrete);
+
+        Assert.NotNull(result);
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("Swift.Optional", named.Name);
+        Assert.Single(named.GenericParameters);
+        var inner = Assert.IsType<NamedTypeSpec>(named.GenericParameters[0]);
+        Assert.Equal("TestModule.ConcreteA", inner.Name);
+    }
+
+    // ==================== Method-extension emission tests ====================
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_StaticPrimitiveMethod_EmitsExtensionAndPInvoke()
+    {
+        // Mirrors a canonical WeatherKit-shape factory: static method on a
+        // `where T == Concrete` extension returning a primitive (Int).
+        var (csOutput, swiftOutput) = EmitForGenericEnumWithMethod(
+            methodName: "rank",
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            isStatic: true);
+
+        // Method emits as a plain static (no `this`) on the extensions class — C# can't
+        // dispatch static extension methods on closed generic instantiations, so static
+        // factories live on the extensions class itself.
+        Assert.Contains("public static partial class WrapperConcreteAExtensions", csOutput);
+        // Swift.Int -> nint (word-sized) per ExtensionMarshallingHelper.ResolveCSharpTypeName.
+        Assert.Contains("public static nint Rank()", csOutput);
+        // Symbol prefix distinguishes methods from properties.
+        Assert.Contains("SBW_CEMethod_TestModule_Wrapper_ConcreteA_rank", csOutput);
+        // Static methods omit `_self` from the P/Invoke signature entirely.
+        Assert.Contains("partial nint SBW_CEMethod_TestModule_Wrapper_ConcreteA_rank()", csOutput);
+
+        // Swift wrapper calls the static factory on the closed-generic type.
+        Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_Wrapper_ConcreteA_rank\")", swiftOutput);
+        Assert.Contains("TestModule.Wrapper<TestModule.ConcreteA>.rank()", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_InstanceVoidMethod_EmitsThisExtensionAndSelfArg()
+    {
+        // Instance methods emit as `this` extension methods so consumers can call them
+        // directly on a closed-generic value. Void return uses the Primitive shape
+        // synthesized for void, so the wrapper takes only `_self`.
+        var (csOutput, swiftOutput) = EmitForGenericEnumWithMethod(
+            methodName: "ping",
+            returnTypeSpec: TupleTypeSpec.Empty,
+            isStatic: false);
+
+        Assert.Contains("public static void Ping(this Wrapper<TestModule.ConcreteA> self)", csOutput);
+        Assert.Contains("partial void SBW_CEMethod_TestModule_Wrapper_ConcreteA_ping(IntPtr _self)", csOutput);
+        // The C# call passes the SafeHandle.
+        Assert.Contains("self.Payload.DangerousGetHandle()", csOutput);
+
+        // Swift wrapper materializes `obj` from `self_` and invokes the no-arg method.
+        Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_Wrapper_ConcreteA_ping\")", swiftOutput);
+        Assert.Contains("_ self_: UnsafeRawPointer", swiftOutput);
+        Assert.Contains("obj.ping()", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_MethodWithParameters_NotEmitted()
+    {
+        // Methods with parameters are out of scope for the first method-extension
+        // pass — closure / complex parameter marshalling needs the full param-projection
+        // pipeline. The emitter should skip them silently (logger.LogDebug). Outputs
+        // should not contain the would-be symbol.
+        var typeDecl = CreateGenericEnumDecl("Wrapper", "T");
+        var methodWithArgs = CreateMethodWithConcreteConstraint(
+            "withArg", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("Swift.Int"),
+            isStatic: true);
+        methodWithArgs.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "x",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            PrivateName = "x",
+            IsInOut = false,
+            IsGeneric = false,
+        });
+        typeDecl.Methods.Add(methodWithArgs);
+
+        var (csOutput, _) = RunEmitter(typeDecl);
+
+        Assert.DoesNotContain("SBW_CEMethod_TestModule_Wrapper_ConcreteA_withArg", csOutput);
+        Assert.DoesNotContain("WithArg(", csOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_OpenGenericReturnProperty_ReSurfacesPerSpecialization()
+    {
+        // payloadValue shape: an open-generic-return property anchored by a
+        // sibling constrained-extension property. The property re-surfaces under
+        // each specialization with the open param substituted.
+        var typeDecl = CreateGenericEnumDecl("Wrapper", "SignedType");
+
+        // Anchor: a regular `where T == ConcreteA` property forces the
+        // specialization class to emit. Without it, FindOpenGenericReturnProperties
+        // does not run (no anchor specialization to attach to).
+        typeDecl.Properties.Add(CreatePropertyWithConstraint(
+            "anchor", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("Swift.String")));
+        typeDecl.Properties.Add(CreateOpenGenericReturnProperty(
+            "payloadValue", new NamedTypeSpec("τ_0_0"), isStatic: false));
+
+        // ConcreteA is registered with RequiresMemoryManagement so it routes via
+        // the NonFrozenStruct shape. The substituted return spec is
+        // TestModule.ConcreteA — same as if the property were declared
+        // `where SignedType == ConcreteA`.
+        var (csOutput, swiftOutput) = RunEmitter(typeDecl);
+
+        Assert.Contains("public static TestModule.ConcreteA GetPayloadValue(this Wrapper<TestModule.ConcreteA> self)", csOutput);
+        // The substituted concrete name flows into both the C# marshal call and
+        // the Swift wrapper's initializeMemory(as:) line.
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.ConcreteA>(buffer)", csOutput);
+        Assert.Contains("resultPtr.initializeMemory(as: TestModule.ConcreteA.self, repeating: result, count: 1)", swiftOutput);
+    }
+
+    // ==================== Method test helpers ====================
+
+    private static MethodDecl CreateMethodWithConcreteConstraint(
+        string name, string concreteType, TypeSpec returnTypeSpec, bool isStatic = true)
+    {
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0" },
+            SwiftTypeName.FromModuleQualifiedName(concreteType),
+            ConformanceKind.ConcreteType);
+
+        return new MethodDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule7WrapperO{name}",
+            MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                    SwiftTypeSpec = returnTypeSpec,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                },
+            },
+            AvailabilityAnnotations = null,
+        };
+    }
+
+    private static MethodDecl CreateMethodWithProtocolConstraint(string name, string protocolType)
+    {
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0" },
+            SwiftTypeName.FromModuleQualifiedName(protocolType),
+            ConformanceKind.Protocol);
+
+        return new MethodDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule7WrapperO{name}",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                },
+            },
+            AvailabilityAnnotations = null,
+        };
+    }
+
+    private static MethodDecl CreateUnconstrainedMethod(string name, bool isStatic = true)
+    {
+        return new MethodDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule7WrapperO{name}",
+            MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new(), new())
+            },
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    ParentDecl = null,
+                    ModuleDecl = null,
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                },
+            },
+            AvailabilityAnnotations = null,
+        };
+    }
+
+    private static PropertyDecl CreateOpenGenericReturnProperty(
+        string name, TypeSpec returnTypeSpec, bool isStatic)
+    {
+        // Open-generic-return properties live on the *unconstrained* base
+        // extension — getter has no same-type constraint on its generic params.
+        var getterMethod = new MethodDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule7WrapperO{name}",
+            MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new(), new()) // no constraints
+            },
+            CSSignature = new List<ArgumentDecl>(),
+            AvailabilityAnnotations = null,
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = returnTypeSpec,
+            HasStorage = false,
+            IsStatic = isStatic,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            AvailabilityAnnotations = null,
+        };
+    }
+
+    /// <summary>
+    /// Run the emitter end-to-end on a pre-built generic enum and return the
+    /// captured C# + Swift output. Centralizes the IO + logger plumbing for
+    /// emission tests that need to add methods / open-generic-return properties
+    /// rather than the single-property shape covered by <see cref="EmitForGenericEnumWithProperty"/>.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) RunEmitter(TypeDecl typeDecl)
+    {
+        var tdb = BuildEmissionTypeDatabase(extraTypes: null);
+
+        var csSw = new StringWriter();
+        var csWriter = new CSharpWriter(csSw);
+        var swiftSw = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftSw);
+        var emissionContext = new ModuleEmissionContext();
+        ILogger logger = NullLogger<ConstrainedExtensionEmitterTests>.Instance;
+
+        ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+            csWriter, swiftWriter, typeDecl, tdb, emissionContext, logger);
+
+        return (csSw.ToString(), swiftSw.ToString());
+    }
+
+    /// <summary>
+    /// Emit a generic enum with a single constrained-extension *method* under
+    /// `where T == TestModule.ConcreteA`. Mirrors <see cref="EmitForGenericEnumWithProperty"/>
+    /// but for the method-extension surface.
+    /// </summary>
+    private static (string csOutput, string swiftOutput) EmitForGenericEnumWithMethod(
+        string methodName,
+        TypeSpec returnTypeSpec,
+        bool isStatic)
+    {
+        var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
+        enumDecl.Methods.Add(CreateMethodWithConcreteConstraint(
+            methodName, "TestModule.ConcreteA", returnTypeSpec, isStatic));
+
+        return RunEmitter(enumDecl);
+    }
 }

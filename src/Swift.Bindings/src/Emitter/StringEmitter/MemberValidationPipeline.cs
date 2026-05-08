@@ -242,6 +242,24 @@ public class MemberValidationPipeline
                 "Method has constraints on protocols with associated types or self requirements.");
         }
 
+        // Constrained-extension method on a generic parent — same routing as the
+        // property-side gate at ValidatePropertyEmission: the open-generic class
+        // can't dispatch among per-concrete specializations of the same overload,
+        // and the closed-generic mangled symbol is bound to a single instantiation,
+        // so we suppress the open-generic emission and let ConstrainedExtensionEmitter
+        // re-surface each specialization as a closed-generic extension method.
+        // Mirrors the property gate at lines 345-362 below.
+        if (!methodDecl.IsConstructor &&
+            !methodDecl.IsAccessor &&
+            !methodDecl.IsSubscriptAccessor &&
+            methodDecl.ParentDecl is TypeDecl methodConstrainedParent &&
+            methodConstrainedParent.IsGeneric &&
+            ConstrainedExtensionEmitter.ExtractSameTypeConstraintForMethod(methodDecl) != null)
+        {
+            return ValidationResult.RoutedElsewhere(
+                $"Constrained-extension method '{methodDecl.Name}' on generic type '{methodConstrainedParent.Name}' is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.");
+        }
+
         // ── Phase 5: Bound generic gates (non-accessor only) ──
         // Accessors skip these checks — MethodHandler wraps the accessor check in `if (!isAccessor)`.
         // Only checks that are pure skip gates; existential type arg checks stay in handlers

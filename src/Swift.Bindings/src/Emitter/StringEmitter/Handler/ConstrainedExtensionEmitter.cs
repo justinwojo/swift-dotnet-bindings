@@ -66,17 +66,41 @@ public static class ConstrainedExtensionEmitter
             }
         }
 
-        // Group constrained-extension properties by concrete type
-        var specializations = FindConstrainedSpecializations(typeDecl);
-        if (specializations.Count == 0) return;
+        // Group constrained-extension properties + methods by concrete type. Both
+        // surfaces share the same per-concrete extension class — properties emit as
+        // `Get{Name}` static accessors, methods emit as `{Name}` static extension
+        // methods on the closed-generic instance. Open-generic-return properties
+        // (e.g. `var payloadValue: SignedType { get }` on the unconstrained base
+        // extension) are also re-surfaced per concrete type with the open generic
+        // parameter substituted at emit time.
+        var propertySpecializations = FindConstrainedSpecializations(typeDecl);
+        var methodSpecializations = FindConstrainedMethodSpecializations(typeDecl);
+
+        // Open-generic-return members live on the unconstrained base extension and
+        // are only re-surfaced when there is at least one constrained specialization
+        // to anchor onto: each specialization picks up a per-concrete copy with the
+        // open parameter substituted. Without an anchor we have no concrete type to
+        // substitute, so the open-generic-return surface stays unreachable as before.
+        var openGenericReturnProperties = (propertySpecializations.Count > 0 || methodSpecializations.Count > 0)
+            ? FindOpenGenericReturnProperties(typeDecl)
+            : new List<PropertyDecl>();
+
+        var concreteTypes = new HashSet<SwiftTypeName>(propertySpecializations.Keys);
+        foreach (var key in methodSpecializations.Keys) concreteTypes.Add(key);
+        if (concreteTypes.Count == 0) return;
 
         var moduleName = typeDecl.SwiftTypeName.Module;
         var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
 
-        foreach (var (concreteTypeName, properties) in specializations)
+        foreach (var concreteTypeName in concreteTypes)
         {
+            propertySpecializations.TryGetValue(concreteTypeName, out var properties);
+            methodSpecializations.TryGetValue(concreteTypeName, out var methods);
             EmitSpecializationClass(
-                csWriter, swiftWriter, typeDecl, concreteTypeName, properties,
+                csWriter, swiftWriter, typeDecl, concreteTypeName,
+                properties ?? new List<PropertyDecl>(),
+                methods ?? new List<MethodDecl>(),
+                openGenericReturnProperties,
                 moduleName, wrapperLibPath, typeDatabase, emissionContext, logger);
         }
     }
@@ -172,6 +196,8 @@ public static class ConstrainedExtensionEmitter
         TypeDecl typeDecl,
         SwiftTypeName concreteTypeName,
         List<PropertyDecl> properties,
+        List<MethodDecl> methods,
+        List<PropertyDecl> openGenericReturnProperties,
         string moduleName,
         string wrapperLibPath,
         ITypeDatabase typeDatabase,
@@ -218,6 +244,43 @@ public static class ConstrainedExtensionEmitter
             if (TryEmitPropertyExtension(
                 csWriter, swiftWriter, property, typeDecl, concreteTypeName,
                 closedGenericCsType, moduleName, wrapperLibPath,
+                typeDatabase, emissionContext, pinvokeDeclarations, logger,
+                substitutedReturnTypeSpec: null))
+            {
+                emittedCount++;
+            }
+        }
+
+        // Open-generic-return properties (e.g. `var payloadValue: SignedType { get }`):
+        // re-emit per concrete specialization with the parent's open generic parameter
+        // substituted by the concrete type. Same emit shape as the constrained-extension
+        // case — only the return type spec is rewritten before classification.
+        foreach (var property in openGenericReturnProperties)
+        {
+            var substituted = SubstituteParentGenericParameter(
+                property.SwiftTypeSpec, typeDecl, concreteTypeName);
+            if (substituted == null)
+            {
+                // Substitution failed — open-generic shape too complex (e.g. nested
+                // generic with multiple parent params, or a param we can't resolve).
+                // Skip this concrete specialization for this property.
+                continue;
+            }
+            if (TryEmitPropertyExtension(
+                csWriter, swiftWriter, property, typeDecl, concreteTypeName,
+                closedGenericCsType, moduleName, wrapperLibPath,
+                typeDatabase, emissionContext, pinvokeDeclarations, logger,
+                substitutedReturnTypeSpec: substituted))
+            {
+                emittedCount++;
+            }
+        }
+
+        foreach (var method in methods)
+        {
+            if (TryEmitMethodExtension(
+                csWriter, swiftWriter, method, typeDecl, concreteTypeName,
+                closedGenericCsType, moduleName, wrapperLibPath,
                 typeDatabase, emissionContext, pinvokeDeclarations, logger))
             {
                 emittedCount++;
@@ -251,9 +314,11 @@ public static class ConstrainedExtensionEmitter
     }
 
     /// <summary>
-    /// Classifies the return shape of a constrained-extension property for emission.
+    /// Classifies the return shape of a constrained-extension property or method for emission.
+    /// Internal so the shared classifier <see cref="ClassifyCEReturnShape"/> can return it
+    /// to both the property and method emission paths.
     /// </summary>
-    private enum CEReturnShape
+    internal enum CEReturnShape
     {
         /// <summary>Swift.String — returned via Utf8Slice in a 16-byte caller buffer.</summary>
         String,
@@ -281,74 +346,26 @@ public static class ConstrainedExtensionEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         List<Action> pinvokeDeclarations,
-        ILogger logger)
+        ILogger logger,
+        TypeSpec? substitutedReturnTypeSpec)
     {
-        // Classify return shape. String and Primitive are returned by value; NonFrozenStruct
-        // (e.g. CryptoKit.P256.Signing.ECDSASignature) uses an indirect-result buffer whose
-        // ownership transfers to the returned SafeHandle. Foundation value types
-        // (Date / UUID / Data) are detected directly here — they're frozen but require
-        // type-specific marshalling at the C# boundary (epoch arithmetic for Date,
-        // memcpy-to-Guid for UUID, .ToByteArray() for Data). Other shapes (ObjC classes,
-        // Swift classes, generic-parameter returns like VerificationResult.payloadValue,
-        // and other frozen value-type structs) remain unsupported.
-        CEReturnShape shape;
-        if (WitnessDispatchEmitter.IsStringType(property.SwiftTypeSpec))
+        // For open-generic-return properties (`payloadValue`-shape), substitute the
+        // parent's open generic parameter with the concrete specialization before
+        // classifying the return shape. Constrained-extension properties pass null
+        // and use the property's own SwiftTypeSpec.
+        var effectiveReturnTypeSpec = substitutedReturnTypeSpec ?? property.SwiftTypeSpec;
+
+        var classification = ClassifyCEReturnShape(effectiveReturnTypeSpec, typeDatabase);
+        if (classification == null)
         {
-            shape = CEReturnShape.String;
+            logger.LogDebug(
+                "ConstrainedExtensionEmitter: Skipping property {Name} — unsupported return type.",
+                property.Name);
+            return false;
         }
-        else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.Date"))
-        {
-            shape = CEReturnShape.FoundationDate;
-        }
-        else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.UUID"))
-        {
-            shape = CEReturnShape.FoundationUUID;
-        }
-        else if (IsFoundationType(property.SwiftTypeSpec, "Foundation.Data"))
-        {
-            shape = CEReturnShape.FoundationData;
-            // The emitted getter casts the indirect-result buffer through
-            // Swift.Foundation.Data (line ~476). That type lives in the SwiftBindings.Apple
-            // supplement, which is added to the consumer csproj only when something records
-            // a reference. This emitter bypasses TypeProjectionFactory (which records the
-            // identity for the regular Data path), so record it explicitly here. Date and
-            // UUID need no record — Date marshals as Double and UUID casts to System.Guid.
-            AppleSupplementReferences.Record("Foundation.Data");
-        }
-        else
-        {
-            var returnCategory = ClassifyReturnType(property.SwiftTypeSpec, typeDatabase);
-            if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
-            {
-                logger.LogDebug(
-                    "ConstrainedExtensionEmitter: Skipping property {Name} — unsupported return type.",
-                    property.Name);
-                return false;
-            }
-            shape = returnCategory.Value switch
-            {
-                ReturnKind.Primitive => CEReturnShape.Primitive,
-                ReturnKind.NonFrozenStruct => CEReturnShape.NonFrozenStruct,
-                _ => (CEReturnShape)(-1),
-            };
-            if ((int)shape < 0)
-            {
-                logger.LogDebug(
-                    "ConstrainedExtensionEmitter: Skipping property {Name} — return kind {ReturnKind} is not yet supported in constrained-extension emission.",
-                    property.Name, returnCategory.Value);
-                return false;
-            }
-        }
+        var (shape, csharpReturnType) = classification.Value;
 
         var propertyName = NameProvider.ToPascalCase(property.Name);
-        var csharpReturnType = shape switch
-        {
-            CEReturnShape.String => "string",
-            CEReturnShape.FoundationDate => "System.DateTimeOffset",
-            CEReturnShape.FoundationUUID => "System.Guid",
-            CEReturnShape.FoundationData => "byte[]",
-            _ => ResolveCSharpTypeName(property.SwiftTypeSpec, typeDatabase),
-        };
 
         // Build @_cdecl symbol name
         var safeConcreteName = SanitizeTypeName(concreteTypeName.Name);
@@ -496,7 +513,7 @@ public static class ConstrainedExtensionEmitter
 
         // ----- Swift @_cdecl wrapper -----
         EmitSwiftGetterWrapper(swiftWriter, property, parentTypeDecl, concreteTypeName,
-            symbolName, moduleName, shape, emissionContext);
+            symbolName, moduleName, shape, emissionContext, effectiveReturnTypeSpec);
 
         // ----- Queue P/Invoke declaration -----
         var capturedSymbol = symbolName;
@@ -556,7 +573,8 @@ public static class ConstrainedExtensionEmitter
         string symbolName,
         string moduleName,
         CEReturnShape shape,
-        ModuleEmissionContext emissionContext)
+        ModuleEmissionContext emissionContext,
+        TypeSpec effectiveReturnTypeSpec)
     {
         var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
         var concreteSwiftName = concreteTypeName.ModuleQualifiedName;
@@ -588,7 +606,7 @@ public static class ConstrainedExtensionEmitter
 
         var returnClause = shape switch
         {
-            CEReturnShape.Primitive => $" -> {RenderSwiftReturnType(property)}",
+            CEReturnShape.Primitive => $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(effectiveReturnTypeSpec)}",
             CEReturnShape.FoundationDate => " -> Double",
             _ => "",
         };
@@ -628,7 +646,7 @@ public static class ConstrainedExtensionEmitter
                 // which we can't guarantee. Fully qualified (`CryptoKit.P256.…`)
                 // resolves through the framework's transitive imports.
                 swiftWriter.WriteLine($"let result = {propAccess}");
-                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {RenderSwiftReturnType(property)}.self, repeating: result, count: 1)");
+                swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(effectiveReturnTypeSpec)}.self, repeating: result, count: 1)");
                 break;
             case CEReturnShape.FoundationDate:
                 // Foundation.Date.timeIntervalSinceReferenceDate is a TimeInterval (= Double)
@@ -661,6 +679,649 @@ public static class ConstrainedExtensionEmitter
     private static string RenderSwiftReturnType(PropertyDecl property)
     {
         return ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Classifies a constrained-extension return type spec into one of the
+    /// supported emission shapes plus its idiomatic C# return type. Returns
+    /// null if the shape is unsupported (e.g. ObjC class, raw generic param,
+    /// frozen value-type struct without ref fields). Mirrors the inline shape
+    /// detection that previously lived in TryEmitPropertyExtension; factored
+    /// out so the method emission path can share the same classifier.
+    /// </summary>
+    internal static (CEReturnShape Shape, string CSharpType)? ClassifyCEReturnShape(
+        TypeSpec? returnTypeSpec, ITypeDatabase typeDatabase)
+    {
+        if (returnTypeSpec == null) return null;
+
+        // String / Foundation value-type early branches mirror the existing
+        // detection order — these shapes need type-specific marshalling at the
+        // C# boundary that the generic ClassifyReturnType doesn't model.
+        if (WitnessDispatchEmitter.IsStringType(returnTypeSpec))
+            return (CEReturnShape.String, "string");
+        if (IsFoundationType(returnTypeSpec, "Foundation.Date"))
+            return (CEReturnShape.FoundationDate, "System.DateTimeOffset");
+        if (IsFoundationType(returnTypeSpec, "Foundation.UUID"))
+            return (CEReturnShape.FoundationUUID, "System.Guid");
+        if (IsFoundationType(returnTypeSpec, "Foundation.Data"))
+        {
+            // The emitted body casts through Swift.Foundation.Data which lives in
+            // SwiftBindings.Apple. The csproj emitter only adds the supplement
+            // PackageReference when something records a reference. This emitter
+            // bypasses TypeProjectionFactory (which records the Foundation.Data
+            // identity itself), so record explicitly here.
+            AppleSupplementReferences.Record("Foundation.Data");
+            return (CEReturnShape.FoundationData, "byte[]");
+        }
+
+        var returnCategory = ClassifyReturnType(returnTypeSpec, typeDatabase);
+        if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
+            return null;
+
+        switch (returnCategory.Value)
+        {
+            case ReturnKind.Primitive:
+                return (CEReturnShape.Primitive, ResolveCSharpTypeName(returnTypeSpec, typeDatabase));
+            case ReturnKind.NonFrozenStruct:
+                return (CEReturnShape.NonFrozenStruct, ResolveCSharpTypeName(returnTypeSpec, typeDatabase));
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Substitutes the parent type's open generic parameter with the concrete
+    /// specialization's TypeSpec inside <paramref name="typeSpec"/>. Used for
+    /// `payloadValue`-shape members whose return type references the open
+    /// parent generic param (e.g. `var payloadValue: SignedType` on
+    /// `extension VerificationResult`). Returns null when the substitution is
+    /// ambiguous or unsupported (multiple unresolved parent params, structurally
+    /// nested params we can't cleanly walk).
+    /// </summary>
+    internal static TypeSpec? SubstituteParentGenericParameter(
+        TypeSpec? typeSpec, TypeDecl parentTypeDecl, SwiftTypeName concreteTypeName)
+    {
+        if (typeSpec == null) return null;
+        if (!parentTypeDecl.IsGeneric) return null;
+
+        // Today we only support single-parameter generic parents (the common case:
+        // `Wrapper<T>` with `extension Wrapper where T == Concrete`). Multi-parameter
+        // parents would need a per-name substitution map and a way to discover which
+        // concrete name maps to which open param, which the constrained-extension
+        // grouping doesn't preserve. Skip them — caller treats null as "drop this
+        // open-generic-return surface for this specialization."
+        if (parentTypeDecl.GenericParameters.Count != 1) return null;
+        var openParamName = parentTypeDecl.GenericParameters[0].TypeName;
+        var concreteSpec = new NamedTypeSpec(concreteTypeName.ModuleQualifiedName);
+
+        return SubstituteSingleNamed(typeSpec, openParamName, concreteSpec);
+    }
+
+    private static TypeSpec? SubstituteSingleNamed(
+        TypeSpec typeSpec, string openParamName, NamedTypeSpec concreteSpec)
+    {
+        switch (typeSpec)
+        {
+            case NamedTypeSpec named:
+                if (named.Name == openParamName)
+                {
+                    // Direct hit — replace whole node. We don't preserve generic args
+                    // because the open param itself shouldn't carry generic args
+                    // (it's a plain `T`-shaped parameter).
+                    return named.GenericParameters.Count == 0 && named.InnerType == null
+                        ? concreteSpec
+                        : null;
+                }
+                // Recurse into generic parameters (e.g. `Optional<T>`) and inner types.
+                // We only substitute when the result is structurally identical apart
+                // from the swapped param; if the recursion hits an unsupported branch
+                // (returns null), the whole substitution is unsupported.
+                bool changed = false;
+                var newGenericArgs = new List<TypeSpec>();
+                foreach (var gp in named.GenericParameters)
+                {
+                    var substituted = SubstituteSingleNamed(gp, openParamName, concreteSpec);
+                    if (substituted == null) return null;
+                    if (!ReferenceEquals(substituted, gp)) changed = true;
+                    newGenericArgs.Add(substituted);
+                }
+                if (named.InnerType != null) return null; // nested-type substitution unsupported
+                if (!changed) return named;
+                // Construct a new NamedTypeSpec with the same shape but substituted args.
+                // Use the fully-qualified name path so the renderer still produces
+                // module-qualified output downstream.
+                return new NamedTypeSpec(named.Name, newGenericArgs.ToArray());
+            default:
+                // Tuples / closures / other shapes are intentionally unsupported for the
+                // initial open-generic-return surface — they expand the testing matrix
+                // significantly without adding canonical Apple-framework cases.
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Returns properties whose return type spec contains a reference to the
+    /// parent's open generic parameter, AND that do not themselves carry a
+    /// same-type constraint (so they live on the unconstrained base extension,
+    /// e.g. `extension VerificationResult { var payloadValue: SignedType { get } }`).
+    /// Each concrete specialization re-emits these with the open generic
+    /// parameter substituted by the concrete type. Static accessors are excluded
+    /// because the current emit shape passes `self.Payload.DangerousGetHandle()`
+    /// — there is no `self` for static access.
+    /// </summary>
+    internal static List<PropertyDecl> FindOpenGenericReturnProperties(TypeDecl typeDecl)
+    {
+        var result = new List<PropertyDecl>();
+        if (!typeDecl.IsGeneric) return result;
+
+        var parentParamNames = new HashSet<string>(
+            typeDecl.GenericParameters.Select(p => p.TypeName));
+
+        foreach (var property in typeDecl.Properties)
+        {
+            if (property.IsStatic) continue;
+            if (ExtractSameTypeConstraint(property) != null) continue;
+            if (property.SwiftTypeSpec is null) continue;
+            if (TypeSpecHelpers.ContainsAnyTypeName(property.SwiftTypeSpec, parentParamNames))
+                result.Add(property);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts the concrete same-type constraint from a method's GenericParameters,
+    /// parallel to <see cref="ExtractSameTypeConstraint(PropertyDecl)"/>. The
+    /// constraint sits directly on <c>methodDecl.GenericParameters</c> rather
+    /// than on a getter accessor's method.
+    /// </summary>
+    internal static SwiftTypeName? ExtractSameTypeConstraintForMethod(MethodDecl method)
+    {
+        foreach (var genericParam in method.GenericParameters)
+        {
+            foreach (var conformance in genericParam.GenericConformances)
+            {
+                if (conformance.Kind == ConformanceKind.ConcreteType)
+                    return conformance.ConformanceTarget;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Finds constrained-extension method groups: methods whose own GenericParameters
+    /// carry a same-type equality constraint (e.g. `extension Wrapper where T == Concrete`).
+    /// Methods are grouped by (Name, IsStatic, parameter type signature) so overloads on
+    /// distinct signatures don't get conflated. As with properties, mixed
+    /// constrained + unconstrained groups are rejected to avoid namespace collision
+    /// with any open-generic emission of the same overload.
+    /// </summary>
+    internal static Dictionary<SwiftTypeName, List<MethodDecl>> FindConstrainedMethodSpecializations(TypeDecl typeDecl)
+    {
+        var result = new Dictionary<SwiftTypeName, List<MethodDecl>>();
+        if (!typeDecl.IsGeneric) return result;
+
+        var groups = new Dictionary<(string Name, bool IsStatic, string ParamSig), List<MethodDecl>>();
+        foreach (var method in typeDecl.Methods)
+        {
+            if (method.IsConstructor) continue;     // constructors take a separate factory shape
+            if (method.IsAccessor) continue;         // accessors are routed via PropertyHandler
+            if (method.IsSubscriptAccessor) continue;
+            if (method.IsAsync || method.Throws) continue; // out of scope for first method extension
+            if (method.Visibility != Visibility.Public) continue;
+
+            var paramSig = BuildMethodParameterSignature(method);
+            var key = (method.Name, method.MethodType == MethodType.Static, paramSig);
+            if (!groups.ContainsKey(key))
+                groups[key] = new List<MethodDecl>();
+            groups[key].Add(method);
+        }
+
+        foreach (var (_, siblings) in groups)
+        {
+            bool allConstrained = true;
+            foreach (var sibling in siblings)
+            {
+                if (ExtractSameTypeConstraintForMethod(sibling) == null)
+                {
+                    allConstrained = false;
+                    break;
+                }
+            }
+            if (!allConstrained) continue;
+
+            foreach (var sibling in siblings)
+            {
+                var concreteType = ExtractSameTypeConstraintForMethod(sibling)!;
+                if (!result.ContainsKey(concreteType))
+                    result[concreteType] = new List<MethodDecl>();
+                result[concreteType].Add(sibling);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Builds a stable parameter-signature key from a method's CSSignature parameters
+    /// (skipping the return slot at index 0). Used to dedup overloads in
+    /// <see cref="FindConstrainedMethodSpecializations"/>.
+    /// </summary>
+    private static string BuildMethodParameterSignature(MethodDecl method)
+    {
+        if (method.CSSignature.Count <= 1) return "";
+        var parts = new List<string>();
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            var rendered = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
+            parts.Add($"{arg.Name}:{rendered}");
+        }
+        return string.Join("|", parts);
+    }
+
+    /// <summary>
+    /// Emits one constrained-extension method for a concrete specialization.
+    /// Initial scope: zero-argument sync, non-throwing, non-mutating methods —
+    /// covers the canonical Apple-framework cases (`WeatherKit.*Query` static
+    /// factories and `MusicLibraryRequest&lt;T&gt;` no-arg accessors). Methods
+    /// with parameters, async/throws variants, mutating, and closure shapes are
+    /// intentionally skipped here and tracked separately; the doc calls those
+    /// out as "structured result types and closure parameters" follow-ups.
+    /// </summary>
+    private static bool TryEmitMethodExtension(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        SwiftTypeName concreteTypeName,
+        string closedGenericCsType,
+        string moduleName,
+        string wrapperLibPath,
+        ITypeDatabase typeDatabase,
+        ModuleEmissionContext emissionContext,
+        List<Action> pinvokeDeclarations,
+        ILogger logger)
+    {
+        if (method.CSSignature.Count > 1)
+        {
+            // Out of scope for the first method-extension pass; closure / complex
+            // parameter marshalling needs the full param-projection pipeline.
+            logger.LogDebug(
+                "ConstrainedExtensionEmitter: Skipping method {Name} — non-zero-arg methods not yet supported.",
+                method.Name);
+            return false;
+        }
+
+        // CSSignature[0] is the return slot.
+        var returnTypeSpec = method.CSSignature.Count > 0 ? method.CSSignature[0].SwiftTypeSpec : null;
+
+        // Substitute the parent's open generic param if the return spec references
+        // it (e.g. `static func temperature() -> DailyWeatherStatisticsQuery<T>` on
+        // `extension … where T == Concrete` — the substituted return is the closed
+        // generic instantiation). Mirrors the property substitution path so a
+        // method emission for a constrained extension sees the concrete return
+        // shape, not the open-generic shape that ClassifyReturnType bails on.
+        TypeSpec? effectiveReturnTypeSpec = returnTypeSpec;
+        if (returnTypeSpec != null && parentTypeDecl.IsGeneric)
+        {
+            var parentParamNames = new HashSet<string>(
+                parentTypeDecl.GenericParameters.Select(p => p.TypeName));
+            if (TypeSpecHelpers.ContainsAnyTypeName(returnTypeSpec, parentParamNames))
+            {
+                var substituted = SubstituteParentGenericParameter(returnTypeSpec, parentTypeDecl, concreteTypeName);
+                if (substituted == null)
+                {
+                    logger.LogDebug(
+                        "ConstrainedExtensionEmitter: Skipping method {Name} — open-generic return substitution unsupported.",
+                        method.Name);
+                    return false;
+                }
+                effectiveReturnTypeSpec = substituted;
+            }
+        }
+
+        var classification = ClassifyCEReturnShape(effectiveReturnTypeSpec, typeDatabase);
+        // Allow Void returns for methods (rare, but legal) — represented by a null
+        // spec that ClassifyCEReturnShape rejects. Promote that null to a synthetic
+        // Void shape on the method side only.
+        bool isVoidReturn = effectiveReturnTypeSpec == null
+            || (effectiveReturnTypeSpec is TupleTypeSpec t && t == TupleTypeSpec.Empty);
+        if (classification == null && !isVoidReturn)
+        {
+            logger.LogDebug(
+                "ConstrainedExtensionEmitter: Skipping method {Name} — unsupported return type {ReturnType}.",
+                method.Name, effectiveReturnTypeSpec);
+            return false;
+        }
+
+        var (shape, csharpReturnType) = isVoidReturn
+            ? (CEReturnShape.Primitive, "void")
+            : classification!.Value;
+
+        bool isStatic = method.MethodType == MethodType.Static;
+        var methodPublicName = NameProvider.ToPascalCase(method.Name);
+
+        // Symbol naming uses a SBW_CEMethod_ prefix to keep methods distinguishable
+        // from properties (`SBW_CEGet_*`). The shape parallels the property one
+        // so the renderer / wrapper-symbol dedup can apply uniformly.
+        var safeConcreteName = SanitizeTypeName(concreteTypeName.Name);
+        var symbolName = $"SBW_CEMethod_{moduleName}_{parentTypeDecl.Name}_{safeConcreteName}_{method.Name}";
+
+        // Dedup guard — same symbol set as properties (ModuleEmissionContext
+        // tracks per-module symbol uniqueness across all wrapper emit paths).
+        if (!emissionContext.TryAddPropertyWrapperSymbol(symbolName))
+            return false;
+
+        // ----- C# extension method -----
+        csWriter.WriteLine();
+        if (isStatic)
+        {
+            csWriter.WriteLine($"public static {csharpReturnType} {methodPublicName}()");
+        }
+        else
+        {
+            csWriter.WriteLine($"public static {csharpReturnType} {methodPublicName}(this {closedGenericCsType} self)");
+        }
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+
+        // Build the call arguments expression — instance methods pass the self
+        // handle as the trailing arg; static methods pass nothing.
+        var pinvokeSelfArg = isStatic ? "" : "self.Payload.DangerousGetHandle()";
+
+        switch (shape)
+        {
+            case CEReturnShape.Primitive when isVoidReturn:
+                if (isStatic)
+                    csWriter.WriteLine($"NativeMethods.{symbolName}();");
+                else
+                    csWriter.WriteLine($"NativeMethods.{symbolName}({pinvokeSelfArg});");
+                break;
+
+            case CEReturnShape.String:
+                csWriter.WriteLine("unsafe");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("void* _cdeclBuf = null;");
+                csWriter.WriteLine("try");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("_cdeclBuf = System.Runtime.InteropServices.NativeMemory.Alloc((nuint)(nint.Size * 2));");
+                csWriter.WriteLine("var resultPtr = (IntPtr)_cdeclBuf;");
+                if (isStatic)
+                    csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr);");
+                else
+                    csWriter.WriteLine($"NativeMethods.{symbolName}(resultPtr, {pinvokeSelfArg});");
+                csWriter.WriteLine("return SwiftMarshal.ReadUtf8Slice(resultPtr);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("finally");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("System.Runtime.InteropServices.NativeMemory.Free(_cdeclBuf);");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                break;
+
+            case CEReturnShape.Primitive:
+                if (isStatic)
+                    csWriter.WriteLine($"return NativeMethods.{symbolName}();");
+                else
+                    csWriter.WriteLine($"return NativeMethods.{symbolName}({pinvokeSelfArg});");
+                break;
+
+            case CEReturnShape.NonFrozenStruct:
+                {
+                    var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
+                    var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    csWriter.WriteLines($$"""
+                        unsafe
+                        {
+                            var metadata = SwiftObjectHelper<{{csharpReturnType}}>.GetTypeMetadata();
+                            IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(metadata.Size);
+                            try
+                            {
+                                var indirectResult = new SwiftIndirectResult((void*)buffer);
+                                NativeMethods.{{symbolName}}({{pinvokeArg}});
+                                return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
+                            }
+                            catch
+                            {
+                                System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                                throw;
+                            }
+                        }
+                        """);
+                }
+                break;
+
+            case CEReturnShape.FoundationDate:
+                if (isStatic)
+                    csWriter.WriteLine($"var seconds = NativeMethods.{symbolName}();");
+                else
+                    csWriter.WriteLine($"var seconds = NativeMethods.{symbolName}({pinvokeSelfArg});");
+                csWriter.WriteLine($"return {DateProjection.SwiftEpoch}.AddSeconds(seconds);");
+                break;
+
+            case CEReturnShape.FoundationUUID:
+                {
+                    var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
+                    var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    csWriter.WriteLines($$"""
+                        unsafe
+                        {
+                            IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
+                            try
+                            {
+                                var indirectResult = new SwiftIndirectResult((void*)buffer);
+                                NativeMethods.{{symbolName}}({{pinvokeArg}});
+                                return *(System.Guid*)buffer;
+                            }
+                            finally
+                            {
+                                System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                            }
+                        }
+                        """);
+                }
+                break;
+
+            case CEReturnShape.FoundationData:
+                {
+                    var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
+                    var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    csWriter.WriteLines($$"""
+                        unsafe
+                        {
+                            IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(16);
+                            try
+                            {
+                                var indirectResult = new SwiftIndirectResult((void*)buffer);
+                                NativeMethods.{{symbolName}}({{pinvokeArg}});
+                                return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
+                            }
+                            finally
+                            {
+                                System.Runtime.InteropServices.NativeMemory.Free((void*)buffer);
+                            }
+                        }
+                        """);
+                }
+                break;
+        }
+
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+
+        // ----- Swift @_cdecl wrapper -----
+        EmitSwiftMethodWrapper(swiftWriter, method, parentTypeDecl, concreteTypeName,
+            symbolName, moduleName, shape, isStatic, isVoidReturn, effectiveReturnTypeSpec, emissionContext);
+
+        // ----- Queue P/Invoke declaration -----
+        var capturedSymbol = symbolName;
+        var capturedShape = shape;
+        var capturedReturnType = csharpReturnType;
+        var capturedIsStatic = isStatic;
+        var capturedIsVoidReturn = isVoidReturn;
+        pinvokeDeclarations.Add(() =>
+        {
+            var pinvokeParams = new List<string>();
+            string pinvokeReturnType;
+
+            switch (capturedShape)
+            {
+                case CEReturnShape.Primitive when capturedIsVoidReturn:
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "void";
+                    break;
+                case CEReturnShape.String:
+                    pinvokeParams.Add("IntPtr resultPtr");
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "void";
+                    break;
+                case CEReturnShape.NonFrozenStruct:
+                case CEReturnShape.FoundationUUID:
+                case CEReturnShape.FoundationData:
+                    pinvokeParams.Add("SwiftIndirectResult indirectResult");
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "void";
+                    break;
+                case CEReturnShape.FoundationDate:
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = "double";
+                    break;
+                default: // Primitive (non-void)
+                    if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
+                    pinvokeReturnType = capturedReturnType;
+                    break;
+            }
+
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = capturedSymbol,
+                MethodName = capturedSymbol,
+                ReturnType = pinvokeReturnType,
+                ParametersString = string.Join(", ", pinvokeParams),
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Internal
+            });
+            csWriter.WriteLine();
+        });
+
+        return true;
+    }
+
+    private static void EmitSwiftMethodWrapper(
+        SwiftWriter swiftWriter,
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        SwiftTypeName concreteTypeName,
+        string symbolName,
+        string moduleName,
+        CEReturnShape shape,
+        bool isStatic,
+        bool isVoidReturn,
+        TypeSpec? effectiveReturnTypeSpec,
+        ModuleEmissionContext emissionContext)
+    {
+        var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var concreteSwiftName = concreteTypeName.ModuleQualifiedName;
+        var closedGenericSwiftType = $"{parentSwiftName}<{concreteSwiftName}>";
+
+        if (shape == CEReturnShape.String)
+        {
+            Utf8SliceEmitter.EmitIfNeeded(swiftWriter, emissionContext);
+            Utf8SliceEmitter.EmitFreeIfNeeded(swiftWriter, moduleName, emissionContext);
+        }
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Constrained-extension method for {{closedGenericSwiftType}}.{{method.Name}}.
+            // Concrete specialization — no generic dispatch needed.
+            """);
+
+        // Parameter list mirrors the property side: indirect-result shapes pass the
+        // result buffer first, then `self_` (instance only). Static methods omit
+        // `self_`. Method parameters are not yet supported here — the caller
+        // already gated on CSSignature.Count <= 1.
+        var swiftParams = new List<string>();
+        bool usesIndirectResult = shape == CEReturnShape.String
+            || shape == CEReturnShape.NonFrozenStruct
+            || shape == CEReturnShape.FoundationUUID
+            || shape == CEReturnShape.FoundationData;
+        if (usesIndirectResult)
+            swiftParams.Add("_ resultPtr: UnsafeMutableRawPointer");
+        if (!isStatic)
+            swiftParams.Add("_ self_: UnsafeRawPointer");
+
+        var returnClause = (shape, isVoidReturn) switch
+        {
+            (_, true) => "",
+            (CEReturnShape.Primitive, _) => $" -> {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(effectiveReturnTypeSpec!)}",
+            (CEReturnShape.FoundationDate, _) => " -> Double",
+            _ => "",
+        };
+        var swiftParamString = string.Join(", ", swiftParams);
+
+        var hash = EmitterUtility.DeterministicHash8(symbolName);
+        var swiftFuncName = $"_sbw_cemethod_{method.Name}_{hash}";
+
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor: false,
+            WrapperEmitterHelpers.MergeAvailability(method.AvailabilityAnnotations, parentTypeDecl));
+        swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){returnClause} {{");
+        swiftWriter.Indent++;
+
+        // For instance methods, materialize self from the inbound pointer the same
+        // way the property emitter does. Static methods skip this step.
+        if (!isStatic)
+        {
+            if (parentTypeDecl is ClassDecl)
+                swiftWriter.WriteLine($"let obj = Unmanaged<{closedGenericSwiftType}>.fromOpaque(self_).takeUnretainedValue()");
+            else
+                swiftWriter.WriteLine($"let obj = self_.assumingMemoryBound(to: {closedGenericSwiftType}.self).pointee");
+        }
+
+        var callExpression = isStatic
+            ? $"{closedGenericSwiftType}.{method.Name}()"
+            : $"obj.{method.Name}()";
+
+        if (isVoidReturn)
+        {
+            swiftWriter.WriteLine($"_ = {callExpression}");
+        }
+        else
+        {
+            switch (shape)
+            {
+                case CEReturnShape.String:
+                    StringReturnEmitter.EmitGetterBody(swiftWriter, callExpression);
+                    break;
+                case CEReturnShape.Primitive:
+                    swiftWriter.WriteLine($"return {callExpression}");
+                    break;
+                case CEReturnShape.NonFrozenStruct:
+                    swiftWriter.WriteLine($"let result = {callExpression}");
+                    swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(effectiveReturnTypeSpec!)}.self, repeating: result, count: 1)");
+                    break;
+                case CEReturnShape.FoundationDate:
+                    swiftWriter.WriteLine($"return {callExpression}.timeIntervalSinceReferenceDate");
+                    break;
+                case CEReturnShape.FoundationUUID:
+                    swiftWriter.WriteLine($"let result = {callExpression}");
+                    swiftWriter.WriteLine("resultPtr.initializeMemory(as: Foundation.UUID.self, repeating: result, count: 1)");
+                    break;
+                case CEReturnShape.FoundationData:
+                    swiftWriter.WriteLine($"let result = {callExpression}");
+                    swiftWriter.WriteLine("resultPtr.initializeMemory(as: Foundation.Data.self, repeating: result, count: 1)");
+                    break;
+            }
+        }
+
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
     }
 
     private static string? ResolveCSharpName(SwiftTypeName swiftTypeName, ITypeDatabase typeDatabase)
