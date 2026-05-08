@@ -178,6 +178,120 @@ extension Bundle05Container where Key == Bundle05SpecKeyA {
     }
 }
 
+// MARK: Per-specialization methods (Fix J — multispec methods)
+//
+// Layer B coverage for the constrained-extension METHOD path in
+// `ConstrainedExtensionEmitter`. Properties cover the
+// `*Verification.signedDate` / `.headerData` / etc. surface; methods cover
+// the WeatherKit `*Query.temperature()` / MusicKit `MusicLibraryRequest<T>`
+// no-arg accessors. Initial method scope is zero-argument sync non-throwing
+// (instance and static); methods with parameters, closures, async / throws,
+// and mutating / structured-result variants stay out of scope and are
+// tracked as Fix J follow-ups.
+//
+// Both specializations get one instance method (this-extended on the closed
+// generic) and one static factory (no `this` — emits on the per-spec
+// extensions class). String + primitive return shapes exercise both
+// `CEReturnShape.String` (Utf8Slice) and `CEReturnShape.Primitive` for
+// methods, mirroring the property-side coverage above.
+//
+// Void-return on a constrained extension is intentionally NOT covered:
+// the emitter currently skips it ("Unsupported: parameter or return type
+// not yet supported — unsupported return type"), and the canonical
+// WeatherKit static-factory / MusicKit no-arg accessor shapes that the
+// narrow J scope targets all return non-Void concrete types. Adding void
+// here would surface as a [Skip]-only fixture with no live coverage.
+
+extension Bundle05Container where Key == Bundle05SpecKeyA {
+    /// Zero-arg sync non-throwing INSTANCE method, String return — exercises
+    /// `TryEmitMethodExtension` + `CEReturnShape.String` at the method site.
+    /// Pre-Fix-J this would have been dropped wholesale because
+    /// `ConstrainedExtensionEmitter` only iterated `typeDecl.Properties`.
+    public func computeAlphaLabel() -> String {
+        return "alpha-label-\(id)"
+    }
+
+    /// Zero-arg sync non-throwing STATIC method, primitive return —
+    /// canonical WeatherKit static-factory shape. Emits on the per-spec
+    /// extensions class itself (`Bundle05ContainerBundle05SpecKeyAExtensions
+    /// .DefaultAlphaRank()`), no `this` receiver. The fixed integer literal
+    /// lets the test assert the exact value reached the C# side through the
+    /// `@_cdecl` static call.
+    public static func defaultAlphaRank() -> Int32 {
+        return 17
+    }
+}
+
+extension Bundle05Container where Key == Bundle05SpecKeyB {
+    /// Beta-side instance method, distinct name from alpha to exercise the
+    /// straight method-emission path (no name collision, no dedup-skip).
+    public func computeBetaLabel() -> String {
+        return "beta-label-\(id)"
+    }
+
+    /// Beta-side static factory — both alpha and beta static factories must
+    /// be independently reachable through their own per-spec mangled symbols.
+    public static func defaultBetaRank() -> Int32 {
+        return 23
+    }
+}
+
+// MARK: Open-generic-return carrier (Fix J — payloadValue shape)
+//
+// `payloadValue` shape coverage: the property/method lives on the
+// unconstrained base extension and references the parent's open generic
+// parameter. The emitter substitutes the concrete specialization at
+// extension-method emit time so each closed-generic instantiation gets a
+// typed accessor (`GetCarriedPayload(this Bundle05PayloadCarrier<Concrete>
+// self) -> Concrete`). `Bundle05DescriptorPayload` is the concrete because
+// it is non-frozen — frozen value-type structs are not yet supported by
+// `ExtensionMarshallingHelper.ClassifyReturnType` at the substituted
+// return slot.
+
+/// Generic carrier that stores its parameterized value so the
+/// open-generic-return property has a real backing field to project. The
+/// `init` is unconstrained (any `T`) so the closed factory below can
+/// construct a `Bundle05DescriptorPayload`-specialized instance.
+//
+// `stored` is intentionally `internal`, not `public`: a public storage
+// `let` would also be re-surfaced by `FindOpenGenericReturnProperties`,
+// adding a `GetStored` C# specialization that duplicates the
+// `carriedPayload` fixture's emission path with no extra J coverage. The
+// constrained / unconstrained extensions below live in the same module
+// so internal access is sufficient for `anchorTag` and `carriedPayload`
+// to read it.
+public struct Bundle05PayloadCarrier<T> {
+    let stored: T
+    public init(_ stored: T) {
+        self.stored = stored
+    }
+}
+
+extension Bundle05PayloadCarrier where T == Bundle05DescriptorPayload {
+    /// Anchor — `FindOpenGenericReturnProperties` only re-surfaces the
+    /// open-generic-return property when at least one constrained
+    /// specialization (property OR method) exists for the same type.
+    /// Without an anchor the open-generic-return surface stays unreachable
+    /// because there is no concrete type to substitute the parent param
+    /// with. Returns a String to also exercise `CEReturnShape.String` on
+    /// the constrained-extension path for this fixture.
+    public var anchorTag: String {
+        return "anchor-\(stored.id)"
+    }
+}
+
+extension Bundle05PayloadCarrier {
+    /// Open-generic-return property — `payloadValue` shape. The return spec
+    /// is the parent's open generic parameter `T`; the emitter substitutes
+    /// `T` with each anchored concrete specialization
+    /// (`Bundle05DescriptorPayload` here) at emit time. Pre-Fix-J this
+    /// surface skipped under `AnyTypeFallback` because the projected return
+    /// was the open generic parameter itself.
+    public var carriedPayload: T {
+        return stored
+    }
+}
+
 // MARK: Closed-generic factories
 
 /// Alpha-specialized factory so the C# binding has a reachable
@@ -192,4 +306,11 @@ public func makeBundle05ContainerAlpha(_ id: Int32) -> Bundle05Container<Bundle0
 /// the beta specialization.
 public func makeBundle05ContainerBeta(_ id: Int32) -> Bundle05Container<Bundle05SpecKeyB> {
     return Bundle05Container<Bundle05SpecKeyB>(id: id)
+}
+
+/// Closed factory for the open-generic-return carrier — produces a
+/// `Bundle05PayloadCarrier<Bundle05DescriptorPayload>` so the binding has a
+/// reachable closed instantiation to specialize against.
+public func makeBundle05PayloadCarrierWithDescriptor(_ id: Int32) -> Bundle05PayloadCarrier<Bundle05DescriptorPayload> {
+    return Bundle05PayloadCarrier(Bundle05DescriptorPayload(id: id, label: "carried-\(id)"))
 }

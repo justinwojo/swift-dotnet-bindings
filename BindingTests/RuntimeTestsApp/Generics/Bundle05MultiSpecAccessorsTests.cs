@@ -194,9 +194,127 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
     }
 
     /// <summary>
-    /// Foundation.Data return shape regression coverage. The
-    /// <c>alphaHeaderData</c> accessor returns a Swift <c>Data</c>,
-    /// driving the generator down <c>CEReturnShape.FoundationData</c> —
+    /// Constrained-extension METHOD shape (Fix J). Pre-fix,
+    /// `ConstrainedExtensionEmitter` only iterated
+    /// <c>typeDecl.Properties</c>; methods on `where Param == Concrete`
+    /// extensions were dropped wholesale. Post-fix, zero-arg sync
+    /// non-throwing methods re-surface as static extension methods on the
+    /// closed-generic instance, mirroring the property pipeline.
+    ///
+    /// The instance String-return path exercises both the method emission
+    /// shape (`TryEmitMethodExtension` -> `this`-extension signature with
+    /// `_self` P/Invoke arg) and the same Utf8Slice return marshalling the
+    /// property side already covers — proving the shared
+    /// <c>CEReturnShape</c> classifier reaches the method emitter intact.
+    /// </summary>
+    public void TestAlphaSpecialization_ComputeAlphaLabelMethodRoundTrip()
+    {
+        using var alpha = TestLibFunctions.MakeBundle05ContainerAlpha(99);
+        var label = alpha.ComputeAlphaLabel();
+        AssertEqual("alpha-label-99", label,
+            "Bundle 05 #3 (Fix J): Bundle05Container<Bundle05SpecKeyA>.computeAlphaLabel() " +
+            "must surface as a callable C# extension method that round-trips through the " +
+            "constrained-extension METHOD emission path. Pre-Fix-J the emitter only " +
+            "iterated `typeDecl.Properties`; method-shape multispec siblings were dropped.");
+    }
+
+    /// <summary>
+    /// Beta-side instance method round-trip — proves per-specialization
+    /// mangling for the method-shape multispec keeps both alpha and beta
+    /// extensions reachable at distinct symbols (parallel to the existing
+    /// property-side beta coverage above).
+    /// </summary>
+    public void TestBetaSpecialization_ComputeBetaLabelMethodRoundTrip()
+    {
+        using var beta = TestLibFunctions.MakeBundle05ContainerBeta(101);
+        var label = beta.ComputeBetaLabel();
+        AssertEqual("beta-label-101", label,
+            "Bundle 05 #3 (Fix J): per-specialization mangling for the method-shape " +
+            "multispec must keep alpha and beta method extensions reachable at distinct " +
+            "Swift symbols. A regression that conflated them would break either side " +
+            "(or both — same name, different concrete types is exactly the multispec gap).");
+    }
+
+    /// <summary>
+    /// Static-factory method shape (canonical WeatherKit
+    /// <c>*Query.temperature()</c> / MusicKit no-arg accessor pattern).
+    /// Static methods on a constrained extension emit on the per-spec
+    /// extensions class itself (<c>Bundle05ContainerBundle05SpecKeyAExtensions
+    /// .DefaultAlphaRank()</c>) — no <c>this</c> receiver — because C#
+    /// can't dispatch static extension methods on closed generic
+    /// instantiations.
+    /// </summary>
+    public void TestAlphaSpecialization_DefaultAlphaRankStaticMethod()
+    {
+        var rank = Bundle05ContainerBundle05SpecKeyAExtensions.DefaultAlphaRank();
+        AssertEqual(17, rank,
+            "Bundle 05 #3 (Fix J): static-factory method shape must emit on the per-spec " +
+            "extensions class with no `this` receiver and round-trip the Swift body's " +
+            "literal value (17). A regression that dropped static methods would surface " +
+            "as a CS0117 (no such member) at compile time.");
+    }
+
+    /// <summary>
+    /// Beta-side static-factory round-trip — confirms both alpha and beta
+    /// static factories reach C# at independent mangled symbols.
+    /// </summary>
+    public void TestBetaSpecialization_DefaultBetaRankStaticMethod()
+    {
+        var rank = Bundle05ContainerBundle05SpecKeyBExtensions.DefaultBetaRank();
+        AssertEqual(23, rank,
+            "Bundle 05 #3 (Fix J): beta static-factory must reach C# at its own mangled " +
+            "symbol (23). Combined with the alpha case, a single test would not catch " +
+            "a per-spec symbol-conflation regression that broke only one side.");
+    }
+
+    /// <summary>
+    /// Open-generic-return property (`payloadValue` shape). Pre-Fix-J
+    /// properties whose return type was the parent's open generic
+    /// parameter (e.g. <c>VerificationResult&lt;SignedType&gt;
+    /// .payloadValue</c>) skipped under <c>AnyTypeFallback</c> because the
+    /// projected return was unresolvable at emit time. Post-fix, the
+    /// emitter substitutes the open parameter with each anchored concrete
+    /// specialization, so the closed-generic instance gets a typed
+    /// accessor (<c>GetCarriedPayload(this
+    /// Bundle05PayloadCarrier&lt;Bundle05DescriptorPayload&gt; self)
+    /// -> Bundle05DescriptorPayload</c>).
+    ///
+    /// Asserts the round-tripped descriptor's id matches the factory's
+    /// input — proving the substituted return type reached the C# side
+    /// intact AND that the indirect-result + SafeHandle ownership transfer
+    /// for the substituted non-frozen-struct return shape did not regress
+    /// from the existing `alphaDescriptor` test.
+    /// </summary>
+    public void TestPayloadCarrier_OpenGenericReturnRoundTrip()
+    {
+        using (var carrier = TestLibFunctions.MakeBundle05PayloadCarrierWithDescriptor(7))
+        {
+            var anchor = carrier.GetAnchorTag();
+            AssertEqual("anchor-7", anchor,
+                "Anchor property must round-trip — without an anchored constrained " +
+                "specialization, FindOpenGenericReturnProperties would not run and the " +
+                "open-generic-return surface would stay unreachable.");
+
+            using var payload = carrier.GetCarriedPayload();
+            AssertNotNull(payload,
+                "GetCarriedPayload must return a non-null Bundle05DescriptorPayload — a " +
+                "null result would imply the substituted indirect-result buffer was " +
+                "freed before MarshalFromSwift took ownership.");
+            AssertEqual(7, payload.Id,
+                "Bundle 05 #3 (Fix J): open-generic-return shape must substitute the " +
+                "parent's open generic parameter with the concrete specialization at emit " +
+                "time and round-trip the substituted return value through the per-spec " +
+                "extension method. Pre-fix this surface skipped under AnyTypeFallback.");
+            AssertEqual("carried-7", payload.Label.ToString(),
+                "Substituted-return struct must round-trip BOTH primitive and reference " +
+                "fields, not just the Int32. The Swift factory builds the descriptor with " +
+                "label `carried-\\(id)`; if Label drops in transit, the indirect-result " +
+                "path is silently truncating the substituted struct's String slot.");
+        }
+    }
+
+    /// <summary>
+    /// Foundation.Data round-trip on the alpha specialization — exercises
     /// the path StoreKit2's <c>VerificationResult.headerData</c> /
     /// <c>.payloadData</c> / <c>.signatureData</c> /
     /// <c>.signedData</c> / <c>.deviceVerification</c> need (all
