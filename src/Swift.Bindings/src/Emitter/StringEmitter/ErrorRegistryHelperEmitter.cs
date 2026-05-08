@@ -11,9 +11,11 @@ namespace BindingsGeneration;
 /// <list type="bullet">
 ///   <item>Swift <c>_SBW_dispatchSwiftError_{Module}(error:_sbwTask:errorCallback:)</c> —
 ///         module-level helper that performs the alphabetical-id-ordered <c>as?</c>
-///         cascade against every registered error type, allocates a typed buffer
-///         on match, and invokes the 6-param C error callback with the matched id.
-///         Falls through with id <c>0</c> when no registered type matches.</item>
+///         cascade against every registered error type, packages the matched
+///         payload according to its shape (allocated value buffer for value
+///         types, retained class-pointer for class-shaped errors), and invokes
+///         the 6-param C error callback with the matched id. Falls through with
+///         id <c>0</c> when no registered type matches.</item>
 ///   <item>C# <c>_SbwModuleErrorRegistry_{Module}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage)</c> —
 ///         namespace-level static helper that consumes the wire id, marshals the
 ///         typed payload via <see cref="Swift.Runtime.SwiftMarshal"/>
@@ -26,12 +28,30 @@ namespace BindingsGeneration;
 /// <see cref="ModuleEmissionContext.ErrorRegistryHelperEmittedCSharp"/>.
 /// </summary>
 /// <remarks>
-/// Ownership model: the cascade always allocates a fresh buffer
-/// (<c>UnsafeMutableRawPointer.allocate</c> + <c>initializeMemory</c>), so the
-/// C# side always frees on the way out via <see cref="Utf8SliceEmitter"/>'s
-/// <c>SBW_Free</c>. This is the simple value-copy ownership shape (no ownership
-/// transfer to a SafeHandle); refinement for class-shaped errors is deferred
-/// to Layer 5.
+/// Phase 4 Layer 5 ownership model: the dispatcher selects one of three shapes
+/// per registered error type, mirroring the typed-throws ownership rules in
+/// <see cref="WrapperEmitter"/> (the <c>typedErrorTransfersOwnershipAsync</c> flag):
+/// <list type="bullet">
+///   <item><b>Value-copy</b> (simple enums, plain frozen structs) — Swift
+///         allocates a fresh buffer and copies the matched value into it; C#
+///         marshals by value and frees the buffer in the per-case
+///         <c>finally</c>. <c>MarshalFromSwift</c> does not retain the buffer.</item>
+///   <item><b>Buffer-owned-by-SafeHandle</b> (complex enums, non-frozen
+///         structs, frozen-with-memory structs) — Swift allocates a fresh
+///         buffer and copies the matched value into it; C# marshals to a
+///         <c>SwiftSafeHandle</c> wrapping the buffer pointer. The buffer is
+///         freed only in the per-case <c>catch</c> (marshal failure); on
+///         success the SafeHandle's finalizer releases it.</item>
+///   <item><b>Class-pointer-direct</b> (Swift classes conforming to Error) —
+///         Swift hands a +1 retained class pointer via
+///         <c>Unmanaged.passRetained(_:).toOpaque()</c> (no carrier buffer);
+///         C# passes that pointer to <c>MarshalFromSwift&lt;T&gt;</c>, whose
+///         <c>NewFromPayload</c> takes ownership of the +1 retain. There is
+///         nothing to <c>SBW_Free</c> in this shape.</item>
+/// </list>
+/// The Swift cascade emits per-type code paths so the wire shape matches the
+/// C# helper's per-case dispatch — both sides must agree on whether the
+/// callback's <c>errorPtr</c> is a buffer-of-bytes or a retained-class-pointer.
 /// </remarks>
 public static class ErrorRegistryHelperEmitter
 {
@@ -40,13 +60,11 @@ public static class ErrorRegistryHelperEmitter
     /// emitted. No-op when the module has no registered error types
     /// (<c>ctx.ErrorTypeOrder.Count == 0</c>).
     /// </summary>
-    /// <param name="typeDatabase">Used to filter the cascade to value-copy-safe types
-    /// (simple enums, plain frozen structs). Complex enums, non-frozen structs,
-    /// frozen-with-memory structs, and classes hand ownership of the typed buffer to
-    /// the C# <c>SafeHandle</c> via <c>SwiftMarshal.MarshalFromSwift</c>; freeing in
-    /// the helper's <c>finally</c> would double-free. Phase 4 Layer 2 ships only the
-    /// value-copy shape; ownership transfer for class-shaped errors is Layer 5.
-    /// May be null for legacy callers (tests); when null, no filtering applies.</param>
+    /// <param name="typeDatabase">Drives per-type Swift cascade shape selection
+    /// (value-copy buffer vs class-pointer-direct). May be null for legacy / unit-test
+    /// callers; the null path defaults every entry to value-copy buffer emit, which is
+    /// safe for the simple-enum fixtures unit tests use and never wired without a
+    /// real database in production.</param>
     public static bool EmitSwiftCascadeIfNeeded(
         SwiftWriter swiftWriter,
         string moduleName,
@@ -84,7 +102,8 @@ public static class ErrorRegistryHelperEmitter
             // Emitted once per module; called from every plain-throws async wrapper's
             // catch block. Performs an alphabetical-by-id cascade of `as?` casts
             // against registered Error-conforming types and invokes the C# callback
-            // with a buffer + matched typeId, or falls through with id 0 (untyped).
+            // with a buffer + matched typeId (or a retained class pointer for class
+            // -shaped errors), or falls through with id 0 (untyped).
             internal func {{dispatchSymbol}}(
                 _ error: any Error,
                 _ _sbwTask: Int64,
@@ -117,6 +136,13 @@ public static class ErrorRegistryHelperEmitter
     /// marshals the typed payload, and returns the constructed exception. id 0
     /// falls back to untyped <see cref="Swift.Runtime.SwiftException"/>.
     /// </summary>
+    /// <param name="typeDatabase">Drives per-id buffer ownership selection. When
+    /// available, the dispatch body emits one of three shapes (value-copy,
+    /// buffer-owned-by-SafeHandle, class-pointer-direct) per type, mirroring
+    /// <c>typedErrorTransfersOwnershipAsync</c> in <see cref="WrapperEmitter"/>.
+    /// May be null for legacy callers (tests); when null, all entries default to
+    /// value-copy ownership semantics — safe for the simple-enum fixtures unit
+    /// tests use, and never wired without a real database in production.</param>
     public static bool EmitCSharpRegistryIfNeeded(
         CSharpWriter csWriter,
         string moduleName,
@@ -138,12 +164,22 @@ public static class ErrorRegistryHelperEmitter
         var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
         var dispatchBody = BuildCSharpDispatchBody(ctx, typeDatabase, moduleName, indent: "                ");
 
+        // Per-id ownership: value-copy cases free in their per-case `finally`;
+        // buffer-owned-by-SafeHandle cases free only in their per-case `catch` (marshal
+        // failure) so a successful marshal hands the buffer to the constructed
+        // SafeHandle. Class-pointer-direct cases never free — the wire `errorPtr`
+        // IS the class pointer, owned by the resulting SwiftObject. The default
+        // branch frees defensively for any unknown id with a non-null buffer (the
+        // Swift cascade should never produce that pair, but belt-and-suspenders
+        // against future drift). Marshal exceptions surface as bare SwiftException
+        // so the consumer still sees the original Swift message.
         csWriter.WriteLines($$"""
             /// <summary>
             /// Phase 4 plain-throws → typed-exception bridge — module-scoped C# dispatcher
             /// for <c>{{moduleName}}</c>. Wire-format consumer: switches on
             /// <c>errorTypeId</c> to reconstruct the matching <c>SwiftException&lt;TError&gt;</c>
-            /// from the Swift-allocated error buffer. id 0 is the untyped fallback.
+            /// from the Swift-allocated error buffer (or class pointer for class-shaped
+            /// errors). id 0 is the untyped fallback.
             /// </summary>
             internal static partial class {{helperClassName}}
             {
@@ -156,6 +192,10 @@ public static class ErrorRegistryHelperEmitter
                     nint errorSize,
                     string errorMessage)
                 {
+                    // Untyped fallback path: Swift dispatcher passes id 0 with nil pointer.
+                    if (errorTypeId == 0)
+                        return new global::Swift.Runtime.SwiftException(errorMessage);
+
                     System.Exception result;
                     try
                     {
@@ -163,21 +203,20 @@ public static class ErrorRegistryHelperEmitter
                         {
             {{dispatchBody}}
                             default:
+                                // Unknown id with a real buffer: free defensively, fall back to untyped.
+                                if (errorPtr != IntPtr.Zero)
+                                    SBW_Free(errorPtr);
                                 result = new global::Swift.Runtime.SwiftException(errorMessage);
                                 break;
                         }
                     }
                     catch (System.Exception marshalEx)
                     {
-                        // MarshalFromSwift failure: surface the registered type id but fall back
-                        // to untyped exception so the consumer still sees the Swift error message.
+                        // Per-case catch / finally already freed (or transferred) the buffer.
+                        // Surface the marshal failure as bare SwiftException so the consumer
+                        // still sees the Swift error message; the typed payload is unrecoverable.
                         result = new global::Swift.Runtime.SwiftException(
                             $"{errorMessage} (typed marshal failed for id {errorTypeId}: {marshalEx.Message})");
-                    }
-                    finally
-                    {
-                        if (errorPtr != IntPtr.Zero)
-                            SBW_Free(errorPtr);
                     }
                     return result;
                 }
@@ -196,6 +235,19 @@ public static class ErrorRegistryHelperEmitter
     public static string GetCSharpHelperClassName(string moduleName) =>
         $"_SbwModuleErrorRegistry_{moduleName}";
 
+    /// <summary>
+    /// Per-type cascade payload shape. Distinguishes value-copy (simple enum /
+    /// plain frozen struct), buffer-owned-by-SafeHandle (complex enum,
+    /// non-frozen struct, frozen-with-memory struct), and class-pointer-direct
+    /// (Swift class conforming to Error).
+    /// </summary>
+    private enum CascadePayloadShape
+    {
+        ValueCopy,
+        BufferOwnedBySafeHandle,
+        ClassPointerDirect,
+    }
+
     private static string BuildSwiftCascadeBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string indent)
     {
         var sb = new System.Text.StringBuilder();
@@ -203,25 +255,36 @@ public static class ErrorRegistryHelperEmitter
         foreach (var swiftTypeName in ctx.ErrorTypeOrder)
         {
             idx++;
-            // Phase 4 Layer 2 ownership scope: skip cascade entries for types that hand
-            // buffer ownership to the C# SafeHandle on MarshalFromSwift (complex enums,
-            // non-frozen structs, frozen-with-memory structs, classes). Freeing the
-            // buffer in the helper's `finally` would double-free for those. Skipped
-            // types still hold a registry id (deterministic alphabetical ordering is
-            // preserved across versions) but never match in cascade, so they fall
-            // through to id 0 → bare SwiftException. Layer 5 will add per-id ownership
-            // and re-enable typed dispatch for class-shaped errors.
-            if (!IsValueCopySafeForCascade(swiftTypeName, typeDatabase))
-                continue;
+            var shape = ClassifyShape(swiftTypeName, typeDatabase);
             sb.AppendLine($"{indent}if let _typed = error as? {swiftTypeName} {{");
-            sb.AppendLine($"{indent}    let _size = MemoryLayout<{swiftTypeName}>.size");
-            sb.AppendLine($"{indent}    let _align = MemoryLayout<{swiftTypeName}>.alignment");
-            sb.AppendLine($"{indent}    let _buf = UnsafeMutableRawPointer.allocate(byteCount: max(_size, 1), alignment: _align)");
-            sb.AppendLine($"{indent}    _buf.initializeMemory(as: {swiftTypeName}.self, repeating: _typed, count: 1)");
-            sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
-            sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_buf), Int(Int64(_size)), _msgPtr, 0, _sbwTask, {idx})");
-            sb.AppendLine($"{indent}    }}");
-            sb.AppendLine($"{indent}    return");
+            if (shape == CascadePayloadShape.ClassPointerDirect)
+            {
+                // Class-shaped error: hand a +1 retained class pointer directly.
+                // No carrier buffer is allocated; the wire `errorPtr` IS the class
+                // pointer. C# `MarshalFromSwift<T>` then routes through `NewFromPayload`,
+                // which constructs the SwiftObject taking ownership of the +1 retain.
+                // Wire `errorSize` is unused in this shape — pass 0.
+                sb.AppendLine($"{indent}    let _ptr = Unmanaged.passRetained(_typed as AnyObject).toOpaque()");
+                sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
+                sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, {idx})");
+                sb.AppendLine($"{indent}    }}");
+                sb.AppendLine($"{indent}    return");
+            }
+            else
+            {
+                // Value-types and SafeHandle-owned types: allocate a fresh buffer and
+                // value-witness-table-aware copy the matched value into it. C# marshals
+                // by value (free in finally) or wraps into a SafeHandle (free only on
+                // exception) per the per-case dispatch shape on the C# side.
+                sb.AppendLine($"{indent}    let _size = MemoryLayout<{swiftTypeName}>.size");
+                sb.AppendLine($"{indent}    let _align = MemoryLayout<{swiftTypeName}>.alignment");
+                sb.AppendLine($"{indent}    let _buf = UnsafeMutableRawPointer.allocate(byteCount: max(_size, 1), alignment: _align)");
+                sb.AppendLine($"{indent}    _buf.initializeMemory(as: {swiftTypeName}.self, repeating: _typed, count: 1)");
+                sb.AppendLine($"{indent}    errorMessage.withCString {{ _msgPtr in");
+                sb.AppendLine($"{indent}        errorCallback(UnsafeRawPointer(_buf), Int(Int64(_size)), _msgPtr, 0, _sbwTask, {idx})");
+                sb.AppendLine($"{indent}    }}");
+                sb.AppendLine($"{indent}    return");
+            }
             sb.AppendLine($"{indent}}}");
         }
         return sb.ToString().TrimEnd();
@@ -239,16 +302,32 @@ public static class ErrorRegistryHelperEmitter
         foreach (var swiftTypeName in ctx.ErrorTypeOrder)
         {
             idx++;
-            // Mirror the Swift cascade filter: only emit C# dispatch cases for
-            // value-copy-safe types. The Swift dispatcher never calls back with an id
-            // for a skipped type, so an emitted case would be unreachable; omitting it
-            // also prevents accidental misuse if a future cascade emit forgets to skip.
-            if (!IsValueCopySafeForCascade(swiftTypeName, typeDatabase))
-                continue;
             var csharpQualifiedName = ToCSharpFullyQualifiedName(swiftTypeName);
+            var shape = ClassifyShape(swiftTypeName, typeDatabase);
+
             sb.AppendLine($"{indent}case {idx}:");
             sb.AppendLine($"{indent}{{");
-            sb.AppendLine($"{indent}    var _typed = ({csharpQualifiedName})global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{csharpQualifiedName}>(errorPtr);");
+            // Per-case ownership pattern mirrors WrapperEmitter.Async.cs's typed-throws emit.
+            // - ValueCopy: free in `finally` (marshal copies bytes; buffer is owned by us).
+            // - BufferOwnedBySafeHandle: free only in `catch` (successful marshal hands
+            //   buffer ownership to the constructed SafeHandle).
+            // - ClassPointerDirect: never `SBW_Free` — wire `errorPtr` is the +1 retained
+            //   class pointer (no carrier buffer). On successful marshal, `MarshalFromSwift`'s
+            //   `NewFromPayload` constructs a `SwiftClassHandle` that takes ownership of the
+            //   +1; the SafeHandle's release path balances the retain. On marshal failure we
+            //   must release the +1 ourselves — otherwise the retain leaks via the outer
+            //   fallback `catch`.
+            sb.AppendLine($"{indent}    {csharpQualifiedName} _typed;");
+            sb.AppendLine($"{indent}    try");
+            sb.AppendLine($"{indent}    {{");
+            sb.AppendLine($"{indent}        _typed = ({csharpQualifiedName})global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{csharpQualifiedName}>(errorPtr);");
+            sb.AppendLine($"{indent}    }}");
+            if (shape == CascadePayloadShape.ValueCopy)
+                sb.AppendLine($"{indent}    finally {{ if (errorPtr != IntPtr.Zero) SBW_Free(errorPtr); }}");
+            else if (shape == CascadePayloadShape.BufferOwnedBySafeHandle)
+                sb.AppendLine($"{indent}    catch {{ if (errorPtr != IntPtr.Zero) SBW_Free(errorPtr); throw; }}");
+            else // ClassPointerDirect
+                sb.AppendLine($"{indent}    catch {{ if (errorPtr != IntPtr.Zero) global::Swift.Runtime.Arc.Release(errorPtr); throw; }}");
             sb.AppendLine($"{indent}    result = new global::Swift.Runtime.SwiftException<{csharpQualifiedName}>(_typed, errorMessage);");
             sb.AppendLine($"{indent}    break;");
             sb.AppendLine($"{indent}}}");
@@ -257,37 +336,57 @@ public static class ErrorRegistryHelperEmitter
     }
 
     /// <summary>
-    /// Phase 4 Layer 2 ownership filter. Returns true when an Error-conforming type
-    /// can be safely allocated, value-copied into a fresh buffer in Swift, marshalled
-    /// into C# via <c>SwiftMarshal.MarshalFromSwift</c>, and freed via <c>SBW_Free</c>
-    /// from the cascade helper's <c>finally</c>. Mirrors the inverse of
-    /// <c>typedErrorTransfersOwnershipAsync</c> in <see cref="WrapperEmitter"/> — types
-    /// that transfer buffer ownership to a <c>SafeHandle</c> must NOT be freed by the
-    /// helper, so they're skipped from the cascade in this layer and fall through to
-    /// the untyped <c>SwiftException</c>. Layer 5 lifts the restriction by emitting
-    /// per-id ownership behavior.
+    /// Layer 5 per-id buffer ownership selector. Mirrors
+    /// <c>typedErrorTransfersOwnershipAsync</c> in <see cref="WrapperEmitter"/>
+    /// so the cascade dispatcher stays semantically in lockstep with the
+    /// typed-throws path:
+    /// <list type="bullet">
+    ///   <item>Class types → <see cref="CascadePayloadShape.ClassPointerDirect"/>:
+    ///         Swift's <c>NewFromPayload(handle)</c> for a generated class wrapper
+    ///         expects the raw class pointer, not a buffer holding it. Class-shaped
+    ///         errors hand a +1 retained class pointer over the wire instead of an
+    ///         allocated value buffer.</item>
+    ///   <item>Complex enums, non-frozen structs, frozen-with-memory structs →
+    ///         <see cref="CascadePayloadShape.BufferOwnedBySafeHandle"/>: the
+    ///         generated <c>NewFromPayloadCore</c> wraps the supplied IntPtr in a
+    ///         <c>SwiftSafeHandle</c>, so on successful marshal the SafeHandle owns
+    ///         the wire buffer; freeing here would double-free with its finalizer.
+    ///         <para>The frozen-with-memory case mirrors <see cref="WrapperEmitter"/>
+    ///         exactly. If the typed-throws ownership decision turns out to leak
+    ///         the original carrier in some sub-case, that's a pre-existing bug
+    ///         shared by both paths and the right fix touches them consistently;
+    ///         changing only the cascade would create asymmetry.</para></item>
+    ///   <item>Everything else (simple enums, plain frozen structs) →
+    ///         <see cref="CascadePayloadShape.ValueCopy"/>: <c>MarshalFromSwift</c>
+    ///         reads bytes by value; the buffer is owned by us and freed in
+    ///         <c>finally</c>.</item>
+    /// </list>
     /// </summary>
     /// <remarks>
-    /// When <paramref name="typeDatabase"/> is null (legacy / unit-test callers that
-    /// don't have a TypeDatabase), no filtering applies — callers in that mode are
-    /// driving the registry deterministically and don't go through the production
-    /// cascade emit path. Production callers always pass a non-null database.
+    /// When <paramref name="typeDatabase"/> is null (legacy / unit-test callers
+    /// that don't have a TypeDatabase), the answer defaults to
+    /// <see cref="CascadePayloadShape.ValueCopy"/>. Production callers always
+    /// pass a non-null database; the null path is only reached by simple-enum
+    /// unit fixtures whose marshal is genuinely value-copy.
     /// </remarks>
-    private static bool IsValueCopySafeForCascade(string moduleQualifiedName, ITypeDatabase? typeDatabase)
+    private static CascadePayloadShape ClassifyShape(string moduleQualifiedName, ITypeDatabase? typeDatabase)
     {
         if (typeDatabase is null)
-            return true;
+            return CascadePayloadShape.ValueCopy;
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName);
         if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var record))
-            return false; // unknown — be conservative and skip
+            return CascadePayloadShape.ValueCopy;
+        if (record.Kind == TypeRecordKind.Class)
+            return CascadePayloadShape.ClassPointerDirect;
         bool isComplexEnum = record.Kind == TypeRecordKind.Enum &&
             !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
         bool isNonFrozenStruct = record.Kind == TypeRecordKind.Struct &&
             !MarshallingHelpers.IsTypeFrozen(record);
         bool isFrozenStructAsClass = record.Kind == TypeRecordKind.Struct &&
             MarshallingHelpers.IsFrozenStructProjectedAsClass(record);
-        bool isClassError = record.Kind == TypeRecordKind.Class;
-        return !(isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass || isClassError);
+        if (isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass)
+            return CascadePayloadShape.BufferOwnedBySafeHandle;
+        return CascadePayloadShape.ValueCopy;
     }
 
     private static string ToCSharpFullyQualifiedName(string swiftModuleQualifiedName) =>

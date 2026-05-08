@@ -106,3 +106,57 @@ public func plainThrowsAsyncRetrieve(key: String) async throws -> Int32 {
     if key == "restricted" { throw StorageError.accessDenied }
     return Int32(key.count)
 }
+
+// MARK: - Phase 4 Layer 5 breadth fixtures
+
+/// Plain `async throws` function that throws a complex enum (associated values).
+/// Exercises the Layer 5 ownership-transfer branch of the cascade dispatcher:
+/// MarshalFromSwift<ParseError2> hands the buffer to a SafeHandle, so the C#
+/// helper must NOT free in the per-case finally. Asserting against
+/// `ParseError2.unexpectedEOF(at: 42)` rather than the first case rules out a
+/// "default discriminant happened to match" false positive in the tag check.
+public func plainThrowsAsyncParse(input: String) async throws -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    if input.isEmpty { throw ParseError2.unexpectedEOF(at: 42) }
+    if input == "overflow" { throw ParseError2.overflow }
+    if input.first == "!" { throw ParseError2.malformed(reason: "leading punctuation: \(input)") }
+    return Int32(input.count)
+}
+
+/// Plain `async throws` function that throws a non-frozen struct error.
+/// Exercises the struct-shaped ownership-transfer branch of the cascade.
+public func plainThrowsAsyncLoadConfig(path: String) async throws -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    if path.isEmpty { throw PlainThrowsConfigError(path: path, lineNumber: 0) }
+    if path == "/etc/bad" { throw PlainThrowsConfigError(path: path, lineNumber: 7) }
+    return Int32(path.count)
+}
+
+/// Plain `async throws` function that throws an Error from outside the module's
+/// registry (Foundation `NSError`). The cascade has no `as?` arm for `NSError`,
+/// so it falls through to id 0 with nil buffer — the C# side surfaces a bare
+/// `SwiftException` (not `SwiftException<T>`). The Swift error description is
+/// preserved on the `.Message` field via `String(describing:)`.
+public func plainThrowsAsyncFallthroughToUntyped() async throws -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    throw NSError(
+        domain: "SwiftBindingsTestLib.UnregisteredDomain",
+        code: 7777,
+        userInfo: [NSLocalizedDescriptionKey: "fallthrough-sentinel-7777"])
+}
+
+/// Plain `async throws` function that throws a class-shaped Error
+/// (`PlainThrowsScanError`). Exercises the Layer 5 class-pointer-direct cascade
+/// shape: Swift sends a +1 retained class pointer over the wire (no carrier
+/// buffer), and C# `MarshalFromSwift<PlainThrowsScanError>` constructs the
+/// SwiftObject taking ownership of the retain — nothing to `SBW_Free`.
+public func plainThrowsAsyncScan(input: String) async throws -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    if input.isEmpty {
+        throw PlainThrowsScanError(code: 404, detail: "empty input rejected")
+    }
+    if input == "denied" {
+        throw PlainThrowsScanError(code: 403, detail: "scanning denied for: \(input)")
+    }
+    return Int32(input.count)
+}

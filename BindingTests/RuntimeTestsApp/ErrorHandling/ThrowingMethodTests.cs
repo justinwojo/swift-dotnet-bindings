@@ -509,6 +509,122 @@ public class BasicThrowingTests : TestBase
         }
     }
 
+    public async Task TestPlainThrowsAsyncParseCascadeToComplexEnum()
+    {
+        // Layer 5: plain async throws with a complex enum (associated values).
+        // ParseError2 projects to a C# class with a Tag/CaseTag — MarshalFromSwift
+        // hands ownership of the Swift buffer to the SafeHandle, so the cascade
+        // dispatcher's per-id ownership branch must NOT free in finally. A
+        // double-free here would surface as a Mono JIT crash or a NativeAOT
+        // assertion. Asserting `.UnexpectedEOF` rules out a "first-case-default"
+        // false positive (malformed is alphabetically first; unexpectedEOF is
+        // selected by the input "" sentinel below).
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.PlainThrowsAsyncParseAsync(""),
+                DefaultAsyncTimeout);
+            throw new AssertionException("PlainThrowsAsyncParseAsync(\"\") should have thrown");
+        }
+        catch (SwiftException<ParseError2> ex)
+        {
+            AssertNotNull(ex.Error, "Cascade dispatch should populate ex.Error for complex enum");
+            AssertEqual(ParseError2.CaseTag.UnexpectedEOF, ex.Error!.Tag,
+                "Cascade dispatch should produce ParseError2.UnexpectedEOF");
+            AssertTrue(ex.Message.Contains("unexpectedEOF") || ex.Message.Contains("42"),
+                $"Cascade message should reflect Swift error description, got: {ex.Message}");
+            TestLogger.Info($"PlainThrowsAsyncParseAsync cascade: Error.Tag={ex.Error.Tag}, Message={ex.Message}");
+        }
+    }
+
+    public async Task TestPlainThrowsAsyncLoadConfigCascadeToStructError()
+    {
+        // Layer 5: plain async throws with a non-frozen struct error. PlainThrowsConfigError
+        // projects as a C# class through the resilience boundary; same ownership
+        // pattern as complex enums — buffer ownership transfers to SafeHandle on
+        // successful marshal, so the cascade helper's per-case `catch { SBW_Free; throw; }`
+        // is the only path that frees on this branch. Asserting on the carried
+        // payload fields (Path / LineNumber) confirms the marshalled struct holds
+        // the values copied by Swift, not a zero-initialized fallback.
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.PlainThrowsAsyncLoadConfigAsync("/etc/bad"),
+                DefaultAsyncTimeout);
+            throw new AssertionException("PlainThrowsAsyncLoadConfigAsync(\"/etc/bad\") should have thrown");
+        }
+        catch (SwiftException<PlainThrowsConfigError> ex)
+        {
+            AssertNotNull(ex.Error, "Cascade dispatch should populate ex.Error for struct error");
+            // SwiftString → string projection on the resilience boundary; Path is
+            // a non-blittable getter through the SafeHandle.
+            AssertEqual("/etc/bad", ex.Error!.Path.ToString(),
+                "Cascade payload should preserve PlainThrowsConfigError.path = /etc/bad");
+            AssertEqual(7, ex.Error.LineNumber,
+                "Cascade payload should preserve PlainThrowsConfigError.lineNumber = 7");
+            AssertTrue(ex.Message.Contains("PlainThrowsConfigError") || ex.Message.Contains("/etc/bad") || ex.Message.Contains("7"),
+                $"Cascade message should reflect Swift error description, got: {ex.Message}");
+            TestLogger.Info($"PlainThrowsAsyncLoadConfigAsync cascade: Path={ex.Error.Path}, LineNumber={ex.Error.LineNumber}, Message={ex.Message}");
+        }
+    }
+
+    public async Task TestPlainThrowsAsyncScanCascadeToClassError()
+    {
+        // Layer 5 class-pointer-direct shape: PlainThrowsScanError is a Swift class
+        // conforming to Error. The cascade Swift body uses
+        // `Unmanaged.passRetained(_typed as AnyObject).toOpaque()` to hand a +1
+        // retained class pointer to C#; the wire `errorPtr` IS the class pointer
+        // (no carrier buffer). C# `MarshalFromSwift<PlainThrowsScanError>` routes
+        // through `NewFromPayload`, whose constructor takes ownership of the +1
+        // retain. There is nothing to `SBW_Free` for this shape — SafeHandle's
+        // finalizer balances the retain. A double-free here would surface as a
+        // Mono JIT crash or NativeAOT abort. Asserting on `.Code` and `.Detail`
+        // proves the class pointer round-tripped its carried payload.
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.PlainThrowsAsyncScanAsync("denied"),
+                DefaultAsyncTimeout);
+            throw new AssertionException("PlainThrowsAsyncScanAsync(\"denied\") should have thrown");
+        }
+        catch (SwiftException<PlainThrowsScanError> ex)
+        {
+            AssertNotNull(ex.Error, "Cascade dispatch should populate ex.Error for class error");
+            AssertEqual(403, ex.Error!.Code, "Cascade payload should preserve PlainThrowsScanError.code = 403");
+            AssertEqual("scanning denied for: denied", ex.Error.Detail.ToString(),
+                "Cascade payload should preserve PlainThrowsScanError.detail");
+            TestLogger.Info($"PlainThrowsAsyncScanAsync cascade: Code={ex.Error.Code}, Detail={ex.Error.Detail}, Message={ex.Message}");
+        }
+    }
+
+    public async Task TestPlainThrowsAsyncFallthroughToUntyped()
+    {
+        // Layer 5: plain async throws of a Foundation NSError that's NOT in the
+        // SwiftBindingsTestLib registry. The Swift cascade has no `as?` arm for
+        // NSError, falls through to id 0 + nil buffer, and the C# helper returns
+        // a bare `SwiftException` (not `SwiftException<T>`). The Swift error
+        // description carries through on `.Message` via String(describing:).
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.PlainThrowsAsyncFallthroughToUntypedAsync(),
+                DefaultAsyncTimeout);
+            throw new AssertionException("PlainThrowsAsyncFallthroughToUntypedAsync should have thrown");
+        }
+        catch (SwiftException ex) when (ex.GetType() == typeof(SwiftException))
+        {
+            // .GetType() == typeof(SwiftException) ensures we caught the BARE type,
+            // not a SwiftException<T> subclass — the latter would imply the cascade
+            // matched something it shouldn't have.
+            AssertTrue(
+                ex.Message.Contains("fallthrough-sentinel-7777")
+                    || ex.Message.Contains("UnregisteredDomain")
+                    || ex.Message.Contains("7777"),
+                $"Untyped fallback should preserve NSError description on .Message, got: {ex.Message}");
+            TestLogger.Info($"PlainThrowsAsyncFallthroughToUntypedAsync correctly fell through to bare SwiftException; Message={ex.Message}");
+        }
+    }
+
     #endregion
 
     #region Pass 2 — S1: Failable Init (SafeDiv, RangedInt)
