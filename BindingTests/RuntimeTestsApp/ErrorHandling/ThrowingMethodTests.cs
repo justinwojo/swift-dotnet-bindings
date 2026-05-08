@@ -597,6 +597,41 @@ public class BasicThrowingTests : TestBase
         }
     }
 
+    public async Task TestPlainThrowsAsyncFrozenWithMemoryCascade()
+    {
+        // Layer 5 BufferCopiedNeedsVwtDestroy shape: PlainThrowsFrozenWithMemoryError
+        // is a `@frozen` struct with a `String` field, so the C# projection is
+        // `IsFrozenStructProjectedAsClass` (`ClassWithBufferStruct`). Its generated
+        // `NewFromPayload` does an `InitializeWithCopy` from the wire carrier into
+        // a fresh `NativeMemory.Alloc` buffer owned by a SafeHandle — the wire
+        // carrier walks away with +1 retains on `resourceName`'s heap allocation
+        // and on the carrier itself. The cascade dispatcher (and the async
+        // typed-throws cleanup in WrapperEmitter / AsyncHarnessEmitter) must run a
+        // VWT `Destroy` on the wire buffer before `SBW_Free` to release those
+        // retains. Without that destroy, every throw leaks the heap-typed field's
+        // backing allocation. Asserting on the marshalled `ResourceName` /
+        // `Attempts` confirms the copied payload reached C# intact while the
+        // upstream wire buffer was destroyed correctly. Throwing many times in
+        // a loop would surface a leak in CI memory reports; the per-call
+        // correctness assertion alone is enough to gate the cleanup wiring.
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.PlainThrowsAsyncFrozenWithMemoryAsync("denied"),
+                DefaultAsyncTimeout);
+            throw new AssertionException("PlainThrowsAsyncFrozenWithMemoryAsync(\"denied\") should have thrown");
+        }
+        catch (SwiftException<PlainThrowsFrozenWithMemoryError> ex)
+        {
+            AssertNotNull(ex.Error, "Cascade dispatch should populate ex.Error for frozen-with-memory error");
+            AssertEqual("secrets.json", ex.Error!.ResourceName.ToString(),
+                "Cascade payload should preserve PlainThrowsFrozenWithMemoryError.resourceName = secrets.json");
+            AssertEqual(13, ex.Error.Attempts,
+                "Cascade payload should preserve PlainThrowsFrozenWithMemoryError.attempts = 13");
+            TestLogger.Info($"PlainThrowsAsyncFrozenWithMemoryAsync cascade: ResourceName={ex.Error.ResourceName}, Attempts={ex.Error.Attempts}, Message={ex.Message}");
+        }
+    }
+
     public async Task TestPlainThrowsAsyncFallthroughToUntyped()
     {
         // Layer 5: plain async throws of a Foundation NSError that's NOT in the

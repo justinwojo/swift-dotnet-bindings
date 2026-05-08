@@ -119,6 +119,50 @@ public static class SwiftMarshal
         => (int)T.GetTypeMetadata().Size;
 
     /// <summary>
+    /// Releases the value-witness retains held by a Swift wire-buffer for a value type
+    /// whose <c>NewFromPayload</c> made a <c>NativeMemory.Alloc</c> +
+    /// <c>InitializeWithCopy</c> copy of the payload. The carrier itself is not freed —
+    /// generated code follows this with the per-module <c>SBW_Free</c> so the allocator
+    /// matches the Swift wrapper's <c>UnsafeMutableRawPointer.allocate</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>Required only for the frozen-with-memory struct shape
+    /// (<c>IsFrozenStructProjectedAsClass</c> in the generator): for that shape
+    /// <c>WriteNewFromPayloadFrozenStruct</c> emits an <c>InitializeWithCopy</c> from the
+    /// wire <c>handle</c> into a fresh <c>NativeMemory.Alloc</c> buffer owned by the
+    /// constructed <c>SwiftSafeHandle</c>. The original wire buffer keeps its
+    /// <c>+1</c> retains on the heap fields, so without an explicit VWT
+    /// <c>Destroy</c> on the source the retained inner allocations leak. Non-frozen
+    /// structs and complex enums wrap the wire <c>handle</c> directly into the
+    /// SafeHandle and don't need this helper — the SafeHandle's <c>ReleaseHandle</c>
+    /// runs the destroy itself.</para>
+    /// <para>If type metadata is unavailable (e.g. mock types in unit tests),
+    /// the destroy step is skipped silently — the helper never throws.</para>
+    /// </remarks>
+    /// <typeparam name="T">The Swift wrapper type whose value occupies the buffer.</typeparam>
+    /// <param name="buffer">The wire buffer pointer to destroy. <c>IntPtr.Zero</c> is a no-op.</param>
+    public static unsafe void DestroyWireBufferRetains<T>(IntPtr buffer) where T : ISwiftObject
+    {
+        if (buffer == IntPtr.Zero)
+            return;
+        TypeMetadata metadata;
+        try
+        {
+            metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+        }
+        catch
+        {
+            // Metadata unavailable — generator-emitted ISwiftObject types always
+            // resolve metadata in production, but unit-test mock types may not.
+            // Skip the destroy; the caller still frees the carrier.
+            return;
+        }
+        if (!metadata.IsValid)
+            return;
+        metadata.ValueWitnessTable->Destroy((void*)buffer, metadata);
+    }
+
+    /// <summary>
     /// Pre-registers a NewFromPayload factory for a type so NativeAOT can create instances
     /// without reflection. Called by generated [ModuleInitializer] code at assembly load time.
     /// </summary>

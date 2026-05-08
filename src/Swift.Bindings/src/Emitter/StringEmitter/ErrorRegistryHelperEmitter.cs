@@ -28,20 +28,29 @@ namespace BindingsGeneration;
 /// <see cref="ModuleEmissionContext.ErrorRegistryHelperEmittedCSharp"/>.
 /// </summary>
 /// <remarks>
-/// Phase 4 Layer 5 ownership model: the dispatcher selects one of three shapes
+/// Phase 4 Layer 5 ownership model: the dispatcher selects one of four shapes
 /// per registered error type, mirroring the typed-throws ownership rules in
-/// <see cref="WrapperEmitter"/> (the <c>typedErrorTransfersOwnershipAsync</c> flag):
+/// <see cref="WrapperEmitter"/>:
 /// <list type="bullet">
 ///   <item><b>Value-copy</b> (simple enums, plain frozen structs) — Swift
 ///         allocates a fresh buffer and copies the matched value into it; C#
 ///         marshals by value and frees the buffer in the per-case
 ///         <c>finally</c>. <c>MarshalFromSwift</c> does not retain the buffer.</item>
 ///   <item><b>Buffer-owned-by-SafeHandle</b> (complex enums, non-frozen
-///         structs, frozen-with-memory structs) — Swift allocates a fresh
-///         buffer and copies the matched value into it; C# marshals to a
-///         <c>SwiftSafeHandle</c> wrapping the buffer pointer. The buffer is
-///         freed only in the per-case <c>catch</c> (marshal failure); on
-///         success the SafeHandle's finalizer releases it.</item>
+///         structs) — Swift allocates a fresh buffer and copies the matched
+///         value into it; C# wraps the wire pointer directly into a
+///         <c>SwiftSafeHandle</c>. The buffer is freed only in the per-case
+///         <c>catch</c> (marshal failure); on success the SafeHandle's
+///         finalizer releases it.</item>
+///   <item><b>Buffer-copied-needs-VWT-destroy</b> (frozen-with-memory
+///         structs, i.e. <c>IsFrozenStructProjectedAsClass</c>) — Swift
+///         allocates a fresh buffer and copies the matched value into it; C#'s
+///         frozen-struct <c>NewFromPayload</c> does an
+///         <c>InitializeWithCopy</c> into a separate <c>NativeMemory.Alloc</c>
+///         buffer owned by the SafeHandle, leaving the wire carrier with +1
+///         retains on heap fields. The per-case <c>finally</c> calls
+///         <c>SwiftMarshal.DestroyWireBufferRetains&lt;T&gt;</c> (releases the
+///         retains via VWT <c>Destroy</c>) followed by <c>SBW_Free</c>.</item>
 ///   <item><b>Class-pointer-direct</b> (Swift classes conforming to Error) —
 ///         Swift hands a +1 retained class pointer via
 ///         <c>Unmanaged.passRetained(_:).toOpaque()</c> (no carrier buffer);
@@ -236,15 +245,32 @@ public static class ErrorRegistryHelperEmitter
         $"_SbwModuleErrorRegistry_{moduleName}";
 
     /// <summary>
-    /// Per-type cascade payload shape. Distinguishes value-copy (simple enum /
-    /// plain frozen struct), buffer-owned-by-SafeHandle (complex enum,
-    /// non-frozen struct, frozen-with-memory struct), and class-pointer-direct
-    /// (Swift class conforming to Error).
+    /// Per-type cascade payload shape. Distinguishes:
+    /// <list type="bullet">
+    ///   <item><see cref="ValueCopy"/> — simple enum / plain frozen struct;
+    ///         marshal copies bytes by value, free in <c>finally</c>.</item>
+    ///   <item><see cref="BufferOwnedBySafeHandle"/> — complex enum or
+    ///         non-frozen struct; <c>NewFromPayload</c> wraps the wire buffer
+    ///         directly into a <c>SwiftSafeHandle</c>, which owns the carrier
+    ///         after a successful marshal (free only on marshal failure).</item>
+    ///   <item><see cref="BufferCopiedNeedsVwtDestroy"/> — frozen-with-memory
+    ///         struct (<c>IsFrozenStructProjectedAsClass</c>);
+    ///         <c>NewFromPayload</c> copies the payload into a fresh
+    ///         <c>NativeMemory.Alloc</c> buffer via <c>InitializeWithCopy</c>,
+    ///         leaving the source carrier with <c>+1</c> retains on its heap
+    ///         fields. The original carrier needs both VWT <c>Destroy</c> (to
+    ///         release those retains) and <c>SBW_Free</c> (to free the carrier
+    ///         allocation) on every successful marshal.</item>
+    ///   <item><see cref="ClassPointerDirect"/> — Swift class conforming to
+    ///         <c>Error</c>; wire is a +1 retained class pointer (no carrier
+    ///         buffer); <c>NewFromPayload</c> takes ownership of the retain.</item>
+    /// </list>
     /// </summary>
     private enum CascadePayloadShape
     {
         ValueCopy,
         BufferOwnedBySafeHandle,
+        BufferCopiedNeedsVwtDestroy,
         ClassPointerDirect,
     }
 
@@ -311,6 +337,13 @@ public static class ErrorRegistryHelperEmitter
             // - ValueCopy: free in `finally` (marshal copies bytes; buffer is owned by us).
             // - BufferOwnedBySafeHandle: free only in `catch` (successful marshal hands
             //   buffer ownership to the constructed SafeHandle).
+            // - BufferCopiedNeedsVwtDestroy: VWT-destroy + free in `finally`. The frozen
+            //   `NewFromPayload` does an InitializeWithCopy into a fresh NativeMemory buffer
+            //   and wraps the COPY in the SafeHandle, so the original wire carrier still
+            //   holds +1 retains on heap fields. Without the destroy those retains leak;
+            //   without the free the carrier allocation leaks. (The free symbol matches the
+            //   Swift wrapper's `UnsafeMutableRawPointer.allocate` because SBW_Free is
+            //   `ptr?.deallocate()` on the same allocator.)
             // - ClassPointerDirect: never `SBW_Free` — wire `errorPtr` is the +1 retained
             //   class pointer (no carrier buffer). On successful marshal, `MarshalFromSwift`'s
             //   `NewFromPayload` constructs a `SwiftClassHandle` that takes ownership of the
@@ -326,6 +359,8 @@ public static class ErrorRegistryHelperEmitter
                 sb.AppendLine($"{indent}    finally {{ if (errorPtr != IntPtr.Zero) SBW_Free(errorPtr); }}");
             else if (shape == CascadePayloadShape.BufferOwnedBySafeHandle)
                 sb.AppendLine($"{indent}    catch {{ if (errorPtr != IntPtr.Zero) SBW_Free(errorPtr); throw; }}");
+            else if (shape == CascadePayloadShape.BufferCopiedNeedsVwtDestroy)
+                sb.AppendLine($"{indent}    finally {{ if (errorPtr != IntPtr.Zero) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains<{csharpQualifiedName}>(errorPtr); SBW_Free(errorPtr); }} }}");
             else // ClassPointerDirect
                 sb.AppendLine($"{indent}    catch {{ if (errorPtr != IntPtr.Zero) global::Swift.Runtime.Arc.Release(errorPtr); throw; }}");
             sb.AppendLine($"{indent}    result = new global::Swift.Runtime.SwiftException<{csharpQualifiedName}>(_typed, errorMessage);");
@@ -346,16 +381,19 @@ public static class ErrorRegistryHelperEmitter
     ///         expects the raw class pointer, not a buffer holding it. Class-shaped
     ///         errors hand a +1 retained class pointer over the wire instead of an
     ///         allocated value buffer.</item>
-    ///   <item>Complex enums, non-frozen structs, frozen-with-memory structs →
+    ///   <item>Complex enums, non-frozen structs →
     ///         <see cref="CascadePayloadShape.BufferOwnedBySafeHandle"/>: the
     ///         generated <c>NewFromPayloadCore</c> wraps the supplied IntPtr in a
     ///         <c>SwiftSafeHandle</c>, so on successful marshal the SafeHandle owns
-    ///         the wire buffer; freeing here would double-free with its finalizer.
-    ///         <para>The frozen-with-memory case mirrors <see cref="WrapperEmitter"/>
-    ///         exactly. If the typed-throws ownership decision turns out to leak
-    ///         the original carrier in some sub-case, that's a pre-existing bug
-    ///         shared by both paths and the right fix touches them consistently;
-    ///         changing only the cascade would create asymmetry.</para></item>
+    ///         the wire buffer; freeing here would double-free with its finalizer.</item>
+    ///   <item>Frozen-with-memory structs (<c>IsFrozenStructProjectedAsClass</c>) →
+    ///         <see cref="CascadePayloadShape.BufferCopiedNeedsVwtDestroy"/>: the
+    ///         frozen-struct <c>NewFromPayload</c> does an
+    ///         <c>InitializeWithCopy</c> into a fresh <c>NativeMemory.Alloc</c>
+    ///         buffer (owned by the constructed SafeHandle), leaving the original
+    ///         wire carrier with +1 retains on heap fields. Free both the retains
+    ///         (VWT <c>Destroy</c>) and the carrier (<c>SBW_Free</c>) in
+    ///         <c>finally</c>.</item>
     ///   <item>Everything else (simple enums, plain frozen structs) →
     ///         <see cref="CascadePayloadShape.ValueCopy"/>: <c>MarshalFromSwift</c>
     ///         reads bytes by value; the buffer is owned by us and freed in
@@ -378,13 +416,15 @@ public static class ErrorRegistryHelperEmitter
             return CascadePayloadShape.ValueCopy;
         if (record.Kind == TypeRecordKind.Class)
             return CascadePayloadShape.ClassPointerDirect;
+        bool isFrozenStructAsClass = record.Kind == TypeRecordKind.Struct &&
+            MarshallingHelpers.IsFrozenStructProjectedAsClass(record);
+        if (isFrozenStructAsClass)
+            return CascadePayloadShape.BufferCopiedNeedsVwtDestroy;
         bool isComplexEnum = record.Kind == TypeRecordKind.Enum &&
             !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
         bool isNonFrozenStruct = record.Kind == TypeRecordKind.Struct &&
             !MarshallingHelpers.IsTypeFrozen(record);
-        bool isFrozenStructAsClass = record.Kind == TypeRecordKind.Struct &&
-            MarshallingHelpers.IsFrozenStructProjectedAsClass(record);
-        if (isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass)
+        if (isComplexEnum || isNonFrozenStruct)
             return CascadePayloadShape.BufferOwnedBySafeHandle;
         return CascadePayloadShape.ValueCopy;
     }

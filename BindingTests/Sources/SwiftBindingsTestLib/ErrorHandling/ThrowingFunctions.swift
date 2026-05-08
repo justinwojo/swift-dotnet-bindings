@@ -160,3 +160,23 @@ public func plainThrowsAsyncScan(input: String) async throws -> Int32 {
     }
     return Int32(input.count)
 }
+
+/// Plain `async throws` function that throws a frozen struct with a heap-typed
+/// (`String`) field — `PlainThrowsFrozenWithMemoryError`. Exercises the Layer 5
+/// `BufferCopiedNeedsVwtDestroy` cascade shape: the generated frozen-struct
+/// `NewFromPayload` does an `InitializeWithCopy` from the wire carrier into a
+/// fresh `NativeMemory.Alloc` buffer owned by the SafeHandle, leaving the wire
+/// carrier with +1 retains on the heap field's allocation. The cascade
+/// dispatcher / async typed-throws cleanup must run a VWT `Destroy` on the wire
+/// buffer before `SBW_Free`. Without that destroy, every throw leaks the heap
+/// allocation backing `resourceName`.
+public func plainThrowsAsyncFrozenWithMemory(resource: String) async throws -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    if resource.isEmpty {
+        throw PlainThrowsFrozenWithMemoryError(resourceName: "config.plist", attempts: 7)
+    }
+    if resource == "denied" {
+        throw PlainThrowsFrozenWithMemoryError(resourceName: "secrets.json", attempts: 13)
+    }
+    return Int32(resource.count)
+}

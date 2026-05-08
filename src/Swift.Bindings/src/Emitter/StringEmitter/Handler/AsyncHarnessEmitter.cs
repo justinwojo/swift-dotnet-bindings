@@ -39,6 +39,13 @@ namespace BindingsGeneration
         private readonly string? _typedThrowsSwiftErrorType;
         private readonly string? _typedThrowsCSharpErrorType;
         private readonly bool _typedErrorTransfersOwnershipAsync;
+        // Frozen-with-memory parity flag: true when the typed error type is
+        // `IsFrozenStructProjectedAsClass`. The cleanup needs VWT `Destroy` + `SBW_Free`
+        // because the frozen-struct `NewFromPayload` copies into a fresh `NativeMemory`
+        // buffer and leaves the wire carrier holding +1 retains. Mutually exclusive with
+        // `_typedErrorTransfersOwnershipAsync` — the other ownership-transfer shapes
+        // hand the wire buffer to the SafeHandle directly.
+        private readonly bool _typedErrorRequiresVwtDestroyAsync;
         private readonly ModuleEmissionContext _emissionContext;
         private readonly IAsyncTupleHelpers _tupleHelpers;
 
@@ -56,6 +63,7 @@ namespace BindingsGeneration
             string? typedThrowsSwiftErrorType,
             string? typedThrowsCSharpErrorType,
             bool typedErrorTransfersOwnershipAsync,
+            bool typedErrorRequiresVwtDestroyAsync,
             ModuleEmissionContext emissionContext,
             IAsyncTupleHelpers tupleHelpers)
         {
@@ -66,6 +74,7 @@ namespace BindingsGeneration
             _typedThrowsSwiftErrorType = typedThrowsSwiftErrorType;
             _typedThrowsCSharpErrorType = typedThrowsCSharpErrorType;
             _typedErrorTransfersOwnershipAsync = typedErrorTransfersOwnershipAsync;
+            _typedErrorRequiresVwtDestroyAsync = typedErrorRequiresVwtDestroyAsync;
             _emissionContext = emissionContext;
             _tupleHelpers = tupleHelpers;
 
@@ -1151,13 +1160,28 @@ namespace BindingsGeneration
 
             if (_useTypedErrorCallback)
             {
-                // For error types that transfer ownership (complex enums, non-frozen structs,
-                // frozen-with-memory structs, classes): MarshalFromSwift creates a SafeHandle
-                // wrapping the buffer. SBW_Free must only run on exception (otherwise double-free
-                // when SafeHandle finalizes). Same pattern as sync typed-throws path.
-                var asyncErrorFreeBlock = _typedErrorTransfersOwnershipAsync
-                    ? "catch { SBW_Free(errorPtr); throw; }"
-                    : "finally { SBW_Free(errorPtr); }";
+                // Per-shape cleanup mirrors the cascade dispatcher's `CascadePayloadShape`
+                // selector in <see cref="ErrorRegistryHelperEmitter"/>:
+                //
+                // - frozen-with-memory struct (`_typedErrorRequiresVwtDestroyAsync`):
+                //   `NewFromPayload` copies into a fresh buffer, so the wire carrier still
+                //   holds +1 retains. `finally { VWT-destroy + SBW_Free }` to release both
+                //   the retains and the carrier on every successful marshal.
+                //
+                // - complex enum / non-frozen struct / class (`_typedErrorTransfersOwnershipAsync`):
+                //   `NewFromPayload` wraps the wire buffer directly into the SafeHandle, so
+                //   the SafeHandle's release path runs the destroy. Free only on marshal
+                //   failure to avoid double-free with the SafeHandle's finalizer.
+                //
+                // - simple enum / plain frozen struct: marshal copies bytes by value; the
+                //   buffer is owned by us. Free in `finally`.
+                string asyncErrorFreeBlock;
+                if (_typedErrorRequiresVwtDestroyAsync)
+                    asyncErrorFreeBlock = $"finally {{ if (errorPtr != IntPtr.Zero) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains<{_typedThrowsCSharpErrorType}>(errorPtr); SBW_Free(errorPtr); }} }}";
+                else if (_typedErrorTransfersOwnershipAsync)
+                    asyncErrorFreeBlock = "catch { SBW_Free(errorPtr); throw; }";
+                else
+                    asyncErrorFreeBlock = "finally { SBW_Free(errorPtr); }";
                 holderErrorBody = $$"""
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                         {{_typedThrowsCSharpErrorType}} typedError;

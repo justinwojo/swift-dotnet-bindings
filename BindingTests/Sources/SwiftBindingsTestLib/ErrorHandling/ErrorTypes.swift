@@ -74,3 +74,23 @@ public class PlainThrowsScanError: Error {
 // (Fallthrough-to-untyped is exercised by throwing a Foundation type — e.g.
 // NSError — that lives outside SwiftBindingsTestLib's registry. See
 // `plainThrowsAsyncFallthroughToUntyped` in ThrowingFunctions.swift.)
+
+/// Frozen struct with a reference-typed (`String`) field, conforming to Error.
+/// Frozen + heap-typed field → `IsFrozenStructProjectedAsClass` on the C# side
+/// (`ClassWithBufferStruct` shape). This fires the Layer 5
+/// `BufferCopiedNeedsVwtDestroy` cascade shape: the generated frozen-struct
+/// `NewFromPayload` does an `InitializeWithCopy` from the wire carrier into a
+/// fresh `NativeMemory.Alloc` buffer owned by the SafeHandle, leaving the
+/// source carrier with +1 retains on the `String`'s heap allocation. The
+/// cascade dispatcher must run a VWT `Destroy` on the wire buffer before
+/// `SBW_Free` to release those retains and the carrier itself.
+@frozen
+public struct PlainThrowsFrozenWithMemoryError: Error {
+    public let resourceName: String
+    public let attempts: Int32
+
+    public init(resourceName: String, attempts: Int32) {
+        self.resourceName = resourceName
+        self.attempts = attempts
+    }
+}

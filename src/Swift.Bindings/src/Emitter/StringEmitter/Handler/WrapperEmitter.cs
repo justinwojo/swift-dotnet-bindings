@@ -31,6 +31,15 @@ namespace BindingsGeneration
         private readonly string? typedThrowsSwiftErrorType;  // e.g., "SwiftBindingsTestLib.ParseError"
         private readonly string? typedThrowsCSharpErrorType;  // e.g., "ParseError"
         private readonly bool typedErrorTransfersOwnershipAsync; // true when MarshalFromSwift takes ownership of error buffer
+        // True when the typed error type is `IsFrozenStructProjectedAsClass` — frozen
+        // struct with reference-typed fields. The frozen-struct `NewFromPayload` does an
+        // `InitializeWithCopy` into a fresh `NativeMemory.Alloc` buffer (owned by the
+        // SafeHandle), leaving the wire carrier with `+1` retains on its heap fields.
+        // The cleanup must run a VWT `Destroy` on the wire buffer (release the retains)
+        // before `SBW_Free` (release the carrier). Mutually exclusive with the other
+        // typed-error shapes — this flag implies `typedErrorTransfersOwnershipAsync`
+        // should NOT be set, since the SafeHandle owns the COPY, not the wire carrier.
+        private readonly bool typedErrorRequiresVwtDestroyAsync;
         // Phase 4 plain-throws → typed-exception cascade: true when this is a plain-throws
         // async method (Throws but not HasTypedThrows) AND the module has registered error
         // types via ErrorEnumRegistryEmitter. Drives the 6-param cascade-dispatch wire format.
@@ -123,8 +132,14 @@ namespace BindingsGeneration
                     typedThrowsCSharpErrorType = errorTypeRecord.CSharpTypeName.FullyQualifiedName;
                     useTypedErrorCallback = true;
 
-                    // Same ownership check as sync path: complex enums, non-frozen structs,
-                    // frozen-with-memory structs, and classes all transfer buffer ownership to SafeHandle.
+                    // Per-shape ownership: parallels the cascade dispatcher's
+                    // `CascadePayloadShape` selector in <see cref="ErrorRegistryHelperEmitter"/>.
+                    // The frozen-with-memory case is split out — the generated frozen-struct
+                    // `NewFromPayload` makes an `InitializeWithCopy` into a fresh buffer, so
+                    // the wire carrier still holds +1 retains on heap fields and needs an
+                    // explicit VWT `Destroy` + `SBW_Free`. The other ownership-transfer
+                    // shapes (complex enum, non-frozen struct, class) hand the wire buffer
+                    // directly into the SafeHandle, which runs its own destroy on release.
                     bool isComplexEnum = errorTypeRecord.Kind == TypeRecordKind.Enum &&
                         !errorTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
                     bool isNonFrozenStruct = errorTypeRecord.Kind == TypeRecordKind.Struct &&
@@ -132,7 +147,8 @@ namespace BindingsGeneration
                     bool isFrozenStructAsClass = errorTypeRecord.Kind == TypeRecordKind.Struct &&
                         MarshallingHelpers.IsFrozenStructProjectedAsClass(errorTypeRecord);
                     bool isClassError = errorTypeRecord.Kind == TypeRecordKind.Class;
-                    typedErrorTransfersOwnershipAsync = isComplexEnum || isNonFrozenStruct || isFrozenStructAsClass || isClassError;
+                    typedErrorRequiresVwtDestroyAsync = isFrozenStructAsClass;
+                    typedErrorTransfersOwnershipAsync = isComplexEnum || isNonFrozenStruct || isClassError;
                 }
             }
 
@@ -176,6 +192,7 @@ namespace BindingsGeneration
                 typedThrowsSwiftErrorType,
                 typedThrowsCSharpErrorType,
                 typedErrorTransfersOwnershipAsync,
+                typedErrorRequiresVwtDestroyAsync,
                 _emissionContext,
                 this);
 
