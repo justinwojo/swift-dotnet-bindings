@@ -165,13 +165,15 @@ public static class MethodGenericBridgeEmitter
 
         // Must be class-bound — the bridge uses Unmanaged<AnyObject>.fromOpaque()
         // which is only valid for heap-allocated Swift objects. Struct/enum conformers
-        // would crash at runtime. Require an explicit AnyObject conformance.
-        var hasClassBound = param.GenericConformances
+        // would crash at runtime. Class-boundedness comes from either:
+        //   (a) explicit AnyObject conformance on the generic param, or
+        //   (b) a protocol conformance whose target protocol is itself class-bound
+        //       (e.g. `protocol P: AnyObject` — the ABI JSON only lists P on the
+        //       generic param, not AnyObject, so we must look up P's record).
+        var hasExplicitAnyObject = param.GenericConformances
             .Any(c => c.Kind == ConformanceKind.Protocol &&
                        (c.ConformanceTarget.Name == "AnyObject" ||
                         c.ConformanceTarget.ModuleQualifiedName == "Swift.AnyObject"));
-        if (!hasClassBound)
-            return null;
 
         // Must have exactly one non-AnyObject protocol conformance — multi-protocol
         // compositions (e.g. T: P & Q & AnyObject) are unsound because the wrapper
@@ -186,6 +188,14 @@ public static class MethodGenericBridgeEmitter
 
         var protocolConformance = protocolConformances[0];
         var protocolName = protocolConformance.ConformanceTarget;
+
+        var hasTransitiveClassBound = !hasExplicitAnyObject &&
+            typeDatabase.TryGetTypeRecord(protocolName, out var protocolRecord) &&
+            protocolRecord.Kind == TypeRecordKind.Protocol &&
+            (protocolRecord.Flags & TypeRecordFlags.ClassBound) != 0;
+
+        if (!hasExplicitAnyObject && !hasTransitiveClassBound)
+            return null;
 
         // Check if the protocol is known to have Self requirements that prevent
         // existential opening (Equatable, Hashable, Comparable, etc.)

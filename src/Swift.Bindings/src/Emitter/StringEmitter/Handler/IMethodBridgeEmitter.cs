@@ -216,6 +216,27 @@ namespace BindingsGeneration
     }
 
     /// <summary>
+    /// Async/throws counterpart to <see cref="MethodGenericBridgeAdapter"/>. Must run BEFORE
+    /// the sync adapter — both match the same eligibility shape (single class-bound protocol
+    /// generic), but the sync emitter is gated by <c>!IsAsync &amp;&amp; !Throws</c> while this
+    /// one requires the opposite.
+    /// </summary>
+    internal sealed class AsyncMethodGenericBridgeAdapter : IMethodBridgeEmitter
+    {
+        public BridgeEmitResult? TryEmit(BridgeEmitterContext context)
+        {
+            if (AsyncMethodGenericBridgeEmitter.TryEmit(
+                context.CsWriter, context.SwiftWriter, context.MethodEnv,
+                context.ParentDecl, ctx: context.EmissionContext))
+            {
+                return new BridgeEmitResult("AsyncMethodGenericBridge",
+                    "Async method-level generic parameter bridged via existential opening.");
+            }
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Bridge adapter for Optional&lt;Closure&gt;+default bypass — omits unsupported optional closure
     /// params, letting Swift fill nil. Must be last in the dispatch table (narrowest scope).
     /// </summary>

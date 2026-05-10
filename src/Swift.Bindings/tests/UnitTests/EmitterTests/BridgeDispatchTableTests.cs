@@ -20,9 +20,9 @@ public class BridgeDispatchTableTests
     // ─── Table Structure ──────────────────────────────────────────────
 
     [Fact]
-    public void BridgeEmitters_HasExactly9Entries()
+    public void BridgeEmitters_HasExactly10Entries()
     {
-        Assert.Equal(9, MethodHandler.BridgeEmitters.Count);
+        Assert.Equal(10, MethodHandler.BridgeEmitters.Count);
     }
 
     [Fact]
@@ -58,6 +58,32 @@ public class BridgeDispatchTableTests
     }
 
     [Fact]
+    public void BridgeEmitters_AsyncMethodGenericBeforeMethodGeneric()
+    {
+        // Both adapters match the same eligibility shape (method-own generic +
+        // class-bound protocol). Sync emitter is gated by !IsAsync && !Throws,
+        // async emitter requires IsAsync — but the table iterates in order,
+        // so the async adapter must come first or the sync adapter would
+        // claim the method first when a Throws method is sync (it isn't, but
+        // the ordering invariant guards against future eligibility expansion).
+        int asyncIdx = -1;
+        int syncIdx = -1;
+        for (int i = 0; i < MethodHandler.BridgeEmitters.Count; i++)
+        {
+            if (MethodHandler.BridgeEmitters[i] is AsyncMethodGenericBridgeAdapter)
+                asyncIdx = i;
+            if (MethodHandler.BridgeEmitters[i] is MethodGenericBridgeAdapter)
+                syncIdx = i;
+        }
+
+        Assert.NotEqual(-1, asyncIdx);
+        Assert.NotEqual(-1, syncIdx);
+        Assert.True(asyncIdx < syncIdx,
+            $"AsyncMethodGenericBridgeAdapter (index {asyncIdx}) must come before " +
+            $"MethodGenericBridgeAdapter (index {syncIdx})");
+    }
+
+    [Fact]
     public void BridgeEmitters_ContainsAllExpectedAdapters()
     {
         var types = MethodHandler.BridgeEmitters.Select(b => b.GetType()).ToList();
@@ -70,6 +96,7 @@ public class BridgeDispatchTableTests
         Assert.Contains(typeof(MethodClosureBridgeAdapter), types);
         Assert.Contains(typeof(NestedClosureBridgeAdapter), types);
         Assert.Contains(typeof(MethodGenericBridgeAdapter), types);
+        Assert.Contains(typeof(AsyncMethodGenericBridgeAdapter), types);
         Assert.Contains(typeof(OptionalClosureBypassAdapter), types);
     }
 

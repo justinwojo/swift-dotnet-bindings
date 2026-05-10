@@ -52,22 +52,17 @@ public static class DefaultParameterOverloadEmitter
         if (methodDecl.ParentDecl is TypeDecl parentType && parentType.IsGeneric)
             return;
 
-        // Skip methods with method-level generics — @_silgen_name wrappers can't express
-        // unresolved generic type parameters (τ_0_0, τ_0_1, etc.) in Swift source code.
-        // Class-level generics are handled by the parent-type check above; this catches
-        // method-level generics that produce raw ABI type params in the wrapper signature.
+        // Skip methods with method-level generics whose own params can't be expressed
+        // in the @_silgen_name shim signature. We allow class-bound non-CSM async/throws
+        // generics (the StoreKit2 `purchase<S: UIScene>(... options: Set<…> = [])` shape):
+        // AsyncMethodGenericBridgeEmitter emits the primary @_cdecl overload, and the
+        // method-own generics + where-clause are threaded through the trim @_silgen_name
+        // shim signature below so the trim variants compile.
         //
-        // Lifting this for the StoreKit2 `purchase<S: UIScene>(... options: Set<…> = [])`
-        // shape requires not just threading the method-own generic params + where-clause
-        // through the @_silgen_name shim (mechanically straightforward via
-        // AsyncHarnessEmitter.BuildMethodOwnGenericParams + WrapperEmitterHelpers
-        // .BuildSwiftWhereClause — see gap-0.10.0-generic-method-default-overload-missing.md)
-        // but also extending the async-generic dispatch on the C# side to bind the trim
-        // overload's P/Invoke to the new DBW_ symbol with matching metadata + witness
-        // threading. Today the primary async generic emission path bails wholesale for
-        // non-CSM-specialized class-bound protocol generics (the StoreKit case), so the
-        // trim overload has nothing to attach to.
-        if (methodDecl.IsGeneric)
+        // For everything else, the @_silgen_name shim can't express raw ABI type params
+        // (τ_0_0, τ_0_1, ...) — bail.
+        if (methodDecl.IsGeneric &&
+            !AsyncMethodGenericBridgeEmitter.IsEligible(methodDecl, env.TypeDatabase))
             return;
 
         var trailingDefaultCount = CountTrailingDefaults(methodDecl);
@@ -460,6 +455,25 @@ public static class DefaultParameterOverloadEmitter
 
         var swiftParamString = string.Join(", ", swiftParams);
 
+        // Method-own generics (e.g., StoreKit2 `purchase<S: UIScene>(... options = [])`):
+        // emit the trim shim with the same generic header and where-clause as the original.
+        // Parent-type generics are filtered out by BuildMethodOwnGenericParams.
+        var methodOwnGenericParams = AsyncHarnessEmitter.BuildMethodOwnGenericParams(originalMethodDecl);
+        var methodOwnWhereClause = "";
+        if (!string.IsNullOrEmpty(methodOwnGenericParams))
+        {
+            var parentTypeParamNames = parentTypeDecl != null && parentTypeDecl.IsGeneric
+                ? new HashSet<string>(parentTypeDecl.GenericParameters.Select(p => p.TypeName))
+                : new HashSet<string>();
+            var methodOwnGenericDecls = originalMethodDecl.GenericParameters
+                .Where(p => !parentTypeParamNames.Contains(p.TypeName))
+                .ToList();
+            // Free functions live at module scope and need module-qualified protocol names;
+            // type-method extensions live inside the module so the bare name is unambiguous.
+            methodOwnWhereClause = WrapperEmitterHelpers.BuildSwiftWhereClause(
+                methodOwnGenericDecls, moduleQualify: isFreeFunction);
+        }
+
         // Build call arguments — use kept params with their original labels
         var callArgs = new List<string>();
         for (int i = 0; i < keptArgs.Count; i++)
@@ -527,7 +541,7 @@ public static class DefaultParameterOverloadEmitter
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            swiftWriter.WriteLine($"public func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause}{methodOwnWhereClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -566,7 +580,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent++;
 
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public static func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause} {{");
+            swiftWriter.WriteLine($"public static func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{ctorReturnClause}{methodOwnWhereClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)
@@ -605,7 +619,7 @@ public static class DefaultParameterOverloadEmitter
             swiftWriter.Indent++;
 
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
-            swiftWriter.WriteLine($"public {staticKeyword}{mutatingKeyword}func {swiftFuncName}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause} {{");
+            swiftWriter.WriteLine($"public {staticKeyword}{mutatingKeyword}func {swiftFuncName}{methodOwnGenericParams}({swiftParamString}){asyncKeyword}{throwsClause}{returnClause}{methodOwnWhereClause} {{");
             swiftWriter.Indent++;
 
             foreach (var line in derefLines)

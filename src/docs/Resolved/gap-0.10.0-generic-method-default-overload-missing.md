@@ -4,9 +4,114 @@
 > Bundle 04 #9 (`Set<T>` parameter projection) closure.
 >
 > **Status: option (b) RESOLVED 2026-05-07 (Session E Phase 3a) for CSM-eligible
-> generics across all four shapes — sync / async / sync-throws / async-throws.
-> Option (a) OPEN for non-CSM class-bound generics; in scope for 0.10.0,
-> sequenced as Session M.**
+> generics. Option (a) RESOLVED 2026-05-10 (Session M) for class-bound
+> non-CSM generics on async + throws + sync paths.**
+
+## Session M resolution (2026-05-10)
+
+Both layers shipped:
+
+- **Layer 1.** `DefaultParameterOverloadEmitter` no longer bails on
+  method-own generics. `BuildMethodOwnGenericParams` and
+  `BuildSwiftWhereClause` (existing helpers) are threaded into the three
+  `EmitSwiftWrapper` func-decl emit sites — free function, constructor,
+  type method — producing the `_dbw_…<T0>(…) async throws -> Result
+  where T0: Constraint` shim shape predicted by the D2 investigation.
+
+- **Layer 2.** New `AsyncMethodGenericBridgeEmitter` parallel to
+  `MethodGenericBridgeEmitter`, layered over `AsyncHarnessEmitter`'s
+  return-shape dispatch. The bridge emits the @_cdecl shim with
+  Swift-side existential opening (`Unmanaged<AnyObject>.fromOpaque(_x)
+  .takeUnretainedValue() as! any Protocol`) for the class-bound generic
+  param, plus the C#-side `[UnmanagedCallersOnly]` callback +
+  TaskCompletionSource holder + per-module
+  `_SBW_dispatchSwiftError_<Module>` cascade for typed-throws shapes.
+  Four return-shape branches: void / primitive / Swift-class / complex
+  value. The complex-value path further splits by projection shape,
+  mirroring `AsyncHarnessEmitter`'s `cbTakesOwnership` /
+  `carrierNeedsDestroy` selector: frozen blittable structs are
+  value-copied via `MarshalFromSwift<T>(rawResult)`; frozen-with-refs
+  structs (`ClassWithBufferStruct`) marshal via `MarshalFromSwift<T>` +
+  inline VWT `Destroy` on the carrier; non-frozen structs / complex
+  enums (`ClassWithOpaquePayload`) `NativeMemory.Alloc` a fresh
+  `__resultBuf`, `InitializeWithCopy` the carrier into it, then VWT-
+  `Destroy` the original carrier (releasing its +1) — the SafeHandle
+  takes ownership of `__resultBuf` and frees it via `NativeMemory.Free`
+  in `ReleaseHandle`. The Swift carrier itself is allocated via
+  `UnsafeMutableRawPointer.allocate` and is freed in the callback's
+  `finally` block via the per-module `SBW_Free` helper (`ptr?.deallocate()`),
+  matching the standard async harness's allocator pairing.
+  `Set<T>` defaults marshal through the @_cdecl shim as opaque `IntPtr`
+  via `SwiftSet<T>.FromEnumerable(values).Payload.DangerousGetHandle()`,
+  with the wrapper registered on `_asyncDeferredList` so it survives
+  the foreground frame and is disposed after the Swift continuation
+  completes.
+
+- **GC rooting across the async boundary.** Object-typed parameters
+  (the class-bound generic arg itself plus any other ISwiftObject /
+  ObjCHandle / PayloadHandle wrappers) are appended as plain object
+  refs to the `_asyncCallHolder` array. The single
+  `GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal)` keeps every
+  entry rooted until the Swift continuation fires, so a finalizer
+  racing the in-flight Swift Task can't release the underlying Swift
+  object (or dispose the wrapper's SafeHandle) while Swift still
+  holds the raw pointer. The holder cleanup loop ignores entries it
+  doesn't recognise, so plain object refs are root-only.
+
+- **Class-bound detection through transitive `AnyObject`.** The sync
+  bridge's eligibility gate previously required an explicit `AnyObject`
+  conformance on the generic param. The StoreKit2 shape declares
+  `<S: UIScene>` where `UIScene` itself inherits `AnyObject`, so the
+  ABI JSON only lists `UIScene` on the param. `MethodGenericBridgeEmitter`
+  now also accepts a transitive class-bound: when the protocol record
+  carries `TypeRecordFlags.ClassBound`, the param is treated as
+  class-bound. The async bridge picks up the same gate via the shared
+  `IsEligible` helper.
+
+Coverage:
+
+- Layer A unit tests: `AsyncMethodGenericBridgeEmitterTests` covers the
+  dispatch table (eligibility gates, return-kind classification, symbol
+  dedup, callback shapes).
+- Layer B BindingTests fixture:
+  `BindingTests/Sources/SwiftBindingsTestLib/Async/AsyncMethodGenericDefaults.swift`
+  mirrors the StoreKit2 `Product.purchase<some UIScene>` shape — class-
+  bound `<S: AsyncGenericPresenter>` (custom `AnyObject` protocol, no
+  CSM hint), defaulted `Set<Int>` parameter, async-throws, and a non-
+  frozen struct return (`AsyncGenericPurchaseResult`).
+  `AsyncMethodGenericDefaultsTests` exercises primary + trim overloads
+  (presenterId hash + options.count round-trip), throws cascade
+  (empty presenterId raises `SwiftException`), and pre-cancel
+  (cts cancelled before await). The `Set<Int>` choice over a custom
+  `enum: Int` is deliberate — `HashableConformanceRegistry` resolves
+  primitive element witnesses without a per-type
+  `ProtocolConformanceDescriptor` registration; plain Swift enums
+  don't implement `ISwiftObject` so their Hashable witness can't be
+  resolved at runtime today.
+
+Gates:
+
+- `nuke binding-tests --sim`: 1965 → 1970 pass (+5), 0 fail, 0 crash.
+- `nuke test`: all subtargets succeed.
+
+Touched:
+
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/AsyncMethodGenericBridgeEmitter.cs`
+  (new).
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/DefaultParameterOverloadEmitter.cs`
+  (lifted method-own-generic bail; threaded params + where clause through
+  the three `EmitSwiftWrapper` func-decl emit sites).
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodGenericBridgeEmitter.cs`
+  (transitive class-bound detection via `TypeRecordFlags.ClassBound`).
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/IMethodBridgeEmitter.cs`
+  (new `AsyncMethodGenericBridgeAdapter`).
+- `src/Swift.Bindings/src/Emitter/StringEmitter/Handler/MethodHandler.cs`
+  (registers the new adapter ahead of `MethodGenericBridgeAdapter`).
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/BridgeDispatchTableTests.cs`
+  (table-size + ordering invariants for the new adapter).
+
+The historical design content below is preserved for the context that
+motivated the resolution.
 
 ## Summary
 
