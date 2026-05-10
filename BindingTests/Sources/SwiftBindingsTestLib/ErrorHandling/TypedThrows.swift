@@ -110,3 +110,36 @@ public func createStrictParser() -> TypedThrowingParser {
 public func createLenientParser() -> TypedThrowingParser {
     return TypedThrowingParser(strict: false)
 }
+
+// MARK: - Async Typed Throws — Class-shaped error (Fix G parity)
+
+/// Class-shaped error type for typed-throws. Mirrors the cascade dispatcher's
+/// `ClassPointerDirect` shape: the wire is a +1 retained class pointer with no
+/// carrier buffer. Distinct from `PlainThrowsScanError` in `ErrorTypes.swift`
+/// (which exercises the same shape via the *plain*-throws cascade) so the typed
+/// path can assert it independently of the cascade path.
+public class TypedThrowsScanError: Error {
+    public let code: Int32
+    public let detail: String
+
+    public init(code: Int32, detail: String) {
+        self.code = code
+        self.detail = detail
+    }
+}
+
+/// Async function with typed throws of a class-shaped error. Exercises the
+/// `typedErrorIsClassDirectAsync` branch of the async typed-throws emitter:
+/// Swift hands a +1 retained class pointer via `Unmanaged.passRetained(... as
+/// AnyObject).toOpaque()`, and C# `MarshalFromSwift<T>` constructs a SwiftObject
+/// taking ownership of the retain. There is nothing to `SBW_Free` for this shape.
+public func asyncScanTyped(_ input: String) async throws(TypedThrowsScanError) -> Int32 {
+    try? await Task.sleep(nanoseconds: 1_000_000)
+    if input.isEmpty {
+        throw TypedThrowsScanError(code: 404, detail: "empty input rejected")
+    }
+    if input == "denied" {
+        throw TypedThrowsScanError(code: 403, detail: "scanning denied for: \(input)")
+    }
+    return Int32(input.count)
+}

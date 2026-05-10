@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
@@ -67,6 +68,25 @@ namespace Swift.Runtime
             Buffer = buffer;
             Metadata = metadata;
         }
+    }
+
+    /// <summary>
+    /// Holds <see cref="IDisposable"/> instances whose lifetime must extend past the
+    /// completion of an async Swift call. The foreground async wrapper allocates one
+    /// of these, stores it in the GCHandle holder array, and appends serialization
+    /// containers (e.g. <c>SwiftArray&lt;T&gt;</c>) to <see cref="Items"/> in place of
+    /// a <c>using var</c>. The async-callback cleanup loop disposes each item after
+    /// the Swift continuation has finished reading the underlying buffer.
+    ///
+    /// Without this, <c>using var paramSwift = SwiftArray&lt;T&gt;.FromEnumerable(...)</c>
+    /// would dispose the Swift array as soon as the foreground wrapper returns
+    /// <c>tcs.Task</c>, freeing the buffer that Swift dereferences on the
+    /// continuation thread.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class AsyncDeferredDisposeList
+    {
+        public List<IDisposable> Items { get; } = new();
     }
 
     /// <summary>

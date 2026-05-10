@@ -98,16 +98,11 @@ public class SetParameterDefaultTests : TestBase
 
     #region Async — StoreKit Product.purchase shape
 
-    // The three async-with-set tests below exercise the same async `using var`
-    // lifetime gap as Defect B in `bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…`
-    // (carved to Bundle 10 #50). The generator scopes `using var valuesSwift = …`
-    // to the synchronous method body — but the Swift continuation runs after the
-    // method returns, so the SwiftSet payload is freed before Swift reads it.
-    // Mono JIT happens to not trip on this race; NativeAOT does. The tests still
-    // serve as the reproducer for Bundle 10 #50, so we keep them and skip on
-    // device until the closure-lifetime infrastructure lands.
+    // Async-with-set: exercises the SwiftSet container lifetime hand-off
+    // across the async suspension point — the container must outlive the
+    // foreground frame so the Swift continuation can dereference its
+    // payload buffer.
 
-    [SkipOnDevice("Async SwiftSet<T> param uses using-var lifetime — Bundle 10 #50 (Defect B from bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…)")]
     public async Task TestSetMembershipCountAsyncEmpty()
     {
         // Async variant of the StoreKit `purchase(options: Set<…> = []) async`
@@ -117,7 +112,6 @@ public class SetParameterDefaultTests : TestBase
         TestLogger.Info("SetMembershipCountAsync(empty) = 0");
     }
 
-    [SkipOnDevice("Async SwiftSet<T> param uses using-var lifetime — Bundle 10 #50 (Defect B from bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…)")]
     public async Task TestSetMembershipCountAsyncPopulated()
     {
         var values = new HashSet<nint> { 10, 20, 30 };
@@ -126,7 +120,6 @@ public class SetParameterDefaultTests : TestBase
         TestLogger.Info($"SetMembershipCountAsync({{10,20,30}}) = {count}");
     }
 
-    [SkipOnDevice("Async SwiftSet<T> param uses using-var lifetime — Bundle 10 #50 (Defect B from bug-0.10.0-ienumerable-iswiftstruct-raw-intptr-…)")]
     public async Task TestSetMembershipCountAsyncDefaultTrimOverload()
     {
         // Async no-arg overload — the canonical StoreKit purchase-with-default case.

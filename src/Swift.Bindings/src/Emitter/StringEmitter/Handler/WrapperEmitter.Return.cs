@@ -112,6 +112,22 @@ namespace BindingsGeneration
             // from emitting inline string decoding (the value arrives via the async callback).
             if (_requiresSwiftAsync)
             {
+                // Close the try { opened in EmitAsync (after the cancellation registration block)
+                // and emit a catch that runs the holder cleanup loop, frees the GCHandle, then
+                // rethrows. Without this, an exception from a parameter conversion or P/Invoke
+                // launch leaks the holder + GCHandle + any deferred-list containers / retained
+                // self / copy buffers / cancellation registration that were already populated.
+                var foregroundCleanup = BuildHolderCleanupCode("_asyncCallHolder", "    ", includeCancellationReg: true);
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine("catch");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLines(foregroundCleanup);
+                csWriter.WriteLine("handle.Free();");
+                csWriter.WriteLine("throw;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
                 csWriter.WriteLine("return _tcs.Task;");
                 return;
             }

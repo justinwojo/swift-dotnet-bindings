@@ -40,6 +40,15 @@ namespace BindingsGeneration
         // typed-error shapes — this flag implies `typedErrorTransfersOwnershipAsync`
         // should NOT be set, since the SafeHandle owns the COPY, not the wire carrier.
         private readonly bool typedErrorRequiresVwtDestroyAsync;
+        // True when the typed error type is a Swift class. Mirrors the cascade
+        // dispatcher's `CascadePayloadShape.ClassPointerDirect`: the wire is a +1
+        // retained class pointer (no carrier buffer) — Swift emits
+        // `Unmanaged.passRetained(error as! T as AnyObject).toOpaque()`, and C#'s
+        // `MarshalFromSwift<T>` constructs the SwiftObject taking ownership of the
+        // retain. There is nothing to `SBW_Free` (no buffer); on marshal failure C#
+        // calls `Arc.Release(errorPtr)` to balance the retain. Mutually exclusive
+        // with the other typed-error shapes.
+        private readonly bool typedErrorIsClassDirectAsync;
         // Phase 4 plain-throws → typed-exception cascade: true when this is a plain-throws
         // async method (Throws but not HasTypedThrows) AND the module has registered error
         // types via ErrorEnumRegistryEmitter. Drives the 6-param cascade-dispatch wire format.
@@ -134,12 +143,17 @@ namespace BindingsGeneration
 
                     // Per-shape ownership: parallels the cascade dispatcher's
                     // `CascadePayloadShape` selector in <see cref="ErrorRegistryHelperEmitter"/>.
-                    // The frozen-with-memory case is split out — the generated frozen-struct
-                    // `NewFromPayload` makes an `InitializeWithCopy` into a fresh buffer, so
-                    // the wire carrier still holds +1 retains on heap fields and needs an
-                    // explicit VWT `Destroy` + `SBW_Free`. The other ownership-transfer
-                    // shapes (complex enum, non-frozen struct, class) hand the wire buffer
-                    // directly into the SafeHandle, which runs its own destroy on release.
+                    // Four mutually-exclusive shapes:
+                    //   - frozen-with-memory struct → VWT `Destroy` + `SBW_Free` in finally
+                    //     (the generated frozen-struct `NewFromPayload` copies into a fresh
+                    //     buffer, leaving the wire carrier with +1 retains on heap fields).
+                    //   - class error → `Arc.Release` on marshal failure; no buffer at all
+                    //     (Swift hands a +1 retained class pointer; C#'s `NewFromPayload`
+                    //     takes ownership of the retain on success).
+                    //   - complex enum / non-frozen struct → `SBW_Free` only on marshal
+                    //     failure (success transfers buffer ownership to the SafeHandle).
+                    //   - simple enum / plain frozen struct → `SBW_Free` in finally
+                    //     (marshal copies bytes by value).
                     bool isComplexEnum = errorTypeRecord.Kind == TypeRecordKind.Enum &&
                         !errorTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
                     bool isNonFrozenStruct = errorTypeRecord.Kind == TypeRecordKind.Struct &&
@@ -148,7 +162,8 @@ namespace BindingsGeneration
                         MarshallingHelpers.IsFrozenStructProjectedAsClass(errorTypeRecord);
                     bool isClassError = errorTypeRecord.Kind == TypeRecordKind.Class;
                     typedErrorRequiresVwtDestroyAsync = isFrozenStructAsClass;
-                    typedErrorTransfersOwnershipAsync = isComplexEnum || isNonFrozenStruct || isClassError;
+                    typedErrorIsClassDirectAsync = isClassError;
+                    typedErrorTransfersOwnershipAsync = isComplexEnum || isNonFrozenStruct;
                 }
             }
 
@@ -193,6 +208,7 @@ namespace BindingsGeneration
                 typedThrowsCSharpErrorType,
                 typedErrorTransfersOwnershipAsync,
                 typedErrorRequiresVwtDestroyAsync,
+                typedErrorIsClassDirectAsync,
                 _emissionContext,
                 this);
 
@@ -244,6 +260,73 @@ namespace BindingsGeneration
             {
                 _needsUnsafeBody = true;
             }
+        }
+
+        /// <summary>
+        /// True when this async method has at least one parameter whose marshalling produces
+        /// a Swift container (<c>SwiftArray&lt;T&gt;</c>, <c>SwiftSet&lt;T&gt;</c>,
+        /// <c>SwiftDictionary&lt;K,V&gt;</c>) that the @_cdecl wrapper reads via
+        /// <c>UnsafeRawPointer</c>. The container's <c>using var</c> would otherwise dispose
+        /// the buffer when the foreground async wrapper returns <c>tcs.Task</c> — before the
+        /// Swift continuation has finished reading the buffer on its own thread.
+        ///
+        /// Drives the emission of <c>AsyncDeferredDisposeList _asyncDeferredList</c> in the
+        /// holder array and the corresponding <c>_asyncDeferredList.Items.Add(paramSwift)</c>
+        /// hand-off in <see cref="WrapperEmitter.Marshalling"/>'s
+        /// <c>TryEmitParameterConversionViaProjection</c>.
+        /// </summary>
+        internal bool RequiresAsyncDeferredDisposeList()
+        {
+            if (!_requiresSwiftAsync)
+                return false;
+
+            // Only @_cdecl wrappers route collection params through RenderWithHandleOverride
+            // — the SwiftArray/Set/Dictionary 'using var' lifetime bug only manifests on that
+            // path. Other wrapper shapes (witness, protocol-extension) pass containers
+            // differently and are not affected here.
+            if (!_env.MethodDecl.UsesCdeclWrapper)
+                return false;
+
+            return _env.MethodDecl.CSSignature.Skip(1).Any(IsAsyncDeferredDisposeContainerParam);
+        }
+
+        /// <summary>
+        /// True when <paramref name="p"/> is the kind of parameter whose serialization
+        /// container must outlive the foreground async wrapper. See
+        /// <see cref="RequiresAsyncDeferredDisposeList"/>.
+        /// </summary>
+        internal bool IsAsyncDeferredDisposeContainerParam(ArgumentDecl p)
+        {
+            // Mirror the gates that EmitTypeConversions / TryEmitParameterConversionViaProjection
+            // applies. EmitTypeConversions filters only on IsConvertibleType (Array / Set /
+            // Dictionary / Optional / String / Date / Data) — it does NOT exclude bound
+            // generics. EmitBoundGenericArguments will defer Set<Int> et al to EmitTypeConversions
+            // whenever the projection factory can handle them. Excluding bound generics here
+            // would silently skip the most common shape (Set<Int>, Array<Int>, …) and emit
+            // an undefined `_asyncDeferredList` reference at the marshalling site.
+            if (_env.ClosureHandler.IsClosure(p)) return false;
+            if (_env.TupleHandler.IsTuple(p)) return false;
+            if (_env.ExistentialHandler.IsExistential(p.SwiftTypeSpec)) return false;
+            if (!MarshallingHelpers.IsConvertibleType(p.SwiftTypeSpec)) return false;
+
+            var projection = s_projectionFactory.Project(p.SwiftTypeSpec,
+                new ProjectionContext
+                {
+                    TypeDatabase = _env.TypeDatabase,
+                    IsParameter = true,
+                    GenericContext = _genericContext,
+                    ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                    CurrentModuleName = _env.ExistentialHandler.CurrentModuleName
+                });
+            if (projection == null) return false;
+            // ObjC bridge containers don't create a SwiftArray-like 'using var' — they
+            // emit `using var {name}NSArray = ...` whose lifetime is foreground-only and
+            // matches the NSArray's ObjC ARC handoff to Swift. Out of scope here.
+            if (projection.UsesObjCContainerBridge) return false;
+
+            // Match the projection set that TryEmitParameterConversionViaProjection routes
+            // to RenderWithHandleOverride at WrapperEmitter.Marshalling.cs ~654.
+            return projection is ArrayProjection or SetProjection or DictionaryProjection;
         }
 
         /// <summary>

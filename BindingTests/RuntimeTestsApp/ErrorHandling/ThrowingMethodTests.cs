@@ -462,6 +462,39 @@ public class BasicThrowingTests : TestBase
         TestLogger.Info($"AsyncParse(\"42\") = {result}");
     }
 
+    // Fix G — Class-direct typed-throws parity: async typed-throws of a Swift class
+    // error must hand a +1 retained class pointer (no carrier buffer) and surface
+    // SwiftException<TypedThrowsScanError> on the C# side. Asserting on .Code /
+    // .Detail proves the class pointer round-tripped its payload — without the
+    // class-direct emission shape, MarshalFromSwift would dereference a buffer
+    // holding the class reference, crashing or returning a wrong/null payload.
+    public async Task TestAsyncScanTypedClassDirect()
+    {
+        try
+        {
+            await WithTimeout(
+                TestLibFunctions.ScanTypedAsync("denied"),
+                DefaultAsyncTimeout);
+            throw new AssertionException("ScanTypedAsync(\"denied\") should have thrown");
+        }
+        catch (SwiftException<TypedThrowsScanError> ex)
+        {
+            AssertNotNull(ex.Error, "Typed throws .Error should be non-null for class-shaped error");
+            AssertEqual(403, ex.Error!.Code,
+                "Class-direct typed-throws should preserve TypedThrowsScanError.code = 403");
+            AssertEqual("scanning denied for: denied", ex.Error.Detail.ToString(),
+                "Class-direct typed-throws should preserve TypedThrowsScanError.detail");
+            TestLogger.Info($"AsyncScanTyped class-direct catch: Code={ex.Error.Code}, Detail={ex.Error.Detail}, Message={ex.Message}");
+        }
+    }
+
+    public async Task TestAsyncScanTypedSuccess()
+    {
+        var result = await WithTimeout(TestLibFunctions.ScanTypedAsync("hello"), DefaultAsyncTimeout);
+        AssertEqual(5, result, "ScanTypedAsync(\"hello\") should return 5");
+        TestLogger.Info($"AsyncScanTyped success: {result}");
+    }
+
     #endregion
 
     // ===================================================================

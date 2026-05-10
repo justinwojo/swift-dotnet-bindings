@@ -46,6 +46,13 @@ namespace BindingsGeneration
         // `_typedErrorTransfersOwnershipAsync` — the other ownership-transfer shapes
         // hand the wire buffer to the SafeHandle directly.
         private readonly bool _typedErrorRequiresVwtDestroyAsync;
+        // Class-direct parity flag: true when the typed error type is a Swift class.
+        // Wire is a +1 retained class pointer (no carrier buffer); on success C#'s
+        // `MarshalFromSwift<T>` constructs the SwiftObject taking ownership of the
+        // retain, on marshal failure C# calls `Arc.Release(errorPtr)` to balance it.
+        // Mutually exclusive with `_typedErrorTransfersOwnershipAsync` and
+        // `_typedErrorRequiresVwtDestroyAsync` — there's no buffer to `SBW_Free`.
+        private readonly bool _typedErrorIsClassDirectAsync;
         private readonly ModuleEmissionContext _emissionContext;
         private readonly IAsyncTupleHelpers _tupleHelpers;
 
@@ -64,6 +71,7 @@ namespace BindingsGeneration
             string? typedThrowsCSharpErrorType,
             bool typedErrorTransfersOwnershipAsync,
             bool typedErrorRequiresVwtDestroyAsync,
+            bool typedErrorIsClassDirectAsync,
             ModuleEmissionContext emissionContext,
             IAsyncTupleHelpers tupleHelpers)
         {
@@ -75,6 +83,7 @@ namespace BindingsGeneration
             _typedThrowsCSharpErrorType = typedThrowsCSharpErrorType;
             _typedErrorTransfersOwnershipAsync = typedErrorTransfersOwnershipAsync;
             _typedErrorRequiresVwtDestroyAsync = typedErrorRequiresVwtDestroyAsync;
+            _typedErrorIsClassDirectAsync = typedErrorIsClassDirectAsync;
             _emissionContext = emissionContext;
             _tupleHelpers = tupleHelpers;
 
@@ -1179,7 +1188,9 @@ namespace BindingsGeneration
             // When isCancellation is set, find the CancellationToken from the holder and call TrySetCanceled.
             // For typed throws, the Swift-allocated error buffer must also be freed; for cascade,
             // SBW_Free runs inside the dispatcher helper's `finally` so no extra free here.
-            var freeErrorInCancellation = _useTypedErrorCallback
+            // Class-direct typed throws emit nil errorPtr on cancellation (no buffer / no
+            // retain) so there's nothing to clean up — skip the SBW_Free call.
+            var freeErrorInCancellation = (_useTypedErrorCallback && !_typedErrorIsClassDirectAsync)
                 ? "\n                                        SBW_Free(errorPtr);"
                 : "";
             var cancellationBlock = $$"""
@@ -1203,6 +1214,10 @@ namespace BindingsGeneration
                                                 copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                                                 NativeMemory.Free((void*)copyBuffer.Buffer);
                                             }
+                                            else if (holder[i] is AsyncDeferredDisposeList __deferredList)
+                                            {
+                                                foreach (var __d in __deferredList.Items) __d.Dispose();
+                                            }
                                         }{{freeErrorInCancellation}}
                                         holderTcs.TrySetCanceled(cancelToken);
                                     }
@@ -1224,7 +1239,14 @@ namespace BindingsGeneration
                 //   holds +1 retains. `finally { VWT-destroy + SBW_Free }` to release both
                 //   the retains and the carrier on every successful marshal.
                 //
-                // - complex enum / non-frozen struct / class (`_typedErrorTransfersOwnershipAsync`):
+                // - class error (`_typedErrorIsClassDirectAsync`): wire is a +1 retained
+                //   class pointer (no carrier buffer). `MarshalFromSwift<T>` constructs a
+                //   SwiftObject taking ownership of the retain on success. On marshal
+                //   failure C# calls `Arc.Release` to balance the retain — never `SBW_Free`
+                //   (no allocation to free, and the symbol isn't even imported for this
+                //   shape; see freePInvokeDecl below).
+                //
+                // - complex enum / non-frozen struct (`_typedErrorTransfersOwnershipAsync`):
                 //   `NewFromPayload` wraps the wire buffer directly into the SafeHandle, so
                 //   the SafeHandle's release path runs the destroy. Free only on marshal
                 //   failure to avoid double-free with the SafeHandle's finalizer.
@@ -1234,6 +1256,8 @@ namespace BindingsGeneration
                 string asyncErrorFreeBlock;
                 if (_typedErrorRequiresVwtDestroyAsync)
                     asyncErrorFreeBlock = $"finally {{ if (errorPtr != IntPtr.Zero) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains<{_typedThrowsCSharpErrorType}>(errorPtr); SBW_Free(errorPtr); }} }}";
+                else if (_typedErrorIsClassDirectAsync)
+                    asyncErrorFreeBlock = "catch { if (errorPtr != IntPtr.Zero) global::Swift.Runtime.Arc.Release(errorPtr); throw; }";
                 else if (_typedErrorTransfersOwnershipAsync)
                     asyncErrorFreeBlock = "catch { SBW_Free(errorPtr); throw; }";
                 else
@@ -1306,7 +1330,13 @@ namespace BindingsGeneration
             // untyped reads only the message), but the wire and delegate type are uniform.
             // SBW_Free is only declared for the typed-throws branch — cascade frees inside
             // the per-module helper; untyped never allocates payload memory.
-            var freePInvokeDecl = _useTypedErrorCallback ? GetFreePInvokeDeclIfNeeded() : "";
+            // Class-direct typed throws never call SBW_Free (no buffer); skip the P/Invoke
+            // declaration so the helper class doesn't import an unused symbol. Other
+            // typed-throws shapes still need it. Cascade frees inside the per-module helper;
+            // untyped never allocates payload memory.
+            var freePInvokeDecl = (_useTypedErrorCallback && !_typedErrorIsClassDirectAsync)
+                ? GetFreePInvokeDeclIfNeeded()
+                : "";
             const string delegateParams = "IntPtr, nint, IntPtr, int, IntPtr, int, void";
             const string methodParams = "IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task, int errorTypeId";
 
@@ -1372,6 +1402,25 @@ namespace BindingsGeneration
         {
             if (_useTypedErrorCallback)
             {
+                if (_typedErrorIsClassDirectAsync)
+                {
+                    // Class-shaped typed throws — mirror the cascade dispatcher's
+                    // `ClassPointerDirect` shape. Wire is a +1 retained class pointer (no
+                    // carrier buffer); cancellation passes nil errorPtr.
+                    return
+                        $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                        $"{indent}let errorMessage = String(describing: error)\n" +
+                        $"{indent}if _isCancelled != 0 {{\n" +
+                        $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                        $"{indent}        errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)\n" +
+                        $"{indent}    }}\n" +
+                        $"{indent}}} else {{\n" +
+                        $"{indent}    let _ptr = Unmanaged.passRetained(error as! {_typedThrowsSwiftErrorType} as AnyObject).toOpaque()\n" +
+                        $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                        $"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, 0)\n" +
+                        $"{indent}    }}\n" +
+                        $"{indent}}}";
+                }
                 // Typed-throws path. Cancellation must be handled before the force-cast to
                 // the typed error — CancellationError is not the typed error type, so
                 // `error as! T` would trap. Cancellation: allocate a zeroed buffer (C# only
@@ -1592,6 +1641,10 @@ namespace BindingsGeneration
             var cancelRegLine = includeCancellationReg
                 ? $"\n{indent}    else if ({holderVar}[i] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
                 : "";
+            // AsyncDeferredDisposeList holds SwiftArray/Set/Dictionary containers whose
+            // 'using var' was hoisted into the holder by EmitAsync. Disposed here on every
+            // callback path (success / exception / cancellation) so the buffer is freed
+            // exactly once after the Swift continuation has read it.
             return $$"""
                 {{indent}}for (int i = 1; i < {{holderVar}}.Length; i++)
                 {{indent}}{
@@ -1603,6 +1656,10 @@ namespace BindingsGeneration
                 {{indent}}    {
                 {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                 {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
+                {{indent}}    }
+                {{indent}}    else if ({{holderVar}}[i] is AsyncDeferredDisposeList __deferredList)
+                {{indent}}    {
+                {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
                 {{indent}}    }{{cancelRegLine}}
                 {{indent}}}
                 """;

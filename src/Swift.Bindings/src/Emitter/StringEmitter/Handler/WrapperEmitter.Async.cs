@@ -278,9 +278,21 @@ namespace BindingsGeneration
 
                 // Build the holder elements: originalParamList may be empty when only frozen blittable params exist
                 var originalParamSuffix = originalParamList.Length > 0 ? $", {originalParamList}" : "";
+                // Async deferred-dispose containers (SwiftArray<T> / SwiftSet<T> /
+                // SwiftDictionary<K,V>) are allocated below by EmitTypeConversions and
+                // appended to _asyncDeferredList so their lifetime extends past tcs.Task —
+                // the Swift continuation reads the buffer on its own thread after the
+                // foreground wrapper has returned. Without this hand-off the container's
+                // 'using var' would dispose the buffer before Swift dereferences it.
+                bool needsDeferredList = RequiresAsyncDeferredDisposeList();
+                string deferredListInHolder = needsDeferredList ? ", _asyncDeferredList" : "";
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
-            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}{{originalParamSuffix}}{{selfInHolder}}, null! };
+            """);
+                if (needsDeferredList)
+                    csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
+                csWriter.WriteLines($$"""
+            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}{{originalParamSuffix}}{{selfInHolder}}{{deferredListInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -289,6 +301,8 @@ namespace BindingsGeneration
                 // No non-frozen parameters, but still need to keep 'this' alive for instance methods
                 // For Swift classes, also retain self to prevent deallocation during async execution
                 bool isObjCRootedClassNoParams = isSwiftClass && _env.ParentDecl is ClassDecl asyncClassDeclNoParams && asyncClassDeclNoParams.IsObjCRooted;
+                bool needsDeferredList = RequiresAsyncDeferredDisposeList();
+                string deferredListInHolder = needsDeferredList ? ", _asyncDeferredList" : "";
                 if (isObjCRootedClassNoParams)
                 {
                     // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
@@ -296,7 +310,11 @@ namespace BindingsGeneration
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
             IntPtr _selfPtr = Handle;
             Arc.Retain(_selfPtr);
-            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            """);
+                    if (needsDeferredList)
+                        csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
+                    csWriter.WriteLines($$"""
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -311,7 +329,11 @@ namespace BindingsGeneration
             IntPtr _selfPtr = _handle.DangerousGetHandle();
             Arc.Retain(_selfPtr);
             _handle.DangerousRelease();
-            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this, null! };
+            """);
+                    if (needsDeferredList)
+                        csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
+                    csWriter.WriteLines($$"""
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -320,7 +342,11 @@ namespace BindingsGeneration
                     // For structs, keep 'this' alive and defer SafeHandle release until callback
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
-            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this, null! };
+            """);
+                    if (needsDeferredList)
+                        csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
+                    csWriter.WriteLines($$"""
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this{{deferredListInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -328,9 +354,17 @@ namespace BindingsGeneration
             else
             {
                 // Static method with no non-frozen parameters
+                bool needsDeferredList = RequiresAsyncDeferredDisposeList();
+                // Static-method holder with no other slots is `{ _tcs, null! }`. Inserting the
+                // deferred list adds a slot before the trailing cancellation slot.
+                string deferredListInHolder = needsDeferredList ? ", _asyncDeferredList" : "";
                 csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
-            object[] _asyncCallHolder = new object[] { _tcs, null! };
+            """);
+                if (needsDeferredList)
+                    csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
+                csWriter.WriteLines($$"""
+            object[] _asyncCallHolder = new object[] { _tcs{{deferredListInHolder}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -363,6 +397,20 @@ namespace BindingsGeneration
                 _asyncCallHolder[_asyncCallHolder.Length - 1] = new CancellationRegistrationHolder(_cancelRegistration, cancellationToken);
             }
             """);
+
+            // Open a try { around the foreground marshalling and the P/Invoke launch so that
+            // an exception from a parameter conversion (e.g., SwiftArray<T>.FromEnumerable
+            // when the user's IEnumerable enumerator throws — or any second-container conversion
+            // that throws after the first container was already appended to _asyncDeferredList)
+            // doesn't leak the GCHandle, the holder slots (RetainedSelfPtr, DeferredSafeHandleRelease,
+            // CopyBufferWithType, CancellationRegistrationHolder, AsyncDeferredDisposeList items)
+            // or the cancellation registration's SBW_CancelTask delegate (which would otherwise
+            // fire against a freed handle). The matching catch + return _tcs.Task; pair is
+            // emitted by EmitAsyncForegroundCleanupAndReturn, called from EmitReturnMethod
+            // immediately before the async return.
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
 
             // Build parameter string - non-frozen types use UnsafeRawPointer in Swift wrapper
             // For tuple returns, flatten the tuple elements into separate callback parameters
@@ -2226,7 +2274,9 @@ namespace BindingsGeneration
             // When isCancellation is set, find the CancellationToken from the holder and call TrySetCanceled.
             // For typed throws, the Swift-allocated error buffer must also be freed; for cascade,
             // SBW_Free runs inside the dispatcher helper's `finally` so no extra free here.
-            var freeErrorInCancellation = useTypedErrorCallback
+            // Class-direct typed throws emit nil errorPtr on cancellation (no buffer to free);
+            // skip the SBW_Free call so we don't reference a P/Invoke we didn't declare.
+            var freeErrorInCancellation = (useTypedErrorCallback && !typedErrorIsClassDirectAsync)
                 ? "\n                                        SBW_Free(errorPtr);"
                 : "";
             var cancellationBlock = $$"""
@@ -2265,13 +2315,18 @@ namespace BindingsGeneration
 
             if (useTypedErrorCallback)
             {
-                // For error types that transfer ownership (complex enums, non-frozen structs,
-                // frozen-with-memory structs, classes): MarshalFromSwift creates a SafeHandle
-                // wrapping the buffer. SBW_Free must only run on exception (otherwise double-free
-                // when SafeHandle finalizes). Same pattern as sync typed-throws path.
-                var asyncErrorFreeBlock = typedErrorTransfersOwnershipAsync
-                    ? "catch { SBW_Free(errorPtr); throw; }"
-                    : "finally { SBW_Free(errorPtr); }";
+                // Per-shape cleanup mirrors the cascade dispatcher's `CascadePayloadShape`
+                // selector. Class-direct: wire is a +1 retained class pointer (no carrier
+                // buffer); on success the constructed SwiftObject takes ownership of the
+                // retain, on failure C# calls Arc.Release to balance it. Other shapes use
+                // the SBW_Free wire-buffer cleanup (see WrapperEmitter.cs constructor).
+                string asyncErrorFreeBlock;
+                if (typedErrorIsClassDirectAsync)
+                    asyncErrorFreeBlock = "catch { if (errorPtr != IntPtr.Zero) global::Swift.Runtime.Arc.Release(errorPtr); throw; }";
+                else if (typedErrorTransfersOwnershipAsync)
+                    asyncErrorFreeBlock = "catch { SBW_Free(errorPtr); throw; }";
+                else
+                    asyncErrorFreeBlock = "finally { SBW_Free(errorPtr); }";
                 holderErrorBody = $$"""
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
                                         {{typedThrowsCSharpErrorType}} typedError;
@@ -2340,7 +2395,11 @@ namespace BindingsGeneration
             // untyped reads only the message), but the wire and delegate type are uniform.
             // SBW_Free is only declared for the typed-throws branch — cascade frees inside
             // the per-module helper; untyped never allocates payload memory.
-            var freePInvokeDecl = useTypedErrorCallback ? GetFreePInvokeDeclIfNeeded() : "";
+            // Class-direct typed throws never call SBW_Free (no buffer to free); skip the
+            // P/Invoke declaration so the helper class doesn't import an unused symbol.
+            var freePInvokeDecl = (useTypedErrorCallback && !typedErrorIsClassDirectAsync)
+                ? GetFreePInvokeDeclIfNeeded()
+                : "";
             const string delegateParams = "IntPtr, nint, IntPtr, int, IntPtr, int, void";
             const string methodParams = "IntPtr errorPtr, nint errorSize, IntPtr errorMessagePtr, int isCancellation, IntPtr task, int errorTypeId";
 
@@ -2406,6 +2465,29 @@ namespace BindingsGeneration
         {
             if (useTypedErrorCallback)
             {
+                if (typedErrorIsClassDirectAsync)
+                {
+                    // Class-shaped typed throws — mirror the cascade dispatcher's
+                    // `ClassPointerDirect` shape. The wire is a +1 retained class pointer
+                    // (no carrier buffer): `initializeMemory` would store the class
+                    // reference into a buffer-of-pointers, but C#'s `MarshalFromSwift<T>`
+                    // for a class expects the raw class pointer, not a pointer-to-pointer.
+                    // Cancellation: pass nil errorPtr (no allocation, no retain) so C#
+                    // routes to TrySetCanceled without touching the pointer.
+                    return
+                        $"let _isCancelled: Int32 = (error is CancellationError) ? 1 : 0\n" +
+                        $"{indent}let errorMessage = String(describing: error)\n" +
+                        $"{indent}if _isCancelled != 0 {{\n" +
+                        $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                        $"{indent}        errorCallback(nil, 0, _msgPtr, _isCancelled, _sbwTask, 0)\n" +
+                        $"{indent}    }}\n" +
+                        $"{indent}}} else {{\n" +
+                        $"{indent}    let _ptr = Unmanaged.passRetained(error as! {typedThrowsSwiftErrorType} as AnyObject).toOpaque()\n" +
+                        $"{indent}    errorMessage.withCString {{ _msgPtr in\n" +
+                        $"{indent}        errorCallback(UnsafeRawPointer(_ptr), 0, _msgPtr, 0, _sbwTask, 0)\n" +
+                        $"{indent}    }}\n" +
+                        $"{indent}}}";
+                }
                 // Typed-throws path. Cancellation must be handled before the force-cast to
                 // the typed error — CancellationError is not the typed error type, so
                 // `error as! T` would trap. Cancellation: allocate a zeroed buffer (C# only
@@ -2637,6 +2719,10 @@ namespace BindingsGeneration
             var cancelRegLine = includeCancellationReg
                 ? $"\n{indent}    else if ({holderVar}[__cleanupIdx] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
                 : "";
+            // AsyncDeferredDisposeList holds SwiftArray/Set/Dictionary containers whose
+            // 'using var' was hoisted into the holder by EmitAsync. Disposed here on every
+            // cleanup path (success / exception / cancellation / pre-cancel) so the buffer
+            // is freed exactly once after the Swift continuation has read it.
             return $$"""
                 {{indent}}for (int __cleanupIdx = 1; __cleanupIdx < {{holderVar}}.Length; __cleanupIdx++)
                 {{indent}}{
@@ -2648,6 +2734,10 @@ namespace BindingsGeneration
                 {{indent}}    {
                 {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                 {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
+                {{indent}}    }
+                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is AsyncDeferredDisposeList __deferredList)
+                {{indent}}    {
+                {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
                 {{indent}}    }{{cancelRegLine}}
                 {{indent}}}
                 """;

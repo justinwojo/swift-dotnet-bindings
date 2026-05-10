@@ -654,7 +654,16 @@ namespace BindingsGeneration
                 (projection is ArrayProjection or DictionaryProjection or SetProjection) &&
                 !projection.UsesObjCContainerBridge)
             {
-                CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, plan, csName);
+                // Async hand-off: when the wrapper is async, the SwiftArray/Set/Dictionary's
+                // 'using var' would dispose the buffer when the foreground wrapper returns
+                // tcs.Task — before the Swift continuation finishes reading the buffer on
+                // its own thread. Hoist the container into the per-call AsyncDeferredDisposeList
+                // (allocated by EmitAsync) so it's disposed by the holder cleanup loop after
+                // the Swift continuation completes.
+                string? deferredListName = _env.MethodDecl.IsAsync
+                    ? "_asyncDeferredList"
+                    : null;
+                CdeclMarshallingHelper.RenderWithHandleOverride(csWriter, plan, csName, deferredListName);
                 return true;
             }
 

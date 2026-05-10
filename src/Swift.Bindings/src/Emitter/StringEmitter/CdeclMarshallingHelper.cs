@@ -96,9 +96,15 @@ internal static class CdeclMarshallingHelper
     /// <param name="writer">The C# output writer.</param>
     /// <param name="plan">The MarshalPlan from the projection.</param>
     /// <param name="variableName">The raw parameter name (without "Swift" suffix).</param>
-    internal static void RenderWithHandleOverride(CSharpWriter writer, MarshalPlan plan, string variableName)
+    /// <param name="asyncDeferredDisposeListName">When non-null, the SwiftArray/Set/Dictionary
+    /// container is hoisted out of its <c>using var</c> and appended to this list (an
+    /// <c>AsyncDeferredDisposeList</c>) so its lifetime extends past the foreground async
+    /// wrapper's <c>tcs.Task</c> return — the Swift continuation reads the buffer on its
+    /// own thread after the wrapper has exited.</param>
+    internal static void RenderWithHandleOverride(CSharpWriter writer, MarshalPlan plan, string variableName, string? asyncDeferredDisposeListName = null)
     {
         var bufferName = NameProvider.GetBoundGenericBufferName(variableName);
+        var swiftVarName = $"{variableName}Swift";
         foreach (var stmt in plan.SetupStatements)
         {
             // Skip PayloadBuffer and .Buffer lines — replace with DangerousGetHandle
@@ -106,8 +112,20 @@ internal static class CdeclMarshallingHelper
                 continue;
             if (stmt is MarshalStatement.Line l && l.Code.Contains("Disposable.Buffer"))
                 continue;
+            // Async deferred-dispose hand-off: replace `using var {name}Swift = expr;` with
+            // `var {name}Swift = expr; _asyncDeferredList.Items.Add({name}Swift);` so the
+            // container outlives the foreground wrapper. Disposed by the holder cleanup
+            // loop after the Swift continuation completes.
+            if (asyncDeferredDisposeListName is not null
+                && stmt is MarshalStatement.Using uContainer
+                && uContainer.Name == swiftVarName)
+            {
+                writer.WriteLine($"var {uContainer.Name} = {uContainer.InitExpression};");
+                writer.WriteLine($"{asyncDeferredDisposeListName}.Items.Add({uContainer.Name});");
+                continue;
+            }
             MarshalPlanRenderer.RenderStatement(writer, stmt);
         }
-        writer.WriteLine($"IntPtr {bufferName} = {variableName}Swift.Payload.DangerousGetHandle();");
+        writer.WriteLine($"IntPtr {bufferName} = {swiftVarName}.Payload.DangerousGetHandle();");
     }
 }
