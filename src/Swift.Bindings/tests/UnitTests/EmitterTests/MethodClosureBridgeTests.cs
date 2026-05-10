@@ -371,6 +371,31 @@ public class MethodClosureBridgeTests
         Assert.Contains("GCHandle.Alloc", cs);
     }
 
+    [Theory]
+    [InlineData(0, "OnResponse(")]
+    [InlineData(1, "OnResponse2(")]
+    [InlineData(2, "OnResponse3(")]
+    public void TryEmit_AppliesCollisionIndexToPublicMethodName(int collisionIndex, string expectedSignaturePrefix)
+    {
+        // Two Swift overloads that project to the same C# parameter list (e.g.
+        // signIn(withEmail:password:) vs signIn(withEmail:link:) on FirebaseAuth.Auth)
+        // collide on the projected key. IHandler.HandleBaseDecl assigns CollisionIndex
+        // to the second overload — the closure-bridge path must read env.CSharpMethodName
+        // (which applies the suffix) instead of recomputing the bare name, otherwise
+        // both overloads emit as `public void DoWork(...)` and produce CS0111.
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        var env = new MethodEnvironment(method, typeDatabase) { CollisionIndex = collisionIndex };
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var result = MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
+
+        Assert.True(result);
+        var cs = csOutput.ToString();
+        Assert.Contains(expectedSignaturePrefix, cs);
+    }
+
     // ─── TryEmit: C# Callback ─────────────────────────────────────────
 
     [Fact]

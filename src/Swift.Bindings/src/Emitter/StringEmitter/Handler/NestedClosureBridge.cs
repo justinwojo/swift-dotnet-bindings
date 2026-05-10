@@ -990,14 +990,10 @@ public static class NestedClosureBridge
             publicParams.Add($"{delegateType} {nc.ParamName}");
         }
 
-        // Build method name
-        var methodName = NameProvider.GetPublicMethodName(
-            method.Name, method.IsAsync,
-            hasReturnValue: !returnSpec.IsEmptyTuple,
-            env.SiblingPropertyNames,
-            isSelfReturning: MethodEnvironment.IsSelfReturningMethod(method),
-            parentTypeName: (method.ParentDecl as TypeDecl)?.Name,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        // Use env.CSharpMethodName so the projected-signature collision suffix from
+        // IHandler.HandleBaseDecl (CollisionIndex) reaches the emitted public method.
+        // Mirror of MethodClosureBridge.EmitPublicMethod.
+        var methodName = env.CSharpMethodName;
 
         var isStatic = method.MethodType == MethodType.Static;
         var staticKeyword = isStatic ? "static " : "";

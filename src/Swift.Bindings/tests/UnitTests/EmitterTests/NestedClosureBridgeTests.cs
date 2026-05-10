@@ -190,6 +190,43 @@ public class NestedClosureBridgeTests
         Assert.Contains("__closureBox1", swift);
     }
 
+    [Theory]
+    [InlineData(0, "OnEvent(")]
+    [InlineData(1, "OnEvent2(")]
+    [InlineData(2, "OnEvent3(")]
+    public void TryEmit_AppliesCollisionIndexToPublicMethodName(int collisionIndex, string expectedSignaturePrefix)
+    {
+        // Mirror of MethodClosureBridgeTests — when IHandler.HandleBaseDecl assigns
+        // CollisionIndex to disambiguate two Swift overloads that project to the same
+        // C# parameter list, the nested-closure-bridge path must read env.CSharpMethodName
+        // (which applies the suffix), not recompute the bare name.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        var innerClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            TupleTypeSpec.Empty);
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { innerClosure }),
+            TupleTypeSpec.Empty);
+        outerClosureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "_perform");
+
+        var env = new MethodEnvironment(method, typeDatabase) { CollisionIndex = collisionIndex };
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        var swiftWriter = new SwiftWriter(new StringWriter());
+
+        var result = NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, parentDecl);
+
+        Assert.True(result);
+        var cs = csOutput.ToString();
+        Assert.Contains(expectedSignaturePrefix, cs);
+    }
+
     [Fact]
     public void TryEmit_TwoOuterClosures_EmitsSingleWrapperWithOuterIndexedNames()
     {

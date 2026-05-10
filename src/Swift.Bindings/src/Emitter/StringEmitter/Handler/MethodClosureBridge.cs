@@ -1117,14 +1117,13 @@ public static class MethodClosureBridge
             publicParams.Add($"{closureDelegateTypes[c]} {closures[c].ParamName}");
         }
 
-        // Build method name using same logic as MethodEnvironment
-        var methodName = NameProvider.GetPublicMethodName(
-            method.Name, method.IsAsync,
-            hasReturnValue: !returnSpec.IsEmptyTuple,
-            env.SiblingPropertyNames,
-            isSelfReturning: MethodEnvironment.IsSelfReturningMethod(method),
-            parentTypeName: (method.ParentDecl as TypeDecl)?.Name,
-            parameterCount: method.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
+        // Use env.CSharpMethodName so that the projected-signature collision suffix
+        // assigned by IHandler.HandleBaseDecl (CollisionIndex) actually reaches the
+        // emitted public method. Recomputing via NameProvider.GetPublicMethodName here
+        // would drop the suffix and produce CS0111 duplicates when two Swift overloads
+        // (e.g. Auth.signIn(email:password:) vs signIn(email:link:)) project to the
+        // same C# parameter list.
+        var methodName = env.CSharpMethodName;
 
         var isStatic = method.MethodType == MethodType.Static;
         var staticKeyword = isStatic ? "static " : "";
