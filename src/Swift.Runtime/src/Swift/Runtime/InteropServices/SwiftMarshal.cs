@@ -1161,6 +1161,31 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Reads a Utf8Slice byte buffer as a managed byte array, then frees the buffer.
+    /// Used by generated Codable JSON round-trip emitters: Swift writes encoded JSON
+    /// bytes to a heap-allocated buffer and stores a Utf8Slice describing the buffer;
+    /// C# copies the bytes out and releases the buffer.
+    /// </summary>
+    /// <param name="slicePtr">Pointer to a Utf8Slice struct in native memory.</param>
+    /// <returns>A byte[] copy of the slice payload, or an empty array if length is zero.</returns>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static unsafe byte[] ReadUtf8SliceBytes(IntPtr slicePtr)
+    {
+        var slice = *(Utf8Slice*)slicePtr;
+        if (slice.Len == 0) return Array.Empty<byte>();
+        try
+        {
+            var bytes = new byte[(int)slice.Len];
+            Marshal.Copy(slice.Ptr, bytes, 0, (int)slice.Len);
+            return bytes;
+        }
+        finally
+        {
+            NativeMemory.Free((void*)slice.Ptr);
+        }
+    }
+
+    /// <summary>
     /// Reads a Swift error description from a C string pointer and frees it.
     /// Returns "Unknown Swift error" if the pointer is null or the string is null.
     /// This replaces the inline error description extraction pattern in generated bindings.

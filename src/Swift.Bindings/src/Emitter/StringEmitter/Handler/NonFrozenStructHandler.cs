@@ -300,6 +300,15 @@ namespace BindingsGeneration
                 // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
                 AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, structDecl, env.TypeDatabase);
 
+                // Codable JSON round-trip (Phase 1 — non-generic structs projected as classes).
+                // Non-frozen structs are always class-projected; pass isProjectedAsClass: true.
+                if (CodableJsonEmitter.ShouldEmit(structDecl, isProjectedAsClass: true))
+                {
+                    CodableJsonEmitter.Emit(
+                        csWriter, swiftWriter, structDecl, moduleDecl,
+                        typeNameWithGenerics, env.TypeDatabase, _logger);
+                }
+
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
