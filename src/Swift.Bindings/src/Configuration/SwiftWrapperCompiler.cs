@@ -1073,7 +1073,10 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Reads MinimumOSVersion from the source framework's Info.plist.
-        /// Falls back to "15.0" if not found.
+        /// Falls back to "15.0" if not found, missing, or set to a vendor sentinel
+        /// (e.g. Firebase ships every framework with "100.0"). Without that filter,
+        /// the value flows into <c>swiftc -target arm64-apple-ios{minOS}-simulator</c>
+        /// and the wrapper compile fails outright.
         /// </summary>
         internal static string ResolveDeploymentTarget(
             string dylibPath, ILogger logger, ICommandRunner? commandRunner = null)
@@ -1088,11 +1091,13 @@ namespace BindingsGeneration
             var data = PlistReader.ReadPlistDict(infoPlistPath, commandRunner, logger);
             if (data != null && data.TryGetValue("MinimumOSVersion", out var minOS) && minOS is string minOSStr)
             {
-                // Enforce .NET 10 iOS floor. Features requiring newer SDKs (parameterized
-                // existentials, etc.) are handled by @available attributes on generated wrappers.
-                var resolved = EnforceMinimumDeploymentTarget(minOSStr, "15.0");
+                // Route through the shared clamp so the .NET 10 iOS floor and the
+                // sentinel ceiling stay in lockstep with the metadata extractor.
+                // Features requiring newer SDKs are handled by @available attributes
+                // on generated wrappers.
+                var resolved = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(minOSStr);
                 if (resolved != minOSStr)
-                    logger.LogInformation("Raised deployment target from {Source} to {Resolved} (.NET 10 iOS floor).", minOSStr, resolved);
+                    logger.LogInformation("Adjusted deployment target from {Source} to {Resolved} (floor/sentinel filter).", minOSStr, resolved);
                 else
                     logger.LogInformation("Resolved deployment target {Version} from source framework.", resolved);
                 return resolved;

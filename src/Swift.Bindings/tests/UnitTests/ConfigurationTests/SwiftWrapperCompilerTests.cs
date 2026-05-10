@@ -239,6 +239,96 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ResolveDeploymentTarget_VendorSentinel_FallsBackToFloor()
+        {
+            // Firebase / GTMAppAuth ship every framework with MinimumOSVersion=100.0
+            // (a CMake/xcodebuild build-tool quirk). Without sentinel rejection the
+            // value flows into `swiftc -target arm64-apple-ios100.0-simulator` and
+            // the wrapper compile fails outright. Verify the value gets rejected
+            // here in lockstep with the metadata extractor.
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>100.0</string>
+                        <key>CFBundleExecutable</key>
+                        <string>FirebaseAuth</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "FirebaseAuth");
+                File.WriteAllText(dylibPath, "");
+
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
+                Assert.Equal("15.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void ResolveDeploymentTarget_BelowFloor_RaisedToFloor()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>13.0</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "OldLib");
+                File.WriteAllText(dylibPath, "");
+
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
+                Assert.Equal("15.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Theory]
+        [InlineData("abc")]
+        [InlineData("16.x")]
+        [InlineData("not-a-version")]
+        [InlineData("v16.0")]
+        public void ResolveDeploymentTarget_MalformedPlistValue_FallsBackToFloor(string malformed)
+        {
+            // A plist that parses cleanly but carries a non-numeric MinimumOSVersion
+            // must be clamped to the floor — never written verbatim into the swiftc
+            // target triple. Mirrors ClampMinimumOSVersion's malformed-input contract
+            // through the plist-reader path.
+            var dir = CreateTempDir();
+            try
+            {
+                var plist = $"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>MinimumOSVersion</key>
+                        <string>{malformed}</string>
+                    </dict>
+                    </plist>
+                    """;
+                File.WriteAllText(Path.Combine(dir, "Info.plist"), plist);
+                var dylibPath = Path.Combine(dir, "Lib");
+                File.WriteAllText(dylibPath, "");
+
+                var result = SwiftWrapperCompiler.ResolveDeploymentTarget(dylibPath, NullLogger.Instance);
+                Assert.Equal("15.0", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void ResolveDeploymentTarget_UsesPlistReader_ViaPlutil()
         {
             var dir = CreateTempDir();

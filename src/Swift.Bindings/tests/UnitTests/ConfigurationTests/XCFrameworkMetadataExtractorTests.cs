@@ -104,6 +104,46 @@ namespace BindingsGeneration.Tests
         {
             Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(""));
         }
+
+        // Firebase (and a handful of other vendors that build via CMake) ship every
+        // xcframework's inner Info.plist with MinimumOSVersion=100.0. Writing that into
+        // <SupportedOSPlatformVersion> blows up the .NET SDK with NETSDK1135 once it
+        // exceeds the workload's TargetPlatformVersion. The clamp must reject the
+        // sentinel and fall back to the floor regardless of which Apple OS is current.
+        [Fact]
+        public void ClampMinimumOSVersion_FirebaseSentinel_FallsBackToFloor()
+        {
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("100.0"));
+        }
+
+        [Fact]
+        public void ClampMinimumOSVersion_AboveSentinelCeiling_FallsBackToFloor()
+        {
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("999.0"));
+        }
+
+        [Fact]
+        public void ClampMinimumOSVersion_JustBelowSentinelCeiling_PreservesRaw()
+        {
+            // Forward-compatibility check: a plausibly-real iOS version must survive the
+            // sentinel filter. If Apple ever ships iOS 99 we have bigger problems.
+            Assert.Equal("99.9", XCFrameworkMetadataExtractor.ClampMinimumOSVersion("99.9"));
+        }
+
+        [Theory]
+        [InlineData("abc")]
+        [InlineData("16.x")]
+        [InlineData("not-a-version")]
+        [InlineData("16.0.0.0.0")]
+        [InlineData("v16.0")]
+        [InlineData("16,0")]
+        [InlineData(" ")]
+        public void ClampMinimumOSVersion_MalformedInput_FallsBackToFloor(string raw)
+        {
+            // Anything Version.TryParse rejects must fall back to the floor; otherwise
+            // garbage propagates into <SupportedOSPlatformVersion> / -target ios{X}.
+            Assert.Equal("15.0", XCFrameworkMetadataExtractor.ClampMinimumOSVersion(raw));
+        }
     }
 
     #endregion
@@ -197,6 +237,28 @@ namespace BindingsGeneration.Tests
 
                 Assert.Equal("16.0", metadata.MinimumOSVersion);
                 Assert.Equal("16.0", metadata.EffectiveMinimumOSVersion); // no clamping needed
+            }
+            finally { fixture.Dispose(); }
+        }
+
+        // End-to-end repro of the Firebase plist shape (MinimumOSVersion=100.0). The raw
+        // value is preserved on the metadata for diagnostics, but EffectiveMinimumOSVersion
+        // — which is what every csproj/props emitter consumes — must be the floor so the
+        // generated <SupportedOSPlatformVersion> never exceeds the consumer's TPV.
+        [Fact]
+        public void Extract_VendorSentinelMinOS_ClampsToFloor()
+        {
+            var fixture = new MetadataFixture("FirebaseAuth");
+            try
+            {
+                fixture.WriteInnerPlist("12.10.0", "100.0", "18.2");
+                fixture.WriteOuterPlist();
+
+                var metadata = XCFrameworkMetadataExtractor.Extract(
+                    fixture.DylibPath, fixture.XCFrameworkPath, "FirebaseAuth", _logger, fixture.Runner);
+
+                Assert.Equal("100.0", metadata.MinimumOSVersion);
+                Assert.Equal("15.0", metadata.EffectiveMinimumOSVersion);
             }
             finally { fixture.Dispose(); }
         }

@@ -61,6 +61,16 @@ namespace BindingsGeneration
     {
         private const string MinOSFloor = "15.0";
 
+        // Vendor build tooling occasionally emits an "uninitialized" sentinel for
+        // MinimumOSVersion (Firebase ships every framework with "100.0", for example —
+        // a CMake/xcodebuild quirk that hasn't been fixed upstream). Treating the value
+        // literally writes <SupportedOSPlatformVersion>100.0</SupportedOSPlatformVersion>
+        // into the generated csproj, which the .NET SDK rejects with NETSDK1135 once it
+        // exceeds the workload's TargetPlatformVersion. Any plist version this far above
+        // the current Apple OS line is a build artifact, not a real deployment target,
+        // so we fall back to the floor instead.
+        private const string MinOSSentinelCeiling = "100.0";
+
         /// <summary>
         /// Extracts metadata from an xcframework's inner framework Info.plist.
         /// </summary>
@@ -239,19 +249,22 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Clamps a raw minimum OS version to at least 15.0 (.NET 10 iOS floor).
+        /// Clamps a raw minimum OS version to at least 15.0 (.NET 10 iOS floor) and
+        /// rejects vendor sentinel values (e.g. Firebase's "100.0") by falling back
+        /// to the floor. See <see cref="MinOSSentinelCeiling"/> for the rationale.
         /// </summary>
         public static string ClampMinimumOSVersion(string? rawVersion)
         {
             if (string.IsNullOrEmpty(rawVersion))
                 return MinOSFloor;
 
-            if (TryParseVersion(rawVersion, out var rawParsed) && TryParseVersion(MinOSFloor, out var floorParsed))
-            {
-                return rawParsed >= floorParsed ? rawVersion : MinOSFloor;
-            }
+            if (!TryParseVersion(rawVersion, out var rawParsed) || !TryParseVersion(MinOSFloor, out var floorParsed))
+                return MinOSFloor;
 
-            return MinOSFloor;
+            if (TryParseVersion(MinOSSentinelCeiling, out var ceilingParsed) && rawParsed >= ceilingParsed)
+                return MinOSFloor;
+
+            return rawParsed >= floorParsed ? rawVersion : MinOSFloor;
         }
 
         /// <summary>
