@@ -952,6 +952,22 @@ public class ThirdPartyValidationFixTests
     }
 
     [Theory]
+    [InlineData("type", true, "GetTypeSwift")]            // PascalCase → Type → not a verb → Get prefix → GetType → collision suffix
+    [InlineData("getType", false, "GetTypeSwift")]        // Already starts with verb Get → name stays GetType → collision suffix
+    [InlineData("toString", true, "ToStringSwift")]       // Starts with verb "To" → no Get prefix → ToString → collision suffix
+    [InlineData("equals", true, "EqualsSwift")]           // Starts with verb "Equals" → no Get prefix → collision suffix
+    [InlineData("getHashCode", false, "GetHashCodeSwift")] // Starts with verb Get → no extra prefix → collision suffix
+    public void GetPublicMethodName_SystemObjectCollision_GetsSwiftSuffix(string swiftName, bool hasReturnValue, string expected)
+    {
+        // Generated classes inherit System.Object, so Swift methods that PascalCase to
+        // GetType / ToString / Equals / GetHashCode shadow inherited members. The
+        // Firestore Expression.type() symptom (~117 sites of GetType().Name) drives
+        // this list — anything that lands on a System.Object virtual must be renamed.
+        var result = NameProvider.GetPublicMethodName(swiftName, isAsync: false, hasReturnValue: hasReturnValue);
+        Assert.Equal(expected, result);
+    }
+
+    [Theory]
     [InlineData("Foundation.Operation.QueuePriority")]
     public async Task GetTypeRecordOrAnyType_FoundationOperationQueuePriority_ReturnsRemappedType(string swiftType)
     {

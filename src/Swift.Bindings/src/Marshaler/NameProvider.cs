@@ -798,13 +798,20 @@ public static class NameProvider
 
     /// <summary>
     /// Method names that collide with well-known .NET base class methods inherited by
-    /// generated C# classes (e.g., IDisposable.Dispose() from SafeHandle). Swift methods
-    /// with these PascalCase names get a "Swift" suffix to avoid CS0111.
+    /// generated C# classes (e.g., IDisposable.Dispose() from SafeHandle, plus the
+    /// System.Object virtuals every class inherits). Swift methods with these
+    /// PascalCase names get a "Swift" suffix to avoid CS0111 / CS0114, and to keep
+    /// the inherited System.Object semantics intact for callers that rely on
+    /// patterns like `instance.GetType().Name` inside generated code.
     /// </summary>
     private static readonly HashSet<string> _inheritedMethodCollisions = new()
     {
         "Dispose",        // IDisposable.Dispose() from SafeHandle (RxSwift dispose())
         "Finalize",       // Object.Finalize() (C# destructor) — GRDB DatabaseAggregate.finalize()
+        "GetType",        // Object.GetType() — Firestore Expression.type() shadows it and breaks GetType().Name
+        "ToString",       // Object.ToString()
+        "Equals",         // Object.Equals(object)
+        "GetHashCode",    // Object.GetHashCode()
     };
 
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
