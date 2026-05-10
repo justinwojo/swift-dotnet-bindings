@@ -233,4 +233,26 @@ public class CrossModuleTests : TestBase
     }
 
     #endregion
+
+    #region Cross-Module Class Extension (Stripe STPAPIClient shape)
+
+    public void TestDependencyServiceTaggedActivation()
+    {
+        using var active = new DependencyService("Worker");
+        AssertEqual(7, active.TaggedActivation(7),
+            "Cross-module class extension method routes through SwiftSelf register (active receiver)");
+
+        using var idle = new DependencyService("Worker", false);
+        AssertEqual(-42, idle.TaggedActivation(42),
+            "Cross-module class extension reads receiver state under CallConvSwift (inactive receiver)");
+    }
+
+    public void TestDependencyServiceActivateAndReport()
+    {
+        using var service = new DependencyService("Worker", false);
+        AssertEqual(true, service.ActivateAndReport(),
+            "Cross-module class extension can mutate receiver state and report via CallConvSwift primitive return");
+    }
+
+    #endregion
 }

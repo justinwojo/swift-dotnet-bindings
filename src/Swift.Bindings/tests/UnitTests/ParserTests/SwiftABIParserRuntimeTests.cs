@@ -1181,6 +1181,98 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
+    public void ParseModule_ForeignClass_WithExtensionMembersFromCurrentModule_IsRouted()
+    {
+        // Stripe STPAPIClient pattern: module B (TestModule) declares
+        // `extension ForeignLib.ForeignAPIClient { ... }` — the foreign class
+        // re-export now carries extension members. The parser must keep the
+        // type (instead of skipping it as a third-party re-export) so the
+        // CrossModuleExtensionEmitter has a ClassDecl to dispatch on.
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+
+        var extensionMethod = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "tagged",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModuleE6taggedSiyF");
+
+        var foreignClass = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "ForeignAPIClient",
+            moduleName: "ForeignLib",
+            mangledName: "$s10ForeignLib16ForeignAPIClientCN",
+            children: new[] { extensionMethod });
+
+        using var fixture = CreateParserWithNodes(importNode, foreignClass);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("ForeignAPIClient", type.Name);
+        Assert.Equal("ForeignLib", type.SwiftTypeName.Module);
+    }
+
+    [Fact]
+    public void ParseModule_ForeignStruct_WithExtensionMembersFromCurrentModule_IsStillSkipped()
+    {
+        // Phase 1 of the cross-module-extension fix only routes class receivers.
+        // Foreign structs/enums with extension members still take the original
+        // skip path (struct/enum extension support is deferred — they need
+        // distinct trampoline emission for value-type self).
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+
+        var extensionMethod = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "tagged",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModuleE6taggedSiyF");
+
+        var foreignStruct = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "ForeignValue",
+            moduleName: "ForeignLib",
+            mangledName: "$s10ForeignLib12ForeignValueVN",
+            children: new[] { extensionMethod });
+
+        using var fixture = CreateParserWithNodes(importNode, foreignStruct);
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.Types);
+    }
+
+    [Fact]
+    public void ParseModule_ForeignClass_WithoutExtensionMembers_IsStillSkipped()
+    {
+        // Pure third-party re-export with no extension members: the original
+        // skip path still applies (no point binding a foreign type the
+        // current module doesn't extend).
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+
+        var foreignOnlyMethod = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "nativeMethod",
+            moduleName: "ForeignLib",
+            mangledName: "$s10ForeignLib11nativeMethodSiyF");
+
+        var foreignClass = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Class",
+            name: "ForeignAPIClient",
+            moduleName: "ForeignLib",
+            mangledName: "$s10ForeignLib16ForeignAPIClientCN",
+            children: new[] { foreignOnlyMethod });
+
+        using var fixture = CreateParserWithNodes(importNode, foreignClass);
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.Types);
+    }
+
+    [Fact]
     public void ParseModule_DuplicateCrossModuleReExport_SkipsGracefully()
     {
         // When the same system type appears twice in a module's ABI (e.g., two extension

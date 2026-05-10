@@ -41,6 +41,24 @@ public static class CrossModuleExtensionEmitter
         // Resolve the C# type name for the original type
         var origCSharpType = ResolveOriginalTypeCSharpName(classDecl, typeDatabase, conductor.NamespacePatternResolver);
 
+        // When the receiver fell back to a base class (e.g., Foundation.JSONDecoder maps to
+        // Foundation.NSObject in FoundationDatabase.xml), emitting extension methods on the
+        // fallback type is unsafe — the extension would also bind to unrelated NSObject
+        // instances and we can't enforce the runtime type. Detect via Swift-name-vs-C#-name
+        // mismatch on the resolved TypeRecord and skip; legitimate bound Swift class receivers
+        // (where Swift name == resolved C# name) still flow through.
+        bool fellBackToBase = typeDatabase.TryGetTypeRecord(classDecl.SwiftTypeName, out var origRecord)
+            && !string.Equals(classDecl.SwiftTypeName.Name,
+                              origRecord.CSharpTypeName.Name,
+                              StringComparison.Ordinal);
+        if (fellBackToBase)
+        {
+            logger.LogInformation(
+                "Cross-module extension {Type} from {Module}: receiver fell back to {Resolved}; skipping to avoid unsafe extension on a base class.",
+                classDecl.Name, currentModule, origCSharpType);
+            return;
+        }
+
         // Collect members from the current module only
         var methods = new List<MethodDecl>();
         var properties = new List<PropertyDecl>();
@@ -170,6 +188,17 @@ public static class CrossModuleExtensionEmitter
         if (returnCategory == null)
             return false;
 
+        // Phase 1 limitation: non-frozen-struct returns (including Swift.String) require
+        // a @_cdecl Swift trampoline because Swift's CallConvSwift returns small structs
+        // in registers (x0+x1 for Swift.String), not via the SwiftIndirectResult slot.
+        // The current emitter dispatches the raw CallConvSwift symbol — that path works
+        // for void, primitive, SwiftClass, and ObjCClass returns (single-register or
+        // primitive returns). Non-frozen-struct returns silently leave the indirect
+        // buffer untouched and surface as empty results. Wrapper-emission for cross-
+        // module extension methods is deferred to a future phase.
+        if (returnCategory == ReturnKind.NonFrozenStruct)
+            return false;
+
         // Build parameter list — skip methods with unsupported param types
         var parameters = new List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec)>();
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -216,8 +245,11 @@ public static class CrossModuleExtensionEmitter
 
         csWriter.WriteLine();
 
+        // Instance methods need `unsafe` for the `(void*)handle` cast inside `new SwiftSelf(...)`.
+        var unsafeModifier = isStatic ? string.Empty : "unsafe ";
+
         // Emit public extension method
-        csWriter.WriteLine($"public static {csharpReturnType} {methodName}({string.Join(", ", paramParts)})");
+        csWriter.WriteLine($"public static {unsafeModifier}{csharpReturnType} {methodName}({string.Join(", ", paramParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -230,11 +262,16 @@ public static class CrossModuleExtensionEmitter
     }
 
     /// <summary>
-    /// Gets the self expression for P/Invoke calls.
+    /// Gets the self expression for P/Invoke calls under CallConvSwift.
     /// ObjC-rooted classes use .Handle (ObjC pointer), pure Swift classes use .Payload.DangerousGetHandle().
+    /// The handle is wrapped in a SwiftSelf so the P/Invoke param type matches and the value
+    /// lands in the swiftcc self register.
     /// </summary>
-    private static string GetSelfExpression(bool isObjCRooted) =>
-        isObjCRooted ? "self.Handle" : "self.Payload.DangerousGetHandle()";
+    private static string GetSelfExpression(bool isObjCRooted)
+    {
+        var handle = isObjCRooted ? "self.Handle" : "self.Payload.DangerousGetHandle()";
+        return $"new SwiftSelf((void*){handle})";
+    }
 
     private static void EmitMethodBody(
         CSharpWriter csWriter,
@@ -249,25 +286,65 @@ public static class CrossModuleExtensionEmitter
     {
         var nativeArgs = new List<string>();
 
-        // Non-frozen struct returns use SwiftIndirectResult as first param
+        // CallConvSwift parameter ordering: SwiftIndirectResult first (x8 register),
+        // then regular args (x0..x7), then SwiftSelf last (x20). The .NET runtime
+        // routes SwiftSelf and SwiftIndirectResult to fixed registers, but we keep
+        // self last to match the convention used elsewhere in the runtime
+        // (SwiftArrayPInvokes / BlittableElementBuffer P/Invokes both put `self`
+        // last). This avoids a subtle no-crash empty-result failure observed when
+        // self_ sits between the indirect result and the first non-self arg.
         if (returnCategory == ReturnKind.NonFrozenStruct)
             nativeArgs.Add("indirectResult");
 
-        // Self parameter
-        if (!isStatic)
-            nativeArgs.Add(GetSelfExpression(isObjCRooted));
-
-        // Method parameters
         foreach (var (name, _, pinvokeExpr, _) in parameters)
         {
             nativeArgs.Add(pinvokeExpr);
         }
 
+        if (!isStatic)
+            nativeArgs.Add(GetSelfExpression(isObjCRooted));
+
         // Use the method's real mangled name as the NativeMethods entry
         var nativeMethodName = GetNativeMethodName(method);
         var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
-        EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType);
+        EmitPayloadPinnedBody(csWriter, isStatic, isObjCRooted,
+            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType));
+    }
+
+    /// <summary>
+    /// Wraps body emission in a DangerousAddRef/DangerousRelease guard against the
+    /// receiver's <c>Payload</c> SafeHandle, so concurrent disposal/finalization can't
+    /// hand Swift a released object pointer mid-call. ObjC-rooted classes use <c>.Handle</c>
+    /// (a raw NSObject pointer with separate NSObject lifetime) and need no pinning;
+    /// static extensions have no instance receiver to pin.
+    /// </summary>
+    private static void EmitPayloadPinnedBody(
+        CSharpWriter csWriter,
+        bool isStatic,
+        bool isObjCRooted,
+        Action emitBody)
+    {
+        if (isStatic || isObjCRooted)
+        {
+            emitBody();
+            return;
+        }
+
+        csWriter.WriteLine("bool __payloadPinned = false;");
+        csWriter.WriteLine("self.Payload.DangerousAddRef(ref __payloadPinned);");
+        csWriter.WriteLine("try");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        emitBody();
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
+        csWriter.WriteLine("finally");
+        csWriter.WriteLine("{");
+        csWriter.Indent++;
+        csWriter.WriteLine("if (__payloadPinned) self.Payload.DangerousRelease();");
+        csWriter.Indent--;
+        csWriter.WriteLine("}");
     }
 
     // ==================== Property Extension Emission ====================
@@ -292,6 +369,10 @@ public static class CrossModuleExtensionEmitter
         if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
             return false;
 
+        // Phase 1 limitation — see TryEmitMethodExtension for rationale.
+        if (returnCategory.Value == ReturnKind.NonFrozenStruct)
+            return false;
+
         var propertyName = NameProvider.ToPascalCase(property.Name);
         if (!emittedSignatures.Add($"Get{propertyName}"))
             return false;
@@ -305,7 +386,7 @@ public static class CrossModuleExtensionEmitter
         if (getterAccessor != null)
         {
             csWriter.WriteLine();
-            csWriter.WriteLine($"public static {csharpType} Get{propertyName}(this {origCSharpType} self)");
+            csWriter.WriteLine($"public static unsafe {csharpType} Get{propertyName}(this {origCSharpType} self)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -316,7 +397,8 @@ public static class CrossModuleExtensionEmitter
             nativeArgs.Add(GetSelfExpression(classDecl.IsObjCRooted));
             var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
-            EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType);
+            EmitPayloadPinnedBody(csWriter, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
+                () => EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType));
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -328,12 +410,13 @@ public static class CrossModuleExtensionEmitter
         {
             var setParamType = MarshallingHelpers.IsBoolType(csharpType) ? "bool" : csharpType;
             csWriter.WriteLine();
-            csWriter.WriteLine($"public static void Set{propertyName}(this {origCSharpType} self, {setParamType} value)");
+            csWriter.WriteLine($"public static unsafe void Set{propertyName}(this {origCSharpType} self, {setParamType} value)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
             var nativeMethodName = GetNativeMethodName(setterAccessor.Method);
-            csWriter.WriteLine($"NativeMethods.{nativeMethodName}(value, {GetSelfExpression(classDecl.IsObjCRooted)});");
+            EmitPayloadPinnedBody(csWriter, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
+                () => csWriter.WriteLine($"NativeMethods.{nativeMethodName}(value, {GetSelfExpression(classDecl.IsObjCRooted)});"));
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -361,17 +444,15 @@ public static class CrossModuleExtensionEmitter
         if (returnCategory == null)
             return;
 
-        // Build P/Invoke parameters — skip if any param is unsupported
+        // Build P/Invoke parameters — skip if any param is unsupported.
+        // CallConvSwift ordering: SwiftIndirectResult first, then regular args,
+        // then SwiftSelf last. See EmitMethodBody for the matching call-site
+        // ordering and the rationale.
         var pinvokeParams = new List<string>();
         bool usesIndirectResult = returnCategory.Value == ReturnKind.NonFrozenStruct;
 
         if (usesIndirectResult)
             pinvokeParams.Add("SwiftIndirectResult result");
-
-        // Self parameter (instance methods use SwiftSelf)
-        bool isStatic = method.MethodType == MethodType.Static;
-        if (!isStatic)
-            pinvokeParams.Add("SwiftSelf self_");
 
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
@@ -387,6 +468,11 @@ public static class CrossModuleExtensionEmitter
             else
                 pinvokeParams.Add($"{pinvokeType} {paramName}");
         }
+
+        // Self parameter (instance methods use SwiftSelf — last for CallConvSwift)
+        bool isStatic = method.MethodType == MethodType.Static;
+        if (!isStatic)
+            pinvokeParams.Add("SwiftSelf self_");
 
         var (entryPoint, needsWrapperLib) = PInvokeEmitter.ComputeEntryPoint(method);
         var libPath = needsWrapperLib && typeDatabase.AsyncLibraryName != null

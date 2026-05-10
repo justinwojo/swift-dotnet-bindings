@@ -158,6 +158,32 @@ public func scaleDependencyPoint(_ point: DependencyPoint, factor: Double) -> De
     return point.scaled(by: factor)
 }
 
+// MARK: - Cross-Module Class Extension (Stripe STPAPIClient shape)
+
+/// Extension on `DependencyService` (a class declared in the dependency
+/// module). Reproduces the Stripe pattern where module B layers extra API
+/// onto a class owned by module A — `extension StripeCore.STPAPIClient`
+/// declared in StripePayments. The Phase 1 fix routes class receivers
+/// through `CrossModuleExtensionEmitter` so the extension members surface
+/// as `static partial class DependencyServiceSwiftBindingsTestLibExtensions`.
+extension DependencyService {
+    /// Returns the receiver's tag-shifted activation flag. Pure-Swift class
+    /// receiver, primitive parameter and primitive return — exercises the
+    /// Phase 1 happy path: a CallConvSwift call site that routes the receiver
+    /// through SwiftSelf and a primitive arg through the regular register.
+    public func taggedActivation(tag: Int32) -> Int32 {
+        return self.isActive ? tag : -tag
+    }
+
+    /// Activates the receiver and returns whether the receiver is now active.
+    /// Tests instance-mutating extension dispatch on class receivers without
+    /// crossing the Swift-String register-vs-indirect-result boundary.
+    public func activateAndReport() -> Bool {
+        self.isActive = true
+        return self.isActive
+    }
+}
+
 // NOTE: Module name = type name collision (Reachability pattern) is tested
 // through validation libraries. Swift issue #56573 prevents including this
 // pattern in a library-evolution-enabled module used as a build dependency.

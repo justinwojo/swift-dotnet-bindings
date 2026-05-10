@@ -822,14 +822,35 @@ namespace BindingsGeneration
             // this type is re-exported and should not be bound here.
             // System module re-exports (Swift.Error, Foundation.URL, etc.) are kept because
             // the generated code legitimately extends or conforms to them.
-            // Example: StripeCryptoOnramp re-exports StripeCore.STPAPIClient — skip it.
+            //
+            // Exception: when the foreign type carries extension members declared in the
+            // current module (children with ModuleName == moduleDecl.Name), the node is the
+            // ABI's representation of `extension ForeignModule.ForeignType { ... }`. The
+            // extension members are real public API of the current module and must be
+            // emitted as a static cross-module extension class.
+            // Example: StripeCryptoOnramp re-exports STPAPIClient (no extension children) — skip it.
+            //          StripePayments declares `extension StripeCore.STPAPIClient` (children are
+            //          payments-only methods) — keep it and route to CrossModuleExtensionEmitter.
             if (!string.IsNullOrEmpty(node.ModuleName) &&
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
                 node.ModuleName != moduleDecl.Name &&
                 !AppleFrameworkRegistry.IsKnownAppleOrSystemModule(node.ModuleName))
             {
-                _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
-                return null;
+                bool hasExtensionMembers = node.Children?.Any(child =>
+                    !string.IsNullOrEmpty(child.ModuleName) && child.ModuleName == moduleDecl.Name) ?? false;
+                bool isClassReceiver = node.DeclKind == "Class";
+                // Phase 1 of cross-module extension support: route Class receivers through the
+                // existing CrossModuleExtensionEmitter (which handles the SwiftSelf-in-x20 ABI
+                // and Payload SafeHandle indirection that class instances use). Struct/Enum
+                // receivers need @_cdecl trampoline emission to bridge value-type self across
+                // the C# boundary safely; that infrastructure is tracked as Bundle 13 follow-up
+                // and the foreign-receiver node continues to be skipped here in the meantime.
+                if (!hasExtensionMembers || !isClassReceiver)
+                {
+                    _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
+                    return null;
+                }
+                _logger.LogInformation($"Foreign class '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
             }
 
             // When a system-module type appears in another module's ABI (e.g., Swift.KeyPath
@@ -842,13 +863,19 @@ namespace BindingsGeneration
 
             var typeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride);
             var typeNameSpec = new NamedTypeSpec(typeName.ModuleQualifiedName);
-            if (_typeDatabase.IsTypeProcessed(typeName) || _moduleTypes.ContainsKey(typeNameSpec))
+            // For cross-module foreign types (moduleNameOverride != null), tolerate
+            // `_typeDatabase.IsTypeProcessed` being true — that just means the dependency
+            // module already registered the type. We still need to walk this node so the
+            // extension members declared in the current module get attached. Only the
+            // SECOND occurrence within this same parser pass is a true duplicate; that's
+            // detected via `_moduleTypes.ContainsKey`.
+            bool alreadyInModulePass = _moduleTypes.ContainsKey(typeNameSpec);
+            bool processedByDependency = _typeDatabase.IsTypeProcessed(typeName);
+            if (alreadyInModulePass || (processedByDependency && moduleNameOverride == null))
             {
-                // Cross-module re-exports (moduleNameOverride set) may appear multiple times
-                // across ABI JSON entries. Skip silently — the first occurrence was already processed.
                 if (moduleNameOverride != null)
                 {
-                    _logger.LogDebug($"Skipping duplicate cross-module type '{typeName}' (already processed).");
+                    _logger.LogDebug($"Skipping duplicate cross-module type '{typeName}' (already processed in this pass).");
                     return null;
                 }
                 throw new InvalidOperationException($"Type '{node.Name}' already processed.");
@@ -897,7 +924,7 @@ namespace BindingsGeneration
                 // Register immediately so duplicate cross-module re-exports are caught
                 _moduleTypes.TryAdd(new NamedTypeSpec(decl.SwiftTypeName.ModuleQualifiedName), decl);
 
-                var childDecls = CollectDeclarations(node.Children, decl, moduleDecl);
+                var childDecls = CollectDeclarations(node.Children ?? Array.Empty<Node>(), decl, moduleDecl);
                 decl.Properties.AddRange(childDecls.OfType<PropertyDecl>());
                 decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
@@ -935,7 +962,7 @@ namespace BindingsGeneration
                 // a stub for an unknown property type).
                 if (decl is ProtocolDecl protocolDecl2)
                 {
-                    int expectedReqChildren = node.Children
+                    int expectedReqChildren = (node.Children ?? Array.Empty<Node>())
                         .Count(c => (c.Kind == "Function" || c.Kind == "Constructor" || c.Kind == "Var") && c.protocolReq == true);
                     int parsedReqMembers = decl.Methods.Count(m => m.IsProtocolRequirement)
                                          + decl.Properties.Count(p => p.IsProtocolRequirement);
@@ -958,7 +985,7 @@ namespace BindingsGeneration
                         swiftinterfaceUnderscored.Count > 0)
                     {
                         var abiUnderscored = new HashSet<string>(StringComparer.Ordinal);
-                        foreach (var child in node.Children)
+                        foreach (var child in node.Children ?? Array.Empty<Node>())
                         {
                             if (child.protocolReq != true)
                                 continue;
