@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Generic;
 using System.IO;
 using Xunit;
 
@@ -980,24 +981,16 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
-    public void WriteSwiftEquatable_EquatableOnly_EmitsZeroHashStubAwaitingHashableConformance()
+    public void WriteSwiftEquatable_EquatableOnly_NonGeneric_EmitsZeroHashStub()
     {
-        // Current safe behavior: Equatable-only types emit `return 0;` from GetHashCode.
-        //
-        // Naively routing all Equatable types through SwiftHashable.GetHashCode is unsafe for
-        // two reasons:
-        //   1. Custom Equatable (e.g., tolerance-based ==) compares byte-different values as
-        //      equal; the runtime structural-hash fallback would hash them to different codes,
-        //      violating the Equals/GetHashCode contract.
-        //   2. The SwiftHashable runtime helper's stackalloc + MarshalToSwift path crashes
-        //      SwiftUI/bridge types at runtime (verified empirically — Bundle 06 #1a
-        //      investigation: a one-line predicate change took down 1390 BindingTests).
-        //
-        // Bundle 06 #1a (Equatable Defect 1 — GetHashCode stub returns 0) tracks the proper
-        // fix: predicate-composition wiring through EquatableConformanceHelper that detects
-        // when a transitive Hashable conformance is actually safe to route through, plus
-        // hardening the runtime helper for class-projected types. Until that lands, the stub
-        // is the safer choice — preserving runtime stability.
+        // Equatable-only types — without an explicit Hashable conformance in the ABI —
+        // must NOT route through SwiftHashable.GetHashCode. Swift's synthesised Equatable
+        // compares stored properties semantically (e.g. String uses NFC-normalised value
+        // comparison), while the runtime's structural-byte FNV-1a fallback hashes the
+        // marshalled bytes. Equal values with reference-typed fields (String, Array, class
+        // storage) can marshal to different bytes and produce different hashes, breaking
+        // the Equals/GetHashCode contract. The conservative `return 0;` stub is contract-
+        // correct (all values hash the same, lookups degrade to O(n)).
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
         var structDecl = CreateStructDeclWithConformances("Point", CreateModuleDecl("TestModule"),
@@ -1010,8 +1003,77 @@ public class TypeHandlerHelpersTests
         writer.WriteSwiftEquatableImplementation();
 
         var result = output.ToString();
+        Assert.DoesNotContain("SwiftHashable.GetHashCode(this)", result);
+        Assert.Contains("return 0;", result);
+    }
+
+    [Fact]
+    public void WriteSwiftEquatable_GenericEquatableConstrainedButNotHashable_EmitsZeroHashStub()
+    {
+        // Generic types whose Equatable is provable per-parameter (T : Equatable) but Hashable
+        // is NOT (no T : Hashable) keep the `return 0;` stub: routing such a type through
+        // SwiftHashable.GetHashCode would trap in the runtime witness lookup when the consumer
+        // instantiates with an Equatable-but-not-Hashable T. The unconditional gate in
+        // EquatableConformanceHelper enforces this asymmetry.
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var structDecl = CreateStructDeclWithConformances("Box", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        // T : Equatable but NOT Hashable — Equatable surface is safe, Hashable surface is not.
+        var equatableConstraint = new GenericParameterConformance(
+            new[] { "T" },
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            ConformanceKind.Protocol);
+        structDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                "T",
+                "T",
+                new List<GenericParameterConformance> { equatableConstraint },
+                new List<GenericParameterConformance>())
+        };
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, true, "Box<T>");
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
         Assert.Contains("return 0;", result);
         Assert.DoesNotContain("SwiftHashable.GetHashCode(this)", result);
+    }
+
+    [Fact]
+    public void WriteSwiftEquatable_GenericEquatableWithoutAnyConstraint_EmitsNoEqualitySurface()
+    {
+        // Generic types whose Equatable conformance is conditional (no per-parameter
+        // Equatable constraint that the C# type system enforces) drop the typed equality
+        // surface entirely — the consumer falls back to reference equality from object.
+        // This is the conservative path: we can't prove the witness table will be present
+        // at the call site, so we don't emit Equals/GetHashCode/operator overloads at all.
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var structDecl = CreateStructDeclWithConformances("Box", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Box"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+        structDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                "T",
+                "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, true, "Box<T>");
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
+        Assert.DoesNotContain("SwiftHashable.GetHashCode(this)", result);
+        Assert.DoesNotContain("SwiftEquatable.Equals", result);
     }
 
     [Fact]
@@ -1033,6 +1095,31 @@ public class TypeHandlerHelpersTests
         Assert.DoesNotContain("operator ==(", result);
         // != should still be emitted since only == is explicit
         Assert.Contains("operator !=(", result);
+    }
+
+    [Fact]
+    public void WriteSwiftEquatable_EquatableWithCustomEqualityOperator_DoesNotInferHashable()
+    {
+        // Swift only synthesises Hashable when `==` is also synthesised — a custom `==`
+        // opts out of the synthesised conformance, so equal values may not be byte-identical
+        // and the runtime's structural-hash fallback would break the Equals/GetHashCode
+        // contract. With `hasExplicitEqualityOperator: true` the emitter must NOT infer
+        // Hashable from Equatable.
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        var structDecl = CreateStructDeclWithConformances("Point", CreateModuleDecl("TestModule"),
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+                "$sMc"));
+
+        var writer = new EqualityMethodsWriter(csWriter, structDecl, true, "Point",
+            hasExplicitEqualityOperator: true, hasExplicitInequalityOperator: false);
+        writer.WriteSwiftEquatableImplementation();
+
+        var result = output.ToString();
+        Assert.DoesNotContain("SwiftHashable.GetHashCode(this)", result);
+        Assert.Contains("return 0;", result);
     }
 
     [Fact]

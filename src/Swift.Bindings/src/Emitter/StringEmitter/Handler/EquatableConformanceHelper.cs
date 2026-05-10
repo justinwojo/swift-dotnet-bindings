@@ -44,6 +44,15 @@ internal static class EquatableConformanceHelper
     public const string SwiftHashableModuleQualifiedName = "Swift.Hashable";
 
     /// <summary>
+    /// Convenience wrapper for the Hashable case used by struct/class/enum equality emitters
+    /// when deciding whether a synthetically-Hashable Equatable type can route through
+    /// <c>SwiftHashable.GetHashCode</c>. Non-generic types always pass; generic types pass only
+    /// when every type parameter carries a constraint that transitively guarantees Hashable.
+    /// </summary>
+    public static bool IsTypeHashableUnconditional(TypeDecl typeDecl, ITypeDatabase? typeDatabase) =>
+        IsConformanceUnconditionalForCSharp(typeDecl, typeDatabase, SwiftHashableModuleQualifiedName);
+
+    /// <summary>
     /// Returns <c>true</c> when the type's conformance to <paramref name="protocolModuleQualifiedName"/>
     /// can be safely projected to C# typed equality / hashing (i.e. is unconditional, or every
     /// generic parameter is C#-constrained to a protocol that transitively refines the target).

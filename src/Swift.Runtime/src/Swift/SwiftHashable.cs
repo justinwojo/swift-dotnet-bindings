@@ -40,19 +40,21 @@ namespace Swift.Runtime
         /// <param name="value">The object to hash</param>
         /// <returns>
         /// A 32-bit hash code derived from Swift's hash value when the type's Hashable witness
-        /// table is registered. When the witness table cannot be resolved (i.e., the type is
-        /// Equatable but not Hashable, or Hashable conformance was not registered with the
-        /// runtime), the method falls back to a stable structural hash over the marshalled
-        /// Swift bytes — consistent with synthesized Equatable for trivial value types — and
-        /// never throws. Returns <c>0</c> only for <c>null</c>.
+        /// table is registered. When the witness table cannot be resolved at runtime even
+        /// though the generator opted the type in to Hashable emission (e.g., a registration
+        /// hook missed it), the method falls back to identity hash for reference-shaped
+        /// projections and a stable structural-byte FNV-1a hash for value-shaped ones.
+        /// Returns <c>0</c> only for <c>null</c>.
         /// </returns>
         /// <remarks>
-        /// The C# generator emits this call for any type whose Swift declaration conforms to
-        /// <c>Equatable</c>, because Swift synthesizes <c>Hashable</c> for any
-        /// <c>Equatable</c> value type whose stored properties are all <c>Hashable</c> — the
-        /// common case. Resilient fallback ensures the rare Equatable-but-not-Hashable type
-        /// still satisfies the .NET Equals/GetHashCode contract (Equals → equal hash) without
-        /// requiring a separate generator branch.
+        /// The C# generator only emits this call when the Swift declaration carries an
+        /// explicit (or transitively implied) <c>Hashable</c> conformance — never on
+        /// Equatable-only types. Inferring Hashable from Equatable is unsafe in general:
+        /// Swift's synthesized <c>==</c> compares stored properties semantically, while the
+        /// structural-byte fallback hashes the marshalled representation, so equal values
+        /// whose fields are non-trivial (e.g., <c>String</c>, <c>Array</c>, class storage)
+        /// can hash differently and break the Equals/GetHashCode contract. The fallbacks
+        /// remain as defense-in-depth for the rare runtime-registration miss.
         /// </remarks>
         public static unsafe int GetHashCode<T>(T value)
             where T : ISwiftObject
@@ -63,6 +65,17 @@ namespace Swift.Runtime
             if (!TypeMetadata.TryGetTypeMetadata<T>(out var maybeMetadata) || !maybeMetadata.HasValue)
                 return RuntimeHelpers.GetHashCode(value);
             var metadata = maybeMetadata.Value;
+            bool isReferenceShaped = IsReferenceShaped(metadata.Kind);
+
+            // For reference-shaped Swift types without a registered Hashable witness, fall back to
+            // identity hash on the managed wrapper. Computing a structural hash from the marshalled
+            // bytes would just hash the heap pointer (meaningless for reference equality), and the
+            // marshalling itself can SIGSEGV on bridge stubs whose SafeHandle was never initialised
+            // (e.g. SwiftUI bridge types). Reference-shaped types WITH a witness still go through
+            // the witness path below — Equals/GetHashCode for those is value-equality, not identity.
+            if (isReferenceShaped && !TryGetHashableWitnessTable<T>(out _))
+                return RuntimeHelpers.GetHashCode(value);
+
             var size = (int)metadata.Size;
 
             // Marshal the Swift value into a stack buffer once. The Hashable PInvoke and the
@@ -88,12 +101,16 @@ namespace Swift.Runtime
 
             // No Hashable witness — synthesize a stable hash from the marshalled Swift bytes.
             // For trivial value types this matches Swift's synthesized Equatable byte-by-byte
-            // semantics. For reference-projected types the bytes include the heap pointer and
-            // the result behaves like an identity hash, which matches reference equality. The
-            // important invariant — Equals(a, b) → GetHashCode(a) == GetHashCode(b) — holds
-            // because two byte-equal Swift values produce the same hash.
+            // semantics. The important invariant — Equals(a, b) → GetHashCode(a) == GetHashCode(b)
+            // — holds because two byte-equal Swift values produce the same hash.
             return ComputeStructuralHash(span);
         }
+
+        private static bool IsReferenceShaped(TypeMetadataKind kind) =>
+            kind == TypeMetadataKind.Class
+            || kind == TypeMetadataKind.ForeignClass
+            || kind == TypeMetadataKind.ForeignReferenceType
+            || kind == TypeMetadataKind.ObjCClassWrapper;
 
         /// <summary>
         /// Resolves the Hashable protocol witness table without throwing on miss. Mirrors

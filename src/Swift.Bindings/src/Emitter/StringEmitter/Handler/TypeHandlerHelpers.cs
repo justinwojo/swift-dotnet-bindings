@@ -631,12 +631,21 @@ namespace BindingsGeneration
             _implementsEquatable = equatableUnconditional
                 && _structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             // OptionSet and RawRepresentable imply Hashable in Swift — ABI may not list it explicitly.
-            _implementsHashable = hashableUnconditional
-                && _structDecl.Conformances.Any(c =>
-                    c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
-                    (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
-                    c.Protocol.Name == "OptionSet" ||
-                    c.Protocol.Name == "RawRepresentable");
+            bool directlyDeclaredHashable = _structDecl.Conformances.Any(c =>
+                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                c.Protocol.Name == "OptionSet" ||
+                c.Protocol.Name == "RawRepresentable");
+            // Require explicit Hashable conformance to route through SwiftHashable.GetHashCode.
+            // Inferring Hashable from Equatable is unsafe even with synthesized `==`: Swift's
+            // synthesized Equatable compares stored properties semantically (e.g., String
+            // performs NFC-normalised value comparison), while the runtime's structural-byte
+            // FNV-1a fallback hashes the marshalled bytes — equal values with reference-typed
+            // fields (String, Array, class storage) can marshal to different bytes and produce
+            // different hashes, breaking the Equals/GetHashCode contract. Equatable-only types
+            // get the conservative `return 0;` stub from WriteHashCodeImplementation, which is
+            // contract-correct (all values hash the same, lookups degrade to O(n)).
+            _implementsHashable = hashableUnconditional && directlyDeclaredHashable;
             _isRefType = refType;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;

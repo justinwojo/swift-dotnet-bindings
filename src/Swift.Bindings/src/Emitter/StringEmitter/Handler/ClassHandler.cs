@@ -1195,12 +1195,17 @@ namespace BindingsGeneration
                 && _classDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
             // OptionSet, RawRepresentable, and SetAlgebra imply Hashable in Swift.
             // The ABI JSON may not list Hashable explicitly for types that get it transitively.
-            _implementsHashable = hashableUnconditional
-                && _classDecl.Conformances.Any(c =>
-                    c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
-                    (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
-                    c.Protocol.Name == "OptionSet" ||
-                    c.Protocol.Name == "RawRepresentable");
+            bool directlyDeclaredHashable = _classDecl.Conformances.Any(c =>
+                c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
+                (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
+                c.Protocol.Name == "OptionSet" ||
+                c.Protocol.Name == "RawRepresentable");
+            // Classes never get synthesized Hashable from Equatable in Swift (synthesis only
+            // applies to structs and enums). For a class with value-based `==` but no
+            // Hashable witness, the runtime's identity-hash fallback would return different
+            // hashes for value-equal instances, breaking the Equals/GetHashCode contract.
+            // Require explicit Hashable conformance for classes to opt in to SwiftHashable.
+            _implementsHashable = hashableUnconditional && directlyDeclaredHashable;
             _hasExplicitEqualityOperator = hasExplicitEqualityOperator;
             _hasExplicitInequalityOperator = hasExplicitInequalityOperator;
         }

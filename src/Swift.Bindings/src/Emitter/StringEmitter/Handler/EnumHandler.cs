@@ -425,7 +425,8 @@ namespace BindingsGeneration
                     typeNameWithGenerics,
                     swiftWriter,
                     context.GetEmissionContext(),
-                    env.TypeDatabase.AsyncLibraryName);
+                    env.TypeDatabase.AsyncLibraryName,
+                    env.TypeDatabase);
                 enumEqualityWriter.WriteSwiftEquatableImplementation();
             }
 
@@ -709,21 +710,25 @@ namespace BindingsGeneration
             string typeNameWithGenerics,
             SwiftWriter? swiftWriter,
             ModuleEmissionContext? emissionContext,
-            string? wrapperLibraryName)
+            string? wrapperLibraryName,
+            ITypeDatabase? typeDatabase = null)
         {
             _writer = csWriter;
             _enumDecl = enumDecl;
             _typeNameWithGenerics = typeNameWithGenerics;
-            // Mirror the struct/class rule: Equatable does NOT imply Hashable, because a
-            // custom Equatable can match byte-different values that the structural-hash
-            // fallback would distinguish — violating the Equals/GetHashCode contract. Routing
-            // Equatable through SwiftHashable.GetHashCode also crashes SwiftUI/bridge types
-            // at runtime (Bundle 06 #1a — needs proper predicate-composition wiring).
-            _implementsHashable = enumDecl.Conformances.Any(c =>
+            bool directlyDeclaredHashable = enumDecl.Conformances.Any(c =>
                 c.Protocol.ModuleQualifiedName == "Swift.Hashable" ||
                 (c.Protocol.Name == "Hashable" && string.IsNullOrEmpty(c.Protocol.Module)) ||
                 c.Protocol.Name == "OptionSet" ||
                 c.Protocol.Name == "RawRepresentable");
+            // Swift synthesizes Hashable for enums when all associated values are Hashable
+            // AND `==` is itself synthesized. The symbol graph reliably surfaces the
+            // synthesized Hashable conformance for enums (more so than for structs), so we
+            // require explicit Hashable here. Inferring Hashable from Equatable would risk
+            // contract violations for enums with custom `==` whose payload bytes don't fully
+            // determine equality.
+            bool hashableUnconditional = EquatableConformanceHelper.IsTypeHashableUnconditional(enumDecl, typeDatabase);
+            _implementsHashable = hashableUnconditional && directlyDeclaredHashable;
             _swiftWriter = swiftWriter;
             _emissionContext = emissionContext;
             _wrapperLibraryName = wrapperLibraryName;
