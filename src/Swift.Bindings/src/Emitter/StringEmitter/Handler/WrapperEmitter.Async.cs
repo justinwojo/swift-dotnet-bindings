@@ -412,10 +412,42 @@ namespace BindingsGeneration
                     bool needsHeapAlloc = false;
                     bool isGenericTypeParam = TypeSpecHelpers.IsGenericTypeParameter(element);
 
+                    // ObjCBridgeable value type (e.g., Foundation.URL → NSUrl): pass an opaque
+                    // ObjC pointer through @convention(c) instead of raw struct bytes. Heap-alloc
+                    // for raw bytes would force the C# side to MarshalFromSwift<NSUrl> from
+                    // Foundation.URL layout, which neither matches the type nor implements ISwiftObject.
+                    bool isElementObjCBridgeableValue = false;
+                    bool isElementOptionalObjCBridgeableValue = false;
+                    if (element is NamedTypeSpec _scanNamed)
+                    {
+                        if (_env.TypeDatabase.TryGetTypeRecord(_scanNamed, out var _scanRec)
+                            && (_scanRec.Kind == TypeRecordKind.Struct || _scanRec.Kind == TypeRecordKind.Enum)
+                            && MarshallingHelpers.IsObjCBridgeable(_scanRec))
+                        {
+                            isElementObjCBridgeableValue = true;
+                        }
+                        else if (_scanNamed.ContainsGenericParameters
+                                 && _scanNamed.Name == "Swift.Optional"
+                                 && _scanNamed.GenericParameters.Count > 0
+                                 && _scanNamed.GenericParameters[0] is NamedTypeSpec _scanOptInner
+                                 && _env.TypeDatabase.TryGetTypeRecord(_scanOptInner, out var _scanOptInnerRec)
+                                 && (_scanOptInnerRec.Kind == TypeRecordKind.Struct || _scanOptInnerRec.Kind == TypeRecordKind.Enum)
+                                 && MarshallingHelpers.IsObjCBridgeable(_scanOptInnerRec))
+                        {
+                            isElementOptionalObjCBridgeableValue = true;
+                        }
+                    }
+
                     if (isGenericTypeParam)
                     {
                         // Generic type params are unknown size — always heap-allocate via OpaquePointer
                         needsHeapAlloc = true;
+                    }
+                    else if (isElementObjCBridgeableValue || isElementOptionalObjCBridgeableValue)
+                    {
+                        // Inline ObjC-bridge: pass UnsafeMutableRawPointer (or ?) directly as the
+                        // tuple element. C# reads IntPtr → GetNSObject + DangerousRelease.
+                        needsHeapAlloc = false;
                     }
                     else if (element is NamedTypeSpec elemNamed)
                     {
@@ -440,6 +472,22 @@ namespace BindingsGeneration
                         {
                             needsHeapAlloc = true;
                         }
+                    }
+
+                    if (isElementObjCBridgeableValue)
+                    {
+                        // Inline retain-and-bridge: produces a +1 retained ObjC pointer that C#
+                        // takes ownership of (GetNSObject + DangerousRelease balances the +1).
+                        elementTypes.Add("UnsafeMutableRawPointer");
+                        callbackArgParts.Add($"Unmanaged.passRetained({resultVar}.{i} as AnyObject).toOpaque()");
+                        continue;
+                    }
+                    if (isElementOptionalObjCBridgeableValue)
+                    {
+                        // Optional<ObjCBridgeable>: nil → null pointer, .some → +1 retained ObjC pointer.
+                        elementTypes.Add("UnsafeMutableRawPointer?");
+                        callbackArgParts.Add($"{resultVar}.{i}.map {{ Unmanaged.passRetained($0 as AnyObject).toOpaque() }}");
+                        continue;
                     }
 
                     if (needsHeapAlloc)
@@ -645,10 +693,21 @@ namespace BindingsGeneration
                     bool isClassType = complexReturnTypeRecord?.Kind == TypeRecordKind.Class
                                        || returnTypeSpec.IsDynamicSelf;
 
+                    // ObjC-bridgeable value types (Foundation.URL → NSUrl, URLRequest → NSUrlRequest,
+                    // Decimal → NSDecimalNumber): bridge to a +1 retained NS pointer via `as AnyObject`,
+                    // mirroring the class-type ABI (8-byte carrier holding a pointer, not struct bytes).
+                    // Without this, `initializeMemory(as: URL.self, ...)` stamps Swift URL bytes into
+                    // the carrier and the C# side reads it via SwiftObjectHelper<NSUrl> — failing
+                    // CS0311 because NSUrl does not implement ISwiftObject.
+                    bool isObjCBridgeableValue = !isClassType && complexReturnTypeRecord != null
+                        && MarshallingHelpers.IsObjCBridgeable(complexReturnTypeRecord)
+                        && (complexReturnTypeRecord.Kind == TypeRecordKind.Struct
+                            || complexReturnTypeRecord.Kind == TypeRecordKind.Enum);
+
                     // Optional<ClassType>: unwrap optional, retain if .some, store nil if .none.
                     // Uses the same nullable pointer ABI as sync @_cdecl wrappers (OptionalClassPointer).
                     // Must check AFTER isClassType since isClassType handles non-optional classes.
-                    bool isOptionalClassType = !isClassType &&
+                    bool isOptionalClassType = !isClassType && !isObjCBridgeableValue &&
                         CdeclParamMapper.IsOptionalWithReferenceInner(returnTypeSpec, _env.TypeDatabase);
 
                     // Optional<Container<ObjCBridgeable>> (Bug #5): bridges through `as AnyObject` to
@@ -658,7 +717,7 @@ namespace BindingsGeneration
                     // returning containerBridgeConversion. Without this branch the wrapper would emit a
                     // raw copyMemory of Swift's Array<URL> storage pointer, which is Foundation._SwiftURL
                     // — not an NSObject — so ArrayFromHandle crashes the ObjC registrar at runtime.
-                    bool isOptionalObjCContainer = !isClassType && !isOptionalClassType &&
+                    bool isOptionalObjCContainer = !isClassType && !isObjCBridgeableValue && !isOptionalClassType &&
                         IsOptionalObjCBridgeContainerReturn(returnTypeSpec);
 
                     // Top-level non-optional Container<ObjCBridgeable> (e.g. `[URL]`, `Set<URL>`,
@@ -668,7 +727,7 @@ namespace BindingsGeneration
                     // the C# side would feed that pointer to `ArrayFromHandleFunc<NSUrl>(_ptr, ...)`,
                     // which crashes because `_SwiftURL` is not an NSObject. Pairs with the
                     // `usesObjCContainerBridge` branch in TryGetCollectionAsyncInfo.
-                    bool isTopLevelObjCContainer = !isClassType && !isOptionalClassType &&
+                    bool isTopLevelObjCContainer = !isClassType && !isObjCBridgeableValue && !isOptionalClassType &&
                         !isOptionalObjCContainer &&
                         IsTopLevelObjCBridgeContainerReturn(returnTypeSpec);
 
@@ -690,7 +749,7 @@ namespace BindingsGeneration
                         $"// Marshal complex type to pointer for C# callback\n" +
                         $"                        let _resultPtr: OpaquePointer\n" +
                         $"                        do {{\n" +
-                        ((isClassType || isTopLevelObjCContainer)
+                        ((isClassType || isObjCBridgeableValue || isTopLevelObjCContainer)
                             ? // Classes and top-level ObjC-bridge containers: retain and store the
                               // opaque pointer directly. For classes, `as AnyObject` is a no-op
                               // pointer cast; for `[URL]` / `Set<URL>` / `[String: URL]` it dispatches
@@ -1274,18 +1333,30 @@ namespace BindingsGeneration
             {
                 _env.TypeDatabase.TryGetTypeRecord(returnType.SwiftTypeSpec, out var complexTypeRecord);
                 bool isClassType = complexTypeRecord?.Kind == TypeRecordKind.Class;
+                // ObjC-bridgeable value types (Foundation.URL → NSUrl, URLRequest → NSUrlRequest,
+                // Decimal → NSDecimalNumber): Swift wrapper passes a +1 retained NS pointer via
+                // `as AnyObject`, mirroring the class-type ABI. Without this branch the dispatcher
+                // falls into newFromPayloadTakesOwnership and emits SwiftObjectHelper<NSUrl> — but
+                // NSUrl does not implement ISwiftObject (CS0311). Pairs with the matching gate in
+                // EmitAsync that emits the class-style passRetained Swift code.
+                bool isObjCBridgeableValue = !isClassType && complexTypeRecord != null
+                    && MarshallingHelpers.IsObjCBridgeable(complexTypeRecord)
+                    && (complexTypeRecord.Kind == TypeRecordKind.Struct
+                        || complexTypeRecord.Kind == TypeRecordKind.Enum);
                 // Optional<ClassType>: uses nullable pointer ABI — same buffer layout as class
                 // (retained pointer or zero for nil) but needs null check on C# side.
-                bool isOptionalClassType = !isClassType &&
+                bool isOptionalClassType = !isClassType && !isObjCBridgeableValue &&
                     CdeclParamMapper.IsOptionalWithReferenceInner(returnType.SwiftTypeSpec, _env.TypeDatabase);
                 // Optional<Container<ObjCBridgeable>>: Swift wrapper stores +1 retained NS-collection
                 // pointer or 0 for nil via `as AnyObject` — pointer-bit carrier, no initializeMemory,
                 // so no VWT Destroy needed. Mirrors the Swift-side branch selection in EmitAsync.
-                bool isOptionalObjCContainer = !isClassType && !isOptionalClassType &&
+                bool isOptionalObjCContainer = !isClassType && !isObjCBridgeableValue && !isOptionalClassType &&
                     IsOptionalObjCBridgeContainerReturn(returnType.SwiftTypeSpec);
                 // ObjCBridged requires class type — the GetNSObject path reads _retainedObjPtr
-                // which is only declared when isClassType is true
-                bool isComplexObjCBridged = isClassType && complexTypeRecord != null && MarshallingHelpers.IsObjCBridged(complexTypeRecord);
+                // which is only declared when isClassType is true.
+                // ObjCBridgeable value types also use the GetNSObject path — extend the gate.
+                bool isComplexObjCBridged = (isClassType && complexTypeRecord != null && MarshallingHelpers.IsObjCBridged(complexTypeRecord))
+                    || isObjCBridgeableValue;
                 // Non-frozen structs/enums with memory management: NewFromPayload takes ownership → no SBW_Free.
                 // All other types (frozen, classes, collections): NewFromPayload copies → SBW_Free needed.
                 // `carrierNeedsDestroy` is the broader set: Swift initializes the carrier with +1 on
@@ -1295,7 +1366,7 @@ namespace BindingsGeneration
                 // allocation — otherwise internal refs leak.
                 bool cbTakesOwnership = false;
                 bool carrierNeedsDestroy = false;
-                if (!isClassType && !isOptionalClassType && !isOptionalObjCContainer && complexTypeRecord != null)
+                if (!isClassType && !isObjCBridgeableValue && !isOptionalClassType && !isOptionalObjCContainer && complexTypeRecord != null)
                 {
                     bool requiresMemMgmt = MarshallingHelpers.RequiresMemoryManagement(complexTypeRecord);
                     bool isFrozenAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(complexTypeRecord);
@@ -1311,7 +1382,7 @@ namespace BindingsGeneration
                 // non-trivial payload holds its own +1. Widen carrierNeedsDestroy when the inner
                 // type's VWT is non-trivial — SwiftOptional<T>'s NewFromPayload performs its own
                 // InitializeWithCopy into a managed buffer, so the carrier's +1 must be released.
-                if (!carrierNeedsDestroy && !isClassType && !isOptionalClassType && !isOptionalObjCContainer
+                if (!carrierNeedsDestroy && !isClassType && !isObjCBridgeableValue && !isOptionalClassType && !isOptionalObjCContainer
                     && WrapperValidation.IsOptionalType(returnType.SwiftTypeSpec))
                 {
                     var innerSpec = MarshallingHelpers.UnwrapOptionalTypeSpec(returnType.SwiftTypeSpec);
@@ -1325,7 +1396,40 @@ namespace BindingsGeneration
                         carrierNeedsDestroy = innerIsFrozenAsClass || innerIsNonFrozenStruct || innerIsComplexEnum;
                     }
                 }
-                EmitAsyncWrapperForComplexType(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType, carrierNeedsDestroy);
+                // Optional<ObjC-reference-inner>: Swift writes a +1 retained ObjC pointer (or 0 for nil)
+                // into the 8-byte carrier — but the C# read for Optional<UIImage>, Optional<URL>, etc.
+                // can't go through MarshalFromSwift<T?>: NSObject subclasses don't implement ISwiftObject.
+                // Pre-compute the GetNSObject bridge call here so EmitAsyncWrapperForComplexType can
+                // emit the correct null-check + GetNSObject + DangerousRelease pattern, mirroring the
+                // non-optional ObjCBridged/ObjCBridgeableValue path.
+                string? optionalRefBridgeCall = null;
+                if (isOptionalClassType)
+                {
+                    var innerSpec = MarshallingHelpers.UnwrapOptionalTypeSpec(returnType.SwiftTypeSpec);
+                    if (innerSpec != null && _env.TypeDatabase.TryGetTypeRecord(innerSpec, out var innerOptRecord))
+                    {
+                        bool innerIsObjCBridgedClass = innerOptRecord.Kind == TypeRecordKind.Class
+                            && MarshallingHelpers.IsObjCBridged(innerOptRecord);
+                        bool innerIsObjCBridgeableValue = (innerOptRecord.Kind == TypeRecordKind.Struct
+                                || innerOptRecord.Kind == TypeRecordKind.Enum)
+                            && MarshallingHelpers.IsObjCBridgeable(innerOptRecord);
+                        if (innerIsObjCBridgedClass)
+                        {
+                            optionalRefBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(
+                                innerOptRecord.CSharpTypeName.FullyQualifiedName, "_retainedObjPtr");
+                        }
+                        else if (innerIsObjCBridgeableValue && innerOptRecord.NativeTypeName != null)
+                        {
+                            optionalRefBridgeCall = MarshallingHelpers.FormatObjCBridgeCall(
+                                innerOptRecord.NativeTypeName.FullyQualifiedName, "_retainedObjPtr");
+                        }
+                    }
+                }
+                // ObjCBridgeable value types use the class-style ABI in EmitAsyncWrapperForComplexType:
+                // _retainedObjPtr is read from the carrier, then the isObjCBridged branch emits
+                // GetNSObject<T>(...). Pass `isClassType || isObjCBridgeableValue` so the readObjPtr
+                // gate fires; isComplexObjCBridged (already set above) routes to the GetNSObject branch.
+                EmitAsyncWrapperForComplexType(callbackWriter, callbackFieldName, callbackMethodName, errorCallbackFieldName, errorCallbackMethodName, isClassType || isObjCBridgeableValue, isComplexObjCBridged, cbTakesOwnership, isOptionalClassType, carrierNeedsDestroy, optionalRefBridgeCall);
                 FlushAsyncHelperWriter();
                 return;
             }
@@ -1664,7 +1768,7 @@ namespace BindingsGeneration
         /// allocates memory, stores the result, and passes an OpaquePointer.
         /// C# receives IntPtr, reads the value, and frees the memory.
         /// </summary>
-        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false, bool isOptionalClass = false, bool carrierNeedsDestroy = false)
+        private void EmitAsyncWrapperForComplexType(CSharpWriter csWriter, string callbackFieldName, string callbackMethodName, string errorCallbackFieldName, string errorCallbackMethodName, bool isClassType, bool isObjCBridged = false, bool newFromPayloadTakesOwnership = false, bool isOptionalClass = false, bool carrierNeedsDestroy = false, string? optionalRefBridgeCall = null)
         {
             var freePInvokeDecl = GetFreePInvokeDeclIfNeeded();
 
@@ -1705,7 +1809,18 @@ namespace BindingsGeneration
             {
                 // Optional<ClassType>: buffer contains retained pointer or zero (nil).
                 // Check for nil before marshalling — IntPtr.Zero means Swift returned .none.
-                marshalResultCode = $"var result = _retainedObjPtr != IntPtr.Zero ? SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr) : null;";
+                if (optionalRefBridgeCall != null)
+                {
+                    // Optional<ObjC reference> (Optional<UIImage>, Optional<Foundation.URL>, etc.):
+                    // NSObject-rooted inner doesn't implement ISwiftObject, so MarshalFromSwift<T?>
+                    // would fail CS0311. Use GetNSObject and balance the +1 from passRetained with
+                    // DangerousRelease, matching the non-optional ObjCBridged/ObjCBridgeableValue path.
+                    marshalResultCode = $"var result = _retainedObjPtr != IntPtr.Zero ? {optionalRefBridgeCall} : null;\n                                // Balance passRetained: GetNSObject added its own retain via DangerousRetain\n                                result?.DangerousRelease();";
+                }
+                else
+                {
+                    marshalResultCode = $"var result = _retainedObjPtr != IntPtr.Zero ? SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr) : null;";
+                }
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";

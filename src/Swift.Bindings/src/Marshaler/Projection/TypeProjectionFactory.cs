@@ -206,8 +206,16 @@ public class TypeProjectionFactory
                     AppleFrameworkRegistry.IsOptionalFallbackModule(innerUnresolved.Module) &&
                     AppleFrameworkRegistry.HasObjCClassPrefix(innerUnresolved.Name))
                 {
+                    // Apply Swift→.NET typeRemap (e.g. Foundation.NSMutableURLRequest →
+                    // Foundation.NSMutableUrlRequest). Microsoft.iOS uses camelCased "Url" forms
+                    // even though the Swift overlay re-exports the all-caps ObjC name; without
+                    // this step the projected nullable type references an Foundation namespace
+                    // member that doesn't exist in the .NET binding (CS0234).
+                    var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(innerUnresolved.Name, out var remappedName)
+                        ? remappedName
+                        : innerUnresolved.Name;
                     return new OptionalProjection(
-                        new ObjCBridgedProjection(innerUnresolved.Name), isExistentialInner);
+                        new ObjCBridgedProjection(bridgedName), isExistentialInner);
                 }
 
                 return null;
@@ -505,7 +513,13 @@ public class TypeProjectionFactory
             AppleFrameworkRegistry.IsKnownModuleForElements(elemNamed.Module) &&
             AppleFrameworkRegistry.HasObjCClassPrefix(elemNamed.Name))
         {
-            return new ObjCBridgedProjection(elemNamed.Name);
+            // Same Swift→.NET typeRemap step as the Optional fallback above: prefer the
+            // .NET name (e.g. Foundation.NSUrl) over the raw Swift overlay name when the
+            // registry has an explicit remap.
+            var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(elemNamed.Name, out var remappedName)
+                ? remappedName
+                : elemNamed.Name;
+            return new ObjCBridgedProjection(bridgedName);
         }
         return null;
     }

@@ -490,6 +490,82 @@ public class AsyncSwiftWrapperTests
         Assert.Contains("Unmanaged.passRetained(", swiftOutput);
     }
 
+    [Fact]
+    public void AsyncWrapper_OptionalObjCBridgeableValueReturnType_UsesGetNSObject()
+    {
+        // Optional<ObjCBridgeable value> (Optional<Foundation.URL>) — the inner is NSObject-rooted,
+        // so MarshalFromSwift<Foundation.NSUrl?>(_retainedObjPtr) would fail CS0311. Must route
+        // through GetNSObject<NSUrl> with null-check and DangerousRelease, mirroring the
+        // non-optional path. Pairs with the Swift-side passRetained (already correct).
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "Foundation.URL",
+            returnKind: TypeRecordKind.Struct,
+            returnFlags: TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable,
+            wrapInOptional: true,
+            nativeTypeName: "Foundation.NSUrl");
+
+        // C# null-check + GetNSObject<NSUrl> + DangerousRelease.
+        Assert.Contains("_retainedObjPtr != IntPtr.Zero", csOutput);
+        Assert.Contains("GetNSObject<Foundation.NSUrl>(_retainedObjPtr)", csOutput);
+        Assert.Contains("DangerousRelease()", csOutput);
+
+        // Must NOT route through MarshalFromSwift<T?> — NSUrl is not ISwiftObject.
+        Assert.DoesNotContain("MarshalFromSwift<Foundation.URL?>", csOutput);
+        Assert.DoesNotContain("MarshalFromSwift<Foundation.NSUrl?>", csOutput);
+
+        // Swift side: passRetained-pointer pattern (already correct pre-fix).
+        Assert.Contains("Unmanaged.passRetained", swiftOutput);
+        Assert.Contains("as AnyObject", swiftOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_ObjCBridgeableValueReturnType_UsesGetNSObject()
+    {
+        // ObjCBridgeable value types (Swift @frozen=false struct or enum that bridges to an
+        // ObjC class via _ObjectiveCBridgeable, e.g. Foundation.URL → Foundation.NSUrl) must
+        // be marshalled like a class on the C# side: GetNSObject<NSUrl>(_retainedObjPtr).
+        // SwiftObjectHelper<T> requires T : ISwiftObject, which NSUrl is not (CS0311).
+        var (csOutput, _) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "Foundation.URL",
+            returnKind: TypeRecordKind.Struct,
+            returnFlags: TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable);
+
+        // C# callback must use GetNSObject<T> for the bridged ObjC class
+        Assert.Contains("GetNSObject<", csOutput);
+
+        // Must NOT route through SwiftObjectHelper<T> — NSUrl is not ISwiftObject (CS0311).
+        Assert.DoesNotContain("SwiftObjectHelper<", csOutput);
+
+        // Must NOT route through SwiftMarshal.MarshalFromSwift — that's for unmanaged Swift values.
+        Assert.DoesNotContain("MarshalFromSwift", csOutput);
+
+        // Should read the object pointer from buffer (class-style ABI).
+        Assert.Contains("_retainedObjPtr", csOutput);
+
+        // DangerousRelease balances passRetained — same retain math as ObjCBridged classes.
+        Assert.Contains("DangerousRelease()", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_ObjCBridgeableValueReturnType_SwiftUsesPassRetainedAsAnyObject()
+    {
+        // The Swift side must wrap the ObjCBridgeable value via `as AnyObject` before
+        // Unmanaged.passRetained — Swift's _ObjectiveCBridgeable conformance handles
+        // the bridge cast at runtime.
+        var (_, swiftOutput) = GenerateAsyncMethodWithComplexReturn(
+            returnTypeName: "Foundation.URL",
+            returnKind: TypeRecordKind.Struct,
+            returnFlags: TypeRecordFlags.RequiresMemoryManagement | TypeRecordFlags.ObjCBridgeable);
+
+        // Class-style storeBytes-of-pointer ABI, not value-copy ABI.
+        Assert.Contains("Unmanaged.passRetained(", swiftOutput);
+        Assert.Contains("as AnyObject", swiftOutput);
+
+        // Must not fall back to value-copy marshalling (would crash — value layout differs
+        // from class pointer in the carrier).
+        Assert.DoesNotContain("MemoryLayout<Foundation.URL>.size", swiftOutput);
+    }
+
     #endregion
 
     #region Async Tuple ObjC Retain Tests
@@ -512,6 +588,12 @@ public class AsyncSwiftWrapperTests
         Assert.Contains("Unmanaged<AnyObject>.passRetained(", swiftOutput);
         // Should reference the correct tuple element (.1 for URLResponse)
         Assert.Contains(".1 as AnyObject)", swiftOutput);
+
+        // C#: GetNSObject adds its own +1 retain on top of Swift's passRetained — the
+        // tuple-element bridge must balance with DangerousRelease so the consumer holds
+        // exactly one (the SwiftHandle ctor's natural +1).
+        Assert.Contains("GetNSObject<Foundation.URLResponse>", csOutput);
+        Assert.Contains("DangerousRelease()", csOutput);
     }
 
     [Fact]
@@ -533,7 +615,7 @@ public class AsyncSwiftWrapperTests
     public void AsyncWrapper_TupleWithOptionalObjCClass_UsesConditionalRetain()
     {
         // Optional<ObjCClass> needs conditional retain (nil check)
-        var (_, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
             elements: new[]
             {
                 ("Swift.Int", TypeRecordKind.Struct, false),
@@ -543,6 +625,11 @@ public class AsyncSwiftWrapperTests
         // Should use conditional retain: if let ... { passRetained }
         Assert.Contains("if let _tupleObj", swiftOutput);
         Assert.Contains("Unmanaged<AnyObject>.passRetained(", swiftOutput);
+
+        // C#: Optional bridge must balance Swift's conditional passRetained with a
+        // null-conditional DangerousRelease. (Same +1/+1/-1 pattern as scalar ObjC.)
+        Assert.Contains("GetNSObject<Foundation.URLResponse>", csOutput);
+        Assert.Contains("DangerousRelease()", csOutput);
     }
 
     [Fact]
@@ -607,6 +694,61 @@ public class AsyncSwiftWrapperTests
         // C#: should read Data from pointer and convert to byte[]
         Assert.Contains("Swift.Foundation.Data*", csOutput);
         Assert.Contains("ToByteArray()", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_TupleWithObjCBridgeableValue_UsesGetNSObjectAndPassRetained()
+    {
+        // _ObjectiveCBridgeable Swift value types (URL, URLRequest, Decimal) carried in a tuple
+        // must be marshalled as ObjC class pointers — Swift inlines `Unmanaged.passRetained(.. as
+        // AnyObject).toOpaque()` (skipping heap-alloc), and C# bridges via GetNSObject<NSType>.
+        // Without this, callers get garbled non-frozen value-copy bytes.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Foundation.URL", TypeRecordKind.Struct, false),
+                ("Swift.Int", TypeRecordKind.Struct, false),
+            },
+            nativeRemappedTypes: new Dictionary<string, string> { { "Foundation.URL", "Foundation.NSUrl" } },
+            objCBridgeableTypes: new HashSet<string> { "Foundation.URL" });
+
+        // Swift: emits inline class-style passRetained for the bridgeable element.
+        Assert.Contains("Unmanaged.passRetained(", swiftOutput);
+        Assert.Contains("as AnyObject", swiftOutput);
+        // Must NOT heap-allocate the bridgeable value (would be wrong ABI shape).
+        Assert.DoesNotContain("MemoryLayout<Foundation.URL>", swiftOutput);
+
+        // C#: bridges via GetNSObject<Foundation.NSUrl> and balances the +1 with DangerousRelease.
+        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        Assert.Contains("DangerousRelease()", csOutput);
+        // Must NOT round-trip through MarshalFromSwift (would interpret bytes as value layout).
+        Assert.DoesNotContain("MarshalFromSwift<Foundation.NSUrl>", csOutput);
+        Assert.DoesNotContain("MarshalFromSwift<Foundation.URL>", csOutput);
+    }
+
+    [Fact]
+    public void AsyncWrapper_TupleWithOptionalObjCBridgeableValue_UsesNullableGetNSObject()
+    {
+        // Optional<ObjCBridgeable value> in a tuple needs nil-check in Swift and
+        // null-check + DangerousRelease in C#.
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("Swift.Int", TypeRecordKind.Struct, false),
+            },
+            optionalObjCElement: ("Foundation.URL", TypeRecordKind.Struct, false),
+            nativeRemappedTypes: new Dictionary<string, string> { { "Foundation.URL", "Foundation.NSUrl" } },
+            objCBridgeableTypes: new HashSet<string> { "Foundation.URL" });
+
+        // Swift: Optional path uses .map { passRetained(... as AnyObject).toOpaque() }
+        Assert.Contains("passRetained(", swiftOutput);
+        Assert.Contains("as AnyObject", swiftOutput);
+        Assert.DoesNotContain("MemoryLayout<Foundation.URL>", swiftOutput);
+
+        // C#: nullable bridge call + DangerousRelease.
+        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        Assert.Contains("DangerousRelease()", csOutput);
+        Assert.DoesNotContain("MarshalFromSwift<Foundation.NSUrl>", csOutput);
     }
 
     #endregion
@@ -1134,7 +1276,8 @@ public class AsyncSwiftWrapperTests
     private static (string csOutput, string swiftOutput) GenerateAsyncMethodWithTupleReturn(
         (string typeName, TypeRecordKind kind, bool isObjCBridged)[] elements,
         (string typeName, TypeRecordKind kind, bool isObjCBridged)? optionalObjCElement = null,
-        Dictionary<string, string> nativeRemappedTypes = null)
+        Dictionary<string, string> nativeRemappedTypes = null,
+        HashSet<string> objCBridgeableTypes = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1246,6 +1389,12 @@ public class AsyncSwiftWrapperTests
                 : TypeRecordFlags.Frozen;
             if (isObjCBridged)
                 flags |= TypeRecordFlags.ObjCBridged;
+            if (objCBridgeableTypes != null && objCBridgeableTypes.Contains(typeName))
+            {
+                flags |= TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement;
+                // ObjCBridgeable structs are non-frozen (resilient) — strip Frozen if defaulted on.
+                flags &= ~TypeRecordFlags.Frozen;
+            }
             var ns = typeName.Contains('.') ? typeName.Substring(0, typeName.IndexOf('.')) : "TestModule";
             CSharpTypeName nativeType = null;
             if (nativeRemappedTypes != null && nativeRemappedTypes.TryGetValue(typeName, out var nativeTypeName))
@@ -1359,7 +1508,8 @@ public class AsyncSwiftWrapperTests
         TypeRecordKind returnKind,
         bool isObjCBridged = false,
         TypeRecordFlags? returnFlags = null,
-        bool wrapInOptional = false)
+        bool wrapInOptional = false,
+        string nativeTypeName = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1461,13 +1611,20 @@ public class AsyncSwiftWrapperTests
         if (isObjCBridged)
             computedReturnFlags |= TypeRecordFlags.ObjCBridged;
         var returnNamespace = returnTypeName.Contains('.') ? returnTypeName.Substring(0, returnTypeName.IndexOf('.')) : "TestModule";
+        CSharpTypeName nativeTypeNameRecord = null;
+        if (nativeTypeName != null)
+        {
+            var nativeNs = nativeTypeName.Contains('.') ? nativeTypeName.Substring(0, nativeTypeName.IndexOf('.')) : "Foundation";
+            nativeTypeNameRecord = CSharpTypeName.FromNamespaceAndName(nativeNs, nativeTypeName.Split('.').Last());
+        }
         var returnTypeRecord = new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName(returnNamespace, returnTypeName.Split('.').Last()),
             SwiftTypeName = returnSwiftTypeName,
             MetadataAccessor = $"$s10TestModule{returnTypeName.Split('.').Last()}CMa",
             Flags = computedReturnFlags,
-            Kind = returnKind
+            Kind = returnKind,
+            NativeTypeName = nativeTypeNameRecord
         };
         // Register in the correct module database (UIKit.UIImage → UIKit module)
         var returnModule = returnSwiftTypeName.Module;

@@ -325,6 +325,8 @@
         "HTTPCookieStorage": "Foundation.NSHttpCookieStorage",
         "JSONSerialization": "Foundation.NSJsonSerialization",
         "NSURL": "Foundation.NSUrl",
+        "NSURLRequest": "Foundation.NSUrlRequest",
+        "NSMutableURLRequest": "Foundation.NSMutableUrlRequest",
         "NSUUID": "Foundation.NSUuid",
         "_NSRange": "Foundation.NSRange",
         "JSONSerialization.ReadingOptions": "Foundation.NSJsonReadingOptions",
@@ -721,6 +723,9 @@
       "knownModuleForElements": true,
       "objcPrefixes": ["UI"],
       "platformUnavailable": ["macOS"],
+      "netUnavailableTypes": [
+        "UIOpenURLContext"
+      ],
       "valueTypes": [
         "NSDirectionalEdgeInsets",
         "NSLayoutConstraint.Relation",

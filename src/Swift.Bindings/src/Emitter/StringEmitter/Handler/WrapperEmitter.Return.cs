@@ -1225,14 +1225,33 @@ namespace BindingsGeneration
                 // NOT SwiftOptional buffer layout. Must skip projection to use the ObjC special-case below.
                 var baseTypeName = SwiftTypeName.FromModuleQualifiedName(namedType.Name);
                 bool isOptionalObjC = false;
+                bool isOptionalObjCBridgeableValue = false;
                 if (_env.TypeDatabase.TryGetTypeRecord(baseTypeName, out var baseRecord) &&
                     baseRecord.CSharpTypeName.Name == "SwiftOptional" &&
                     namedType.GenericParameters.Count > 0 &&
                     namedType.GenericParameters[0] is NamedTypeSpec innerObjCCheck &&
-                    _env.TypeDatabase.TryGetTypeRecord(innerObjCCheck, out var innerObjCRecord) &&
-                    MarshallingHelpers.IsObjCBridged(innerObjCRecord))
+                    _env.TypeDatabase.TryGetTypeRecord(innerObjCCheck, out var innerObjCRecord))
                 {
-                    isOptionalObjC = true;
+                    if (MarshallingHelpers.IsObjCBridged(innerObjCRecord))
+                        isOptionalObjC = true;
+                    else if ((innerObjCRecord.Kind == TypeRecordKind.Struct || innerObjCRecord.Kind == TypeRecordKind.Enum)
+                             && MarshallingHelpers.IsObjCBridgeable(innerObjCRecord)
+                             && innerObjCRecord.NativeTypeName != null)
+                        isOptionalObjCBridgeableValue = true;
+                }
+
+                // Optional<ObjCBridgeable value> tuple element (e.g. tuple has Optional<URL>): the
+                // Swift wrapper's tuple loop emits `result.X.map { passRetained($0 as AnyObject).toOpaque() }`,
+                // so the C# side receives an IntPtr (or zero for nil). Bridge to the NS native type
+                // (e.g. NSUrl) and balance the +1 from passRetained with DangerousRelease.
+                if (isOptionalObjCBridgeableValue
+                    && namedType.GenericParameters[0] is NamedTypeSpec _optBridgeInner
+                    && _env.TypeDatabase.TryGetTypeRecord(_optBridgeInner, out var _optBridgeRec)
+                    && _optBridgeRec.NativeTypeName != null)
+                {
+                    var nativeName = _optBridgeRec.NativeTypeName.FullyQualifiedName;
+                    var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(nativeName, itemName, nonNull: true);
+                    return $"var {resultName} = {itemName} == IntPtr.Zero ? ({nativeName}?)null : {bridgeCall};\n{resultName}?.DangerousRelease();";
                 }
 
                 // Try factory projection for idiomatic return marshalling (skip Optional<ObjC>)
@@ -1279,8 +1298,12 @@ namespace BindingsGeneration
                             // Optional ObjC type: IntPtr -> nullable reference type
                             // ObjC classes don't implement ISwiftObject, so SwiftOptional<T> can't get
                             // type metadata for them. Use direct null check + GetNSObject instead.
+                            // The Swift wrapper retained the element via passRetained (+1) at the
+                            // tuple loop; GetNSObject also retains via DangerousRetain (+1).
+                            // DangerousRelease balances the passRetained side back to the SwiftHandle
+                            // ctor's natural +1.
                             var innerCSharp = innerRecord.CSharpTypeName.FullyQualifiedName;
-                            return $"var {resultName} = {itemName} == IntPtr.Zero ? ({innerCSharp}?)null : {MarshallingHelpers.FormatObjCBridgeCall(innerCSharp, itemName, nonNull: true)};";
+                            return $"var {resultName} = {itemName} == IntPtr.Zero ? ({innerCSharp}?)null : {MarshallingHelpers.FormatObjCBridgeCall(innerCSharp, itemName, nonNull: true)};\n{resultName}?.DangerousRelease();";
                         }
                     }
                     // Non-ObjC optional: P/Invoke type is IntPtr, pass directly (no address-of)
@@ -1299,10 +1322,25 @@ namespace BindingsGeneration
             {
                 if (_env.TypeDatabase.TryGetTypeRecord(named, out var typeRecord))
                 {
-                    // ObjC bridged types
+                    // ObjC bridged types: the Swift wrapper retained the element via passRetained
+                    // (+1) at the tuple loop in WrapperEmitter.Async.cs; GetNSObject also retains
+                    // via DangerousRetain (+1). DangerousRelease balances the passRetained side
+                    // back to the SwiftHandle ctor's natural +1.
                     if (MarshallingHelpers.IsObjCBridged(typeRecord))
                     {
-                        return $"var {resultName} = {MarshallingHelpers.FormatObjCBridgeCall(csharpType, itemName, nonNull: true)};";
+                        return $"var {resultName} = {MarshallingHelpers.FormatObjCBridgeCall(csharpType, itemName, nonNull: true)};\n{resultName}?.DangerousRelease();";
+                    }
+                    // ObjCBridgeable value type (Foundation.URL → NSUrl): the Swift wrapper's tuple
+                    // loop bridges via `Unmanaged.passRetained(elem as AnyObject).toOpaque()` instead
+                    // of heap-alloc'ing raw struct bytes. The C# side reads IntPtr → GetNSObject<NSUrl>
+                    // and balances the +1 retain with DangerousRelease, mirroring the scalar path.
+                    if ((typeRecord.Kind == TypeRecordKind.Struct || typeRecord.Kind == TypeRecordKind.Enum)
+                        && MarshallingHelpers.IsObjCBridgeable(typeRecord)
+                        && typeRecord.NativeTypeName != null)
+                    {
+                        var nativeName = typeRecord.NativeTypeName.FullyQualifiedName;
+                        var bridgeCall = MarshallingHelpers.FormatObjCBridgeCall(nativeName, itemName, nonNull: true);
+                        return $"var {resultName} = {bridgeCall};\n{resultName}?.DangerousRelease();";
                     }
                 }
             }
