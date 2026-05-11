@@ -6,6 +6,36 @@
 > [`audit-weatherkit-musickit-2026-05-05.md`](../../swift-dotnet-packages/audit-weatherkit-musickit-2026-05-05.md)
 > finding **O-13**.
 
+## Resolution (2026-05-10) — resolved-partial, Phase 2 not pursued
+
+**Phase 1 shipped** (`41b5f82a`): non-generic Codable structs projected
+as C# classes now emit a JSON round-trip surface
+(`EncodeToJson()` / `DecodeFromJson(byte[])`) via Foundation's
+concrete `JSONEncoder` / `JSONDecoder`. This is the defensible half:
+small leafy value types (`WeatherAlert`, `Wind`, `Pressure`, …) where a
+consumer might cache the value as an opaque bundle.
+
+**Phase 2 (generic closed-instantiation) not pursued.** For container
+types like `Forecast<DayWeather>` the realistic .NET consumer path is
+POCO extraction, not Swift-Codable round-trip:
+
+- The decoded value is a SafeHandle wrapping Swift state, not a C#
+  POCO — the framework must be loaded and the wrapper initialized to
+  use it.
+- The bytes are Swift Codable's private JSON shape, not a public API —
+  not usable for server-bound persistence.
+- `WeatherService` already manages caching; a real MAUI app would
+  refetch or extract fields to a POCO and store those.
+- Other generic-Codable candidates collapse the same way:
+  `MusicLibraryRequest<T>` is a query object (never serialized),
+  StoreKit2 `Product`/`Transaction` are system-managed, Stripe payment
+  objects come from REST.
+
+Revisit if a concrete consumer scenario asks for it. Until then, the
+implementation cost (multispec discovery + per-pair Swift trampoline +
+C# extension class + sim+device gates) is not justified by hypothetical
+user value.
+
 ## Summary
 
 Swift compiler synthesizes `Codable` (the `init(from: Decoder) throws`

@@ -1,10 +1,43 @@
 # gap-0.10.0-b06-hashable-predicate-composition
 
-> **Status: OPEN — blocked on runtime hardening prerequisite.** In
-> scope for 0.10.0; sequenced as Session L. The naive generator-side
-> predicate change crashes 1390 tests at runtime; the runtime helper
-> `SwiftHashable.GetHashCode<T>` needs hardening before the generator
-> can route through it. See "Required runtime hardening" below.
+> **Status: RESOLVED (2026-05-10) — closed via safe-stance, shipped in
+> `af3a91cb`.**
+
+## Resolution (2026-05-10) — closed via safe-stance, not predicate broadening
+
+The naive predicate flip ("infer Hashable from Equatable") was unsound —
+this doc's "Why a naive flip is unsafe" analysis remains correct. The
+ship decision was to *commit to the safe stance permanently* rather than
+chase the runtime hardening that would have unblocked the broader
+predicate:
+
+- Equatable-only types continue to emit the contract-correct `return 0;`
+  GetHashCode stub. Equatable still works; types just don't hash uniquely.
+- Only types with explicit (or transitively-implied) `Hashable`
+  conformance route through `SwiftHashable.GetHashCode`. Type-database
+  conformance tracking already covers the transitive case.
+- `SwiftHashable` gained a defense-in-depth identity-hash fallback for
+  reference-shaped types whose Hashable witness registration is missed
+  at runtime.
+
+Why this is the right close: the original gap's headline (1390-test
+crash) was a runtime-correctness wall. Hardening `SwiftHashable.GetHashCode<T>`
+to safely structural-hash byte-different-but-semantically-equal values
+is a research problem (Swift's synthesized `==` operates on properties
+post-bridging conventions; the runtime sees marshalled bytes — they are
+fundamentally different views of the same value). The contract-correct
+`return 0;` stub preserves Equals semantics and is the standard .NET
+guidance for "I have Equals but not a stable hash." Consumers who need a
+stable hash can implement `GetHashCode` themselves or wrap the value in
+a Hashable-conforming Swift type upstream.
+
+Coverage: `TypeHandlerHelpersTests` exercises the explicit-Hashable
+predicate; `SwiftHashable.GetHashCode` reference-shape fallback is in
+`Swift.Runtime/src/Swift/SwiftHashable.cs`.
+
+Re-open trigger: only if a concrete consumer scenario shows the
+`return 0;` stub blocking real usage in a way the user-supplied
+override doesn't address.
 
 ## Summary
 

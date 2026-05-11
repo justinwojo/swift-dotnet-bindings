@@ -5,10 +5,22 @@
 > [SwiftBindings.Stripe](https://github.com/justinwojo/swift-dotnet-packages)
 > (StripePayments 26.2.1).
 >
-> **Status: OPEN.** In scope for 0.10.0. Fixing this requires new
-> emission infrastructure (a fourth routing path beyond the three listed
-> below) — see "Routing gaps" and "Hypothesis" sections for the shape of
-> the fix.
+> **Status: RESOLVED (2026-05-10) — shipped in `12f12a91`.**
+
+## Resolution (2026-05-10)
+
+`CrossModuleExtensionEmitter` now bridges foreign-class extension methods
+through `self.Payload` SafeHandle pinning for the duration of the
+dispatched call, so the Swift side cannot observe a freed handle if the
+GC moves between the C# call and the bridge return. `SwiftABIParser` also
+gained a fallback-receiver guard so re-exports that resolve to a base
+ObjC class (e.g. `JSONDecoder` mapping to `NSObject` via
+`FoundationDatabase.xml`) no longer emit broken extension classes whose
+`.Payload` doesn't exist on the receiver type.
+
+Coverage: `BindingTests/Sources/.../CrossModule/CrossModuleUsage.swift` +
+`CrossModuleTests.cs` + parser-level coverage in
+`SwiftABIParserRuntimeTests`.
 
 ## Routing gaps (as of Bundle 04 closure)
 
