@@ -158,28 +158,14 @@ public class LifetimeTrackingTests : TestBase
     {
         LifetimeTracker.Reset();
 
-        // Capture a fresh TrackedObject inside a delegate, pass the delegate
-        // into a Swift closure-accepting API, drop the local reference, then
-        // force finalizers. Post-fix the captured TrackedObject must
-        // deallocate because the GCHandle around the delegate is freed by
-        // the Swift adapter's deinit.
-        {
-            var captured = TestLibFunctions.CreateTrackedObject(101);
-            var (_, _, liveBefore) = LifetimeTracker.GetStats();
-            AssertTrue(liveBefore >= 1, "TrackedObject created (live >= 1)");
-
-            var result = TestLibFunctions.CallWithInt32(x =>
-            {
-                _ = captured.IsAlive();
-                return x + captured.ObjectId;
-            });
-            AssertEqual(42 + 101, result, "Closure invocation includes captured ObjectId");
-
-            // Drop the local reference. Closure delegate is now the only
-            // C# rooting path to `captured` — and only if the GCHandle is
-            // still alive.
-            captured = null!;
-        }
+        // The closure-and-invoke is intentionally inside a helper that takes the
+        // TrackedObject as a parameter. C# lambdas capture variable slots, so if
+        // we created `captured` here and then set it to null, the display class
+        // field would null out and the TrackedObject would be collectable even
+        // pre-fix — invalidating the regression. Routing through a helper means
+        // the only path to the TrackedObject is via the delegate's display class,
+        // which is itself only rooted by the GCHandle.
+        InvokeEphemeralEscapingClosure(101, expectedSum: 42 + 101);
 
         ForceGC();
         GC.WaitForPendingFinalizers();
@@ -196,6 +182,90 @@ public class LifetimeTrackingTests : TestBase
         // Pre-fix this would be 1 (captured TrackedObject leaked via the
         // permanently-rooted delegate). Post-fix it must be 0.
         AssertEqual(0, live, "Captured TrackedObject deallocated after ephemeral closure call");
+    }
+
+    private void InvokeEphemeralEscapingClosure(int objectId, int expectedSum)
+    {
+        var captured = TestLibFunctions.CreateTrackedObject(objectId);
+        var (_, _, liveBefore) = LifetimeTracker.GetStats();
+        AssertTrue(liveBefore >= 1, "TrackedObject created (live >= 1)");
+
+        var result = TestLibFunctions.CallWithInt32(x =>
+        {
+            _ = captured.IsAlive();
+            return x + captured.ObjectId;
+        });
+        AssertEqual(expectedSum, result, "Closure invocation includes captured ObjectId");
+        // Do not null `captured`: see note in the caller. When this method
+        // returns the local slot goes away on its own; the delegate's display
+        // class still holds the TrackedObject and is rooted only by the
+        // GCHandle (post-fix: freed) or by Swift retaining the closure
+        // context (escaping case).
+    }
+
+    /// <summary>
+    /// Regression test for the documented non-escaping leak previously at
+    /// `MethodClosureBridge.cs:1220-1224`. The MCB emit path allocated a
+    /// <c>GCHandle</c> rooting the C# delegate, but its try/finally was
+    /// gated on <c>anyEscaping</c> — non-escaping closures fell through
+    /// without freeing the handle, leaking the delegate (and anything it
+    /// captured) for the process lifetime.
+    /// </summary>
+    /// <remarks>
+    /// Runs on simulator: the fix lives entirely in the C# wrapper's
+    /// <c>finally</c> block, which calls <c>ClosureHandle.Dispose()</c>
+    /// for every closure regardless of policy. The non-escaping policy
+    /// always frees; no Swift-side <c>_SBClosureCtx</c> deinit upcall is
+    /// required, so the test does not need the runtime dylib that the
+    /// escaping-closure ephemeral test depends on.
+    /// </remarks>
+    public void TestNonEscapingMcbClosureDoesNotLeakCapturedObject()
+    {
+        LifetimeTracker.Reset();
+
+        // Closure-and-invoke lives inside a helper that takes the TrackedObject
+        // as a parameter. C# lambdas capture the variable slot, not the object;
+        // creating `captured` inline and then nulling it would null the display
+        // class's field and let the TrackedObject collect even pre-fix. Routing
+        // through a helper makes the delegate's display class the only path to
+        // the TrackedObject, which is itself only rooted by the GCHandle.
+        InvokeNonEscapingMcbClosure(303);
+
+        ForceGC();
+        GC.WaitForPendingFinalizers();
+        ForceGC();
+        Thread.Sleep(50);
+        ForceGC();
+        GC.WaitForPendingFinalizers();
+        ForceGC();
+
+        var (alloc, dealloc, live) = LifetimeTracker.GetStats();
+        TestLogger.Info(
+            $"Non-escaping MCB closure capture lifetime: alloc={alloc} dealloc={dealloc} live={live}");
+
+        // Pre-fix: 1 (delegate leaked via the never-freed MCB GCHandle).
+        // Post-fix: 0 (ClosureHandle.Dispose frees the handle in finally).
+        AssertEqual(0, live, "Captured TrackedObject deallocated after non-escaping MCB call");
+    }
+
+    private void InvokeNonEscapingMcbClosure(int objectId)
+    {
+        using var fixture = new NonEscapingMCBFixture();
+        var captured = TestLibFunctions.CreateTrackedObject(objectId);
+        var (_, _, liveBefore) = LifetimeTracker.GetStats();
+        AssertTrue(liveBefore >= 1, "TrackedObject created (live >= 1)");
+
+        var result = fixture.RunSynchronously(pr =>
+        {
+            _ = pr; // discard ProcessResult arg
+            _ = captured.IsAlive();
+            return captured.ObjectId == objectId;
+        });
+        AssertTrue(result, $"Closure observed captured ObjectId (id=={objectId})");
+        // When this method returns the `captured` and `fixture` slots die with
+        // the frame. The delegate's display class is then only rooted by the
+        // MCB GCHandle: pre-fix it was leaked forever; post-fix it was disposed
+        // in the wrapper's finally before this method returned.
     }
 
     #endregion

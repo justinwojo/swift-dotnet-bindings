@@ -366,9 +366,9 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        // C# must guard the GCHandle.Alloc + funcPtr/ctxPtr population behind a null check.
+        // C# must guard the ClosureHandle alloc + funcPtr/ctxPtr population behind a null check.
         Assert.Contains("if (handler != null)", cs);
-        Assert.Contains("GCHandle.Alloc", cs);
+        Assert.Contains("new ClosureHandle(__inner,", cs);
     }
 
     [Theory]
@@ -1309,13 +1309,13 @@ public class MethodClosureBridgeTests
     // ─── Throw-window + _SBClosureCtx Owner Token (Bug 1 Cat 3 / Bug 3 Case 2) ───
 
     [Fact]
-    public void TryEmit_EscapingClosure_PreDeclaresGCHandleAndTransferredFlag()
+    public void TryEmit_EscapingClosure_UsesClosureHandleWithEscapingPolicy()
     {
-        // Throw-window regression test: verifies the C# bridge pre-declares the GCHandle and
-        // a per-closure transferred flag at method scope so a finally block can free the handle
-        // when ownership transfer to Swift never completed (e.g. a throw between alloc and the
-        // P/Invoke returning successfully). Pairs with the _SBClosureCtx box construction in
-        // the Swift wrapper which owns the handle on the happy path.
+        // Throw-window regression test: the C# bridge pre-declares a `ClosureHandle` at method
+        // scope (default-constructed so optional-closure null paths can still dispose), allocates
+        // with the Escaping policy so Swift's `_SBClosureCtx` deinit upcall owns the handle on
+        // the happy path, calls MarkOwnershipTransferred only after the P/Invoke returns, and
+        // disposes in finally so a throw between alloc and that mark frees the handle locally.
         var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
         var env = new MethodEnvironment(method, typeDatabase);
         var csOutput = new StringWriter();
@@ -1325,12 +1325,17 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        Assert.Contains("GCHandle __gcHandle = default;", cs);
-        Assert.Contains("bool __transferred = false;", cs);
+        Assert.Contains("ClosureHandle __gcHandle = default;", cs);
+        Assert.Contains("new ClosureHandle(__inner, ClosureHandlePolicy.Escaping)", cs);
         Assert.Contains("try", cs);
         Assert.Contains("finally", cs);
-        Assert.Contains("__transferred = true;", cs);
-        Assert.Contains("if (!__transferred && __gcHandle.IsAllocated) __gcHandle.Free();", cs);
+        Assert.Contains("__gcHandle.MarkOwnershipTransferred();", cs);
+        Assert.Contains("__gcHandle.Dispose();", cs);
+        // The raw `__transferred` flag and direct GCHandle.Free / GCHandle.ToIntPtr calls
+        // are no longer emitted from MCB — the helper encapsulates that contract.
+        Assert.DoesNotContain("bool __transferred", cs);
+        Assert.DoesNotContain("__gcHandle.Free()", cs);
+        Assert.DoesNotContain("GCHandle.ToIntPtr(__gcHandle", cs);
     }
 
     [Fact]

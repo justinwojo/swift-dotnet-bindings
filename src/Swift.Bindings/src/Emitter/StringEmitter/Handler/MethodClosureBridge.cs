@@ -1170,16 +1170,11 @@ public static class MethodClosureBridge
                 innerParamDecls.Add($"{cbType} __p{i}");
             }
 
-            // Pre-declare the GCHandle at method scope so the finally block can free it
-            // when ownership transfer doesn't complete. For Optional closures the alloc
-            // sits inside an `if (param != null)` block; pre-declaring keeps the variable
-            // visible to finally regardless. For escaping closures, also declare a
-            // per-closure transfer flag set only after the P/Invoke returns successfully.
-            csWriter.WriteLine($"GCHandle __gcHandle{innerSuffix} = default;");
-            if (ci.IsEffectivelyEscaping)
-            {
-                csWriter.WriteLine($"bool __transferred{innerSuffix} = false;");
-            }
+            // Pre-declare the ClosureHandle at method scope so the finally block can dispose it
+            // unconditionally. For Optional closures the construction sits inside an
+            // `if (param != null)` block; pre-declaring keeps the variable visible to finally
+            // regardless (default(ClosureHandle).Dispose() is a no-op).
+            csWriter.WriteLine($"ClosureHandle __gcHandle{innerSuffix} = default;");
 
             if (ci.IsOptional)
             {
@@ -1228,29 +1223,32 @@ public static class MethodClosureBridge
                 }
             }
 
-            // Allocate GCHandle. For escaping closures Swift takes lifetime ownership through
-            // the `_SBClosureCtx` box (deinit upcalls the C# free callback). For non-escaping
-            // closures the trampoline is invoked synchronously inside the call; the handle
-            // becomes unreachable on return — a known small leak, not introduced here.
-            csWriter.WriteLine($"__gcHandle{innerSuffix} = GCHandle.Alloc(__inner{innerSuffix});");
+            // Allocate the ClosureHandle. For escaping closures Swift takes lifetime ownership
+            // through the `_SBClosureCtx` box (deinit upcalls the C# free callback); the helper
+            // suppresses Free on MarkOwnershipTransferred. For non-escaping closures the
+            // trampoline is invoked synchronously inside the call; the helper frees the handle
+            // deterministically in the finally below.
+            var policy = ci.IsEffectivelyEscaping
+                ? "ClosureHandlePolicy.Escaping"
+                : "ClosureHandlePolicy.NonEscaping";
+            csWriter.WriteLine($"__gcHandle{innerSuffix} = new ClosureHandle(__inner{innerSuffix}, {policy});");
 
             if (ci.IsOptional)
             {
                 csWriter.WriteLine($"__funcPtr{innerSuffix} = {helperPrefix}s_{ci.CallbackBaseName};");
-                csWriter.WriteLine($"__ctxPtr{innerSuffix} = GCHandle.ToIntPtr(__gcHandle{innerSuffix});");
+                csWriter.WriteLine($"__ctxPtr{innerSuffix} = __gcHandle{innerSuffix}.Context;");
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
             }
         }
 
-        // Wrap the P/Invoke section in try/finally when any closure is escaping so a throw
-        // anywhere between GCHandle.Alloc and the P/Invoke returning successfully (e.g. an
-        // argument expression like `Payload.DangerousGetHandle()` raising
-        // ObjectDisposedException, or the entry point failing to resolve) frees the handle
-        // instead of leaking it. The `__transferred{suffix}` flag is set only after the
-        // P/Invoke returns; the finally frees handles whose ownership never moved into Swift.
-        bool anyEscaping = closures.Any(ci => ci.IsEffectivelyEscaping);
-        if (anyEscaping)
+        // Wrap the P/Invoke section in try/finally so the ClosureHandle for every closure
+        // (escaping or non-escaping) is disposed in the finally — escaping handles transferred
+        // to Swift's `_SBClosureCtx` box are left alive by the helper's policy gate, while
+        // non-escaping handles and escaping handles whose ownership never transferred (the
+        // P/Invoke threw before MarkOwnershipTransferred ran) are freed locally.
+        bool hasClosures = closures.Count > 0;
+        if (hasClosures)
         {
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
@@ -1306,7 +1304,7 @@ public static class MethodClosureBridge
             else
             {
                 callArgs.Add($"{helperPrefix}s_{ci.CallbackBaseName}");
-                callArgs.Add($"GCHandle.ToIntPtr(__gcHandle{innerSuffix})");
+                callArgs.Add($"__gcHandle{innerSuffix}.Context");
             }
         }
 
@@ -1359,7 +1357,7 @@ public static class MethodClosureBridge
             csWriter.WriteLine("}");
         }
 
-        if (anyEscaping)
+        if (hasClosures)
         {
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1368,10 +1366,8 @@ public static class MethodClosureBridge
             csWriter.Indent++;
             for (int c = 0; c < closures.Count; c++)
             {
-                var ci = closures[c];
-                if (!ci.IsEffectivelyEscaping) continue;
                 var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
-                csWriter.WriteLine($"if (!__transferred{innerSuffix} && __gcHandle{innerSuffix}.IsAllocated) __gcHandle{innerSuffix}.Free();");
+                csWriter.WriteLine($"__gcHandle{innerSuffix}.Dispose();");
             }
             csWriter.Indent--;
             csWriter.WriteLine("}");
@@ -1383,9 +1379,12 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
-    /// Emits the per-closure `__transferred{suffix} = true;` lines for all escaping closures,
-    /// to be placed immediately after a successful P/Invoke call in <see cref="EmitPublicMethod"/>.
-    /// Paired with the finally block emitted there which frees handles when transfer is still false.
+    /// Emits the per-closure <c>__gcHandle{suffix}.MarkOwnershipTransferred();</c> calls
+    /// for all escaping closures, to be placed immediately after a successful P/Invoke call
+    /// in <see cref="EmitPublicMethod"/>. Pairs with the finally block emitted there which
+    /// disposes each handle — the helper's policy gate suppresses Free for transferred
+    /// escaping handles (Swift's `_SBClosureCtx` deinit will fire instead) while still
+    /// freeing non-transferred and non-escaping ones.
     /// </summary>
     private static void EmitClosureOwnershipTransferred(CSharpWriter csWriter, List<ClosureInfo> closures)
     {
@@ -1394,7 +1393,7 @@ public static class MethodClosureBridge
             var ci = closures[c];
             if (!ci.IsEffectivelyEscaping) continue;
             var innerSuffix = closures.Count > 1 ? $"_{c}" : "";
-            csWriter.WriteLine($"__transferred{innerSuffix} = true;");
+            csWriter.WriteLine($"__gcHandle{innerSuffix}.MarkOwnershipTransferred();");
         }
     }
 

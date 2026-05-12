@@ -107,3 +107,29 @@ public final class OptionalErrorCallbackFixture {
         return 0
     }
 }
+
+// MARK: - Non-escaping MCB closure (ClosureHandle non-escaping policy regression)
+
+/// Instance method on a non-generic class with a non-escaping closure whose argument
+/// is a complex enum — MCB-eligible by virtue of the `ProcessResult` arg. Pre-
+/// `ClosureHandle` the MCB emit path allocated a `GCHandle` to root the C# delegate
+/// but its try/finally was gated on `anyEscaping`, so the non-escaping branch never
+/// freed the handle and the captured delegate (plus everything it referenced) leaked
+/// for the process lifetime. The closure-handle helper introduced in Session 3
+/// unconditionally disposes the handle in finally; the `NonEscaping` policy always
+/// frees on dispose.
+///
+/// Must be a class method (not a free function) so MCB activates — the regular
+/// WrapperEmitter path already frees non-escaping handles correctly and would mask
+/// the MCB-specific regression.
+public final class NonEscapingMCBFixture {
+    public init() {}
+
+    /// Closure return type is `Bool` (one of MCB's two accepted closure return
+    /// types — Void or Bool); the argument is the complex enum `ProcessResult`.
+    /// The closure is non-`@escaping`, so MCB takes the path that previously
+    /// leaked the `GCHandle`.
+    public func runSynchronously(_ predicate: (ProcessResult) -> Bool) -> Bool {
+        return predicate(.success(value: 5))
+    }
+}
