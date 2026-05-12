@@ -7,10 +7,10 @@ using Microsoft.Extensions.Logging;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Phase 1 emitter for Codable JSON round-trip. For each non-generic struct
-/// projected as a C# class (frozen or non-frozen — both share the
-/// <c>_payload</c> / <c>NewFromPayloadCore</c> / <c>_payloadSize</c> pattern) that
-/// conforms to both Encodable and Decodable (including the Codable typealias), emits:
+/// Phase 1 emitter for Codable JSON round-trip. For each non-generic non-frozen
+/// struct (the <c>ClassWithOpaquePayload</c> projection scheme: <c>_payload</c>
+/// + <c>NewFromPayloadCore</c> + <c>_payloadSize</c>) that conforms to both
+/// Encodable and Decodable (including the Codable typealias), emits:
 ///
 /// <list type="bullet">
 ///   <item><description>A Swift <c>@_cdecl</c> trampoline <c>SBW_&lt;Module&gt;_&lt;Type&gt;_EncodeJson</c>
@@ -34,19 +34,22 @@ namespace BindingsGeneration;
 internal static class CodableJsonEmitter
 {
     /// <summary>
-    /// Returns true when <paramref name="typeDecl"/> is a non-generic frozen struct projected as
-    /// a C# class that conforms to both Encodable and Decodable.
+    /// Returns true when <paramref name="typeDecl"/> is a non-generic struct projected as a C# class
+    /// via the ClassWithOpaquePayload scheme (non-frozen) and conforms to both Encodable and Decodable.
+    /// The ClassWithBufferStruct scheme (frozen + ref fields, also class-projected) is intentionally
+    /// excluded because it lacks <c>_payloadSize</c> and <c>NewFromPayloadCore</c> — the JSON decode
+    /// factory cannot construct an instance without them.
     /// </summary>
     public static bool ShouldEmit(TypeDecl typeDecl, bool isProjectedAsClass)
     {
-        // Phase 1: any non-generic struct projected as a C# class (the _payload + NewFromPayloadCore
-        // + _payloadSize pattern that both FrozenStructHandler-as-class and NonFrozenStructHandler
-        // emit). Plain-struct projections and Swift class types are deferred — different self-pointer
-        // marshalling path each.
         if (typeDecl is not StructDecl structDecl) return false;
         if (structDecl.IsGeneric) return false;
         if (!isProjectedAsClass) return false;
         if (structDecl.IsModuleInternal) return false;
+        // ClassWithBufferStruct (frozen struct with ref fields, projected as class) only exposes
+        // `_payload` + `PayloadBuffer<Buffer>` — not the `_payloadSize`/`NewFromPayloadCore` factory
+        // primitives the decoder relies on. Skip until a dedicated decode path is added.
+        if (structDecl.IsFrozen) return false;
 
         return ConformsToCodable(structDecl);
     }
@@ -66,8 +69,12 @@ internal static class CodableJsonEmitter
     {
         var moduleName = moduleDecl.Name;
         var swiftQualifiedName = structDecl.SwiftTypeName?.ToString() ?? $"{moduleName}.{structDecl.Name}";
-        var encodeSymbol = $"SBW_{moduleName}_{structDecl.Name}_EncodeJson";
-        var decodeSymbol = $"SBW_{moduleName}_{structDecl.Name}_DecodeJson";
+        // Include the full nested path in the @_cdecl symbol so two nested structs that share a leaf
+        // name (e.g. MPIOptions.Marker and MPIOptions.FloatingLabelAppearance.Marker) don't both emit
+        // SBW_<Module>_Marker_EncodeJson and trigger swiftc's "multiple definitions of symbol" error.
+        var qualifiedSymbolPart = SanitizeSymbol(swiftQualifiedName);
+        var encodeSymbol = $"SBW_{qualifiedSymbolPart}_EncodeJson";
+        var decodeSymbol = $"SBW_{qualifiedSymbolPart}_DecodeJson";
         var wrapperLib = typeDatabase.AsyncLibraryName;
         if (string.IsNullOrEmpty(wrapperLib))
         {
@@ -79,7 +86,15 @@ internal static class CodableJsonEmitter
             return;
         }
 
-        EmitSwiftTrampolines(swiftWriter, swiftQualifiedName, encodeSymbol, decodeSymbol);
+        // Inherit availability from the type and its parent chain so the @_cdecl
+        // wrapper bodies don't reference newer-OS types (e.g. MusicKit.Curator at
+        // iOS 15.4+) inside a wrapper compiled against the binding's deployment
+        // floor. Without this prefix, swiftc rejects the wrapper with
+        // "'X' is only available in iOS N or newer".
+        var availability = AvailabilityHelpers.MergeAvailabilityFromAncestors(
+            structDecl.AvailabilityAnnotations, structDecl);
+
+        EmitSwiftTrampolines(swiftWriter, swiftQualifiedName, encodeSymbol, decodeSymbol, availability);
         EmitCSharpMembers(csWriter, structDecl, typeNameWithGenerics, encodeSymbol, decodeSymbol, wrapperLib);
     }
 
@@ -99,14 +114,17 @@ internal static class CodableJsonEmitter
         SwiftWriter swiftWriter,
         string swiftQualifiedName,
         string encodeSymbol,
-        string decodeSymbol)
+        string decodeSymbol,
+        IReadOnlyList<AvailabilityAnnotation>? availability)
     {
+        var availabilityPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availability, "");
+
         // Encode: read receiver, JSONEncoder().encode(value), write SBW_Utf8Slice into resultPtr.
         // Returns 0 on success, 1 on encoder failure.
         swiftWriter.WriteLines($$"""
 
             // Codable JSON encode @_cdecl wrapper for {{swiftQualifiedName}}.
-            @_cdecl("{{encodeSymbol}}")
+            {{availabilityPrefix}}@_cdecl("{{encodeSymbol}}")
             public func _sbw_encodeJson_{{SanitizeSymbol(swiftQualifiedName)}}(_ resultPtr: UnsafeMutableRawPointer, _ self_: UnsafeRawPointer) -> Int32 {
                 let value = self_.assumingMemoryBound(to: {{swiftQualifiedName}}.self).pointee
                 do {
@@ -128,7 +146,7 @@ internal static class CodableJsonEmitter
 
             // Codable JSON decode @_cdecl wrapper for {{swiftQualifiedName}}.
             // Returns 0 on success, 1 on decoder failure (resultPtr is left untouched on failure).
-            @_cdecl("{{decodeSymbol}}")
+            {{availabilityPrefix}}@_cdecl("{{decodeSymbol}}")
             public func _sbw_decodeJson_{{SanitizeSymbol(swiftQualifiedName)}}(_ resultPtr: UnsafeMutableRawPointer, _ bytesPtr: UnsafePointer<UInt8>, _ byteCount: Int) -> Int32 {
                 let buffer = UnsafeBufferPointer(start: bytesPtr, count: byteCount)
                 let data = Data(buffer: buffer)

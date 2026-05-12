@@ -4,6 +4,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -49,8 +50,9 @@ public class ProtocolExtensionExistentialParamTests
         ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
-        // Existential param: "any OtherProtocol" (by value), NOT "UnsafeMutableRawPointer"
-        Assert.Contains("any OtherProtocol", wrapperLines);
+        // Existential param: "any TestModule.OtherProtocol" (by value, module-qualified to avoid
+        // ambiguity with Foundation/UIKit protocols of the same leaf name), NOT "UnsafeMutableRawPointer"
+        Assert.Contains("any TestModule.OtherProtocol", wrapperLines);
         // Should NOT have Unmanaged.fromOpaque for existential param
         Assert.DoesNotContain("Unmanaged<OtherProtocol>", wrapperLines);
     }
@@ -300,8 +302,99 @@ public class ProtocolExtensionExistentialParamTests
         Assert.True(conformingType.Methods[0].Throws);
 
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
-        Assert.Contains("any OtherProtocol", wrapperLines);
+        Assert.Contains("any TestModule.OtherProtocol", wrapperLines);
         Assert.Contains(" throws {", wrapperLines);
+    }
+
+    // ─── Duplicate-leaf-type params get numeric suffixes ────────────────
+
+    [Fact]
+    public void ExistentialParam_DuplicateLeafType_GetsNumericSuffix()
+    {
+        // Repro of the FirebaseFirestore swift_compile failure: two unlabeled params
+        // of the same existential type both derive the same base internal name (`otherProtocol`),
+        // producing `invalid redeclaration of 'otherProtocol'` at the swiftc layer.
+        // ComputeUniqueParamNames must suffix the duplicate with a numeric index.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetupWithAdditionalProtocol(
+            "TestModule", "MyClass", "TestProtocol", "OtherProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("combine",
+                "public func combine(_ a: any TestModule.OtherProtocol, _ b: any TestModule.OtherProtocol)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        // Both internal names must appear exactly once each in the wrapper signature.
+        Assert.Contains("_ otherProtocol: any TestModule.OtherProtocol", wrapperLines);
+        Assert.Contains("_ otherProtocol2: any TestModule.OtherProtocol", wrapperLines);
+        // The call site must forward both unique names, not the same one twice.
+        Assert.Contains("instance.combine(otherProtocol, otherProtocol2)", wrapperLines);
+
+        // The injected C# MethodDecl must dedup parameter PrivateName too — the regular
+        // (non-closure) protocol-extension path used to skip dedup, generating two C#
+        // params both named `otherProtocol`.
+        var csSignature = conformingType.Methods[0].CSSignature;
+        var paramPrivateNames = csSignature.Skip(1).Select(p => p.PrivateName).ToList();
+        Assert.Equal(new[] { "otherProtocol", "otherProtocol2" }, paramPrivateNames);
+    }
+
+    [Fact]
+    public void ExistentialParam_ThreeIdenticalLeafTypes_GetSequentialSuffixes()
+    {
+        // Triple-collision shape: three unlabelled params of the same existential
+        // type must produce `otherProtocol`, `otherProtocol2`, `otherProtocol3` —
+        // not a regression to two `otherProtocol2` aliases when the counter resets.
+        // Catches off-by-one regressions in ComputeUniqueParamNames where the seen
+        // count is read after rather than before the increment.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetupWithAdditionalProtocol(
+            "TestModule", "MyClass", "TestProtocol", "OtherProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("merge",
+                "public func merge(_ a: any TestModule.OtherProtocol, _ b: any TestModule.OtherProtocol, _ c: any TestModule.OtherProtocol)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        Assert.Contains("_ otherProtocol: any TestModule.OtherProtocol", wrapperLines);
+        Assert.Contains("_ otherProtocol2: any TestModule.OtherProtocol", wrapperLines);
+        Assert.Contains("_ otherProtocol3: any TestModule.OtherProtocol", wrapperLines);
+        Assert.Contains("instance.merge(otherProtocol, otherProtocol2, otherProtocol3)", wrapperLines);
+
+        var csSignature = conformingType.Methods[0].CSSignature;
+        var paramPrivateNames = csSignature.Skip(1).Select(p => p.PrivateName).ToList();
+        Assert.Equal(new[] { "otherProtocol", "otherProtocol2", "otherProtocol3" }, paramPrivateNames);
+    }
+
+    [Fact]
+    public void ExistentialParam_LabelledFollowedByUnlabelledSameLeaf_DedupAcrossLabelKinds()
+    {
+        // Mixed-label shape: the first param has an explicit label (`first:`)
+        // that happens to differ from the type-derived base name, the second
+        // is unlabelled and falls through to `otherProtocol`. They DON'T collide.
+        // But two unlabelled params *after* the labelled one MUST still get
+        // suffixed against each other. Without dedup across label kinds, the
+        // counter would only count unlabelled collisions and miss labelled
+        // params that share a sanitized base name.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetupWithAdditionalProtocol(
+            "TestModule", "MyClass", "TestProtocol", "OtherProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("compose",
+                "public func compose(otherProtocol: any TestModule.OtherProtocol, _ b: any TestModule.OtherProtocol)"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+        // The labelled param keeps its label; the unlabelled one's type-derived base
+        // name collides with that label and must be suffixed.
+        Assert.Contains("_ otherProtocol: any TestModule.OtherProtocol", wrapperLines);
+        Assert.Contains("_ otherProtocol2: any TestModule.OtherProtocol", wrapperLines);
+
+        var csSignature = conformingType.Methods[0].CSSignature;
+        var paramPrivateNames = csSignature.Skip(1).Select(p => p.PrivateName).ToList();
+        Assert.Equal(new[] { "otherProtocol", "otherProtocol2" }, paramPrivateNames);
     }
 
     // ─── Helper Methods ──────────────────────────────────────────────

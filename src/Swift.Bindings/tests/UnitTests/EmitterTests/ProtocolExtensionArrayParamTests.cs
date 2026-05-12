@@ -65,9 +65,12 @@ public class ProtocolExtensionArrayParamTests
         var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
         // Array param should be UnsafeMutableRawPointer in the wrapper signature
         Assert.Contains("UnsafeMutableRawPointer", wrapperLines);
-        // Conversion via unsafeBitCast to [Int].self
+        // Conversion via unsafeBitCast to module-qualified [Swift.Int].self
+        // (Module-qualified to avoid leaf-name ambiguity when the wrapper compiles against
+        // multiple modules that declare the same protocol/type name — e.g.
+        // Foundation.Expression vs FirebaseFirestore.Expression.)
         Assert.Contains("unsafeBitCast(", wrapperLines);
-        Assert.Contains("[Int].self", wrapperLines);
+        Assert.Contains("[Swift.Int].self", wrapperLines);
     }
 
     // ─── TypeSpec preserved in MethodDecl ──────────────────────────────

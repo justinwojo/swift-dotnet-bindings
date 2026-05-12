@@ -1191,8 +1191,13 @@ public static class ProtocolExtensionEmitter
     {
         if (existentialHandler.IsExistential(typeSpec))
         {
+            // Module-qualify the protocol name in the wrapper parameter type. Foundation defines
+            // a top-level `Expression` (and other Apple frameworks may add more), so emitting
+            // unqualified `any Expression` triggers swiftc "ambiguous for type lookup" when the
+            // wrapper compiles against the bound module + Foundation. The wrapper file imports
+            // both modules, so the only safe disambiguation is the module-qualified existential.
             var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
-            var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(protocolList ?? typeSpec);
+            var renderedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(protocolList ?? typeSpec);
             return $"_ {paramName}: {renderedType}";
         }
         if (IsFoundationData(typeSpec))
@@ -1224,11 +1229,14 @@ public static class ProtocolExtensionEmitter
         if (existentialHandler.IsExistential(typeSpec) || IsFoundationData(typeSpec))
             return label == "_" ? paramName : $"{label}: {paramName}";
 
-        // Array: unsafeBitCast from raw pointer to [Element]
+        // Array: unsafeBitCast from raw pointer to [Element].
+        // Module-qualify the element so an Array<Expression> stays `[FirebaseFirestore.Expression]`
+        // when the wrapper compiles against multiple modules that declare the same protocol leaf
+        // name (Foundation.Expression vs FirebaseFirestore.Expression).
         if (IsSwiftArrayType(typeSpec))
         {
             var arrayTypeSpec = (NamedTypeSpec)typeSpec;
-            var elementType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arrayTypeSpec.GenericParameters[0]);
+            var elementType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arrayTypeSpec.GenericParameters[0]);
             var localName = $"__{paramName}";
             ctx.AddProtocolExtWrapperLine($"    let {localName} = unsafeBitCast({paramName}, to: [{elementType}].self)");
             return label == "_" ? localName : $"{label}: {localName}";
@@ -1241,7 +1249,7 @@ public static class ProtocolExtensionEmitter
         if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
             !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
         {
-            var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(typeSpec);
+            var renderedType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
             var localName = $"__{paramName}";
             ctx.AddProtocolExtWrapperLine($"    let {localName} = Unmanaged<AnyObject>.fromOpaque({paramName}).takeUnretainedValue() as! {renderedType}");
             return label == "_" ? localName : $"{label}: {localName}";
@@ -1295,16 +1303,19 @@ public static class ProtocolExtensionEmitter
             ? $"{typeName}<{string.Join(", ", genericParamNames)}>"
             : typeName;
 
-        // Build Swift parameter list for the wrapper function
+        // Build Swift parameter list for the wrapper function.
+        // Compute unique names up front so the wrapper signature and the call args agree
+        // on suffixes (e.g. `expression, expression2`) when params share a leaf type.
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
         var existentialHandler = new ExistentialHandler(typeDatabase);
+        var uniqueParamNames = ComputeUniqueParamNames(parameters);
 
-        foreach (var (label, typeSpec, swiftType) in parameters)
+        for (int i = 0; i < parameters.Count; i++)
         {
-            var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-            swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler, typeDatabase));
+            var (_, typeSpec, _) = parameters[i];
+            swiftParams.Add(RenderSwiftParam(uniqueParamNames[i], typeSpec, existentialHandler, typeDatabase));
         }
 
         // For generic conforming types, add explicit T.Type metatype params.
@@ -1395,13 +1406,12 @@ public static class ProtocolExtensionEmitter
             ctx.AddProtocolExtWrapperLine($"    let instance = Unmanaged<{typeName}>.fromOpaque(self_).takeUnretainedValue()");
         }
 
-        // Emit parameter conversions
+        // Emit parameter conversions — use the same deduplicated names as the signature.
         var callArgs = new List<string>();
         for (int i = 0; i < parameters.Count; i++)
         {
-            var (label, typeSpec, swiftType) = parameters[i];
-            var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-            callArgs.Add(RenderCallArg(label, paramName, typeSpec, existentialHandler, ctx));
+            var (label, typeSpec, _) = parameters[i];
+            callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, ctx));
         }
 
         // Emit method call
@@ -1528,25 +1538,26 @@ public static class ProtocolExtensionEmitter
             (TypeSpecHelpers.IsGenericTypeParameter(retGenNamed.Name) ||
              methodLevelGenerics.Contains(retGenNamed.Name));
 
-        // Build Swift parameter list
+        // Build Swift parameter list — precompute unique names so the wrapper signature
+        // and the call args agree on suffixes when params share a leaf type name.
         var existentialHandler = new ExistentialHandler(typeDatabase);
+        var uniqueParamNames = ComputeUniqueParamNames(parameters, closureTypeSpec, closureParamIndex);
         var swiftParams = new List<string>();
         swiftParams.Add("_ self_: UnsafeMutableRawPointer");
 
         for (int i = 0; i < parameters.Count; i++)
         {
-            var (label, typeSpec, swiftType) = parameters[i];
+            var (_, typeSpec, _) = parameters[i];
             if (i == closureParamIndex)
             {
-                // Replace closure with funcPtr + context — use GetClosureParamName for closure types
-                var paramName = SanitizeSwiftParamName(label == "_" ? GetClosureParamName(closureTypeSpec) : label);
+                // Replace closure with funcPtr + context.
+                var paramName = uniqueParamNames[i];
                 swiftParams.Add($"_ {paramName}FuncPtr: UnsafeMutableRawPointer");
                 swiftParams.Add($"_ {paramName}Context: UnsafeMutableRawPointer?");
             }
             else
             {
-                var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-                swiftParams.Add(RenderSwiftParam(paramName, typeSpec, existentialHandler, typeDatabase));
+                swiftParams.Add(RenderSwiftParam(uniqueParamNames[i], typeSpec, existentialHandler, typeDatabase));
             }
         }
 
@@ -1762,19 +1773,18 @@ public static class ProtocolExtensionEmitter
 
         ctx.AddProtocolExtWrapperLine("    }");
 
-        // Build method call arguments
+        // Build method call arguments — use the same deduplicated names as the signature.
         var callArgs = new List<string>();
         for (int i = 0; i < parameters.Count; i++)
         {
-            var (label, typeSpec, swiftType) = parameters[i];
+            var (label, typeSpec, _) = parameters[i];
             if (i == closureParamIndex)
             {
                 callArgs.Add(label == "_" ? "__closure" : $"{label}: __closure");
             }
             else
             {
-                var paramName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
-                callArgs.Add(RenderCallArg(label, paramName, typeSpec, existentialHandler, ctx));
+                callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, ctx));
             }
         }
 
@@ -1893,7 +1903,10 @@ public static class ProtocolExtensionEmitter
             ModuleDecl = moduleDecl
         });
 
-        // Parameters — preserve ClosureTypeSpec (resolve Self.Element inside it)
+        // Parameters — preserve ClosureTypeSpec (resolve Self.Element inside it).
+        // Deduplicate internal names so two unlabelled params sharing a type leaf name
+        // (e.g. two `Expression`) don't collide on the C# side as `expression, expression`.
+        var seenInternalNames = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (label, typeSpec, _) in parameters)
         {
             var resolvedTypeSpec = typeSpec;
@@ -1903,16 +1916,27 @@ public static class ProtocolExtensionEmitter
                     conformanceGraph, extMethod.ProtocolQualifiedName);
             }
 
-            string internalName;
+            string baseInternalName;
             if (typeSpec is ClosureTypeSpec)
             {
                 // For closure params, use a sensible name based on closure shape
                 // (GetParamNameFromType can't handle ClosureTypeSpec.ToString() output)
-                internalName = label != "_" ? label : GetClosureParamName(closureTypeSpec);
+                baseInternalName = label != "_" ? label : GetClosureParamName(closureTypeSpec);
             }
             else
             {
-                internalName = label == "_" ? GetParamNameFromType(typeSpec.ToString()) : label;
+                baseInternalName = label == "_" ? GetParamNameFromType(typeSpec.ToString()) : label;
+            }
+            string internalName;
+            if (seenInternalNames.TryGetValue(baseInternalName, out var count))
+            {
+                seenInternalNames[baseInternalName] = count + 1;
+                internalName = $"{baseInternalName}{count + 1}";
+            }
+            else
+            {
+                seenInternalNames[baseInternalName] = 1;
+                internalName = baseInternalName;
             }
             csSignature.Add(new ArgumentDecl
             {
@@ -2018,10 +2042,24 @@ public static class ProtocolExtensionEmitter
             ModuleDecl = moduleDecl
         });
 
-        // Parameters
+        // Parameters — deduplicate internal names so two unlabelled params sharing a
+        // type leaf name (e.g. two `any P` projecting to the same `p` base name) don't
+        // collide on the C# side as duplicate parameter identifiers.
+        var seenInternalNames = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (label, typeSpec, _) in parameters)
         {
-            var internalName = label == "_" ? GetParamNameFromType(typeSpec.ToString()) : label;
+            var baseInternalName = label == "_" ? GetParamNameFromType(typeSpec.ToString()) : label;
+            string internalName;
+            if (seenInternalNames.TryGetValue(baseInternalName, out var count))
+            {
+                seenInternalNames[baseInternalName] = count + 1;
+                internalName = $"{baseInternalName}{count + 1}";
+            }
+            else
+            {
+                seenInternalNames[baseInternalName] = 1;
+                internalName = baseInternalName;
+            }
             csSignature.Add(new ArgumentDecl
             {
                 Name = label,
@@ -2336,6 +2374,51 @@ public static class ProtocolExtensionEmitter
         if (closure.ReturnType.IsEmptyTuple)
             return "handler";
         return "transform";
+    }
+
+    /// <summary>
+    /// Computes deduplicated Swift parameter names for the wrapper.
+    /// Two parameters both labelled `_` whose types share a leaf name (e.g. both
+    /// `Expression`) would otherwise produce identical internal names like
+    /// `expression`, which swiftc rejects as "invalid redeclaration". Duplicates are
+    /// suffixed with a numeric index: expression, expression2, expression3, ...
+    /// </summary>
+    /// <param name="parameters">The method's parameter list.</param>
+    /// <param name="closureParamIndex">
+    /// Index of a closure parameter that uses GetClosureParamName instead of
+    /// GetParamNameFromType, or -1 if there is no closure replacement.
+    /// </param>
+    private static List<string> ComputeUniqueParamNames(
+        List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
+        ClosureTypeSpec? closureTypeSpec = null,
+        int closureParamIndex = -1)
+    {
+        var names = new List<string>();
+        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var (label, _, swiftType) = parameters[i];
+            string baseName;
+            if (i == closureParamIndex && closureTypeSpec != null)
+            {
+                baseName = SanitizeSwiftParamName(label == "_" ? GetClosureParamName(closureTypeSpec) : label);
+            }
+            else
+            {
+                baseName = SanitizeSwiftParamName(label == "_" ? GetParamNameFromType(swiftType) : label);
+            }
+            if (seen.TryGetValue(baseName, out var count))
+            {
+                seen[baseName] = count + 1;
+                names.Add($"{baseName}{count + 1}");
+            }
+            else
+            {
+                seen[baseName] = 1;
+                names.Add(baseName);
+            }
+        }
+        return names;
     }
 
     /// <summary>

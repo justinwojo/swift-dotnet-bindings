@@ -391,16 +391,11 @@ namespace BindingsGeneration
                 // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
                 AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, structDecl, env.TypeDatabase);
 
-                // Codable JSON round-trip (Phase 1 — non-generic frozen structs projected as classes).
-                // The synthesized `encode(to:)` / `init(from:)` remain skipped because the Encoder/Decoder
-                // existentials are unbridgeable; this emits a JSON-only replacement surface that goes
-                // through Foundation's concrete JSONEncoder/JSONDecoder.
-                if (CodableJsonEmitter.ShouldEmit(structDecl, isProjectedAsClass))
-                {
-                    CodableJsonEmitter.Emit(
-                        csWriter, swiftWriter, structDecl, moduleDecl,
-                        typeNameWithGenerics, env.TypeDatabase, _logger);
-                }
+                // Codable JSON round-trip is intentionally NOT emitted here. FrozenStructHandler
+                // covers ClassWithBufferStruct projections, which expose `_payload` + `PayloadBuffer<Buffer>`
+                // but NOT the `_payloadSize`/`NewFromPayloadCore` primitives the JSON decoder factory
+                // relies on. Phase 1 ships JSON only for the ClassWithOpaquePayload pattern emitted
+                // by NonFrozenStructHandler; ClassWithBufferStruct support is a separate phase.
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");

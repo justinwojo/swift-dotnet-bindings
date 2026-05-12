@@ -29,7 +29,7 @@ internal static class AsyncSequenceEmitter
             return false;
 
         var handler = new AsyncSequenceHandler(typeDatabase);
-        if (!handler.TryResolveElementCSharpType(typeDecl, out var elementCSharpType))
+        if (!handler.TryResolveElementCSharpType(typeDecl, out var elementCSharpType, out var isElementOptional))
             return false;
 
         // The emitted body delegates through a private async-iterator helper:
@@ -40,9 +40,12 @@ internal static class AsyncSequenceEmitter
         // The Swift-side iterator (MakeAsyncIterator → NextAsync(ct)) returns
         // Task<Element?>. The trailing-null sentinel terminates iteration; the
         // `is { } element` pattern matches both reference- and value-typed
-        // Element. The using-block disposes the Swift iterator's SafeHandle
-        // payload deterministically — even when the consumer breaks out of
-        // the foreach early.
+        // Element. When Element is itself Optional, NextAsync returns
+        // Task<SwiftOptional<SwiftOptional<T>>> and the bridge takes the
+        // nested-Optional branch that distinguishes outer "done" None from
+        // inner "element is null" None. The using-block disposes the Swift
+        // iterator's SafeHandle payload deterministically — even when the
+        // consumer breaks out of the foreach early.
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>");
         csWriter.WriteLine("/// Returns an asynchronous enumerator that adapts the Swift");
@@ -66,8 +69,60 @@ internal static class AsyncSequenceEmitter
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine("while (await iter.NextAsync(cancellationToken).ConfigureAwait(false) is { } __sbAsyncElement)");
-        csWriter.WriteLine("    yield return __sbAsyncElement;");
+        if (isElementOptional)
+        {
+            // Nested-Optional shape: AsyncSequence's Element is itself an Optional,
+            // so Swift's `next() -> Element?` returns `Optional<Optional<T>>` which
+            // projects to `Task<SwiftOptional<SwiftOptional<T>>>` — the two layers
+            // can't collapse to a single C# nullable without losing the iteration
+            // terminator. Walk the layers explicitly: outer None ends iteration,
+            // outer Some unwraps to the inner Optional (which becomes T? via
+            // SwiftOptional's implicit operator) for yield-return.
+            //
+            // Both SwiftOptional wrappers (outer + inner) own native payload buffers
+            // and implement IDisposable. The implicit operator on the inner wrapper
+            // reads .Some by value (class refs are independently ARC-retained,
+            // value-type Element is copied into the result), so disposing AFTER
+            // yield is safe and prevents per-iteration buffer leaks. yield break
+            // still runs the pending finally blocks in C#'s async iterator state
+            // machine — the outer wrapper is disposed even on iteration end.
+            csWriter.WriteLine("while (true)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("var __sbAsyncOuter = await iter.NextAsync(cancellationToken).ConfigureAwait(false);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (!__sbAsyncOuter.HasValue) yield break;");
+            csWriter.WriteLine("var __sbAsyncInner = __sbAsyncOuter.Some;");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("yield return __sbAsyncInner;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("__sbAsyncInner?.Dispose();");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("__sbAsyncOuter?.Dispose();");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+        else
+        {
+            csWriter.WriteLine("while (await iter.NextAsync(cancellationToken).ConfigureAwait(false) is { } __sbAsyncElement)");
+            csWriter.WriteLine("    yield return __sbAsyncElement;");
+        }
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine("finally");

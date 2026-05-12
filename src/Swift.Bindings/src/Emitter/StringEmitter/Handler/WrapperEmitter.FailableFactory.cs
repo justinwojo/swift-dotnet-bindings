@@ -54,8 +54,11 @@ namespace BindingsGeneration
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
 
-            // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args
+            // Declare TypeMetadata, payload, and GCHandle variables for generic/closure args.
+            // Existential heap pointers are declared at the unsafe-block top scope so the
+            // matching `NativeMemory.Free(...)` in the finally below can see them.
             EmitDeclarationsForAllocations(csWriter);
+            EmitExistentialHeapDeclarations(csWriter);
 
             // Get metadata for Self type
             csWriter.WriteLine($"var selfMetadata = TypeMetadata.GetTypeMetadataOrThrow<{typeName}>();");

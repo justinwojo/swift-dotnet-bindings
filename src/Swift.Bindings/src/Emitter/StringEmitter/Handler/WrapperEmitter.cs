@@ -365,6 +365,7 @@ namespace BindingsGeneration
             // Declare variables (SwiftError, TypeMetadata, payloads, GCHandles).
             // Always emit — SwiftError 'ref' requires pre-declaration even without try-finally.
             EmitDeclarationsForAllocations(csWriter);
+            EmitExistentialHeapDeclarations(csWriter);
 
             if (needsTryFinally)
             {
@@ -446,6 +447,7 @@ namespace BindingsGeneration
             // Declare variables (SwiftError, GCHandles, etc.) before use.
             // Always emit — SwiftError 'ref' requires pre-declaration even without try-finally.
             EmitDeclarationsForAllocations(csWriter);
+            EmitExistentialHeapDeclarations(csWriter);
 
             EmitClosureMarshalling(csWriter);
             EmitTypeConversions(csWriter);
@@ -542,6 +544,14 @@ namespace BindingsGeneration
             EmitSignatureMethod(csWriter);
             EmitBodyStart(csWriter);
             EmitUnsafeBlockStart(csWriter);
+            // Existential heap variables (`void* xHeap = null;`) must precede EmitAsync.
+            // For async methods, EmitAsync opens an outer `try {` whose closing brace is
+            // written later by EmitReturnMethod, and the matching `finally { Free(xHeap); }`
+            // is written by EmitFinally AFTER that close — so the declarations have to live
+            // at the outer scope, not inside the async try, to remain reachable in the
+            // trailing finally (CS0103 otherwise). Sync methods are unaffected — the decls
+            // still sit above their try-finally block.
+            EmitExistentialHeapDeclarations(csWriter);
             EmitAsync(csWriter, swiftWriter);
             EmitOpaqueReturnWrapper(swiftWriter);
             EmitTypedErrorExtractor(swiftWriter);
@@ -586,12 +596,15 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits the declarations for allocations.
+        /// Existential heap declarations (<c>void* xHeap = null;</c>) are NOT emitted here —
+        /// callers emit them via <see cref="EmitExistentialHeapDeclarations"/> at the right
+        /// scope (before <see cref="EmitAsync"/> for async methods so the variables survive
+        /// the outer async try / trailing finally).
         /// </summary>
         private void EmitDeclarationsForAllocations(CSharpWriter csWriter)
         {
             foreach (var line in _syncPlan.DeclarationLines)
                 csWriter.WriteLine(line);
-            EmitExistentialHeapDeclarations(csWriter);
         }
 
         /// <summary>

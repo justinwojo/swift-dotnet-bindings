@@ -74,7 +74,25 @@ public sealed class AsyncSequenceHandler
     /// <returns>True when Element was resolved; false when projection should be skipped.</returns>
     public bool TryResolveElementCSharpType(TypeDecl typeDecl, out string elementCSharpType)
     {
+        return TryResolveElementCSharpType(typeDecl, out elementCSharpType, out _);
+    }
+
+    /// <summary>
+    /// Resolves Element and also reports whether Element is itself an
+    /// <c>Optional</c>. When Element is Optional, Swift's <c>next() -&gt; Element?</c>
+    /// produces a nested <c>Optional&lt;Optional&lt;T&gt;&gt;</c> that the
+    /// generator cannot collapse to a C# nullable without losing the iteration
+    /// terminator. The emitter needs that signal to choose a bridge body that
+    /// distinguishes the outer "iteration done" None from the inner "element
+    /// is null" None.
+    /// </summary>
+    public bool TryResolveElementCSharpType(
+        TypeDecl typeDecl,
+        out string elementCSharpType,
+        out bool isElementOptional)
+    {
         elementCSharpType = "";
+        isElementOptional = false;
 
         if (!IsAsyncSequence(typeDecl))
             return false;
@@ -118,12 +136,59 @@ public sealed class AsyncSequenceHandler
             return false;
 
         var elementSpec = optNamed.GenericParameters[0];
+        isElementOptional = elementSpec is NamedTypeSpec innerNamed && IsSwiftOptional(innerNamed);
+
+        // The nested-Optional bridge yields `SwiftOptional<X>.Some` directly into
+        // `IAsyncEnumerable<Element>`. SwiftOptional<X>'s implicit operator targets
+        // `X?` — so this only works when the inner X (the type held by the
+        // raw iterator's Optional) and the projected Element surface coincide.
+        // For projected scalars/refs like Swift.String → string, the iterator
+        // returns SwiftOptional<SwiftString> but the public Element is `string?`,
+        // and SwiftOptional<SwiftString> has no implicit op to `string?`. Drop
+        // back to the legacy MakeAsyncIterator-only emit in that case so the
+        // generator doesn't produce code that fails to compile.
+        if (isElementOptional && elementSpec is NamedTypeSpec optInner &&
+            optInner.GenericParameters.Count == 1 &&
+            InnerRequiresProjection(optInner.GenericParameters[0]))
+        {
+            return false;
+        }
 
         // Step 6: project Element to a C# type via the type database. Reuse the
         // same translator that AsyncStreamHandler uses so generic parameters,
         // pointer types, and unknown types fall back to the same conventions.
         elementCSharpType = TranslateElementTypeToCSharp(elementSpec);
         return !string.IsNullOrEmpty(elementCSharpType) && elementCSharpType != "object";
+    }
+
+    /// <summary>
+    /// Returns true when the inner Element of a nested-Optional AsyncSequence cannot
+    /// be reached from <c>SwiftOptional&lt;X&gt;</c>'s implicit operator in one step.
+    /// The bridge yields <c>__sbAsyncOuter.Some</c> — a <c>SwiftOptional&lt;X&gt;</c>
+    /// whose implicit op targets <c>X?</c>, where <c>X</c> is the C# type the iterator's
+    /// <c>NextAsync</c> uses for the inner Optional's generic argument: the projection's
+    /// <see cref="ITypeProjection.MarshalFromSwiftType"/>. When that equals
+    /// <see cref="ITypeProjection.PublicType"/> the yield-into-IAsyncEnumerable&lt;PublicType&gt;
+    /// compiles (classes — <c>ClassProjection.MarshalFromSwiftType == _typeName == PublicType</c>;
+    /// non-frozen structs — same override; primitive blittables — both sides equal the C# name).
+    /// When they differ (Swift.String → <c>SwiftString</c> vs <c>string</c>, Foundation.Data →
+    /// <c>byte[]</c>, arrays / dictionaries → container wrappers), no single conversion gets
+    /// us to the public surface and the bridge must be skipped so the legacy
+    /// MakeAsyncIterator-only emit is used instead.
+    /// </summary>
+    private bool InnerRequiresProjection(TypeSpec innerSpec)
+    {
+        if (innerSpec is not NamedTypeSpec named)
+            return true;
+        var factory = new TypeProjectionFactory();
+        var projection = factory.Project(named, new ProjectionContext
+        {
+            TypeDatabase = _typeDatabase,
+            IsParameter = false,
+        });
+        if (projection == null)
+            return false;
+        return !string.Equals(projection.MarshalFromSwiftType, projection.PublicType, StringComparison.Ordinal);
     }
 
     private static IEnumerable<TypeConformance> GetConformances(TypeDecl typeDecl)
