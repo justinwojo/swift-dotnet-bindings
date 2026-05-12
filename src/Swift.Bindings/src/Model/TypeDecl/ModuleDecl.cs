@@ -61,6 +61,18 @@ namespace BindingsGeneration
         public List<string> DependencyModuleNames { get; set; } = new();
 
         /// <summary>
+        /// Path to the bound module's <c>.swiftinterface</c> file (private preferred, falling back
+        /// to public). Read by <c>ModuleHandler.EmitSwiftImports</c> to intersect
+        /// <see cref="DependencyModuleNames"/> with the bound module's actual textual imports —
+        /// suppresses spurious wrapper-side <c>import</c> lines for siblings the bound source
+        /// never references (e.g., C++-only modules like <c>absl</c>/<c>grpc</c> that swiftc
+        /// can't load anyway). Null when the swiftinterface is unavailable (direct mode without
+        /// <c>-s/--swiftinterface</c>, apple-framework-mode unit tests, etc.); in that case the
+        /// emitter falls back to the legacy unfiltered behavior.
+        /// </summary>
+        public string? SwiftInterfacePath { get; set; }
+
+        /// <summary>
         /// TypeWitness mappings extracted from ABI JSON conformance entries.
         /// Maps (conformingType, protocol, associatedTypeName) → concrete TypeSpec.
         /// Populated by SwiftABIParser during HandleConformance.

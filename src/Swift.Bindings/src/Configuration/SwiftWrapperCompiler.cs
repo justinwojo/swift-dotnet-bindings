@@ -131,7 +131,8 @@ namespace BindingsGeneration
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
             bool skipThunkCompilation = false,
-            string? resolvedArchitecture = null)
+            string? resolvedArchitecture = null,
+            IReadOnlyList<string>? depModuleNamesForCollision = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -142,7 +143,8 @@ namespace BindingsGeneration
                 additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision,
                 nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                 swiftInterfacePath: swiftInterfacePath,
-                skipThunkCompilation: skipThunkCompilation);
+                skipThunkCompilation: skipThunkCompilation,
+                depModuleNamesForCollision: depModuleNamesForCollision);
         }
 
         /// <summary>
@@ -164,7 +166,9 @@ namespace BindingsGeneration
             PlatformInfo? platformInfo = null,
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
-            string? swiftInterfacePath = null)
+            string? swiftInterfacePath = null,
+            IReadOnlyList<string>? depModuleNamesForCollisionSimulator = null,
+            IReadOnlyList<string>? depModuleNamesForCollisionDevice = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -320,35 +324,49 @@ namespace BindingsGeneration
                     }
                 }
 
-                // Pre-compile colliding module for simulator slice (EC-1)
-                string? simPrecompiledModulePath = null;
-                if (!string.IsNullOrEmpty(moduleNameForCollision) && !string.IsNullOrEmpty(swiftInterfacePath))
-                {
-                    simPrecompiledModulePath = PrecompileCollidingModule(
-                        moduleName, swiftInterfacePath, simTargetTriple, simSdkPath,
-                        cleanedDir, commandRunner, logger, moduleNameForCollision,
-                        nestedTypesInCollidingClass);
-                }
-
-                // XCTest dependency: add platform framework search path + collision resolution.
-                // Pre-compile the source framework's interface with XCTest collision patched out.
+                // Pre-compile colliding module(s) for simulator slice. The shadow .swiftmodule
+                // is keyed on bound module + target triple, so EVERY collision (bound-module
+                // EC-1, dep-module collisions like GTMAppAuth→GTMSessionFetcher, and XCTest)
+                // must be patched in a SINGLE call — separate calls would overwrite each
+                // other's binary and silently drop all but the last collision's regex.
+                // The precompile also needs the SAME -F dependency search paths that the
+                // final swiftc invocation gets: the patched .swiftinterface still references
+                // sibling modules (e.g. GTMSessionFetcher imports GTMAppAuth), and without
+                // their framework paths swift-frontend bails with "no such module …",
+                // returns null, and the final wrapper compile re-hits the collision.
                 var simEffectiveSearchPaths = primaryAdditionalSearchPaths != null
                     ? new List<string>(primaryAdditionalSearchPaths) : new List<string>();
+                var simPrecompileTargets = new List<CollisionPatchTarget>();
+                var simPrecompileExtraSearchPaths = primaryAdditionalSearchPaths != null
+                    ? new List<string>(primaryAdditionalSearchPaths) : new List<string>();
+                if (!string.IsNullOrEmpty(moduleNameForCollision))
+                    simPrecompileTargets.Add(new CollisionPatchTarget(moduleNameForCollision, nestedTypesInCollidingClass));
+                if (depModuleNamesForCollisionSimulator != null)
+                {
+                    foreach (var depModule in depModuleNamesForCollisionSimulator)
+                        simPrecompileTargets.Add(new CollisionPatchTarget(depModule, null));
+                }
                 if (DetectXCTestDependency(swiftInterfacePath))
                 {
                     var simPlatformPath = ResolvePlatformPath(simSlice.SdkName, commandRunner);
                     var platformFrameworksPath = Path.Combine(simPlatformPath, "Developer", "Library", "Frameworks");
                     simEffectiveSearchPaths.Add(platformFrameworksPath);
                     logger.LogInformation("Detected XCTest dependency — added platform frameworks search path for simulator slice.");
+                    simPrecompileTargets.Add(new CollisionPatchTarget("XCTest", null));
+                    simPrecompileExtraSearchPaths.Add(platformFrameworksPath);
+                }
 
-                    if (!string.IsNullOrEmpty(swiftInterfacePath))
-                    {
-                        var xcTestPrecompiled = PrecompileCollidingModule(
-                            moduleName, swiftInterfacePath, simTargetTriple, simSdkPath,
-                            cleanedDir, commandRunner, logger, "XCTest",
-                            additionalFrameworkSearchPaths: new[] { platformFrameworksPath });
-                        simPrecompiledModulePath ??= xcTestPrecompiled;
-                    }
+                var simPrecompiledShadowPaths = new List<string>();
+                if (!string.IsNullOrEmpty(swiftInterfacePath))
+                {
+                    // Helper does its own gating: fires on collisions OR private-interface
+                    // sanitization. Returns null when neither applies.
+                    var shadow = PrecompileSanitizedShadowFramework(
+                        moduleName, swiftInterfacePath, simTargetTriple, simSdkPath,
+                        cleanedDir, commandRunner, logger, simPrecompileTargets,
+                        simPrecompileExtraSearchPaths.Count > 0 ? simPrecompileExtraSearchPaths : null);
+                    if (!string.IsNullOrEmpty(shadow))
+                        simPrecompiledShadowPaths.Add(shadow);
                 }
 
                 if (cleanedFiles.Count > 0)
@@ -357,7 +375,8 @@ namespace BindingsGeneration
                         cleanedFiles, simBinaryPath, wrapperModuleName,
                         simTargetTriple, simSdkPath,
                         simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                        simEffectiveSearchPaths, simPrecompiledModulePath,
+                        simEffectiveSearchPaths,
+                        simPrecompiledShadowPaths.Count > 0 ? simPrecompiledShadowPaths : null,
                         simThunkResult?.ObjectFiles, moduleName);
                     sliceCount++;
                 }
@@ -435,38 +454,44 @@ namespace BindingsGeneration
                         }
                     }
 
-                    // Pre-compile colliding module for device slice (EC-1)
-                    // Must be per-slice as target triple and SDK differ.
-                    string? devPrecompiledModulePath = null;
-                    if (!string.IsNullOrEmpty(moduleNameForCollision) &&
-                        !string.IsNullOrEmpty(deviceResolution.SwiftInterfacePath))
-                    {
-                        devPrecompiledModulePath = PrecompileCollidingModule(
-                            moduleName, deviceResolution.SwiftInterfacePath,
-                            devTargetTriple, devSdkPath,
-                            cleanedDir, commandRunner, logger, moduleNameForCollision,
-                            nestedTypesInCollidingClass);
-                    }
-
-                    // XCTest dependency: add platform framework search path + collision resolution (device)
+                    // Pre-compile colliding module(s) for device slice. Mirrors the simulator
+                    // consolidated call above — all collisions (bound-module + dep-modules +
+                    // XCTest) MUST be patched in a single PrecompileCollidingModule call.
+                    // Same -F propagation: the precompile gets every dependency framework
+                    // search path the final swiftc invocation gets, so imported sibling
+                    // modules in the patched .swiftinterface resolve.
                     var devEffectiveSearchPaths = deviceAdditionalSearchPaths != null
                         ? new List<string>(deviceAdditionalSearchPaths) : new List<string>();
+                    var devPrecompileTargets = new List<CollisionPatchTarget>();
+                    var devPrecompileExtraSearchPaths = deviceAdditionalSearchPaths != null
+                        ? new List<string>(deviceAdditionalSearchPaths) : new List<string>();
+                    if (!string.IsNullOrEmpty(moduleNameForCollision))
+                        devPrecompileTargets.Add(new CollisionPatchTarget(moduleNameForCollision, nestedTypesInCollidingClass));
+                    if (depModuleNamesForCollisionDevice != null)
+                    {
+                        foreach (var depModule in depModuleNamesForCollisionDevice)
+                            devPrecompileTargets.Add(new CollisionPatchTarget(depModule, null));
+                    }
                     if (DetectXCTestDependency(deviceResolution.SwiftInterfacePath))
                     {
                         var devPlatformPath = ResolvePlatformPath(deviceSlice.SdkName, commandRunner);
                         var devPlatformFrameworksPath = Path.Combine(devPlatformPath, "Developer", "Library", "Frameworks");
                         devEffectiveSearchPaths.Add(devPlatformFrameworksPath);
                         logger.LogInformation("Detected XCTest dependency — added platform frameworks search path for device slice.");
+                        devPrecompileTargets.Add(new CollisionPatchTarget("XCTest", null));
+                        devPrecompileExtraSearchPaths.Add(devPlatformFrameworksPath);
+                    }
 
-                        if (!string.IsNullOrEmpty(deviceResolution.SwiftInterfacePath))
-                        {
-                            var xcTestPrecompiled = PrecompileCollidingModule(
-                                moduleName, deviceResolution.SwiftInterfacePath,
-                                devTargetTriple, devSdkPath,
-                                cleanedDir, commandRunner, logger, "XCTest",
-                                additionalFrameworkSearchPaths: new[] { devPlatformFrameworksPath });
-                            devPrecompiledModulePath ??= xcTestPrecompiled;
-                        }
+                    var devPrecompiledShadowPaths = new List<string>();
+                    if (!string.IsNullOrEmpty(deviceResolution.SwiftInterfacePath))
+                    {
+                        var shadow = PrecompileSanitizedShadowFramework(
+                            moduleName, deviceResolution.SwiftInterfacePath,
+                            devTargetTriple, devSdkPath,
+                            cleanedDir, commandRunner, logger, devPrecompileTargets,
+                            devPrecompileExtraSearchPaths.Count > 0 ? devPrecompileExtraSearchPaths : null);
+                        if (!string.IsNullOrEmpty(shadow))
+                            devPrecompiledShadowPaths.Add(shadow);
                     }
 
                     if (cleanedFiles.Count > 0)
@@ -475,7 +500,8 @@ namespace BindingsGeneration
                             cleanedFiles, devBinaryPath, wrapperModuleName,
                             devTargetTriple, devSdkPath,
                             deviceResolution.FrameworkSearchPath, commandRunner, logger,
-                            devEffectiveSearchPaths, devPrecompiledModulePath,
+                            devEffectiveSearchPaths,
+                            devPrecompiledShadowPaths.Count > 0 ? devPrecompiledShadowPaths : null,
                             devThunkResult?.ObjectFiles, moduleName);
                         sliceCount++;
                     }
@@ -576,7 +602,8 @@ namespace BindingsGeneration
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
-            bool skipThunkCompilation = false)
+            bool skipThunkCompilation = false,
+            IReadOnlyList<string>? depModuleNamesForCollision = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -687,39 +714,48 @@ namespace BindingsGeneration
                     }
                 }
 
-                // 6b. Pre-compile colliding module if needed (EC-1)
-                string? precompiledModulePath = null;
-                if (!string.IsNullOrEmpty(moduleNameForCollision) && !string.IsNullOrEmpty(swiftInterfacePath))
+                // 6b. Pre-compile colliding module(s) if needed. The shadow .swiftmodule is
+                // keyed on bound module + target triple, so every collision (bound-module
+                // EC-1, dep-module collisions, XCTest 6c) must be patched in ONE call. Build
+                // the consolidated target list and the XCTest search path together. The
+                // precompile receives the full set of dependency framework search paths so
+                // imported sibling modules in the patched .swiftinterface resolve under
+                // swift-frontend, exactly as they do for the final wrapper-compile invocation.
+                var effectiveSearchPaths = additionalFrameworkSearchPaths != null
+                    ? new List<string>(additionalFrameworkSearchPaths) : new List<string>();
+                var precompileTargets = new List<CollisionPatchTarget>();
+                var precompileExtraSearchPaths = additionalFrameworkSearchPaths != null
+                    ? new List<string>(additionalFrameworkSearchPaths) : new List<string>();
+                if (!string.IsNullOrEmpty(moduleNameForCollision))
+                    precompileTargets.Add(new CollisionPatchTarget(moduleNameForCollision, nestedTypesInCollidingClass));
+                if (depModuleNamesForCollision != null)
                 {
-                    precompiledModulePath = PrecompileCollidingModule(
-                        moduleName, swiftInterfacePath, targetTriple, sdkPath,
-                        cleanedDir, commandRunner, logger, moduleNameForCollision,
-                        nestedTypesInCollidingClass);
+                    foreach (var depModule in depModuleNamesForCollision)
+                        precompileTargets.Add(new CollisionPatchTarget(depModule, null));
                 }
 
                 // 6c. XCTest dependency: add platform framework search path + collision resolution.
                 // XCTest.framework lives at the platform level. The XCTest module also has a class
                 // named "XCTest", causing Swift to misresolve XCTest.XCTestCase as a nested type.
-                // Fix: pre-compile the SOURCE framework's interface with XCTest collision patching.
-                var effectiveSearchPaths = additionalFrameworkSearchPaths != null
-                    ? new List<string>(additionalFrameworkSearchPaths) : new List<string>();
                 if (DetectXCTestDependency(swiftInterfacePath))
                 {
                     var platformPath = ResolvePlatformPath(slice.SdkName, commandRunner);
                     var platformFrameworksPath = Path.Combine(platformPath, "Developer", "Library", "Frameworks");
                     effectiveSearchPaths.Add(platformFrameworksPath);
                     logger.LogInformation("Detected XCTest dependency — added platform frameworks search path.");
+                    precompileTargets.Add(new CollisionPatchTarget("XCTest", null));
+                    precompileExtraSearchPaths.Add(platformFrameworksPath);
+                }
 
-                    // Pre-compile the source framework's interface with XCTest collision patched out.
-                    // This creates a shadow framework with a binary .swiftmodule that resolves types correctly.
-                    if (!string.IsNullOrEmpty(swiftInterfacePath))
-                    {
-                        var xcTestPrecompiled = PrecompileCollidingModule(
-                            moduleName, swiftInterfacePath, targetTriple, sdkPath,
-                            cleanedDir, commandRunner, logger, "XCTest",
-                            additionalFrameworkSearchPaths: new[] { platformFrameworksPath });
-                        precompiledModulePath ??= xcTestPrecompiled;
-                    }
+                var precompiledShadowPaths = new List<string>();
+                if (!string.IsNullOrEmpty(swiftInterfacePath))
+                {
+                    var shadow = PrecompileSanitizedShadowFramework(
+                        moduleName, swiftInterfacePath, targetTriple, sdkPath,
+                        cleanedDir, commandRunner, logger, precompileTargets,
+                        precompileExtraSearchPaths.Count > 0 ? precompileExtraSearchPaths : null);
+                    if (!string.IsNullOrEmpty(shadow))
+                        precompiledShadowPaths.Add(shadow);
                 }
 
                 // 6d. Resource bundle stubs: detect SPM resource bundles in the framework
@@ -744,7 +780,8 @@ namespace BindingsGeneration
                     InvokeSwiftCompiler(
                         cleanedFiles, outputBinaryPath, wrapperModuleName,
                         targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
-                        effectiveSearchPaths, precompiledModulePath,
+                        effectiveSearchPaths,
+                        precompiledShadowPaths.Count > 0 ? precompiledShadowPaths : null,
                         objectFilesToLink, moduleName);
                 }
                 else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
@@ -854,7 +891,8 @@ namespace BindingsGeneration
             string? moduleNameForCollision = null,
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
-            bool skipThunkCompilation = false)
+            bool skipThunkCompilation = false,
+            IReadOnlyList<string>? depModuleNamesForCollision = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -864,7 +902,8 @@ namespace BindingsGeneration
                 moduleNameForCollision: moduleNameForCollision,
                 nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                 swiftInterfacePath: swiftInterfacePath,
-                skipThunkCompilation: skipThunkCompilation);
+                skipThunkCompilation: skipThunkCompilation,
+                depModuleNamesForCollision: depModuleNamesForCollision);
         }
 
         /// <summary>
@@ -1341,7 +1380,7 @@ namespace BindingsGeneration
             ICommandRunner commandRunner,
             ILogger logger,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            string? precompiledModulePath = null,
+            IReadOnlyList<string>? precompiledShadowFrameworkPaths = null,
             IReadOnlyList<string>? thunkObjectFiles = null,
             string? originalModuleName = null)
         {
@@ -1376,21 +1415,73 @@ namespace BindingsGeneration
             }
 
             var additionalFFlags = "";
-            if (effectiveAdditionalFrameworkSearchPaths.Count > 0)
+            // Collect transitive framework names so we can explicitly link them. The wrapper
+            // `import <bound module>` auto-links the bound framework, but transitive ObjC-only
+            // deps (FirebaseCoreInternal, GoogleUtilities, absl, etc.) and other non-imported
+            // frameworks must be explicitly `-framework`-linked or the linker leaves their
+            // OBJC_CLASS_$ / C++ / C symbols unresolved.
+            //
+            // The scan is limited to the user-passed dependency search paths
+            // (`additionalFrameworkSearchPaths`), NOT internally-added platform paths
+            // (Catalyst iOS Support, XCTest Developer/Library/Frameworks). Those internal
+            // paths exist to satisfy `import XCTest`-style module resolution; they should
+            // not contribute `-framework` flags for Testing.framework, XCUIAutomation, etc.
+            // A binding library has no business pulling in test-host frameworks.
+            var transitiveFrameworkLinkerFlags = new System.Text.StringBuilder();
+            var seenLinkedFrameworks = new HashSet<string>(StringComparer.Ordinal);
+            if (!string.IsNullOrEmpty(originalModuleName))
             {
-                foreach (var path in effectiveAdditionalFrameworkSearchPaths)
+                seenLinkedFrameworks.Add(originalModuleName);
+            }
+            // Emit -F for every effective search path so swiftc can resolve modules from any
+            // of them, but scan only the user-passed deps for transitive -framework flags.
+            foreach (var path in effectiveAdditionalFrameworkSearchPaths)
+            {
+                additionalFFlags += $" -F \"{path}\"";
+            }
+            if (additionalFrameworkSearchPaths != null)
+            {
+                foreach (var path in additionalFrameworkSearchPaths)
                 {
-                    additionalFFlags += $" -F \"{path}\"";
+                    if (!System.IO.Directory.Exists(path))
+                    {
+                        continue;
+                    }
+                    foreach (var frameworkDir in System.IO.Directory.EnumerateDirectories(path, "*.framework"))
+                    {
+                        var frameworkName = System.IO.Path.GetFileNameWithoutExtension(frameworkDir);
+                        if (string.IsNullOrEmpty(frameworkName)) continue;
+                        // Only link a framework that has a real linker-consumable binary on disk —
+                        // header/swiftmodule-only slices have no binary and would trigger ld
+                        // "framework not found". We verify the magic bytes rather than just file
+                        // presence so a stray marker file or text manifest at the expected path
+                        // doesn't sneak through and fail at link. Accept Mach-O (thin or fat) and
+                        // static archives (.a — used by many static-framework xcframeworks).
+                        var binaryPath = System.IO.Path.Combine(frameworkDir, frameworkName);
+                        if (!IsLinkableFrameworkBinary(binaryPath)) continue;
+                        if (seenLinkedFrameworks.Add(frameworkName))
+                        {
+                            transitiveFrameworkLinkerFlags.Append($"-Xlinker -framework -Xlinker {frameworkName} ");
+                        }
+                    }
                 }
             }
 
-            // Pre-compiled module path for collision resolution: shadow framework directory
-            // with binary .swiftmodule. Added as a higher-priority -F path BEFORE the real
-            // framework search path, so swiftc finds the binary module first.
+            // Pre-compiled shadow module paths for collision resolution: each is a shadow
+            // framework directory containing a binary .swiftmodule produced by
+            // PrecompileCollidingModule. Each must be emitted as a higher-priority -F BEFORE
+            // the real framework search path, so swiftc finds the binary module first and
+            // bypasses the textual swiftinterface that would re-trigger the collision. Multiple
+            // shadow paths support concurrent collisions (e.g., bound-module collision + dep-module
+            // collision + XCTest precompile) — order within the list is preserved.
             var precompiledFFlag = "";
-            if (!string.IsNullOrEmpty(precompiledModulePath))
+            if (precompiledShadowFrameworkPaths != null)
             {
-                precompiledFFlag = $"-F \"{precompiledModulePath}\" ";
+                foreach (var shadowPath in precompiledShadowFrameworkPaths)
+                {
+                    if (!string.IsNullOrEmpty(shadowPath))
+                        precompiledFFlag += $"-F \"{shadowPath}\" ";
+                }
             }
 
             var args = $"swiftc -emit-library -target {targetTriple} " +
@@ -1399,6 +1490,7 @@ namespace BindingsGeneration
                        $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
                        $"-module-name {wrapperModuleName} " +
                        $"{thunkLinkerFlags}" +
+                       $"{transitiveFrameworkLinkerFlags}" +
                        $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
                        $"-o \"{outputBinaryPath}\" " +
                        fileArgs;
@@ -1410,7 +1502,33 @@ namespace BindingsGeneration
             if (exitCode != 0)
             {
                 logger.LogDebug("Full swiftc stderr:\n{Stderr}", stderr);
-                var errorPreview = stderr.Length > 2000 ? stderr.Substring(0, 2000) + "..." : stderr;
+                // Dump full stderr to a sibling file so callers can inspect it even when the
+                // preview is filtered/truncated. Stable filename next to the output binary.
+                try
+                {
+                    var stderrPath = outputBinaryPath + ".swiftc-stderr.txt";
+                    System.IO.File.WriteAllText(stderrPath, stderr);
+                }
+                catch { /* best-effort diagnostic dump */ }
+                // Filter to error-bearing and Undefined-symbol lines so the preview surfaces the
+                // real failure even when swiftc emits hundreds of warnings before the first error
+                // (e.g. linker failures where "Undefined symbols" is several lines from "error:").
+                var stderrForPreview = stderr;
+                var allLines = stderr.Split('\n');
+                var diagnosticLines = allLines.Where(l =>
+                    l.Contains(" error:") ||
+                    l.TrimStart().StartsWith("error:", StringComparison.Ordinal) ||
+                    l.Contains("Undefined symbols") ||
+                    l.Contains("undefined symbol") ||
+                    l.Contains("referenced from:") ||
+                    l.TrimStart().StartsWith("\"_") ||
+                    l.Contains("ld: ") ||
+                    l.Contains("clang: error")).Take(40).ToList();
+                if (diagnosticLines.Count > 0)
+                {
+                    stderrForPreview = string.Join("\n", diagnosticLines);
+                }
+                var errorPreview = stderrForPreview.Length > 4000 ? stderrForPreview.Substring(0, 4000) + "..." : stderrForPreview;
 
                 var missingModules = ExtractMissingModules(stderr);
                 var hint = "";
@@ -1431,6 +1549,54 @@ namespace BindingsGeneration
 
                 throw new InvalidOperationException(
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
+            }
+        }
+
+        // Verify a file begins with a linker-consumable binary header so the transitive-linker
+        // scan only emits -framework for real binaries. Marker/manifest files at the expected
+        // <Framework>.framework/<Framework> path would otherwise pass through and fail at link.
+        // Accepts thin Mach-O, fat Mach-O (32- and 64-bit fat headers), and ar(1) static archives
+        // (e.g. static-framework xcframeworks ship the framework binary as a `.a`-format file).
+        private static bool IsLinkableFrameworkBinary(string path)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(path))
+                    return false;
+                using var stream = System.IO.File.OpenRead(path);
+                Span<byte> magic = stackalloc byte[8];
+                var read = stream.Read(magic);
+                if (read < 4)
+                    return false;
+                // Mach-O thin (32/64-bit, both endians):
+                //   MH_MAGIC_64 LE (CF FA ED FE), MH_MAGIC LE (CE FA ED FE)
+                //   MH_MAGIC_64 BE (FE ED FA CF), MH_MAGIC BE (FE ED FA CE)
+                // Mach-O fat (universal):
+                //   FAT_MAGIC    (CA FE BA BE) / FAT_CIGAM    (BE BA FE CA)
+                //   FAT_MAGIC_64 (CA FE BA BF) / FAT_CIGAM_64 (BF BA FE CA)
+                bool machO =
+                       (magic[0] == 0xCF && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE)
+                    || (magic[0] == 0xCE && magic[1] == 0xFA && magic[2] == 0xED && magic[3] == 0xFE)
+                    || (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCF)
+                    || (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCE)
+                    || (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBE)
+                    || (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBF)
+                    || (magic[0] == 0xBE && magic[1] == 0xBA && magic[2] == 0xFE && magic[3] == 0xCA)
+                    || (magic[0] == 0xBF && magic[1] == 0xBA && magic[2] == 0xFE && magic[3] == 0xCA);
+                if (machO)
+                    return true;
+                // ar(1) static archive: "!<arch>\n" — 8 bytes (0x21 3C 61 72 63 68 3E 0A).
+                if (read >= 8
+                    && magic[0] == 0x21 && magic[1] == 0x3C && magic[2] == 0x61 && magic[3] == 0x72
+                    && magic[4] == 0x63 && magic[5] == 0x68 && magic[6] == 0x3E && magic[7] == 0x0A)
+                {
+                    return true;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -1575,22 +1741,183 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Pre-compiles a patched .swiftinterface into a binary .swiftmodule to resolve
-        /// module/type name collisions (EC-1). When a module has a public type with the
-        /// same name as the module, the textual .swiftinterface fails to import because
-        /// Swift misresolves Module.Type as Class.NestedType. The fix:
-        /// 1. Copy .swiftinterface to temp dir
-        /// 2. Patch collision: strip module prefix from type references
-        /// 3. Compile to binary .swiftmodule via swift-frontend
-        /// 4. Return the directory path for -I flag (binary module takes precedence)
+        /// One module-type collision to resolve in a single shadow .swiftmodule. The bound
+        /// module's own self-collision (EC-1) usually pairs with a non-empty <see cref="NestedTypes"/>
+        /// set so nested references like <c>Reachability.Connection</c> survive prefix stripping
+        /// (EC-18); dep-module and XCTest collisions have no nested-type carveouts and pass
+        /// <see cref="NestedTypes"/> as null.
         /// </summary>
-        /// <returns>Directory path containing the pre-compiled .swiftmodule, or null on failure.</returns>
+        internal readonly record struct CollisionPatchTarget(string Module, HashSet<string>? NestedTypes);
+
         /// <summary>
-        /// Pre-compiles a patched .swiftinterface into a binary .swiftmodule to resolve
-        /// module/type name collisions (EC-1). Creates a temp framework directory structure
-        /// that shadows the real framework when added as a higher-priority -F path.
+        /// Stages a sanitized shadow framework that swiftc/ld will see before the real slice
+        /// via higher-priority <c>-F</c> precedence. Fires on two independent triggers:
+        ///
+        /// <list type="number">
+        /// <item><b>Collision (EC-1):</b> when a public type has the same name as its module,
+        /// the textual <c>.swiftinterface</c> fails to import because Swift misresolves
+        /// <c>Module.Type</c> as <c>Class.NestedType</c>. We patch the interface to strip the
+        /// module prefix and precompile to a binary <c>.swiftmodule</c>, then drop the textual
+        /// interface from the shadow so swiftc binds against the binary.</item>
+        /// <item><b>Private interface sanitization:</b> when the source swiftmodule dir contains
+        /// a <c>*.private.swiftinterface</c>, swiftc parses BOTH public and private interfaces
+        /// during module materialization. A malformed private interface (e.g., GTMAppAuth's,
+        /// which references a class-shadowed module name) kills the load even though the
+        /// wrapper never uses <c>@_spi import</c>. We copy only the public interface into the
+        /// shadow so swiftc never sees the private one.</item>
+        /// </list>
+        ///
+        /// <para>
+        /// All collisions for the same bound module/slice MUST be passed in a single call:
+        /// the shadow .swiftmodule path is keyed on the bound module name + target triple,
+        /// so a second call would overwrite the first slice's binary with one that only
+        /// patches the second collision. The combined regex handles every supplied module
+        /// in a single pass.
+        /// </para>
         /// </summary>
-        /// <returns>Framework search path to prepend as -F (higher priority), or null on failure.</returns>
+        /// <returns>Framework search path to prepend as -F (higher priority), or null when
+        /// nothing needs staging (no collisions and no private interface) or on failure.</returns>
+        internal static string? PrecompileSanitizedShadowFramework(
+            string moduleName,
+            string swiftInterfacePath,
+            string targetTriple,
+            string sdkPath,
+            string buildDir,
+            ICommandRunner commandRunner,
+            ILogger logger,
+            IReadOnlyList<CollisionPatchTarget> collisions,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+        {
+            if (string.IsNullOrEmpty(swiftInterfacePath))
+                return null;
+
+            var sourceModuleDir = Path.GetDirectoryName(swiftInterfacePath);
+            bool hasCollisions = collisions != null && collisions.Count > 0;
+            bool hasPrivateInterface = sourceModuleDir != null
+                && Directory.Exists(sourceModuleDir)
+                && Directory.EnumerateFiles(sourceModuleDir, "*.private.swiftinterface").Any();
+
+            if (!hasCollisions && !hasPrivateInterface)
+                return null;
+
+            try
+            {
+                // Target-specific shadow dir keeps simulator/device staging from colliding.
+                var safeTriple = targetTriple.Replace("/", "_");
+                var precompileDir = Path.Combine(buildDir, $"precompiled-{safeTriple}");
+                Directory.CreateDirectory(precompileDir);
+
+                // Mirror the framework structure:
+                //   {precompileDir}/{Module}.framework/
+                //     ├── {Module}                            (symlink to real binary, defensive)
+                //     ├── Headers/                            (symlinked from real, when present)
+                //     └── Modules/
+                //         ├── module.modulemap                (real or minimal Swift-only)
+                //         └── {Module}.swiftmodule/
+                //             └── (binary .swiftmodule | public .swiftinterface)
+                var frameworkDir = Path.Combine(precompileDir, $"{moduleName}.framework");
+                var shadowModulesDir = Path.Combine(frameworkDir, "Modules");
+                var fwDir = Path.Combine(shadowModulesDir, $"{moduleName}.swiftmodule");
+                Directory.CreateDirectory(fwDir);
+
+                // Derive the slice framework search path from swiftInterfacePath:
+                //   .../<slice>/<Module>.framework/Modules/<Module>.swiftmodule/<arch>.swiftinterface
+                var swiftModuleParent = Path.GetDirectoryName(swiftInterfacePath); // .swiftmodule dir
+                var modulesParent = Path.GetDirectoryName(swiftModuleParent);      // Modules dir
+                var realFrameworkDir = Path.GetDirectoryName(modulesParent);       // <Module>.framework
+                var sliceSearchPath = Path.GetDirectoryName(realFrameworkDir);     // slice dir (for -F)
+
+                // Mirror the source modulemap + public Headers/ into the shadow so umbrella
+                // header references in the bound .swiftinterface resolve. A Swift-only
+                // modulemap would strip them, and same-module ObjC names (e.g.,
+                // BlinkID.MBSampleBufferWrapper, CocoaLumberjackSwift's DDDefaultLogLevel
+                // const) would fail to resolve. Falls back to a minimal modulemap only when
+                // the source framework has no public modulemap (pure-Swift interface-only).
+                StageShadowFrameworkLayout(moduleName, shadowModulesDir, frameworkDir, realFrameworkDir, logger);
+
+                // Stage the real framework binary into the shadow at
+                // <Module>.framework/<Module>. ld walks -F in order looking for that file
+                // when resolving -framework <Module>; without this the linker falls
+                // through to the real -F, a behavior detail we'd rather not depend on.
+                // Prefer a symlink (cheap); copy-fallback if symlink creation isn't allowed
+                // (sandbox/policy). Skip silently if the source has no binary (interface-only
+                // frameworks).
+                if (!string.IsNullOrEmpty(realFrameworkDir))
+                {
+                    var realBinaryPath = Path.Combine(realFrameworkDir!, moduleName);
+                    if (File.Exists(realBinaryPath))
+                    {
+                        var shadowBinaryPath = Path.Combine(frameworkDir, moduleName);
+                        try
+                        {
+                            File.CreateSymbolicLink(shadowBinaryPath, realBinaryPath);
+                        }
+                        catch (Exception symlinkEx)
+                        {
+                            try
+                            {
+                                // Delete any pre-existing link/file at the destination first.
+                                // File.Copy(overwrite:true) follows an existing symlink at the
+                                // destination, which could write through to the real framework
+                                // binary if a stale symlink survives in a reused build dir.
+                                if (File.Exists(shadowBinaryPath) || new FileInfo(shadowBinaryPath).LinkTarget != null)
+                                {
+                                    File.Delete(shadowBinaryPath);
+                                }
+                                File.Copy(realBinaryPath, shadowBinaryPath);
+                            }
+                            catch (Exception copyEx)
+                            {
+                                logger.LogDebug(
+                                    "Shadow framework binary staging skipped (non-fatal): symlink={Symlink}, copy={Copy}",
+                                    symlinkEx.Message, copyEx.Message);
+                            }
+                        }
+                    }
+                }
+
+                if (hasCollisions)
+                {
+                    return StageCollisionPatchedShadow(
+                        moduleName, swiftInterfacePath, sourceModuleDir, fwDir,
+                        sliceSearchPath, precompileDir, targetTriple, sdkPath,
+                        commandRunner, logger, collisions!, additionalFrameworkSearchPaths);
+                }
+
+                // Private-interface-only sanitization: copy public .swiftinterface files into
+                // the shadow as-is. The public interface compiles on its own; swiftc reading
+                // from the shadow swiftmodule dir never sees the private interface. No
+                // precompile step needed — that's reserved for collision patching where the
+                // textual interface must be rewritten.
+                if (sourceModuleDir != null)
+                {
+                    foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
+                    {
+                        if (ifaceFile.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        File.Copy(ifaceFile, Path.Combine(fwDir, Path.GetFileName(ifaceFile)), overwrite: true);
+                    }
+                    // Copy .swiftdoc files when present — swiftc emits a warning without them
+                    // and they're cheap to mirror.
+                    foreach (var docFile in Directory.GetFiles(sourceModuleDir, "*.swiftdoc"))
+                    {
+                        File.Copy(docFile, Path.Combine(fwDir, Path.GetFileName(docFile)), overwrite: true);
+                    }
+                }
+
+                logger.LogInformation(
+                    "Staged sanitized shadow framework for '{Module}' (private.swiftinterface in source dir; wrapper does not consume @_spi).",
+                    moduleName);
+                return precompileDir;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Shadow framework staging failed (non-fatal): {Message}", ex.Message);
+                return null;
+            }
+        }
+
+        // Compatibility alias for the prior name; new callers should use the renamed entry point.
         internal static string? PrecompileCollidingModule(
             string moduleName,
             string swiftInterfacePath,
@@ -1599,132 +1926,235 @@ namespace BindingsGeneration
             string buildDir,
             ICommandRunner commandRunner,
             ILogger logger,
-            string moduleNameForCollision,
-            HashSet<string>? nestedTypesInCollidingClass = null,
+            IReadOnlyList<CollisionPatchTarget> collisions,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+            => PrecompileSanitizedShadowFramework(
+                moduleName, swiftInterfacePath, targetTriple, sdkPath, buildDir,
+                commandRunner, logger, collisions, additionalFrameworkSearchPaths);
+
+        /// <summary>
+        /// Mirrors the source framework's public modulemap + Headers/ into the shadow
+        /// framework dir. Falls back to a minimal Swift-only modulemap when the source
+        /// framework has no public modulemap (rare — pure-Swift interface-only). The
+        /// <c>module.private.modulemap</c> is never staged: that's the surface we're
+        /// sanitizing, and copying it would re-expose the @_spi headers we excluded.
+        /// </summary>
+        internal static void StageShadowFrameworkLayout(
+            string moduleName,
+            string shadowModulesDir,
+            string shadowFrameworkDir,
+            string? realFrameworkDir,
+            ILogger logger)
         {
+            var shadowModulemap = Path.Combine(shadowModulesDir, "module.modulemap");
+            bool stagedRealModulemap = false;
+            if (!string.IsNullOrEmpty(realFrameworkDir))
+            {
+                var realModulemap = Path.Combine(realFrameworkDir!, "Modules", "module.modulemap");
+                if (File.Exists(realModulemap))
+                {
+                    try
+                    {
+                        File.Copy(realModulemap, shadowModulemap, overwrite: true);
+                        stagedRealModulemap = true;
+                    }
+                    catch (IOException ex)
+                    {
+                        logger.LogDebug(
+                            "Shadow modulemap copy failed for '{Module}' (falling back to minimal): {Message}",
+                            moduleName, ex.Message);
+                    }
+                }
+            }
+
+            if (!stagedRealModulemap)
+            {
+                var minimalModulemap = $"framework module {moduleName} {{\n}}\n";
+                File.WriteAllText(shadowModulemap, minimalModulemap);
+                return;
+            }
+
+            // Stage public Headers/ and PrivateHeaders/ so every header referenced by the
+            // copied modulemap resolves. Frameworks routinely declare `header "x.h"` in the
+            // public modulemap pointing at a file under PrivateHeaders/ (e.g., GRDB's
+            // `header "grdb_config.h"`) — swiftc searches both directories for module.modulemap
+            // references. The @_spi surface lives in module.private.modulemap (never staged),
+            // not in PrivateHeaders/.
+            if (string.IsNullOrEmpty(realFrameworkDir))
+                return;
+            StageShadowHeaderDir(moduleName, "Headers", realFrameworkDir!, shadowFrameworkDir, logger);
+            StageShadowHeaderDir(moduleName, "PrivateHeaders", realFrameworkDir!, shadowFrameworkDir, logger);
+        }
+
+        private static void StageShadowHeaderDir(
+            string moduleName,
+            string dirName,
+            string realFrameworkDir,
+            string shadowFrameworkDir,
+            ILogger logger)
+        {
+            var realDir = Path.Combine(realFrameworkDir, dirName);
+            if (!Directory.Exists(realDir))
+                return;
+            var shadowDir = Path.Combine(shadowFrameworkDir, dirName);
+            if (Directory.Exists(shadowDir) || File.Exists(shadowDir))
+            {
+                try { Directory.Delete(shadowDir, recursive: true); }
+                catch (IOException) { try { File.Delete(shadowDir); } catch (IOException) { } }
+            }
             try
             {
-                // Create a subdirectory for pre-compiled modules (target-specific)
-                var safeTriple = targetTriple.Replace("/", "_");
-                var precompileDir = Path.Combine(buildDir, $"precompiled-{safeTriple}");
-                Directory.CreateDirectory(precompileDir);
-
-                // 1. Prepare the collision regex
-                var collisionPattern = new System.Text.RegularExpressions.Regex(
-                    @"\b" + System.Text.RegularExpressions.Regex.Escape(moduleNameForCollision) +
-                    @"\.(\w+(?:\.\w+)*)",
-                    System.Text.RegularExpressions.RegexOptions.Compiled);
-
-                // 2. Create a shadow framework directory structure that overrides the real one
-                // via -F precedence. Structure: {precompileDir}/{Module}.framework/Modules/{Module}.swiftmodule/
-                var fwDir = Path.Combine(precompileDir, $"{moduleName}.framework", "Modules",
-                    $"{moduleName}.swiftmodule");
-                Directory.CreateDirectory(fwDir);
-
-                // Copy and patch the .swiftinterface
-                var patchedInterfacePath = Path.Combine(precompileDir, Path.GetFileName(swiftInterfacePath));
-                PatchSwiftInterface(swiftInterfacePath, patchedInterfacePath, collisionPattern, nestedTypesInCollidingClass);
-
-                // Copy and patch swiftinterface files from the source .swiftmodule dir
-                // into the shadow framework. Exclude .private.swiftinterface files:
-                // the binary .swiftmodule is self-contained for public API resolution,
-                // and private interfaces can contain types from colliding modules that
-                // fail to resolve even after patching (e.g., XCTest class/module collision).
-                var sourceModuleDir = Path.GetDirectoryName(swiftInterfacePath);
-                if (sourceModuleDir != null)
-                {
-                    foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
-                    {
-                        if (ifaceFile.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        var destPath = Path.Combine(fwDir, Path.GetFileName(ifaceFile));
-                        PatchSwiftInterface(ifaceFile, destPath, collisionPattern, nestedTypesInCollidingClass);
-                    }
-                }
-
-                // Create a minimal Swift-only modulemap for the shadow framework.
-                // The real framework's modulemap may reference umbrella headers that don't exist
-                // in the shadow. For Swift-only imports, a bare module declaration suffices.
-                var shadowModulesDir = Path.Combine(precompileDir, $"{moduleName}.framework", "Modules");
-                var minimalModulemap = $"framework module {moduleName} {{\n}}\n";
-                File.WriteAllText(Path.Combine(shadowModulesDir, "module.modulemap"), minimalModulemap);
-
-                // Derive binary module name from the .swiftinterface filename pattern.
-                // Framework .swiftmodule dirs use versionless arch names (e.g., "arm64-apple-ios-simulator")
-                // while GetTargetTriple() includes the OS version (e.g., "arm64-apple-ios17.0-simulator").
-                // swiftc only finds the binary module if the filename matches the versionless pattern.
-                var interfaceBaseName = Path.GetFileNameWithoutExtension(
-                    Path.GetFileName(swiftInterfacePath));
-                var outputModulePath = Path.Combine(fwDir, $"{interfaceBaseName}.swiftmodule");
-
-                // 3. Compile to binary .swiftmodule
-                // Derive the framework search path from the swiftinterface path.
-                // swiftInterfacePath is like: .../ios-arm64_x86_64-simulator/Module.framework/Modules/Module.swiftmodule/arch.swiftinterface
-                // Framework search path is: .../ios-arm64_x86_64-simulator/
-                var swiftModuleParent = Path.GetDirectoryName(swiftInterfacePath); // .swiftmodule dir
-                var modulesParent = Path.GetDirectoryName(swiftModuleParent);      // Modules dir
-                var frameworkParent = Path.GetDirectoryName(modulesParent);         // Module.framework dir
-                var sliceSearchPath = Path.GetDirectoryName(frameworkParent);       // slice dir (for -F)
-
-                var fwSearchFlag = "";
-                if (!string.IsNullOrEmpty(sliceSearchPath) && Directory.Exists(sliceSearchPath))
-                {
-                    fwSearchFlag = $"-F \"{sliceSearchPath}\" ";
-                }
-
-                // Append additional -F paths (e.g., platform frameworks for XCTest dependency)
-                if (additionalFrameworkSearchPaths != null)
-                {
-                    foreach (var addPath in additionalFrameworkSearchPaths)
-                    {
-                        fwSearchFlag += $"-F \"{addPath}\" ";
-                    }
-                }
-
-                var args = $"swift-frontend -compile-module-from-interface " +
-                           $"\"{patchedInterfacePath}\" " +
-                           $"-target {targetTriple} " +
-                           $"-module-name {moduleName} " +
-                           $"-sdk \"{sdkPath}\" " +
-                           $"{fwSearchFlag}" +
-                           $"-o \"{outputModulePath}\"";
-
-                var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
-
-                if (exitCode != 0)
-                {
-                    logger.LogWarning(
-                        "Pre-compilation of colliding module '{Module}' failed (non-fatal): {Error}",
-                        moduleName, stderr.Length > 500 ? stderr.Substring(0, 500) : stderr);
-                    return null;
-                }
-
-                // Remove textual .swiftinterface files from the shadow framework.
-                // The binary .swiftmodule is self-contained — leaving the textual interfaces
-                // causes swiftc to fall back to re-parsing them (which hits the collision).
-                foreach (var ifaceFile in Directory.GetFiles(fwDir, "*.swiftinterface"))
-                {
-                    File.Delete(ifaceFile);
-                }
-
-                logger.LogInformation("Pre-compiled patched .swiftinterface for collision resolution ({Module}).", moduleName);
-                return precompileDir;
+                Directory.CreateSymbolicLink(shadowDir, realDir);
+                return;
             }
-            catch (Exception ex)
+            catch (Exception symEx)
             {
-                logger.LogWarning("Pre-compilation failed (non-fatal): {Message}", ex.Message);
+                logger.LogDebug(
+                    "Shadow {Dir}/ symlink failed for '{Module}', copying recursively: {Message}",
+                    dirName, moduleName, symEx.Message);
+            }
+            try
+            {
+                CopyDirectoryRecursive(realDir, shadowDir);
+            }
+            catch (IOException ex)
+            {
+                logger.LogWarning(
+                    "Shadow {Dir}/ staging failed for '{Module}' (modulemap header may not resolve): {Message}",
+                    dirName, moduleName, ex.Message);
+            }
+        }
+
+        private static void CopyDirectoryRecursive(string source, string dest)
+        {
+            Directory.CreateDirectory(dest);
+            foreach (var file in Directory.EnumerateFiles(source))
+                File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), overwrite: true);
+            foreach (var dir in Directory.EnumerateDirectories(source))
+                CopyDirectoryRecursive(dir, Path.Combine(dest, Path.GetFileName(dir)));
+        }
+
+        private static string? StageCollisionPatchedShadow(
+            string moduleName,
+            string swiftInterfacePath,
+            string? sourceModuleDir,
+            string fwDir,
+            string? sliceSearchPath,
+            string precompileDir,
+            string targetTriple,
+            string sdkPath,
+            ICommandRunner commandRunner,
+            ILogger logger,
+            IReadOnlyList<CollisionPatchTarget> collisions,
+            IReadOnlyList<string>? additionalFrameworkSearchPaths)
+        {
+            // Combined collision regex spanning every supplied module. Sort longest-first so
+            // `Foo` can never partial-match inside `FooBar` via left-to-right alternation.
+            // Group 1 is the matched module name (used to dispatch the nested-type carveout);
+            // group 2 is the trailing type chain.
+            var nestedByModule = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (var c in collisions)
+            {
+                if (string.IsNullOrEmpty(c.Module)) continue;
+                if (c.NestedTypes != null && c.NestedTypes.Count > 0)
+                    nestedByModule[c.Module] = c.NestedTypes;
+            }
+            var sortedModules = collisions
+                .Where(c => !string.IsNullOrEmpty(c.Module))
+                .Select(c => c.Module)
+                .Distinct(StringComparer.Ordinal)
+                .OrderByDescending(m => m.Length)
+                .ToList();
+            if (sortedModules.Count == 0)
+                return null;
+            var alternation = string.Join("|", sortedModules.Select(System.Text.RegularExpressions.Regex.Escape));
+            var collisionPattern = new System.Text.RegularExpressions.Regex(
+                @"\b(" + alternation + @")\.(\w+(?:\.\w+)*)",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+            // Copy and patch the primary .swiftinterface used as the precompile input.
+            var patchedInterfacePath = Path.Combine(precompileDir, Path.GetFileName(swiftInterfacePath));
+            PatchSwiftInterface(swiftInterfacePath, patchedInterfacePath, collisionPattern, nestedByModule);
+
+            // Copy and patch every other public swiftinterface from the source .swiftmodule
+            // dir into the shadow. Private interfaces are skipped: the binary .swiftmodule is
+            // self-contained for public API resolution, and private interfaces can contain
+            // types from colliding modules that fail to resolve even after patching.
+            if (sourceModuleDir != null)
+            {
+                foreach (var ifaceFile in Directory.GetFiles(sourceModuleDir, "*.swiftinterface"))
+                {
+                    if (ifaceFile.EndsWith(".private.swiftinterface", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var destPath = Path.Combine(fwDir, Path.GetFileName(ifaceFile));
+                    PatchSwiftInterface(ifaceFile, destPath, collisionPattern, nestedByModule);
+                }
+            }
+
+            // Framework .swiftmodule dirs use versionless arch names (e.g.,
+            // "arm64-apple-ios-simulator") while GetTargetTriple() includes the OS version
+            // (e.g., "arm64-apple-ios17.0-simulator"). swiftc only finds the binary module
+            // when the filename matches the versionless pattern, so derive it from the input
+            // swiftinterface filename rather than the target triple.
+            var interfaceBaseName = Path.GetFileNameWithoutExtension(
+                Path.GetFileName(swiftInterfacePath));
+            var outputModulePath = Path.Combine(fwDir, $"{interfaceBaseName}.swiftmodule");
+
+            var fwSearchFlag = "";
+            if (!string.IsNullOrEmpty(sliceSearchPath) && Directory.Exists(sliceSearchPath))
+            {
+                fwSearchFlag = $"-F \"{sliceSearchPath}\" ";
+            }
+            if (additionalFrameworkSearchPaths != null)
+            {
+                foreach (var addPath in additionalFrameworkSearchPaths)
+                {
+                    fwSearchFlag += $"-F \"{addPath}\" ";
+                }
+            }
+
+            var args = $"swift-frontend -compile-module-from-interface " +
+                       $"\"{patchedInterfacePath}\" " +
+                       $"-target {targetTriple} " +
+                       $"-module-name {moduleName} " +
+                       $"-sdk \"{sdkPath}\" " +
+                       $"{fwSearchFlag}" +
+                       $"-o \"{outputModulePath}\"";
+
+            var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
+
+            if (exitCode != 0)
+            {
+                logger.LogWarning(
+                    "Pre-compilation of bound module '{Module}' with collisions [{Collisions}] failed (non-fatal): {Error}",
+                    moduleName, string.Join(",", sortedModules),
+                    stderr.Length > 500 ? stderr.Substring(0, 500) : stderr);
                 return null;
             }
+
+            // Drop textual .swiftinterface files from the shadow. The binary .swiftmodule is
+            // self-contained; leaving the textual interfaces causes swiftc to fall back to
+            // re-parsing them (which would hit the unpatched collision shape again).
+            foreach (var ifaceFile in Directory.GetFiles(fwDir, "*.swiftinterface"))
+            {
+                File.Delete(ifaceFile);
+            }
+
+            logger.LogInformation(
+                "Pre-compiled patched .swiftinterface for collision resolution ({Module}; collisions=[{Collisions}]).",
+                moduleName, string.Join(",", sortedModules));
+            return precompileDir;
         }
         /// <summary>
         /// Patches a .swiftinterface file by stripping the module prefix from type references
         /// to resolve module/type name collisions. Preserves references to types nested inside
-        /// the colliding class (EC-18).
+        /// the colliding class (EC-18). When multiple modules collide, the combined regex
+        /// captures the matched module in group 1; the per-module nested-type carveout is
+        /// applied via <paramref name="nestedTypesByModule"/>.
         /// </summary>
         private static void PatchSwiftInterface(string sourcePath, string destPath,
             System.Text.RegularExpressions.Regex collisionPattern,
-            HashSet<string>? nestedTypesInCollidingClass)
+            IReadOnlyDictionary<string, HashSet<string>> nestedTypesByModule)
         {
             var content = File.ReadAllText(sourcePath);
             var patched = new System.Text.StringBuilder();
@@ -1737,15 +2167,33 @@ namespace BindingsGeneration
                 }
                 patched.Append(collisionPattern.Replace(line, match =>
                 {
-                    var firstComponent = match.Groups[1].Value;
-                    var dotIdx = firstComponent.IndexOf('.');
-                    var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
+                    // Group 1 = matched module name. Group 2 = trailing type chain.
+                    // Single-group legacy patterns (no module capture) fall back to
+                    // Group 1 as the trailing chain — preserves the old test contract.
+                    string moduleMatched;
+                    string trailingChain;
+                    if (match.Groups.Count >= 3 && match.Groups[2].Success)
+                    {
+                        moduleMatched = match.Groups[1].Value;
+                        trailingChain = match.Groups[2].Value;
+                    }
+                    else
+                    {
+                        moduleMatched = string.Empty;
+                        trailingChain = match.Groups[1].Value;
+                    }
 
-                    if (nestedTypesInCollidingClass != null &&
-                        nestedTypesInCollidingClass.Contains(topLevelName))
+                    var dotIdx = trailingChain.IndexOf('.');
+                    var topLevelName = dotIdx >= 0 ? trailingChain.Substring(0, dotIdx) : trailingChain;
+
+                    if (!string.IsNullOrEmpty(moduleMatched) &&
+                        nestedTypesByModule.TryGetValue(moduleMatched, out var nested) &&
+                        nested.Contains(topLevelName))
+                    {
                         return match.Value;
+                    }
 
-                    return match.Groups[1].Value;
+                    return trailingChain;
                 })).Append('\n');
             }
             File.WriteAllText(destPath, patched.ToString());

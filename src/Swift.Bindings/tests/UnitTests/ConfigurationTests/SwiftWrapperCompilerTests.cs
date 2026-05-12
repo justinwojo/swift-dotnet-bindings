@@ -754,10 +754,13 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void InvokeSwiftCompiler_LongStderr_TruncatesAt2000Chars()
+        public void InvokeSwiftCompiler_LongStderr_TruncatesAt4000Chars()
         {
             var runner = new MockCommandRunner();
-            var longError = new string('x', 3000);
+            // Single huge line that is neither an error-line nor a linker-line — exercises the
+            // raw-preview length cap. The diagnostic-line filter (preferred path) only kicks in
+            // when stderr contains ` error:` / `Undefined symbols` / etc.
+            var longError = new string('x', 5000);
             runner.SetResponse("swiftc", 1, "", longError);
 
             var files = new List<string> { "/tmp/a.swift" };
@@ -766,11 +769,59 @@ namespace BindingsGeneration.Tests
                     files, "/tmp/out/Binary", "TestSwiftBindings",
                     "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
                     runner, NullLogger.Instance));
-            // Should truncate at 2000 + "..."
+            // Raw preview caps at 4000 + "..." when no diagnostic lines are filterable
             Assert.Contains("...", ex.Message);
-            // The error preview in the message should be at most 2003 chars (2000 + "...")
-            // but the full message includes the prefix text too
-            Assert.True(ex.Message.Length < longError.Length + 100);
+            // The error preview is bounded so the message can't swell with the full stderr
+            Assert.True(ex.Message.Length < longError.Length);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_StderrWithErrorLines_FiltersToErrorPreview()
+        {
+            var runner = new MockCommandRunner();
+            // Real-world shape: many warning lines, then the actual error buried near the end.
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 50; i++)
+                sb.AppendLine($"warning: nearly matches defaulted requirement #{i}");
+            sb.AppendLine("/tmp/Foo.swift:42:5: error: cannot convert value of type 'Int' to 'String'");
+            for (int i = 0; i < 50; i++)
+                sb.AppendLine($"note: requirement from here #{i}");
+            runner.SetResponse("swiftc", 1, "", sb.ToString());
+
+            var files = new List<string> { "/tmp/a.swift" };
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance));
+            // Preview must surface the real error — not bury it behind warnings.
+            Assert.Contains("cannot convert value of type 'Int' to 'String'", ex.Message);
+            Assert.DoesNotContain("nearly matches defaulted requirement #0", ex.Message);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_StderrWithLinkerErrors_PreviewSurfacesLinkerLines()
+        {
+            var runner = new MockCommandRunner();
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 30; i++)
+                sb.AppendLine($"warning: existential 'any P' will require explicit 'any' #{i}");
+            sb.AppendLine("Undefined symbols for architecture arm64:");
+            sb.AppendLine("  \"_OBJC_CLASS_$_GULAppEnvironmentUtil\", referenced from:");
+            sb.AppendLine("ld: symbol(s) not found for architecture arm64");
+            sb.AppendLine("clang: error: linker command failed with exit code 1");
+            runner.SetResponse("swiftc", 1, "", sb.ToString());
+
+            var files = new List<string> { "/tmp/a.swift" };
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance));
+            // Linker-failure shape (warnings + Undefined symbols + ld error) must surface the
+            // linker lines, not the warning preamble.
+            Assert.Contains("Undefined symbols for architecture arm64", ex.Message);
+            Assert.Contains("clang: error", ex.Message);
         }
 
         [Fact]
@@ -790,6 +841,123 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void InvokeSwiftCompiler_TransitiveDepFrameworks_EmittedAsXlinkerFlags()
+        {
+            // Repro of the FirebaseFirestore link failure: the wrapper `import FirebaseFirestore`
+            // auto-links FirebaseFirestore but not its transitive ObjC-only deps (absl,
+            // FirebaseCoreInternal, GoogleUtilities). Each .framework with a Mach-O binary in
+            // additionalFrameworkSearchPaths must be explicitly `-Xlinker -framework -Xlinker`
+            // so the linker resolves OBJC_CLASS_$ / C / C++ symbols.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
+            var fwSearchPath = Path.Combine(root, "deps");
+            var absl = Path.Combine(fwSearchPath, "absl.framework");
+            var firebaseCoreInternal = Path.Combine(fwSearchPath, "FirebaseCoreInternal.framework");
+            var headerOnly = Path.Combine(fwSearchPath, "HeaderOnly.framework");
+            Directory.CreateDirectory(absl);
+            Directory.CreateDirectory(firebaseCoreInternal);
+            Directory.CreateDirectory(headerOnly);
+            // Stub Mach-O binaries (file presence is all the linker check verifies)
+            File.WriteAllBytes(Path.Combine(absl, "absl"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+            File.WriteAllBytes(Path.Combine(firebaseCoreInternal, "FirebaseCoreInternal"),
+                new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+            // HeaderOnly.framework has NO binary -> must NOT be linked.
+
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    additionalFrameworkSearchPaths: new[] { fwSearchPath });
+
+                var (_, args) = runner.Invocations[0];
+                Assert.Contains("-Xlinker -framework -Xlinker absl", args);
+                Assert.Contains("-Xlinker -framework -Xlinker FirebaseCoreInternal", args);
+                Assert.DoesNotContain("-Xlinker -framework -Xlinker HeaderOnly", args);
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_TransitiveDepFrameworks_DedupesOriginalModuleName()
+        {
+            // The bound module is auto-linked by the `import` in the wrapper and is explicitly
+            // re-linked via thunkLinkerFlags when thunk .o files are present. We must NOT emit
+            // a duplicate -Xlinker -framework -Xlinker for it via the transitive scan.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
+            var fwSearchPath = Path.Combine(root, "deps");
+            var firebaseFirestore = Path.Combine(fwSearchPath, "FirebaseFirestore.framework");
+            Directory.CreateDirectory(firebaseFirestore);
+            File.WriteAllBytes(Path.Combine(firebaseFirestore, "FirebaseFirestore"),
+                new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                var thunkObj = Path.Combine(root, "thunk.o");
+                File.WriteAllBytes(thunkObj, new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    additionalFrameworkSearchPaths: new[] { fwSearchPath },
+                    thunkObjectFiles: new[] { thunkObj },
+                    originalModuleName: "FirebaseFirestore");
+
+                var (_, args) = runner.Invocations[0];
+                // FirebaseFirestore must appear exactly once (in thunkLinkerFlags), not twice.
+                var occurrences = (args.Length - args.Replace(
+                    "-Xlinker -framework -Xlinker FirebaseFirestore", "").Length)
+                    / "-Xlinker -framework -Xlinker FirebaseFirestore".Length;
+                Assert.Equal(1, occurrences);
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_TransitiveDepFrameworks_DedupesSameNameAcrossPaths()
+        {
+            // Two search paths that each contain absl.framework (with a binary) must emit
+            // -Xlinker -framework -Xlinker absl exactly once.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var root = Path.Combine(Path.GetTempPath(), $"swc_link_test_{Guid.NewGuid():N}");
+            var pathA = Path.Combine(root, "depA");
+            var pathB = Path.Combine(root, "depB");
+            var abslA = Path.Combine(pathA, "absl.framework");
+            var abslB = Path.Combine(pathB, "absl.framework");
+            Directory.CreateDirectory(abslA);
+            Directory.CreateDirectory(abslB);
+            File.WriteAllBytes(Path.Combine(abslA, "absl"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+            File.WriteAllBytes(Path.Combine(abslB, "absl"), new byte[] { 0xCF, 0xFA, 0xED, 0xFE });
+
+            try
+            {
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance,
+                    additionalFrameworkSearchPaths: new[] { pathA, pathB });
+
+                var (_, args) = runner.Invocations[0];
+                var occurrences = (args.Length - args.Replace(
+                    "-Xlinker -framework -Xlinker absl", "").Length)
+                    / "-Xlinker -framework -Xlinker absl".Length;
+                Assert.Equal(1, occurrences);
+            }
+            finally { Directory.Delete(root, recursive: true); }
+        }
+
+        [Fact]
         public void InvokeSwiftCompiler_IncludesStrictConcurrencyMinimal()
         {
             var runner = new MockCommandRunner();
@@ -804,6 +972,105 @@ namespace BindingsGeneration.Tests
             Assert.Single(runner.Invocations);
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-strict-concurrency=minimal", args);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ShadowPath_PrependsBeforeRealF()
+        {
+            // Shadow precompile -F must come BEFORE the real -F so swiftc picks the
+            // binary .swiftmodule (which dodges the collision) over the textual interface
+            // that would re-trigger swiftinterface typecheck against the colliding name.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/real",
+                runner, NullLogger.Instance,
+                precompiledShadowFrameworkPaths: new[] { "/tmp/shadow1" });
+
+            var (_, args) = runner.Invocations[0];
+            var shadowIdx = args.IndexOf("-F \"/tmp/shadow1\"");
+            var realIdx = args.IndexOf("-F \"/fw/real\"");
+            Assert.True(shadowIdx >= 0, "shadow -F must be present");
+            Assert.True(realIdx >= 0, "real -F must be present");
+            Assert.True(shadowIdx < realIdx, "shadow -F must precede real -F");
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_MultipleShadowPaths_AllPrependedInOrder()
+        {
+            // Multiple concurrent shadow paths (bound-module collision + dep-module collision
+            // + XCTest precompile) must ALL appear before the real -F, and in input order.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/real",
+                runner, NullLogger.Instance,
+                precompiledShadowFrameworkPaths: new[] { "/tmp/shadow1", "/tmp/shadow2", "/tmp/shadow3" });
+
+            var (_, args) = runner.Invocations[0];
+            var s1 = args.IndexOf("-F \"/tmp/shadow1\"");
+            var s2 = args.IndexOf("-F \"/tmp/shadow2\"");
+            var s3 = args.IndexOf("-F \"/tmp/shadow3\"");
+            var real = args.IndexOf("-F \"/fw/real\"");
+            Assert.True(s1 >= 0 && s2 >= 0 && s3 >= 0 && real >= 0,
+                "all four -F flags must be present");
+            Assert.True(s1 < s2, "shadow1 must precede shadow2 (input order preserved)");
+            Assert.True(s2 < s3, "shadow2 must precede shadow3 (input order preserved)");
+            Assert.True(s3 < real, "all shadows must precede the real -F");
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ShadowAndAdditionalPaths_ShadowFirstRealMiddleAdditionalLast()
+        {
+            // Full sandwich: shadow -F first, real -F middle, additional dep -F last.
+            // Validates that the dep-collision precompile and the framework-dependency
+            // additionalFrameworkSearchPaths don't fight each other for position.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/real",
+                runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: new[] { "/dep/slice" },
+                precompiledShadowFrameworkPaths: new[] { "/tmp/shadow1" });
+
+            var (_, args) = runner.Invocations[0];
+            var shadowIdx = args.IndexOf("-F \"/tmp/shadow1\"");
+            var realIdx = args.IndexOf("-F \"/fw/real\"");
+            var depIdx = args.IndexOf("-F \"/dep/slice\"");
+            Assert.True(shadowIdx >= 0 && realIdx >= 0 && depIdx >= 0,
+                "all three -F flags must be present");
+            Assert.True(shadowIdx < realIdx, "shadow -F must precede real -F");
+            Assert.True(realIdx < depIdx, "real -F must precede dependency -F");
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_EmptyShadowPathInList_Skipped()
+        {
+            // Defensive: a null/empty entry inside the shadow list (e.g., PrecompileCollidingModule
+            // returned null for one of several deps) must not emit `-F ""`.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                files, "/tmp/out/Binary", "TestSwiftBindings",
+                "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/real",
+                runner, NullLogger.Instance,
+                precompiledShadowFrameworkPaths: new[] { "/tmp/shadow1", "", "/tmp/shadow2" });
+
+            var (_, args) = runner.Invocations[0];
+            Assert.DoesNotContain("-F \"\"", args);
+            Assert.Contains("-F \"/tmp/shadow1\"", args);
+            Assert.Contains("-F \"/tmp/shadow2\"", args);
         }
     }
 
@@ -1253,15 +1520,19 @@ namespace BindingsGeneration.Tests
                     "  public func setDestination(_ dest: SwiftyBeaver.ConsoleDestination) {}\n" +
                     "}\n");
 
+                // Combined-form regex: group 1 = module, group 2 = trailing chain.
                 var pattern = new System.Text.RegularExpressions.Regex(
-                    @"\bSwiftyBeaver\.(\w+(?:\.\w+)*)",
+                    @"\b(SwiftyBeaver)\.(\w+(?:\.\w+)*)",
                     System.Text.RegularExpressions.RegexOptions.Compiled);
-                var nested = new HashSet<string> { "Level" };
+                var nestedByModule = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+                {
+                    ["SwiftyBeaver"] = new HashSet<string> { "Level" },
+                };
 
                 // Use reflection to call the private static method
                 var method = typeof(SwiftWrapperCompiler).GetMethod("PatchSwiftInterface",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-                method.Invoke(null, new object?[] { source, dest, pattern, nested });
+                method.Invoke(null, new object?[] { source, dest, pattern, nestedByModule });
 
                 var result = File.ReadAllText(dest);
                 // Level is nested — should be preserved
@@ -1290,16 +1561,64 @@ namespace BindingsGeneration.Tests
                     "}\n");
 
                 var pattern = new System.Text.RegularExpressions.Regex(
-                    @"\bReachability\.(\w+(?:\.\w+)*)",
+                    @"\b(Reachability)\.(\w+(?:\.\w+)*)",
                     System.Text.RegularExpressions.RegexOptions.Compiled);
+                var emptyDict = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
                 var method = typeof(SwiftWrapperCompiler).GetMethod("PatchSwiftInterface",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
-                method.Invoke(null, new object?[] { source, dest, pattern, null });
+                method.Invoke(null, new object?[] { source, dest, pattern, emptyDict });
 
                 var result = File.ReadAllText(dest);
                 Assert.DoesNotContain("Reachability.Connection", result);
                 Assert.Contains("connection: Connection", result);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void PatchSwiftInterface_MultipleModulesInOneCall_PerModuleNestedCarveouts()
+        {
+            // The composition fix: a single PatchSwiftInterface invocation must patch
+            // every collision in one pass with per-module nested-type carveouts.
+            // Without this, sequential precompiles overwrote one another's shadow.
+            var dir = CreateTempDir();
+            try
+            {
+                var source = Path.Combine(dir, "source.swiftinterface");
+                var dest = Path.Combine(dir, "patched.swiftinterface");
+                File.WriteAllText(source,
+                    "import Reachability\n" +
+                    "import SwiftyBeaver\n" +
+                    "public typealias LogLevel = SwiftyBeaver.Level\n" +
+                    "public var conn: Reachability.Connection\n" +
+                    "public var dest: SwiftyBeaver.ConsoleDestination\n");
+
+                var pattern = new System.Text.RegularExpressions.Regex(
+                    @"\b(SwiftyBeaver|Reachability)\.(\w+(?:\.\w+)*)",
+                    System.Text.RegularExpressions.RegexOptions.Compiled);
+                var nestedByModule = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+                {
+                    ["SwiftyBeaver"] = new HashSet<string> { "Level" },
+                    // Reachability has no carveouts — absence of key == strip all.
+                };
+
+                var method = typeof(SwiftWrapperCompiler).GetMethod("PatchSwiftInterface",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                method.Invoke(null, new object?[] { source, dest, pattern, nestedByModule });
+
+                var result = File.ReadAllText(dest);
+                // SwiftyBeaver.Level survives because "Level" is nested.
+                Assert.Contains("SwiftyBeaver.Level", result);
+                // SwiftyBeaver.ConsoleDestination is stripped (not nested).
+                Assert.Contains("dest: ConsoleDestination", result);
+                Assert.DoesNotContain("SwiftyBeaver.ConsoleDestination", result);
+                // Reachability.Connection is stripped (module has no nested-type carveouts).
+                Assert.Contains("conn: Connection", result);
+                Assert.DoesNotContain("Reachability.Connection", result);
+                // import lines untouched.
+                Assert.Contains("import Reachability", result);
+                Assert.Contains("import SwiftyBeaver", result);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -1579,6 +1898,267 @@ namespace BindingsGeneration.Tests
                 Architecture = arch,
             };
             Assert.Equal(expected, slice.GetTargetTriple("17.0"));
+        }
+    }
+
+    #endregion
+
+    #region H. Shadow Framework Staging Tests
+
+    public class PrecompileSanitizedShadowFrameworkTests
+    {
+        private static (string ModuleDir, string PublicIface, string PrivateIface) BuildSliceFixture(
+            string moduleName, bool includePrivateInterface, bool includeBinary)
+        {
+            // .../<slice>/<Module>.framework/Modules/<Module>.swiftmodule/<arch>.swiftinterface
+            var sliceRoot = Path.Combine(Path.GetTempPath(), $"shadow_test_{Guid.NewGuid():N}");
+            var sliceDir = Path.Combine(sliceRoot, "ios-arm64-simulator");
+            var frameworkDir = Path.Combine(sliceDir, $"{moduleName}.framework");
+            var modulesDir = Path.Combine(frameworkDir, "Modules");
+            var moduleDir = Path.Combine(modulesDir, $"{moduleName}.swiftmodule");
+            Directory.CreateDirectory(moduleDir);
+
+            var publicIface = Path.Combine(moduleDir, "arm64-apple-ios-simulator.swiftinterface");
+            File.WriteAllText(publicIface,
+                "// swift-interface-format-version: 1.0\n" +
+                $"public struct Greeter {{ public init() {{}} public func hello() {{}} }}\n");
+
+            var privateIface = Path.Combine(moduleDir, "arm64-apple-ios-simulator.private.swiftinterface");
+            if (includePrivateInterface)
+            {
+                File.WriteAllText(privateIface,
+                    "// swift-interface-format-version: 1.0\n" +
+                    "@_spi(Internal) public func spiOnly() {}\n");
+            }
+
+            if (includeBinary)
+            {
+                File.WriteAllText(Path.Combine(frameworkDir, moduleName), "fake-macho-bytes");
+            }
+
+            return (moduleDir, publicIface, privateIface);
+        }
+
+        [Fact]
+        public void PrivateInterfacePresent_NoCollisions_StagesSanitizedShadow()
+        {
+            var (_, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+            var runner = new MockCommandRunner();
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, runner, NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            // No collisions ⇒ no swift-frontend invocation (the public interface compiles
+            // on its own; we just need to hide the private one from swiftc).
+            Assert.Empty(runner.Invocations);
+
+            var shadowModuleDir = Path.Combine(shadow!, "Demo.framework", "Modules", "Demo.swiftmodule");
+            Assert.True(Directory.Exists(shadowModuleDir));
+            Assert.True(File.Exists(Path.Combine(shadowModuleDir, "arm64-apple-ios-simulator.swiftinterface")));
+            Assert.False(File.Exists(Path.Combine(shadowModuleDir, "arm64-apple-ios-simulator.private.swiftinterface")));
+            Assert.True(File.Exists(Path.Combine(shadow!, "Demo.framework", "Modules", "module.modulemap")));
+        }
+
+        [Fact]
+        public void PrivateInterfacePresent_BinarySymlinkedIntoShadow()
+        {
+            var (_, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            var shadowBinary = Path.Combine(shadow!, "Demo.framework", "Demo");
+            var info = new FileInfo(shadowBinary);
+            Assert.True(info.Exists || info.LinkTarget != null,
+                "Shadow framework should expose <Module> binary (symlink or copy) so ld doesn't have to fall through to the real -F.");
+        }
+
+        [Fact]
+        public void NoPrivateInterface_NoCollisions_ReturnsNull()
+        {
+            var (_, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: false, includeBinary: true);
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.Null(shadow);
+        }
+
+        [Fact]
+        public void EmptySwiftInterfacePath_ReturnsNull()
+        {
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", swiftInterfacePath: "", "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.Null(shadow);
+        }
+
+        [Fact]
+        public void PrivateInterface_InterfaceOnlyFramework_NoBinarySymlinkButShadowStaged()
+        {
+            // Interface-only xcframework slice: no <Module>.framework/<Module> binary on disk.
+            // Helper should still stage the swiftinterface-filtered shadow; binary symlink is
+            // best-effort and is silently skipped when there's nothing to symlink.
+            var (_, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: false);
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            var shadowModuleDir = Path.Combine(shadow!, "Demo.framework", "Modules", "Demo.swiftmodule");
+            Assert.True(File.Exists(Path.Combine(shadowModuleDir, "arm64-apple-ios-simulator.swiftinterface")));
+        }
+
+        [Fact]
+        public void PrivateInterface_RealModulemapAndHeadersStaged_WhenSourceHasThem()
+        {
+            // Regression for BlinkID/BRLMPrinterKit/CocoaLumberjackSwift: the bound module's
+            // public swiftinterface references ObjC symbols declared in the framework's umbrella
+            // header (e.g., `BlinkID.MBSampleBufferWrapper`). A Swift-only modulemap drops those
+            // headers and swiftc errors with "no type named '...' in module '...'". The shadow
+            // must mirror the real modulemap and public Headers/ so umbrella references resolve.
+            var (moduleDir, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
+            var realFrameworkDir = Path.GetDirectoryName(Path.GetDirectoryName(moduleDir))!; // <Module>.framework
+            Directory.CreateDirectory(Path.Combine(realFrameworkDir, "Headers"));
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Headers", "Demo.h"),
+                "#import <Foundation/Foundation.h>\n@interface DemoObjC : NSObject @end\n");
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Modules", "module.modulemap"),
+                "framework module Demo {\n  umbrella header \"Demo.h\"\n  export *\n}\n");
+
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            var shadowFrameworkDir = Path.Combine(shadow!, "Demo.framework");
+
+            var shadowModulemap = Path.Combine(shadowFrameworkDir, "Modules", "module.modulemap");
+            Assert.True(File.Exists(shadowModulemap));
+            // The modulemap content must be the real one (umbrella reference preserved),
+            // not the minimal Swift-only stub.
+            var modulemapText = File.ReadAllText(shadowModulemap);
+            Assert.Contains("umbrella header \"Demo.h\"", modulemapText);
+
+            // Headers/ must be present so umbrella-referenced .h files resolve.
+            var shadowUmbrella = Path.Combine(shadowFrameworkDir, "Headers", "Demo.h");
+            Assert.True(File.Exists(shadowUmbrella));
+        }
+
+        [Fact]
+        public void PrivateInterface_MinimalModulemap_WhenSourceHasNone()
+        {
+            // Fallback path: pure-Swift xcframework slice with no public modulemap. Helper
+            // must still stage the shadow with a minimal Swift-only modulemap so swiftc
+            // can find <Module>.framework via -F. Headers/ staging is skipped.
+            var (moduleDir, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
+            var realFrameworkDir = Path.GetDirectoryName(Path.GetDirectoryName(moduleDir))!;
+            // Intentionally do NOT create a module.modulemap or Headers/ in the source.
+
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            var shadowModulemap = Path.Combine(shadow!, "Demo.framework", "Modules", "module.modulemap");
+            Assert.True(File.Exists(shadowModulemap));
+            var modulemapText = File.ReadAllText(shadowModulemap);
+            Assert.Contains("framework module Demo", modulemapText);
+            // No headers staged when the source had none.
+            Assert.False(Directory.Exists(Path.Combine(shadow!, "Demo.framework", "Headers")));
+        }
+
+        [Fact]
+        public void PrivateInterface_PrivateHeadersStaged_WhenModulemapReferencesThem()
+        {
+            // Regression for GRDB: the public modulemap declares `header "grdb_config.h"`
+            // which lives in PrivateHeaders/, not Headers/ (legal — swiftc searches both
+            // directories for non-umbrella `header` lines). Both directories must be staged
+            // so the header lookup succeeds. The @_spi surface lives in module.private.modulemap
+            // (never staged), not in PrivateHeaders/.
+            var (moduleDir, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
+            var realFrameworkDir = Path.GetDirectoryName(Path.GetDirectoryName(moduleDir))!;
+            Directory.CreateDirectory(Path.Combine(realFrameworkDir, "Headers"));
+            Directory.CreateDirectory(Path.Combine(realFrameworkDir, "PrivateHeaders"));
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Headers", "Demo.h"),
+                "#import <Foundation/Foundation.h>\n");
+            File.WriteAllText(Path.Combine(realFrameworkDir, "PrivateHeaders", "demo_config.h"),
+                "#define DEMO_CONFIG 1\n");
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Modules", "module.modulemap"),
+                "framework module Demo {\n  umbrella header \"Demo.h\"\n  header \"demo_config.h\"\n  export *\n}\n");
+
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            var shadowFrameworkDir = Path.Combine(shadow!, "Demo.framework");
+            Assert.True(File.Exists(Path.Combine(shadowFrameworkDir, "Headers", "Demo.h")));
+            Assert.True(File.Exists(Path.Combine(shadowFrameworkDir, "PrivateHeaders", "demo_config.h")));
+        }
+
+        [Fact]
+        public void PrivateInterface_PrivateModulemapNotStaged()
+        {
+            // The private modulemap exposes @_spi / private headers — that's the surface we're
+            // sanitizing. Even when the source has both module.modulemap and
+            // module.private.modulemap, the shadow must only carry the public one.
+            var (moduleDir, publicIface, _) = BuildSliceFixture("Demo", includePrivateInterface: true, includeBinary: true);
+            var realFrameworkDir = Path.GetDirectoryName(Path.GetDirectoryName(moduleDir))!;
+            Directory.CreateDirectory(Path.Combine(realFrameworkDir, "Headers"));
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Headers", "Demo.h"),
+                "#import <Foundation/Foundation.h>\n");
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Modules", "module.modulemap"),
+                "framework module Demo {\n  umbrella header \"Demo.h\"\n  export *\n}\n");
+            File.WriteAllText(Path.Combine(realFrameworkDir, "Modules", "module.private.modulemap"),
+                "framework module Demo_Private {\n  header \"PrivateHeader.h\"\n  export *\n}\n");
+
+            var buildDir = Path.Combine(Path.GetTempPath(), $"shadow_build_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(buildDir);
+
+            var shadow = SwiftWrapperCompiler.PrecompileSanitizedShadowFramework(
+                "Demo", publicIface, "arm64-apple-ios17.0-simulator", "/sdk",
+                buildDir, new MockCommandRunner(), NullLogger.Instance,
+                collisions: Array.Empty<SwiftWrapperCompiler.CollisionPatchTarget>());
+
+            Assert.NotNull(shadow);
+            var shadowModulesDir = Path.Combine(shadow!, "Demo.framework", "Modules");
+            Assert.True(File.Exists(Path.Combine(shadowModulesDir, "module.modulemap")));
+            Assert.False(File.Exists(Path.Combine(shadowModulesDir, "module.private.modulemap")));
         }
     }
 

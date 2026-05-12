@@ -637,7 +637,7 @@ public static class BindingsGeneratorCommand
 
         var depModuleNames = GetDependencyModuleNamesForSwiftImports(resolvedDependencies);
         var factsAggregator = BuildInterfaceFactsAggregator(interfaceFactsProducer, logger);
-        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator);
+        var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, factsAggregator: factsAggregator);
         if (!success)
         {
             context.ExitCode = 1;
@@ -647,7 +647,7 @@ public static class BindingsGeneratorCommand
         // Persist wrapper compilation context for --compile-wrapper-only mode.
         if (hasXcframework)
         {
-            BindingsGenerator.SaveWrapperContext(outputDirectory, internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass, logger);
+            BindingsGenerator.SaveWrapperContext(outputDirectory, internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass, depModuleCollisions, logger);
         }
 
         // Validate --wrapper-architectures
@@ -727,7 +727,9 @@ public static class BindingsGeneratorCommand
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath);
+                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
+                        depModuleNamesForCollisionDevice: depModuleCollisions.Device);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -757,7 +759,8 @@ public static class BindingsGeneratorCommand
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: deviceOnlyResolution.SwiftInterfacePath,
-                        skipThunkCompilation: skipThunkCompilation);
+                        skipThunkCompilation: skipThunkCompilation,
+                        depModuleNamesForCollision: depModuleCollisions.Device);
                 }
                 else
                 {
@@ -772,7 +775,8 @@ public static class BindingsGeneratorCommand
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: resolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
-                        resolvedArchitecture: resolution.SelectedArchitecture);
+                        resolvedArchitecture: resolution.SelectedArchitecture,
+                        depModuleNamesForCollision: depModuleCollisions.Simulator);
                 }
             }
             catch (Exception ex)

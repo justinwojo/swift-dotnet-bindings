@@ -336,8 +336,11 @@ public class ModuleHandlerTests
     #region Dependency Module Import Tests
 
     [Fact]
-    public void EmitSwiftImports_ImportsDependencyModuleNames()
+    public void EmitSwiftImports_ImportsDependencyModuleNames_LegacyFallbackWhenNoSwiftInterface()
     {
+        // Backward-compat: when SwiftInterfacePath is null (apple-framework-mode unit tests,
+        // direct-mode without `-s/--swiftinterface`, etc.) the emitter falls back to legacy
+        // emit-all behavior so every DependencyModuleNames entry still produces an import.
         var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
             moduleDecl =>
             {
@@ -345,6 +348,271 @@ public class ModuleHandlerTests
             });
 
         Assert.Contains("import BlinkID", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftImports_EmitsDirectlyImportedDependency()
+    {
+        // When SwiftInterfacePath is set and the bound module's source explicitly
+        // `import`s the dep module, the wrapper emits the matching `import` line.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Foundation\n" +
+                "import RecaptchaInterop\n" +
+                "public struct Marker {}\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string> { "RecaptchaInterop" };
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            Assert.Contains("import RecaptchaInterop", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_FiltersUnreferencedDependency()
+    {
+        // Regression: the validation pipeline auto-broadcasts every sibling xcframework
+        // as `--framework-dependency`, including C++-only siblings (absl/grpc/leveldb/
+        // openssl_grpc/grpcpp). The bound module's swiftinterface doesn't import them,
+        // and their Clang umbrella headers can't compile in swiftc without `-Xcc
+        // -std=c++17` flags. EmitSwiftImports must drop unreferenced deps when a
+        // swiftinterface is available.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Foundation\n" +
+                "public struct Marker {}\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string> { "absl" };
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            Assert.DoesNotContain("import absl", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_EmitsDependencyReferencedAsQualifier()
+    {
+        // Regression: FirebaseCrashlytics references `FirebaseRemoteConfigInterop.RemoteConfigInterop`
+        // inline in its swiftinterface (cross-module protocol cast) but never has an
+        // explicit `import FirebaseRemoteConfigInterop` line. The filter must keep the
+        // dep when its module name appears as a type qualifier — otherwise the wrapper
+        // compile fails with "cannot find type 'FirebaseRemoteConfigInterop' in scope".
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Foundation\n" +
+                "public class Foo {\n" +
+                "  public func bar() -> (any FirebaseRemoteConfigInterop.RemoteConfigInterop)? { nil }\n" +
+                "}\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string> { "FirebaseRemoteConfigInterop" };
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            Assert.Contains("import FirebaseRemoteConfigInterop", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_QualifierMatchIsWholeWord()
+    {
+        // `FooBar` in the swiftinterface must NOT count as a reference to module `Foo`.
+        // Word-boundary matching is what keeps "absl" from being preserved when a
+        // bound module mentions some unrelated `abslBenchmark` symbol.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Foundation\n" +
+                "public class FooBar { public init() {} }\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string> { "Foo" };
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            // `Foo` is in DependencyModuleNames but only appears as a prefix of `FooBar`
+            // in the interface. Whole-word match must reject it.
+            Assert.DoesNotContain("import Foo\n", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_EmitsDeclaredImportEvenWhenDependencyModuleNamesEmpty()
+    {
+        // Regression: Firebase libraries ship as static archives, so otool-based
+        // auto-detection finds nothing and DependencyModuleNames stays empty during
+        // generation. The bound module's swiftinterface still declares `import X` for
+        // every sibling its public API needs (e.g. FirebaseCrashlytics declares
+        // `import FirebaseRemoteConfigInterop`). The wrapper must emit those declared
+        // imports directly — without them, the wrapper compile fails with
+        // "cannot find type 'FirebaseRemoteConfigInterop' in scope" when the sibling
+        // is broadcast via --framework-dependency at compile time.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import FirebaseRemoteConfigInterop\n" +
+                "import Foundation\n" +
+                "import Swift\n" +
+                "import _Concurrency\n" +
+                "import _StringProcessing\n" +
+                "public struct Marker {}\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string>();
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            Assert.Contains("import FirebaseRemoteConfigInterop", swiftOutput);
+            // Stdlib internals must be dropped.
+            Assert.DoesNotContain("import _Concurrency", swiftOutput);
+            Assert.DoesNotContain("import _StringProcessing", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_SkipsAppleFrameworkDeclaredImports()
+    {
+        // Regression: Starscream's swiftinterface declares `import Network`, but
+        // `Starscream.Framer` collides with `Network.Framer` — emitting `import Network`
+        // unconditionally causes swiftc to fail with "ambiguous type lookup". Apple
+        // frameworks are imported on demand by the scanned-imports mechanism only when
+        // a wrapper signature actually references one of their types. Declared-but-
+        // unreferenced Apple imports must be skipped.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Network\n" +
+                "import Foundation\n" +
+                "public class Framer { public init() {} }\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string>();
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            // Network is a known Apple framework — must NOT be emitted just because it
+            // appears in the bound module's swiftinterface.
+            Assert.DoesNotContain("import Network", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_SkipsImplementationOnlyDeclaredImport()
+    {
+        // Regression: `@_implementationOnly import absl` in the bound module's
+        // swiftinterface must NOT carry into the wrapper. absl is a C++-only sibling
+        // and swiftc cannot load it without -Xcc -std=c++17. Non-public attribute
+        // imports are not part of the wrapper's compile surface.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "@_implementationOnly import absl\n" +
+                "import Foundation\n" +
+                "public struct Marker {}\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string>();
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            Assert.DoesNotContain("import absl", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
+    }
+
+    [Fact]
+    public void EmitSwiftImports_SkipsNonPublicImportEvenWhenInDependencyModuleNames()
+    {
+        // Regression: a sibling listed in DependencyModuleNames (because the
+        // upstream resolver auto-broadcasts it as `--framework-dependency`) MUST
+        // still be dropped when the bound module marks it `@_implementationOnly`
+        // / `private` / `internal` / `fileprivate` / `package`. Without the
+        // non-public filter, the DependencyModuleNames branch short-circuits
+        // the public-import checks and emits `import absl` anyway.
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "private import absl\n" +
+                "import Foundation\n" +
+                "public struct Marker {}\n");
+
+            var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                moduleDecl =>
+                {
+                    moduleDecl.DependencyModuleNames = new List<string> { "absl" };
+                    moduleDecl.SwiftInterfacePath = interfaceFile;
+                });
+
+            Assert.DoesNotContain("import absl", swiftOutput);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+        }
     }
 
     [Fact]

@@ -406,9 +406,9 @@ namespace BindingsGeneration.Tests
         public void RoundTrip_PreservesInternalTypeNames()
         {
             var internalTypes = new HashSet<string> { "InternalFoo", "Caches", "Module.InternalBar" };
-            BindingsGenerator.SaveWrapperContext(_tempDir, internalTypes, null, null, _logger);
+            BindingsGenerator.SaveWrapperContext(_tempDir, internalTypes, null, null, EmptyCollisions, _logger);
 
-            var (loaded, _, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+            var (loaded, _, _, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
 
             Assert.NotNull(loaded);
             Assert.Equal(internalTypes, loaded);
@@ -417,9 +417,9 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void RoundTrip_PreservesModuleNameForCollision()
         {
-            BindingsGenerator.SaveWrapperContext(_tempDir, null, "MyModule", null, _logger);
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, "MyModule", null, EmptyCollisions, _logger);
 
-            var (_, moduleNameForCollision, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+            var (_, moduleNameForCollision, _, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
 
             Assert.Equal("MyModule", moduleNameForCollision);
         }
@@ -428,12 +428,26 @@ namespace BindingsGeneration.Tests
         public void RoundTrip_PreservesNestedTypesInCollidingClass()
         {
             var nested = new HashSet<string> { "NestedA", "NestedB" };
-            BindingsGenerator.SaveWrapperContext(_tempDir, null, "Mod", nested, _logger);
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, "Mod", nested, EmptyCollisions, _logger);
 
-            var (_, _, loadedNested) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+            var (_, _, loadedNested, _) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
 
             Assert.NotNull(loadedNested);
             Assert.Equal(nested, loadedNested);
+        }
+
+        [Fact]
+        public void RoundTrip_PreservesDepModuleNamesForCollision()
+        {
+            var sim = new List<string> { "SimDep", "SharedDep" };
+            var device = new List<string> { "DeviceDep", "SharedDep" };
+            var collisions = new DepModuleCollisionDetector.SlicedCollisionResult(sim, device);
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, null, null, collisions, _logger);
+
+            var (_, _, _, loaded) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Equal(sim.OrderBy(n => n), loaded.Simulator.OrderBy(n => n));
+            Assert.Equal(device.OrderBy(n => n), loaded.Device.OrderBy(n => n));
         }
 
         [Fact]
@@ -441,49 +455,55 @@ namespace BindingsGeneration.Tests
         {
             var internalTypes = new HashSet<string> { "TypeA" };
             var nested = new HashSet<string> { "NestedX" };
-            BindingsGenerator.SaveWrapperContext(_tempDir, internalTypes, "Collision", nested, _logger);
+            var collisions = new DepModuleCollisionDetector.SlicedCollisionResult(
+                new List<string> { "DepA" }, new List<string> { "DepB" });
+            BindingsGenerator.SaveWrapperContext(_tempDir, internalTypes, "Collision", nested, collisions, _logger);
 
-            var (loadedInternal, loadedCollision, loadedNested) =
+            var (loadedInternal, loadedCollision, loadedNested, loadedDep) =
                 BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
 
             Assert.Equal(internalTypes, loadedInternal);
             Assert.Equal("Collision", loadedCollision);
             Assert.Equal(nested, loadedNested);
+            Assert.Equal(new[] { "DepA" }, loadedDep.Simulator);
+            Assert.Equal(new[] { "DepB" }, loadedDep.Device);
         }
 
         [Fact]
-        public void Load_MissingFile_ReturnsNulls()
+        public void Load_MissingFile_ReturnsEmpty()
         {
             var emptyDir = Path.Combine(_tempDir, "empty");
             Directory.CreateDirectory(emptyDir);
 
-            var (internalTypes, collision, nested) =
+            var (internalTypes, collision, nested, depCollisions) =
                 BindingsGenerator.LoadWrapperContext(emptyDir, _logger);
 
             Assert.Null(internalTypes);
             Assert.Null(collision);
             Assert.Null(nested);
+            Assert.True(depCollisions.IsEmpty);
         }
 
         [Fact]
-        public void Load_CorruptedFile_ReturnsNulls()
+        public void Load_CorruptedFile_ReturnsEmpty()
         {
             File.WriteAllText(Path.Combine(_tempDir, "wrapper-context.json"), "not valid json{{{");
 
-            var (internalTypes, collision, nested) =
+            var (internalTypes, collision, nested, depCollisions) =
                 BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
 
             Assert.Null(internalTypes);
             Assert.Null(collision);
             Assert.Null(nested);
+            Assert.True(depCollisions.IsEmpty);
         }
 
         [Fact]
-        public void RoundTrip_NullInputs_ProducesEmptyCollections()
+        public void RoundTrip_EmptyInputs_ProducesEmptyCollections()
         {
-            BindingsGenerator.SaveWrapperContext(_tempDir, null, null, null, _logger);
+            BindingsGenerator.SaveWrapperContext(_tempDir, null, null, null, EmptyCollisions, _logger);
 
-            var (loadedInternal, loadedCollision, loadedNested) =
+            var (loadedInternal, loadedCollision, loadedNested, loadedDep) =
                 BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
 
             // null sets serialize as empty arrays; empty arrays deserialize as empty HashSets
@@ -492,7 +512,137 @@ namespace BindingsGeneration.Tests
             Assert.Null(loadedCollision);
             Assert.NotNull(loadedNested);
             Assert.Empty(loadedNested);
+            Assert.True(loadedDep.IsEmpty);
         }
+
+        [Fact]
+        public void Load_LegacySingleListShape_PopulatesBothSlices()
+        {
+            // Backwards compat: an older wrapper-context.json with the flat
+            // `depModuleNamesForCollision` array must still hydrate so cached output
+            // directories keep working across the per-slice schema change.
+            var legacy = new Newtonsoft.Json.Linq.JObject
+            {
+                ["internalTypeNames"] = new Newtonsoft.Json.Linq.JArray(),
+                ["moduleNameForCollision"] = (string?)null,
+                ["nestedTypesInCollidingClass"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollision"] = new Newtonsoft.Json.Linq.JArray("Foo", "Bar"),
+            };
+            File.WriteAllText(
+                Path.Combine(_tempDir, "wrapper-context.json"),
+                legacy.ToString());
+
+            var (_, _, _, loaded) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Equal(new[] { "Bar", "Foo" }, loaded.Simulator.OrderBy(n => n));
+            Assert.Equal(new[] { "Bar", "Foo" }, loaded.Device.OrderBy(n => n));
+        }
+
+        [Fact]
+        public void Load_BothPerSliceAndLegacyFields_PreferPerSlice()
+        {
+            // Forward-compat guard: if a future writer ever emits BOTH the legacy
+            // single-list field AND the per-slice fields (mid-migration, hand-edited
+            // cache, etc.), the loader must hydrate from the per-slice fields. The
+            // legacy field is only the fallback when both per-slice keys are absent.
+            // Without this guard, a downstream change that re-introduces the legacy
+            // field would silently over-patch the simulator wrapper with the union.
+            var mixed = new Newtonsoft.Json.Linq.JObject
+            {
+                ["internalTypeNames"] = new Newtonsoft.Json.Linq.JArray(),
+                ["moduleNameForCollision"] = (string?)null,
+                ["nestedTypesInCollidingClass"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollisionSimulator"] = new Newtonsoft.Json.Linq.JArray("SimOnly"),
+                ["depModuleNamesForCollisionDevice"] = new Newtonsoft.Json.Linq.JArray("DeviceOnly"),
+                ["depModuleNamesForCollision"] = new Newtonsoft.Json.Linq.JArray("LegacyShouldNotWin"),
+            };
+            File.WriteAllText(
+                Path.Combine(_tempDir, "wrapper-context.json"),
+                mixed.ToString());
+
+            var (_, _, _, loaded) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Equal(new[] { "SimOnly" }, loaded.Simulator);
+            Assert.Equal(new[] { "DeviceOnly" }, loaded.Device);
+        }
+
+        [Fact]
+        public void Load_PartialPerSliceFields_SimOnlyPresent_HydratesSimEmptyDevice()
+        {
+            // Partial corruption shape: only the simulator per-slice key is present
+            // (e.g. hand-edited cache, partial writer crash). The present key MUST
+            // hydrate, and the absent key MUST stay empty — not fall through to
+            // legacy hydration. Falling through here would silently re-apply the
+            // sim list to the device wrapper, the exact over-patching the
+            // per-slice schema was introduced to fix.
+            var partial = new Newtonsoft.Json.Linq.JObject
+            {
+                ["internalTypeNames"] = new Newtonsoft.Json.Linq.JArray(),
+                ["moduleNameForCollision"] = (string?)null,
+                ["nestedTypesInCollidingClass"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollisionSimulator"] = new Newtonsoft.Json.Linq.JArray("OnlySim"),
+                // depModuleNamesForCollisionDevice absent
+            };
+            File.WriteAllText(
+                Path.Combine(_tempDir, "wrapper-context.json"),
+                partial.ToString());
+
+            var (_, _, _, loaded) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Equal(new[] { "OnlySim" }, loaded.Simulator);
+            Assert.Empty(loaded.Device);
+        }
+
+        [Fact]
+        public void Load_PartialPerSliceFields_DeviceOnlyPresent_HydratesDeviceEmptySim()
+        {
+            // Mirror of the sim-only case — symmetric guarantee for device.
+            var partial = new Newtonsoft.Json.Linq.JObject
+            {
+                ["internalTypeNames"] = new Newtonsoft.Json.Linq.JArray(),
+                ["moduleNameForCollision"] = (string?)null,
+                ["nestedTypesInCollidingClass"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollisionDevice"] = new Newtonsoft.Json.Linq.JArray("OnlyDevice"),
+            };
+            File.WriteAllText(
+                Path.Combine(_tempDir, "wrapper-context.json"),
+                partial.ToString());
+
+            var (_, _, _, loaded) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Empty(loaded.Simulator);
+            Assert.Equal(new[] { "OnlyDevice" }, loaded.Device);
+        }
+
+        [Fact]
+        public void Load_PerSliceFieldsExplicitlyEmpty_DoNotFallThroughToLegacy()
+        {
+            // An explicit empty `[]` for either per-slice key is a legitimate
+            // serialized state (no collisions on that slice). The loader must
+            // honor it as empty and NOT fall through to legacy hydration —
+            // doing so would treat "no collisions this slice" as "use the
+            // legacy list" and re-introduce over-patching.
+            var explicitEmpty = new Newtonsoft.Json.Linq.JObject
+            {
+                ["internalTypeNames"] = new Newtonsoft.Json.Linq.JArray(),
+                ["moduleNameForCollision"] = (string?)null,
+                ["nestedTypesInCollidingClass"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollisionSimulator"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollisionDevice"] = new Newtonsoft.Json.Linq.JArray(),
+                ["depModuleNamesForCollision"] = new Newtonsoft.Json.Linq.JArray("LegacyShouldNotWin"),
+            };
+            File.WriteAllText(
+                Path.Combine(_tempDir, "wrapper-context.json"),
+                explicitEmpty.ToString());
+
+            var (_, _, _, loaded) = BindingsGenerator.LoadWrapperContext(_tempDir, _logger);
+
+            Assert.Empty(loaded.Simulator);
+            Assert.Empty(loaded.Device);
+        }
+
+        private static DepModuleCollisionDetector.SlicedCollisionResult EmptyCollisions =>
+            new(Array.Empty<string>(), Array.Empty<string>());
     }
 
     /// <summary>

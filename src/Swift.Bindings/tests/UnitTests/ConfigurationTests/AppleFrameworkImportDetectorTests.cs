@@ -198,6 +198,60 @@ namespace BindingsGeneration.Tests
         }
     }
 
+    public class AppleFrameworkImportDetectorExtractNonPublicImportsTests
+    {
+        // The non-public extractor is the negative filter that prevents the
+        // wrapper emitter from re-emitting `@_implementationOnly` / `private` /
+        // `internal` / `fileprivate` / `package` siblings. A regex regression
+        // here silently breaks the absl-style C++-only-sibling drop and the
+        // wrapper compile fails with "no such module".
+
+        [Fact]
+        public void ExtractNonPublicImports_RecognizesEachAttributeOrAccessModifier()
+        {
+            var text =
+                "@_implementationOnly import absl\n" +
+                "private import grpc\n" +
+                "internal import leveldb\n" +
+                "fileprivate import openssl_grpc\n" +
+                "package import grpcpp\n" +
+                "import Foundation\n" +
+                "public struct Marker {}\n";
+
+            var nonPublic = AppleFrameworkImportDetector.ExtractNonPublicImports(text);
+
+            Assert.Contains("absl", nonPublic);
+            Assert.Contains("grpc", nonPublic);
+            Assert.Contains("leveldb", nonPublic);
+            Assert.Contains("openssl_grpc", nonPublic);
+            Assert.Contains("grpcpp", nonPublic);
+            // `import Foundation` is plain-public — must NOT appear here.
+            Assert.DoesNotContain("Foundation", nonPublic);
+        }
+
+        [Fact]
+        public void ExtractNonPublicImports_IgnoresPublicAndExportedImports()
+        {
+            // `@_exported` and `public` are public-shape imports — they propagate
+            // to consumers and must not appear in the non-public set.
+            var text =
+                "@_exported import RealityFoundation\n" +
+                "public import UIKit\n" +
+                "import Foundation\n";
+
+            var nonPublic = AppleFrameworkImportDetector.ExtractNonPublicImports(text);
+
+            Assert.Empty(nonPublic);
+        }
+
+        [Fact]
+        public void ExtractNonPublicImports_EmptyOrNullInput_ReturnsEmpty()
+        {
+            Assert.Empty(AppleFrameworkImportDetector.ExtractNonPublicImports(string.Empty));
+            Assert.Empty(AppleFrameworkImportDetector.ExtractNonPublicImports(null!));
+        }
+    }
+
     public class AppleFrameworkImportDetectorResolveDependenciesTests
     {
         [Fact]

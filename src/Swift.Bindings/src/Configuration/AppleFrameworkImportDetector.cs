@@ -54,6 +54,18 @@ public static class AppleFrameworkImportDetector
         @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:(?:" + AccessModifiers + @")\s+)?(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
+    // Matches imports that are explicitly non-public: `@_implementationOnly`, `private`,
+    // `internal`, `fileprivate`, `package`. These imports don't propagate to consumers OUTSIDE
+    // the bound module's Swift package boundary — and the generated wrapper is a separate
+    // module produced by swiftc with its own `-module-name`, NOT a package-member of the bound
+    // source. Re-emitting any of these as plain `import X` would force swiftc to resolve X even
+    // though no public surface needs it (X is often a C++-only sibling like absl/grpc/leveldb
+    // that swiftc cannot import; or for `package`, a peer module the wrapper has no package-
+    // boundary access to).
+    private static readonly Regex NonPublicImportRegex = new(
+        @"^\s*(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*(?:@_implementationOnly|private|internal|fileprivate|package)\s+(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        RegexOptions.Compiled | RegexOptions.Multiline);
+
     /// <summary>
     /// Parses a swiftinterface's text content and returns the set of imported module names.
     /// Deduplicates and preserves first-seen order. Drops the leading-comment lines
@@ -74,6 +86,30 @@ public static class AppleFrameworkImportDetector
             if (string.IsNullOrEmpty(module))
                 continue;
             if (seen.Add(module))
+                result.Add(module);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns the set of module names imported via non-public access (<c>@_implementationOnly</c>,
+    /// <c>private</c>, <c>internal</c>, <c>fileprivate</c>). Callers that re-emit imports into a
+    /// downstream wrapper module use this to skip imports that aren't transitively visible — the
+    /// wrapper inherits the bound module's public surface only, so non-public imports MUST NOT be
+    /// re-emitted (they'd force swiftc to resolve C++-only siblings like absl/grpc/leveldb that
+    /// the wrapper has no reason to load).
+    /// </summary>
+    public static HashSet<string> ExtractNonPublicImports(string swiftInterfaceText)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        if (string.IsNullOrEmpty(swiftInterfaceText))
+            return result;
+
+        foreach (Match match in NonPublicImportRegex.Matches(swiftInterfaceText))
+        {
+            var module = match.Groups[1].Value;
+            if (!string.IsNullOrEmpty(module))
                 result.Add(module);
         }
 

@@ -46,14 +46,16 @@ namespace BindingsGeneration
         /// <param name="loggerFactory">ILoggerFactory instance.</param>
         public static void GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory)
         {
-            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
+            GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
             nestedTypesInCollidingClass = null;
+            depModuleCollisions = new DepModuleCollisionDetector.SlicedCollisionResult(
+                Array.Empty<string>(), Array.Empty<string>());
             try
             {
             var typeDatabase = new TypeDatabase();
@@ -268,6 +270,12 @@ namespace BindingsGeneration
                 decl.ExportedSymbols = demangledTbdFile.AllSymbols;
                 if (dependencyModuleNames != null)
                     decl.DependencyModuleNames = dependencyModuleNames;
+                // Thread the bound module's swiftinterface path so EmitSwiftImports can
+                // intersect DependencyModuleNames with the real textual imports — without
+                // this, the wrapper emits `import absl/grpc/...` for every sibling passed
+                // via --framework-dependency, even when the bound source never uses them.
+                if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
+                    decl.SwiftInterfacePath = swiftInterfacePath;
                 decl.InternalTypeNames = CollectInternalTypeNames(decl);
                 internalTypeNames = decl.InternalTypeNames;
 
@@ -294,6 +302,21 @@ namespace BindingsGeneration
                         logger.LogInformation("Found {Count} nested type(s) in colliding class '{Module}': {Types}",
                             nestedNames.Count, moduleName, string.Join(", ", nestedNames));
                     }
+                }
+
+                // Detect dep-module/type name collisions: a --framework-dependency whose
+                // module name is also the name of a public type or @interface that the
+                // dependency exports (e.g., GTMSessionFetcher.xcframework's GTMSessionFetcher
+                // ObjC class collides with module GTMSessionFetcher when GTMAppAuth's
+                // swiftinterface writes `GTMSessionFetcher.GTMSessionFetcherServiceProtocol`).
+                // The detection result feeds SwiftWrapperCompiler.PrecompileCollidingModule
+                // via the caller, which patches the bound interface to strip the
+                // `<DepModule>.` qualifier and compiles a shadow binary swiftmodule.
+                if (resolvedDependencies != null && resolvedDependencies.Count > 0 && platform != null)
+                {
+                    var detectorPlatformInfo = PlatformInfoFactory.Create(platform.Value);
+                    depModuleCollisions = DepModuleCollisionDetector.DetectPerSlice(
+                        resolvedDependencies, detectorPlatformInfo, logger);
                 }
 
                 // Wire publicTypeNames from swiftinterface as keep-override for underscore suppression.
@@ -625,8 +648,49 @@ namespace BindingsGeneration
                 .ToList();
 
             // Load wrapper compilation context saved by the generation pass
-            var (internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass) =
+            var (internalTypeNames, moduleNameForCollision, nestedTypesInCollidingClass, depModuleCollisions) =
                 LoadWrapperContext(outputDirectory, logger);
+
+            // The generation pass (--skip-wrapper-compilation) is invoked without
+            // --framework-dependency, so DepModuleCollisionDetector cannot run there and
+            // wrapper-context.json carries empty lists. Re-run detection here using the
+            // resolvedDeps available in wrapper-only mode so dep-module/type collisions
+            // (e.g., GTMSessionFetcher class colliding with module GTMSessionFetcher) are
+            // patched before swiftc imports them. A reused output directory may carry a
+            // stale wrapper-context.json from a prior generation with different deps; drop
+            // any stored entries that don't match a currently resolved dep module.
+            if (resolvedDeps != null && resolvedDeps.Count > 0)
+            {
+                var resolvedDepModuleNames = new HashSet<string>(
+                    resolvedDeps.Select(d => d.ModuleName));
+                var simList = depModuleCollisions.Simulator
+                    .Where(n => resolvedDepModuleNames.Contains(n))
+                    .ToList();
+                var deviceList = depModuleCollisions.Device
+                    .Where(n => resolvedDepModuleNames.Contains(n))
+                    .ToList();
+                var detected = DepModuleCollisionDetector.DetectPerSlice(resolvedDeps, platformInfo, logger);
+                if (detected.Simulator.Count > 0)
+                {
+                    var merged = new HashSet<string>(simList);
+                    merged.UnionWith(detected.Simulator);
+                    simList = merged.ToList();
+                }
+                if (detected.Device.Count > 0)
+                {
+                    var merged = new HashSet<string>(deviceList);
+                    merged.UnionWith(detected.Device);
+                    deviceList = merged.ToList();
+                }
+                depModuleCollisions = new DepModuleCollisionDetector.SlicedCollisionResult(simList, deviceList);
+            }
+            else
+            {
+                // No resolved deps in this invocation — clear any stored list rather than
+                // pass through obsolete patch targets from an earlier generation.
+                depModuleCollisions = new DepModuleCollisionDetector.SlicedCollisionResult(
+                    Array.Empty<string>(), Array.Empty<string>());
+            }
 
             // Compile the wrapper using existing .swift files in the output directory
             SwiftWrapperCompilationResult? compilationResult = null;
@@ -649,7 +713,9 @@ namespace BindingsGeneration
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath);
+                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
+                        depModuleNamesForCollisionDevice: depModuleCollisions.Device);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -677,7 +743,8 @@ namespace BindingsGeneration
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: deviceResolution.SwiftInterfacePath,
-                        skipThunkCompilation: skipThunkCompilation);
+                        skipThunkCompilation: skipThunkCompilation,
+                        depModuleNamesForCollision: depModuleCollisions.Device);
                 }
                 else
                 {
@@ -691,7 +758,8 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: resolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
-                        resolvedArchitecture: resolution.SelectedArchitecture);
+                        resolvedArchitecture: resolution.SelectedArchitecture,
+                        depModuleNamesForCollision: depModuleCollisions.Simulator);
                 }
             }
             catch (Exception ex)
@@ -961,6 +1029,7 @@ namespace BindingsGeneration
             HashSet<string>? internalTypeNames,
             string? moduleNameForCollision,
             HashSet<string>? nestedTypesInCollidingClass,
+            DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions,
             ILogger logger)
         {
             var contextPath = Path.Combine(outputDirectory, WrapperContextFileName);
@@ -973,6 +1042,15 @@ namespace BindingsGeneration
                 ["nestedTypesInCollidingClass"] = nestedTypesInCollidingClass != null
                     ? new JArray(nestedTypesInCollidingClass.OrderBy(n => n).ToArray())
                     : new JArray(),
+                // Dep-module collisions detected during generation, scoped per slice. The
+                // simulator and device wrapper compiles each consume their own list so a
+                // slice-asymmetric collision (e.g., device-only ObjC class shadowing the
+                // dep module name) doesn't trigger qualifier stripping on the slice that
+                // didn't actually expose the collision.
+                ["depModuleNamesForCollisionSimulator"] =
+                    new JArray(depModuleCollisions.Simulator.OrderBy(n => n).ToArray()),
+                ["depModuleNamesForCollisionDevice"] =
+                    new JArray(depModuleCollisions.Device.OrderBy(n => n).ToArray()),
             };
             File.WriteAllText(contextPath, context.ToString(Newtonsoft.Json.Formatting.Indented));
             logger.LogInformation("Saved wrapper context to {Path}", contextPath);
@@ -981,15 +1059,19 @@ namespace BindingsGeneration
         /// <summary>
         /// Loads wrapper compilation context saved by a prior generation pass.
         /// Returns null values if the context file doesn't exist (backward compatible).
+        /// Legacy <c>depModuleNamesForCollision</c> single-list shape is hydrated into
+        /// both simulator and device lists so old cached contexts still patch.
         /// </summary>
-        internal static (HashSet<string>? internalTypeNames, string? moduleNameForCollision, HashSet<string>? nestedTypesInCollidingClass)
+        internal static (HashSet<string>? internalTypeNames, string? moduleNameForCollision, HashSet<string>? nestedTypesInCollidingClass, DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions)
             LoadWrapperContext(string outputDirectory, ILogger logger)
         {
             var contextPath = Path.Combine(outputDirectory, WrapperContextFileName);
+            var emptyCollisions = new DepModuleCollisionDetector.SlicedCollisionResult(
+                Array.Empty<string>(), Array.Empty<string>());
             if (!File.Exists(contextPath))
             {
                 logger.LogInformation("No wrapper context file at {Path} — using defaults.", contextPath);
-                return (null, null, null);
+                return (null, null, null, emptyCollisions);
             }
 
             try
@@ -1000,13 +1082,31 @@ namespace BindingsGeneration
                 var moduleNameForCollision = json["moduleNameForCollision"]?.Value<string>();
                 var nestedTypes = json["nestedTypesInCollidingClass"]?.Values<string>()
                     .Where(n => n != null).Select(n => n!).ToHashSet();
+
+                var simList = json["depModuleNamesForCollisionSimulator"]?.Values<string>()
+                    .Where(n => n != null).Select(n => n!).ToList();
+                var deviceList = json["depModuleNamesForCollisionDevice"]?.Values<string>()
+                    .Where(n => n != null).Select(n => n!).ToList();
+                if (simList == null && deviceList == null)
+                {
+                    // Legacy: single-list shape. Apply to both slices (matches prior
+                    // behavior, which was already over-patching one of the two slices).
+                    var legacy = json["depModuleNamesForCollision"]?.Values<string>()
+                        .Where(n => n != null).Select(n => n!).ToList();
+                    simList = legacy;
+                    deviceList = legacy;
+                }
+                var sliced = new DepModuleCollisionDetector.SlicedCollisionResult(
+                    (IReadOnlyList<string>?)simList ?? Array.Empty<string>(),
+                    (IReadOnlyList<string>?)deviceList ?? Array.Empty<string>());
+
                 logger.LogInformation("Loaded wrapper context from {Path}", contextPath);
-                return (internalTypeNames, moduleNameForCollision, nestedTypes);
+                return (internalTypeNames, moduleNameForCollision, nestedTypes, sliced);
             }
             catch (Exception ex)
             {
                 logger.LogWarning("Failed to load wrapper context: {Message}", ex.Message);
-                return (null, null, null);
+                return (null, null, null, emptyCollisions);
             }
         }
 

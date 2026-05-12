@@ -495,17 +495,95 @@ namespace BindingsGeneration
 
             // Build the additional-imports set with every candidate normalized through the
             // compile-import remap, then dedupe on the *normalized* name. This covers scanned
-            // imports (CollectFrameworkImports) and --framework-dependency entries equally,
-            // so a sibling module that pulls in @_implementationOnly RealityFoundation either
-            // way still emits `import RealityKit`.
+            // imports (CollectFrameworkImports), the bound module's own `import` declarations,
+            // and --framework-dependency entries equally, so a sibling module that pulls in
+            // @_implementationOnly RealityFoundation either way still emits `import RealityKit`.
+            //
+            // The bound module's swiftinterface is the authoritative source for what the
+            // wrapper needs to import — every cross-module type the wrapper references shows
+            // up in the bound module's public surface, which means its defining module is
+            // either declared as `import X` in the swiftinterface OR appears as a type
+            // qualifier (`X.SomeType`) inline. We emit declared imports directly (so static-
+            // archive Firebase libs whose otool-based auto-detection finds nothing still get
+            // their sibling imports). DependencyModuleNames adds qualifier-only references
+            // and is filtered against declared/scanned references so we drop C++-only
+            // siblings (absl/grpc/leveldb/openssl_grpc/grpcpp) whose Clang umbrella headers
+            // can't compile in swiftc without `-Xcc -std=c++17` flags.
+            //
+            // When the swiftinterface is unavailable (apple-framework-mode unit tests,
+            // direct-mode runs without `-s/--swiftinterface`), declaredImports stays null
+            // and we fall back to legacy emit-all behavior so existing test fixtures and
+            // out-of-tree consumers continue to work unchanged.
+            var scannedImports = CollectFrameworkImports(moduleDecl);
+            HashSet<string>? declaredImports = null;
+            HashSet<string>? nonPublicImports = null;
+            string? interfaceText = null;
+            if (!string.IsNullOrEmpty(moduleDecl.SwiftInterfacePath) && File.Exists(moduleDecl.SwiftInterfacePath))
+            {
+                interfaceText = File.ReadAllText(moduleDecl.SwiftInterfacePath);
+                declaredImports = new HashSet<string>(AppleFrameworkImportDetector.ExtractImports(interfaceText), StringComparer.Ordinal);
+                nonPublicImports = AppleFrameworkImportDetector.ExtractNonPublicImports(interfaceText);
+            }
+
             var additionalImports = new HashSet<string>();
-            foreach (var scanned in CollectFrameworkImports(moduleDecl))
+            foreach (var scanned in scannedImports)
             {
                 additionalImports.Add(AppleFrameworkRegistry.MapModuleToCompileImport(scanned));
             }
+            // Emit the bound module's own declared `import` lines for SIBLING modules
+            // (third-party deps the bound source depends on). Apple frameworks and Swift
+            // system modules are deliberately skipped here — `scannedImports` already
+            // imports them only when their types appear in the wrapper's public surface,
+            // and indiscriminately re-importing them can cause "ambiguous type lookup"
+            // errors when the bound module exposes a type name that also exists in the
+            // Apple framework (e.g. Starscream.Framer vs Network.Framer).
+            //
+            // This catches sibling deps for libraries whose binary is a static archive
+            // (Firebase) so otool-based auto-detection produces nothing — the swiftinterface
+            // still tells us exactly which siblings the public surface needs.
+            if (declaredImports != null)
+            {
+                foreach (var declared in declaredImports)
+                {
+                    if (declared.Length > 0 && declared[0] == '_')
+                        continue;
+                    if (AppleFrameworkRegistry.IsKnownAppleOrSystemModule(declared))
+                        continue;
+                    // Skip imports the bound module marked as non-public (`@_implementationOnly`,
+                    // `private`, `internal`, `fileprivate`). They aren't part of the public surface
+                    // a wrapper sees, and re-emitting them forces swiftc to load C++-only siblings
+                    // (absl/grpc/leveldb) that the wrapper has no reason to depend on.
+                    if (nonPublicImports != null && nonPublicImports.Contains(declared))
+                        continue;
+                    additionalImports.Add(AppleFrameworkRegistry.MapModuleToCompileImport(declared));
+                }
+            }
             foreach (var depModule in moduleDecl.DependencyModuleNames)
             {
-                additionalImports.Add(AppleFrameworkRegistry.MapModuleToCompileImport(depModule));
+                // Non-public imports (`@_implementationOnly`, `private`, `internal`,
+                // `fileprivate`, `package`) don't carry to the wrapper either way — declared
+                // depModule entries derived from them must NOT short-circuit the public-import
+                // checks below, otherwise the wrapper still ends up with `import absl` and the
+                // C++-only sibling fails to load.
+                if (nonPublicImports != null && nonPublicImports.Contains(depModule))
+                    continue;
+                var mapped = AppleFrameworkRegistry.MapModuleToCompileImport(depModule);
+                if (declaredImports == null
+                    || declaredImports.Contains(depModule)
+                    || declaredImports.Contains(mapped)
+                    || scannedImports.Contains(depModule)
+                    // Cross-module sibling deps (e.g. Firebase libs referencing
+                    // `FirebaseRemoteConfigInterop.RemoteConfigInterop`) can appear in the
+                    // bound module's swiftinterface ONLY as a type qualifier without an
+                    // explicit `import` line. The Apple-framework-only `scannedImports`
+                    // doesn't see these. Qualified-reference match against the swiftinterface
+                    // text catches `<Module>.<Type>` references while still rejecting C++-only
+                    // siblings (absl/grpc/leveldb/openssl_grpc/grpcpp) that the bound module
+                    // never mentions.
+                    || (interfaceText != null && SwiftInterfaceReferencesModule(interfaceText, depModule)))
+                {
+                    additionalImports.Add(mapped);
+                }
             }
             additionalImports.Remove("Swift");
             additionalImports.Remove("Foundation");
@@ -532,6 +610,45 @@ namespace BindingsGeneration
 
             // Emit Swift error description extraction infrastructure (for sync throwing methods)
             ErrorDescriptionEmitter.EmitIfNeeded(swiftWriter, moduleDecl.Name, emissionCtx);
+        }
+
+        // Detects a qualified `<Module>.<Identifier>` reference in a swiftinterface body.
+        // Used to discover dependency references like `FirebaseRemoteConfigInterop.RemoteConfigInterop`
+        // where the cross-module type is qualified inline but never appears as an explicit
+        // `import` line. Requires the trailing `.` so a bare whole-word occurrence (parameter
+        // name, type leaf, identifier substring, comment, or string literal) doesn't trigger a
+        // spurious `import` for short C++-only sibling names like `grpc` / `absl`. Also requires
+        // an identifier-start character after the dot to reject decimal literals
+        // (`3.absl` is impossible Swift but `absl.0` could occur in numeric debug output).
+        // Returns false when the name doesn't appear in qualifier shape, or appears only inside
+        // a larger identifier (e.g. `FooBar` for module `Foo`).
+        private static bool SwiftInterfaceReferencesModule(string interfaceText, string moduleName)
+        {
+            if (string.IsNullOrEmpty(interfaceText) || string.IsNullOrEmpty(moduleName))
+                return false;
+            int start = 0;
+            while (true)
+            {
+                var idx = interfaceText.IndexOf(moduleName, start, StringComparison.Ordinal);
+                if (idx < 0) return false;
+                var before = idx == 0 ? '\0' : interfaceText[idx - 1];
+                var afterIdx = idx + moduleName.Length;
+                var after = afterIdx >= interfaceText.Length ? '\0' : interfaceText[afterIdx];
+                // `before` must not be an identifier character (substring of larger identifier)
+                // and not '.' (nested component, e.g. `Foo.Bar.Baz` is NOT a top-level reference
+                // to module `Bar`). Top-level module qualifiers appear at the start of a dotted
+                // type path, never in the middle.
+                bool beforeOk = !(char.IsLetterOrDigit(before) || before == '_' || before == '.');
+                bool isQualifierShape = false;
+                if (after == '.' && afterIdx + 1 < interfaceText.Length)
+                {
+                    var afterDot = interfaceText[afterIdx + 1];
+                    isQualifierShape = char.IsLetter(afterDot) || afterDot == '_';
+                }
+                if (beforeOk && isQualifierShape)
+                    return true;
+                start = idx + 1;
+            }
         }
 
         /// <summary>
