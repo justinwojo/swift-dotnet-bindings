@@ -273,6 +273,7 @@ namespace BindingsGeneration
             var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
             var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
             _wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
+            _simpleEnumEmissionContext = context.GetEmissionContext();
 
             // Buffer extensions content — only emit class if at least one member was emitted
             var bufferSw = new System.IO.StringWriter();
@@ -453,6 +454,7 @@ namespace BindingsGeneration
 
             // All parameters validated — now emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
+            _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
             EmitSimpleEnumSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString);
 
@@ -812,6 +814,7 @@ namespace BindingsGeneration
             // Compute wrapper symbol
             var getterMangledName = getter.Method.MangledName;
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
+            _simpleEnumEmissionContext?.TryAddPropertyWrapperSymbol(wrapperSymbol);
 
             // Emit Swift wrapper
             EmitSimpleEnumPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
@@ -907,6 +910,7 @@ namespace BindingsGeneration
 
             // Emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
+            _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
             EmitSimpleEnumStaticMethodSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString);
 
@@ -1016,6 +1020,7 @@ namespace BindingsGeneration
 
             var getterMangledName = getter.Method.MangledName;
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
+            _simpleEnumEmissionContext?.TryAddPropertyWrapperSymbol(wrapperSymbol);
 
             // Emit Swift wrapper (no tag param for static)
             EmitSimpleEnumStaticPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
@@ -1319,6 +1324,12 @@ namespace BindingsGeneration
 
         // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).
         private string _wrapperLibName = "SwiftBindings";
+
+        // EmissionContext captured at EmitSimpleEnumExtensions entry so the per-method
+        // and per-property emit helpers can register their SBW_ wrapper symbols with
+        // the wrapper-symbol contract without threading the context through every
+        // signature.
+        private ModuleEmissionContext? _simpleEnumEmissionContext;
 
         private bool _freePInvokeEmittedInExtensions;
 

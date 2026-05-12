@@ -68,6 +68,24 @@ public record PInvokeEmissionInfo
 
     /// <summary>Whether the method needs the 'unsafe' modifier.</summary>
     public bool IsUnsafe { get; init; }
+
+    /// <summary>
+    /// Optional handle to the per-module emission context. When supplied alongside
+    /// <see cref="EnforceWrapperContract"/>, <see cref="PInvokeEmitHelper"/> consults
+    /// <see cref="ModuleEmissionContext.IsWrapperSymbolRegistered"/> before emitting
+    /// — refusing (via <see cref="WrapperSymbolContractException"/>) when the entry
+    /// point matches the wrapper-symbol convention but no wrapper-emit path
+    /// registered it. Required for the in-band wrapper-symbol contract check.
+    /// </summary>
+    public ModuleEmissionContext? EmissionContext { get; init; }
+
+    /// <summary>
+    /// When true and <see cref="EmissionContext"/> is non-null, the in-band
+    /// wrapper-symbol contract check fires. Default is false so existing call
+    /// sites preserve their current behaviour while the contract is rolled out
+    /// chokepoint-by-chokepoint.
+    /// </summary>
+    public bool EnforceWrapperContract { get; init; }
 }
 
 /// <summary>
@@ -88,11 +106,39 @@ public static class PInvokeEmitHelper
     }
 
     /// <summary>
+    /// Returns true when <paramref name="entryPoint"/> follows the wrapper-symbol
+    /// naming convention (SBW_… prefix). Wrapper-emit owns this prefix; binding-emit
+    /// only ever produces it when it expects to call into a wrapper that wrapper-emit
+    /// emitted. Direct Swift mangled symbols ($s…) and ObjC selectors are excluded.
+    /// </summary>
+    public static bool IsWrapperEntryPoint(string entryPoint) =>
+        !string.IsNullOrEmpty(entryPoint) && entryPoint.StartsWith("SBW_", StringComparison.Ordinal);
+
+    /// <summary>
     /// Format a P/Invoke declaration as individual lines (unindented).
     /// Callers prepend their own indentation when appending to StringBuilder or raw strings.
     /// </summary>
+    /// <exception cref="WrapperSymbolContractException">
+    /// Thrown when <see cref="PInvokeEmissionInfo.EnforceWrapperContract"/> is true,
+    /// <see cref="PInvokeEmissionInfo.EmissionContext"/> is non-null, the calling
+    /// convention is <see cref="PInvokeCallingConvention.Cdecl"/>, the entry point
+    /// matches the wrapper-symbol convention, and the symbol was never registered.
+    /// </exception>
     public static IReadOnlyList<string> FormatDeclarationLines(PInvokeEmissionInfo info)
     {
+        // In-band wrapper-symbol contract: refuse to emit a P/Invoke whose entry
+        // point looks like a wrapper symbol (SBW_…) when wrapper-emit never
+        // registered it. Catches the failure shape behind the three 0.10.0 bugs
+        // where binding-emit referenced a symbol that wrapper-emit never produced.
+        if (info.EnforceWrapperContract &&
+            info.EmissionContext != null &&
+            info.CallingConvention == PInvokeCallingConvention.Cdecl &&
+            IsWrapperEntryPoint(info.EntryPoint) &&
+            !info.EmissionContext.IsWrapperSymbolRegistered(info.EntryPoint))
+        {
+            throw new WrapperSymbolContractException(info.EntryPoint, info.MethodName);
+        }
+
         var lines = new List<string>();
 
         // Calling convention attribute — use the specified convention

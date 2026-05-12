@@ -219,6 +219,17 @@ namespace BindingsGeneration
         /// Set by HandleBaseDecl before method emission; null if not available.
         /// </summary>
         public HashSet<string>? EmittedProjectedSignatures { get; set; }
+
+        /// <summary>
+        /// Per-module emission context, threaded by the handler so emitters that need
+        /// authoritative wrapper-symbol-registration data (e.g. the wrapper-symbol
+        /// contract check in <c>PInvokeEmitHelper</c>) can consult it without each call
+        /// site re-plumbing a parameter. Null when the environment is constructed
+        /// outside the handler pipeline (some normalization/post-processing paths
+        /// rebuild a fresh environment); contract enforcement is opt-in and only
+        /// fires when this is non-null.
+        /// </summary>
+        public ModuleEmissionContext? EmissionContext { get; set; }
     }
 
     /// <summary>

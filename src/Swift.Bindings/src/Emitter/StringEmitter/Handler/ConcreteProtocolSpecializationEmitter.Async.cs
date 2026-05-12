@@ -64,6 +64,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         var env = new MethodEnvironment(synthesized, typeDatabase);
+        env.EmissionContext = emissionContext;
 
         csWriter.WriteLine();
         var wrapperEmitter = new WrapperEmitter(env, signatureHandler, null, emissionContext);

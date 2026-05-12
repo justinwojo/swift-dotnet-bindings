@@ -156,6 +156,10 @@ public static class GenericClosureBridgeEmitter
             }
 
             """);
+        // Register the helper so the wrapper-symbol registry reflects every SBW_…
+        // symbol we actually emit. Closes a registry hole that would false-trip the
+        // contract gate if direct-helper enforcement is widened.
+        ctx.TryAddDirectHelperWrapperSymbol(symbol);
         ctx.GenericClosureBridgeCreateErrorEmitted = true;
     }
 

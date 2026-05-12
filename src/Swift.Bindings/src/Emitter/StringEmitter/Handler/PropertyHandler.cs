@@ -621,8 +621,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         PropertyWrapperEmitter.EmitSwiftGetterWrapper(
                             swiftWriter, propertyDecl, symbol, cdeclCheckEnv, context.GetEmissionContext());
 
-                        // Emit invoke thunk for closure-returning property getters
-                        EmitPropertyClosureInvokeThunkIfNeeded(swiftWriter, propertyDecl, symbol, cdeclCheckEnv);
+                        // Emit invoke thunk for closure-returning property getters.
+                        // Pass context.GetEmissionContext() directly — cdeclCheckEnv is freshly
+                        // marshaled and never receives EmissionContext, so threading it through
+                        // env.EmissionContext would silently skip thunk-symbol registration.
+                        EmitPropertyClosureInvokeThunkIfNeeded(swiftWriter, propertyDecl, symbol, cdeclCheckEnv,
+                            context.GetEmissionContext());
                     }
                     else
                     {
@@ -1363,7 +1367,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         SwiftWriter swiftWriter,
         PropertyDecl propertyDecl,
         string symbolName,
-        MethodEnvironment env)
+        MethodEnvironment env,
+        ModuleEmissionContext? emissionContext = null)
     {
         var closureHandler = env.ClosureHandler;
         if (closureHandler == null) return;
@@ -1382,7 +1387,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);
         var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";
+        // env.EmissionContext is freshly marshaled here and never set; rely on the
+        // caller-supplied emissionContext to register the thunk with the wrapper-symbol contract.
         ClosureEmitter.EmitSwiftInvokeThunk(swiftWriter, closureReturnSpec, closureHandler,
-            thunkEntryPoint, thunkFuncName);
+            thunkEntryPoint, thunkFuncName, emissionContext ?? env.EmissionContext);
     }
 }

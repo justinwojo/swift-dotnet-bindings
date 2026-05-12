@@ -211,6 +211,13 @@ public static class NestedClosureBridge
             passableNonClosureParams.Add((arg, csName, csType, category));
         }
 
+        // Register the SBW_ symbol with the wrapper-symbol contract before emitting
+        // the Swift wrapper. The matching P/Invoke at EmitPInvoke uses this name as
+        // its EntryPoint; without registration a future Cdecl path would trip the
+        // contract check.
+        var bridgeSilgenName = $"SBW_{nestedClosures[0].CallbackBaseName}_{method.Name}";
+        ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
+
         // Emit a single Swift wrapper that receives all outer closures' funcPtr/context pairs
         // and dispatches to the original method. The wrapper symbol matches the first outer
         // closure's callback base name (always indexed _0 per Session 2 naming convention).

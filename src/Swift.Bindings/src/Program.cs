@@ -470,6 +470,27 @@ namespace BindingsGeneration
                             crossModuleQualified.Count);
                 }
 
+                // Strip orphan callers left behind by in-band wrapper-symbol contract
+                // rejections. The contract trips inside PInvokeEmitter AFTER WrapperEmitter
+                // has already written the wrapper body to disk — the P/Invoke decl is
+                // suppressed but the call site referencing it remains. RecordContractViolation
+                // collected those C# P/Invoke method names during emission; the cogater
+                // strips every caller through the same transitive-closure logic that
+                // handles wrapper-compilation strips.
+                IReadOnlyList<CoGatedMember> contractCoGated = Array.Empty<CoGatedMember>();
+                if (emissionContext.ContractViolatedPInvokeScopes.Count > 0)
+                {
+                    contractCoGated = CSharpWrapperCoGater.ProcessDirectoryForContractViolations(
+                        outputDirectory,
+                        emissionContext.ContractViolatedPInvokeScopes,
+                        logger);
+                    if (contractCoGated.Count > 0)
+                        logger.LogInformation(
+                            "Stripped {Count} caller(s) of {ViolationCount} contract-rejected P/Invoke(s).",
+                            contractCoGated.Count,
+                            emissionContext.ContractViolatedPInvokeScopes.Count);
+                }
+
                 // Emit emission-level metrics (wrapper strategies, conformance decisions)
                 EmissionReportEmitter.Emit(emissionContext, moduleName, outputDirectory, logger);
 
@@ -492,6 +513,12 @@ namespace BindingsGeneration
                             Status = PhaseStatus.Success,
                             SuppressedProxyClassCount = emissionContext.SuppressedProxyClassNames.Count,
                             CoGatedMethods = proxyCoGated.ToList(),
+                        },
+                        ContractCoGating = new ContractCoGatingSection
+                        {
+                            Status = PhaseStatus.Success,
+                            ContractViolatedPInvokeCount = emissionContext.ContractViolatedPInvokeScopes.Count,
+                            CoGatedMembers = contractCoGated.ToList(),
                         },
                     };
                     BindingArtifactManifestStore.Write(manifest, outputDirectory, logger);

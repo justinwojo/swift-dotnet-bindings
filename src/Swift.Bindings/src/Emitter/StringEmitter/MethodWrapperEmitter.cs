@@ -217,6 +217,24 @@ public static class MethodWrapperEmitter
         if (parentTypeDecl == null && parentModuleDecl == null) return;
 
         var symbolName = methodDecl.MangledName; // Already set to cdecl symbol by caller
+
+        // Detect skip-paths BEFORE registering the symbol, so the wrapper-symbol contract
+        // never reports a symbol as registered when the @_cdecl wasn't actually written.
+        // Currently the only post-setup skip is the generic-static-dispatch extension-method
+        // collision case below, which redirects to EmitGenericStaticDispatchMethod and bails
+        // without producing Swift output.
+        if (parentTypeDecl != null
+            && WouldGenericStaticDispatchSkipForExtensionCollision(env, parentTypeDecl, out var skippedSwiftName))
+        {
+            swiftWriter.WriteLine();
+            swiftWriter.WriteLines($$"""
+                // Generic static dispatch wrapper skipped for '{{skippedSwiftName}}':
+                // extension method has same-name overload on parent type — unconstrained
+                // extension cannot disambiguate (constraint propagation not yet supported).
+                """);
+            return;
+        }
+
         if (!ctx.TryAddMethodWrapperSymbol(symbolName))
             return; // Already emitted
 
@@ -618,9 +636,36 @@ public static class MethodWrapperEmitter
         {
             var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);
             var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";
+            // Use ctx, not env.EmissionContext — env.EmissionContext is set later by
+            // MethodHandler and is null at this point in the emission pipeline.
             ClosureEmitter.EmitSwiftInvokeThunk(swiftWriter, closureReturnSpec, env.ClosureHandler,
-                thunkEntryPoint, thunkFuncName);
+                thunkEntryPoint, thunkFuncName, ctx);
         }
+    }
+
+    /// <summary>
+    /// Returns true when <see cref="EmitGenericStaticDispatchMethod"/> would refuse to
+    /// emit a Swift @_cdecl wrapper because the method is an extension method on a
+    /// generic parent and another non-accessor method on that parent shares the same
+    /// base Swift name — the unconstrained extension can't disambiguate the overload.
+    /// Mirrors the gate that EmitGenericStaticDispatchMethod itself used to apply
+    /// internally; hoisted out so the wrapper-symbol contract can detect the skip
+    /// before <see cref="ModuleEmissionContext.TryAddMethodWrapperSymbol"/> records the
+    /// symbol as registered.
+    /// </summary>
+    private static bool WouldGenericStaticDispatchSkipForExtensionCollision(
+        MethodEnvironment env, TypeDecl parentTypeDecl, out string swiftMethodName)
+    {
+        swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);
+        var methodDecl = env.MethodDecl;
+        bool isStatic = methodDecl.MethodType == MethodType.Static;
+        if (isStatic) return false;
+        if (!WrapperValidation.NeedsGenericDispatch(env, MemberKind.Method)) return false;
+        if (!methodDecl.IsExtensionMethod) return false;
+
+        var baseName = methodDecl.Name;
+        return parentTypeDecl.Methods.Any(m =>
+            m != methodDecl && m.Name == baseName && !m.IsAccessor);
     }
 
     /// <summary>
@@ -658,26 +703,9 @@ public static class MethodWrapperEmitter
         var dispatchMethodName = $"_sbw_dispatch_{methodHash}";
         var swiftMethodName = NameProvider.ParserNameToSwift(methodDecl);
 
-        // Guard: extension methods in generic static dispatch emit an unconditional
-        // conformance extension (no constraint propagation). If the parent type has
-        // another method with the same base Swift name, the call inside the wrapper
-        // can resolve to the wrong overload. Skip the wrapper in that case.
-        if (methodDecl.IsExtensionMethod)
-        {
-            var baseName = methodDecl.Name; // Parser name (e.g., "map")
-            bool hasNameCollision = parentTypeDecl.Methods.Any(m =>
-                m != methodDecl && m.Name == baseName && !m.IsAccessor);
-            if (hasNameCollision)
-            {
-                swiftWriter.WriteLine();
-                swiftWriter.WriteLines($$"""
-                    // Generic static dispatch wrapper skipped for '{{swiftMethodName}}':
-                    // extension method has same-name overload on parent type — unconstrained
-                    // extension cannot disambiguate (constraint propagation not yet supported).
-                    """);
-                return;
-            }
-        }
+        // Extension-method/overload-collision skip is detected in EmitSwiftMethodWrapper
+        // before symbol registration (see WouldGenericStaticDispatchSkipForExtensionCollision).
+        // Reaching this point means the wrapper is safe to emit.
 
         // For string returns in generic static dispatch, we need Utf8Slice infrastructure
         if (isString)

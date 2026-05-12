@@ -105,6 +105,126 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void Projection_ContractCoGating_TransitiveMemberAppearsAsMissingWrapperSymbol()
+    {
+        // ContractCoGater strips orphan callers left behind by in-band contract rejections.
+        // The direct violator is already recorded by WrapperSymbolContractGate via
+        // ReportCollector — the projection should add ONLY the transitive Step C/D/E
+        // removals so they aren't silently dropped from the report.
+        var report = NewReport();
+        report.SkippedItems.Add(new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "DirectViolator",
+            ContainingType = "Demo.Foo",
+            Reason = SkipReason.MissingWrapperSymbol,
+            Details = "in-band contract rejection",
+        });
+        report.EmittedMembers = 17;
+        report.SkippedMembers = 1;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 11;
+        report.SkippedMembersByKind[BindingItemKind.Method] = 1;
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(report),
+            ContractCoGating = new ContractCoGatingSection { ContractViolatedPInvokeCount = 1 },
+        };
+        ((List<CoGatedMember>)manifest.ContractCoGating.CoGatedMembers).Add(
+            Heuristic("TransitiveHelper", "Demo.Foo", 0, BindingItemKind.Property));
+
+        var projected = BindingReportProjection.Project(manifest);
+
+        Assert.Equal(2, projected.SkippedItems.Count);
+        Assert.Equal(2, projected.SkippedMembers);
+        Assert.Equal(16, projected.EmittedMembers);
+        Assert.All(projected.SkippedItems, item =>
+            Assert.Equal(SkipReason.MissingWrapperSymbol, item.Reason));
+        Assert.Contains(projected.SkippedItems, item =>
+            item.Name == "TransitiveHelper" && item.Kind == BindingItemKind.Property);
+    }
+
+    [Fact]
+    public void Projection_ContractCoGating_DirectMemberNotDoubleCounted()
+    {
+        // The CoGater Step B will re-find the directly violated wrapper body (it lives in
+        // source until stripping). When CoGated identities flow into the projection,
+        // the entry that matches the existing MissingWrapperSymbol SkippedItem must be
+        // deduped — otherwise the report shows the same skip twice.
+        var report = NewReport();
+        report.SkippedItems.Add(new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Create",
+            ContainingType = "Demo.Bar",
+            Reason = SkipReason.MissingWrapperSymbol,
+            Details = "in-band contract rejection",
+        });
+        report.EmittedMembers = 17;
+        report.SkippedMembers = 1;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 11;
+        report.SkippedMembersByKind[BindingItemKind.Method] = 1;
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(report),
+            ContractCoGating = new ContractCoGatingSection { ContractViolatedPInvokeCount = 1 },
+        };
+        ((List<CoGatedMember>)manifest.ContractCoGating.CoGatedMembers).Add(
+            Heuristic("Create", "Demo.Bar", 0)); // same identity as the recorded SkippedItem
+
+        var projected = BindingReportProjection.Project(manifest);
+
+        Assert.Single(projected.SkippedItems);
+        Assert.Equal(1, projected.SkippedMembers);
+        Assert.Equal(17, projected.EmittedMembers);
+    }
+
+    [Fact]
+    public void Projection_ContractCoGating_DedupeIsCountingNotCollapsing()
+    {
+        // Multiset dedupe: when a directly violated member and a transitive removal
+        // share the same (Kind, Name, ContainingType) — overload collision — a single
+        // direct-skip record must consume exactly ONE matching CoGated entry, leaving
+        // any additional same-identity entries to project as separate skips. A
+        // collapsing HashSet dedupe would silently drop the transitive overload.
+        var report = NewReport();
+        report.SkippedItems.Add(new SkippedItem
+        {
+            Kind = BindingItemKind.Method,
+            Name = "Combine",
+            ContainingType = "Demo.Foo",
+            Reason = SkipReason.MissingWrapperSymbol,
+            Details = "in-band contract rejection",
+        });
+        report.EmittedMembers = 18;
+        report.SkippedMembers = 1;
+        report.EmittedMembersByKind[BindingItemKind.Method] = 12;
+        report.SkippedMembersByKind[BindingItemKind.Method] = 1;
+
+        var manifest = new BindingArtifactManifest
+        {
+            Module = "Demo",
+            Generation = GenerationSection.From(report),
+            ContractCoGating = new ContractCoGatingSection { ContractViolatedPInvokeCount = 1 },
+        };
+        var coGated = (List<CoGatedMember>)manifest.ContractCoGating.CoGatedMembers;
+        coGated.Add(Heuristic("Combine", "Demo.Foo", 0)); // direct violator (deduped)
+        coGated.Add(Heuristic("Combine", "Demo.Foo", 1)); // transitive same-name overload (projected)
+
+        var projected = BindingReportProjection.Project(manifest);
+
+        // Direct (already in SkippedItems) + one transitive same-name overload = 2.
+        Assert.Equal(2, projected.SkippedItems.Count);
+        Assert.Equal(2, projected.SkippedMembers);
+        Assert.Equal(17, projected.EmittedMembers);
+        Assert.Equal(2, projected.SkippedItems.Count(item =>
+            item.Name == "Combine" && item.ContainingType == "Demo.Foo"));
+    }
+
+    [Fact]
     public void Projection_PreservesOverloadDuplicates()
     {
         // Two overloads with identical Name+Kind+ContainingType but distinct ordinals
@@ -157,6 +277,11 @@ public class BindingArtifactManifestTests
             GeneratorVersion = "1.0.0",
             Generation = GenerationSection.From(NewReport()),
             ProxyCoGating = new ProxyCoGatingSection { SuppressedProxyClassCount = 2 },
+            ContractCoGating = new ContractCoGatingSection
+            {
+                Status = PhaseStatus.Success,
+                ContractViolatedPInvokeCount = 1,
+            },
             Wrapper = new WrapperSection
             {
                 Status = PhaseStatus.Warning,
@@ -178,6 +303,8 @@ public class BindingArtifactManifestTests
         ((List<CoGatedMember>)manifest.Wrapper.CSharpCoGatedMembers).Add(
             Mangled("Foo", "Demo.X", "$sFooSymbol", 0));
         ((List<string>)manifest.Wrapper.StrippedSymbols).Add("$sFooSymbol");
+        ((List<CoGatedMember>)manifest.ContractCoGating.CoGatedMembers).Add(
+            Mangled("OrphanCaller", "Demo.Mapper", "SBW_Mapper_orphan", 0));
 
         var settings = new JsonSerializerSettings
         {
@@ -196,6 +323,12 @@ public class BindingArtifactManifestTests
         Assert.Single(parsed.Wrapper.CSharpCoGatedMembers);
         Assert.Equal(IdentityConfidence.Mangled, parsed.Wrapper.CSharpCoGatedMembers[0].Confidence);
         Assert.Equal(PhaseStatus.NoOp, parsed.Bridge!.Status);
+        Assert.NotNull(parsed.ContractCoGating);
+        Assert.Equal(PhaseStatus.Success, parsed.ContractCoGating!.Status);
+        Assert.Equal(1, parsed.ContractCoGating.ContractViolatedPInvokeCount);
+        Assert.Single(parsed.ContractCoGating.CoGatedMembers);
+        Assert.Equal("OrphanCaller", parsed.ContractCoGating.CoGatedMembers[0].Name);
+        Assert.Equal("SBW_Mapper_orphan", parsed.ContractCoGating.CoGatedMembers[0].MangledSymbol);
     }
 
     [Fact]

@@ -212,7 +212,7 @@ public static class ThemeBridgeEmitter
 
         var hasSwiftUIFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.Font));
         var hasUIKitFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.UIKitFont));
-        var swiftContent = GenerateSwiftThemeBridge(moduleName, themeInfos, viewBridgeExists, hasSwiftUIFonts, hasUIKitFonts);
+        var swiftContent = GenerateSwiftThemeBridge(moduleName, themeInfos, viewBridgeExists, hasSwiftUIFonts, hasUIKitFonts, emissionContext);
         var csContent = GenerateCSharpThemeBridge(@namespace, moduleName, themeInfos);
 
         // Bridge files are a matched pair (Swift + C#). If either existing file is
@@ -321,7 +321,8 @@ public static class ThemeBridgeEmitter
         List<ThemeBridgeInfo> themeInfos,
         bool viewBridgeExists,
         bool hasSwiftUIFonts,
-        bool hasUIKitFonts)
+        bool hasUIKitFonts,
+        ModuleEmissionContext? emissionContext)
     {
         var sb = new StringBuilder();
 
@@ -333,8 +334,8 @@ public static class ThemeBridgeEmitter
 
         foreach (var info in themeInfos)
         {
-            EmitSwiftThemeSetters(sb, moduleName, info);
-            EmitSwiftThemeGetters(sb, moduleName, info);
+            EmitSwiftThemeSetters(sb, moduleName, info, emissionContext);
+            EmitSwiftThemeGetters(sb, moduleName, info, emissionContext);
         }
 
         return sb.ToString();
@@ -391,7 +392,7 @@ public static class ThemeBridgeEmitter
         }
     }
 
-    private static void EmitSwiftThemeSetters(StringBuilder sb, string moduleName, ThemeBridgeInfo info)
+    private static void EmitSwiftThemeSetters(StringBuilder sb, string moduleName, ThemeBridgeInfo info, ModuleEmissionContext? emissionContext)
     {
         sb.AppendLine($"// --- {info.ClassName} theme setters ---");
         sb.AppendLine();
@@ -402,6 +403,7 @@ public static class ThemeBridgeEmitter
         foreach (var prop in info.Properties)
         {
             var funcName = $"SBW_{info.ClassName}_set_{prop.Name}";
+            emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             if (IsColorKind(prop.Kind))
             {
@@ -470,7 +472,7 @@ public static class ThemeBridgeEmitter
         }
     }
 
-    private static void EmitSwiftThemeGetters(StringBuilder sb, string moduleName, ThemeBridgeInfo info)
+    private static void EmitSwiftThemeGetters(StringBuilder sb, string moduleName, ThemeBridgeInfo info, ModuleEmissionContext? emissionContext)
     {
         var colorProps = info.Properties.Where(p => IsColorKind(p.Kind)).ToList();
         if (colorProps.Count == 0)
@@ -484,6 +486,7 @@ public static class ThemeBridgeEmitter
         foreach (var prop in colorProps)
         {
             var funcName = $"SBW_{info.ClassName}_get_{prop.Name}";
+            emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
             sb.AppendLine($"func {funcName}(");

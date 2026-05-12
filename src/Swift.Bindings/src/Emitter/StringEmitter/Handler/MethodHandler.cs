@@ -516,37 +516,54 @@ namespace BindingsGeneration
             // thunk failure → CdeclConstructor or None).
             context.GetEmissionContext().IncrementWrapperStrategy(methodEnv.MethodDecl.WrapperStrategy.ToString());
 
+            // Thread the per-module emission context onto the env so the in-band
+            // wrapper-symbol contract check (PInvokeEmitter / PInvokeEmitHelper)
+            // can consult the authoritative wrapper-symbol registry. Throws
+            // WrapperSymbolContractException when binding-emit is about to
+            // reference an SBW_… symbol that wrapper-emit never registered;
+            // we catch below, record the skip, and let the cogater strip the
+            // orphan public C# member.
+            methodEnv.EmissionContext = context.GetEmissionContext();
+
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, emissionContext: context.GetEmissionContext());
 
             // C2: Emit Swift typed error extractor for ALL throwing constructors
             // (covers both failable EmitFailableFactory and non-failable EmitConstructor paths)
             wrapperEmitter.EmitTypedErrorExtractor(swiftWriter);
 
-            if (methodEnv.MethodDecl.IsFailable)
+            try
             {
-                wrapperEmitter.EmitFailableFactory(csWriter);
-
-                // Emit the SwiftOptional metadata accessor P/Invoke once per type.
-                // PInvokeHelperContext deduplicates by method name; for inline, use shared factory set.
-                var typeKey = methodEnv.ParentDecl is TypeDecl td ? td.SwiftTypeName?.ToString() ?? methodEnv.ParentDecl.Name : methodEnv.ParentDecl.Name;
-                if (methodEnv.PInvokeHelperContext != null || _emittedOptionalAccessorForTypes.Add(typeKey))
+                if (methodEnv.MethodDecl.IsFailable)
                 {
-                    wrapperEmitter.EmitOptionalMetadataAccessorPInvoke(csWriter);
-                }
+                    wrapperEmitter.EmitFailableFactory(csWriter);
 
-                // Emit the Optional tag helper P/Invoke for @_cdecl frozen struct failable inits.
-                // Uses @_cdecl instead of VWT->GetEnumTag to avoid Mono JIT crashes.
-                if (methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
-                    methodEnv.ParentDecl is StructDecl tagPInvokeStruct && tagPInvokeStruct.IsFrozen)
-                {
-                    wrapperEmitter.EmitOptionalTagHelperPInvoke(csWriter);
+                    // Emit the SwiftOptional metadata accessor P/Invoke once per type.
+                    // PInvokeHelperContext deduplicates by method name; for inline, use shared factory set.
+                    var typeKey = methodEnv.ParentDecl is TypeDecl td ? td.SwiftTypeName?.ToString() ?? methodEnv.ParentDecl.Name : methodEnv.ParentDecl.Name;
+                    if (methodEnv.PInvokeHelperContext != null || _emittedOptionalAccessorForTypes.Add(typeKey))
+                    {
+                        wrapperEmitter.EmitOptionalMetadataAccessorPInvoke(csWriter);
+                    }
+
+                    // Emit the Optional tag helper P/Invoke for @_cdecl frozen struct failable inits.
+                    // Uses @_cdecl instead of VWT->GetEnumTag to avoid Mono JIT crashes.
+                    if (methodEnv.MethodDecl.UsesCdeclConstructorWrapper &&
+                        methodEnv.ParentDecl is StructDecl tagPInvokeStruct && tagPInvokeStruct.IsFrozen)
+                    {
+                        wrapperEmitter.EmitOptionalTagHelperPInvoke(csWriter);
+                    }
                 }
+                else
+                {
+                    wrapperEmitter.EmitConstructor(csWriter);
+                }
+                PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             }
-            else
+            catch (WrapperSymbolContractException ex)
             {
-                wrapperEmitter.EmitConstructor(csWriter);
+                WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
+                return;
             }
-            PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
             methodEnv.MethodDecl.WasEmitted = true;
             ReportCollector.RecordMemberEmitted(methodEnv.MethodDecl);
 
@@ -1347,9 +1364,23 @@ namespace BindingsGeneration
                 }
             }
 
+            // See ConstructorHandler for the contract rationale — same shape:
+            // wrapper-emit registers SBW_… symbols inside EmitMethod, then
+            // PInvokeEmitter consults the registry. A throw means wrapper-emit
+            // silently bailed and we'd otherwise leak an unresolved P/Invoke.
+            methodEnv.EmissionContext = context.GetEmissionContext();
+
             var wrapperEmitter = new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo, context.GetEmissionContext());
-            wrapperEmitter.EmitMethod(csWriter, swiftWriter);
-            PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            try
+            {
+                wrapperEmitter.EmitMethod(csWriter, swiftWriter);
+                PInvokeEmitter.EmitPInvoke(csWriter, methodEnv, signatureHandler);
+            }
+            catch (WrapperSymbolContractException ex)
+            {
+                WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
+                return;
+            }
             methodEnv.MethodDecl.WasEmitted = true;
             if (isAccessor)
             {

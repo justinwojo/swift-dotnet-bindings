@@ -31,6 +31,7 @@ public sealed class BindingArtifactManifest
     public GenerationSection? Generation { get; set; }
     public EmissionSection? Emission { get; set; }
     public ProxyCoGatingSection? ProxyCoGating { get; set; }
+    public ContractCoGatingSection? ContractCoGating { get; set; }
     public WrapperSection? Wrapper { get; set; }
     public BridgeSection? Bridge { get; set; }
 }
@@ -150,6 +151,23 @@ public sealed class ProxyCoGatingSection
 
     public int SuppressedProxyClassCount { get; init; }
     public List<CoGatedMember> CoGatedMethods { get; init; } = new();
+}
+
+/// <summary>
+/// Records the wrapper-symbol-contract co-gating pass that runs at the end of the main
+/// generation phase. Each cogated member is a public-API body removed because the
+/// in-band contract rejected its target wrapper symbol. The directly violated member
+/// is also recorded in <see cref="GenerationSection.SkippedItems"/> via
+/// <see cref="WrapperSymbolContractGate"/>; projection de-duplicates so the report
+/// surfaces transitive Step C/D/E removals without double-counting the direct member.
+/// </summary>
+public sealed class ContractCoGatingSection
+{
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
+    public PhaseStatus Status { get; init; } = PhaseStatus.Success;
+
+    public int ContractViolatedPInvokeCount { get; init; }
+    public List<CoGatedMember> CoGatedMembers { get; init; } = new();
 }
 
 /// <summary>

@@ -1071,6 +1071,12 @@ public static partial class ClosureEmitter
         if (needsMainActor)
             swiftWriter.WriteLine("@MainActor");
         var annotation = useCdecl ? "@_cdecl" : "@_silgen_name";
+        // Register the @_cdecl symbol so the wrapper-symbol contract sees it as
+        // authored. The @_silgen_name branch isn't an SBW_… cdecl wrapper, so
+        // the contract check (which only fires for SBW_-shaped entry points)
+        // would never look it up — gate on useCdecl to keep registry intent precise.
+        if (useCdecl)
+            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");
@@ -1171,7 +1177,7 @@ public static partial class ClosureEmitter
                 var thunkEntryPoint = GetInvokeThunkEntryPoint(methodDecl.MangledName);
                 var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";
                 EmitSwiftInvokeThunk(swiftWriter, closureReturnSpec, closureHandler,
-                    thunkEntryPoint, thunkFuncName);
+                    thunkEntryPoint, thunkFuncName, emissionContext);
             }
         }
     }

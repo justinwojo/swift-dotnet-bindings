@@ -124,7 +124,7 @@ public static partial class SwiftUIBridgeEmitter
         // Collect extra Swift imports from hints (global + per-view)
         var hintImports = CollectHintExtraImports(hints, viewInfos, moduleName);
 
-        var swiftContent = GenerateSwiftBridge(moduleName, bridgeResults, hintImports);
+        var swiftContent = GenerateSwiftBridge(moduleName, bridgeResults, hintImports, emissionContext);
         var csContent = GenerateCSharpBridge(@namespace, moduleName, bridgeResults);
 
         var swiftPath = Path.Combine(outputDirectory, $"{@namespace}.SwiftUIBridge.swift");
@@ -608,7 +608,8 @@ public static partial class SwiftUIBridgeEmitter
     private static string GenerateSwiftBridge(
         string moduleName,
         List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs, List<BridgeModifier>? Modifiers)> bridgeResults,
-        HashSet<string>? hintImports = null)
+        HashSet<string>? hintImports = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         var sb = new StringBuilder();
         bool hasFunctionalBridge = bridgeResults.Any(r => r.IsFunctional);
@@ -668,11 +669,11 @@ public static partial class SwiftUIBridgeEmitter
         {
             if (isFunctional && asyncPattern != null)
             {
-                EmitAsyncSwiftBridge(sb, moduleName, info, asyncPattern);
+                EmitAsyncSwiftBridge(sb, moduleName, info, asyncPattern, emissionContext);
             }
             else if (isFunctional)
             {
-                EmitFunctionalSwiftBridge(sb, moduleName, info, bridgeParams!, synthesizedArgs, modifiers);
+                EmitFunctionalSwiftBridge(sb, moduleName, info, bridgeParams!, synthesizedArgs, modifiers, emissionContext);
             }
             else
             {
@@ -685,7 +686,8 @@ public static partial class SwiftUIBridgeEmitter
 
     private static void EmitFunctionalSwiftBridge(
         StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
-        List<SynthesizedInitArg>? synthesizedArgs = null, List<BridgeModifier>? modifiers = null)
+        List<SynthesizedInitArg>? synthesizedArgs = null, List<BridgeModifier>? modifiers = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var sessionClass = $"{prefix}_Session";
@@ -868,6 +870,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Create function
+        emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
         sb.Append($"public func {prefix}_Create(");
         var createParams = new List<string>();
@@ -984,6 +987,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // GetViewController function
+        emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
         sb.AppendLine($"public func {prefix}_GetViewController(");
         sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?");
@@ -999,6 +1003,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Free function
+        emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(_ handle: UnsafeMutableRawPointer?) {{");
         sb.AppendLine("    SBW_onMainThread {");
@@ -1012,24 +1017,24 @@ public static partial class SwiftUIBridgeEmitter
         // Update functions for updatable params
         if (hasUpdatableParams)
         {
-            EmitSwiftUpdateFunctions(sb, prefix, sessionClass, handlesVar, bridgeParams);
+            EmitSwiftUpdateFunctions(sb, prefix, sessionClass, handlesVar, bridgeParams, emissionContext);
         }
 
         // Modifier Set functions
         if (hasModifiers)
         {
-            EmitSwiftModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifiers!);
+            EmitSwiftModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifiers!, emissionContext);
         }
 
         // Lifecycle Set function.
-        EmitSwiftLifecycleSetFunction(sb, prefix, sessionClass, handlesVar);
+        EmitSwiftLifecycleSetFunction(sb, prefix, sessionClass, handlesVar, emissionContext);
 
         // Universal modifier Set functions — skip any that collide with view-specific modifiers.
         var modifierSetNames = modifiers?.Select(m => $"Set{m.PascalName}").ToHashSet() ?? new HashSet<string>();
-        EmitSwiftUniversalModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifierSetNames);
+        EmitSwiftUniversalModifierSetFunctions(sb, prefix, sessionClass, handlesVar, modifierSetNames, emissionContext);
 
         // Presentation helpers.
-        EmitSwiftPresentationFunctions(sb, prefix, sessionClass, handlesVar);
+        EmitSwiftPresentationFunctions(sb, prefix, sessionClass, handlesVar, emissionContext);
     }
 
     #region State/Wrapper/Update Emission
@@ -1308,12 +1313,13 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static void EmitSwiftUpdateFunctions(
         StringBuilder sb, string prefix, string sessionClass, string handlesVar,
-        List<BridgeParameter> bridgeParams)
+        List<BridgeParameter> bridgeParams, ModuleEmissionContext? emissionContext)
     {
         foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
         {
             var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
             var funcName = $"{prefix}_Update{pascalName}";
+            emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
 
@@ -1672,11 +1678,12 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static void EmitSwiftModifierSetFunctions(
         StringBuilder sb, string prefix, string sessionClass, string handlesVar,
-        List<BridgeModifier> modifiers)
+        List<BridgeModifier> modifiers, ModuleEmissionContext? emissionContext)
     {
         foreach (var mod in modifiers)
         {
             var funcName = $"{prefix}_Set{mod.PascalName}";
+            emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
 

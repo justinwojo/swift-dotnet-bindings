@@ -1042,6 +1042,18 @@ namespace BindingsGeneration
 
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
+            // In-band wrapper-symbol contract: defense-in-depth assertion. When the
+            // pre-emit gate (WrapperSymbolContractGate) misses a path, the throw
+            // here surfaces the failure as a hard error rather than letting an
+            // unresolved P/Invoke leak into the generated bindings.
+            if (methodEnv.EmissionContext != null &&
+                WrapperValidation.GetCallingConvention(methodDecl) == PInvokeCallingConvention.Cdecl &&
+                PInvokeEmitHelper.IsWrapperEntryPoint(entryPoint) &&
+                !methodEnv.EmissionContext.IsWrapperSymbolRegistered(entryPoint))
+            {
+                throw new WrapperSymbolContractException(entryPoint, pInvokeName);
+            }
+
             // If we're inside a generic type, collect the P/Invoke to the helper context
             // instead of emitting it inline (to avoid CS7042: DllImport in generic type)
             if (methodEnv.PInvokeHelperContext != null)

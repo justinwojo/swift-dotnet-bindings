@@ -285,10 +285,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var mangledHash = EmitterUtility.DeterministicHash8(hashInput);
         var cdeclSymbol = $"SBW_CSM_{moduleName}_{parentTypeDecl.Name}_{safeConformerName}_{methodName}_{mangledHash}";
 
-        // Dedup guard
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
-            return false;
-
         // Recompute return-type classification for the rest of this method — preflight proved it
         // won't trigger a skip, but we still need these flags to drive Swift/C# emission below.
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
@@ -304,8 +300,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
             isVoidReturn = false; // Constructor returns self
         }
 
-        // Compute C# method signature key for dedup — prevents CS0111 when multiple conformers
-        // produce the same visible method signature (name + parameter types).
+        // C# signature dedup runs BEFORE registry registration so a duplicate
+        // visible signature does not leak its cdeclSymbol into ModuleEmissionContext;
+        // the wrapper-symbol contract gate must only see symbols whose Swift wrapper
+        // actually emitted.
         var csMethodName = isConstructor
             ? $"From{string.Join("_", pairing.Select(p => SanitizeTypeName(p.Conformer.CSharpType)))}"
             : NameProvider.ToPascalCase(method.Name);
@@ -317,6 +315,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 method.Name, safeConformerName, sigKey);
             return false;
         }
+
+        // Registry guard — catches different pairings producing the same cdeclSymbol.
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
+            return false;
 
         // Merge availability (method + parent + all conformers) once — both Swift and C#
         // sides need the same floor so generated code and callers agree.
@@ -485,6 +487,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             return; // No trailing defaults → nothing for the trim emitter to do.
 
         var trimEnv = new MethodEnvironment(synthesized, typeDatabase);
+        trimEnv.EmissionContext = emissionContext;
 
         // Pre-populate the projected-signature set with the auto-trim primary's key.
         // The CSM-sync primary above (EmitCSharpMethod) emits a public surface that

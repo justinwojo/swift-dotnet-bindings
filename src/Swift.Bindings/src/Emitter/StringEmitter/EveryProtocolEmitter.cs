@@ -40,6 +40,15 @@ public class EveryProtocolEmitter
     /// </summary>
     public void EmitEveryProtocolClass(SwiftWriter writer)
     {
+        // Register the four hardcoded EveryProtocol @_cdecl symbols with the
+        // wrapper-symbol contract. The matching P/Invokes live in
+        // ProtocolProxyEmitter.SwiftObject and would trip the contract check if
+        // their callsites later opt into EnforceWrapperContract.
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_CreateEveryProtocol");
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryProtocol");
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryProtocol");
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryProtocolDeinitCallback");
+
         writer.WriteLines($$"""
             // EveryProtocol is a Swift class that can conform to any protocol.
             // Protocol method implementations call back to C# via vtable function pointers.

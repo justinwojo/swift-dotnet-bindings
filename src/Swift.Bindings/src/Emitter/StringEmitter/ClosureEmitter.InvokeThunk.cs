@@ -37,8 +37,15 @@ public static partial class ClosureEmitter
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         string entryPointName,
-        string swiftFuncName)
+        string swiftFuncName,
+        ModuleEmissionContext? emissionContext = null)
     {
+        // Register the thunk's @_cdecl symbol with the wrapper-symbol contract.
+        // entryPointName is derived from the parent method's SBW_ symbol with an
+        // "_InvCR" suffix, so it inherits the wrapper-entry-point prefix and
+        // would trip the contract check from any Cdecl P/Invoke caller.
+        emissionContext?.TryAddMethodWrapperSymbol(entryPointName);
+
         // Build parameter list: funcPtr (Int), context (Int), then closure args
         var swiftParams = new List<string> { "_ _funcPtr: Int", "_ _context: Int" };
         int argIndex = 0;

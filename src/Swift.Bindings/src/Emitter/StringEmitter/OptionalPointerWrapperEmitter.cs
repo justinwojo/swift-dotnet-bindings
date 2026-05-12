@@ -362,6 +362,11 @@ public static class OptionalPointerWrapperEmitter
         if (needsMainActor)
             swiftWriter.WriteLine("@MainActor");
         var annotation = useCdecl ? "@_cdecl" : "@_silgen_name";
+        // Register the @_cdecl symbol for the wrapper-symbol contract — the
+        // @_silgen_name branch isn't an SBW_… cdecl wrapper so the contract
+        // check (which only fires for SBW_-shaped entry points) wouldn't see it.
+        if (useCdecl)
+            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {NameProvider.GetPInvokeName(methodDecl)}(");
         swiftWriter.WriteLine($"    {paramsStr}");

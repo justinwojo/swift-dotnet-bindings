@@ -1254,6 +1254,17 @@ namespace BindingsGeneration
                 adapterSetupCode = string.Join("\n", adapterParts) + "\n";
             }
 
+            // Register the @_cdecl async wrapper symbol with the per-module
+            // emission context so the wrapper-symbol contract check (in
+            // PInvokeEmitter / PInvokeEmitHelper) can verify binding-emit isn't
+            // referencing an unproduced symbol. The async wrapper template
+            // bypasses MethodWrapperEmitter, so registration has to happen
+            // alongside the WriteLine that emits the Swift wrapper.
+            if (_emissionContext != null && _env.MethodDecl.UsesCdeclMethodWrapper)
+            {
+                _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.MethodDecl));
+            }
+
             swiftWriter.WriteLine(BuildSwiftAsyncWrapperCode(
                 isExtension: isExtension,
                 parentTypeName: parentTypeName,

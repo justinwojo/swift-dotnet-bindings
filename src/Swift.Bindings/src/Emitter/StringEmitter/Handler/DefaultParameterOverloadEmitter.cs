@@ -122,6 +122,7 @@ public static class DefaultParameterOverloadEmitter
                 env.PInvokeHelperContext,
                 env.CompositionCollector);
             overloadEnv.CollisionIndex = env.CollisionIndex;
+            overloadEnv.EmissionContext = env.EmissionContext;
 
             // Set @_cdecl constructor wrapper flags BEFORE SignatureHandler construction.
             // Compute the @_cdecl symbol from the original MangledName (before EmitSwiftWrapper changes it).

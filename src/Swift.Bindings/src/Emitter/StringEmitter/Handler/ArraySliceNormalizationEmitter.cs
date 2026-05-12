@@ -278,6 +278,10 @@ public static class ArraySliceNormalizationEmitter
             env.SiblingPropertyNames,
             env.PInvokeHelperContext,
             env.CompositionCollector);
+        // Prefer the bridge's directly-supplied context over env.EmissionContext: this
+        // bridge runs before MethodHandler assigns env.EmissionContext, so without this
+        // the C# P/Invoke side bypasses the wrapper-symbol contract enforcement.
+        normalizedEnv.EmissionContext = emissionContext ?? env.EmissionContext;
 
         // Check @_cdecl eligibility and set flags BEFORE SignatureHandler creation
         bool useCdecl = CanConvertToCdecl(normalizedMethodDecl, normalizedEnv);
@@ -609,6 +613,11 @@ public static class ArraySliceNormalizationEmitter
         var tryPrefix = throws ? "try " : "";
         var swiftFuncName = $"_sbw_{originalMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}";
         var annotation = useCdecl ? "@_cdecl" : "@_silgen_name";
+        // Register the @_cdecl symbol so the wrapper-symbol contract sees it.
+        // The @_silgen_name branch isn't an SBW_… cdecl — the contract check
+        // (gated on PInvokeEmitHelper.IsWrapperEntryPoint) wouldn't look it up.
+        if (useCdecl)
+            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
 
         // @_silgen_name and @_cdecl wrappers are top-level Swift functions (or live in a
         // foreign extension that won't pick up the original declaration's @available); both

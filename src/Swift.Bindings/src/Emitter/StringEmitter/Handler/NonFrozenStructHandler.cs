@@ -306,7 +306,8 @@ namespace BindingsGeneration
                 {
                     CodableJsonEmitter.Emit(
                         csWriter, swiftWriter, structDecl, moduleDecl,
-                        typeNameWithGenerics, env.TypeDatabase, _logger);
+                        typeNameWithGenerics, env.TypeDatabase, _logger,
+                        context.GetEmissionContext());
                 }
 
                 csWriter.Indent--;

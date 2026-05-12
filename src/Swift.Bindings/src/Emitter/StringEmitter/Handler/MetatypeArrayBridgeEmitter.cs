@@ -88,6 +88,7 @@ public static class MetatypeArrayBridgeEmitter
             env.SiblingPropertyNames,
             env.PInvokeHelperContext,
             env.CompositionCollector);
+        normalizedEnv.EmissionContext = emissionContext;
 
         // Build cdecl symbol name and set wrapper flags on the cloned decl
         var moduleName = normalized.ParentDecl is ModuleDecl modDecl ? modDecl.Name : "";
@@ -108,6 +109,10 @@ public static class MetatypeArrayBridgeEmitter
         }
 
         EmitSwiftWrapper(swiftWriter, methodDecl, normalized, cdeclSymbol, moduleFilter);
+        // Register the bridge's @_cdecl symbol so the wrapper-symbol contract
+        // sees it as authored by wrapper-emit. This bridge bypasses the
+        // standard MethodWrapperEmitter.EmitSwiftMethodWrapper registration.
+        emissionContext?.TryAddMethodWrapperSymbol(cdeclSymbol);
 
         TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
         foreach (var argument in normalized.CSSignature)

@@ -427,7 +427,8 @@ public static partial class SwiftUIBridgeEmitter
     #region Async Swift Generation
 
     internal static void EmitAsyncSwiftBridge(
-        StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
+        StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern,
+        ModuleEmissionContext? emissionContext)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var sessionClass = pattern.SessionClassName;
@@ -455,9 +456,10 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Create function (async factory)
-        EmitDataDrivenAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern);
+        EmitDataDrivenAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern, emissionContext);
 
         // GetViewController function
+        emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
         sb.AppendLine($"public func {prefix}_GetViewController(");
         sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?");
@@ -473,6 +475,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Free function
+        emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(_ handle: UnsafeMutableRawPointer?) {{");
         sb.AppendLine("    SBW_onMainThread {");
@@ -634,11 +637,13 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     private static void EmitDataDrivenAsyncCreate(
         StringBuilder sb, string prefix, string sessionClass, string handlesVar,
-        string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
+        string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern,
+        ModuleEmissionContext? emissionContext)
     {
         var chain = pattern.ConstructionChain;
 
         // @_cdecl signature with flattened params + callbacks
+        emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
         sb.Append($"public func {prefix}_Create(");
 

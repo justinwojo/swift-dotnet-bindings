@@ -57,8 +57,42 @@ namespace BindingsGeneration
         /// Uses 3-level transitive closure: P/Invoke → caller → property forwarder.
         /// </summary>
         public static CoGatingResult Process(string content, IReadOnlySet<string> strippedSymbols)
+            => Process(content, strippedSymbols, preStrippedPInvokeNames: null);
+
+        /// <summary>
+        /// Convenience overload that maps each pre-stripped name to an empty scope set
+        /// (no scope info — file-wide stripping guarded by collision detection). Tests and
+        /// callers that don't track scope use this form; production wires the dictionary
+        /// overload from <c>ModuleEmissionContext.ContractViolatedPInvokeScopes</c>.
+        /// </summary>
+        public static CoGatingResult Process(
+            string content,
+            IReadOnlySet<string> strippedSymbols,
+            IReadOnlySet<string>? preStrippedPInvokeNames)
+            => Process(content, strippedSymbols, BuildScopelessMap(preStrippedPInvokeNames));
+
+        /// <summary>
+        /// Variant that accepts pre-stripped C# P/Invoke names with the qualified C# type
+        /// paths in which the orphan caller is known to live. Used by the wrapper-symbol
+        /// contract path: when the in-band contract rejects a P/Invoke, the declaration is
+        /// never written to the file (so the entry-point scan in Step A finds nothing), but
+        /// the wrapper body has already been emitted with a call to the missing P/Invoke.
+        /// Scope-aware stripping restricts the orphan-caller removal to the violated scope so
+        /// a same-named P/Invoke legitimately emitted in another scope (and its callers)
+        /// survives intact.
+        /// </summary>
+        /// <param name="preStrippedPInvokeNamesWithScopes">Name → set of containing types
+        /// (e.g., <c>"Transaction.AsyncIterator"</c>) in which the orphan caller sits.
+        /// An empty scope set means scope info is unknown; the cogater falls back to
+        /// file-wide stripping guarded by collision detection.</param>
+        public static CoGatingResult Process(
+            string content,
+            IReadOnlySet<string> strippedSymbols,
+            IReadOnlyDictionary<string, IReadOnlySet<string>>? preStrippedPInvokeNamesWithScopes)
         {
-            if (strippedSymbols.Count == 0 || string.IsNullOrEmpty(content))
+            var hasEntryPointSymbols = strippedSymbols.Count > 0;
+            var hasPreStrippedNames = preStrippedPInvokeNamesWithScopes is { Count: > 0 };
+            if ((!hasEntryPointSymbols && !hasPreStrippedNames) || string.IsNullOrEmpty(content))
                 return CoGatingResult.Empty(content);
 
             var lines = SplitLines(content);
@@ -68,9 +102,10 @@ namespace BindingsGeneration
             // Collect candidates with their line ranges — don't apply removals yet,
             // because some P/Invokes may be exempted by GetMetadata fallback callers.
             var candidatePInvokes = new Dictionary<string, (int preambleStart, int declEnd)>();
-            FindStrippedPInvokeCandidates(lines, strippedSymbols, candidatePInvokes);
+            if (hasEntryPointSymbols)
+                FindStrippedPInvokeCandidates(lines, strippedSymbols, candidatePInvokes);
 
-            if (candidatePInvokes.Count == 0)
+            if (candidatePInvokes.Count == 0 && !hasPreStrippedNames)
                 return CoGatingResult.Empty(content);
 
             // Build line → qualified type path map. Must be computed before
@@ -109,14 +144,55 @@ namespace BindingsGeneration
                     removals.Add(j);
             }
 
-            if (strippedPInvokeNames.Count == 0)
+            // Partition contract-violation pre-stripped names by scope availability.
+            // Names with known violated scope go through scope-restricted Step B (only
+            // strip callers inside the violated type). Names without scope info fall
+            // back to file-wide Step B, guarded by collision detection to avoid breaking
+            // a kept same-name decl elsewhere in the file.
+            var scopedPreStripped = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            var unscopedPreStripped = new HashSet<string>(StringComparer.Ordinal);
+            if (hasPreStrippedNames)
+            {
+                foreach (var (name, scopes) in preStrippedPInvokeNamesWithScopes!)
+                {
+                    if (scopes.Count > 0)
+                        scopedPreStripped[name] = new HashSet<string>(scopes, StringComparer.Ordinal);
+                    else
+                        unscopedPreStripped.Add(name);
+                }
+
+                if (unscopedPreStripped.Count > 0)
+                {
+                    var collidingPreStripped = FindCollidingPreStrippedNames(lines, unscopedPreStripped);
+                    foreach (var name in unscopedPreStripped)
+                    {
+                        if (!collidingPreStripped.Contains(name))
+                            strippedPInvokeNames.Add(name);
+                    }
+                }
+            }
+
+            if (strippedPInvokeNames.Count == 0 && scopedPreStripped.Count == 0)
                 return CoGatingResult.Empty(content);
 
-            // Step B: Find Level 1 callers (methods/constructors calling stripped P/Invokes)
+            // Step B: Find Level 1 callers (methods/constructors calling stripped P/Invokes).
+            // File-wide pass covers entry-point-sourced strips + unscoped contract names.
             var strippedCallerNames = new HashSet<string>();
             var callerNameToTypes = new Dictionary<string, HashSet<string>>();
-            FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals,
-                lineToType, callerNameToTypes, publicDeclLines);
+            if (strippedPInvokeNames.Count > 0)
+            {
+                FindAndMarkCallers(lines, strippedPInvokeNames, strippedCallerNames, removals,
+                    lineToType, callerNameToTypes, publicDeclLines);
+            }
+
+            // Step B-scope: For each scoped contract violation, strip callers only inside
+            // the violated scope(s). A same-name P/Invoke + caller in another scope is
+            // preserved. Caller-name tracking feeds Step C's transitive cascade.
+            foreach (var (name, allowedTypes) in scopedPreStripped)
+            {
+                FindAndMarkCallersInScopes(lines, name, allowedTypes, lineToType, removals,
+                    publicDeclLines, strippedCallerNames, callerNameToTypes);
+            }
 
             // Step C: Find Level 2 forwarders (properties delegating to stripped helpers).
             // SCOPE-AWARE: Only strip callers within the same type scope as the original
@@ -178,8 +254,43 @@ namespace BindingsGeneration
         /// (overload-correct: duplicates preserved across files, ordinals scoped per file).
         /// </summary>
         public static IReadOnlyList<CoGatedMember> ProcessDirectory(string directory, IReadOnlySet<string> strippedSymbols, ILogger? logger = null)
+            => ProcessDirectoryCore(directory, strippedSymbols, preStrippedPInvokeNamesWithScopes: null, logger);
+
+        /// <summary>
+        /// Processes a directory using pre-stripped C# P/Invoke method names sourced from
+        /// the in-band wrapper-symbol contract, mapped to the qualified C# type paths
+        /// hosting the orphan caller. Scope-restricted stripping preserves a same-name
+        /// P/Invoke + caller that exists in another scope in the same file.
+        /// </summary>
+        public static IReadOnlyList<CoGatedMember> ProcessDirectoryForContractViolations(
+            string directory,
+            IReadOnlyDictionary<string, IReadOnlySet<string>> preStrippedPInvokeNamesWithScopes,
+            ILogger? logger = null)
+            => ProcessDirectoryCore(directory, strippedSymbols: EmptyStringSet, preStrippedPInvokeNamesWithScopes, logger);
+
+        /// <summary>
+        /// Backward-compatible overload: treats every name as scope-unknown, routing
+        /// through file-wide stripping guarded by collision detection.
+        /// </summary>
+        public static IReadOnlyList<CoGatedMember> ProcessDirectoryForContractViolations(
+            string directory,
+            IReadOnlySet<string> preStrippedPInvokeNames,
+            ILogger? logger = null)
+            => ProcessDirectoryCore(
+                directory,
+                strippedSymbols: EmptyStringSet,
+                BuildScopelessMap(preStrippedPInvokeNames),
+                logger);
+
+        private static IReadOnlyList<CoGatedMember> ProcessDirectoryCore(
+            string directory,
+            IReadOnlySet<string> strippedSymbols,
+            IReadOnlyDictionary<string, IReadOnlySet<string>>? preStrippedPInvokeNamesWithScopes,
+            ILogger? logger)
         {
-            if (strippedSymbols.Count == 0)
+            var hasEntryPointSymbols = strippedSymbols.Count > 0;
+            var hasPreStrippedNames = preStrippedPInvokeNamesWithScopes is { Count: > 0 };
+            if (!hasEntryPointSymbols && !hasPreStrippedNames)
                 return Array.Empty<CoGatedMember>();
 
             var csFiles = Directory.GetFiles(directory, "*.cs");
@@ -188,7 +299,7 @@ namespace BindingsGeneration
             foreach (var file in csFiles)
             {
                 var content = File.ReadAllText(file);
-                var result = Process(content, strippedSymbols);
+                var result = Process(content, strippedSymbols, preStrippedPInvokeNamesWithScopes);
                 if (!result.ContentChanged)
                     continue;
 
@@ -607,6 +718,36 @@ namespace BindingsGeneration
                     ambiguous.Add(name);
             }
             return ambiguous;
+        }
+
+        /// <summary>
+        /// For contract-violated P/Invoke names: detects any name that collides with an
+        /// emitted partial decl elsewhere in the file. The contract rejection prevents the
+        /// decl from being emitted in the violator's scope, but a same-named P/Invoke can
+        /// legitimately exist in another scope (e.g., a per-type "PInvoke_eq" helper).
+        /// Without this guard, file-wide caller stripping would remove callers in the
+        /// kept-decl scope and break their compilation.
+        /// </summary>
+        private static HashSet<string> FindCollidingPreStrippedNames(
+            List<string> lines, IReadOnlySet<string> preStrippedNames)
+        {
+            var colliding = new HashSet<string>();
+            if (preStrippedNames.Count == 0)
+                return colliding;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
+                if (!line.Contains(" partial ") || !line.TrimEnd().EndsWith(";"))
+                    continue;
+
+                foreach (var name in preStrippedNames)
+                {
+                    if (ContainsCallTo(line, name))
+                        colliding.Add(name);
+                }
+            }
+            return colliding;
         }
 
         /// <summary>
@@ -1785,10 +1926,19 @@ namespace BindingsGeneration
         /// name if they are within one of the specified containing types.
         /// Prevents false-matching "Subscript_Get" in TypeB when only TypeA's version was stripped.
         /// </summary>
+        /// <remarks>
+        /// When <paramref name="foundCallerNames"/> and <paramref name="callerNameToTypes"/>
+        /// are supplied, the method also records property-helper-shaped callers (e.g.,
+        /// <c>Value_Get</c>) and their containing types, mirroring <see cref="FindAndMarkCallers"/>.
+        /// This feeds Step C's transitive cascade so a scope-restricted Step B (used by the
+        /// contract-violation path) still reaches Level-2 forwarders.
+        /// </remarks>
         private static void FindAndMarkCallersInScopes(
             List<string> lines, string methodName, HashSet<string> allowedTypes,
             string?[] lineToType, HashSet<int> removals,
-            HashSet<int>? publicDeclLines = null)
+            HashSet<int>? publicDeclLines = null,
+            HashSet<string>? foundCallerNames = null,
+            Dictionary<string, HashSet<string>>? callerNameToTypes = null)
         {
             int i = 0;
             while (i < lines.Count)
@@ -1830,6 +1980,27 @@ namespace BindingsGeneration
                     for (int j = preambleStart; j <= blockEnd; j++)
                         removals.Add(j);
                     RecordPublicDecl(publicDeclLines, i, trimmed);
+
+                    // Mirror FindAndMarkCallers: capture property-helper-shaped callers so
+                    // Step C's cascade can find Level-2 forwarders in the same scope.
+                    if (foundCallerNames != null || callerNameToTypes != null)
+                    {
+                        var memberName = ExtractMemberName(trimmed);
+                        if (memberName != null && (IsPropertyHelperName(memberName) ||
+                            memberName.StartsWith("CreateSwiftInstance_", StringComparison.Ordinal)))
+                        {
+                            foundCallerNames?.Add(memberName);
+                            if (callerNameToTypes != null)
+                            {
+                                if (!callerNameToTypes.TryGetValue(memberName, out var types))
+                                {
+                                    types = new HashSet<string>();
+                                    callerNameToTypes[memberName] = types;
+                                }
+                                types.Add(containingType);
+                            }
+                        }
+                    }
                 }
 
                 i = blockEnd + 1;
@@ -2017,6 +2188,23 @@ namespace BindingsGeneration
             => ProcessSuppressedProxyReferences(content, suppressedProxyClassNames, EmptyStringSet);
 
         private static readonly IReadOnlySet<string> EmptyStringSet = new HashSet<string>();
+
+        /// <summary>
+        /// Wraps a flat set of pre-stripped P/Invoke names into the scope-keyed shape the
+        /// scope-aware path expects, with every name mapped to an empty scope set
+        /// (= "scope unknown — file-wide fallback with collision guard"). Returns null
+        /// when the input is null or empty so the cogater short-circuits cleanly.
+        /// </summary>
+        private static IReadOnlyDictionary<string, IReadOnlySet<string>>? BuildScopelessMap(
+            IReadOnlySet<string>? preStrippedPInvokeNames)
+        {
+            if (preStrippedPInvokeNames is null || preStrippedPInvokeNames.Count == 0)
+                return null;
+            var map = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
+            foreach (var name in preStrippedPInvokeNames)
+                map[name] = EmptyStringSet;
+            return map;
+        }
 
         /// <summary>
         /// Variant that also accepts cross-module suppressed proxy class names in their fully

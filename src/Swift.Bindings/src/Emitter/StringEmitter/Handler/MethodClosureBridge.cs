@@ -210,6 +210,15 @@ public static class MethodClosureBridge
         if (closures.Any(c => c.IsEffectivelyEscaping))
             ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
 
+        // Register the SBW_ symbol with the wrapper-symbol contract before emitting
+        // the Swift wrapper. EmitSwiftWrapper writes either @_cdecl (non-generic parent)
+        // or @_silgen_name (generic parent) but both author the same Swift symbol, and
+        // the matching P/Invoke at EmitPInvoke uses that name as its EntryPoint. The
+        // contract check only fires on Cdecl callers, but registering both branches
+        // keeps the registry semantically complete.
+        var bridgeSilgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
+        ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
+
         // Emit Swift wrapper
         EmitSwiftWrapper(swiftWriter, method, env, parentDecl, closures, passableNonClosureParams);
 

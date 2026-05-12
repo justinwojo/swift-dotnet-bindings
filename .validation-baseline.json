@@ -1,5 +1,5 @@
 {
-  "git_sha": "f222ea33",
+  "git_sha": "5202f7d9",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -68,28 +68,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 61839,
+        "lines": 61689,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 54995,
+        "lines": 54845,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 55186,
+        "lines": 55036,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 61062,
+        "lines": 60912,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -278,7 +278,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 99962,
+        "lines": 99521,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -544,7 +544,7 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6587,
+        "lines": 6209,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,9 +908,9 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 24632,
-    "total_skipped_members": 7121,
-    "skip_rate_pct": 22.4,
+    "total_emitted_members": 24552,
+    "total_skipped_members": 7201,
+    "skip_rate_pct": 22.7,
     "skip_reasons": {
       "UnsupportedSignature": 1287,
       "SynthesizedCodable": 939,
@@ -919,11 +919,11 @@
       "AnyTypeFallback": 711,
       "GenericProtocolConstraint": 629,
       "UnsupportedType": 348,
+      "MissingWrapperSymbol": 289,
       "EveryProtocolConformanceSkipped": 288,
       "SwiftUIConstraint": 239,
       "UnsupportedClosure": 221,
       "Pattern2InternalTypeReach": 220,
-      "MissingWrapperSymbol": 209,
       "UnsupportedExistential": 142,
       "GenericTypeCallback": 101,
       "UnsatisfiedGenericConstraint": 101,

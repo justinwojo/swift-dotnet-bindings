@@ -65,7 +65,8 @@ internal static class CodableJsonEmitter
         ModuleDecl moduleDecl,
         string typeNameWithGenerics,
         ITypeDatabase typeDatabase,
-        ILogger logger)
+        ILogger logger,
+        ModuleEmissionContext? emissionContext = null)
     {
         var moduleName = moduleDecl.Name;
         var swiftQualifiedName = structDecl.SwiftTypeName?.ToString() ?? $"{moduleName}.{structDecl.Name}";
@@ -93,6 +94,12 @@ internal static class CodableJsonEmitter
         // "'X' is only available in iOS N or newer".
         var availability = AvailabilityHelpers.MergeAvailabilityFromAncestors(
             structDecl.AvailabilityAnnotations, structDecl);
+
+        // Register both @_cdecl symbols with the wrapper-symbol contract so a
+        // future Cdecl P/Invoke caller for these entry points doesn't trip the
+        // contract check.
+        emissionContext?.TryAddMethodWrapperSymbol(encodeSymbol);
+        emissionContext?.TryAddMethodWrapperSymbol(decodeSymbol);
 
         EmitSwiftTrampolines(swiftWriter, swiftQualifiedName, encodeSymbol, decodeSymbol, availability);
         EmitCSharpMembers(csWriter, structDecl, typeNameWithGenerics, encodeSymbol, decodeSymbol, wrapperLib);

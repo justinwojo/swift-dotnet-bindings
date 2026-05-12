@@ -172,7 +172,8 @@ public sealed class ModuleEmissionContext
     public bool HasEmittedProtocolExtSymbol(string symbol) => _protocolExtEmittedSymbols.Contains(symbol);
 
     /// <summary>Adds a protocol extension symbol. Returns true if newly added.</summary>
-    public bool TryAddProtocolExtSymbol(string symbol) => _protocolExtEmittedSymbols.Add(symbol);
+    public bool TryAddProtocolExtSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_protocolExtEmittedSymbols, symbol);
 
     /// <summary>Adds a single Swift wrapper line for protocol extensions.</summary>
     public void AddProtocolExtWrapperLine(string line) => _protocolExtWrapperLines.Add(line);
@@ -203,7 +204,8 @@ public sealed class ModuleEmissionContext
     public bool HasEmittedForeignExtSymbol(string symbol) => _foreignExtEmittedSymbols.Contains(symbol);
 
     /// <summary>Adds a foreign extension symbol. Returns true if newly added.</summary>
-    public bool TryAddForeignExtSymbol(string symbol) => _foreignExtEmittedSymbols.Add(symbol);
+    public bool TryAddForeignExtSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_foreignExtEmittedSymbols, symbol);
 
     /// <summary>Adds a single Swift wrapper line for foreign type extensions.</summary>
     public void AddForeignExtWrapperLine(string line) => _foreignExtWrapperLines.Add(line);
@@ -628,6 +630,117 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds an enum extension class source block for deferred namespace-level emission.</summary>
     public void AddDeferredEnumExtensionClass(string extensionSource) => _deferredEnumExtensionClasses.Add(extensionSource);
 
+    // ==================== Authoritative Wrapper-Symbol Registry ====================
+    //
+    // Session 2 (0.10.0 ship plan) — single source of truth for "did wrapper-emit
+    // emit a Swift @_cdecl symbol with this name". Every per-kind TryAdd*WrapperSymbol
+    // method below funnels through RegisterWrapperSymbolInternal, so the unified set
+    // mirrors the union of all per-kind sets without callers having to remember to
+    // double-register. Binding-emit consults this set via IsWrapperSymbolRegistered
+    // before emitting any P/Invoke whose entry point follows the wrapper-symbol naming
+    // convention (SBW_…); the consult catches the failure shape behind the three
+    // 0.10.0 bugs where binding-emit referenced a wrapper symbol that wrapper-emit
+    // never actually produced.
+
+    private readonly HashSet<string> _registeredWrapperSymbols = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Returns true when wrapper-emit registered the given Swift symbol via any of
+    /// the per-kind TryAdd*WrapperSymbol methods. Consulted by
+    /// <see cref="PInvokeEmitHelper"/> before emitting a P/Invoke whose entry point
+    /// matches the wrapper-symbol naming convention.
+    /// </summary>
+    public bool IsWrapperSymbolRegistered(string symbol) =>
+        !string.IsNullOrEmpty(symbol) && _registeredWrapperSymbols.Contains(symbol);
+
+    /// <summary>
+    /// Snapshot of every wrapper symbol registered for this module. Exposed for
+    /// diagnostics and unit tests that need to assert against the registry without
+    /// going through the per-kind APIs.
+    /// </summary>
+    public IReadOnlyCollection<string> RegisteredWrapperSymbols => _registeredWrapperSymbols;
+
+    private bool RegisterWrapperSymbolInternal(HashSet<string> kindSet, string symbol)
+    {
+        if (!kindSet.Add(symbol))
+            return false;
+        _registeredWrapperSymbols.Add(symbol);
+        return true;
+    }
+
+    // ==================== Contract Violations (Asymmetric-Skip Cleanup) ====================
+    //
+    // When the in-band wrapper-symbol contract trips inside PInvokeEmitter, the wrapper
+    // body has already been written to the C# output buffer. The contract handler drops
+    // the P/Invoke declaration but the orphan call to that P/Invoke is left behind.
+    // Recording the C# P/Invoke method name here lets CSharpWrapperCoGater strip the
+    // orphan caller in a post-emit pass — the same cleanup path used for symbols
+    // stripped during wrapper compilation, just sourced from this set instead of from
+    // wrapper-compilation output.
+
+    private readonly Dictionary<string, HashSet<string>> _contractViolatedPInvokeScopes
+        = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _contractViolatedEntryPoints = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// C# P/Invoke method names (e.g., <c>PInvoke_map_039F1772</c>) whose declarations
+    /// were rejected by the in-band wrapper-symbol contract because the corresponding
+    /// Swift <c>@_cdecl</c> wrapper symbol was never registered. The post-emit cogater
+    /// uses this set to strip the orphan call sites the wrapper-emit pass already wrote.
+    /// </summary>
+    public IReadOnlySet<string> ContractViolatedPInvokeNames
+        => new HashSet<string>(_contractViolatedPInvokeScopes.Keys, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Maps each contract-violated C# P/Invoke name to the set of qualified C# type
+    /// paths (dot-joined nested type names, e.g., <c>"Transaction.AsyncIterator"</c>)
+    /// in which the rejected reference was emitted. The cogater uses this to restrict
+    /// orphan-caller stripping to the violated scope: a same-named P/Invoke can
+    /// legitimately exist as an emitted decl in another scope, and a file-wide strip
+    /// would break callers in the kept scope.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlySet<string>> ContractViolatedPInvokeScopes
+        => _contractViolatedPInvokeScopes.ToDictionary(
+            kv => kv.Key,
+            kv => (IReadOnlySet<string>)kv.Value,
+            StringComparer.Ordinal);
+
+    /// <summary>
+    /// Swift wrapper entry points (e.g., <c>SBW_Module_Type_method_HASH</c>) for which
+    /// the contract was violated. Mirrors <see cref="ContractViolatedPInvokeNames"/>
+    /// on the Swift side; useful for diagnostics and asserting test invariants without
+    /// reaching into the C# name shape.
+    /// </summary>
+    public IReadOnlySet<string> ContractViolatedEntryPoints => _contractViolatedEntryPoints;
+
+    /// <summary>
+    /// Records that the contract gate rejected a P/Invoke whose entry point was not
+    /// registered by wrapper-emit. All three identity shapes are stored so the
+    /// downstream cleanup can strip every reference shape and restrict the strip to
+    /// the violated scope.
+    /// </summary>
+    /// <param name="entryPoint">Swift wrapper entry point (e.g., <c>SBW_…</c>).</param>
+    /// <param name="pInvokeName">C# P/Invoke method name (e.g., <c>PInvoke_…</c>).</param>
+    /// <param name="containingType">Qualified C# type path hosting the orphan caller
+    /// (e.g., <c>"Mapper"</c> or <c>"Transaction.AsyncIterator"</c>). May be null
+    /// when scope cannot be derived; in that case the cogater falls back to a
+    /// file-wide strip guarded by collision detection.</param>
+    public void RecordContractViolation(string entryPoint, string pInvokeName, string? containingType)
+    {
+        if (!string.IsNullOrEmpty(pInvokeName))
+        {
+            if (!_contractViolatedPInvokeScopes.TryGetValue(pInvokeName, out var scopes))
+            {
+                scopes = new HashSet<string>(StringComparer.Ordinal);
+                _contractViolatedPInvokeScopes[pInvokeName] = scopes;
+            }
+            if (!string.IsNullOrEmpty(containingType))
+                scopes.Add(containingType);
+        }
+        if (!string.IsNullOrEmpty(entryPoint))
+            _contractViolatedEntryPoints.Add(entryPoint);
+    }
+
     // ==================== Constructor Wrapper ====================
 
     private readonly HashSet<string> _constructorWrapperSymbols = new();
@@ -636,7 +749,8 @@ public sealed class ModuleEmissionContext
     public bool HasConstructorWrapperSymbol(string symbol) => _constructorWrapperSymbols.Contains(symbol);
 
     /// <summary>Adds a constructor wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddConstructorWrapperSymbol(string symbol) => _constructorWrapperSymbols.Add(symbol);
+    public bool TryAddConstructorWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_constructorWrapperSymbols, symbol);
 
     // ==================== ObjC Override Property Wrapper ====================
 
@@ -646,21 +760,24 @@ public sealed class ModuleEmissionContext
     public bool HasObjCPropertyWrapperSymbol(string symbol) => _objcPropertyWrapperSymbols.Contains(symbol);
 
     /// <summary>Adds an ObjC override property wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddObjCPropertyWrapperSymbol(string symbol) => _objcPropertyWrapperSymbols.Add(symbol);
+    public bool TryAddObjCPropertyWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_objcPropertyWrapperSymbols, symbol);
 
     // ==================== Property @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _propertyWrapperSymbols = new();
 
     /// <summary>Adds a property @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddPropertyWrapperSymbol(string symbol) => _propertyWrapperSymbols.Add(symbol);
+    public bool TryAddPropertyWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_propertyWrapperSymbols, symbol);
 
     // ==================== Method @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _methodWrapperSymbols = new();
 
     /// <summary>Adds a method @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddMethodWrapperSymbol(string symbol) => _methodWrapperSymbols.Add(symbol);
+    public bool TryAddMethodWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_methodWrapperSymbols, symbol);
 
     // ==================== CSM-Async Signature Claims ====================
     // Two-state claim shared between the Phase-4a eligibility predicate and the
@@ -717,7 +834,8 @@ public sealed class ModuleEmissionContext
     private readonly HashSet<string> _metadataWrapperSymbols = new();
 
     /// <summary>Adds a metadata @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddMetadataWrapperSymbol(string symbol) => _metadataWrapperSymbols.Add(symbol);
+    public bool TryAddMetadataWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_metadataWrapperSymbols, symbol);
 
     // ==================== Enum Handler RawRepresentable ====================
 
@@ -727,28 +845,47 @@ public sealed class ModuleEmissionContext
     public bool HasEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Contains(symbol);
 
     /// <summary>Adds an enum RawRepresentable wrapper symbol. Returns true if newly added.</summary>
-    public bool TryAddEnumRawRepWrapperSymbol(string symbol) => _enumRawRepSymbols.Add(symbol);
+    public bool TryAddEnumRawRepWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_enumRawRepSymbols, symbol);
 
     // ==================== Equality @_cdecl Wrapper ====================
 
     private readonly HashSet<string> _equalityWrapperSymbols = new();
 
     /// <summary>Adds an equality @_cdecl wrapper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddEqualityWrapperSymbol(string symbol) => _equalityWrapperSymbols.Add(symbol);
+    public bool TryAddEqualityWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_equalityWrapperSymbols, symbol);
 
     // ==================== Metadata Accessor Helper ====================
 
     private readonly HashSet<string> _metadataAccessorHelperSymbols = new();
 
     /// <summary>Adds a metadata accessor helper symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddMetadataAccessorHelper(string typeMangledName) => _metadataAccessorHelperSymbols.Add(typeMangledName);
+    public bool TryAddMetadataAccessorHelper(string typeMangledName) =>
+        RegisterWrapperSymbolInternal(_metadataAccessorHelperSymbols, typeMangledName);
 
     // ==================== Optional Tag Helper ====================
 
     private readonly HashSet<string> _optionalTagHelperSymbols = new();
 
     /// <summary>Adds an Optional tag helper @_cdecl symbol. Returns true if newly added (not a duplicate).</summary>
-    public bool TryAddOptionalTagHelperSymbol(string symbol) => _optionalTagHelperSymbols.Add(symbol);
+    public bool TryAddOptionalTagHelperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_optionalTagHelperSymbols, symbol);
+
+    // ==================== Direct Helper Symbols ====================
+    //
+    // Catch-all kind for direct @_cdecl helpers emitted outside MethodWrapperEmitter
+    // (e.g., GenericClosureBridgeEmitter's SBW_CreateError_{module}). The matching
+    // P/Invoke side goes through PInvokeEmitHelper.EmitDeclaration today, which is
+    // not enforcement-backed — but the registry must still reflect the symbol so
+    // any future widening of the contract gate doesn't false-trip.
+
+    private readonly HashSet<string> _directHelperSymbols = new();
+
+    /// <summary>Adds a direct @_cdecl helper symbol (non-method/property/constructor).
+    /// Returns true if newly added (not a duplicate).</summary>
+    public bool TryAddDirectHelperWrapperSymbol(string symbol) =>
+        RegisterWrapperSymbolInternal(_directHelperSymbols, symbol);
 
     // ==================== Emission Report Accumulators ====================
 
