@@ -125,7 +125,7 @@ public static partial class SwiftUIBridgeEmitter
         var hintImports = CollectHintExtraImports(hints, viewInfos, moduleName);
 
         var swiftContent = GenerateSwiftBridge(moduleName, bridgeResults, hintImports, emissionContext);
-        var csContent = GenerateCSharpBridge(@namespace, moduleName, bridgeResults);
+        var csContent = GenerateCSharpBridge(@namespace, moduleName, bridgeResults, emissionContext);
 
         var swiftPath = Path.Combine(outputDirectory, $"{@namespace}.SwiftUIBridge.swift");
         // Apply module/type-name collision rewrite for parity with the main wrapper file
@@ -1438,7 +1438,8 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# Update P/Invoke declarations in NativeMethods for each updatable param.
     /// </summary>
     private static void EmitCSharpUpdatePInvokeDeclarations(
-        StringBuilder sb, string prefix, string bridgeLib, List<BridgeParameter> bridgeParams)
+        StringBuilder sb, string prefix, string bridgeLib, List<BridgeParameter> bridgeParams,
+        ModuleEmissionContext? emissionContext)
     {
         foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
         {
@@ -1482,7 +1483,9 @@ public static partial class SwiftUIBridgeEmitter
                 ReturnType = "void",
                 ParametersString = string.Join(", ", pinvokeParams),
                 CallingConvention = PInvokeCallingConvention.Cdecl,
-                Visibility = PInvokeVisibility.Internal
+                Visibility = PInvokeVisibility.Internal,
+                EmissionContext = emissionContext,
+                EnforceWrapperContract = true
             }))
                 sb.AppendLine($"        {line}");
         }
@@ -1770,7 +1773,8 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# P/Invoke declarations for modifier Set functions.
     /// </summary>
     private static void EmitCSharpModifierPInvokeDeclarations(
-        StringBuilder sb, string prefix, string bridgeLib, List<BridgeModifier> modifiers)
+        StringBuilder sb, string prefix, string bridgeLib, List<BridgeModifier> modifiers,
+        ModuleEmissionContext? emissionContext)
     {
         foreach (var mod in modifiers)
         {
@@ -1814,7 +1818,9 @@ public static partial class SwiftUIBridgeEmitter
                 ReturnType = "void",
                 ParametersString = string.Join(", ", pinvokeParams),
                 CallingConvention = PInvokeCallingConvention.Cdecl,
-                Visibility = PInvokeVisibility.Internal
+                Visibility = PInvokeVisibility.Internal,
+                EmissionContext = emissionContext,
+                EnforceWrapperContract = true
             }))
                 sb.AppendLine($"        {line}");
         }
@@ -1916,7 +1922,8 @@ public static partial class SwiftUIBridgeEmitter
     private static string GenerateCSharpBridge(
         string @namespace,
         string moduleName,
-        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs, List<BridgeModifier>? Modifiers)> bridgeResults)
+        List<(ViewBridgeInfo Info, List<BridgeParameter>? Params, AsyncViewPattern? AsyncPattern, bool IsFunctional, List<SynthesizedInitArg>? SynthesizedArgs, List<BridgeModifier>? Modifiers)> bridgeResults,
+        ModuleEmissionContext? emissionContext)
     {
         var sb = new StringBuilder();
         bool hasFunctionalBridge = bridgeResults.Any(r => r.IsFunctional);
@@ -1953,11 +1960,11 @@ public static partial class SwiftUIBridgeEmitter
             {
                 if (isFunctional && asyncPattern != null)
                 {
-                    EmitAsyncCSharpBridge(sb, moduleName, info, asyncPattern);
+                    EmitAsyncCSharpBridge(sb, moduleName, info, asyncPattern, emissionContext);
                 }
                 else if (isFunctional)
                 {
-                    EmitFunctionalCSharpBridge(sb, moduleName, info, bridgeParams!, modifiers);
+                    EmitFunctionalCSharpBridge(sb, moduleName, info, bridgeParams!, modifiers, emissionContext);
                 }
                 else
                 {
@@ -1989,7 +1996,8 @@ public static partial class SwiftUIBridgeEmitter
 
     private static void EmitFunctionalCSharpBridge(
         StringBuilder sb, string moduleName, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
-        List<BridgeModifier>? modifiers = null)
+        List<BridgeModifier>? modifiers = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var bridgeLib = $"{moduleName}Bridge";
@@ -2062,7 +2070,9 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "IntPtr",
             ParametersString = string.Join(", ", createPInvokeParams),
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
         sb.AppendLine();
@@ -2076,7 +2086,9 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "IntPtr",
             ParametersString = "IntPtr handle",
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
         sb.AppendLine();
@@ -2090,26 +2102,28 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "void",
             ParametersString = "IntPtr handle",
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
 
         // Update P/Invoke declarations for updatable params
-        EmitCSharpUpdatePInvokeDeclarations(sb, prefix, bridgeLib, bridgeParams);
+        EmitCSharpUpdatePInvokeDeclarations(sb, prefix, bridgeLib, bridgeParams, emissionContext);
 
         // Modifier Set P/Invoke declarations
         if (hasModifiers)
-            EmitCSharpModifierPInvokeDeclarations(sb, prefix, bridgeLib, modifiers!);
+            EmitCSharpModifierPInvokeDeclarations(sb, prefix, bridgeLib, modifiers!, emissionContext);
 
         // Lifecycle P/Invoke declaration.
-        EmitCSharpLifecyclePInvoke(sb, prefix, bridgeLib);
+        EmitCSharpLifecyclePInvoke(sb, prefix, bridgeLib, emissionContext);
 
         // Universal modifier P/Invoke declarations — skip collisions with view-specific modifiers.
         var csharpModifierSetNames = modifiers?.Select(m => $"Set{m.PascalName}").ToHashSet() ?? new HashSet<string>();
-        EmitCSharpUniversalModifierPInvokes(sb, prefix, bridgeLib, csharpModifierSetNames);
+        EmitCSharpUniversalModifierPInvokes(sb, prefix, bridgeLib, csharpModifierSetNames, emissionContext);
 
         // Presentation P/Invoke declarations.
-        EmitCSharpPresentationPInvokes(sb, prefix, bridgeLib);
+        EmitCSharpPresentationPInvokes(sb, prefix, bridgeLib, emissionContext);
 
         sb.AppendLine("    }");
         sb.AppendLine();

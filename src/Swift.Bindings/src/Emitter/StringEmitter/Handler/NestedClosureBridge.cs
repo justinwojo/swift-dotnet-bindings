@@ -933,7 +933,9 @@ public static class NestedClosureBridge
             MethodName = pInvokeName,
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = env.EmissionContext,
+            EnforceWrapperContract = true
         });
         csWriter.WriteLine();
     }

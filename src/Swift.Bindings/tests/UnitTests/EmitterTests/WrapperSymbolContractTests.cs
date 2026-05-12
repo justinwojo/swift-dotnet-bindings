@@ -720,6 +720,197 @@ public class WrapperSymbolContractTests
         return (ctx, ctx.RegisteredWrapperSymbols.ToList(), methodDecl, csSw.ToString(), swiftSw.ToString());
     }
 
+    // -----------------------------------------------------------------------
+    // Direct-path enforcement (Session 2b): bridge / helper emitters call
+    // PInvokeEmitHelper.FormatDeclarationLines outside the canonical
+    // PInvokeEmitter chokepoint. These tests pin that the contract fires
+    // identically on those paths — an SBW_ symbol registered via
+    // TryAddDirectHelperWrapperSymbol must pass, an unregistered one must
+    // throw, and the unified registry must be visible to both the direct-
+    // path register and the contract check.
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public void DirectHelper_Registered_Symbol_Passes_Contract()
+    {
+        // ThemeBridgeEmitter / SwiftUIBridgeEmitter / GenericClosureBridgeEmitter all
+        // register through TryAddDirectHelperWrapperSymbol. The contract check shares
+        // the unified registry — registration via the direct-helper kind must satisfy
+        // the contract just like TryAddMethodWrapperSymbol does on the canonical path.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_TestModule_View_Create"));
+
+        var info = MakeInfo("SBW_TestModule_View_Create", ctx, enforce: true);
+
+        var lines = PInvokeEmitHelper.FormatDeclarationLines(info);
+
+        Assert.Contains(lines, l => l.Contains("EntryPoint = \"SBW_TestModule_View_Create\""));
+    }
+
+    [Fact]
+    public void DirectHelper_Unregistered_Symbol_Trips_Contract()
+    {
+        // If a direct-helper emitter forgets to call TryAddDirectHelperWrapperSymbol
+        // before emitting its P/Invoke (refactor regression), the contract must catch
+        // it at compile time rather than letting the build link an unresolved symbol.
+        var ctx = new ModuleEmissionContext();
+        // Register a DIFFERENT direct-helper symbol so the registry isn't empty —
+        // the check must scope to the specific entry point, not "is anything
+        // direct-helper registered?".
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_TestModule_OtherView_Create"));
+
+        var info = MakeInfo("SBW_TestModule_View_GetViewController", ctx, enforce: true);
+
+        var ex = Assert.Throws<WrapperSymbolContractException>(
+            () => PInvokeEmitHelper.FormatDeclarationLines(info));
+        Assert.Equal("SBW_TestModule_View_GetViewController", ex.EntryPoint);
+    }
+
+    [Fact]
+    public void DirectHelper_Theme_Getter_Setter_Pair_Registers_Visibly()
+    {
+        // Theme bridge emits paired setter/getter SBW_ symbols (e.g.
+        // SBW_Theme_set_primaryColor / SBW_Theme_get_primaryColor). Both must be
+        // visible to IsWrapperSymbolRegistered without one masking the other.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_Theme_set_primaryColor"));
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_Theme_get_primaryColor"));
+
+        var setterInfo = MakeInfo("SBW_Theme_set_primaryColor", ctx, enforce: true);
+        var getterInfo = MakeInfo("SBW_Theme_get_primaryColor", ctx, enforce: true);
+
+        // No throw + entry point line emitted = both visible.
+        var setterLines = PInvokeEmitHelper.FormatDeclarationLines(setterInfo);
+        var getterLines = PInvokeEmitHelper.FormatDeclarationLines(getterInfo);
+        Assert.Contains(setterLines, l => l.Contains("EntryPoint = \"SBW_Theme_set_primaryColor\""));
+        Assert.Contains(getterLines, l => l.Contains("EntryPoint = \"SBW_Theme_get_primaryColor\""));
+    }
+
+    [Fact]
+    public void DirectHelper_SwiftUI_Lifecycle_Family_Unregistered_All_Trip()
+    {
+        // SwiftUI bridge emits a Create/GetViewController/Free triple per view plus
+        // SetLifecycle / SetFrame / PresentAsSheet / etc. Each is registered
+        // independently — registering one must NOT make a sibling pass.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_MyModule_MyView_Create"));
+
+        // Free is a separate registration — must still trip.
+        var freeInfo = MakeInfo("SBW_MyModule_MyView_Free", ctx, enforce: true);
+        Assert.Throws<WrapperSymbolContractException>(
+            () => PInvokeEmitHelper.FormatDeclarationLines(freeInfo));
+
+        // SetLifecycle likewise.
+        var setLifecycleInfo = MakeInfo("SBW_MyModule_MyView_SetLifecycle", ctx, enforce: true);
+        Assert.Throws<WrapperSymbolContractException>(
+            () => PInvokeEmitHelper.FormatDeclarationLines(setLifecycleInfo));
+    }
+
+    [Fact]
+    public void DirectHelper_GenericClosure_CreateError_Symbol_Visible_To_Contract()
+    {
+        // GenericClosureBridgeEmitter registers exactly one SBW_CreateError_{module}
+        // direct helper per module (deduped via TryAddGenericClosureBridgeErrorPInvoke).
+        // The contract check must see it through the unified registry.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_CreateError_TestModule"));
+
+        var info = MakeInfo("SBW_CreateError_TestModule", ctx, enforce: true);
+        var lines = PInvokeEmitHelper.FormatDeclarationLines(info);
+
+        Assert.Contains(lines, l => l.Contains("EntryPoint = \"SBW_CreateError_TestModule\""));
+    }
+
+    [Fact]
+    public void ThemeBridge_CSharp_Emission_Trips_Contract_When_Symbol_Unregistered()
+    {
+        // End-to-end direct-path coverage: drive ThemeBridgeEmitter.GenerateCSharpThemeBridge
+        // with a ThemeBridgeInfo whose setter/getter symbols are NOT registered in the
+        // ModuleEmissionContext. The Swift-side EmitSwiftThemeSetters/Getters path
+        // normally registers them; running only the C# side proves the contract gate is
+        // wired correctly through the emission code rather than just through MakeInfo.
+        // A regression that drops `EnforceWrapperContract = true` or `EmissionContext`
+        // from one of the two EmitDeclaration sites in ThemeBridgeEmitter would make
+        // this test return generated source instead of throwing.
+        var emptyCtx = new ModuleEmissionContext();
+        var info = new ThemeBridgeEmitter.ThemeBridgeInfo(
+            ClassName: "MyTheme",
+            ModuleName: "TestModule",
+            SingletonName: "shared",
+            Properties: new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("primaryColor", ThemeBridgeEmitter.ThemePropertyKind.Color),
+            });
+
+        Assert.Throws<WrapperSymbolContractException>(
+            () => ThemeBridgeEmitter.GenerateCSharpThemeBridge(
+                "TestNs", "TestModule",
+                new List<ThemeBridgeEmitter.ThemeBridgeInfo> { info },
+                emptyCtx));
+    }
+
+    [Fact]
+    public void ThemeBridge_CSharp_Getter_Site_Independently_Enforces_Contract()
+    {
+        // The companion ThemeBridge tests above prove the setter EmitDeclaration site
+        // is wired — but with an empty context the setter throws first and the getter
+        // is never reached. A regression that drops `EmissionContext` or
+        // `EnforceWrapperContract` from the getter EmitDeclaration in
+        // ThemeBridgeEmitter.cs:633 would slip past both companion tests.
+        //
+        // Register ONLY the setter so the setter site is satisfied; the getter site is
+        // then the first unregistered SBW_ symbol the emit hits. The expected throw's
+        // EntryPoint must point at the getter, proving the getter site actually
+        // consulted the registry rather than emitting blind.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_MyTheme_set_primaryColor"));
+
+        var info = new ThemeBridgeEmitter.ThemeBridgeInfo(
+            ClassName: "MyTheme",
+            ModuleName: "TestModule",
+            SingletonName: "shared",
+            Properties: new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("primaryColor", ThemeBridgeEmitter.ThemePropertyKind.Color),
+            });
+
+        var ex = Assert.Throws<WrapperSymbolContractException>(
+            () => ThemeBridgeEmitter.GenerateCSharpThemeBridge(
+                "TestNs", "TestModule",
+                new List<ThemeBridgeEmitter.ThemeBridgeInfo> { info },
+                ctx));
+        Assert.Equal("SBW_MyTheme_get_primaryColor", ex.EntryPoint);
+    }
+
+    [Fact]
+    public void ThemeBridge_CSharp_Emission_Passes_When_Symbols_Registered()
+    {
+        // Companion to the previous test: with both setter and getter SBW_ symbols
+        // pre-registered (mirroring what the Swift-side path does), the C# emit must
+        // complete cleanly. Catches the inverse regression — a stray contract gate
+        // that rejects properly-registered symbols.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_MyTheme_set_primaryColor"));
+        Assert.True(ctx.TryAddDirectHelperWrapperSymbol("SBW_MyTheme_get_primaryColor"));
+
+        var info = new ThemeBridgeEmitter.ThemeBridgeInfo(
+            ClassName: "MyTheme",
+            ModuleName: "TestModule",
+            SingletonName: "shared",
+            Properties: new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("primaryColor", ThemeBridgeEmitter.ThemePropertyKind.Color),
+            });
+
+        var content = ThemeBridgeEmitter.GenerateCSharpThemeBridge(
+            "TestNs", "TestModule",
+            new List<ThemeBridgeEmitter.ThemeBridgeInfo> { info },
+            ctx);
+
+        Assert.Contains("SBW_MyTheme_set_primaryColor", content);
+        Assert.Contains("SBW_MyTheme_get_primaryColor", content);
+    }
+
     private sealed class SimpleTypeDatabase : ITypeDatabase
     {
         public string? AsyncLibraryName => null;

@@ -213,7 +213,7 @@ public static class ThemeBridgeEmitter
         var hasSwiftUIFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.Font));
         var hasUIKitFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.UIKitFont));
         var swiftContent = GenerateSwiftThemeBridge(moduleName, themeInfos, viewBridgeExists, hasSwiftUIFonts, hasUIKitFonts, emissionContext);
-        var csContent = GenerateCSharpThemeBridge(@namespace, moduleName, themeInfos);
+        var csContent = GenerateCSharpThemeBridge(@namespace, moduleName, themeInfos, emissionContext);
 
         // Bridge files are a matched pair (Swift + C#). If either existing file is
         // user-maintained, skip BOTH to avoid emitting P/Invoke declarations for
@@ -525,23 +525,24 @@ public static class ThemeBridgeEmitter
 
     #region C# Generation
 
-    private static string GenerateCSharpThemeBridge(
+    internal static string GenerateCSharpThemeBridge(
         string @namespace,
         string moduleName,
-        List<ThemeBridgeInfo> themeInfos)
+        List<ThemeBridgeInfo> themeInfos,
+        ModuleEmissionContext? emissionContext)
     {
         var sb = new StringBuilder();
         var bridgeLib = $"{moduleName}SwiftBindings";
 
         foreach (var info in themeInfos)
         {
-            EmitCSharpThemeClass(sb, moduleName, bridgeLib, info);
+            EmitCSharpThemeClass(sb, moduleName, bridgeLib, info, emissionContext);
         }
 
         return sb.ToString();
     }
 
-    private static void EmitCSharpThemeClass(StringBuilder sb, string moduleName, string bridgeLib, ThemeBridgeInfo info)
+    private static void EmitCSharpThemeClass(StringBuilder sb, string moduleName, string bridgeLib, ThemeBridgeInfo info, ModuleEmissionContext? emissionContext)
     {
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// Theme bridge for Color and Font properties.");
@@ -619,7 +620,9 @@ public static class ThemeBridgeEmitter
                 ParametersString = setterParams,
                 CallingConvention = PInvokeCallingConvention.Cdecl,
                 Visibility = PInvokeVisibility.Internal,
-                IsUnsafe = !IsColorKind(prop.Kind)
+                IsUnsafe = !IsColorKind(prop.Kind),
+                EmissionContext = emissionContext,
+                EnforceWrapperContract = true
             }))
                 sb.AppendLine($"            {line}");
             sb.AppendLine();
@@ -639,7 +642,9 @@ public static class ThemeBridgeEmitter
                 ParametersString = "double* r, double* g, double* b, double* a",
                 CallingConvention = PInvokeCallingConvention.Cdecl,
                 Visibility = PInvokeVisibility.Internal,
-                IsUnsafe = true
+                IsUnsafe = true,
+                EmissionContext = emissionContext,
+                EnforceWrapperContract = true
             }))
                 sb.AppendLine($"            {line}");
             sb.AppendLine();

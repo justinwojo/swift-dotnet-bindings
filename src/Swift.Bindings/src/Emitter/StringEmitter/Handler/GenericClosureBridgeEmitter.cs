@@ -563,7 +563,9 @@ public static class GenericClosureBridgeEmitter
             ReturnType = "IntPtr",
             ParametersString = "[MarshalAs(UnmanagedType.LPUTF8Str)] string message",
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = ctx,
+            EnforceWrapperContract = true
         });
         csWriter.WriteLine();
     }

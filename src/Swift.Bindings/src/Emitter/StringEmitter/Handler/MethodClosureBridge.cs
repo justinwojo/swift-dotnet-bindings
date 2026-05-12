@@ -1053,7 +1053,9 @@ public static class MethodClosureBridge
             Visibility = PInvokeVisibility.Internal,
             CallingConvention = usesSwiftCallingConvention
                 ? PInvokeCallingConvention.Swift
-                : PInvokeCallingConvention.Cdecl
+                : PInvokeCallingConvention.Cdecl,
+            EmissionContext = env.EmissionContext,
+            EnforceWrapperContract = true
         });
         csWriter.WriteLine();
     }

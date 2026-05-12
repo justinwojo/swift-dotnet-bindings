@@ -285,10 +285,12 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# P/Invoke for SetLifecycle and C# lifecycle setup method.
     /// </summary>
     internal static void EmitCSharpLifecyclePInvoke(
-        StringBuilder sb, string prefix, string bridgeLib)
+        StringBuilder sb, string prefix, string bridgeLib,
+        ModuleEmissionContext? emissionContext)
     {
         EmitSimplePInvoke(sb, bridgeLib, $"{prefix}_SetLifecycle", "SetLifecycle",
-            "IntPtr handle, IntPtr onAppearCb, IntPtr onAppearUd, IntPtr onDisappearCb, IntPtr onDisappearUd");
+            "IntPtr handle, IntPtr onAppearCb, IntPtr onAppearUd, IntPtr onDisappearCb, IntPtr onDisappearUd",
+            emissionContext);
     }
 
     /// <summary>
@@ -339,38 +341,40 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     internal static void EmitCSharpUniversalModifierPInvokes(
         StringBuilder sb, string prefix, string bridgeLib,
-        HashSet<string>? viewModifierNames = null)
+        HashSet<string>? viewModifierNames,
+        ModuleEmissionContext? emissionContext)
     {
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetFrame", "IntPtr handle, int hasWidth, double width, int hasHeight, double height");
+            "SetFrame", "IntPtr handle, int hasWidth, double width, int hasHeight, double height", emissionContext);
 
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetPadding", "IntPtr handle, int hasValue, double value");
+            "SetPadding", "IntPtr handle, int hasValue, double value", emissionContext);
 
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetBackground", "IntPtr handle, int hasValue, double r, double g, double b, double a");
+            "SetBackground", "IntPtr handle, int hasValue, double r, double g, double b, double a", emissionContext);
 
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetForegroundColor", "IntPtr handle, int hasValue, double r, double g, double b, double a");
+            "SetForegroundColor", "IntPtr handle, int hasValue, double r, double g, double b, double a", emissionContext);
 
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetCornerRadius", "IntPtr handle, int hasValue, double value");
+            "SetCornerRadius", "IntPtr handle, int hasValue, double value", emissionContext);
 
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetOpacity", "IntPtr handle, int hasValue, double value");
+            "SetOpacity", "IntPtr handle, int hasValue, double value", emissionContext);
 
         EmitUniversalPInvokeIfNotSkipped(sb, bridgeLib, prefix, viewModifierNames,
-            "SetFont", "IntPtr handle, int hasValue, double size");
+            "SetFont", "IntPtr handle, int hasValue, double size", emissionContext);
     }
 
     private static void EmitUniversalPInvokeIfNotSkipped(
         StringBuilder sb, string bridgeLib, string prefix,
-        HashSet<string>? viewModifierNames, string functionSuffix, string parameters)
+        HashSet<string>? viewModifierNames, string functionSuffix, string parameters,
+        ModuleEmissionContext? emissionContext)
     {
         if (viewModifierNames != null && viewModifierNames.Contains(functionSuffix))
             return;
 
-        EmitSimplePInvoke(sb, bridgeLib, $"{prefix}_{functionSuffix}", functionSuffix, parameters);
+        EmitSimplePInvoke(sb, bridgeLib, $"{prefix}_{functionSuffix}", functionSuffix, parameters, emissionContext);
     }
 
     /// <summary>
@@ -449,14 +453,15 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# P/Invoke declarations for presentation functions.
     /// </summary>
     internal static void EmitCSharpPresentationPInvokes(
-        StringBuilder sb, string prefix, string bridgeLib)
+        StringBuilder sb, string prefix, string bridgeLib,
+        ModuleEmissionContext? emissionContext)
     {
         EmitSimplePInvoke(sb, bridgeLib, $"{prefix}_PresentAsSheet", "PresentAsSheet",
-            "IntPtr handle, IntPtr fromViewController");
+            "IntPtr handle, IntPtr fromViewController", emissionContext);
         EmitSimplePInvoke(sb, bridgeLib, $"{prefix}_PushOnNav", "PushOnNav",
-            "IntPtr handle, IntPtr navigationController");
+            "IntPtr handle, IntPtr navigationController", emissionContext);
         EmitSimplePInvoke(sb, bridgeLib, $"{prefix}_Dismiss", "Dismiss",
-            "IntPtr handle");
+            "IntPtr handle", emissionContext);
     }
 
     /// <summary>
@@ -485,7 +490,8 @@ public static partial class SwiftUIBridgeEmitter
     #region Shared P/Invoke Helper
 
     private static void EmitSimplePInvoke(
-        StringBuilder sb, string bridgeLib, string entryPoint, string methodName, string parameters)
+        StringBuilder sb, string bridgeLib, string entryPoint, string methodName, string parameters,
+        ModuleEmissionContext? emissionContext)
     {
         sb.AppendLine();
         foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
@@ -496,7 +502,9 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "void",
             ParametersString = parameters,
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
     }

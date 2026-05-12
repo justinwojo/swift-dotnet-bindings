@@ -840,15 +840,32 @@ namespace BindingsGeneration
             // Non-null result means the method was handled (emitted or explicitly skipped).
             // On success, set WasEmitted and record the bridge; on skip, just return.
             // Accessors skip bridges (all adapters guard !isAccessor via eligibility checks).
+            //
+            // Bridge emitters that write SBW_… P/Invoke declarations participate in the
+            // in-band wrapper-symbol contract — `EnforceWrapperContract` is set on their
+            // PInvokeEmissionInfo, so an unregistered SBW_ entry point throws here.
+            // Catch the throw and route it through HandleViolation: it records the
+            // skip and writes the `// Unsupported` marker for the orphan caller, the
+            // same way PInvokeEmitter does for the canonical path.
             if (!isAccessor)
             {
+                methodEnv.EmissionContext = context.GetEmissionContext();
                 var bridgeContext = new BridgeEmitterContext(
                     csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext(),
                     hasMethodExistentialArg, firstMethodExistentialType);
 
                 foreach (var bridge in _bridgeEmitters)
                 {
-                    var result = bridge.TryEmit(bridgeContext);
+                    BridgeEmitResult? result;
+                    try
+                    {
+                        result = bridge.TryEmit(bridgeContext);
+                    }
+                    catch (WrapperSymbolContractException ex)
+                    {
+                        WrapperSymbolContractGate.HandleViolation(methodEnv, ex, csWriter, _logger);
+                        return;
+                    }
                     if (result != null)
                     {
                         if (result.WasEmitted)

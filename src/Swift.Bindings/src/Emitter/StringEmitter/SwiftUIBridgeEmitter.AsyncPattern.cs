@@ -856,7 +856,8 @@ public static partial class SwiftUIBridgeEmitter
     #region Async C# Generation
 
     internal static void EmitAsyncCSharpBridge(
-        StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern)
+        StringBuilder sb, string moduleName, ViewBridgeInfo info, AsyncViewPattern pattern,
+        ModuleEmissionContext? emissionContext)
     {
         var prefix = $"SBW_{moduleName}_{info.ViewName}";
         var bridgeLib = $"{moduleName}Bridge";
@@ -897,7 +898,9 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "void",
             ParametersString = string.Join(", ", createPInvokeParams),
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
         sb.AppendLine();
@@ -911,7 +914,9 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "IntPtr",
             ParametersString = "IntPtr handle",
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
         sb.AppendLine();
@@ -925,7 +930,9 @@ public static partial class SwiftUIBridgeEmitter
             ReturnType = "void",
             ParametersString = "IntPtr handle",
             CallingConvention = PInvokeCallingConvention.Cdecl,
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            EmissionContext = emissionContext,
+            EnforceWrapperContract = true
         }))
             sb.AppendLine($"        {line}");
         sb.AppendLine("    }");
