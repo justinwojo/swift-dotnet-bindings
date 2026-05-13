@@ -44,6 +44,13 @@ public static class SwiftSourceStripper
         // lives in BindingTests/Sources/SwiftBindingsTestLib/Lifetime/ProxyLifetimeFixture.swift
         // and dispatches Swift→C# via a blittable ping() method.
         "ProxyLifetimeReceiver",
+        // Vtable-slot-collision regression (Session 4a): DataLoadingDelegate has a
+        // non-dispatchable closure method (onDataLoaded with multi-arg closure) plus a
+        // non-closure method (sourceIdentifier). The C# proxy struct must omit the
+        // closure slot to match Swift's omission; the runtime test drives this via
+        // loader.Delegate = proxy → sourceIdentifier() round trip, so the EveryProtocol
+        // conformance and witness table getter must survive stripping.
+        "DataLoadingDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

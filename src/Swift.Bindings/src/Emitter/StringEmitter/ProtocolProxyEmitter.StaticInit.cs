@@ -162,15 +162,9 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 if (_skippedMethodKeys.Contains(methodKey))
                 {
-                    // Closure-receiving protocol methods get an observable-failure trampoline
-                    // instead of a null vtable slot — see EmitNotSupportedMethodReceiver in
-                    // ProtocolProxyEmitter.Receivers.cs.
-                    if (_closureSkippedMethodKeys.Contains(methodKey))
-                    {
-                        var projectedKeyClosure = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
-                        if (emittedCSharpKeys.Add(projectedKeyClosure))
-                            EmitLocalVtableMethodAssignment(writer, method, idx);
-                    }
+                    // Closure-skipped methods have no receiver and no local-vtable field,
+                    // so there's nothing to assign here. See ProtocolProxyEmitter.Vtables.cs
+                    // (EmitLocalVtableStruct + EmitSwiftVtableStruct) for the matching omissions.
                     continue;
                 }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
@@ -241,15 +235,11 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 if (_skippedMethodKeys.Contains(methodKey))
                 {
-                    // Closure-receiving protocol methods: forward the local vtable's
-                    // NotSupported trampoline pointer to Swift so witness dispatch lands
-                    // on a logged exception rather than a null function pointer.
-                    if (_closureSkippedMethodKeys.Contains(methodKey))
-                    {
-                        var projectedKeyClosure = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
-                        if (emittedCSharpKeys.Add(projectedKeyClosure))
-                            EmitSwiftVtableMethodAssignment(writer, method, idx);
-                    }
+                    // Non-dispatchable closure methods get fatalError stubs in Swift's
+                    // EveryProtocol extension; their slot is omitted from Swift's vtable
+                    // struct entirely (see EveryProtocolEmitter.EmitProtocolVtableStruct).
+                    // Writing an assignment here would target a slot that doesn't exist
+                    // on the Swift side and corrupt the adjacent function pointer.
                     continue;
                 }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);

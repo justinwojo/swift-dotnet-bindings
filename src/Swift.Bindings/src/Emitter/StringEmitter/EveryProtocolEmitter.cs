@@ -311,9 +311,11 @@ public class EveryProtocolEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
-                // Skip vtable fields for closure methods — they get fatalError() stubs,
-                // not vtable dispatch, so the field would be dead code.
-                if (HasClosureInMethodSignature(method))
+                // Skip vtable fields for closure methods that aren't on the Session 4a
+                // dispatch surface — those get fatalError() stubs and the field would be
+                // dead code. Dispatchable closure methods fall through to vtable-field
+                // emission (which now expands per-closure to two UnsafeRawPointer slots).
+                if (HasClosureInMethodSignature(method) && !IsDispatchableClosureMethod(method))
                     continue;
                 // Skip vtable fields for method-level generic methods — they get fatalError() stubs
                 if (HasOnlyMethodLevelGenerics(method))
@@ -494,12 +496,17 @@ public class EveryProtocolEmitter
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
-                // Methods with closure params/return get fatalError() stubs.
-                // The closure types can't be dispatched through the @convention(c) vtable.
-                // The C# proxy already throws NotSupportedException for these methods.
+                // Session 4a: closure methods on the dispatch surface get a real
+                // implementation that extracts (fnPtr, ctx) and forwards to C# through
+                // the expanded cdecl vtable. Off-surface closure methods (multi-arg,
+                // optional, return-typed, throws, async, properties) still get the
+                // fatalError stub — Session 4b lifts those into dispatch.
                 if (HasClosureInMethodSignature(method))
                 {
-                    EmitClosureMethodStub(writer, method);
+                    if (IsDispatchableClosureMethod(method))
+                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx);
+                    else
+                        EmitClosureMethodStub(writer, method);
                 }
                 // Methods with only method-level generics (τ_1_0+, no Self τ_0_*) get stub
                 // implementations. EveryProtocol satisfies the protocol requirement, but can't
@@ -1086,6 +1093,12 @@ public class EveryProtocolEmitter
             EmitProtocolVtableStruct(writer, protocolDecl);
             EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
             EmitSetVtableFunction(writer, protocolDecl);
+            // Session 4a: per-shape @_cdecl invoke thunks for dispatchable closure params.
+            // C# proxy receivers wrap the (fnPtr, ctx) pair into a managed Action whose
+            // invocation calls back into Swift via a Cdecl P/Invoke — avoiding the
+            // delegate* unmanaged[Swift] indirect call that Mono JIT and NativeAOT can't
+            // synthesize. The thunk reconstructs the closure from typed memory + invokes it.
+            EmitProtocolClosureInvokeThunks(writer, protocolDecl);
             // Symmetric signal to ProtocolProxyEmitter: the C# proxy's InitializeVtable() may
             // reference the SetXxx_vtable PInvoke now that the Swift trampoline is in place.
             // See bug-0.10.0-proxy-vtable-setters-not-exported.md — without this signal the
@@ -1197,9 +1210,15 @@ public class EveryProtocolEmitter
             return;
 
         // Build function pointer type
-        // Parameters: OpaquePointer? (vtable handle), UnsafeRawPointer (self), then method params
-        var paramCount = method.CSSignature.Count - 1; // Exclude return type
-        var paramList = "OpaquePointer?, UnsafeRawPointer" + string.Concat(Enumerable.Repeat(", UnsafeRawPointer", paramCount));
+        // Parameters: OpaquePointer? (vtable handle), UnsafeRawPointer (self), then method params.
+        // Dispatchable closure params expand into TWO UnsafeRawPointer slots (fnPtr + ctx)
+        // per Session 4a — see IsDispatchableClosureShape.
+        int paramSlots = 0;
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            paramSlots += CountVtableSlots(method.CSSignature[i].SwiftTypeSpec);
+        }
+        var paramList = "OpaquePointer?, UnsafeRawPointer" + string.Concat(Enumerable.Repeat(", UnsafeRawPointer", paramSlots));
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
@@ -1990,6 +2009,129 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Session 4a: emits the Swift extension body for a dispatchable closure-receiving method.
+    /// Extracts the closure's `(fnPtr, ctx)` pair via `unsafeBitCast`, retains the context so
+    /// the C# side can outlive this Swift call, and forwards to the expanded cdecl trampoline
+    /// (`vtable, &selfProto, fnPtr, ctx, [more closure pairs…]`). The C# receiver wraps the
+    /// pair into a managed delegate via a per-shape `@_cdecl` invoke thunk.
+    /// </summary>
+    private void EmitClosureMethodImplementation(SwiftWriter writer, MethodDecl method, ProtocolDecl protocolDecl,
+        string vtableInstanceName, int index)
+    {
+        // Build parameter list — same shape as EmitMethodImplementation so the Swift protocol
+        // signature matches the requirement. Only closure params get expanded passing logic.
+        var parameters = new List<string>();
+        var internalNames = new List<string>();
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var param = method.CSSignature[i];
+            var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
+            var externalLabel = GetSwiftParameterLabel(param, i);
+            var internalName = GetSwiftParameterName(param, i);
+            internalNames.Add(internalName);
+
+            // Closure params are escaping — they outlive this call. Other params follow
+            // the same ownership rules as EmitMethodImplementation.
+            var ownershipPrefix = param.IsInOut
+                ? "inout "
+                : (WrapperValidation.IsNonCopyableType(param.SwiftTypeSpec, _typeDatabase, method.ModuleDecl)
+                    ? "consuming "
+                    : "");
+
+            // For closure params, render the type with @escaping so the parameter is escaping
+            // (otherwise Swift would reject capturing the closure for ARC retain).
+            string renderedType = paramTypeName;
+            if (param.SwiftTypeSpec is ClosureTypeSpec cts && cts.IsEscaping && !paramTypeName.Contains("@escaping"))
+                renderedType = $"@escaping {paramTypeName}";
+
+            if (externalLabel == "_")
+                parameters.Add($"_ {internalName}: {ownershipPrefix}{renderedType}");
+            else if (externalLabel == internalName)
+                parameters.Add($"{internalName}: {ownershipPrefix}{renderedType}");
+            else
+                parameters.Add($"{externalLabel} {internalName}: {ownershipPrefix}{renderedType}");
+        }
+        var parametersString = string.Join(", ", parameters);
+
+        var fieldName = GetMethodVtableFieldName(method, index);
+
+        writer.WriteLine($"public func {method.Name}({parametersString}) {{");
+        writer.Indent++;
+
+        // Build the per-parameter passing code. For each closure param, emit the
+        // unsafeBitCast + retain dance; for non-closure params (none in Session 4a's
+        // scope, but the shape is future-proofed for 4b), follow the standard pattern.
+        var passLines = new List<string>();
+        var argRefList = new List<string>();
+        for (int i = 0; i < internalNames.Count; i++)
+        {
+            var paramName = internalNames[i];
+            var escapedParam = NameProvider.EscapeSwiftKeyword(paramName);
+            var param = method.CSSignature[i + 1];
+            if (param.SwiftTypeSpec is ClosureTypeSpec cts && IsDispatchableClosureShape(cts))
+            {
+                // Extract the raw (fp, ctx) bytes from the closure parameter without
+                // triggering Swift's generic-abstraction reabstraction thunk.
+                //
+                // Trap: passing a concrete `@escaping () -> Void` to ANY generic helper —
+                // including `unsafeBitCast<T, U>(_:to:)`, `withUnsafeBytes(of: T, ...)`,
+                // or `MemoryLayout<T>` against a non-inout T — forces Swift to convert
+                // the in-register closure (`Ieg_`) into the generic memory abstraction
+                // (`Iegr_`, @out-Void). The compiler implements that conversion by
+                // allocating a fresh partial-application context, wrapping the original
+                // (fn, ctx) inside, and substituting `$sIeg_ytIegr_TRTA` for the function
+                // pointer. The temporary partial-app context is then released as soon as
+                // the generic call returns, so the (fn, ctx) bytes that surface in the
+                // result point at freed memory. C# stores those dangling pointers and
+                // the InvCR-thunk call later SIGSEGVs deep inside `$sIeg_ytIegr_TR`.
+                //
+                // Inout-binding through `withUnsafeBytes(of: inout T, _: ...)` sidesteps
+                // this: the inout parameter passes the address of the existing storage
+                // straight through, so the closure value never gets materialized in
+                // generic form. The bytes read out of the buffer are the original
+                // (Ieg_ fn pointer, original ctx) pair.
+                //
+                // ARC: `handler` retains its context for the whole scope of this
+                // extension; the vtable call is synchronous, so C# runs
+                // `SwiftEscapingClosure.FromSwift` (which calls `Arc.Retain`) before we
+                // return. When `handler` releases on exit, the context survives via C#'s
+                // retain.
+                var fnVar = $"{paramName}FnPtr";
+                var ctxVar = $"{paramName}CtxPtr";
+                var localVar = $"{paramName}Local";
+                passLines.Add($"var {localVar} = {escapedParam}");
+                passLines.Add(
+                    $"let ({fnVar}, {ctxVar}) = withUnsafeBytes(of: &{localVar}) {{ _bytes -> (UnsafeRawPointer, UnsafeRawPointer) in" +
+                    " return (" +
+                    "_bytes.load(as: UnsafeRawPointer.self), " +
+                    "_bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer.self)" +
+                    ") }");
+                argRefList.Add(fnVar);
+                argRefList.Add(ctxVar);
+            }
+            else
+            {
+                // Non-closure params follow the standard "copy + ref" pattern.
+                passLines.Add($"var {paramName}Copy = {escapedParam}");
+                argRefList.Add($"&{paramName}Copy");
+            }
+        }
+
+        var passCode = passLines.Count > 0 ? string.Join("\n        ", passLines) + "\n        " : "";
+        var argRefs = argRefList.Count > 0 ? ", " + string.Join(", ", argRefList) : "";
+
+        writer.WriteLines($$"""
+                var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
+                {{passCode}}{{vtableInstanceName}}.{{fieldName}}!(
+                    {{vtableInstanceName}}.csVTHandle, &selfProto{{argRefs}})
+            """);
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
     /// Checks if a method has closure types (ClosureTypeSpec) in any parameter or return type.
     /// Methods with closure types can't be dispatched through the EveryProtocol vtable
     /// because closures aren't representable as UnsafeRawPointer in @convention(c) callbacks.
@@ -2044,6 +2186,195 @@ public class EveryProtocolEmitter
     private static bool HasClosureInPropertyType(PropertyDecl property)
     {
         return ContainsClosureType(property.SwiftTypeSpec);
+    }
+
+    /// <summary>
+    /// Session 4a: returns true for closure-receiving protocol methods that have a real
+    /// Swift→C# proxy dispatch implementation (rather than the `fatalError` / `NotSupportedException`
+    /// stub). Initially scoped to the simplest shape:
+    /// <list type="bullet">
+    ///   <item>Exactly one parameter which is an `@escaping () -> Void` closure.</item>
+    ///   <item>Method itself returns Void, is not throws, is not async.</item>
+    ///   <item>No Self / method-level generics.</item>
+    /// </list>
+    /// Session 4b lifts these restrictions across the closure-shape matrix.
+    /// </summary>
+    internal static bool IsDispatchableClosureMethod(MethodDecl method)
+    {
+        if (method.IsAsync || method.Throws)
+            return false;
+
+        // Method-level return must be Void (the closure is the only "output" path).
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
+        if (hasReturn)
+            return false;
+
+        // No Self / method-level generics.
+        if (HasSelfTypeParamInSignature(method) || HasOnlyMethodLevelGenerics(method))
+            return false;
+
+        // Walk non-self parameters; we accept exactly one closure param and zero non-closure params.
+        var nonSelfParams = method.CSSignature.Skip(1).ToList();
+        if (nonSelfParams.Count != 1)
+            return false;
+
+        var only = nonSelfParams[0];
+        if (only.SwiftTypeSpec is not ClosureTypeSpec closure)
+            return false;
+
+        // The closure itself must be the simplest shape.
+        return IsDispatchableClosureShape(closure);
+    }
+
+    /// <summary>
+    /// Session 4a: the only currently-dispatchable closure shape is `@escaping () -> Void`.
+    /// Used both by the method-level gate and by per-parameter shape checks during emission.
+    /// </summary>
+    internal static bool IsDispatchableClosureShape(ClosureTypeSpec closure)
+    {
+        // Escaping is required: the C# Action escapes the receiver and may be invoked later.
+        if (!closure.IsEscaping)
+            return false;
+        if (closure.IsAsync || closure.Throws)
+            return false;
+        if (closure.HasArguments())
+            return false;
+        if (!closure.ReturnType.IsEmptyTuple)
+            return false;
+        // @convention(c) is a single C function pointer, NOT the (fnPtr, ctx) two-word Swift
+        // closure layout the dispatch path assumes. @autoclosure and actor/Sendable-qualified
+        // closures need additional thunk plumbing we don't emit yet. Reject any closure
+        // carrying an attribute other than the bare `escaping` marker so Session 4b can lift
+        // each shape explicitly.
+        if (closure.HasAttributes)
+        {
+            foreach (var attr in closure.Attributes)
+            {
+                if (attr.Name != "escaping")
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Counts the number of cdecl pointer slots a single parameter occupies in the vtable
+    /// signature. Closure params (when dispatchable) expand into two slots — function pointer
+    /// + context — instead of the single `UnsafeRawPointer` used for value-shaped params.
+    /// </summary>
+    internal static int CountVtableSlots(TypeSpec paramType)
+    {
+        if (paramType is ClosureTypeSpec closure && IsDispatchableClosureShape(closure))
+            return 2;
+        return 1;
+    }
+
+    /// <summary>
+    /// Session 4a: stable @_cdecl entry point name for the per-closure-param invoke thunk.
+    /// The thunk is the Swift function the C# proxy calls (via Cdecl P/Invoke) when the
+    /// user-stored Action is invoked — it reconstructs the closure from (fnPtr, ctx) and
+    /// calls it. Uses the wrapper-symbol "SBW_" prefix so the wrapper-symbol contract
+    /// applies and binding-emit can register/verify the symbol.
+    /// </summary>
+    internal static string GetProtocolClosureInvokeThunkEntryPoint(ProtocolDecl protocolDecl, MethodDecl method, int methodIdx, int argIdx)
+    {
+        return $"SBW_{protocolDecl.Name}_{method.Name}_m{methodIdx}_arg{argIdx}_InvCR";
+    }
+
+    /// <summary>
+    /// Session 4a: human-readable Swift function name for the invoke thunk. Only visible inside
+    /// the wrapper module — the @_cdecl entry point name from
+    /// <see cref="GetProtocolClosureInvokeThunkEntryPoint"/> is the linker-visible symbol.
+    /// </summary>
+    internal static string GetProtocolClosureInvokeThunkSwiftFuncName(ProtocolDecl protocolDecl, MethodDecl method, int methodIdx, int argIdx)
+    {
+        return $"_invokeProtocolClosure_{protocolDecl.Name}_{method.Name}_m{methodIdx}_arg{argIdx}";
+    }
+
+    /// <summary>
+    /// Session 4a: deterministic C# helper method name for the closure invoke thunk's P/Invoke.
+    /// Mirrors <see cref="ClosureEmitter.GetInvokeThunkHelperName"/>, but keyed on the
+    /// protocol-method entry point (not a wrapper @_cdecl mangled name).
+    /// </summary>
+    internal static string GetProtocolClosureInvokeThunkHelperName(string entryPointName)
+    {
+        var hash = EmitterUtility.DeterministicHash8(entryPointName);
+        return $"_InvokeClosureThunk_{hash}";
+    }
+
+    /// <summary>
+    /// Session 4a: enumerates the dispatchable closure parameter positions on a protocol method.
+    /// Yields (param, argIdx) for each parameter whose <see cref="TypeSpec"/> is a dispatchable
+    /// closure shape. The argIdx skips the receiver, so it's the same as the position in the
+    /// C# receiver's expanded P/Invoke parameter list.
+    /// </summary>
+    internal static IEnumerable<(ArgumentDecl Param, int ArgIdx)> EnumerateDispatchableClosureParams(MethodDecl method)
+    {
+        int argIdx = 0;
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var p = method.CSSignature[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(p) || p.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            if (p.SwiftTypeSpec is ClosureTypeSpec cts && IsDispatchableClosureShape(cts))
+                yield return (p, argIdx);
+            argIdx++;
+        }
+    }
+
+    /// <summary>
+    /// Session 4a: enumerates protocol methods with their assigned vtable index, mirroring the
+    /// dedup logic used by <see cref="EmitProtocolExtension"/> and
+    /// <see cref="EmitProtocolVtableStruct"/>. Only yields each unique method-key once (skipping
+    /// constructors, statics, and ObjC-optional methods) — the assigned idx matches the local
+    /// vtable field name <c>Func_{name}_{idx}</c> emitted by ProtocolProxyEmitter.
+    /// </summary>
+    internal static IEnumerable<(MethodDecl Method, int MethodIdx)> EnumerateProtocolMethodsForDispatch(ProtocolDecl protocolDecl)
+    {
+        int methodIndex = 0;
+        var methodIndices = new Dictionary<string, int>();
+        foreach (var method in protocolDecl.Methods)
+        {
+            if (method.IsConstructor || method.MethodType == MethodType.Static)
+                continue;
+            if (method.IsObjCOptional)
+                continue;
+
+            var methodKey = GetMethodKey(method);
+            if (methodIndices.ContainsKey(methodKey))
+                continue;
+
+            int idx = methodIndex++;
+            methodIndices[methodKey] = idx;
+            yield return (method, idx);
+        }
+    }
+
+    /// <summary>
+    /// Session 4a: emits @_cdecl invoke thunks for every dispatchable closure parameter on the
+    /// protocol's instance methods. Each thunk reconstructs the closure from (funcPtr, context)
+    /// via typed memory binding and invokes it — the matching C# DllImport + invoker class are
+    /// emitted by <see cref="ProtocolProxyEmitter"/> (see EmitProtocolClosureInvokeThunkHelpers).
+    /// Lives next to the EveryProtocol extension so wrapper-emit + binding-emit speak through
+    /// the same per-(protocol, method, argIdx) entry-point convention.
+    /// </summary>
+    private void EmitProtocolClosureInvokeThunks(SwiftWriter writer, ProtocolDecl protocolDecl)
+    {
+        var closureHandler = new ClosureHandler(_typeDatabase);
+        foreach (var (method, methodIdx) in EnumerateProtocolMethodsForDispatch(protocolDecl))
+        {
+            if (!IsDispatchableClosureMethod(method))
+                continue;
+            foreach (var (param, argIdx) in EnumerateDispatchableClosureParams(method))
+            {
+                var entryPoint = GetProtocolClosureInvokeThunkEntryPoint(protocolDecl, method, methodIdx, argIdx);
+                var swiftFuncName = GetProtocolClosureInvokeThunkSwiftFuncName(protocolDecl, method, methodIdx, argIdx);
+                var closureSpec = (ClosureTypeSpec)param.SwiftTypeSpec;
+                ClosureEmitter.EmitSwiftInvokeThunk(writer, closureSpec, closureHandler,
+                    entryPoint, swiftFuncName, _emissionContext);
+            }
+        }
     }
 
     /// <summary>

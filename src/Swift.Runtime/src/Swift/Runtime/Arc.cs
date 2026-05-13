@@ -260,6 +260,36 @@ internal static class SwiftReleaseTrampoline
 {
     [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_SwiftRelease")]
     internal static extern void Release(IntPtr p);
+
+    /// <summary>
+    /// Finalizer-safe release for arbitrary Swift heap objects that are NOT
+    /// <c>AnyObject</c>-castable — escaping closure contexts in particular.
+    /// Routes through the <c>SBW_SwiftReleaseRaw</c> companion wrapper, which
+    /// calls <c>swift_release</c> directly without going through
+    /// <c>Unmanaged&lt;AnyObject&gt;</c>. The <see cref="Release"/> entry point's
+    /// <c>AnyObject</c> cast segfaults inside <c>_objc_msgSend_uncached</c> for
+    /// closure contexts because they have no ObjC <c>isa</c> metadata.
+    /// </summary>
+    [DllImport("SwiftBindingsRuntime", CallingConvention = CallingConvention.Cdecl, EntryPoint = "SBW_SwiftReleaseRaw")]
+    internal static extern void ReleaseRaw(IntPtr p);
+
+    /// <summary>
+    /// Best-effort release for use from a finalizer thread, swallowing every
+    /// exception path (DllNotFoundException for older bundled dylibs, native
+    /// faults). Lives on a non-generic static class so the try/catch IL is not
+    /// instantiated per closing-over-T finalizer, which trips Mono AOT shutdown
+    /// loading new generic instantiations from inside the GC finalizer thread.
+    /// </summary>
+    internal static void SafeReleaseRawForFinalizer(IntPtr p)
+    {
+        try
+        {
+            ReleaseRaw(p);
+        }
+        catch
+        {
+        }
+    }
 }
 
 /// <summary>

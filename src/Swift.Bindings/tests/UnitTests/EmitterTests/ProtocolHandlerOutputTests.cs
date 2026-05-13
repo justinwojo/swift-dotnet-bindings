@@ -2890,11 +2890,13 @@ public class ProtocolHandlerOutputTests
         Assert.Contains("class MixedHandlerProxy", csOutput);
         Assert.Contains("closure parameters cannot be marshalled", csOutput);
 
-        // Bug 5 fix: a Swift→C# observable-failure trampoline is now emitted for the
-        // closure-skipped method. Pre-fix the receiver was elided entirely and the vtable
-        // slot stayed at IntPtr.Zero, so Swift's witness dispatch SIGSEGV'd silently.
-        Assert.Contains("Receive_handleWith_0", csOutput);
-        Assert.Contains("Func_handleWith_0 = &Receive_handleWith_0", csOutput);
+        // Vtable-slot-collision fix: closure-skipped methods are omitted from both the
+        // Swift-facing and local vtable structs (Swift's EveryProtocol uses a fatalError
+        // stub that bypasses the vtable). Emitting a receiver here would have no slot to
+        // assign into, so no Receive_*_N trampoline is generated.
+        Assert.DoesNotContain("Receive_handleWith_0", csOutput);
+        Assert.DoesNotContain("Func_handleWith_0", csOutput);
+        Assert.DoesNotContain("func_handleWith_0", csOutput);
     }
 
     private static (string csOutput, string swiftOutput) EmitProtocol(ProtocolDecl protocolDecl, TypeDatabase typeDatabase)

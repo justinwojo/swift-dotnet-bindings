@@ -252,22 +252,63 @@ public sealed class SwiftEscapingClosure<TDelegate> : IDisposable where TDelegat
     /// </summary>
     public void Dispose()
     {
-        if (!_disposed)
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Finalizer — balances the <see cref="Arc.Retain"/> performed by <see cref="FromSwift"/>
+    /// when the wrapper becomes unreachable without an explicit Dispose. The owns-context
+    /// (C#→Swift) path is intentionally skipped from the finalizer: Swift may still hold
+    /// the GCHandle, so freeing it from the finalizer would let Swift dereference a freed
+    /// handle.
+    /// </summary>
+    ~SwiftEscapingClosure()
+    {
+        Dispose(disposing: false);
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (_disposed)
+            return;
+
+        if (_ownsContext && _closureData.HasContext)
         {
-            if (_ownsContext && _closureData.HasContext)
+            // C#→Swift path: only release on explicit Dispose. From the finalizer we cannot
+            // tell whether Swift still references the GCHandle, so we leak rather than risk
+            // a use-after-free on the Swift side.
+            if (disposing)
             {
-                // If we created this closure from a C# delegate, free the GCHandle
                 SwiftClosureMarshaller.ReleaseEscapingClosure(_closureData);
             }
-            else if (_isFromSwift && _closureData.HasContext)
+        }
+        else if (_isFromSwift && _closureData.HasContext)
+        {
+            // Swift→C# path: balance the Arc.Retain done in FromSwift.
+            if (disposing)
             {
-                // If we received this from Swift, release the context
                 Arc.Release(_closureData.Context);
             }
-            _closureData = default;
-            _cachedInvoker = null;
-            _disposed = true;
+            else if (!SwiftExitGuard.IsProcessExiting)
+            {
+                // Finalizer thread: route through SwiftReleaseTrampoline.SafeReleaseRawForFinalizer,
+                // which wraps libswiftCore's swift_release (without going through Unmanaged<AnyObject>)
+                // and swallows DllNotFoundException / native faults. The AnyObject cast in
+                // SBW_SwiftRelease is only safe for class instances; closure contexts are heap
+                // objects without AnyObject metadata and segfault inside _objc_msgSend_uncached
+                // if released that way. The single Cdecl boundary into our own dylib also sidesteps
+                // the Mono JIT !ji->async assertion that fires when swift_release is called directly
+                // via [DllImport] after CallConvSwift contamination. The swallow lives on the
+                // non-generic SwiftReleaseTrampoline because emitting try/catch IL inside this
+                // generic class' finalizer trips Mono AOT shutdown.
+                SwiftReleaseTrampoline.SafeReleaseRawForFinalizer(_closureData.Context);
+            }
         }
+
+        _closureData = default;
+        _cachedInvoker = null;
+        _disposed = true;
     }
 }
 

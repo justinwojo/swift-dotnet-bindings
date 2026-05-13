@@ -944,13 +944,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 1977,
+      "pass": 1979,
       "fail": 0,
       "skip": 56,
       "crash": 0
     },
     "device": {
-      "pass": 1996,
+      "pass": 1998,
       "fail": 0,
       "skip": 37,
       "crash": 0

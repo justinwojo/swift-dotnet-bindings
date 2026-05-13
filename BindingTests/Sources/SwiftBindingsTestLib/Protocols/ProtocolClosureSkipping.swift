@@ -33,6 +33,20 @@ public class EventRouter {
     public func getDelegateName() -> String {
         return delegate?.delegateName ?? "none"
     }
+
+    /// Drives Session 4a closure-param dispatch: calls `onComplete(handler:)` on the
+    /// delegate with a Swift-built closure. When the delegate is a C# proxy, this
+    /// exercises Swift → C# closure-parameter marshalling via the expanded vtable.
+    /// The closure mutates `lastHandlerTag` so test code can observe that the C# impl
+    /// stored the closure and either invoked or held onto it.
+    public var lastHandlerTag: String = ""
+
+    public func fireOnComplete(tag: String) {
+        let captured = tag
+        delegate?.onComplete(handler: { [weak self] in
+            self?.lastHandlerTag = captured
+        })
+    }
 }
 
 // MARK: - Protocol with Multi-Argument Closure (Tuple Unwrapping Test)

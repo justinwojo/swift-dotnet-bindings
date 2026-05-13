@@ -383,13 +383,16 @@ namespace BindingsGeneration
                 }
 
                 // Track closure methods that passed all gates and are emitted in interface.
-                // Closure methods get NotSupportedException stubs in the proxy (can't marshal closures).
+                // Closure methods get NotSupportedException stubs in the proxy unless they are
+                // on the Session 4a dispatch surface — those flow through the normal emission
+                // path so the proxy receiver and EveryProtocol extension implement real
+                // Swift→C# forward dispatch.
                 // Existential-only methods flow through normal emission — receivers already handle
                 // ExistentialContainer marshalling via GetReceiverExistentialSetterConversion.
                 if (methodGate.IsInterfaceOnly)
                 {
                     bool hasClosure = methodGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureParam);
-                    if (hasClosure)
+                    if (hasClosure && !EveryProtocolEmitter.IsDispatchableClosureMethod(methodDecl))
                     {
                         skippedMethodKeys.Add(methodKey);
                         closureSkippedMethodKeys.Add(methodKey);

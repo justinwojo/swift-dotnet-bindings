@@ -2294,39 +2294,68 @@ public class EveryProtocolEmitterTests
     #region Closure Method Stub Tests
 
     [Fact]
-    public void EmitProtocolExtension_ClosureMethod_EmitsFatalErrorStub()
+    public void EmitProtocolExtension_DispatchableClosureMethod_EmitsRealDispatch()
     {
+        // Session 4a: `@escaping () -> Void` is the dispatchable closure shape.
+        // It gets a real vtable-dispatching implementation, not a fatalError stub.
         var protocol = CreateSimpleProtocol("EventDelegate");
-        // Non-closure method: should have vtable dispatch
         protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
-        // Closure method: should get fatalError() stub
         protocol.Methods.Add(CreateMethodWithClosureParam("onComplete", "handler"));
 
         var output = EmitProtocolExtension(protocol);
 
-        // Closure method gets fatalError stub with exactly one @escaping
-        Assert.Contains("public func onComplete(", output);
-        Assert.Contains("@escaping", output);
+        Assert.Contains("public func onComplete(handler: @escaping () -> Void)", output);
         Assert.DoesNotContain("@escaping @escaping", output);
-        Assert.Contains("fatalError", output);
-        Assert.Contains("closure method 'onComplete' cannot be dispatched", output);
-        // Non-closure method gets real vtable dispatch
+        // Real dispatch, not the fatalError stub.
+        Assert.DoesNotContain("closure method 'onComplete' cannot be dispatched", output);
+        Assert.Contains("func_onComplete_1", output);
         Assert.Contains("public func didReceiveEvent(", output);
     }
 
     [Fact]
-    public void EmitProtocolVtableStruct_ClosureMethod_SkipsVtableField()
+    public void EmitProtocolExtension_NonDispatchableClosureMethod_EmitsFatalErrorStub()
     {
+        // Off-surface closure shapes (here: closure with an Int parameter) still get
+        // fatalError stubs in Session 4a. Session 4b will lift these into dispatch.
+        var protocol = CreateSimpleProtocol("EventDelegate");
+        protocol.Methods.Add(CreateMethodWithIntArgClosureParam("onValue", "handler"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("public func onValue(", output);
+        Assert.Contains("@escaping", output);
+        Assert.DoesNotContain("@escaping @escaping", output);
+        Assert.Contains("fatalError", output);
+        Assert.Contains("closure method 'onValue' cannot be dispatched", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_DispatchableClosureMethod_IncludesVtableField()
+    {
+        // Session 4a: dispatchable closure methods get a vtable field that expands
+        // the closure into a (fnPtr, ctxPtr) pair.
         var protocol = CreateSimpleProtocol("EventDelegate");
         protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
         protocol.Methods.Add(CreateMethodWithClosureParam("onComplete", "handler"));
 
         var output = EmitVtableStruct(protocol);
 
-        // Non-closure method gets vtable field
         Assert.Contains("func_didReceiveEvent_0", output);
-        // Closure method does NOT get vtable field
-        Assert.DoesNotContain("func_onComplete_1", output);
+        Assert.Contains("func_onComplete_1", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_NonDispatchableClosureMethod_SkipsVtableField()
+    {
+        // Off-surface closure shapes do NOT get vtable fields — they go through fatalError stubs.
+        var protocol = CreateSimpleProtocol("EventDelegate");
+        protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
+        protocol.Methods.Add(CreateMethodWithIntArgClosureParam("onValue", "handler"));
+
+        var output = EmitVtableStruct(protocol);
+
+        Assert.Contains("func_didReceiveEvent_0", output);
+        Assert.DoesNotContain("func_onValue_1", output);
     }
 
     [Fact]
@@ -2523,12 +2552,82 @@ public class EveryProtocolEmitterTests
 
     private static MethodDecl CreateGenericMethodWithClosureParam(string name, string paramLabel)
     {
+        // Generic-typed closure parameter (τ_1_0) -> Void. Two reasons for the
+        // generic-in-signature shape:
+        //   1. HasOnlyMethodLevelGenerics is detected by walking signature types,
+        //      not method.GenericParameters — without τ_1_0 in the signature, the
+        //      method would slip through the generic gate.
+        //   2. The closure shape (τ_1_0) -> Void is off-surface for Session 4a
+        //      dispatch (only () -> Void dispatches), so it still routes through
+        //      the fatalError stub path the test asserts on.
         var method = CreateMethodWithClosureParam(name, paramLabel);
         method.GenericParameters = new List<GenericArgumentDecl>
         {
             new GenericArgumentDecl("τ_1_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
         };
+        var genericClosure = new ClosureTypeSpec
+        {
+            Arguments = new NamedTypeSpec("τ_1_0"),
+            ReturnType = TupleTypeSpec.Empty
+        };
+        genericClosure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        method.CSSignature[1] = new ArgumentDecl
+        {
+            Name = method.CSSignature[1].Name,
+            SwiftTypeSpec = genericClosure,
+            PrivateName = method.CSSignature[1].PrivateName,
+            IsInOut = false,
+            IsGeneric = true,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
         return method;
+    }
+
+    private static MethodDecl CreateMethodWithIntArgClosureParam(string name, string paramLabel)
+    {
+        var closure = new ClosureTypeSpec
+        {
+            Arguments = new NamedTypeSpec("Swift.Int"),
+            ReturnType = TupleTypeSpec.Empty
+        };
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = paramLabel,
+                    SwiftTypeSpec = closure,
+                    PrivateName = paramLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
     }
 
     private static ClosureTypeSpec CreateEscapingClosure()

@@ -56,19 +56,11 @@ public partial class ProtocolProxyEmitter
                 methodIndices[methodKey] = idx;
                 if (_skippedMethodKeys.Contains(methodKey))
                 {
-                    // Closure-receiving protocol methods cannot be dispatched from Swift→C# yet
-                    // (full closure-receiving trampoline emission requires per-signature delegate
-                    // synthesis + arg projection). Without an assignment the Swift vtable slot
-                    // would point to a null function pointer and Swift's witness dispatch would
-                    // SIGSEGV silently. Emit an observable-failure trampoline instead so the
-                    // failure mode matches the C#-direction NotSupportedException stub
-                    // (see ProtocolProxyEmitter.InterfaceImpl.cs).
-                    if (_closureSkippedMethodKeys.Contains(methodKey))
-                    {
-                        var projectedKeyClosure = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
-                        if (emittedCSharpKeys.Add(projectedKeyClosure))
-                            EmitNotSupportedMethodReceiver(writer, method, protocolDecl, idx, emittedReceivers);
-                    }
+                    // Closure-skipped methods are omitted from BOTH the Swift vtable struct
+                    // (EveryProtocolEmitter emits a fatalError stub that bypasses the vtable)
+                    // AND the C# Swift-facing vtable struct (see ProtocolProxyEmitter.Vtables.cs).
+                    // Emitting a Receive_ trampoline here would have no slot to be assigned into,
+                    // so skip the receiver entirely.
                     continue;
                 }
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
@@ -376,8 +368,20 @@ public partial class ProtocolProxyEmitter
         var nonEmptyParams = method.CSSignature.Skip(1)
             .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
             .ToList();
+        // Session 4a: closure params expand into two P/Invoke slots — fnPtr + ctx — so the
+        // receiver signature matches the expanded EveryProtocol cdecl vtable trampoline
+        // (see EveryProtocolEmitter.CountVtableSlots). Value-shaped params remain a single
+        // IntPtr each.
+        var receiverParamFragments = new List<string>();
+        for (int i = 0; i < nonEmptyParams.Count; i++)
+        {
+            if (nonEmptyParams[i].SwiftTypeSpec is ClosureTypeSpec cts && EveryProtocolEmitter.IsDispatchableClosureShape(cts))
+                receiverParamFragments.Add($"IntPtr rawArg{i}_fn, IntPtr rawArg{i}_ctx");
+            else
+                receiverParamFragments.Add($"IntPtr rawArg{i}");
+        }
         var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
-            nonEmptyParams.Select((p, i) => $", IntPtr rawArg{i}"));
+            receiverParamFragments.Select(f => ", " + f));
 
         var csharpReturnType = hasReturn ? "IntPtr" : "void";
 
@@ -465,10 +469,30 @@ public partial class ProtocolProxyEmitter
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
 
+            // Session 4a: dispatchable closure params arrive as expanded (fnPtr, ctx) IntPtrs.
+            // Wrap them in SwiftEscapingClosure<TDelegate>.FromSwift (which Arc.Retain's the
+            // context for ARC-correct lifetime) and bind the result to the per-shape invoker
+            // class so the C# impl receives a regular managed delegate (e.g. Action).
+            // Same Mono-JIT-safe pattern as closure returns: named invoker class + method
+            // group (no display class in the call chain).
+            if (param.SwiftTypeSpec is ClosureTypeSpec cts && EveryProtocolEmitter.IsDispatchableClosureShape(cts))
+            {
+                var entryPoint = EveryProtocolEmitter.GetProtocolClosureInvokeThunkEntryPoint(protocolDecl, method, index, argIndex);
+                var helperName = EveryProtocolEmitter.GetProtocolClosureInvokeThunkHelperName(entryPoint);
+                var invokerClassName = ClosureEmitter.GetInvokerClassName(helperName);
+                var closureHandler = new ClosureHandler(_typeDatabase);
+                var delegateType = closureHandler.GetCSharpDelegateType(cts);
+                var wrapperVar = $"_closureWrapper{argIndex}";
+                var invVar = $"_inv{argIndex}";
+                writer.WriteLine($"// Wrap Swift closure (fnPtr, ctx) into a managed {delegateType} via SwiftEscapingClosure (ARC) + invoker class (Mono-JIT-safe).");
+                writer.WriteLine($"var {wrapperVar} = SwiftEscapingClosure<{delegateType}>.FromSwift(rawArg{argIndex}_fn, rawArg{argIndex}_ctx);");
+                writer.WriteLine($"var {invVar} = new {invokerClassName}((nint){wrapperVar}.FunctionPointer, (nint){wrapperVar}.Context, {wrapperVar});");
+                writer.WriteLine($"{delegateType} {argName} = {invVar}.Invoke;");
+            }
             // String parameter: the local MarshalFromSwift<SwiftString> helper uses Unsafe.Read<T>
             // which can't construct a managed SwiftString from raw Swift memory (16-byte value).
             // Use the runtime's SwiftMarshal.MarshalFromSwift which calls NewFromPayload.
-            if (IsStringTypeSpec(param.SwiftTypeSpec))
+            else if (IsStringTypeSpec(param.SwiftTypeSpec))
             {
                 writer.WriteLine($"var {rawArgName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(rawArg{argIndex});");
                 writer.WriteLine($"var {argName} = {rawArgName}.ToString();");
@@ -576,47 +600,6 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine($"impl.{pascalMethodName}({argsString});");
         }
 
-        writer.Indent--;
-        writer.WriteLine("}");
-        writer.WriteLine();
-    }
-
-    /// <summary>
-    /// Emits an observable-failure trampoline for a closure-receiving protocol method.
-    /// The signature mirrors <see cref="EmitMethodReceiver"/> so the local-vtable field
-    /// type matches at assignment time. The body throws <see cref="NotSupportedException"/>
-    /// with a descriptive message — propagating across the [UnmanagedCallersOnly] boundary
-    /// terminates the process with a logged stack trace, which is strictly better than the
-    /// pre-fix silent null-pointer dispatch.
-    /// </summary>
-    private void EmitNotSupportedMethodReceiver(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, int index, HashSet<string> emittedReceivers)
-    {
-        var receiverName = $"Receive_{method.Name}_{index}";
-        if (!emittedReceivers.Add(receiverName))
-            return;
-
-        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
-        var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-
-        // Match the field's declared parameter count exactly so the &Receive_*_N
-        // assignment in the static ctor type-checks against the local vtable's
-        // delegate* unmanaged[Cdecl]<...> shape (see EmitMethodLocalVtableField).
-        var nonEmptyParams = method.CSSignature.Skip(1)
-            .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
-            .ToList();
-        var paramTypes = "IntPtr vtHandle, IntPtr selfContainer" + string.Concat(
-            nonEmptyParams.Select((p, i) => $", IntPtr rawArg{i}"));
-
-        var csharpReturnType = hasReturn ? "IntPtr" : "void";
-
-        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
-        writer.WriteLine($"private static {csharpReturnType} {receiverName}({paramTypes})");
-        writer.WriteLine("{");
-        writer.Indent++;
-        // Throw produces a logged stack trace before the runtime aborts the process —
-        // observably better than the silent null-pointer SIGSEGV the Swift witness
-        // dispatch would otherwise hit on this slot.
-        writer.WriteLine($"throw new NotSupportedException(\"Swift attempted to dispatch '{method.Name}' on a C#-implemented '{protocolDecl.Name}' proxy, but closure-receiving protocol methods cannot yet be marshalled from Swift to C#. The C# implementation of this method is unreachable; consumer code must avoid handing this proxy to Swift APIs that invoke '{method.Name}'.\");");
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();

@@ -256,7 +256,7 @@ public static partial class ClosureEmitter
 
                 // Use invoker class instead of lambda — Mono JIT crashes with !ji->async when
                 // native calls happen from display class methods (lambdas create display classes).
-                var _inv = new {{invokerClassName}}((nint)_closureWrapper.FunctionPointer, (nint)_closureWrapper.Context);
+                var _inv = new {{invokerClassName}}((nint)_closureWrapper.FunctionPointer, (nint)_closureWrapper.Context, _closureWrapper);
                 {{delegateType}} _invoker = _inv.Invoke;
 
                 return _invoker;

@@ -56,6 +56,14 @@ public partial class ProtocolProxyEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Mirror the Swift-side skip in EveryProtocolEmitter.EmitProtocolVtableStruct:
+                // non-dispatchable closure methods get fatalError stubs that bypass the
+                // vtable, so Swift's struct has no slot for them. C# must drop the field
+                // here too — otherwise the C# StructLayout pushes every following slot one
+                // pointer past the address Swift reads, and dispatch lands on the wrong
+                // function pointer.
+                if (_closureSkippedMethodKeys.Contains(methodKey))
+                    continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
@@ -114,6 +122,12 @@ public partial class ProtocolProxyEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
+                // Closure-skipped methods have no Swift-vtable slot (Swift bypasses the
+                // vtable via a fatalError stub) and no receiver, so the local-vtable
+                // field would have no consumer. Drop it for symmetry with the
+                // Swift-facing struct and to keep tests/grep clean.
+                if (_closureSkippedMethodKeys.Contains(methodKey))
+                    continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys2.Add(projectedKey))
                     continue;
@@ -234,14 +248,21 @@ public partial class ProtocolProxyEmitter
         if (!emittedFields.Add(fieldName))
             return;
 
-        // Exclude return type, debug params, and empty tuple () params — must match receiver signature
-        var paramCount = method.CSSignature.Skip(1)
-            .Count(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple);
+        // Exclude return type, debug params, and empty tuple () params — must match receiver signature.
+        // Session 4a: dispatchable closure params expand into TWO IntPtr slots (fnPtr + ctx)
+        // on both Swift and C# vtables — see EveryProtocolEmitter.CountVtableSlots.
+        int slotCount = 0;
+        foreach (var p in method.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(p) || p.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            slotCount += EveryProtocolEmitter.CountVtableSlots(p.SwiftTypeSpec);
+        }
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
 
         // Parameters: IntPtr (vtable), IntPtr (self), IntPtr[] (method params)
-        var paramTypes = "IntPtr, IntPtr" + string.Concat(Enumerable.Repeat(", IntPtr", paramCount));
+        var paramTypes = "IntPtr, IntPtr" + string.Concat(Enumerable.Repeat(", IntPtr", slotCount));
         var returnTypeStr = hasReturn ? "IntPtr" : "void";
 
         writer.WriteLine($"public delegate* unmanaged[Cdecl]<{paramTypes}, {returnTypeStr}> {fieldName};");

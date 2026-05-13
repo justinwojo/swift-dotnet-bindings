@@ -277,12 +277,19 @@ public static partial class ClosureEmitter
             invokeBody = $"return {helperMethodName}({invokeCallArgsString});";
         }
 
+        // `_retainHolder` keeps the SwiftEscapingClosure wrapper alive for as long as the
+        // invoker (and therefore the user-visible delegate built from `Invoke` as a method
+        // group) is reachable. Without it, the wrapper goes out of scope after the receiver
+        // returns, leaking its Arc.Retain'd Swift context permanently — and if a finalizer
+        // is ever added to SwiftEscapingClosure, that same path would flip to a dangling
+        // pointer because the captured Action holds only raw nint pointers.
         csWriter.WriteLines($$"""
             private sealed class {{invokerClassName}}
             {
                 private readonly nint _funcPtr;
                 private readonly nint _ctx;
-                internal {{invokerClassName}}(nint funcPtr, nint ctx) { _funcPtr = funcPtr; _ctx = ctx; }
+                private readonly object? _retainHolder;
+                internal {{invokerClassName}}(nint funcPtr, nint ctx, object? retainHolder = null) { _funcPtr = funcPtr; _ctx = ctx; _retainHolder = retainHolder; }
                 internal {{csReturnType}} Invoke({{invokeParamsString}}) { {{invokeBody}} }
             }
             """);

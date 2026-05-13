@@ -364,6 +364,33 @@ public func sbw_swiftRelease(_ ptr: UnsafeMutableRawPointer) {
     Unmanaged<AnyObject>.fromOpaque(ptr).release()
 }
 
+/// Resolved on first use via `dlsym(RTLD_DEFAULT, "swift_release")`. libswiftCore
+/// is always already loaded by the time any Swift code is running, so this is
+/// guaranteed to succeed; `@_silgen_name("swift_release")` would warn (and
+/// eventually error) because the symbol name is reserved for the Swift runtime.
+private let _swiftReleaseFn: @convention(c) (UnsafeMutableRawPointer) -> Void = {
+    guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2 /* RTLD_DEFAULT */), "swift_release") else {
+        fatalError("SwiftBindingsRuntime: failed to resolve swift_release via dlsym")
+    }
+    return unsafeBitCast(sym, to: (@convention(c) (UnsafeMutableRawPointer) -> Void).self)
+}()
+
+/// Releases an arbitrary Swift heap object (-1 ARC retain) from the .NET GC
+/// finalizer thread. Wraps libswiftCore's `swift_release` (resolved via `dlsym`)
+/// so the C# side only ever crosses one Cdecl boundary (into our own loaded
+/// `SwiftBindingsRuntime.dylib`), avoiding the Mono JIT `!ji->async` assertion
+/// that fires when `swift_release` is invoked directly via `[DllImport]` after
+/// CallConvSwift JIT contamination — the same rationale that motivates
+/// `SBW_SwiftRelease`. Use this entry point for Swift heap objects that are
+/// NOT `AnyObject`-castable (escaping closure contexts, raw `HeapObject`s);
+/// keep `SBW_SwiftRelease` for class-instance handles.
+///
+/// - Parameter ptr: A non-null Swift heap object pointer carrying a +1 retain.
+@_cdecl("SBW_SwiftReleaseRaw")
+public func sbw_swiftReleaseRaw(_ ptr: UnsafeMutableRawPointer) {
+    _swiftReleaseFn(ptr)
+}
+
 // MARK: - Escaping-Closure Context Owner Token
 //
 // Single root cause for two 0.10.x leaks:
