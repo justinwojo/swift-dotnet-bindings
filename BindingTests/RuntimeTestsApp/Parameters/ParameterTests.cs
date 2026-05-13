@@ -270,7 +270,6 @@ public class ParameterTests : TestBase
     // The Swift fixtures live in UnderscoreLabels.swift and exercise the
     // function, method, and enum-case shapes.
 
-    [Skip("Disabled pending the underscore-argument-label generator fix scheduled as Session 6 in src/docs/0.10.0-final-sessions.md. The free-function path currently projects the `_:` parameter as the literal C# identifier `_`, which collides with the discard pattern. Re-enable when the role-based parameter naming change ships.")]
     public void TestUnderscoreLabel_FreeFunctionParamHasSaneName()
     {
         // Generator preserves the Swift function's lowerCamelCase name on emit
@@ -288,9 +287,14 @@ public class ParameterTests : TestBase
         var parameters = method.GetParameters();
         AssertEqual(1, parameters.Length, "UnderscoreLabel_progressValue must take exactly one parameter");
         AssertParameterNameIsSane(parameters[0].Name, $"{method.Name}.<param 0>");
+        // Pin the exact role-derived name: `Double` → `value` via
+        // NameProvider.DeriveParameterNameFromType. A bare-shape regression
+        // (e.g. `param`, `arg0`) would pass the sanity helper while losing
+        // the role-based naming the Session 6 fix delivers.
+        AssertEqual("value", parameters[0].Name,
+            $"{method.Name}.<param 0>: Double `_:` parameter must derive to `value`");
     }
 
-    [Skip("Disabled pending the underscore-argument-label generator fix scheduled as Session 6 in src/docs/0.10.0-final-sessions.md. The method-on-class path currently projects `func contentsGravity(for _: Int32)` as `ContentsGravity(int _)`. Re-enable when the role-based parameter naming change ships — the internal label (`for`) should lift onto the C# parameter name.")]
     public void TestUnderscoreLabel_MethodParamHasSaneName()
     {
         var target = typeof(UnderscoreLabelTarget);
@@ -301,9 +305,13 @@ public class ParameterTests : TestBase
         var parameters = method.GetParameters();
         AssertEqual(1, parameters.Length, "ContentsGravity must take exactly one parameter");
         AssertParameterNameIsSane(parameters[0].Name, "UnderscoreLabelTarget.ContentsGravity.<param 0>");
+        // Pin the lifted external label: `func contentsGravity(for _: Int32)`
+        // → external label `for` lifted onto the C# parameter. Generator emits
+        // `@for` to escape the C# keyword; reflection reports the unescaped name.
+        AssertEqual("for", parameters[0].Name,
+            "UnderscoreLabelTarget.ContentsGravity.<param 0>: external label `for` must lift onto the parameter name");
     }
 
-    [Skip("Disabled pending the underscore-argument-label generator fix scheduled as Session 6 in src/docs/0.10.0-final-sessions.md. The enum-case factory path falls through `EnumHandler.CaseConstruction.cs:54` to the positional placeholder `value0`. Re-enable when the role-based parameter naming change ships.")]
     public void TestUnderscoreLabel_EnumCaseFactoryParamHasSaneName()
     {
         // Enum-case-with-`_:`-payload projects as a static factory method on
@@ -323,6 +331,11 @@ public class ParameterTests : TestBase
         AssertTrue(parameters.Length >= 1,
             "UnderscoreLabelPlaybackMode.Progress factory must take at least one parameter.");
         AssertParameterNameIsSane(parameters[0].Name, "UnderscoreLabelPlaybackMode.Progress.<param 0>");
+        // Pin the single-payload role-derived name: enum case `progress(_: Double)`
+        // → `value` (single payload drops the `{i}` suffix; multi-payload cases
+        // like `marker(_: String, playEndMarker: Bool)` retain `value0`).
+        AssertEqual("value", parameters[0].Name,
+            "UnderscoreLabelPlaybackMode.Progress.<param 0>: single-payload `_:` case must derive to `value`");
     }
 
     // Helper: rejects the three documented failure modes. Permits any other

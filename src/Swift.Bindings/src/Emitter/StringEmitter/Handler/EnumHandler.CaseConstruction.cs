@@ -52,8 +52,11 @@ namespace BindingsGeneration
                 if (string.IsNullOrEmpty(paramName))
                 {
                     paramName = NameProvider.DeriveParameterNameFromType(typeSpec) ?? $"value{i}";
-                    // Primitives return "value" — append index to distinguish
-                    if (paramName == "value")
+                    // For multi-payload cases, append the index when the derived name
+                    // collapses to "value" — multiple unlabeled payloads would otherwise
+                    // collide. Single-payload `(_: T)` keeps the bare "value" so the
+                    // factory parameter doesn't surface as a positional placeholder.
+                    if (paramName == "value" && caseDecl.AssociatedValues.Count > 1)
                         paramName = $"value{i}";
                 }
                 // Sanitize parameter name (remove invalid characters, ensure starts with letter)

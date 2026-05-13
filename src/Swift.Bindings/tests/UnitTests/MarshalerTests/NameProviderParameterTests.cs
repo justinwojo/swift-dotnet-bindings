@@ -95,6 +95,25 @@ public class NameProviderParameterTests
     }
 
     [Fact]
+    public void GetCSharpParameterName_PrivateNameUnderscore_FallsThroughToExternalLabel()
+    {
+        // swiftinterface reports "_" as the internal name for `func f(label _: T)`.
+        // PrivateName == "_" is Swift's no-internal-name marker, not a usable identifier;
+        // it must fall through so the external label wins (here: "label").
+        var arg = MakeArg("label", "_");
+        Assert.Equal("label", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
+    public void GetCSharpParameterName_PrivateNameUnderscore_GeneratedName_DerivesFromType()
+    {
+        // `func f(_: Int)` — external label is `_` (no label), PrivateName is `_`.
+        // Both layers reject; role-derivation from Swift.Int wins ("value").
+        var arg = MakeArg("_", "_");
+        Assert.Equal("value", NameProvider.GetCSharpParameterName(arg));
+    }
+
+    [Fact]
     public void GetCSharpParameterName_Event_UsesVerbatimPrefix()
     {
         // Mixpanel: Track(string? @event) — not _event

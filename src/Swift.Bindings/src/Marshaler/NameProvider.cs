@@ -442,8 +442,12 @@ public static class NameProvider
         if (arg.CSharpName != null)
             return arg.CSharpName;
 
-        // 1. If PrivateName is populated, prefer it (internal Swift name from swiftinterface)
-        if (!string.IsNullOrEmpty(arg.PrivateName))
+        // 1. If PrivateName is populated, prefer it (internal Swift name from swiftinterface).
+        //    Treat a literal "_" PrivateName as not-set: Swift's `_` is the
+        //    "no internal name" marker, not a usable identifier. Falling
+        //    through lets the external label or role-derived name win and
+        //    avoids emitting the discard-pattern symbol as a C# parameter.
+        if (!string.IsNullOrEmpty(arg.PrivateName) && arg.PrivateName != "_")
             return SanitizeForCSharp(arg.PrivateName);
 
         // Swift unnamed parameter labels can arrive as literal "_" and should be

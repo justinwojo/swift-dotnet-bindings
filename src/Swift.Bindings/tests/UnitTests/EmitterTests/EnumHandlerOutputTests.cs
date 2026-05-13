@@ -730,10 +730,10 @@ public class EnumHandlerOutputTests
         // instantiations like ValueProviderStorage<float> compile at the call site.
         Assert.Contains("public partial class ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable", csOutput);
         Assert.DoesNotContain("ValueProviderStorage<T> : ISwiftObject, ISwiftStruct, IDisposable where", csOutput);
-        Assert.Contains("public static unsafe ValueProviderStorage<T> Boxed(T value0)", csOutput);
-        Assert.Contains("var value0Metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
-        Assert.Contains("SwiftMarshal.MarshalToSwift(value0, ref value0SwiftSpan);", csOutput);
-        Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)value0SwiftBuffer", csOutput);
+        Assert.Contains("public static unsafe ValueProviderStorage<T> Boxed(T value)", csOutput);
+        Assert.Contains("var valueMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();", csOutput);
+        Assert.Contains("SwiftMarshal.MarshalToSwift(value, ref valueSwiftSpan);", csOutput);
+        Assert.Contains("ValueProviderStorage_PInvoke.PInvoke_Boxed(indirectResult, (IntPtr)valueSwiftBuffer", csOutput);
         Assert.Contains("internal static unsafe partial class ValueProviderStorage_PInvoke", csOutput);
     }
 
@@ -2216,9 +2216,9 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // P/Invoke signature: unknown element becomes IntPtr in the ValueTuple
-        Assert.Contains("ValueTuple<long, IntPtr> value0)", csOutput);
+        Assert.Contains("ValueTuple<long, IntPtr> value)", csOutput);
         // Call site: known element passes directly, unknown element extracts SafeHandle payload
-        Assert.Contains("value0.Item2.Payload.DangerousGetHandle()", csOutput);
+        Assert.Contains("value.Item2.Payload.DangerousGetHandle()", csOutput);
         // The AnyType class name should NOT appear in the P/Invoke ValueTuple
         Assert.DoesNotContain("ValueTuple<long, Swift.AnyType>", csOutput);
     }
@@ -2331,7 +2331,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Factory signature: tuple elements projected — SwiftString → string, existential → interface
-        Assert.Contains("(string, IImageProcessing) value0)", csOutput);
+        Assert.Contains("(string, IImageProcessing) value)", csOutput);
     }
 
     [Fact]
@@ -2350,9 +2350,9 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Factory: public signature uses "string"
-        Assert.Contains("public static unsafe Message Text(string value0)", csOutput);
+        Assert.Contains("public static unsafe Message Text(string value)", csOutput);
         // Body: converts string → SwiftString for P/Invoke
-        Assert.Contains("using var __value0 = new SwiftString(value0);", csOutput);
+        Assert.Contains("using var __value = new SwiftString(value);", csOutput);
         // TryGet: out parameter uses "string"
         Assert.Contains("out string value", csOutput);
         // TryGet body: converts SwiftString → string via .ToString()
@@ -3542,8 +3542,8 @@ public class EnumHandlerOutputTests
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         // C# P/Invoke should use IntPtr + int (UTF-8 pointer + length)
-        Assert.Contains("IntPtr value0Utf8Ptr", csOutput);
-        Assert.Contains("int value0Utf8Len", csOutput);
+        Assert.Contains("IntPtr valueUtf8Ptr", csOutput);
+        Assert.Contains("int valueUtf8Len", csOutput);
         Assert.DoesNotContain("Swift.SwiftString.Buffer", csOutput);
         // C# body should encode to UTF-8 bytes
         Assert.Contains("Encoding.UTF8.GetBytes", csOutput);
@@ -3573,7 +3573,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // C# P/Invoke should use IntPtr (pointer to heap-allocated container)
-        Assert.Contains("IntPtr value0", csOutput);
+        Assert.Contains("IntPtr value", csOutput);
         // C# body should extract container and heap-allocate for NativeAOT safety
         Assert.Contains("Container", csOutput);
         Assert.Contains("NativeMemory.Alloc", csOutput);
@@ -3630,11 +3630,11 @@ public class EnumHandlerOutputTests
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         // C# P/Invoke should use IntPtr for tuple (pointer transport), not ValueTuple
-        Assert.Contains("IntPtr value0, IntPtr resultPtr", csOutput);
-        Assert.DoesNotContain("ValueTuple<long, bool> value0", csOutput);
+        Assert.Contains("IntPtr value, IntPtr resultPtr", csOutput);
+        Assert.DoesNotContain("ValueTuple<long, bool> value", csOutput);
         // C# body should store tuple in a local and take its address
-        Assert.Contains("Tuple = value0;", csOutput);
-        Assert.Contains("(&value0Tuple)", csOutput);
+        Assert.Contains("Tuple = value;", csOutput);
+        Assert.Contains("(&valueTuple)", csOutput);
         // Should use CallConvCdecl
         Assert.Contains("CallConvCdecl", csOutput);
         // Swift side should receive UnsafeRawPointer and load tuple
