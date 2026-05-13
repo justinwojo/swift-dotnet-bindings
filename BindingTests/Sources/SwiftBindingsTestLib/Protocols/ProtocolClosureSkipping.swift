@@ -63,6 +63,9 @@ public protocol DataLoadingDelegate {
 }
 
 /// Consumer class for DataLoadingDelegate.
+/// onDataLoaded uses a String arg in its closure — String is not invoke-thunk-compatible
+/// (only primitives/enums/class-returns are), so this remains routed through a fatalError
+/// stub and exercises the "non-dispatchable closure shape" path.
 public class DataLoader {
     public var delegate: (any DataLoadingDelegate)?
 
@@ -75,6 +78,34 @@ public class DataLoader {
     }
 }
 
+// MARK: - Protocol with Primitives-Only Multi-Arg Closure (Session 4b)
+
+/// Like DataLoadingDelegate but with primitives-only closure args, so the invoke-thunk
+/// gate accepts it. Drives Swift→C# multi-arg closure dispatch.
+public protocol NumericDataDelegate {
+    func onNumericData(handler: @escaping (Int32, Int32, Bool) -> Void)
+    func sourceTag() -> String
+}
+
+public class NumericDataLoader {
+    public var delegate: (any NumericDataDelegate)?
+    public var lastA: Int32 = -1
+    public var lastB: Int32 = -1
+    public var lastFlag: Bool = false
+
+    public init() {
+        self.delegate = nil
+    }
+
+    public func fireOnNumericData() {
+        delegate?.onNumericData(handler: { [weak self] a, b, flag in
+            self?.lastA = a
+            self?.lastB = b
+            self?.lastFlag = flag
+        })
+    }
+}
+
 // MARK: - Protocol with Optional Closure Parameter (@escaping Suppression Test)
 
 /// Protocol with an optional closure parameter.
@@ -84,8 +115,11 @@ public class DataLoader {
 public protocol CompletionDelegate {
     /// Optional closure param: tests @escaping suppression on Optional<Closure>
     func execute(completion: (() -> Void)?)
-    /// Non-closure method: dispatched through vtable
-    func taskName() -> String
+    /// Non-closure method: dispatched through vtable.
+    /// Named `taskLabel` (not `taskName`) so the EveryProtocol conformance doesn't
+    /// collide with `TaskDescriptor.taskName: String { get }` — Swift forbids a func
+    /// and a var with the same bare name on the same conforming type.
+    func taskLabel() -> String
 }
 
 /// Consumer class for CompletionDelegate.
@@ -97,6 +131,49 @@ public class TaskRunner {
     }
 
     public func getTaskName() -> String {
-        return delegate?.taskName() ?? "idle"
+        return delegate?.taskLabel() ?? "idle"
+    }
+
+    /// Drives Swift→C# Optional<Closure> dispatch. Mutates `completionFiredCount`
+    /// when the closure is invoked; the test can observe whether `execute(nil)`
+    /// and `execute(non-nil)` round-trip correctly.
+    public var completionFiredCount: Int32 = 0
+
+    public func fireExecute(withCompletion: Bool) {
+        if withCompletion {
+            delegate?.execute(completion: { [weak self] in
+                self?.completionFiredCount += 1
+            })
+        } else {
+            delegate?.execute(completion: nil)
+        }
+    }
+}
+
+// MARK: - Protocol with Return-Typed Closure (Session 4b)
+
+/// Protocol with a closure that returns a value: `() -> Int32`.
+/// Tests Swift→C# dispatch of return-typed closures via the invoke-thunk path.
+public protocol IntFactoryDelegate {
+    func makeIntFactory(factory: @escaping () -> Int32)
+}
+
+public class IntFactoryRouter {
+    public var delegate: (any IntFactoryDelegate)?
+    public var lastReturnedValue: Int32 = -1
+
+    public init() {
+        self.delegate = nil
+    }
+
+    /// Drives Swift→C# return-typed closure dispatch: passes a Swift closure that
+    /// returns a fixed Int32. The C# impl can invoke the captured handler and the
+    /// returned Int32 round-trips back to Swift via the @_cdecl thunk.
+    public func fireMakeFactory(returning value: Int32) {
+        let v = value
+        delegate?.makeIntFactory(factory: { [weak self] in
+            self?.lastReturnedValue = v
+            return v
+        })
     }
 }

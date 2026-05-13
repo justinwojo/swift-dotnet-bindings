@@ -51,6 +51,13 @@ public static class SwiftSourceStripper
         // loader.Delegate = proxy → sourceIdentifier() round trip, so the EveryProtocol
         // conformance and witness table getter must survive stripping.
         "DataLoadingDelegate",
+        // Session 4b dispatch fixtures: multi-arg primitive closure (NumericDataDelegate),
+        // Optional<Closure> nil-and-non-nil (CompletionDelegate), and return-typed closure
+        // (IntFactoryDelegate). Each runtime test does router.Delegate = proxy → fire(),
+        // which requires the witness-table getter to be present on the dylib.
+        "NumericDataDelegate",
+        "CompletionDelegate",
+        "IntFactoryDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

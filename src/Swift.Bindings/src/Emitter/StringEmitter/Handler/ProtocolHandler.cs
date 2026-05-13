@@ -392,7 +392,7 @@ namespace BindingsGeneration
                 if (methodGate.IsInterfaceOnly)
                 {
                     bool hasClosure = methodGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureParam);
-                    if (hasClosure && !EveryProtocolEmitter.IsDispatchableClosureMethod(methodDecl))
+                    if (hasClosure && !EveryProtocolEmitter.IsDispatchableClosureMethod(methodDecl, closureHandler))
                     {
                         skippedMethodKeys.Add(methodKey);
                         closureSkippedMethodKeys.Add(methodKey);

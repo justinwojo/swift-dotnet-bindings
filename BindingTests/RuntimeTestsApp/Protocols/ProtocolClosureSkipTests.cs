@@ -39,9 +39,9 @@ internal class TestEventDelegate : IEventDelegate
 }
 
 /// <summary>
-/// C# implementation of IDataLoadingDelegate for vtable-slot-collision regression test.
-/// onDataLoaded is non-dispatchable (multi-arg closure) → must NOT appear in the Swift
-/// vtable struct, so the C# struct must omit its slot to avoid shifting subsequent slots.
+/// C# implementation of IDataLoadingDelegate. onDataLoaded has a String arg in its closure
+/// which is not invoke-thunk-compatible — so the proxy maps it to a fatalError stub. The
+/// C# overload here is just a stub; tests for this protocol verify the non-closure path.
 /// </summary>
 internal class TestDataLoadingDelegate : IDataLoadingDelegate
 {
@@ -56,9 +56,78 @@ internal class TestDataLoadingDelegate : IDataLoadingDelegate
 
     public void OnDataLoaded(global::System.Action<string, int, bool> handler)
     {
-        // Non-dispatchable from Swift: this overload exists in the interface but the
-        // proxy maps Swift's onDataLoaded to a fatalError stub, so it can never be
-        // driven via the test path that exercises GetSourceId().
+        // Non-dispatchable from Swift (String arg not invoke-thunk-compatible) — the
+        // proxy maps Swift's onDataLoaded to a fatalError stub, so this overload is
+        // never invoked through the Swift→C# path.
+    }
+}
+
+/// <summary>
+/// C# implementation of INumericDataDelegate. All-primitives multi-arg closure IS
+/// invoke-thunk-compatible — captures the handler and invokes it so the test can
+/// observe Swift→C# multi-arg dispatch with a roundtrip.
+/// </summary>
+internal class TestNumericDataDelegate : INumericDataDelegate
+{
+    private readonly string _tag;
+
+    public TestNumericDataDelegate(string tag)
+    {
+        _tag = tag;
+    }
+
+    public string GetSourceTag() => _tag;
+
+    public int OnNumericDataCallCount { get; private set; }
+    public global::System.Action<int, int, bool>? LastHandler { get; private set; }
+
+    public void OnNumericData(global::System.Action<int, int, bool> handler)
+    {
+        OnNumericDataCallCount++;
+        LastHandler = handler;
+        handler(7, 11, true);
+    }
+}
+
+/// <summary>
+/// C# implementation of ICompletionDelegate. Captures the (possibly nil) closure so
+/// the test can verify Optional&lt;Closure&gt; round-trips correctly through the proxy.
+/// </summary>
+internal class TestCompletionDelegate : ICompletionDelegate
+{
+    private readonly string _name;
+
+    public TestCompletionDelegate(string name)
+    {
+        _name = name;
+    }
+
+    public string GetTaskLabel() => _name;
+
+    public int ExecuteCallCount { get; private set; }
+    public Action? LastCompletion { get; private set; }
+    public bool LastCompletionWasNil { get; private set; }
+
+    public void Execute(Action? completion)
+    {
+        ExecuteCallCount++;
+        LastCompletion = completion;
+        LastCompletionWasNil = (completion is null);
+        completion?.Invoke();
+    }
+}
+
+/// <summary>
+/// C# implementation of IIntFactoryDelegate. Captures the return-typed closure and
+/// invokes it so the test can assert the returned Int32 round-trips back to Swift.
+/// </summary>
+internal class TestIntFactoryDelegate : IIntFactoryDelegate
+{
+    public int LastReturned { get; private set; } = -1;
+
+    public void MakeIntFactory(Func<int> factory)
+    {
+        LastReturned = factory();
     }
 }
 
@@ -371,6 +440,90 @@ public class ProtocolClosureSkipTests : TestBase
         // Optional<Closure> shape: same wiring path, same regression target.
         global::System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(CompletionDelegateProxy).TypeHandle);
         AssertNotNull(typeof(CompletionDelegateProxy), "CompletionDelegateProxy static ctor ran cleanly");
+    }
+
+    #endregion
+
+    #region Session 4b — Multi-Arg / Return-Typed / Optional Closure Dispatch
+
+    public void TestNumericDataLoader_FireOnNumericData_MultiArgClosureRoundtrip_Session4b()
+    {
+        var impl = new TestNumericDataDelegate("numeric-source");
+        var proxy = new NumericDataDelegateProxy(impl);
+
+        var loader = new NumericDataLoader();
+        loader.Delegate = proxy;
+
+        // Swift `NumericDataLoader.fireOnNumericData` builds a multi-arg primitives-only
+        // closure and dispatches through the proxy. The C# impl invokes it with (7, 11, true),
+        // round-tripping back into the Swift closure body which mutates lastA/lastB/lastFlag.
+        loader.FireOnNumericData();
+
+        AssertEqual(1, impl.OnNumericDataCallCount, "C# impl received exactly one OnNumericData dispatch from Swift");
+        AssertNotNull(impl.LastHandler, "C# impl captured the Swift closure as a managed Action<int,int,bool>");
+        AssertEqual(7, loader.LastA, "Swift closure body received first int arg from C# Invoke");
+        AssertEqual(11, loader.LastB, "Swift closure body received second int arg from C# Invoke");
+        AssertTrue(loader.LastFlag, "Swift closure body received bool arg from C# Invoke");
+        TestLogger.Info("Session 4b multi-arg roundtrip: 3 primitive args crossed Swift→C#→Swift via invoke thunk");
+    }
+
+    public void TestTaskRunner_FireExecute_WithNonNilCompletion_Session4b()
+    {
+        var impl = new TestCompletionDelegate("non-nil-task");
+        var proxy = new CompletionDelegateProxy(impl);
+
+        var runner = new TaskRunner();
+        runner.Delegate = proxy;
+
+        runner.FireExecute(true);
+
+        AssertEqual(1, impl.ExecuteCallCount, "C# impl received Execute dispatch");
+        AssertFalse(impl.LastCompletionWasNil, "Optional<Closure> non-nil arrived as non-null Action");
+        AssertEqual(1, runner.CompletionFiredCount, "Swift closure body fired via C#→Swift invoke thunk");
+
+        // Lifetime probe (regression sentinel for the reabstraction trap): invoke the
+        // stored closure AFTER FireExecute returns and the Swift extension frame has
+        // unwound. The original `if var localVar = param { withUnsafeBytes(of: &localVar) … }`
+        // unwrap pattern materialized a partial-application context that was deallocated
+        // on extension-scope exit — so this second invocation would have SIGSEGV'd
+        // inside `$sIeg_ytIegr_TR`. The inout-bytes-on-Optional fix keeps the original
+        // (fn, ctx) pair pointed at live storage; Optional<Closure> is always escaping,
+        // so SwiftEscapingClosure retained the ctx via Arc.Retain and the call must
+        // succeed.
+        impl.LastCompletion!();
+        AssertEqual(2, runner.CompletionFiredCount, "Optional<Closure> remains callable after Swift extension frame unwinds");
+        TestLogger.Info("Session 4b Optional<Closure> non-nil: roundtrip + post-return lifetime probe completed");
+    }
+
+    public void TestTaskRunner_FireExecute_WithNilCompletion_Session4b()
+    {
+        var impl = new TestCompletionDelegate("nil-task");
+        var proxy = new CompletionDelegateProxy(impl);
+
+        var runner = new TaskRunner();
+        runner.Delegate = proxy;
+
+        runner.FireExecute(false);
+
+        AssertEqual(1, impl.ExecuteCallCount, "C# impl received Execute dispatch with nil completion");
+        AssertTrue(impl.LastCompletionWasNil, "Optional<Closure> nil arrived as null Action");
+        AssertEqual(0, runner.CompletionFiredCount, "No Swift closure body fired (nil completion)");
+        TestLogger.Info("Session 4b Optional<Closure> nil: nil round-tripped as null without sentinel");
+    }
+
+    public void TestIntFactoryRouter_FireMakeFactory_ReturnTypedClosure_Session4b()
+    {
+        var impl = new TestIntFactoryDelegate();
+        var proxy = new IntFactoryDelegateProxy(impl);
+
+        var router = new IntFactoryRouter();
+        router.Delegate = proxy;
+
+        router.FireMakeFactory(value: 1234);
+
+        AssertEqual(1234, impl.LastReturned, "C# impl invoked Swift closure and observed returned Int32");
+        AssertEqual(1234, router.LastReturnedValue, "Swift closure body recorded returned value");
+        TestLogger.Info("Session 4b return-typed closure: Int32 return crossed C#→Swift→C# via invoke thunk");
     }
 
     #endregion

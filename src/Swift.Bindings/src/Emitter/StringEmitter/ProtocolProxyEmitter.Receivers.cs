@@ -368,14 +368,15 @@ public partial class ProtocolProxyEmitter
         var nonEmptyParams = method.CSSignature.Skip(1)
             .Where(p => !DefaultParameterOverloadEmitter.IsDebugParameter(p) && !p.SwiftTypeSpec.IsEmptyTuple)
             .ToList();
-        // Session 4a: closure params expand into two P/Invoke slots — fnPtr + ctx — so the
+        // Dispatchable closure params expand into two P/Invoke slots — fnPtr + ctx — so the
         // receiver signature matches the expanded EveryProtocol cdecl vtable trampoline
-        // (see EveryProtocolEmitter.CountVtableSlots). Value-shaped params remain a single
-        // IntPtr each.
+        // (see EveryProtocolEmitter.CountVtableSlots). `Optional<Closure>` also uses two slots;
+        // nil round-trips as `IntPtr.Zero`. Value-shaped params remain a single IntPtr each.
+        var closureHandlerForParams = new ClosureHandler(_typeDatabase);
         var receiverParamFragments = new List<string>();
         for (int i = 0; i < nonEmptyParams.Count; i++)
         {
-            if (nonEmptyParams[i].SwiftTypeSpec is ClosureTypeSpec cts && EveryProtocolEmitter.IsDispatchableClosureShape(cts))
+            if (EveryProtocolEmitter.TryGetDispatchableClosureParam(nonEmptyParams[i].SwiftTypeSpec, closureHandlerForParams, out _, out _))
                 receiverParamFragments.Add($"IntPtr rawArg{i}_fn, IntPtr rawArg{i}_ctx");
             else
                 receiverParamFragments.Add($"IntPtr rawArg{i}");
@@ -469,25 +470,46 @@ public partial class ProtocolProxyEmitter
             var rawArgName = $"rawParam{argIndex}";
             var argName = $"param{argIndex}";
 
-            // Session 4a: dispatchable closure params arrive as expanded (fnPtr, ctx) IntPtrs.
-            // Wrap them in SwiftEscapingClosure<TDelegate>.FromSwift (which Arc.Retain's the
-            // context for ARC-correct lifetime) and bind the result to the per-shape invoker
-            // class so the C# impl receives a regular managed delegate (e.g. Action).
+            // Dispatchable closure params arrive as expanded (fnPtr, ctx) IntPtrs. Wrap them
+            // in SwiftEscapingClosure<TDelegate>.FromSwift (which Arc.Retain's the context for
+            // ARC-correct lifetime) and bind the result to the per-shape invoker class so the
+            // C# impl receives a regular managed delegate (e.g. Action / Func<...>).
+            // `Optional<Closure>`: nil arrives as `IntPtr.Zero` and projects to `null`.
             // Same Mono-JIT-safe pattern as closure returns: named invoker class + method
             // group (no display class in the call chain).
-            if (param.SwiftTypeSpec is ClosureTypeSpec cts && EveryProtocolEmitter.IsDispatchableClosureShape(cts))
+            if (EveryProtocolEmitter.TryGetDispatchableClosureParam(param.SwiftTypeSpec, closureHandlerForParams, out var dispatchClosure, out var isOptional))
             {
                 var entryPoint = EveryProtocolEmitter.GetProtocolClosureInvokeThunkEntryPoint(protocolDecl, method, index, argIndex);
                 var helperName = EveryProtocolEmitter.GetProtocolClosureInvokeThunkHelperName(entryPoint);
                 var invokerClassName = ClosureEmitter.GetInvokerClassName(helperName);
-                var closureHandler = new ClosureHandler(_typeDatabase);
-                var delegateType = closureHandler.GetCSharpDelegateType(cts);
+                var delegateType = closureHandlerForParams.GetCSharpDelegateType(dispatchClosure!);
                 var wrapperVar = $"_closureWrapper{argIndex}";
                 var invVar = $"_inv{argIndex}";
-                writer.WriteLine($"// Wrap Swift closure (fnPtr, ctx) into a managed {delegateType} via SwiftEscapingClosure (ARC) + invoker class (Mono-JIT-safe).");
-                writer.WriteLine($"var {wrapperVar} = SwiftEscapingClosure<{delegateType}>.FromSwift(rawArg{argIndex}_fn, rawArg{argIndex}_ctx);");
-                writer.WriteLine($"var {invVar} = new {invokerClassName}((nint){wrapperVar}.FunctionPointer, (nint){wrapperVar}.Context, {wrapperVar});");
-                writer.WriteLine($"{delegateType} {argName} = {invVar}.Invoke;");
+                if (isOptional)
+                {
+                    var nullableDelegateType = $"{delegateType}?";
+                    writer.WriteLine($"// Optional Swift closure (fnPtr, ctx) → managed {nullableDelegateType}. nil arrives as IntPtr.Zero.");
+                    writer.WriteLine($"{nullableDelegateType} {argName};");
+                    writer.WriteLine($"if (rawArg{argIndex}_fn == IntPtr.Zero)");
+                    writer.Indent++;
+                    writer.WriteLine($"{argName} = null;");
+                    writer.Indent--;
+                    writer.WriteLine("else");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    writer.WriteLine($"var {wrapperVar} = SwiftEscapingClosure<{delegateType}>.FromSwift(rawArg{argIndex}_fn, rawArg{argIndex}_ctx);");
+                    writer.WriteLine($"var {invVar} = new {invokerClassName}((nint){wrapperVar}.FunctionPointer, (nint){wrapperVar}.Context, {wrapperVar});");
+                    writer.WriteLine($"{argName} = {invVar}.Invoke;");
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                }
+                else
+                {
+                    writer.WriteLine($"// Wrap Swift closure (fnPtr, ctx) into a managed {delegateType} via SwiftEscapingClosure (ARC) + invoker class (Mono-JIT-safe).");
+                    writer.WriteLine($"var {wrapperVar} = SwiftEscapingClosure<{delegateType}>.FromSwift(rawArg{argIndex}_fn, rawArg{argIndex}_ctx);");
+                    writer.WriteLine($"var {invVar} = new {invokerClassName}((nint){wrapperVar}.FunctionPointer, (nint){wrapperVar}.Context, {wrapperVar});");
+                    writer.WriteLine($"{delegateType} {argName} = {invVar}.Invoke;");
+                }
             }
             // String parameter: the local MarshalFromSwift<SwiftString> helper uses Unsafe.Read<T>
             // which can't construct a managed SwiftString from raw Swift memory (16-byte value).

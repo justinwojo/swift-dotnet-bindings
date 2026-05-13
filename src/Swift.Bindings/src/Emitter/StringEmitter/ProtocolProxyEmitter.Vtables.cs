@@ -249,14 +249,15 @@ public partial class ProtocolProxyEmitter
             return;
 
         // Exclude return type, debug params, and empty tuple () params — must match receiver signature.
-        // Session 4a: dispatchable closure params expand into TWO IntPtr slots (fnPtr + ctx)
-        // on both Swift and C# vtables — see EveryProtocolEmitter.CountVtableSlots.
+        // Dispatchable closure params expand into TWO IntPtr slots (fnPtr + ctx) on both Swift
+        // and C# vtables — see EveryProtocolEmitter.CountVtableSlots.
+        var closureHandler = new ClosureHandler(_typeDatabase);
         int slotCount = 0;
         foreach (var p in method.CSSignature.Skip(1))
         {
             if (DefaultParameterOverloadEmitter.IsDebugParameter(p) || p.SwiftTypeSpec.IsEmptyTuple)
                 continue;
-            slotCount += EveryProtocolEmitter.CountVtableSlots(p.SwiftTypeSpec);
+            slotCount += EveryProtocolEmitter.CountVtableSlots(p.SwiftTypeSpec, closureHandler);
         }
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;

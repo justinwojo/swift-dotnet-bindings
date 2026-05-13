@@ -26,10 +26,10 @@ public partial class ProtocolProxyEmitter
         bool emittedAny = false;
         foreach (var (method, methodIdx) in EveryProtocolEmitter.EnumerateProtocolMethodsForDispatch(protocolDecl))
         {
-            if (!EveryProtocolEmitter.IsDispatchableClosureMethod(method))
+            if (!EveryProtocolEmitter.IsDispatchableClosureMethod(method, closureHandler))
                 continue;
 
-            foreach (var (param, argIdx) in EveryProtocolEmitter.EnumerateDispatchableClosureParams(method))
+            foreach (var (param, argIdx, closure, _) in EveryProtocolEmitter.EnumerateDispatchableClosureParams(method, closureHandler))
             {
                 if (!emittedAny)
                 {
@@ -40,8 +40,7 @@ public partial class ProtocolProxyEmitter
 
                 var entryPoint = EveryProtocolEmitter.GetProtocolClosureInvokeThunkEntryPoint(protocolDecl, method, methodIdx, argIdx);
                 var helperName = EveryProtocolEmitter.GetProtocolClosureInvokeThunkHelperName(entryPoint);
-                var closureSpec = (ClosureTypeSpec)param.SwiftTypeSpec;
-                ClosureEmitter.EmitCSharpInvokeThunkHelper(writer, closureSpec, closureHandler,
+                ClosureEmitter.EmitCSharpInvokeThunkHelper(writer, closure, closureHandler,
                     helperName, entryPoint, libraryPath);
             }
         }

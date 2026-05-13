@@ -2313,20 +2313,19 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolExtension_NonDispatchableClosureMethod_EmitsFatalErrorStub()
+    public void EmitProtocolExtension_IntArgClosureMethod_Dispatches()
     {
-        // Off-surface closure shapes (here: closure with an Int parameter) still get
-        // fatalError stubs in Session 4a. Session 4b will lift these into dispatch.
+        // A closure with a non-Void argument (here Int -> Void) is dispatchable: the
+        // invoke-thunk machinery already handles multi-arg shapes via EachArgument().
         var protocol = CreateSimpleProtocol("EventDelegate");
         protocol.Methods.Add(CreateMethodWithIntArgClosureParam("onValue", "handler"));
 
         var output = EmitProtocolExtension(protocol);
 
-        Assert.Contains("public func onValue(", output);
-        Assert.Contains("@escaping", output);
+        Assert.Contains("public func onValue(handler: @escaping (Swift.Int) -> Void)", output);
         Assert.DoesNotContain("@escaping @escaping", output);
-        Assert.Contains("fatalError", output);
-        Assert.Contains("closure method 'onValue' cannot be dispatched", output);
+        Assert.DoesNotContain("closure method 'onValue' cannot be dispatched", output);
+        Assert.Contains("func_onValue_0", output);
     }
 
     [Fact]
@@ -2345,9 +2344,10 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolVtableStruct_NonDispatchableClosureMethod_SkipsVtableField()
+    public void EmitProtocolVtableStruct_IntArgClosureMethod_IncludesVtableField()
     {
-        // Off-surface closure shapes do NOT get vtable fields — they go through fatalError stubs.
+        // Non-Void closure arg shapes are dispatched in 4b — vtable field with
+        // (fnPtr, ctxPtr) slot pair is emitted alongside other methods.
         var protocol = CreateSimpleProtocol("EventDelegate");
         protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
         protocol.Methods.Add(CreateMethodWithIntArgClosureParam("onValue", "handler"));
@@ -2355,7 +2355,21 @@ public class EveryProtocolEmitterTests
         var output = EmitVtableStruct(protocol);
 
         Assert.Contains("func_didReceiveEvent_0", output);
-        Assert.DoesNotContain("func_onValue_1", output);
+        Assert.Contains("func_onValue_1", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_AsyncClosureMethod_SkipsVtableField()
+    {
+        // Async closure methods remain non-dispatchable — no vtable field.
+        var protocol = CreateSimpleProtocol("AsyncDelegate");
+        protocol.Methods.Add(CreateMethodDeclWithParam("didReceiveEvent", "name", "Swift.String"));
+        protocol.Methods.Add(CreateAsyncMethodWithClosureParam("onComplete", "handler"));
+
+        var output = EmitVtableStruct(protocol);
+
+        Assert.Contains("func_didReceiveEvent_0", output);
+        Assert.DoesNotContain("func_onComplete_1", output);
     }
 
     [Fact]
@@ -2371,6 +2385,92 @@ public class EveryProtocolEmitterTests
         Assert.Contains("extension EveryProtocol: TestModule.EventDelegate", output);
         // Witness table getter IS emitted
         Assert.Contains("Get_EveryProtocol_EventDelegate_WitnessTable", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_ReturnTypedClosureMethod_Dispatches()
+    {
+        // () -> Int closure — return-typed closure shape (4b widening). The invoke-thunk
+        // machinery already passes the return value back via @_cdecl.
+        var protocol = CreateSimpleProtocol("Factory");
+        protocol.Methods.Add(CreateMethodWithReturnTypedClosureParam("make", "factory", "Swift.Int"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("public func make(factory: @escaping () -> Swift.Int)", output);
+        Assert.DoesNotContain("closure method 'make' cannot be dispatched", output);
+        Assert.Contains("func_make_0", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_OptionalClosureParam_IncludesVtableField()
+    {
+        // Optional<Closure> is dispatchable in 4b — vtable field emitted as a closure slot.
+        var protocol = CreateSimpleProtocol("Notifier");
+        protocol.Methods.Add(CreateMethodWithOptionalClosureParam("notify", "handler"));
+
+        var output = EmitVtableStruct(protocol);
+
+        Assert.Contains("func_notify_0", output);
+    }
+
+    [Fact]
+    public void EmitProtocolVtableStruct_OptionalClosureParam_UsesOptionalRawPointerSlot()
+    {
+        // Optional<Closure> nil round-trips via UnsafeRawPointer? slot type (not a sentinel).
+        // Nil → 0 at C# boundary.
+        var protocol = CreateSimpleProtocol("Notifier");
+        protocol.Methods.Add(CreateMethodWithOptionalClosureParam("notify", "handler"));
+
+        var output = EmitVtableStruct(protocol);
+
+        Assert.Contains("UnsafeRawPointer?", output);
+    }
+
+    private static MethodDecl CreateMethodWithReturnTypedClosureParam(string name, string paramLabel, string returnTypeName)
+    {
+        var closure = new ClosureTypeSpec
+        {
+            Arguments = TupleTypeSpec.Empty,
+            ReturnType = new NamedTypeSpec(returnTypeName)
+        };
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = paramLabel,
+                    SwiftTypeSpec = closure,
+                    PrivateName = paramLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
     }
 
     private static MethodDecl CreateMethodWithClosureParam(string name, string paramLabel)
@@ -2416,17 +2516,54 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolExtension_OptionalClosureParam_NoEscapingAnnotation()
+    public void EmitProtocolExtension_OptionalClosureParam_DispatchesWithoutEscapingAnnotation()
     {
+        // Optional<Closure> is always escaping in Swift — @escaping annotation is invalid
+        // syntax on Optional types. 4b dispatches Optional<Closure> shapes; the rendered
+        // signature must NOT carry @escaping, and the method must NOT route through fatalError.
         var protocol = CreateSimpleProtocol("Notifier");
         protocol.Methods.Add(CreateMethodWithOptionalClosureParam("notify", "handler"));
 
         var output = EmitProtocolExtension(protocol);
 
-        // Optional closures are always escaping in Swift — @escaping on Optional<Closure> is invalid syntax
         Assert.Contains("public func notify(", output);
-        Assert.Contains("fatalError", output);
         Assert.DoesNotContain("@escaping", output);
+        Assert.DoesNotContain("closure method 'notify' cannot be dispatched", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_OptionalClosureParam_UsesInoutBytesNotUnwrap()
+    {
+        // Regression sentinel for the Optional<Closure> reabstraction trap.
+        //
+        // The Optional's payload stores closures in Swift's generic memory
+        // abstraction (`Iegr_`, @out-Void). Unwrapping via `if var localVar =
+        // param { ... }` materializes a concrete `() -> Void` local — Swift
+        // inserts a `$sIeg_ytIegr_TR` reabstraction thunk + partial-application
+        // context. The temporary partial-app ctx is freed on scope exit, so
+        // captured (fn, ctx) bytes dangle. The fix reads the Optional's raw
+        // bytes directly via inout binding, since Optional<Closure> shares the
+        // closure's 2-word layout via the function-pointer extra-inhabitant.
+        //
+        // This test asserts the emitter NEVER regresses to the `if var ... =`
+        // unwrap pattern for Optional<Closure> protocol method params.
+        var protocol = CreateSimpleProtocol("Notifier");
+        protocol.Methods.Add(CreateMethodWithOptionalClosureParam("notify", "handler"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        // Inout-binding pattern: shadow Optional value then read bytes through it.
+        Assert.Contains("var handlerLocal = handler", output);
+        Assert.Contains("withUnsafeBytes(of: &handlerLocal)", output);
+
+        // Optional-typed pointer slots so `.none` round-trips as nil to the
+        // C# trampoline (NOT non-optional UnsafeRawPointer, which would store
+        // an arbitrary nil-sentinel value).
+        Assert.Contains("UnsafeRawPointer?.self", output);
+
+        // Regression trap shapes — none of these may reappear.
+        Assert.DoesNotContain("if var handlerLocal = handler", output);
+        Assert.DoesNotContain("if let handlerLocal = handler", output);
     }
 
     [Fact]
