@@ -37,7 +37,7 @@ public class BridgeStateUpdateTests : TestBase
             var vcPtr = BridgeNativeMethods.UpdatableCounterView_GetViewController(handle);
             AssertTrue(vcPtr != IntPtr.Zero, "UpdatableCounterView GetVC != 0");
 
-            BridgeNativeMethods.UpdatableCounterView_Free(handle);
+            BridgeNativeMethods.UpdatableCounterView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableCounterView create/read: passed");
     }
@@ -57,7 +57,7 @@ public class BridgeStateUpdateTests : TestBase
             var count = BridgeTestHelpers.UpdatableCounterView_GetCount(handle);
             AssertEqual(42, count, "UpdatableCounterView count after update");
 
-            BridgeNativeMethods.UpdatableCounterView_Free(handle);
+            BridgeNativeMethods.UpdatableCounterView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableCounterView UpdateCount: passed");
     }
@@ -83,7 +83,7 @@ public class BridgeStateUpdateTests : TestBase
             var updatedLen = BridgeTestHelpers.UpdatableCounterView_GetLabelLength(handle);
             AssertEqual(9, updatedLen, "UpdatableCounterView label after update");
 
-            BridgeNativeMethods.UpdatableCounterView_Free(handle);
+            BridgeNativeMethods.UpdatableCounterView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableCounterView UpdateLabel: passed");
     }
@@ -110,7 +110,7 @@ public class BridgeStateUpdateTests : TestBase
             var isEnabled = BridgeTestHelpers.UpdatableMixedView_GetIsEnabled(handle);
             AssertEqual(1, isEnabled, "UpdatableMixedView initial isEnabled");
 
-            BridgeNativeMethods.UpdatableMixedView_Free(handle);
+            BridgeNativeMethods.UpdatableMixedView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableMixedView create/read: passed");
     }
@@ -138,7 +138,7 @@ public class BridgeStateUpdateTests : TestBase
             var titleLen = BridgeTestHelpers.UpdatableMixedView_GetTitleLength(handle);
             AssertEqual(13, titleLen, "UpdatableMixedView title after update");
 
-            BridgeNativeMethods.UpdatableMixedView_Free(handle);
+            BridgeNativeMethods.UpdatableMixedView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableMixedView UpdateTitle: passed");
     }
@@ -170,7 +170,7 @@ public class BridgeStateUpdateTests : TestBase
             isEnabled = BridgeTestHelpers.UpdatableMixedView_GetIsEnabled(handle);
             AssertEqual(1, isEnabled, "UpdatableMixedView isEnabled after update to true");
 
-            BridgeNativeMethods.UpdatableMixedView_Free(handle);
+            BridgeNativeMethods.UpdatableMixedView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableMixedView UpdateIsEnabled: passed");
     }
@@ -201,7 +201,7 @@ public class BridgeStateUpdateTests : TestBase
             Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.5));
             AssertTrue(MixedActionState.CallCount >= 1, "UpdatableMixedView onTap callback fired after state update");
 
-            BridgeNativeMethods.UpdatableMixedView_Free(handle);
+            BridgeNativeMethods.UpdatableMixedView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("UpdatableMixedView closure after state update: passed");
     }
@@ -230,7 +230,7 @@ public class BridgeStateUpdateTests : TestBase
         style = BridgeTestHelpers.EnumParamView_GetStyle(handle);
         AssertEqual(2, style, "EnumParamView style after update to error");
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("EnumParamView UpdateStyle: passed");
     }
 
@@ -255,7 +255,7 @@ public class BridgeStateUpdateTests : TestBase
         count = BridgeTestHelpers.MixedParamView_GetCount(handle);
         AssertEqual(99, count, "MixedParamView count after update");
 
-        BridgeNativeMethods.MixedParamView_Free(handle);
+        BridgeNativeMethods.MixedParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("MixedParamView UpdateStyle+UpdateCount: passed");
     }
 }

@@ -262,6 +262,89 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void EmitSimpleViewBridge_Free_DispatchesAsyncFromBackgroundCallers()
+    {
+        // _Free is reached from the .NET finalizer thread while the test main thread
+        // is parked inside GC.WaitForPendingFinalizers(). The earlier emission routed
+        // through SBW_onMainThread, whose DispatchQueue.main.sync deadlocked against
+        // that parked main; the runner's hang timeout then killed the app silently.
+        // The new contract: on-main callers (explicit Dispose) run inline; off-main
+        // callers dispatch async so the finalizer thread can return immediately.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var freeStart = swiftContent.IndexOf("@_cdecl(\"SBW_TestModule_TestView_Free\")");
+        Assert.True(freeStart >= 0, "Free cdecl marker missing");
+        var bodyEnd = swiftContent.IndexOf("@_cdecl(", freeStart + 1);
+        if (bodyEnd < 0) bodyEnd = swiftContent.Length;
+        var freeBody = swiftContent.Substring(freeStart, bodyEnd - freeStart);
+
+        Assert.Contains("Thread.isMainThread", freeBody);
+        Assert.Contains("DispatchQueue.main.async(execute:", freeBody);
+        Assert.DoesNotContain("SBW_onMainThread", freeBody);
+        Assert.DoesNotContain("DispatchQueue.main.sync", freeBody);
+    }
+
+    [Fact]
+    public void EmitSimpleViewBridge_Free_DelegatesGCHandleDisposalToSwift()
+    {
+        // C# Dispose must hand its lifecycle/closure GCHandles to Swift via a buffer
+        // and post-release callback; Swift invokes the callback only after
+        // Unmanaged.release runs. Freeing those handles in C# immediately after the
+        // off-main Free returns is a UAF — the Swift session may still capture them
+        // until the dispatched release block fires.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        var freeStart = swiftContent.IndexOf("@_cdecl(\"SBW_TestModule_TestView_Free\")");
+        Assert.True(freeStart >= 0, "Free cdecl marker missing");
+        var bodyEnd = swiftContent.IndexOf("@_cdecl(", freeStart + 1);
+        if (bodyEnd < 0) bodyEnd = swiftContent.Length;
+        var freeBody = swiftContent.Substring(freeStart, bodyEnd - freeStart);
+
+        // Swift Free takes handle + buffer + count + callback fn pointer.
+        Assert.Contains("_ handleBuffer: UnsafeMutableRawPointer?", freeBody);
+        Assert.Contains("_ handleCount: Int32", freeBody);
+        Assert.Contains("_ postReleaseFreeFn: UnsafeMutableRawPointer?", freeBody);
+        Assert.Contains("unsafeBitCast(fnPtr, to: FreeFn.self)", freeBody);
+        Assert.Contains("fn(handleBuffer, handleCount)", freeBody);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+
+        // Shared trampoline class lives once per bridge file.
+        Assert.Contains("class SwiftUIBridgePostReleaseHelpers", csContent);
+        Assert.Contains("internal static void FreeGCHandles(IntPtr buffer, int count)", csContent);
+        Assert.Contains("NativeMemory.Free((void*)buffer);", csContent);
+
+        // P/Invoke signature matches the new Swift shape.
+        Assert.Contains("Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn)", csContent);
+
+        // Session Dispose packs handles into a native buffer and hands off — no in-place freeing.
+        var sessionStart = csContent.IndexOf("public sealed class TestViewSession");
+        Assert.True(sessionStart >= 0, "Session class missing");
+        var disposeStart = csContent.IndexOf("private unsafe void Dispose(bool disposing)", sessionStart);
+        Assert.True(disposeStart >= 0, "Dispose method missing");
+        // Method body terminator: the next "_handle = IntPtr.Zero;" line lives at the end of Dispose,
+        // and the following "}" (with 8-space indent) closes the method itself.
+        var disposeEnd = csContent.IndexOf("_handle = IntPtr.Zero;", disposeStart);
+        Assert.True(disposeEnd >= 0, "Dispose method missing terminator");
+        var disposeBody = csContent.Substring(disposeStart, disposeEnd - disposeStart);
+
+        Assert.Contains("NativeMemory.Alloc", disposeBody);
+        Assert.Contains("GCHandle.ToIntPtr", disposeBody);
+        Assert.Contains("&SwiftUIBridgePostReleaseHelpers.FreeGCHandles", disposeBody);
+        Assert.Contains("TestViewBridgeNativeMethods.Free(_handle, handleBuffer, totalHandles, postReleaseFreeFn);", disposeBody);
+        // No more local h.Free() calls — Swift owns handle disposal now.
+        Assert.DoesNotContain("h.Free()", disposeBody);
+    }
+
+    [Fact]
     public void EmitSimpleViewBridge_GeneratesOnMainThreadHelper()
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
@@ -358,8 +441,9 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("GC.SuppressFinalize(this)", csContent);
         // Finalizer delegates to Dispose(false) so a forgotten Dispose() still releases native state
         Assert.Contains("~TestViewSession() => Dispose(disposing: false);", csContent);
-        // Protected Dispose(bool) is the single cleanup site
-        Assert.Contains("private void Dispose(bool disposing)", csContent);
+        // Protected Dispose(bool) is the single cleanup site — `unsafe` so it can
+        // take an address-of pointer to the post-release GCHandle trampoline.
+        Assert.Contains("private unsafe void Dispose(bool disposing)", csContent);
     }
 
     [Fact]
@@ -812,7 +896,53 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.BlinkIDUX.SwiftUIBridge.cs"));
         Assert.Contains("_stateHandle", csContent);
         Assert.Contains("_stateHandle.IsAllocated", csContent);
-        Assert.Contains("_stateHandle.Free()", csContent);
+        // Disposal is now transferred to Swift via the post-release trampoline —
+        // the local h.Free() pattern is replaced by GCHandle.ToIntPtr + buffer
+        // transfer. Asserted in detail by
+        // EmitAsyncViewBridge_Free_DelegatesGCHandleDisposalToSwift below.
+        Assert.Contains("GCHandle.ToIntPtr(_stateHandle)", csContent);
+    }
+
+    [Fact]
+    public void EmitAsyncViewBridge_Free_DelegatesGCHandleDisposalToSwift()
+    {
+        var views = new List<TypeDecl> { CreateSimpleViewStruct("BlinkIDUXView") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "Swift.BlinkIDUX", "BlinkIDUX", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.BlinkIDUX.SwiftUIBridge.swift"));
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "Swift.BlinkIDUX.SwiftUIBridge.cs"));
+
+        // Swift side: _Free signature widens to carry the handle buffer + post-release trampoline,
+        // and invokes the trampoline strictly AFTER Unmanaged.release runs inside the dispatched block.
+        Assert.Contains("@_cdecl(\"SBW_BlinkIDUX_BlinkIDUXView_Free\")", swiftContent);
+        Assert.Contains("_ handleBuffer: UnsafeMutableRawPointer?", swiftContent);
+        Assert.Contains("_ handleCount: Int32", swiftContent);
+        Assert.Contains("_ postReleaseFreeFn: UnsafeMutableRawPointer?", swiftContent);
+        Assert.Contains("unsafeBitCast(fnPtr, to: FreeFn.self)", swiftContent);
+        // Thread-aware dispatch shape from the original finalizer-thread fix preserved.
+        Assert.Contains("if Thread.isMainThread { release() }", swiftContent);
+        Assert.Contains("DispatchQueue.main.async(execute: release)", swiftContent);
+        // SBW_onMainThread (sync) helper must NOT wrap the new dispatch.
+        Assert.DoesNotContain("SBW_onMainThread {\n        guard let handle = handle,\n              SBW_BlinkIDUX_BlinkIDUXView_liveHandles.remove", swiftContent);
+
+        // C# side: helper class present and Dispose transfers GCHandle via NativeMemory buffer + function pointer.
+        Assert.Contains("SwiftUIBridgePostReleaseHelpers", csContent);
+        Assert.Contains("FreeGCHandles", csContent);
+        Assert.Contains("IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn", csContent);
+        Assert.Contains("private unsafe void Dispose(bool disposing)", csContent);
+        Assert.Contains("NativeMemory.Alloc((nuint)sizeof(IntPtr))", csContent);
+        Assert.Contains("GCHandle.ToIntPtr(_stateHandle)", csContent);
+        Assert.Contains("delegate* unmanaged[Cdecl]<IntPtr, int, void> fn = &SwiftUIBridgePostReleaseHelpers.FreeGCHandles;", csContent);
+
+        // Dispose body must NOT call _stateHandle.Free() locally — disposal is Swift-owned now.
+        var disposeStart = csContent.IndexOf("private unsafe void Dispose(bool disposing)");
+        Assert.True(disposeStart >= 0);
+        var disposeEnd = csContent.IndexOf("_handle = IntPtr.Zero;", disposeStart);
+        Assert.True(disposeEnd >= 0);
+        var disposeBody = csContent.Substring(disposeStart, disposeEnd - disposeStart);
+        Assert.DoesNotContain("_stateHandle.Free()", disposeBody);
     }
 
     #endregion
@@ -4750,8 +4880,14 @@ public class SwiftUIBridgeEmitterTests : IDisposable
             NullLogger.Instance, typeDb);
 
         var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
-        // Direct MarshalFromSwift — no NativeMemory buffer needed
-        Assert.DoesNotContain("NativeMemory.Alloc", csContent);
+        // Direct MarshalFromSwift in the trampoline body — no NativeMemory buffer
+        // needed for the class closure marshalling step. (Dispose has its own
+        // unrelated NativeMemory.Alloc for the post-release GCHandle buffer.)
+        var trampolineStart = csContent.IndexOf("OnModelTrampoline");
+        Assert.True(trampolineStart >= 0, "Trampoline missing");
+        var trampolineEnd = csContent.IndexOf("        }", trampolineStart);
+        var trampolineBody = csContent.Substring(trampolineStart, trampolineEnd - trampolineStart);
+        Assert.DoesNotContain("NativeMemory.Alloc", trampolineBody);
         Assert.Contains("SwiftMarshal.MarshalFromSwift", csContent);
     }
 

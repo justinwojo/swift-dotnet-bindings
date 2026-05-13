@@ -35,7 +35,7 @@ public class ValidationPatternBridgeTests : TestBase
         var vcPtr = BridgeNativeMethods.NoParamBlurView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "NoParamBlurView GetVC != 0");
 
-        BridgeNativeMethods.NoParamBlurView_Free(handle);
+        BridgeNativeMethods.NoParamBlurView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("NoParamBlurView: create/getVC/free cycle passed");
     }
 
@@ -44,7 +44,7 @@ public class ValidationPatternBridgeTests : TestBase
         var handle = BridgeNativeMethods.NoParamBlurView_Create();
         AssertTrue(handle != IntPtr.Zero, "handle valid before free");
 
-        BridgeNativeMethods.NoParamBlurView_Free(handle);
+        BridgeNativeMethods.NoParamBlurView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
 
         // After free, GetVC should return null (handle removed from liveHandles)
         var vcPtr = BridgeNativeMethods.NoParamBlurView_GetViewController(handle);
@@ -72,7 +72,7 @@ public class ValidationPatternBridgeTests : TestBase
             var playerValue = BridgeTestHelpers.PlayerStyleView_GetPlayerValue(handle);
             AssertEqual(42, playerValue, "PlayerStyleView model value round-trip");
 
-            BridgeNativeMethods.PlayerStyleView_Free(handle);
+            BridgeNativeMethods.PlayerStyleView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         BridgeTestHelpers.FreeSimpleModel(modelPtr);
         TestLogger.Info("PlayerStyleView: class + string create/read/free passed");
@@ -99,7 +99,7 @@ public class ValidationPatternBridgeTests : TestBase
         var isCompleted = BridgeTestHelpers.FormatActionView_IsCompleted(handle);
         AssertEqual(1, isCompleted, "FormatActionView is .completed");
 
-        BridgeNativeMethods.FormatActionView_Free(handle);
+        BridgeNativeMethods.FormatActionView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         BridgeTestHelpers.FreeTransformOutcome(outcomePtr);
         TestLogger.Info("FormatActionView: BoundStruct completed round-trip passed");
     }
@@ -116,7 +116,7 @@ public class ValidationPatternBridgeTests : TestBase
         var isCompleted = BridgeTestHelpers.FormatActionView_IsCompleted(handle);
         AssertEqual(0, isCompleted, "FormatActionView is .failed");
 
-        BridgeNativeMethods.FormatActionView_Free(handle);
+        BridgeNativeMethods.FormatActionView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         BridgeTestHelpers.FreeTransformOutcome(outcomePtr);
         TestLogger.Info("FormatActionView: BoundStruct failed round-trip passed");
     }
@@ -145,7 +145,7 @@ public class ValidationPatternBridgeTests : TestBase
         // Free the heap-allocated BoundStruct received from the closure callback
         BridgeTestHelpers.FreeTransformOutcome(FormatMenuCallbackState.LastOutcomePtr);
 
-        BridgeNativeMethods.FormatMenuView_Free(handle);
+        BridgeNativeMethods.FormatMenuView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("FormatMenuView: BoundStruct closure fire passed");
     }
 
@@ -175,7 +175,7 @@ public class ValidationPatternBridgeTests : TestBase
             var subtitleLen = BridgeTestHelpers.RichToolbarView_GetSubtitleLength(handle);
             AssertEqual(subtitleBytes.Length, subtitleLen, "RichToolbarView subtitle length round-trip");
 
-            BridgeNativeMethods.RichToolbarView_Free(handle);
+            BridgeNativeMethods.RichToolbarView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("RichToolbarView: dual string create/read/free passed");
     }
@@ -195,7 +195,7 @@ public class ValidationPatternBridgeTests : TestBase
             var subtitleLen = BridgeTestHelpers.RichToolbarView_GetSubtitleLength(handle);
             AssertEqual(0, subtitleLen, "RichToolbarView empty subtitle length");
 
-            BridgeNativeMethods.RichToolbarView_Free(handle);
+            BridgeNativeMethods.RichToolbarView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("RichToolbarView: empty strings passed");
     }
@@ -217,7 +217,7 @@ public class ValidationPatternBridgeTests : TestBase
         var isOn = BridgeTestHelpers.BindingToggleView_GetIsOn(handle);
         AssertEqual(1, isOn, "BindingToggleView initial isOn == true");
 
-        BridgeNativeMethods.BindingToggleView_Free(handle);
+        BridgeNativeMethods.BindingToggleView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("BindingToggleView: create with initial value passed");
     }
 
@@ -230,7 +230,7 @@ public class ValidationPatternBridgeTests : TestBase
         var isOn = BridgeTestHelpers.BindingToggleView_GetIsOn(handle);
         AssertEqual(0, isOn, "BindingToggleView initial isOn == false");
 
-        BridgeNativeMethods.BindingToggleView_Free(handle);
+        BridgeNativeMethods.BindingToggleView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("BindingToggleView: create with false passed");
     }
 
@@ -253,7 +253,7 @@ public class ValidationPatternBridgeTests : TestBase
         var isOnFinal = BridgeTestHelpers.BindingToggleView_GetIsOn(handle);
         AssertEqual(0, isOnFinal, "BindingToggleView toggled back to false");
 
-        BridgeNativeMethods.BindingToggleView_Free(handle);
+        BridgeNativeMethods.BindingToggleView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("BindingToggleView: update toggle round-trip passed");
     }
 
@@ -285,7 +285,7 @@ public class ValidationPatternBridgeTests : TestBase
             var elem4 = BridgeTestHelpers.NumberListView_GetElement(handle, 4);
             AssertEqual(50, elem4, "NumberListView element[4] == 50");
 
-            BridgeNativeMethods.NumberListView_Free(handle);
+            BridgeNativeMethods.NumberListView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("NumberListView: array create/read/free passed");
     }
@@ -299,7 +299,7 @@ public class ValidationPatternBridgeTests : TestBase
         var count = BridgeTestHelpers.NumberListView_GetCount(handle);
         AssertEqual(0, count, "NumberListView empty count == 0");
 
-        BridgeNativeMethods.NumberListView_Free(handle);
+        BridgeNativeMethods.NumberListView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("NumberListView: empty array passed");
     }
 
@@ -322,7 +322,7 @@ public class ValidationPatternBridgeTests : TestBase
             var iconLen = BridgeTestHelpers.SymbolIconView_GetIconLength(handle);
             AssertEqual(symbolBytes.Length, iconLen, "SymbolIconView icon length round-trip");
 
-            BridgeNativeMethods.SymbolIconView_Free(handle);
+            BridgeNativeMethods.SymbolIconView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("SymbolIconView: SF Symbol create/read/free passed");
     }
@@ -338,7 +338,7 @@ public class ValidationPatternBridgeTests : TestBase
             var iconLen = BridgeTestHelpers.SymbolIconView_GetIconLength(handle);
             AssertEqual(symbolBytes.Length, iconLen, "SymbolIconView heart symbol length");
 
-            BridgeNativeMethods.SymbolIconView_Free(handle);
+            BridgeNativeMethods.SymbolIconView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("SymbolIconView: different symbol passed");
     }
@@ -370,7 +370,7 @@ public class ValidationPatternBridgeTests : TestBase
         AssertTrue(ResultSuccessCallbackState.LastModelPtr != IntPtr.Zero, "success model ptr != 0");
         AssertEqual(0, ResultStructErrorCallbackState.CallCount, "error callback not fired");
 
-        BridgeNativeMethods.ResultWithStructView_Free(handle);
+        BridgeNativeMethods.ResultWithStructView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ResultWithStructView: success (BoundType) callback passed");
     }
 
@@ -396,7 +396,7 @@ public class ValidationPatternBridgeTests : TestBase
         // In production, SwiftSafeHandle<T> handles this via VWT Destroy + NativeMemory.Free.
         System.Runtime.InteropServices.NativeMemory.Free((void*)ResultStructErrorCallbackState.LastOutcomePtr);
 
-        BridgeNativeMethods.ResultWithStructView_Free(handle);
+        BridgeNativeMethods.ResultWithStructView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ResultWithStructView: error (BoundStruct) callback passed");
     }
 
@@ -420,7 +420,7 @@ public class ValidationPatternBridgeTests : TestBase
         var vcPtr = BridgeNativeMethods.ResultCompletionView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "ResultCompletionView GetVC != 0");
 
-        BridgeNativeMethods.ResultCompletionView_Free(handle);
+        BridgeNativeMethods.ResultCompletionView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ResultCompletionView: create/getVC/free cycle passed");
     }
 
@@ -442,7 +442,7 @@ public class ValidationPatternBridgeTests : TestBase
         AssertTrue(ResultSuccessCallbackState.LastModelPtr != IntPtr.Zero, "success model ptr != 0");
         AssertEqual(0, ResultErrorCallbackState.CallCount, "error callback not fired");
 
-        BridgeNativeMethods.ResultCompletionView_Free(handle);
+        BridgeNativeMethods.ResultCompletionView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ResultCompletionView: success callback fire passed");
     }
 
@@ -464,7 +464,7 @@ public class ValidationPatternBridgeTests : TestBase
         AssertEqual(1, ResultErrorCallbackState.CallCount, "error callback fired once");
         AssertTrue(ResultErrorCallbackState.LastErrorPtr != IntPtr.Zero, "error ptr != 0");
 
-        BridgeNativeMethods.ResultCompletionView_Free(handle);
+        BridgeNativeMethods.ResultCompletionView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ResultCompletionView: error callback fire passed");
     }
 }

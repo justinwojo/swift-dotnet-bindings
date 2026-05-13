@@ -25,7 +25,7 @@ public class BridgeAsyncViewTests : TestBase
         var vcPtr = BridgeNativeMethods.AsyncServiceView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "AsyncServiceView GetVC != 0");
 
-        BridgeNativeMethods.AsyncServiceView_Free(handle);
+        BridgeNativeMethods.AsyncServiceView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
 
         // Verify dispose behavior
         var vcAfterFree = BridgeNativeMethods.AsyncServiceView_GetViewController(handle);
@@ -43,7 +43,7 @@ public class BridgeAsyncViewTests : TestBase
         var vcPtr = BridgeNativeMethods.DeepChainView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "DeepChainView GetVC != 0");
 
-        BridgeNativeMethods.DeepChainView_Free(handle);
+        BridgeNativeMethods.DeepChainView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("DeepChainView: create/validate/free cycle passed");
     }
 
@@ -55,7 +55,7 @@ public class BridgeAsyncViewTests : TestBase
         var vcPtr = BridgeNativeMethods.MixedAsyncView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "MixedAsyncView GetVC != 0");
 
-        BridgeNativeMethods.MixedAsyncView_Free(handle);
+        BridgeNativeMethods.MixedAsyncView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("MixedAsyncView: create/validate/free cycle passed");
     }
 

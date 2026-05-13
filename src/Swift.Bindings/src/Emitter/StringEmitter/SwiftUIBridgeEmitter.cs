@@ -1002,15 +1002,38 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("}");
         sb.AppendLine();
 
-        // Free function
+        // Free function — must never block on main from a non-main caller.
+        // The .NET finalizer thread invokes this while the main thread is parked
+        // inside GC.WaitForPendingFinalizers(); SBW_onMainThread's sync dispatch
+        // would deadlock. Off-main calls dispatch async so the finalizer thread
+        // returns immediately; on-main calls (explicit Dispose) still run inline
+        // to preserve the synchronous-cleanup contract. Caller passes a buffer of
+        // managed GCHandle IntPtrs that the Swift session still references via
+        // user-data pointers (lifecycle / closure trampolines); we invoke the
+        // supplied free callback only after Unmanaged.release completes, so the
+        // managed handles outlive any Swift state that may capture them. C# may
+        // not free those handles itself after calling _Free because the off-main
+        // path returns before release runs.
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
-        sb.AppendLine($"public func {prefix}_Free(_ handle: UnsafeMutableRawPointer?) {{");
-        sb.AppendLine("    SBW_onMainThread {");
-        sb.AppendLine($"        guard let handle = handle,");
-        sb.AppendLine($"              {handlesVar}.remove(handle) != nil else {{ return }}");
-        sb.AppendLine($"        Unmanaged<{sessionClass}>.fromOpaque(handle).release()");
-        sb.AppendLine("    }");
+        sb.AppendLine($"public func {prefix}_Free(");
+        sb.AppendLine($"    _ handle: UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ handleBuffer: UnsafeMutableRawPointer?,");
+        sb.AppendLine($"    _ handleCount: Int32,");
+        sb.AppendLine($"    _ postReleaseFreeFn: UnsafeMutableRawPointer?");
+        sb.AppendLine($") {{");
+        sb.AppendLine($"    let release: () -> Void = {{");
+        sb.AppendLine($"        if let handle = handle, {handlesVar}.remove(handle) != nil {{");
+        sb.AppendLine($"            Unmanaged<{sessionClass}>.fromOpaque(handle).release()");
+        sb.AppendLine($"        }}");
+        sb.AppendLine($"        if let fnPtr = postReleaseFreeFn {{");
+        sb.AppendLine($"            typealias FreeFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void");
+        sb.AppendLine($"            let fn = unsafeBitCast(fnPtr, to: FreeFn.self)");
+        sb.AppendLine($"            fn(handleBuffer, handleCount)");
+        sb.AppendLine($"        }}");
+        sb.AppendLine($"    }}");
+        sb.AppendLine($"    if Thread.isMainThread {{ release() }}");
+        sb.AppendLine($"    else {{ DispatchQueue.main.async(execute: release) }}");
         sb.AppendLine("}");
         sb.AppendLine();
 
@@ -1956,6 +1979,12 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"namespace {@namespace}");
             sb.AppendLine("{");
 
+            bool hasFunctionalViewWithGCHandles = bridgeResults.Any(r => r.IsFunctional);
+            if (hasFunctionalViewWithGCHandles)
+            {
+                EmitSimpleViewPostReleaseHelpers(sb);
+            }
+
             foreach (var (info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs, modifiers) in bridgeResults)
             {
                 if (isFunctional && asyncPattern != null)
@@ -1992,6 +2021,31 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         return sb.ToString();
+    }
+
+    // Shared post-release helper invoked from Swift after Unmanaged.release runs.
+    // Lives once per bridge file so the function pointer is stable across all
+    // simple-view session classes in the module.
+    private static void EmitSimpleViewPostReleaseHelpers(StringBuilder sb)
+    {
+        sb.AppendLine("    internal static unsafe class SwiftUIBridgePostReleaseHelpers");
+        sb.AppendLine("    {");
+        sb.AppendLine("        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        sb.AppendLine("        internal static void FreeGCHandles(IntPtr buffer, int count)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (buffer == IntPtr.Zero) return;");
+        sb.AppendLine("            var slots = (IntPtr*)buffer;");
+        sb.AppendLine("            for (int i = 0; i < count; i++)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var raw = slots[i];");
+        sb.AppendLine("                if (raw == IntPtr.Zero) continue;");
+        sb.AppendLine("                var h = GCHandle.FromIntPtr(raw);");
+        sb.AppendLine("                if (h.IsAllocated) h.Free();");
+        sb.AppendLine("            }");
+        sb.AppendLine("            NativeMemory.Free((void*)buffer);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
     }
 
     private static void EmitFunctionalCSharpBridge(
@@ -2093,14 +2147,14 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine($"        {line}");
         sb.AppendLine();
 
-        // Free P/Invoke
+        // Free P/Invoke — see Swift _Free comment for handle-buffer ownership rules.
         foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
         {
             LibraryPath = bridgeLib,
             EntryPoint = $"{prefix}_Free",
             MethodName = "Free",
             ReturnType = "void",
-            ParametersString = "IntPtr handle",
+            ParametersString = "IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn",
             CallingConvention = PInvokeCallingConvention.Cdecl,
             Visibility = PInvokeVisibility.Internal,
             EmissionContext = emissionContext,
@@ -2227,7 +2281,11 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
         sb.AppendLine($"        ~{info.ViewName}Session() => Dispose(disposing: false);");
         sb.AppendLine();
-        sb.AppendLine("        private void Dispose(bool disposing)");
+        // Dispose hands the GCHandle batch to the native Free callback. Swift owns
+        // disposal so the handles outlive any Swift state captured via user-data
+        // pointers — when Free dispatches async to main, those handles must remain
+        // alive until Unmanaged.release runs.
+        sb.AppendLine("        private unsafe void Dispose(bool disposing)");
         sb.AppendLine("        {");
         sb.AppendLine("            if (_disposed) return;");
         if (hasUpdatableParams)
@@ -2237,17 +2295,38 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("            if (disposing) Unbind();");
         }
         sb.AppendLine("            _disposed = true;");
-        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Free(_handle);");
+        sb.AppendLine();
+        sb.AppendLine("            int totalHandles = 0;");
         if (hasClosures)
         {
-            sb.AppendLine("            foreach (var h in _closureHandles)");
-            sb.AppendLine("                if (h.IsAllocated) h.Free();");
+            sb.AppendLine("            foreach (var h in _closureHandles) if (h.IsAllocated) totalHandles++;");
+        }
+        sb.AppendLine("            foreach (var h in _lifecycleHandles) if (h.IsAllocated) totalHandles++;");
+        sb.AppendLine();
+        sb.AppendLine("            IntPtr handleBuffer = IntPtr.Zero;");
+        sb.AppendLine("            IntPtr postReleaseFreeFn = IntPtr.Zero;");
+        sb.AppendLine("            if (totalHandles > 0)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                handleBuffer = (IntPtr)NativeMemory.Alloc((nuint)totalHandles, (nuint)sizeof(IntPtr));");
+        sb.AppendLine("                var slots = (IntPtr*)handleBuffer;");
+        sb.AppendLine("                int idx = 0;");
+        if (hasClosures)
+        {
+            sb.AppendLine("                foreach (var h in _closureHandles)");
+            sb.AppendLine("                    if (h.IsAllocated) slots[idx++] = GCHandle.ToIntPtr(h);");
+        }
+        sb.AppendLine("                foreach (var h in _lifecycleHandles)");
+        sb.AppendLine("                    if (h.IsAllocated) slots[idx++] = GCHandle.ToIntPtr(h);");
+        sb.AppendLine("                delegate* unmanaged[Cdecl]<IntPtr, int, void> fn = &SwiftUIBridgePostReleaseHelpers.FreeGCHandles;");
+        sb.AppendLine("                postReleaseFreeFn = (IntPtr)fn;");
+        sb.AppendLine("            }");
+        sb.AppendLine();
+        if (hasClosures)
+        {
             sb.AppendLine("            _closureHandles = Array.Empty<GCHandle>();");
         }
-        // Free lifecycle handles.
-        sb.AppendLine("            foreach (var h in _lifecycleHandles)");
-        sb.AppendLine("                if (h.IsAllocated) h.Free();");
         sb.AppendLine("            _lifecycleHandles = Array.Empty<GCHandle>();");
+        sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.Free(_handle, handleBuffer, totalHandles, postReleaseFreeFn);");
         sb.AppendLine("            _handle = IntPtr.Zero;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");

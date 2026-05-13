@@ -32,7 +32,7 @@ public class BridgeClosureReturnTests : TestBase
         var vcPtr = BridgeNativeMethods.StringReturnClosureView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "StringReturnClosureView GetVC != 0");
 
-        BridgeNativeMethods.StringReturnClosureView_Free(handle);
+        BridgeNativeMethods.StringReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("StringReturnClosureView create/free: passed");
     }
 
@@ -50,7 +50,7 @@ public class BridgeClosureReturnTests : TestBase
         AssertEqual(42, StringReturnCallbackState.LastArg, "StringReturnClosureView arg round-trip");
         AssertEqual(8, resultLen, "StringReturnClosureView result string length (value_42)");
 
-        BridgeNativeMethods.StringReturnClosureView_Free(handle);
+        BridgeNativeMethods.StringReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("StringReturnClosureView invoke transformer: passed");
     }
 
@@ -74,7 +74,7 @@ public class BridgeClosureReturnTests : TestBase
         AssertEqual(3, StringReturnCallbackState.CallCount, "StringReturnClosureView 3 invocations");
         AssertEqual(0, StringReturnCallbackState.LastArg, "StringReturnClosureView last arg = 0");
 
-        BridgeNativeMethods.StringReturnClosureView_Free(handle);
+        BridgeNativeMethods.StringReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("StringReturnClosureView multiple invocations: passed");
     }
 
@@ -91,7 +91,7 @@ public class BridgeClosureReturnTests : TestBase
         var vcPtr = BridgeNativeMethods.ClassReturnClosureView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "ClassReturnClosureView GetVC != 0");
 
-        BridgeNativeMethods.ClassReturnClosureView_Free(handle);
+        BridgeNativeMethods.ClassReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ClassReturnClosureView create/free: passed");
     }
 
@@ -109,7 +109,7 @@ public class BridgeClosureReturnTests : TestBase
         AssertEqual(5, ClassReturnCallbackState.LastArg, "ClassReturnClosureView arg round-trip");
         AssertEqual(50, modelValue, "ClassReturnClosureView model value (5*10)");
 
-        BridgeNativeMethods.ClassReturnClosureView_Free(handle);
+        BridgeNativeMethods.ClassReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ClassReturnClosureView invoke factory: passed");
     }
 
@@ -129,7 +129,7 @@ public class BridgeClosureReturnTests : TestBase
 
         AssertEqual(2, ClassReturnCallbackState.CallCount, "ClassReturnClosureView 2 invocations");
 
-        BridgeNativeMethods.ClassReturnClosureView_Free(handle);
+        BridgeNativeMethods.ClassReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ClassReturnClosureView multiple invocations: passed");
     }
 
@@ -149,7 +149,7 @@ public class BridgeClosureReturnTests : TestBase
         // When the view processes it, Swift releases it. Since there's no other retain,
         // it should be deallocated. The exact timing depends on autorelease pools.
 
-        BridgeNativeMethods.ClassReturnClosureView_Free(handle);
+        BridgeNativeMethods.ClassReturnClosureView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("ClassReturnClosureView Arc retention: passed");
     }
 }

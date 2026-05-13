@@ -30,7 +30,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetFrame(handle, 1, 200.0, 1, 100.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetFrame (both dimensions): passed");
     }
 
@@ -42,7 +42,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetFrame(handle, 1, 150.0, 0, 0.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetFrame (width only): passed");
     }
 
@@ -56,7 +56,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetFrame(handle, 0, 0.0, 0, 0.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetFrame (nil reset): passed");
     }
 
@@ -67,7 +67,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetPadding(handle, 1, 16.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetPadding: passed");
     }
 
@@ -80,7 +80,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetPadding(handle, 0, 0.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetPadding (nil reset): passed");
     }
 
@@ -92,7 +92,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetBackground(handle, 1, 1.0, 0.0, 0.0, 1.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetBackground: passed");
     }
 
@@ -106,7 +106,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetBackground(handle, 0, 0.0, 0.0, 0.0, 0.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetBackground (nil reset): passed");
     }
 
@@ -118,7 +118,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetForegroundColor(handle, 1, 0.0, 0.0, 1.0, 1.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetForegroundColor: passed");
     }
 
@@ -129,7 +129,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetCornerRadius(handle, 1, 8.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetCornerRadius: passed");
     }
 
@@ -140,7 +140,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetOpacity(handle, 1, 0.5);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetOpacity: passed");
     }
 
@@ -151,7 +151,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         BridgeNativeMethods.EnumParamView_SetFont(handle, 1, 24.0);
         Foundation.NSRunLoop.Current.RunUntil((Foundation.NSDate)Foundation.NSDate.Now.AddSeconds(0.1));
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("SetFontSize: passed");
     }
 
@@ -174,7 +174,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         var vcPtr = BridgeNativeMethods.EnumParamView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "Combined modifiers: GetVC != 0");
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("All modifiers combined: passed");
     }
 
@@ -207,7 +207,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             AssertEqual(1, disappearResult, "LifecycleTestView onDisappear fired");
             AssertEqual(1, LifecycleCallbackState.DisappearCount, "LifecycleTestView disappear callback count");
 
-            BridgeNativeMethods.LifecycleTestView_Free(handle);
+            BridgeNativeMethods.LifecycleTestView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("LifecycleTestView set/fire callbacks: passed");
     }
@@ -234,7 +234,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             BridgeTestHelpers.LifecycleTestView_FireOnAppear(handle);
             AssertEqual(3, LifecycleCallbackState.AppearCount, "LifecycleTestView 3x appear");
 
-            BridgeNativeMethods.LifecycleTestView_Free(handle);
+            BridgeNativeMethods.LifecycleTestView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("LifecycleTestView multiple fires: passed");
     }
@@ -250,7 +250,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             var result = BridgeTestHelpers.LifecycleTestView_FireOnAppear(handle);
             AssertEqual(0, result, "LifecycleTestView no callback → returns 0");
 
-            BridgeNativeMethods.LifecycleTestView_Free(handle);
+            BridgeNativeMethods.LifecycleTestView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("LifecycleTestView no callbacks before set: passed");
     }
@@ -277,7 +277,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         var style = BridgeTestHelpers.EnumParamView_GetStyle(handle);
         AssertEqual(0, style, "EnumParamView lifecycle: style preserved");
 
-        BridgeNativeMethods.EnumParamView_Free(handle);
+        BridgeNativeMethods.EnumParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("Lifecycle on existing view (EnumParamView): passed");
     }
 
@@ -307,7 +307,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             highlighted = BridgeTestHelpers.ModifiableView_GetHighlighted(handle);
             AssertEqual(0, highlighted, "ModifiableView unhighlighted after clear");
 
-            BridgeNativeMethods.ModifiableView_Free(handle);
+            BridgeNativeMethods.ModifiableView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("ModifiableView SetHighlighted: passed");
     }
@@ -327,7 +327,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             var vcPtr = BridgeNativeMethods.ModifiableView_GetViewController(handle);
             AssertTrue(vcPtr != IntPtr.Zero, "ModifiableView opacity: GetVC != 0");
 
-            BridgeNativeMethods.ModifiableView_Free(handle);
+            BridgeNativeMethods.ModifiableView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("ModifiableView SetOpacity: passed");
     }
@@ -361,7 +361,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             enabled = BridgeTestHelpers.ModifiableView_GetModEnabled(handle);
             AssertEqual(-1, enabled, "ModifiableView mod_enabled back to nil");
 
-            BridgeNativeMethods.ModifiableView_Free(handle);
+            BridgeNativeMethods.ModifiableView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("ModifiableView SetEnabled: passed");
     }
@@ -385,7 +385,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             var enabled = BridgeTestHelpers.ModifiableView_GetModEnabled(handle);
             AssertEqual(1, enabled, "ModifiableView combined: enabled");
 
-            BridgeNativeMethods.ModifiableView_Free(handle);
+            BridgeNativeMethods.ModifiableView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("ModifiableView all modifiers combined: passed");
     }
@@ -406,7 +406,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
             var vcPtr = BridgeNativeMethods.GenericPlaceholderView_GetViewController(handle);
             AssertTrue(vcPtr != IntPtr.Zero, "GenericPlaceholderView GetVC != 0");
 
-            BridgeNativeMethods.GenericPlaceholderView_Free(handle);
+            BridgeNativeMethods.GenericPlaceholderView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         }
         TestLogger.Info("GenericPlaceholderView: passed");
     }
@@ -423,7 +423,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         var vcPtr = BridgeNativeMethods.PlaceholderOnlyView_GetViewController(handle);
         AssertTrue(vcPtr != IntPtr.Zero, "PlaceholderOnlyView GetVC != 0");
 
-        BridgeNativeMethods.PlaceholderOnlyView_Free(handle);
+        BridgeNativeMethods.PlaceholderOnlyView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         TestLogger.Info("PlaceholderOnlyView: passed");
     }
 
@@ -446,7 +446,7 @@ public class BridgeModifierAndLifecycleTests : TestBase
         value = BridgeTestHelpers.ClassParamView_GetModelValue(handle);
         AssertEqual(99, value, "ClassParamView model value after update");
 
-        BridgeNativeMethods.ClassParamView_Free(handle);
+        BridgeNativeMethods.ClassParamView_Free(handle, IntPtr.Zero, 0, IntPtr.Zero);
         BridgeTestHelpers.FreeSimpleModel(modelPtr);
         BridgeTestHelpers.FreeSimpleModel(newModelPtr);
         TestLogger.Info("ClassParamView UpdateModel: passed");

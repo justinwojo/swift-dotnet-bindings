@@ -25,7 +25,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void EnumParamView_Free(IntPtr handle);
+    internal static extern void EnumParamView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ClassParamView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassParamView_Create")]
@@ -38,7 +38,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassParamView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void ClassParamView_Free(IntPtr handle);
+    internal static extern void ClassParamView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- TypedClosureView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_TypedClosureView_Create")]
@@ -51,7 +51,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_TypedClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void TypedClosureView_Free(IntPtr handle);
+    internal static extern void TypedClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- MultiArgClosureView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MultiArgClosureView_Create")]
@@ -64,7 +64,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MultiArgClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void MultiArgClosureView_Free(IntPtr handle);
+    internal static extern void MultiArgClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- MixedParamView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedParamView_Create")]
@@ -77,7 +77,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedParamView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void MixedParamView_Free(IntPtr handle);
+    internal static extern void MixedParamView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- OptionalEnumView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalEnumView_Create")]
@@ -90,7 +90,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalEnumView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void OptionalEnumView_Free(IntPtr handle);
+    internal static extern void OptionalEnumView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- OptionalClassView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClassView_Create")]
@@ -103,7 +103,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClassView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void OptionalClassView_Free(IntPtr handle);
+    internal static extern void OptionalClassView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- StringClosureView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringClosureView_Create")]
@@ -116,7 +116,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void StringClosureView_Free(IntPtr handle);
+    internal static extern void StringClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ClassClosureView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassClosureView_Create")]
@@ -129,7 +129,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void ClassClosureView_Free(IntPtr handle);
+    internal static extern void ClassClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- OptionalStringView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalStringView_Create")]
@@ -142,7 +142,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalStringView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void OptionalStringView_Free(IntPtr handle);
+    internal static extern void OptionalStringView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- OptionalClosureView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClosureView_Create")]
@@ -155,7 +155,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_OptionalClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void OptionalClosureView_Free(IntPtr handle);
+    internal static extern void OptionalClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- MixedStringView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedStringView_Create")]
@@ -168,7 +168,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedStringView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void MixedStringView_Free(IntPtr handle);
+    internal static extern void MixedStringView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- UpdatableCounterView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_Create")]
@@ -181,7 +181,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void UpdatableCounterView_Free(IntPtr handle);
+    internal static extern void UpdatableCounterView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableCounterView_UpdateCount")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -202,7 +202,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void UpdatableMixedView_Free(IntPtr handle);
+    internal static extern void UpdatableMixedView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_UpdatableMixedView_UpdateTitle")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -238,7 +238,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_AsyncServiceView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void AsyncServiceView_Free(IntPtr handle);
+    internal static extern void AsyncServiceView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- DeepChainView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_DeepChainView_Create")]
@@ -253,7 +253,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_DeepChainView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void DeepChainView_Free(IntPtr handle);
+    internal static extern void DeepChainView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- MixedAsyncView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedAsyncView_Create")]
@@ -268,7 +268,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_MixedAsyncView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void MixedAsyncView_Free(IntPtr handle);
+    internal static extern void MixedAsyncView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- Universal Modifiers (using EnumParamView as test vehicle) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_EnumParamView_SetFrame")]
@@ -315,7 +315,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_LifecycleTestView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void LifecycleTestView_Free(IntPtr handle);
+    internal static extern void LifecycleTestView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_LifecycleTestView_SetLifecycle")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -332,7 +332,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_StringReturnClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void StringReturnClosureView_Free(IntPtr handle);
+    internal static extern void StringReturnClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ClassReturnClosureView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassReturnClosureView_Create")]
@@ -345,7 +345,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassReturnClosureView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void ClassReturnClosureView_Free(IntPtr handle);
+    internal static extern void ClassReturnClosureView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ModifiableView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_Create")]
@@ -358,7 +358,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void ModifiableView_Free(IntPtr handle);
+    internal static extern void ModifiableView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ModifiableView_SetHighlighted")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -383,7 +383,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_GenericPlaceholderView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void GenericPlaceholderView_Free(IntPtr handle);
+    internal static extern void GenericPlaceholderView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- PlaceholderOnlyView ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Create")]
@@ -396,7 +396,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlaceholderOnlyView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void PlaceholderOnlyView_Free(IntPtr handle);
+    internal static extern void PlaceholderOnlyView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ClassParamView UpdateModel ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ClassParamView_UpdateModel")]
@@ -414,7 +414,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NoParamBlurView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void NoParamBlurView_Free(IntPtr handle);
+    internal static extern void NoParamBlurView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- PlayerStyleView (YouTubePlayerKit pattern) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_Create")]
@@ -427,7 +427,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_PlayerStyleView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void PlayerStyleView_Free(IntPtr handle);
+    internal static extern void PlayerStyleView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- FormatActionView (RichTextKit ActionButton pattern — BoundStruct enum) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatActionView_Create")]
@@ -440,7 +440,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatActionView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void FormatActionView_Free(IntPtr handle);
+    internal static extern void FormatActionView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- FormatMenuView (RichTextKit Menu pattern — closure with BoundStruct) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatMenuView_Create")]
@@ -453,7 +453,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_FormatMenuView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void FormatMenuView_Free(IntPtr handle);
+    internal static extern void FormatMenuView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- RichToolbarView (RichTextKit toolbar pattern — dual string) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_Create")]
@@ -466,7 +466,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_RichToolbarView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void RichToolbarView_Free(IntPtr handle);
+    internal static extern void RichToolbarView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- BindingToggleView (Binding<Bool> gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_Create")]
@@ -479,7 +479,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void BindingToggleView_Free(IntPtr handle);
+    internal static extern void BindingToggleView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_BindingToggleView_UpdateIsOn")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -496,7 +496,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_NumberListView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void NumberListView_Free(IntPtr handle);
+    internal static extern void NumberListView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- SymbolIconView (SwiftUI.Image gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_Create")]
@@ -509,7 +509,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_SymbolIconView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void SymbolIconView_Free(IntPtr handle);
+    internal static extern void SymbolIconView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ResultWithStructView (Result<BoundType, BoundStruct> closure gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultWithStructView_Create")]
@@ -524,7 +524,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultWithStructView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void ResultWithStructView_Free(IntPtr handle);
+    internal static extern void ResultWithStructView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 
     // --- ResultCompletionView (Result<T,E> closure gate) ---
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultCompletionView_Create")]
@@ -539,7 +539,7 @@ internal static class BridgeNativeMethods
 
     [DllImport(BridgeLib, EntryPoint = "SBW_SwiftBindingsTestLib_ResultCompletionView_Free")]
     [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
-    internal static extern void ResultCompletionView_Free(IntPtr handle);
+    internal static extern void ResultCompletionView_Free(IntPtr handle, IntPtr handleBuffer, int handleCount, IntPtr postReleaseFreeFn);
 }
 
 #endregion
