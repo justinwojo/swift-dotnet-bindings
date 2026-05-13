@@ -80,6 +80,17 @@ public partial class ProtocolProxyEmitter
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var proxyClassName = GetProxyClassName(protocolDecl);
+
+        // Dispatchable closure properties take a dedicated receiver shape — setter
+        // accepts (fnPtr, ctxPtr) IntPtr pair, getter returns a 16-byte buffer
+        // containing (fnPtr, ctxPtr). Skip the value-shaped emission below.
+        var closureHandlerForProp = new ClosureHandler(_typeDatabase);
+        if (EveryProtocolEmitter.IsDispatchableClosureProperty(property, closureHandlerForProp))
+        {
+            EmitDispatchableClosurePropertyReceivers(writer, property, protocolDecl, proxyClassName, closureHandlerForProp, emittedReceivers);
+            return;
+        }
+
         // P0: Use ABI type for MarshalFromSwift (setter reads Swift memory layout),
         // not the idiomatic type used for signatures.
         var abiTypeName = GetCSharpTypeName(property.SwiftTypeSpec, forAbiMarshalling: true);
@@ -204,6 +215,290 @@ public partial class ProtocolProxyEmitter
                     """);
             }
         }
+    }
+
+    /// <summary>
+    /// Emits the Swift-callback receivers for a dispatchable closure property.
+    /// Setter receiver wraps (fnPtr, ctxPtr) into a managed
+    /// <c>Action</c> via <see cref="SwiftEscapingClosure{TDelegate}"/> and assigns
+    /// it onto the impl. Getter receiver decomposes the user-supplied delegate
+    /// stored on the impl back into a (fnPtr, ctxPtr) pair Swift can re-wrap into
+    /// a Swift closure value. Currently restricted to <c>() -&gt; Void</c> shape
+    /// (enforced by <see cref="EveryProtocolEmitter.IsDispatchableClosureProperty"/>).
+    /// </summary>
+    private void EmitDispatchableClosurePropertyReceivers(CSharpWriter writer, PropertyDecl property,
+        ProtocolDecl protocolDecl, string proxyClassName, ClosureHandler closureHandler,
+        HashSet<string> emittedReceivers)
+    {
+        if (!EveryProtocolEmitter.TryGetDispatchableClosureParam(property.SwiftTypeSpec, closureHandler, out var closure, out var isOptional) || closure is null)
+            throw new InvalidOperationException($"EmitDispatchableClosurePropertyReceivers called on non-dispatchable property '{property.Name}'.");
+
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
+        var delegateType = closureHandler.GetCSharpDelegateType(closure);
+        var nullableDelegateType = isOptional ? $"{delegateType}?" : delegateType;
+
+        // Per-(protocol, property) C# cdecl thunk + invoker class — fired from Swift when
+        // the materialised getter closure is called. ctx is the GCHandle.ToIntPtr of the
+        // user-supplied delegate stored on impl.<PascalProp>; the box wrapping it on the
+        // Swift side guarantees release via the SwiftClosureContext destroy callback.
+        var getterThunkName = $"_PropClosureThunk_{property.Name}";
+
+        if (hasSetter)
+        {
+            var receiverName = $"Receive_{property.Name}_set";
+            if (emittedReceivers.Add(receiverName))
+            {
+                var entryPoint = EveryProtocolEmitter.GetProtocolClosurePropertyInvokeThunkEntryPoint(protocolDecl, property);
+                var helperName = EveryProtocolEmitter.GetProtocolClosureInvokeThunkHelperName(entryPoint);
+                var invokerClassName = ClosureEmitter.GetInvokerClassName(helperName);
+
+                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawFn, IntPtr rawCtx)");
+                writer.WriteLine("{");
+                writer.Indent++;
+                writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxyFromContainer<{proxyClassName}>(container, out var proxy) || proxy is null)");
+                writer.Indent++;
+                writer.WriteLine("return;");
+                writer.Indent--;
+                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("if (impl is null)");
+                writer.Indent++;
+                writer.WriteLine("return;");
+                writer.Indent--;
+                writer.WriteLine("if (rawFn == IntPtr.Zero)");
+                writer.WriteLine("{");
+                writer.Indent++;
+                if (isOptional)
+                    writer.WriteLine($"impl.{pascalPropertyName} = null;");
+                else
+                    writer.WriteLine($"// Non-Optional closure property: nil fnPtr is a contract violation; leave existing impl value unchanged.");
+                writer.WriteLine("return;");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine($"var _wrapper = SwiftEscapingClosure<{delegateType}>.FromSwift(rawFn, rawCtx);");
+                writer.WriteLine($"var _inv = new {invokerClassName}((nint)_wrapper.FunctionPointer, (nint)_wrapper.Context, _wrapper);");
+                writer.WriteLine($"impl.{pascalPropertyName} = _inv.Invoke;");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine();
+            }
+        }
+
+        if (hasGetter)
+        {
+            var receiverName = $"Receive_{property.Name}_get";
+            if (emittedReceivers.Add(receiverName))
+            {
+                writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
+                writer.WriteLine("{");
+                writer.Indent++;
+                writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
+                // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
+                // path returns the same shape.
+                writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxyFromContainer<{proxyClassName}>(container, out var proxy) || proxy is null)");
+                writer.Indent++;
+                writer.WriteLine("return buf;");
+                writer.Indent--;
+                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("if (impl is null)");
+                writer.Indent++;
+                writer.WriteLine("return buf;");
+                writer.Indent--;
+                writer.WriteLine($"{nullableDelegateType} _del = impl.{pascalPropertyName};");
+                writer.WriteLine("if (_del is null)");
+                writer.Indent++;
+                writer.WriteLine("return buf;");
+                writer.Indent--;
+                // GCHandle is freed by the Swift-side _SBClosureCtx box's deinit via the
+                // SwiftClosureContext destroy trampoline. Caller (Swift) takes ownership.
+                writer.WriteLine("var _gch = global::System.Runtime.InteropServices.GCHandle.Alloc(_del);");
+                writer.WriteLine($"*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&{getterThunkName};");
+                writer.WriteLine("*(IntPtr*)(buf + IntPtr.Size) = global::System.Runtime.InteropServices.GCHandle.ToIntPtr(_gch);");
+                writer.WriteLine("return buf;");
+                writer.Indent--;
+                writer.WriteLine("}");
+                writer.WriteLine();
+            }
+        }
+
+        // Stable C# cdecl thunk used by the materialised Swift closure on the getter side.
+        // ctx is the GCHandle.ToIntPtr of impl.<PascalProp>. Restricted to () -> Void by
+        // EveryProtocolEmitter.IsDispatchableClosureProperty.
+        if (hasGetter && emittedReceivers.Add(getterThunkName))
+        {
+            writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            writer.WriteLine($"private static void {getterThunkName}(IntPtr ctx)");
+            writer.WriteLine("{");
+            writer.Indent++;
+            writer.WriteLine("if (ctx == IntPtr.Zero) return;");
+            writer.WriteLine("var handle = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
+            writer.WriteLine("if (!handle.IsAllocated) return;");
+            writer.WriteLine($"if (handle.Target is {delegateType} _del)");
+            writer.Indent++;
+            writer.WriteLine("_del();");
+            writer.Indent--;
+            writer.Indent--;
+            writer.WriteLine("}");
+            writer.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Emits the Swift-callback receiver for a closure-returning protocol method.
+    /// Receiver takes only <c>(vtHandle, selfContainer)</c>, calls the
+    /// C# impl's parameterless method to obtain a managed delegate, and returns a
+    /// 16-byte buffer carrying (fnPtr, GCHandle) so Swift can wrap the pair into a
+    /// real <c>() -&gt; Void</c> closure. Currently restricted to <c>() -&gt; Void</c>
+    /// returns (enforced by <see cref="EveryProtocolEmitter.IsDispatchableClosureReturningMethod"/>).
+    /// </summary>
+    private void EmitDispatchableClosureReturningMethodReceiver(CSharpWriter writer, MethodDecl method,
+        ProtocolDecl protocolDecl, string proxyClassName, int index, ClosureHandler closureHandler)
+    {
+        if (method.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not ClosureTypeSpec retClosure)
+            throw new InvalidOperationException(
+                $"EmitDispatchableClosureReturningMethodReceiver called on method '{method.Name}' without a closure return type.");
+
+        var receiverName = $"Receive_{method.Name}_{index}";
+        var pascalMethodName = NameProvider.GetMethodName(method.Name, propertyNames: null);
+        var delegateType = closureHandler.GetCSharpDelegateType(retClosure);
+        var returnedThunkName = $"_MethodClosureThunk_{method.Name}_{index}";
+
+        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine($"private static IntPtr {receiverName}(IntPtr vtHandle, IntPtr selfContainer)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
+        // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
+        // path returns the same shape (mirrors Shape 3's getter).
+        writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
+        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxyFromContainer<{proxyClassName}>(container, out var proxy) || proxy is null)");
+        writer.Indent++;
+        writer.WriteLine("return buf;");
+        writer.Indent--;
+        writer.WriteLine("var impl = proxy._csharpImpl;");
+        writer.WriteLine("if (impl is null)");
+        writer.Indent++;
+        writer.WriteLine("return buf;");
+        writer.Indent--;
+        writer.WriteLine($"{delegateType}? _del = impl.{pascalMethodName}();");
+        writer.WriteLine("if (_del is null)");
+        writer.Indent++;
+        writer.WriteLine("return buf;");
+        writer.Indent--;
+        writer.WriteLine("var _gch = global::System.Runtime.InteropServices.GCHandle.Alloc(_del);");
+        writer.WriteLine($"*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&{returnedThunkName};");
+        writer.WriteLine("*(IntPtr*)(buf + IntPtr.Size) = global::System.Runtime.InteropServices.GCHandle.ToIntPtr(_gch);");
+        writer.WriteLine("return buf;");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+
+        // Stable C# cdecl thunk fired by the materialised Swift closure on the Swift
+        // side. ctx is the GCHandle.ToIntPtr of the Action returned from impl.<Method>().
+        // Restricted to () -> Void by IsDispatchableClosureReturningMethod.
+        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine($"private static void {returnedThunkName}(IntPtr ctx)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine("if (ctx == IntPtr.Zero) return;");
+        writer.WriteLine("var handle = global::System.Runtime.InteropServices.GCHandle.FromIntPtr(ctx);");
+        writer.WriteLine("if (!handle.IsAllocated) return;");
+        writer.WriteLine($"if (handle.Target is {delegateType} _del)");
+        writer.Indent++;
+        writer.WriteLine("_del();");
+        writer.Indent--;
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the Swift-callback receiver for a protocol method whose single parameter
+    /// is an <c>@escaping () async -&gt; Int32</c> closure. Receiver takes
+    /// <c>(vtHandle, selfContainer, rawArg0_fn, rawArg0_ctx)</c>, wraps the (fnPtr, ctx) pair
+    /// into a managed <c>Func&lt;Task&lt;int&gt;&gt;</c> via the per-(protocol, method) async invoker
+    /// class, and invokes the C# impl with that delegate. The invoker bridges
+    /// <c>InvokeAsync()</c> → Swift @_cdecl thunk → completion callback → TCS.SetResult.
+    /// Currently restricted to <c>() async -&gt; Int32</c> (enforced by
+    /// <see cref="EveryProtocolEmitter.IsDispatchableAsyncClosureMethod"/>).
+    /// </summary>
+    private void EmitDispatchableAsyncClosureMethodReceiver(CSharpWriter writer, MethodDecl method,
+        ProtocolDecl protocolDecl, string proxyClassName, int index, ClosureHandler closureHandler)
+    {
+        // Locate the single async-closure param (gate guarantees exactly one).
+        ArgumentDecl? asyncParam = null;
+        ClosureTypeSpec? asyncClosure = null;
+        int argIdx = -1;
+        foreach (var (param, idx, closure) in EveryProtocolEmitter.EnumerateDispatchableAsyncClosureParams(method, closureHandler))
+        {
+            asyncParam = param;
+            asyncClosure = closure;
+            argIdx = idx;
+            break;
+        }
+        if (asyncParam is null || asyncClosure is null || argIdx < 0)
+            throw new InvalidOperationException(
+                $"EmitDispatchableAsyncClosureMethodReceiver called on method '{method.Name}' without an async closure parameter.");
+
+        var receiverName = $"Receive_{method.Name}_{index}";
+        var delegateType = closureHandler.GetCSharpDelegateType(asyncClosure);
+        var entryPoint = EveryProtocolEmitter.GetProtocolAsyncClosureInvokeThunkEntryPoint(protocolDecl, method, index, argIdx);
+        var helperName = EveryProtocolEmitter.GetProtocolAsyncClosureInvokeThunkHelperName(entryPoint);
+        var invokerClassName = GetAsyncClosureInvokerClassName(helperName);
+
+        // Mirror the property-collision rename used by the non-async receiver so the
+        // impl method name lines up with what the interface emits.
+        var protoQualifiedName = protocolDecl.SwiftTypeName?.ModuleQualifiedName
+                               ?? $"{protocolDecl.ModuleDecl?.Name ?? "Unknown"}.{protocolDecl.Name}";
+        var canonicalPropertyNames = _emissionContext.GetInterfacePropertyNames(protoQualifiedName);
+        HashSet<string> receiverPropertyNames = canonicalPropertyNames != null
+            ? new HashSet<string>(canonicalPropertyNames)
+            : new HashSet<string>();
+        var pascalMethodName = NameProvider.GetPublicMethodName(
+            method.Name, method.IsAsync, hasReturnValue: false,
+            propertyNames: receiverPropertyNames,
+            isSelfReturning: false,
+            parameterCount: 1);
+
+        writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr rawArg0_fn, IntPtr rawArg0_ctx)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine("var container = *(ExistentialContainer1*)selfContainer;");
+        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxyFromContainer<{proxyClassName}>(container, out var proxy) || proxy is null)");
+        writer.Indent++;
+        writer.WriteLine("return;");
+        writer.Indent--;
+        writer.WriteLine("var impl = proxy._csharpImpl;");
+        writer.WriteLine("if (impl is null)");
+        writer.Indent++;
+        writer.WriteLine("return;");
+        writer.Indent--;
+        // Wrap the (fnPtr, ctx) pair in SwiftEscapingClosure so Arc.Retain keeps the Swift
+        // context alive across the async boundary; the invoker class holds the wrapper
+        // reference for the duration of the impl call. Use a method-group bound to the
+        // invoker (Mono-JIT-safe — no display class in the call chain).
+        writer.WriteLine($"var _wrapper = SwiftEscapingClosure<{delegateType}>.FromSwift(rawArg0_fn, rawArg0_ctx);");
+        writer.WriteLine($"var _inv = new {invokerClassName}((nint)_wrapper.FunctionPointer, (nint)_wrapper.Context, _wrapper);");
+        writer.WriteLine($"{delegateType} handler = _inv.InvokeAsync;");
+        writer.WriteLine($"impl.{pascalMethodName}(handler);");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Derives the async closure invoker class name from the per-method helper name.
+    /// Mirrors <see cref="ClosureEmitter.GetInvokerClassName"/> for the async path.
+    /// </summary>
+    internal static string GetAsyncClosureInvokerClassName(string helperMethodName)
+    {
+        return $"_AsyncClosureInv_{helperMethodName.Replace("_InvokeAsyncClosureThunk_", "")}";
     }
 
     private void EmitSubscriptReceivers(CSharpWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, string interfaceName, int index, HashSet<string> emittedReceivers)
@@ -355,6 +650,28 @@ public partial class ProtocolProxyEmitter
             return;
 
         var proxyClassName = GetProxyClassName(protocolDecl);
+
+        // Closure-returning protocol methods take a dedicated receiver shape — no
+        // params, returns a 16-byte buffer of (fnPtr, ctxPtr) that Swift materialises
+        // into a real `() -> Void` closure.
+        var closureHandlerForReturn = new ClosureHandler(_typeDatabase);
+        if (EveryProtocolEmitter.IsDispatchableClosureReturningMethod(method, closureHandlerForReturn))
+        {
+            EmitDispatchableClosureReturningMethodReceiver(writer, method, protocolDecl, proxyClassName, index, closureHandlerForReturn);
+            return;
+        }
+
+        // Async closure-param methods receive (rawArg0_fn, rawArg0_ctx) exactly like
+        // regular escaping closure params, but wrap them into a
+        // Func<Task<int>> via a TaskCompletionSource bridge so the C# impl can `await`
+        // the Swift async closure. Cdecl invoke thunk lives on the Swift side; the
+        // completion callback resumes the TCS from a static UnmanagedCallersOnly thunk.
+        if (EveryProtocolEmitter.IsDispatchableAsyncClosureMethod(method, closureHandlerForReturn))
+        {
+            EmitDispatchableAsyncClosureMethodReceiver(writer, method, protocolDecl, proxyClassName, index, closureHandlerForReturn);
+            return;
+        }
+
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetCSharpTypeName(returnType!) : "void";

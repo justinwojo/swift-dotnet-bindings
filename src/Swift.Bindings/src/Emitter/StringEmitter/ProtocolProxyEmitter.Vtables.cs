@@ -168,6 +168,12 @@ public partial class ProtocolProxyEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        // Dispatchable closure properties: setter slot expands into
+        // (fnPtr, ctxPtr) IntPtr pair to match the Swift @convention(c) trampoline shape
+        // emitted by EveryProtocolEmitter.EmitDispatchableClosurePropertyVtableFields.
+        // Getter slot stays as IntPtr → IntPtr (16-byte buffer holding (fnPtr, ctxPtr)).
+        var closureHandler = new ClosureHandler(_typeDatabase);
+        var isDispatchableClosure = EveryProtocolEmitter.IsDispatchableClosureProperty(property, closureHandler);
 
         if (hasGetter)
         {
@@ -182,7 +188,10 @@ public partial class ProtocolProxyEmitter
             var fieldName = $"Func_{property.Name}_set";
             if (emittedFields.Add(fieldName))
             {
-                writer.WriteLine($"public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void> {fieldName};");
+                if (isDispatchableClosure)
+                    writer.WriteLine($"public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void> {fieldName};");
+                else
+                    writer.WriteLine($"public delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void> {fieldName};");
             }
         }
     }

@@ -256,14 +256,25 @@ public class EveryProtocolEmitter
         // ALL members get fatalError() stubs — no vtable fields needed.
         bool isMixedGenericProtocol = IsMixedGenericProtocol(protocolDecl);
 
-        // Property getters and setters (skip static, @objc optional, closure, Self-typed, and mixed-generic properties)
+        // Property getters and setters (skip static, @objc optional, non-dispatchable closure,
+        // Self-typed, and mixed-generic properties). Dispatchable closure properties fall
+        // through to a specialised vtable-field path that emits (fnPtr, ctx) slots like
+        // the closure-param methods.
         foreach (var property in protocolDecl.Properties)
         {
             if (property.IsStatic || property.IsObjCOptional)
                 continue;
-            // Skip vtable fields for closure properties — they get fatalError() stubs
+            // Skip vtable fields for non-dispatchable closure properties — they get fatalError() stubs.
+            // Dispatchable closure properties get their own vtable-field shape (two pointer slots per accessor).
             if (HasClosureInPropertyType(property))
+            {
+                if (!IsDispatchableClosureProperty(property, closureHandler))
+                    continue;
+                if (isMixedGenericProtocol)
+                    continue;
+                EmitDispatchableClosurePropertyVtableFields(writer, property, closureHandler, emittedFields);
                 continue;
+            }
             // Skip vtable fields for Self-typed properties — they get fatalError() stubs
             if (ContainsSelfTypeParam(property.SwiftTypeSpec))
                 continue;
@@ -312,11 +323,17 @@ public class EveryProtocolEmitter
             {
                 idx = methodIndex++;
                 methodIndices[methodKey] = idx;
-                // Skip vtable fields for closure methods that aren't on the Session 4a
-                // dispatch surface — those get fatalError() stubs and the field would be
-                // dead code. Dispatchable closure methods fall through to vtable-field
-                // emission (which now expands per-closure to two UnsafeRawPointer slots).
-                if (HasClosureInMethodSignature(method) && !IsDispatchableClosureMethod(method, closureHandler))
+                // Skip vtable fields for closure methods that aren't on the dispatch
+                // surface — those get fatalError() stubs and the field would be dead code.
+                // Dispatchable closure-param methods and dispatchable closure-returning
+                // methods fall through to vtable-field emission. Param-side methods expand
+                // per-closure to two UnsafeRawPointer slots; return-side methods reuse the
+                // value-shaped UnsafeRawPointer return slot already produced by
+                // EmitMethodVtableField.
+                if (HasClosureInMethodSignature(method)
+                    && !IsDispatchableClosureMethod(method, closureHandler)
+                    && !IsDispatchableClosureReturningMethod(method, closureHandler)
+                    && !IsDispatchableAsyncClosureMethod(method, closureHandler))
                     continue;
                 // Skip vtable fields for method-level generic methods — they get fatalError() stubs
                 if (HasOnlyMethodLevelGenerics(method))
@@ -406,10 +423,15 @@ public class EveryProtocolEmitter
             }
             if (emittedMembers.Add($"property:{property.Name}"))
             {
-                // Closure properties get fatalError() stubs — closure types can't be
-                // dispatched through the @convention(c) vtable.
+                // Closure properties: dispatchable shapes go through the real proxy
+                // dispatch path; non-dispatchable shapes get fatalError stubs.
                 if (HasClosureInPropertyType(property))
-                    EmitClosurePropertyStub(writer, property);
+                {
+                    if (!isMixedGenericProtocol && IsDispatchableClosureProperty(property, closureHandler))
+                        EmitDispatchableClosurePropertyImplementation(writer, property, protocolDecl, vtableInstanceName, closureHandler);
+                    else
+                        EmitClosurePropertyStub(writer, property);
+                }
                 // Self-typed properties get fatalError() stubs — τ_0_0 can't be dispatched
                 // through the vtable. Renders τ_0_0 as EveryProtocol (the conforming type).
                 else if (ContainsSelfTypeParam(property.SwiftTypeSpec))
@@ -498,15 +520,18 @@ public class EveryProtocolEmitter
             // Only emit method implementation for new methods (not within-protocol duplicates)
             if (isNewMethod)
             {
-                // Session 4a: closure methods on the dispatch surface get a real
-                // implementation that extracts (fnPtr, ctx) and forwards to C# through
-                // the expanded cdecl vtable. Off-surface closure methods (multi-arg,
-                // optional, return-typed, throws, async, properties) still get the
-                // fatalError stub — Session 4b lifts those into dispatch.
+                // Closure methods on the dispatch surface get a real implementation that
+                // extracts (fnPtr, ctx) and forwards to C# through the expanded cdecl
+                // vtable. Off-surface closure methods that aren't yet lifted into dispatch
+                // get the fatalError stub.
                 if (HasClosureInMethodSignature(method))
                 {
                     if (IsDispatchableClosureMethod(method, closureHandler))
                         EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler);
+                    else if (IsDispatchableAsyncClosureMethod(method, closureHandler))
+                        EmitClosureMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler);
+                    else if (IsDispatchableClosureReturningMethod(method, closureHandler))
+                        EmitDispatchableClosureReturningMethodImplementation(writer, method, protocolDecl, vtableInstanceName, idx, closureHandler);
                     else
                         EmitClosureMethodStub(writer, method);
                 }
@@ -1092,11 +1117,25 @@ public class EveryProtocolEmitter
 
         if (hasImplementableMembers)
         {
+            // Dispatchable closure-property getter and closure-returning method materialise
+            // a Swift closure from (fnPtr, ctx) by wrapping the context in
+            // `_sbWrapClosureContext`'s Swift-ARC owner-token box. The helper is a top-level
+            // fileprivate declaration, so emit it BEFORE the protocol extension to keep it at
+            // file scope.
+            {
+                var closureHandlerForHelper = new ClosureHandler(_typeDatabase);
+                bool hasDispatchableClosureProp = protocolDecl.Properties
+                    .Any(p => IsDispatchableClosureProperty(p, closureHandlerForHelper));
+                bool hasDispatchableClosureReturningMethod = protocolDecl.Methods
+                    .Any(m => IsDispatchableClosureReturningMethod(m, closureHandlerForHelper));
+                if (hasDispatchableClosureProp || hasDispatchableClosureReturningMethod)
+                    ClosureContextHelperEmitter.EmitIfNeeded(writer, _emissionContext);
+            }
             EmitProtocolVtableStruct(writer, protocolDecl);
             EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
             EmitSetVtableFunction(writer, protocolDecl);
-            // Session 4a: per-shape @_cdecl invoke thunks for dispatchable closure params.
-            // C# proxy receivers wrap the (fnPtr, ctx) pair into a managed Action whose
+            // Per-shape @_cdecl invoke thunks for dispatchable closure params. C# proxy
+            // receivers wrap the (fnPtr, ctx) pair into a managed Action whose
             // invocation calls back into Swift via a Cdecl P/Invoke — avoiding the
             // delegate* unmanaged[Swift] indirect call that Mono JIT and NativeAOT can't
             // synthesize. The thunk reconstructs the closure from typed memory + invokes it.
@@ -1216,6 +1255,8 @@ public class EveryProtocolEmitter
         // Dispatchable closure params expand into TWO pointer slots (fnPtr + ctx) — see
         // IsDispatchableClosureShape. Non-optional closures use `UnsafeRawPointer`; `Optional<Closure>`
         // uses `UnsafeRawPointer?` so nil round-trips as `0` to the C# trampoline.
+        // Async closure params share the 2-pointer-slot layout — identical Swift-side
+        // extraction, async-specific bridging on the C# side.
         var slotTypes = new List<string> { "OpaquePointer?", "UnsafeRawPointer" };
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
@@ -1225,6 +1266,11 @@ public class EveryProtocolEmitter
                 var slotType = isOpt ? "UnsafeRawPointer?" : "UnsafeRawPointer";
                 slotTypes.Add(slotType);
                 slotTypes.Add(slotType);
+            }
+            else if (IsDispatchableAsyncClosureParam(p, closureHandler, out _))
+            {
+                slotTypes.Add("UnsafeRawPointer");
+                slotTypes.Add("UnsafeRawPointer");
             }
             else
             {
@@ -2022,7 +2068,7 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Session 4a: emits the Swift extension body for a dispatchable closure-receiving method.
+    /// Emits the Swift extension body for a dispatchable closure-receiving method.
     /// Extracts the closure's `(fnPtr, ctx)` pair via `unsafeBitCast`, retains the context so
     /// the C# side can outlive this Swift call, and forwards to the expanded cdecl trampoline
     /// (`vtable, &selfProto, fnPtr, ctx, [more closure pairs…]`). The C# receiver wraps the
@@ -2082,8 +2128,15 @@ public class EveryProtocolEmitter
             var paramName = internalNames[i];
             var escapedParam = NameProvider.EscapeSwiftKeyword(paramName);
             var param = method.CSSignature[i + 1];
-            if (TryGetDispatchableClosureParam(param.SwiftTypeSpec, closureHandler, out _, out var isOptional))
+            var isRegularDispatchable = TryGetDispatchableClosureParam(param.SwiftTypeSpec, closureHandler, out _, out var isOptional);
+            var isAsyncParam = IsDispatchableAsyncClosureParam(param.SwiftTypeSpec, closureHandler, out _);
+            if (isRegularDispatchable || isAsyncParam)
             {
+                // For async closures the (fnPtr, ctx) byte-extraction shape is identical
+                // to the sync path — the only difference is on the C# side and in the
+                // @_cdecl invoke thunk body; the Swift extension just forwards the pair.
+                if (isAsyncParam)
+                    isOptional = false;
                 // Extract the raw (fp, ctx) bytes from the closure parameter without
                 // triggering Swift's generic-abstraction reabstraction thunk.
                 //
@@ -2184,6 +2237,202 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Emits the (fnPtr, ctx) vtable slot pair for a dispatchable closure property.
+    /// Mirrors the closure-method param shape: each accessor takes
+    /// (or returns) two pointer-width slots — function pointer and context — instead
+    /// of the single <c>UnsafeRawPointer</c> used for value-shaped properties.
+    /// <para>
+    /// Setter slot signature:
+    /// <c>@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer?, UnsafeRawPointer?) -&gt; Void</c>
+    /// (handle, self, fnPtr, ctxPtr). Optional vs non-Optional closures share the same
+    /// signature — non-Optional cannot be nil at the source level, but Swift's
+    /// <c>UnsafeRawPointer?</c> permits writing a nil through the same field.
+    /// </para>
+    /// <para>
+    /// Getter slot signature:
+    /// <c>@convention(c)(OpaquePointer?, UnsafeRawPointer) -&gt; UnsafeRawPointer</c>
+    /// — same as the existing value-property getter shape; the returned pointer
+    /// targets a 16-byte buffer containing (fnPtr, ctxPtr) read by the Swift
+    /// adapter materialiser.
+    /// </para>
+    /// </summary>
+    private void EmitDispatchableClosurePropertyVtableFields(SwiftWriter writer, PropertyDecl property,
+        ClosureHandler closureHandler, HashSet<string> emittedFields)
+    {
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+
+        if (hasGetter)
+        {
+            var fieldName = $"func_{property.Name}_get";
+            if (emittedFields.Add(fieldName))
+            {
+                var funcType = "(@convention(c)(OpaquePointer?, UnsafeRawPointer) -> UnsafeRawPointer)?";
+                writer.WriteLine($"var {fieldName}: {funcType}");
+            }
+        }
+        if (hasSetter)
+        {
+            var fieldName = $"func_{property.Name}_set";
+            if (emittedFields.Add(fieldName))
+            {
+                var funcType = "(@convention(c)(OpaquePointer?, UnsafeRawPointer, UnsafeRawPointer?, UnsafeRawPointer?) -> Void)?";
+                writer.WriteLine($"var {fieldName}: {funcType}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits the Swift property implementation for a dispatchable closure property.
+    /// Setter extracts (fnPtr, ctx) bytes via the
+    /// reabstraction-trap-safe inout-bytes pattern (see
+    /// <c>feedback_optional_closure_reabstraction</c>) and forwards through the vtable;
+    /// getter calls the vtable and materialises a Swift closure value from the returned
+    /// (fnPtr, ctx) buffer using the <c>_sbWrapClosureContext</c> Swift-ARC owner-token
+    /// box.
+    /// </summary>
+    private void EmitDispatchableClosurePropertyImplementation(SwiftWriter writer, PropertyDecl property,
+        ProtocolDecl protocolDecl, string vtableInstanceName, ClosureHandler closureHandler)
+    {
+        var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
+        var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
+        var hasClosure = TryGetDispatchableClosureParam(property.SwiftTypeSpec, closureHandler, out var closure, out var isOptional);
+        if (!hasClosure || closure is null)
+            throw new InvalidOperationException(
+                $"EmitDispatchableClosurePropertyImplementation called on non-dispatchable property '{property.Name}'.");
+
+        writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
+        writer.Indent++;
+
+        if (hasGetter)
+        {
+            // Allocate two pointer-width slots on the C# side, read (fnPtr, ctxPtr) back,
+            // and materialise a Swift closure value via _sbWrapClosureContext + unsafeBitCast.
+            // Optional<Closure>: nil fnPtr → return nil. Non-Optional: nil from C# is a contract
+            // violation; we still defensively fall through to fatalError so misuse is loud.
+            var conventionCType = ClosureEmitter.GetSwiftConventionCType(closure, closureHandler);
+            var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+            var fieldGetter = $"{vtableInstanceName}.func_{property.Name}_get";
+
+            writer.WriteLines($$"""
+                get {
+                    var selfProto: {{protocolName}} = self
+                    let resultPtr = {{fieldGetter}}!(
+                        {{vtableInstanceName}}.csVTHandle, &selfProto)
+                    let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
+                    let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
+                    resultPtr.deallocate()
+                """);
+            writer.Indent++;
+            if (isOptional)
+            {
+                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { return nil }");
+            }
+            else
+            {
+                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
+            }
+            // Wrap the GCHandle context in a Swift-ARC owner-token box: when the returned
+            // closure (and thus the captured box) is released, the box's deinit fires the
+            // C# free callback registered by SwiftClosureContext.EnsureRegistered.
+            writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
+            writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
+            writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
+            EmitDispatchableClosureGetterAdapter(writer, closure, closureHandler);
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        if (hasSetter)
+        {
+            var setterField = $"{vtableInstanceName}.func_{property.Name}_set";
+            var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+            writer.WriteLines($$"""
+                set {
+                    var selfProto: {{protocolName}} = self
+                    var newValueLocal = newValue
+                    let (_fnPtr, _ctxPtr): (UnsafeRawPointer?, UnsafeRawPointer?) = withUnsafeBytes(of: &newValueLocal) { _bytes in
+                        return (
+                            _bytes.load(as: UnsafeRawPointer?.self),
+                            _bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer?.self)
+                        )
+                    }
+                    {{setterField}}!(
+                        {{vtableInstanceName}}.csVTHandle, &selfProto, _fnPtr, _ctxPtr)
+                }
+                """);
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the Swift method implementation for a closure-returning protocol method.
+    /// Mirrors <see cref="EmitDispatchableClosurePropertyImplementation"/>'s getter — the
+    /// only structural difference is that this is a method (`func`) not a computed
+    /// property, and there are no method parameters by this shape's gate.
+    /// </summary>
+    private void EmitDispatchableClosureReturningMethodImplementation(SwiftWriter writer, MethodDecl method,
+        ProtocolDecl protocolDecl, string vtableInstanceName, int methodIdx, ClosureHandler closureHandler)
+    {
+        if (method.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not ClosureTypeSpec retClosure)
+            throw new InvalidOperationException(
+                $"EmitDispatchableClosureReturningMethodImplementation called on method '{method.Name}' without a closure return type.");
+
+        var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
+        var fieldGetter = $"{vtableInstanceName}.func_{method.Name}_{methodIdx}";
+        var conventionCType = ClosureEmitter.GetSwiftConventionCType(retClosure, closureHandler);
+        var swiftReturnTypeName = GetSwiftTypeName(retClosure);
+
+        writer.WriteLine($"public func {method.Name}() -> {swiftReturnTypeName} {{");
+        writer.Indent++;
+        writer.WriteLines($$"""
+            var selfProto: {{protocolName}} = self
+            let resultPtr = {{fieldGetter}}!(
+                {{vtableInstanceName}}.csVTHandle, &selfProto)
+            let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
+            let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
+            resultPtr.deallocate()
+            """);
+        writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"EveryProtocol: closure-returning method '" + method.Name + "' returned nil function pointer\") }");
+        writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
+        writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
+        writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
+        EmitDispatchableClosureGetterAdapter(writer, retClosure, closureHandler);
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the Swift closure-value materialisation body for a dispatchable closure
+    /// property getter. Produces an adapted Swift closure that invokes the C# cdecl
+    /// thunk with the original (fnPtr, ctx) bytes captured under a <c>[_box]</c>
+    /// capture list so Swift ARC keeps the owner-token box alive for the closure's
+    /// lifetime. Mirrors the non-throwing/non-async happy path of
+    /// <see cref="ClosureEmitter.GetSwiftClosureAdapterCode"/>; Shape 3 currently
+    /// restricts the closure type to <c>() -&gt; Void</c> (see
+    /// <see cref="IsDispatchableClosureProperty"/>) so the adapter body is the
+    /// minimal Swift→cdecl call.
+    /// </summary>
+    private static void EmitDispatchableClosureGetterAdapter(SwiftWriter writer, ClosureTypeSpec closure, ClosureHandler closureHandler)
+    {
+        // Shape 3 restricts to () -> Void closure values: the materialised Swift closure
+        // takes no arguments and returns Void, calling the cdecl thunk with the captured
+        // context pointer.
+        writer.WriteLine("let _adapted: () -> Void = { [_box] in");
+        writer.Indent++;
+        writer.WriteLine("_ = _box");
+        writer.WriteLine("_cdecl(_ctxPtr)");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("return _adapted");
+    }
+
+    /// <summary>
     /// Checks if a method has closure types (ClosureTypeSpec) in any parameter or return type.
     /// Methods with closure types can't be dispatched through the EveryProtocol vtable
     /// because closures aren't representable as UnsafeRawPointer in @convention(c) callbacks.
@@ -2273,6 +2522,181 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Returns true for protocol methods that take a single async closure parameter the
+    /// dispatch path can handle. Scope is restricted to the
+    /// minimum viable shape — bare closure (not Optional), zero args, primitive Int32
+    /// return, non-throwing. The Swift @_cdecl invoke thunk wraps the closure body in
+    /// <c>Task { let r = await closure(); completion(ctx, r) }</c>; the C# proxy
+    /// surfaces the closure as <c>Func&lt;Task&lt;int&gt;&gt;</c> by allocating a
+    /// <see cref="TaskCompletionSource{TResult}"/> and pinning it via GCHandle for
+    /// the completion callback to resume.
+    /// </summary>
+    internal static bool IsDispatchableAsyncClosureMethod(MethodDecl method, ClosureHandler closureHandler)
+    {
+        if (method.IsAsync || method.Throws)
+            return false;
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        if (returnType != null && !returnType.IsEmptyTuple)
+            return false;
+        if (HasSelfTypeParamInSignature(method) || HasOnlyMethodLevelGenerics(method))
+            return false;
+        var nonSelfParams = method.CSSignature.Skip(1).ToList();
+        if (nonSelfParams.Count != 1)
+            return false;
+        var only = nonSelfParams[0];
+        return IsDispatchableAsyncClosureParam(only.SwiftTypeSpec, closureHandler, out _);
+    }
+
+    /// <summary>
+    /// Gate for the async closure-param shape currently supported by EveryProtocol
+    /// forward dispatch. Restricted to <c>@escaping () async -&gt; Int32</c>
+    /// (no args, Int32 return, non-throwing). Multi-arg / non-Int32-return / throwing
+    /// async closure shapes are out of scope and need richer Task-bridging machinery
+    /// before they can be admitted.
+    /// </summary>
+    internal static bool IsDispatchableAsyncClosureParam(TypeSpec? paramType, ClosureHandler closureHandler, out ClosureTypeSpec? closure)
+    {
+        closure = null;
+        if (paramType is not ClosureTypeSpec direct)
+            return false;
+        if (!direct.IsAsync)
+            return false;
+        if (!direct.IsEscaping)
+            return false;
+        if (direct.Throws)
+            return false;
+        if (direct.HasAttributes)
+        {
+            foreach (var attr in direct.Attributes)
+            {
+                if (attr.Name != "escaping")
+                    return false;
+            }
+        }
+        if (direct.EachArgument().Count() != 0)
+            return false;
+        // Return must be Int32 (the only primitive we currently bridge through the
+        // async completion callback). Extending the gate to other primitives needs a
+        // matching expansion of the completion-callback signature.
+        if (direct.ReturnType is not NamedTypeSpec named || named.Name != "Swift.Int32")
+            return false;
+        closure = direct;
+        return true;
+    }
+
+    /// <summary>
+    /// Stable @_cdecl entry point name for the per-method async invoke thunk. Mirrors
+    /// <see cref="GetProtocolClosureInvokeThunkEntryPoint"/> but suffixed with
+    /// <c>_Async</c> so the symbol table makes the shape visible at audit time.
+    /// </summary>
+    internal static string GetProtocolAsyncClosureInvokeThunkEntryPoint(ProtocolDecl protocolDecl, MethodDecl method, int methodIdx, int argIdx)
+    {
+        return $"SBW_{protocolDecl.Name}_{method.Name}_m{methodIdx}_arg{argIdx}_AsyncInvCR";
+    }
+
+    /// <summary>
+    /// Deterministic C# helper method name for the async invoke thunk's P/Invoke.
+    /// Mirrors <see cref="GetProtocolClosureInvokeThunkHelperName"/>.
+    /// </summary>
+    internal static string GetProtocolAsyncClosureInvokeThunkHelperName(string entryPointName)
+    {
+        var hash = EmitterUtility.DeterministicHash8(entryPointName);
+        return $"_InvokeAsyncClosureThunk_{hash}";
+    }
+
+    /// <summary>
+    /// Enumerates dispatchable async closure parameters on a method. Yields
+    /// (param, argIdx, closure) for each parameter whose <see cref="TypeSpec"/> passes
+    /// <see cref="IsDispatchableAsyncClosureParam"/>.
+    /// </summary>
+    internal static IEnumerable<(ArgumentDecl Param, int ArgIdx, ClosureTypeSpec Closure)> EnumerateDispatchableAsyncClosureParams(MethodDecl method, ClosureHandler closureHandler)
+    {
+        int argIdx = 0;
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var p = method.CSSignature[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(p) || p.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            if (IsDispatchableAsyncClosureParam(p.SwiftTypeSpec, closureHandler, out var closure))
+                yield return (p, argIdx, closure!);
+            argIdx++;
+        }
+    }
+
+    /// <summary>
+    /// Returns true for protocol methods that take no closure parameters but whose
+    /// return type is a dispatchable closure value. The Swift adapter calls into C#
+    /// through the vtable, the C# proxy returns a (fnPtr, ctx) pair, and Swift wraps the
+    /// pair into a real Swift closure via `_sbWrapClosureContext` for the caller to
+    /// invoke later. Currently restricted to `() -&gt; Void` returns and zero non-Self
+    /// params — the dispatch surface mirrors the dispatchable closure property getter.
+    /// </summary>
+    internal static bool IsDispatchableClosureReturningMethod(MethodDecl method, ClosureHandler closureHandler)
+    {
+        if (method.IsAsync || method.Throws)
+            return false;
+        if (HasSelfTypeParamInSignature(method) || HasOnlyMethodLevelGenerics(method))
+            return false;
+
+        // Return type must be a dispatchable closure shape (no Optional<Closure> for now —
+        // the Swift adapter for a method return uses a non-optional shape).
+        var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
+        if (returnType is not ClosureTypeSpec returnClosure)
+            return false;
+        if (!IsDispatchableClosureShape(returnClosure, closureHandler))
+            return false;
+
+        // Shape 4 restricts to () -> Void return: the materialiser only knows how to
+        // call a zero-arg void cdecl thunk. Other shapes need richer adapter bodies
+        // before they can pass this gate.
+        if (returnClosure.Throws || returnClosure.IsAsync)
+            return false;
+        if (returnClosure.EachArgument().Count() != 0)
+            return false;
+        if (!returnClosure.ReturnType.IsEmptyTuple)
+            return false;
+
+        // No non-self parameters (the return value is the only "output" path and a
+        // multi-param method needs a more complex receiver shape than Shape 4 emits).
+        var nonSelfParams = method.CSSignature.Skip(1).ToList();
+        if (nonSelfParams.Count != 0)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Returns true for closure-bearing protocol properties that have a real
+    /// Swift↔C# proxy dispatch implementation. Accepts properties whose declared type
+    /// is either a bare <see cref="ClosureTypeSpec"/> or <c>Optional&lt;Closure&gt;</c>
+    /// with the closure passing <see cref="IsDispatchableClosureShape"/>. Required
+    /// setter accessor mirrors the method-param dispatch path; getter materialisation
+    /// goes through the dedicated property-getter thunk emitted by
+    /// <see cref="ProtocolProxyEmitter"/>.
+    /// </summary>
+    internal static bool IsDispatchableClosureProperty(PropertyDecl property, ClosureHandler closureHandler)
+    {
+        if (property.IsStatic || property.IsObjCOptional)
+            return false;
+        if (ContainsSelfTypeParam(property.SwiftTypeSpec))
+            return false;
+        if (!TryGetDispatchableClosureParam(property.SwiftTypeSpec, closureHandler, out var closure, out _) || closure is null)
+            return false;
+        // Shape 3 restricts the dispatch path to () -> Void closure properties: the
+        // getter-side Swift adapter materialiser only knows how to call a zero-arg
+        // void cdecl thunk. Multi-arg / return-typed / throwing closure-property shapes
+        // remain stubbed until the adapter emitter learns the corresponding cdecl bodies.
+        if (closure.Throws || closure.IsAsync)
+            return false;
+        var argCount = closure.EachArgument().Count();
+        if (argCount != 0)
+            return false;
+        if (!closure.ReturnType.IsEmptyTuple)
+            return false;
+        return true;
+    }
+
+    /// <summary>
     /// Recognises closure-bearing parameter shapes that the dispatch path can handle:
     /// bare `ClosureTypeSpec` or `Optional&lt;Closure&gt;`. The closure must independently pass
     /// <see cref="IsDispatchableClosureShape"/>.
@@ -2301,7 +2725,9 @@ public class EveryProtocolEmitter
 
     /// <summary>
     /// True when the closure shape can pass through the dispatch path: escaping, non-async,
-    /// non-throwing, and with arg/return types the invoke thunk can marshal.
+    /// and with arg/return types the invoke thunk can marshal. Throwing closures are
+    /// allowed when the invoke thunk supports them (Cdecl error-out parameter; see
+    /// <see cref="ClosureEmitter.EmitSwiftInvokeThunk"/>).
     /// </summary>
     /// <param name="treatAsEscaping">
     /// Set when the caller has already established that the closure is implicitly escaping
@@ -2312,7 +2738,7 @@ public class EveryProtocolEmitter
     {
         if (!closure.IsEscaping && !treatAsEscaping)
             return false;
-        if (closure.IsAsync || closure.Throws)
+        if (closure.IsAsync)
             return false;
         // @convention(c), @autoclosure, and actor/Sendable-qualified closures need additional
         // thunk plumbing we don't emit yet — only `escaping` is allowed.
@@ -2341,11 +2767,13 @@ public class EveryProtocolEmitter
     {
         if (TryGetDispatchableClosureParam(paramType, closureHandler, out _, out _))
             return 2;
+        if (IsDispatchableAsyncClosureParam(paramType, closureHandler, out _))
+            return 2;
         return 1;
     }
 
     /// <summary>
-    /// Session 4a: stable @_cdecl entry point name for the per-closure-param invoke thunk.
+    /// Stable @_cdecl entry point name for the per-closure-param invoke thunk.
     /// The thunk is the Swift function the C# proxy calls (via Cdecl P/Invoke) when the
     /// user-stored Action is invoked — it reconstructs the closure from (fnPtr, ctx) and
     /// calls it. Uses the wrapper-symbol "SBW_" prefix so the wrapper-symbol contract
@@ -2357,7 +2785,7 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Session 4a: human-readable Swift function name for the invoke thunk. Only visible inside
+    /// Human-readable Swift function name for the invoke thunk. Only visible inside
     /// the wrapper module — the @_cdecl entry point name from
     /// <see cref="GetProtocolClosureInvokeThunkEntryPoint"/> is the linker-visible symbol.
     /// </summary>
@@ -2367,7 +2795,7 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Session 4a: deterministic C# helper method name for the closure invoke thunk's P/Invoke.
+    /// Deterministic C# helper method name for the closure invoke thunk's P/Invoke.
     /// Mirrors <see cref="ClosureEmitter.GetInvokeThunkHelperName"/>, but keyed on the
     /// protocol-method entry point (not a wrapper @_cdecl mangled name).
     /// </summary>
@@ -2378,7 +2806,7 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Session 4a: enumerates the dispatchable closure parameter positions on a protocol method.
+    /// Enumerates the dispatchable closure parameter positions on a protocol method.
     /// Yields (param, argIdx) for each parameter whose <see cref="TypeSpec"/> is a dispatchable
     /// closure shape. The argIdx skips the receiver, so it's the same as the position in the
     /// C# receiver's expanded P/Invoke parameter list.
@@ -2398,7 +2826,82 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Session 4a: enumerates protocol methods with their assigned vtable index, mirroring the
+    /// Stable @_cdecl entry point name for the per-closure-property invoke
+    /// thunk. Mirrors <see cref="GetProtocolClosureInvokeThunkEntryPoint"/> but keyed on the
+    /// property — the C# proxy needs this same thunk when the user-supplied delegate stored
+    /// on the impl's closure-property is invoked from Swift (setter direction).
+    /// </summary>
+    internal static string GetProtocolClosurePropertyInvokeThunkEntryPoint(ProtocolDecl protocolDecl, PropertyDecl property)
+    {
+        return $"SBW_{protocolDecl.Name}_{property.Name}_PropInvCR";
+    }
+
+    /// <summary>
+    /// Human-readable Swift function name for the property invoke thunk.
+    /// </summary>
+    internal static string GetProtocolClosurePropertyInvokeThunkSwiftFuncName(ProtocolDecl protocolDecl, PropertyDecl property)
+    {
+        return $"_invokeProtocolClosureProperty_{protocolDecl.Name}_{property.Name}";
+    }
+
+    /// <summary>
+    /// Stable @_cdecl entry point name for the closure-returning method's
+    /// invoke thunk. Mirrors <see cref="GetProtocolClosureInvokeThunkEntryPoint"/> but keyed on
+    /// the method only — the C# proxy needs this thunk when the user-supplied delegate stored
+    /// on the impl is invoked from Swift after materialisation.
+    /// </summary>
+    internal static string GetProtocolClosureReturningMethodInvokeThunkEntryPoint(ProtocolDecl protocolDecl, MethodDecl method, int methodIdx)
+    {
+        return $"SBW_{protocolDecl.Name}_{method.Name}_m{methodIdx}_RetInvCR";
+    }
+
+    /// <summary>
+    /// Human-readable Swift function name for the closure-returning method's
+    /// invoke thunk.
+    /// </summary>
+    internal static string GetProtocolClosureReturningMethodInvokeThunkSwiftFuncName(ProtocolDecl protocolDecl, MethodDecl method, int methodIdx)
+    {
+        return $"_invokeProtocolClosureReturningMethod_{protocolDecl.Name}_{method.Name}_m{methodIdx}";
+    }
+
+    /// <summary>
+    /// Enumerates dispatchable closure-returning methods on a protocol —
+    /// each yielded entry produces a per-(protocol, method) Swift cdecl thunk and matching
+    /// C# DllImport + invoker class. Uses the same method-index dedup as
+    /// <see cref="EnumerateProtocolMethodsForDispatch"/>.
+    /// </summary>
+    internal static IEnumerable<(MethodDecl Method, int MethodIdx, ClosureTypeSpec ReturnClosure)> EnumerateDispatchableClosureReturningMethods(ProtocolDecl protocolDecl, ClosureHandler closureHandler)
+    {
+        foreach (var (method, methodIdx) in EnumerateProtocolMethodsForDispatch(protocolDecl))
+        {
+            if (!IsDispatchableClosureReturningMethod(method, closureHandler))
+                continue;
+            if (method.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not ClosureTypeSpec retClosure)
+                continue;
+            yield return (method, methodIdx, retClosure);
+        }
+    }
+
+    /// <summary>
+    /// Enumerates dispatchable closure properties on a protocol — each
+    /// yielded entry produces a per-(protocol, property) Swift cdecl thunk and matching
+    /// C# DllImport + invoker class. Skips static / ObjC-optional properties and any
+    /// property that does not pass <see cref="IsDispatchableClosureProperty"/>.
+    /// </summary>
+    internal static IEnumerable<(PropertyDecl Property, ClosureTypeSpec Closure, bool IsOptional)> EnumerateDispatchableClosureProperties(ProtocolDecl protocolDecl, ClosureHandler closureHandler)
+    {
+        foreach (var property in protocolDecl.Properties)
+        {
+            if (!IsDispatchableClosureProperty(property, closureHandler))
+                continue;
+            if (!TryGetDispatchableClosureParam(property.SwiftTypeSpec, closureHandler, out var closure, out var isOptional) || closure is null)
+                continue;
+            yield return (property, closure, isOptional);
+        }
+    }
+
+    /// <summary>
+    /// Enumerates protocol methods with their assigned vtable index, mirroring the
     /// dedup logic used by <see cref="EmitProtocolExtension"/> and
     /// <see cref="EmitProtocolVtableStruct"/>. Only yields each unique method-key once (skipping
     /// constructors, statics, and ObjC-optional methods) — the assigned idx matches the local
@@ -2426,7 +2929,7 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Session 4a: emits @_cdecl invoke thunks for every dispatchable closure parameter on the
+    /// Emits @_cdecl invoke thunks for every dispatchable closure parameter on the
     /// protocol's instance methods. Each thunk reconstructs the closure from (funcPtr, context)
     /// via typed memory binding and invokes it — the matching C# DllImport + invoker class are
     /// emitted by <see cref="ProtocolProxyEmitter"/> (see EmitProtocolClosureInvokeThunkHelpers).
@@ -2448,6 +2951,77 @@ public class EveryProtocolEmitter
                     entryPoint, swiftFuncName, _emissionContext);
             }
         }
+
+        // Per-property closure invoke thunks. When the user-supplied
+        // delegate stored on impl.<PascalProp> is invoked from Swift via the materialised
+        // adapter, the adapter calls this @_cdecl thunk which reconstructs the original
+        // Swift closure (when it was set from Swift) and calls it. Same invoke-thunk
+        // machinery as method-param closures, keyed on (protocol, property).
+        foreach (var (property, closure, _) in EnumerateDispatchableClosureProperties(protocolDecl, closureHandler))
+        {
+            var entryPoint = GetProtocolClosurePropertyInvokeThunkEntryPoint(protocolDecl, property);
+            var swiftFuncName = GetProtocolClosurePropertyInvokeThunkSwiftFuncName(protocolDecl, property);
+            ClosureEmitter.EmitSwiftInvokeThunk(writer, closure, closureHandler,
+                entryPoint, swiftFuncName, _emissionContext);
+        }
+
+        // Closure-returning methods do NOT need a Swift-side @_cdecl invoke thunk: the closure
+        // returned from impl.<Method>() is a pure managed Action and the (fnPtr, ctx)
+        // pair points at the C# proxy's `_MethodClosureThunk_<name>_<idx>` directly.
+        // Swift wraps the pair into a `() -> Void` via `_sbWrapClosureContext` and calls
+        // that C# thunk by function pointer — no Swift→C# invoke shim is required.
+
+        // Per-method async closure invoke thunks. Spawns Task to drive
+        // `await closure()` and signals completion to C# via a function-pointer callback
+        // (TaskCompletionSource bridge on the C# side). Restricted to () async -> Int32.
+        foreach (var (method, methodIdx) in EnumerateProtocolMethodsForDispatch(protocolDecl))
+        {
+            if (!IsDispatchableAsyncClosureMethod(method, closureHandler))
+                continue;
+            foreach (var (param, argIdx, closure) in EnumerateDispatchableAsyncClosureParams(method, closureHandler))
+            {
+                EmitProtocolAsyncClosureInvokeThunk(writer, protocolDecl, method, methodIdx, argIdx);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits the Swift @_cdecl invoke thunk for an async closure
+    /// parameter on a protocol method. The thunk takes the closure's (fnPtr, ctx)
+    /// pair plus a TaskCompletionSource handle and a C# completion function pointer,
+    /// reconstructs the Swift async closure via raw-byte interpretation, spawns a
+    /// detached Task to drive <c>await closure()</c>, then calls the completion
+    /// callback with the Int32 result so the C# side can resume the TCS.
+    /// </summary>
+    private void EmitProtocolAsyncClosureInvokeThunk(SwiftWriter writer, ProtocolDecl protocolDecl, MethodDecl method, int methodIdx, int argIdx)
+    {
+        var entryPoint = GetProtocolAsyncClosureInvokeThunkEntryPoint(protocolDecl, method, methodIdx, argIdx);
+        var swiftFuncName = $"_invokeProtocolAsyncClosure_{protocolDecl.Name}_{method.Name}_m{methodIdx}_arg{argIdx}";
+
+        writer.WriteLine("// Async closure invoke thunk. Spawns a Task to drive");
+        writer.WriteLine($"// `await closure()` and signals completion to C# via the function-pointer callback.");
+        writer.WriteLine($"@_cdecl(\"{entryPoint}\")");
+        writer.WriteLine($"public func {swiftFuncName}(");
+        writer.WriteLine("    _ _funcPtr: Int,");
+        writer.WriteLine("    _ _context: Int,");
+        writer.WriteLine("    _ _tcsHandle: Int,");
+        writer.WriteLine("    _ _completion: @convention(c) (Int, Int32) -> Void) {");
+        writer.Indent++;
+        writer.WriteLine("let _buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<(Int, Int)>.size, alignment: MemoryLayout<(Int, Int)>.alignment)");
+        writer.WriteLine("_buf.storeBytes(of: _funcPtr, as: Int.self)");
+        writer.WriteLine("_buf.storeBytes(of: _context, toByteOffset: MemoryLayout<Int>.size, as: Int.self)");
+        writer.WriteLine("let _closure = _buf.assumingMemoryBound(to: (() async -> Int32).self).pointee");
+        writer.WriteLine("_buf.deallocate()");
+        writer.WriteLine("Task {");
+        writer.Indent++;
+        writer.WriteLine("let result = await _closure()");
+        writer.WriteLine("_completion(_tcsHandle, result)");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine();
+        _emissionContext?.TryAddMethodWrapperSymbol(entryPoint);
     }
 
     /// <summary>

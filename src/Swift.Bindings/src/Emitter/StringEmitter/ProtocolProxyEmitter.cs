@@ -166,8 +166,8 @@ public partial class ProtocolProxyEmitter
         // Emit static constructor (registers vtable with Swift)
         EmitStaticConstructor(writer, protocolDecl);
 
-        // Session 4a: emit per-closure-param DllImport thunks + invoker classes BEFORE
-        // receivers — receivers reference the invoker class names when wrapping the
+        // Emit per-closure-param DllImport thunks + invoker classes BEFORE receivers —
+        // receivers reference the invoker class names when wrapping the
         // (fnPtr, ctx) IntPtr pair into a managed delegate (e.g. Action).
         EmitProtocolClosureInvokeThunkHelpers(writer, protocolDecl);
 

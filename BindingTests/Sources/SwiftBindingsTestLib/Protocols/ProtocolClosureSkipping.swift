@@ -34,7 +34,7 @@ public class EventRouter {
         return delegate?.delegateName ?? "none"
     }
 
-    /// Drives Session 4a closure-param dispatch: calls `onComplete(handler:)` on the
+    /// Drives closure-param dispatch: calls `onComplete(handler:)` on the
     /// delegate with a Swift-built closure. When the delegate is a C# proxy, this
     /// exercises Swift → C# closure-parameter marshalling via the expanded vtable.
     /// The closure mutates `lastHandlerTag` so test code can observe that the C# impl
@@ -78,7 +78,7 @@ public class DataLoader {
     }
 }
 
-// MARK: - Protocol with Primitives-Only Multi-Arg Closure (Session 4b)
+// MARK: - Protocol with Primitives-Only Multi-Arg Closure
 
 /// Like DataLoadingDelegate but with primitives-only closure args, so the invoke-thunk
 /// gate accepts it. Drives Swift→C# multi-arg closure dispatch.
@@ -150,7 +150,7 @@ public class TaskRunner {
     }
 }
 
-// MARK: - Protocol with Return-Typed Closure (Session 4b)
+// MARK: - Protocol with Return-Typed Closure
 
 /// Protocol with a closure that returns a value: `() -> Int32`.
 /// Tests Swift→C# dispatch of return-typed closures via the invoke-thunk path.
@@ -175,5 +175,252 @@ public class IntFactoryRouter {
             self?.lastReturnedValue = v
             return v
         })
+    }
+}
+
+// MARK: - Protocol with Throwing Closure (Shape 1)
+
+/// Error type used by ThrowingIntDelegate's throwing closure so the C# side can
+/// observe a real `Error` reference (not a marshalled value) via SwiftResult.Failure.
+public struct ThrowingProcessorError: Error {
+    public let code: Int32
+    public init(code: Int32) { self.code = code }
+}
+
+/// Protocol with a throwing closure parameter: `(Int32) throws -> Int32`.
+/// Tests Shape 1 — Cdecl @_cdecl invoke thunk with explicit
+/// `_errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>` error-out
+/// parameter on the wrapper side, surfaced as `SwiftResult<T, SwiftError>`
+/// on the C# delegate signature.
+public protocol ThrowingIntDelegate {
+    func processInt(callback: @escaping (Int32) throws -> Int32)
+}
+
+/// Consumer for ThrowingIntDelegate. fireProcessInt builds a Swift throwing
+/// closure that succeeds for non-negative input and throws for negative input,
+/// then passes it to the delegate. The C# impl captures the closure so the
+/// test can drive both success and failure paths and observe SwiftResult.
+public class ThrowingIntRouter {
+    public var delegate: (any ThrowingIntDelegate)?
+
+    public init() {
+        self.delegate = nil
+    }
+
+    public func fireProcessInt() {
+        delegate?.processInt(callback: { input throws -> Int32 in
+            if input < 0 {
+                throw ThrowingProcessorError(code: 42)
+            }
+            return input &* 2
+        })
+    }
+}
+
+// MARK: - Protocol with Optional Closure Property (Shape 3)
+
+/// Protocol with an `Optional<Closure>` property, `var handler: (() -> Void)?`.
+/// Tests Shape 3 — closure-property setter/getter round-trip through
+/// the EveryProtocol vtable. Setter unwraps the (fnPtr, ctx) pair the C# proxy
+/// receives into a managed `Action` via `SwiftEscapingClosure`; getter
+/// materialises a Swift closure that calls back into the C# delegate via a
+/// per-(protocol, property) @_cdecl invoke thunk on the runtime side.
+public protocol HasCallbackDelegate {
+    var handler: (() -> Void)? { get set }
+}
+
+/// Driver for HasCallbackDelegate. The test sets a C# Action onto `delegate.handler`,
+/// then `invokeHandler()` reads it back from Swift and fires it — exercising the
+/// Swift→C# materialisation path. `setHandlerFromSwift` runs the inverse: Swift
+/// constructs a closure and assigns it into the delegate, exercising the C# setter
+/// receiver that wraps (fnPtr, ctx) back into a managed Action.
+public class CallbackRouter {
+    public var delegate: (any HasCallbackDelegate)?
+    public var swiftHandlerFiredCount: Int32 = 0
+
+    public init() {
+        self.delegate = nil
+    }
+
+    public func invokeHandler() {
+        delegate?.handler?()
+    }
+
+    public func setHandlerFromSwift(toNil: Bool) {
+        if toNil {
+            delegate?.handler = nil
+        } else {
+            delegate?.handler = { [weak self] in
+                self?.swiftHandlerFiredCount += 1
+            }
+        }
+    }
+
+    public func clearHandlerOnDelegate() {
+        delegate?.handler = nil
+    }
+}
+
+// MARK: - Protocol with Closure-Returning Method (Shape 4)
+
+/// Protocol with a method that *returns* a closure (Shape 4):
+/// `func makeHandler() -> () -> Void`. The Swift caller invokes the method
+/// through the EveryProtocol vtable, the C# proxy returns a (fnPtr, ctx) pair
+/// describing a managed Action, and Swift wraps the pair into a real
+/// `() -> Void` it can hold and call later. Pattern from delegate types that
+/// vend per-event handlers on demand (Nuke `ImagePipeline.IDelegate`-style).
+public protocol HandlerFactoryDelegate {
+    func makeHandler() -> () -> Void
+}
+
+/// Driver for HandlerFactoryDelegate. `fetchAndInvokeHandler` invokes the
+/// closure returned by the C# proxy — exercising Swift → C# method dispatch
+/// that *returns* a closure, plus the C# → Swift back-call when the returned
+/// closure is fired.
+public class HandlerFactoryRouter {
+    public var delegate: (any HandlerFactoryDelegate)?
+    public var lastHandlerFiredCount: Int32 = 0
+
+    public init() {
+        self.delegate = nil
+    }
+
+    /// Drives Swift→C# dispatch that materialises a closure. After the call
+    /// completes, immediately invokes the returned closure once so the test
+    /// can observe that the C# Action ran through the materialisation thunk.
+    public func fetchAndInvokeHandler() {
+        guard let handler = delegate?.makeHandler() else { return }
+        handler()
+        lastHandlerFiredCount += 1
+    }
+
+    /// Holds onto the closure across an extension-frame boundary, then fires it.
+    /// Sentinel against the same partial-application reabstraction trap
+    /// hit on Optional<Closure> — the materialised closure must survive past the
+    /// Swift extension frame that produced it.
+    public func fetchHoldAndFireLater() {
+        let captured = delegate?.makeHandler()
+        captured?()
+        lastHandlerFiredCount += 1
+    }
+}
+
+// MARK: - Protocol with Async Closure Parameter (Shape 2)
+
+/// Protocol with an `@escaping () async -> Int32` closure parameter. Tests
+/// Shape 2 — the C# proxy receives a Swift async closure and surfaces it as a
+/// `Func<Task<Int32>>` so the C# impl can `await` it. The cdecl invoke thunk on the
+/// Swift side spawns a `Task` to drive `await closure()` and signals completion to
+/// C# via a function-pointer completion callback (TaskCompletionSource bridge).
+public protocol AsyncIntDelegate {
+    func runAsync(handler: @escaping () async -> Int32)
+}
+
+/// Driver for AsyncIntDelegate. `fireRunAsync` builds a Swift async closure that
+/// returns a fixed Int32 and passes it through the delegate. When the delegate
+/// is a C# proxy, this exercises Swift → C# async closure-parameter dispatch.
+public class AsyncIntRouter {
+    public var delegate: (any AsyncIntDelegate)?
+    public var lastValueProduced: Int32 = -1
+
+    public init() {
+        self.delegate = nil
+    }
+
+    /// Drives Swift→C# async closure-param dispatch. Hands the delegate a Swift
+    /// async closure that returns `value`. The C# impl is expected to invoke
+    /// (await) the handler and observe the returned Int32.
+    public func fireRunAsync(returning value: Int32) {
+        let v = value
+        delegate?.runAsync(handler: { [weak self] in
+            self?.lastValueProduced = v
+            return v
+        })
+    }
+}
+
+// MARK: - Multi-shape composite
+
+/// Multi-method protocol composing every supported closure/property/method
+/// shape into a single delegate, mirroring the richness of real consumer
+/// protocols (Nuke `ImagePipelineDelegate`, BlinkIDUX `CameraModel`). Every
+/// member must dispatch via a real vtable receiver — no `EveryProtocol:
+/// closure method` fatalError, no SB0003-obsolete throw stubs.
+public protocol MultiShapeDelegate {
+    var pipelineState: Int32 { get }
+    var isTorchEnabled: Bool { get set }
+    var onPipelineStateChange: (() -> Void)? { get set }
+    func makePipelineStateReader() -> () -> Void
+    func runDiagnosticsAsync(handler: @escaping () async -> Int32)
+    func processPipelineStateThrowing(handler: @escaping (Int32) throws -> Int32)
+}
+
+/// Driver exercising every member of `MultiShapeDelegate`. Each fire-method
+/// drives one Swift→C# dispatch shape so the C# test can assert all six
+/// dispatch paths land in real receivers.
+public class MultiShapeRouter {
+    public var delegate: (any MultiShapeDelegate)?
+    public var lastReadPipelineState: Int32 = -1
+    public var lastAsyncValue: Int32 = -1
+    public var pipelineStateChangeFireCount: Int32 = 0
+
+    public init() {
+        self.delegate = nil
+    }
+
+    public func readPipelineState() -> Int32 {
+        return delegate?.pipelineState ?? -1
+    }
+
+    public func toggleTorch(on value: Bool) {
+        delegate?.isTorchEnabled = value
+    }
+
+    public func drivePipelineStateChange() {
+        if let cb = delegate?.onPipelineStateChange {
+            cb()
+            pipelineStateChangeFireCount += 1
+        }
+    }
+
+    public func driveReadViaFactory() {
+        if let reader = delegate?.makePipelineStateReader() {
+            reader()
+            lastReadPipelineState = delegate?.pipelineState ?? -1
+        }
+    }
+
+    public func driveDiagnostics(returning value: Int32) {
+        let v = value
+        delegate?.runDiagnosticsAsync(handler: { [weak self] in
+            self?.lastAsyncValue = v
+            return v
+        })
+    }
+
+    public func driveProcessThrowing(shouldThrow: Bool) {
+        let mustThrow = shouldThrow
+        delegate?.processPipelineStateThrowing(handler: { v in
+            if mustThrow {
+                throw NSError(domain: "MultiShape", code: 7, userInfo: [NSLocalizedDescriptionKey: "diagnostic failure"])
+            }
+            return v &+ 1
+        })
+    }
+
+    /// Writes the optional closure property from Swift through the delegate. When
+    /// the delegate is the C# proxy this drives the Swift → C# Optional<Closure>
+    /// setter receiver — the path that wraps an inbound Swift closure as a
+    /// managed Action on the C# impl. Mirrors `CallbackRouter.setHandlerFromSwift`
+    /// so the multi-shape composite asserts the setter path through actual proxy
+    /// dispatch, not direct C# property assignment.
+    public func setOnPipelineStateChangeFromSwift(toNil: Bool) {
+        if toNil {
+            delegate?.onPipelineStateChange = nil
+        } else {
+            delegate?.onPipelineStateChange = { [weak self] in
+                self?.pipelineStateChangeFireCount += 1
+            }
+        }
     }
 }

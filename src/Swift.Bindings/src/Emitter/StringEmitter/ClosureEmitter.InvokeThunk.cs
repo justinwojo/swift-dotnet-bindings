@@ -46,7 +46,11 @@ public static partial class ClosureEmitter
         // would trip the contract check from any Cdecl P/Invoke caller.
         emissionContext?.TryAddMethodWrapperSymbol(entryPointName);
 
-        // Build parameter list: funcPtr (Int), context (Int), then closure args
+        var isThrowing = closureTypeSpec.Throws;
+
+        // Build parameter list: funcPtr (Int), context (Int), then closure args, then
+        // (for throwing closures) an explicit error-out pointer. Cdecl exits via
+        // explicit error-out, not the SwiftCC SwiftError register.
         var swiftParams = new List<string> { "_ _funcPtr: Int", "_ _context: Int" };
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
@@ -54,6 +58,10 @@ public static partial class ClosureEmitter
             var swiftType = SwiftBuilder.GetSwiftCdeclParamType(arg, closureHandler);
             swiftParams.Add($"_ arg{argIndex}: {swiftType}");
             argIndex++;
+        }
+        if (isThrowing)
+        {
+            swiftParams.Add("_ _errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>");
         }
 
         // Determine Swift return type
@@ -90,14 +98,17 @@ public static partial class ClosureEmitter
         // assumingMemoryBound(to:).pointee — this performs a proper typed load that
         // handles ARC (retaining the context), unlike unsafeBitCast((Int, Int), to: ClosureType)
         // which produces a closure with an unretained context that crashes on invocation.
-        var closureSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec)
+        // For throwing closures we render the type WITH `throws` so Swift parses the
+        // typed-memory-binding cast correctly; `@escaping` and `@Sendable` are stripped
+        // because they're attribute decorators, not part of the closure's stored type.
+        var renderedSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec)
             .Replace("@escaping ", "").Replace("@Sendable ", "");
         swiftWriter.WriteLines($$"""
             let _buf = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<(Int, Int)>.size, alignment: MemoryLayout<(Int, Int)>.alignment)
             defer { _buf.deallocate() }
             _buf.storeBytes(of: _funcPtr, as: Int.self)
             _buf.storeBytes(of: _context, toByteOffset: MemoryLayout<Int>.size, as: Int.self)
-            let _closure = _buf.assumingMemoryBound(to: ({{closureSwiftType}}).self).pointee
+            let _closure = _buf.assumingMemoryBound(to: ({{renderedSwiftType}}).self).pointee
             """);
 
         // Build call arguments (convert from C types back to Swift types)
@@ -125,7 +136,76 @@ public static partial class ClosureEmitter
         var callArgsString = string.Join(", ", callArgs);
 
         // Call and return
-        if (returnsVoid)
+        if (isThrowing)
+        {
+            // Throwing closure: wrap the invocation in do/catch, marshal the Swift `Error`
+            // value into the @_cdecl `_errorOut` parameter on failure, and return a default
+            // value (caller must inspect _errorOut before reading the return). The error is
+            // retained (+1) via Unmanaged.passRetained so the C# side owns one reference.
+            // Cdecl explicit-pointer ABI is the correct family here per codex Q4 — Cdecl
+            // does NOT route through the SwiftSelf/SwiftError register convention.
+            string defaultReturnExpr;
+            if (returnsVoid)
+                defaultReturnExpr = "return";
+            else if (MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType))
+                defaultReturnExpr = "return false";
+            else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                     closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+                // Class/ObjC pointer: UnsafeMutableRawPointer can't be `nil` because the
+                // Swift return type is non-optional. Construct a bitPattern-0 pointer; C#
+                // ignores the return when _errorOut is non-zero.
+                defaultReturnExpr = "return UnsafeMutableRawPointer(bitPattern: -1)!";
+            else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+            {
+                var enumInfo = closureHandler.GetSimpleEnumInfo(closureTypeSpec.ReturnType);
+                var scalar = enumInfo?.swiftScalar ?? "Int";
+                defaultReturnExpr = $"return {scalar}(0)";
+            }
+            else
+                // Primitive: use 0-initialised value. C# discards the result on error.
+                defaultReturnExpr = $"return {swiftReturnType}(0)";
+
+            string successReturn;
+            if (returnsVoid)
+            {
+                successReturn = "_ = ()";
+            }
+            else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                     closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+            {
+                successReturn = "return Unmanaged.passRetained(_result).toOpaque()";
+            }
+            else
+            {
+                successReturn = "return _result";
+            }
+
+            // do { try _closure(...) } catch { marshal error; return default }
+            if (returnsVoid)
+            {
+                swiftWriter.WriteLines($$"""
+                    do {
+                        try _closure({{callArgsString}})
+                    } catch {
+                        _errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        {{defaultReturnExpr}}
+                    }
+                    """);
+            }
+            else
+            {
+                swiftWriter.WriteLines($$"""
+                    do {
+                        let _result = try _closure({{callArgsString}})
+                        {{successReturn}}
+                    } catch {
+                        _errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()
+                        {{defaultReturnExpr}}
+                    }
+                    """);
+            }
+        }
+        else if (returnsVoid)
         {
             swiftWriter.WriteLine($"_closure({callArgsString})");
         }
@@ -186,8 +266,13 @@ public static partial class ClosureEmitter
         string entryPointName,
         string libraryName)
     {
+        var isThrowing = closureTypeSpec.Throws;
+
         // Build P/Invoke parameter list: funcPtr, ctx, then closure args (all P/Invoke types)
-        // Use nint instead of void* for complex enums to avoid requiring unsafe context
+        // Use nint instead of void* for complex enums to avoid requiring unsafe context.
+        // Throwing closures append an `out IntPtr errorOut` parameter that the Swift Cdecl
+        // thunk fills with a retained Swift `Error` reference; non-zero means failure
+        // (cf. EmitSwiftInvokeThunk's _errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>).
         var pinvokeParams = new List<string> { "nint funcPtr", "nint ctx" };
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
@@ -201,6 +286,11 @@ public static partial class ClosureEmitter
             pinvokeParams.Add($"{csType} arg{argIndex}");
             argIndex++;
         }
+        // RuntimeTestsApp (and other consumers) set DisableRuntimeMarshalling, which forbids
+        // by-ref params (CA1420). Use an unmanaged pointer instead — IntPtr* is blittable and
+        // marshals trivially. Inside the unsafe Invoke method we pass `&_err`.
+        if (isThrowing)
+            pinvokeParams.Add("IntPtr* errorOut");
         var pinvokeParamsString = string.Join(", ", pinvokeParams);
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
@@ -218,10 +308,12 @@ public static partial class ClosureEmitter
         else
             returnType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
 
-        // Emit [DllImport] P/Invoke — direct runtime-handled P/Invoke (not source-generated)
+        // Emit [DllImport] P/Invoke — direct runtime-handled P/Invoke (not source-generated).
+        // Throwing form takes IntPtr* and therefore requires `unsafe` on the declaration.
+        var pinvokeModifier = isThrowing ? "private static unsafe extern" : "private static extern";
         csWriter.WriteLines($$"""
             [global::System.Runtime.InteropServices.DllImport("{{libraryName}}", EntryPoint = "{{entryPointName}}", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl)]
-            private static extern {{returnType}} {{helperMethodName}}({{pinvokeParamsString}});
+            {{pinvokeModifier}} {{returnType}} {{helperMethodName}}({{pinvokeParamsString}});
             """);
         csWriter.WriteLine();
 
@@ -244,10 +336,81 @@ public static partial class ClosureEmitter
         var invokeParamsString = string.Join(", ", invokeParams);
         var invokeCallArgsString = string.Join(", ", invokeCallArgs);
 
-        // Build return type and invoke body with C# delegate types
+        // Build return type and invoke body with C# delegate types. Throwing closures
+        // wrap the call in SwiftResult<T, SwiftError>: the user's delegate is typed
+        // `Func<..., SwiftResult<T, SwiftError>>` (cf. ClosureHandler.GetCSharpDelegateType).
         string csReturnType;
         string invokeBody;
-        if (!hasReturn)
+        // Throwing closures need `unsafe` on the Invoke method to construct
+        // `SwiftError` from the raw error pointer (`SwiftError` only exposes a
+        // `void*` constructor; `Value` is read-only).
+        var invokeModifier = isThrowing ? "internal unsafe" : "internal";
+        if (isThrowing)
+        {
+            // The success/Void/class transformations mirror the non-throwing branch — the
+            // wrap into SwiftResult is the only delta.
+            var successType = hasReturn
+                ? closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true)
+                : "Swift.SwiftVoid";
+            csReturnType = $"Swift.SwiftResult<{successType}, SwiftError>";
+            // Inject the `&_err` pointer argument right after the closure args, matching the
+            // `IntPtr* errorOut` P/Invoke signature emitted above. We are already in an
+            // unsafe method, so taking the address of the stack local is direct.
+            var throwingCallArgs = invokeCallArgsString + ", &_err";
+            // Failure path: build SwiftError wrapping _err and hand it to SwiftResult.FromFailure
+            // unchanged. The Swift error was retained (+1) by Unmanaged.passRetained in the
+            // @_cdecl thunk; managed code holds that one reference for the SwiftError's lifetime.
+            // Matches SwiftErrorException.Error and the wrapped-callback round-trip path
+            // (ClosureEmitter.Throwing.cs) — managed code never releases SwiftError pointers,
+            // it forwards them. A future Dispose-able failure carrier could plug the per-error
+            // leak without breaking the lifetime convention; that refactor is out of scope here.
+            var swiftErrorCtor = "new SwiftError((void*)_err)";
+            var failureExpr = $"return {csReturnType}.FromFailure({swiftErrorCtor});";
+            string successExpr;
+            if (!hasReturn)
+            {
+                successExpr = "Swift.SwiftVoid.Value";
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; " +
+                    $"{helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess({successExpr});";
+            }
+            else if (MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType))
+            {
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; " +
+                    $"var _raw = {helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess(_raw != 0);";
+            }
+            else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
+            {
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; " +
+                    $"var _raw = {helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess(({successType})_raw);";
+            }
+            else if (closureHandler.IsClassType(closureTypeSpec.ReturnType) ||
+                     closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
+            {
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; " +
+                    $"var _raw = {helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess(new {successType}(new Swift.Runtime.SwiftHandle(_raw)));";
+            }
+            else
+            {
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; " +
+                    $"var _raw = {helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess(_raw);";
+            }
+        }
+        else if (!hasReturn)
         {
             csReturnType = "void";
             invokeBody = $"{helperMethodName}({invokeCallArgsString});";
@@ -290,7 +453,7 @@ public static partial class ClosureEmitter
                 private readonly nint _ctx;
                 private readonly object? _retainHolder;
                 internal {{invokerClassName}}(nint funcPtr, nint ctx, object? retainHolder = null) { _funcPtr = funcPtr; _ctx = ctx; _retainHolder = retainHolder; }
-                internal {{csReturnType}} Invoke({{invokeParamsString}}) { {{invokeBody}} }
+                {{invokeModifier}} {{csReturnType}} Invoke({{invokeParamsString}}) { {{invokeBody}} }
             }
             """);
         csWriter.WriteLine();
@@ -315,8 +478,8 @@ public static partial class ClosureEmitter
                 return false;
         }
 
-        // Throwing closures not yet supported (need error marshalling in thunk)
-        if (closureTypeSpec.Throws)
+        // Async closures still need new Task-based dispatch machinery — out of scope here.
+        if (closureTypeSpec.IsAsync)
             return false;
 
         return true;

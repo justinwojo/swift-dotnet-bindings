@@ -13,10 +13,8 @@ namespace BindingsGeneration;
 /// <see cref="IResolutionStrategy"/> plug-ins.
 /// </summary>
 /// <remarks>
-/// <para>M4 Session 1 stood up the resolver alongside the legacy 9-stage
-/// branching with three migrated strategies. M4 Session 2 completes the
-/// migration: every legacy stage now lives behind an
-/// <see cref="IResolutionStrategy"/> plug-in and the four duplicated
+/// <para>Every legacy resolution stage lives behind an
+/// <see cref="IResolutionStrategy"/> plug-in, and the four duplicated
 /// <see cref="TypeDatabaseExtensions"/> overloads are reduced to thin
 /// projections over a single resolver call.</para>
 /// <para>Dispatch order mirrors the legacy stage order so observable

@@ -7,9 +7,9 @@ namespace BindingsGeneration;
 /// Confidence in a <see cref="TypeResolutionResult"/>.
 /// </summary>
 /// <remarks>
-/// Forward-looking field for M4 Session 4 — populated meaningfully once
-/// strategies can attach source provenance. Session 1 strategies report
-/// <see cref="High"/> uniformly because they are exact-match lookups.
+/// Forward-looking field — will be populated meaningfully once strategies
+/// can attach source provenance. Current strategies report <see cref="High"/>
+/// uniformly because they are exact-match lookups.
 /// </remarks>
 public enum ResolutionConfidence
 {
@@ -26,8 +26,8 @@ public enum ResolutionConfidence
 /// </summary>
 /// <param name="Source">
 /// Free-form description of where the resolution came from (e.g.,
-/// <c>"strategy:DynamicSelf"</c>). M4 Session 4 will extend this with
-/// Swift <c>file:line:column</c> positions sourced from the regex parser.
+/// <c>"strategy:DynamicSelf"</c>). May later be extended with Swift
+/// <c>file:line:column</c> positions sourced from the regex parser.
 /// </param>
 public sealed record ResolutionProvenance(string Source);
 
@@ -61,8 +61,8 @@ public sealed record ResolutionProvenance(string Source);
 /// </param>
 /// <param name="SupplementReference">
 /// Module-qualified Swift identity that should be recorded against the
-/// SwiftBindings.Apple supplement. Session 1 strategies do not populate
-/// this; reserved for the supplement strategy migrating in Session 2.
+/// SwiftBindings.Apple supplement. Populated by the supplement strategy
+/// when it is the resolution source.
 /// </param>
 /// <param name="Confidence">Confidence in the result. See <see cref="ResolutionConfidence"/>.</param>
 /// <param name="Provenance">

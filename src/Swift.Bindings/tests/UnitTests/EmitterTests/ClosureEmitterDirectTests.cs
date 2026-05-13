@@ -1344,8 +1344,11 @@ public class ClosureEmitterDirectTests
     }
 
     [Fact]
-    public void CanUseInvokeThunk_ThrowingClosure_ReturnsFalse()
+    public void CanUseInvokeThunk_ThrowingClosure_ReturnsTrue()
     {
+        // Throwing closures gained invoke-thunk support via the Cdecl error-out parameter
+        // (Session 4c, Shape 1) — both args and returns marshal via the same primitive/enum/class
+        // gates as non-throwing closures, with an explicit error-out pointer threaded through.
         var typeDatabase = CreateTypeDatabaseWithSwiftInt();
         var closureHandler = new ClosureHandler(typeDatabase);
         var closureTypeSpec = new ClosureTypeSpec(
@@ -1353,7 +1356,107 @@ public class ClosureEmitterDirectTests
             new NamedTypeSpec("Swift.Int"));
         closureTypeSpec.Throws = true;
 
+        Assert.True(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void CanUseInvokeThunk_AsyncClosure_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.IsAsync = true;
+
         Assert.False(ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, closureHandler));
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_Throwing_EmitsErrorOutAndDoCatch()
+    {
+        // Throwing variant: Swift thunk catches the closure's error and marshals it via
+        // a retained AnyObject pointer through the explicit `_errorOut: UnsafeMutablePointer<...>`
+        // parameter. Cdecl ABI — not SwiftSelf/SwiftError register convention.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Throws = true;
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_Throws_InvCR", "_sbw_inv_throws");
+
+        var result = output.ToString();
+        Assert.Contains("_errorOut: UnsafeMutablePointer<UnsafeMutableRawPointer?>", result);
+        Assert.Contains("do {", result);
+        Assert.Contains("try _closure(", result);
+        Assert.Contains("} catch {", result);
+        Assert.Contains("_errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", result);
+    }
+
+    [Fact]
+    public void EmitSwiftInvokeThunk_ThrowingVoidReturn_NoSuccessReturnStatement()
+    {
+        // Throwing void-return: do { try _closure(...) } catch { ... return }. The success
+        // path must NOT emit a `return _result` (no result to return).
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Throws = true;
+
+        var output = new StringWriter();
+        var swiftWriter = new SwiftWriter(output);
+
+        ClosureEmitter.EmitSwiftInvokeThunk(
+            swiftWriter, closureTypeSpec, closureHandler,
+            "SBW_ThrowsVoid_InvCR", "_sbw_inv_throws_void");
+
+        var result = output.ToString();
+        Assert.Contains("try _closure(arg0)", result);
+        Assert.Contains("_errorOut.pointee = Unmanaged.passRetained(error as AnyObject).toOpaque()", result);
+        Assert.DoesNotContain("let _result =", result);
+    }
+
+    [Fact]
+    public void EmitCSharpInvokeThunkHelper_Throwing_EmitsErrorOutAndSwiftResult()
+    {
+        // Throwing variant: P/Invoke gets `out IntPtr errorOut`; the invoker class returns
+        // `SwiftResult<T, SwiftError>` and constructs SwiftError unsafely from the raw IntPtr.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            new NamedTypeSpec("Swift.Int"));
+        closureTypeSpec.Throws = true;
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_THROWS01", "SBW_Throws_InvCR", "TestLib");
+
+        var result = output.ToString();
+        // P/Invoke gets an explicit error-out pointer (raw pointer, not by-ref, so the
+        // signature is blittable under DisableRuntimeMarshalling — see CA1420).
+        Assert.Contains("IntPtr* errorOut", result);
+        Assert.Contains("private static unsafe extern", result);
+        // Invoker is unsafe (SwiftError ctor takes void*) and returns SwiftResult.
+        // Swift.Int translates to long on the C# return-type side.
+        Assert.Contains("internal unsafe Swift.SwiftResult<long, SwiftError> Invoke(", result);
+        // Stack local pointer passed through unsafe context (no fixed required for
+        // unmanaged IntPtr).
+        Assert.Contains("&_err", result);
+        Assert.Contains("FromFailure(new SwiftError((void*)_err))", result);
+        Assert.Contains("FromSuccess(_raw)", result);
     }
 
     [Fact]

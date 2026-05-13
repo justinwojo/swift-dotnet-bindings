@@ -174,11 +174,27 @@ namespace BindingsGeneration
                 }
                 if (propertyGate.IsInterfaceOnly)
                 {
-                    // Closure property: emit in interface, track for proxy NotSupportedException stub
-                    skippedPropertyNames.Add(propertyDecl.Name);
-                    if (propertyGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureProperty))
-                        closureSkippedPropertyNames.Add(propertyDecl.Name);
-                    _logger.LogDebug($"Property '{propertyDecl.Name}' in interface {protocolDecl.Name} has closure type - proxy will use NotSupportedException stub.");
+                    bool hasClosure = propertyGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureProperty);
+                    bool isDispatchableClosure = hasClosure
+                        && EveryProtocolEmitter.IsDispatchableClosureProperty(propertyDecl, closureHandler);
+                    if (!isDispatchableClosure)
+                    {
+                        // Closure property (non-dispatchable shape) or other interface-only soft skip:
+                        // emit in interface, track for proxy NotSupportedException stub.
+                        skippedPropertyNames.Add(propertyDecl.Name);
+                        if (hasClosure)
+                            closureSkippedPropertyNames.Add(propertyDecl.Name);
+                        _logger.LogDebug($"Property '{propertyDecl.Name}' in interface {protocolDecl.Name} has closure type - proxy will use NotSupportedException stub.");
+                    }
+                    else
+                    {
+                        // Dispatchable closure property: falls through to the
+                        // real interface emission AND real proxy emission. Both directions
+                        // (setter via vtable, getter via cdecl thunk + _SBClosureCtx box) are
+                        // covered by EveryProtocolEmitter.EmitDispatchableClosurePropertyImplementation
+                        // and ProtocolProxyEmitter receiver / static-init pair.
+                        _logger.LogDebug($"Property '{propertyDecl.Name}' in interface {protocolDecl.Name} is a dispatchable closure property — emitting real proxy dispatch.");
+                    }
                     // Fall through to emit in interface — concrete types can implement it
                 }
 
@@ -384,15 +400,20 @@ namespace BindingsGeneration
 
                 // Track closure methods that passed all gates and are emitted in interface.
                 // Closure methods get NotSupportedException stubs in the proxy unless they are
-                // on the Session 4a dispatch surface — those flow through the normal emission
-                // path so the proxy receiver and EveryProtocol extension implement real
-                // Swift→C# forward dispatch.
+                // on the dispatchable closure-param surface — those flow through the normal
+                // emission path so the proxy receiver and EveryProtocol extension implement
+                // real Swift→C# forward dispatch.
                 // Existential-only methods flow through normal emission — receivers already handle
                 // ExistentialContainer marshalling via GetReceiverExistentialSetterConversion.
                 if (methodGate.IsInterfaceOnly)
                 {
                     bool hasClosure = methodGate.SoftFlags.HasFlag(SoftGateFlags.HasClosureParam);
-                    if (hasClosure && !EveryProtocolEmitter.IsDispatchableClosureMethod(methodDecl, closureHandler))
+                    // Async closure-param methods are lifted into dispatch alongside the
+                    // regular closure-param shape, so the proxy gets a real receiver instead
+                    // of the NotSupportedException stub.
+                    if (hasClosure
+                        && !EveryProtocolEmitter.IsDispatchableClosureMethod(methodDecl, closureHandler)
+                        && !EveryProtocolEmitter.IsDispatchableAsyncClosureMethod(methodDecl, closureHandler))
                     {
                         skippedMethodKeys.Add(methodKey);
                         closureSkippedMethodKeys.Add(methodKey);

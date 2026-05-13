@@ -44,20 +44,44 @@ public static class SwiftSourceStripper
         // lives in BindingTests/Sources/SwiftBindingsTestLib/Lifetime/ProxyLifetimeFixture.swift
         // and dispatches Swift→C# via a blittable ping() method.
         "ProxyLifetimeReceiver",
-        // Vtable-slot-collision regression (Session 4a): DataLoadingDelegate has a
+        // Vtable-slot-collision regression fixture: DataLoadingDelegate has a
         // non-dispatchable closure method (onDataLoaded with multi-arg closure) plus a
         // non-closure method (sourceIdentifier). The C# proxy struct must omit the
         // closure slot to match Swift's omission; the runtime test drives this via
         // loader.Delegate = proxy → sourceIdentifier() round trip, so the EveryProtocol
         // conformance and witness table getter must survive stripping.
         "DataLoadingDelegate",
-        // Session 4b dispatch fixtures: multi-arg primitive closure (NumericDataDelegate),
+        // Closure-dispatch fixtures: multi-arg primitive closure (NumericDataDelegate),
         // Optional<Closure> nil-and-non-nil (CompletionDelegate), and return-typed closure
         // (IntFactoryDelegate). Each runtime test does router.Delegate = proxy → fire(),
         // which requires the witness-table getter to be present on the dylib.
         "NumericDataDelegate",
         "CompletionDelegate",
         "IntFactoryDelegate",
+        // Shape 1: throwing closure param `(Int32) throws -> Int32`.
+        // ThrowingIntRouter.fireProcessInt drives the cdecl invoke thunk + errorOut path
+        // through the C# proxy; the witness-table getter must survive stripping.
+        "ThrowingIntDelegate",
+        // Shape 3: closure property `var handler: (() -> Void)? { get set }`.
+        // CallbackRouter.invokeHandler / setHandlerFromSwift drive the setter+getter
+        // round-trip through the EveryProtocol vtable; both witness-table accessors must
+        // survive stripping.
+        "HasCallbackDelegate",
+        // Shape 4: closure-returning method `func makeHandler() -> () -> Void`.
+        // HandlerFactoryRouter.fetchAndInvokeHandler routes through the EveryProtocol
+        // vtable to a C# receiver that returns (fnPtr, ctx); Swift materialises a
+        // `() -> Void` from the pair and invokes it. The witness-table getter must
+        // survive stripping.
+        "HandlerFactoryDelegate",
+        // Shape 2: async closure parameter `func runAsync(handler: @escaping () async -> Int32)`.
+        // AsyncIntRouter.fireRunAsync drives Swift→C# async-closure dispatch; the
+        // cdecl invoke thunk spawns Task and completes via a function-pointer callback.
+        "AsyncIntDelegate",
+        // Multi-shape composite protocol used as a regression sentinel — every member
+        // (Bool / closure property / closure-returning method / async closure / throwing
+        // closure / Int32 property) must dispatch via a real vtable receiver, mirroring
+        // Nuke ImagePipelineDelegate / BlinkIDUX CameraModel richness.
+        "MultiShapeDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(
