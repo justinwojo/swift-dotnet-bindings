@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
 using SwiftBindingsTestLib;
@@ -256,6 +257,101 @@ public class ParameterTests : TestBase
         AssertEqual("Total: 60", result, "SumWithPrefix adds prefix to sum");
     }
 #pragma warning restore SB0001
+
+    #endregion
+
+    #region Underscore (`_:`) argument-label projection
+
+    // Swift `_:` parameters lose external-label information at the
+    // swiftinterface boundary. The C# emitter must invent a name; the
+    // failure modes we guard against are the literal underscore `_`,
+    // positional placeholders (`value0`, `value1`, …), and lowercased
+    // typedef-name leakage (e.g. `cGFloat` from a typealias projection).
+    // The Swift fixtures live in UnderscoreLabels.swift and exercise the
+    // function, method, and enum-case shapes.
+
+    [Skip("Disabled pending the underscore-argument-label generator fix scheduled as Session 6 in src/docs/0.10.0-final-sessions.md. The free-function path currently projects the `_:` parameter as the literal C# identifier `_`, which collides with the discard pattern. Re-enable when the role-based parameter naming change ships.")]
+    public void TestUnderscoreLabel_FreeFunctionParamHasSaneName()
+    {
+        // Generator preserves the Swift function's lowerCamelCase name on emit
+        // (`UnderscoreLabel_progressValue`), so the reflection lookup is case-sensitive.
+        // If a future generator change PascalCases it, fall back to a case-insensitive
+        // lookup so this acceptance test fails for the right reason — the parameter
+        // name — rather than the method name.
+        var method = typeof(TestLibFunctions).GetMethod("UnderscoreLabel_progressValue")
+            ?? typeof(TestLibFunctions).GetMethod(
+                "UnderscoreLabel_progressValue",
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.IgnoreCase)
+            ?? throw new InvalidOperationException(
+                "UnderscoreLabel_progressValue method missing — fixture regressed or " +
+                "function-emission pipeline dropped the `_:` overload.");
+        var parameters = method.GetParameters();
+        AssertEqual(1, parameters.Length, "UnderscoreLabel_progressValue must take exactly one parameter");
+        AssertParameterNameIsSane(parameters[0].Name, $"{method.Name}.<param 0>");
+    }
+
+    [Skip("Disabled pending the underscore-argument-label generator fix scheduled as Session 6 in src/docs/0.10.0-final-sessions.md. The method-on-class path currently projects `func contentsGravity(for _: Int32)` as `ContentsGravity(int _)`. Re-enable when the role-based parameter naming change ships — the internal label (`for`) should lift onto the C# parameter name.")]
+    public void TestUnderscoreLabel_MethodParamHasSaneName()
+    {
+        var target = typeof(UnderscoreLabelTarget);
+        var method = target.GetMethod("ContentsGravity")
+            ?? throw new InvalidOperationException(
+                "UnderscoreLabelTarget.ContentsGravity missing — method-emission " +
+                "pipeline dropped the `_:` second parameter.");
+        var parameters = method.GetParameters();
+        AssertEqual(1, parameters.Length, "ContentsGravity must take exactly one parameter");
+        AssertParameterNameIsSane(parameters[0].Name, "UnderscoreLabelTarget.ContentsGravity.<param 0>");
+    }
+
+    [Skip("Disabled pending the underscore-argument-label generator fix scheduled as Session 6 in src/docs/0.10.0-final-sessions.md. The enum-case factory path falls through `EnumHandler.CaseConstruction.cs:54` to the positional placeholder `value0`. Re-enable when the role-based parameter naming change ships.")]
+    public void TestUnderscoreLabel_EnumCaseFactoryParamHasSaneName()
+    {
+        // Enum-case-with-`_:`-payload projects as a static factory method on
+        // the C# enum mirror class. Locate the factory and check its
+        // first parameter name.
+        var enumType = typeof(UnderscoreLabelPlaybackMode)
+            ?? throw new InvalidOperationException(
+                "UnderscoreLabelPlaybackMode type missing — enum emission regressed.");
+        var progressFactory =
+            enumType.GetMethod("Progress")
+            ?? enumType.GetMethod("Progress",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+        AssertTrue(progressFactory is not null,
+            "UnderscoreLabelPlaybackMode.Progress factory must exist (enum case " +
+            "`progress(_: Double)` projects as static factory method).");
+        var parameters = progressFactory!.GetParameters();
+        AssertTrue(parameters.Length >= 1,
+            "UnderscoreLabelPlaybackMode.Progress factory must take at least one parameter.");
+        AssertParameterNameIsSane(parameters[0].Name, "UnderscoreLabelPlaybackMode.Progress.<param 0>");
+    }
+
+    // Helper: rejects the three documented failure modes. Permits any other
+    // identifier so the assertion stays robust against future renaming.
+    private void AssertParameterNameIsSane(string? name, string context)
+    {
+        AssertTrue(!string.IsNullOrEmpty(name),
+            $"{context}: parameter must have a name (null/empty fails C# naming requirements).");
+
+        // Mode 3: literal underscore. Legal C# but collides with the
+        // discard-pattern symbol and trips static analyzers.
+        AssertTrue(name != "_",
+            $"{context}: parameter name `_` is the literal-underscore failure mode " +
+            "(collides with C# discard pattern). Expected a synthesized identifier.");
+
+        // Mode 2: positional placeholder `value0`, `value1`, …
+        AssertTrue(!(name!.StartsWith("value") && name.Length > 5 && char.IsDigit(name[5])),
+            $"{context}: parameter name `{name}` looks like the positional-placeholder " +
+            "failure mode (`value0`, `value1`, …). Expected a meaningful synthesized identifier.");
+
+        // Mode 1: lowercased typedef-name leakage. The Lottie reference
+        // shape was `cGFloat` from `AnimationProgressTime = CGFloat`. The
+        // analog here is the typealias `UnderscoreLabelAnimationProgress`
+        // — the lowercased-leak shape would project as
+        // `underscoreLabelAnimationProgress`.
+        AssertTrue(name != "underscoreLabelAnimationProgress" && name != "uNderscoreLabelAnimationProgress",
+            $"{context}: parameter name `{name}` looks like the lowercased-typealias-leak " +
+            "failure mode. Expected a synthesized identifier based on the parameter role.");
+    }
 
     #endregion
 }

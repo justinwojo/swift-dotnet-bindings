@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using RuntimeTestsApp.Infrastructure;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.SwiftUIBridge;
 
@@ -183,6 +184,79 @@ public class BridgeSimpleViewTests : TestBase
         AssertEqual(1, afterSessionFree, "Model deallocated after session free");
 
         TestLogger.Info("ClassParamView lifetime: passed");
+    }
+
+    /// <summary>
+    /// Generated SwiftUI bridge session classes (<c>ClassParamViewSession</c> et al.)
+    /// own a native handle obtained via <c>Unmanaged.passRetained</c>. If a consumer
+    /// constructs a session and forgets to <c>Dispose</c>, the GC-driven cleanup path
+    /// must release the native session and any pinned <c>GCHandle</c>s rather than
+    /// leaking them for the process lifetime.
+    ///
+    /// This test exercises that fallback: it allocates a <c>SimpleModel</c> and a
+    /// <c>ClassParamViewSession</c> wrapping it inside a helper, lets the locals fall
+    /// out of scope without calling <c>Dispose</c>, then forces a GC loop. The session
+    /// finalizer should run <c>Dispose(false)</c> → native <c>Free</c> → Swift session
+    /// <c>deinit</c> → drop the retained <c>SimpleModel</c>. Once the C# wrapper's
+    /// SafeHandle finalizer also runs, the Swift <c>SimpleModel</c> reaches refcount
+    /// zero and increments <c>deinitCount</c>.
+    /// </summary>
+    [SkipOnSimulator("Generator bug: GC-only finalizer path on the ClassParamViewSession + SimpleModel chain terminates the process on Mono simulator (no exception text, runner detects crash); the same chain runs to deinit=1 on NativeAOT device, so the generator-emitted finalizer body has a Mono-only failure mode in the SBW_..._Free / Unmanaged.fromOpaque(...).release() path. Investigation scheduled as Session 8 in src/docs/0.10.0-final-sessions.md. Re-enable when Session 8 lands.")]
+    public void TestClassParamViewSessionFinalizerReleasesNativeHandle()
+    {
+        // Drain any SimpleModel instances orphaned by earlier tests before we
+        // snapshot the counter. Without this, a straggler from a prior test
+        // can finalize after our reset and false-pass the assertion below
+        // even if this session's handle leaked.
+        for (int i = 0; i < 3; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        BridgeTestHelpers.ResetSimpleModelDeinitCount();
+        var baseline = BridgeTestHelpers.GetSimpleModelDeinitCount();
+        AssertEqual(0, baseline,
+            "deinitCount must be zero after pre-flush + reset — a non-zero baseline " +
+            "means a SimpleModel is finalizing between Reset and the Get below, which " +
+            "would defeat the per-test correlation.");
+
+        CreateOrphanedSession(); // session+model locals fall out of scope here
+
+        // Two-stage chain: first GC finalizes the session (which calls native Free
+        // and drops the +1 retain on SimpleModel); second GC finalizes the C#
+        // SimpleModel SafeHandle, which drops the last refcount and lets the Swift
+        // SimpleModel reach deinit. Run three rounds to absorb any extra hop in
+        // the chain on NativeAOT.
+        for (int i = 0; i < 3; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        var deinitCount = BridgeTestHelpers.GetSimpleModelDeinitCount();
+        AssertTrue(deinitCount >= 1,
+            $"SimpleModel.deinitCount must be >= 1 after GC-only session teardown; " +
+            $"observed {deinitCount}. A zero count means the session finalizer " +
+            $"failed to release the native handle (the regression shape).");
+
+        TestLogger.Info($"ClassParamViewSession finalizer released native handle (deinitCount={deinitCount})");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CreateOrphanedSession()
+    {
+        var model = new SimpleModel(value: 1234);
+        var session = ClassParamViewSession.Create(model);
+        AssertOrphanInvariants(session);
+        // Deliberately no Dispose / using — exercises the finalizer path.
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AssertOrphanInvariants(ClassParamViewSession session)
+    {
+        if (session.Handle == IntPtr.Zero)
+            throw new InvalidOperationException("Session handle must be non-zero before finalization");
     }
 
     public unsafe void TestStringClosureView()

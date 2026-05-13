@@ -5,15 +5,51 @@
 > [SwiftBindings.BlinkIDUX](https://github.com/justinwojo/swift-dotnet-packages),
 > and several other libraries during a 2026-05-05 audit.
 
-## Status — Cases 1 + 2 Resolved; Case 3 OPEN
+## Status — RESOLVED
 
-- **Case 1** (`any Foo` property/parameter collapse to `object`/`Swift.AnyType`): resolved.
-  The generator now projects single-protocol existentials to the generated `IFoo` interface.
-- **Case 2** (typed existential receives concrete-class instance): resolved by Case 1's
+All three cases ship in 0.10.0.
+
+- **Case 1** (`any Foo` property/parameter collapse to `object`/`Swift.AnyType`): RESOLVED.
+  The generator projects single-protocol existentials to the generated `IFoo` interface.
+- **Case 2** (typed existential receives concrete-class instance): RESOLVED by Case 1's
   projection — the same `IFoo` surface is consumed for both shapes.
 - **Case 3** (consumer-implemented `IFoo` proxy → `EveryProtocol`-style throwing stubs):
-  **OPEN.** In scope for 0.10.0. Requires the runtime existential-container infrastructure
-  plus codegen for forward-dispatching wrappers per protocol method — sizable infra build.
+  RESOLVED across Sessions 4a (`dfc7fc89` — `() -> Void` closure-param dispatch through
+  C#-implemented proxies, vtable slot expansion to `(fnPtr, ctx)` pairs, per-shape `@_cdecl`
+  invoke thunks, `SBW_SwiftReleaseRaw` lazy-`dlsym` runtime helper), 4b (`a52de59b` —
+  multi-arg closures, return-typed closures, `Optional<Closure>` with the inout-bytes
+  reabstraction trap fix at `EveryProtocolEmitter.cs:2113-2150`), and 4c (`5b4068bc` —
+  throwing closures with `_errorOut` plumbing surfaced as `SwiftResult<T, SwiftError>`,
+  async closures, closure properties via `HasClosureInPropertyType` lift, and closure-returning
+  methods). Non-closure protocol methods already dispatched correctly through
+  `EmitMethodReceiver` before Session 4 — the audit-confirmed gap was closure-bearing members
+  only. Synthetic BindingTests fixtures cover every shipped shape end-to-end on sim + device.
+
+  **Documented residual carve-out:** closure-bearing protocol methods whose closure args/returns
+  fall outside `ClosureEmitter.CanUseInvokeThunk` still emit `NotSupportedException` stubs.
+  `CanUseInvokeThunk` accepts cdecl primitives, simple enums, and complex enums for args, and
+  cdecl primitives, simple enums, and class types for returns; it rejects String args, struct
+  value types, generics, and protocol existentials. The flagship documented example is
+  String-arg `DataLoadingDelegate.onDataLoaded`. The Session 4c regression sentinel
+  (`ProtocolClosureSkipTests`) asserts the residual `"EveryProtocol: closure method"` stub
+  count is fully attributable to this gate, not to unintended shape gaps. Widening the gate is
+  future work, not a 0.10.0 blocker — the gate's residuals are a strict subset of the
+  pre-Session-4 universe where *every* closure-bearing method was a stub.
+
+  **Per-error leak carve-out (throwing path):** `ClosureEmitter.InvokeThunk.cs:360-368`
+  emits `SwiftResult.FromFailure(new SwiftError((void*)_err))` and keeps the +1 retain
+  from `Unmanaged.passRetained` in the `@_cdecl` thunk for the `SwiftError` lifetime to
+  match the existing `SwiftErrorException.Error` / `ClosureEmitter.Throwing.cs` convention
+  ("managed code never releases bare `SwiftError` pointers"). Tracked in `src/docs/roadmap.md`
+  as a future Disposable failure carrier; per-error leak that only materializes when a
+  Swift→C# throwing closure throws frequently.
+
+  **Out-of-tree consumer validation:** Nuke `ImagePipeline.IDelegate` and BlinkIDUX
+  `ICameraModel` consumer-side C# implementations are not exercised in this repo; they
+  land via `swift-dotnet-packages` / `internal-binding-testing` if/when needed. The
+  in-tree synthetic matrix covers the shape grid.
+
+BindingTests coverage: `BindingTests/Sources/SwiftBindingsTestLib/Protocols/ProtocolClosureSkipping.swift` (Swift protocols: `EventDelegate`, `DataLoadingDelegate`, `NumericDataDelegate`, `CompletionDelegate`, `IntFactoryDelegate`, `ThrowingIntDelegate`, `HasCallbackDelegate`, `HandlerFactoryDelegate`, `AsyncIntDelegate`, `MultiShapeDelegate`, with their `*Router` / `*Loader` consumers) + `BindingTests/RuntimeTestsApp/Protocols/ProtocolClosureSkipTests.cs` (test class `ProtocolClosureSkipTests`).
 
 ### Typed-PAT runtime conformance lookup — design constraint
 
