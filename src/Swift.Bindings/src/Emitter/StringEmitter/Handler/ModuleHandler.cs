@@ -87,6 +87,7 @@ namespace BindingsGeneration
             EmitEveryProtocolConformances(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
             var generatedNamespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
+            context.GetEmissionContext().ResolvedNamespace = generatedNamespace;
 
             csWriter.WriteLine("#nullable enable");
             csWriter.WriteLine();

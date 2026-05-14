@@ -178,7 +178,8 @@ public static class ErrorRegistryHelperEmitter
 
         var helperClassName = GetCSharpHelperClassName(moduleName);
         var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-        var dispatchBody = BuildCSharpDispatchBody(ctx, typeDatabase, moduleName, indent: "                ");
+        var resolvedNamespace = ctx.ResolvedNamespace ?? moduleName;
+        var dispatchBody = BuildCSharpDispatchBody(ctx, typeDatabase, moduleName, resolvedNamespace, indent: "                ");
 
         // Per-id ownership: value-copy cases free in their per-case `finally`;
         // buffer-owned-by-SafeHandle cases free only in their per-case `catch` (marshal
@@ -251,6 +252,20 @@ public static class ErrorRegistryHelperEmitter
     /// <summary>Per-module C# helper class name (namespace-level static).</summary>
     public static string GetCSharpHelperClassName(string moduleName) =>
         $"_SbwModuleErrorRegistry_{moduleName}";
+
+    /// <summary>
+    /// Fully-qualified <c>global::</c> reference to the per-module error-registry helper
+    /// class for use in cross-references emitted from async cascade error callbacks. The
+    /// helper class symbol always derives from the Swift module name (so it stays distinct
+    /// per Swift module across NamespacePattern remaps), but its containing C# namespace
+    /// is the resolved namespace — null <paramref name="resolvedNamespace"/> falls back to
+    /// the identity case where the Swift module name is also the C# namespace.
+    /// </summary>
+    public static string GetFullyQualifiedHelperReference(string moduleName, string? resolvedNamespace)
+    {
+        var ns = resolvedNamespace ?? moduleName;
+        return $"global::{ns}.{GetCSharpHelperClassName(moduleName)}";
+    }
 
     /// <summary>
     /// Per-type cascade payload shape. Distinguishes:
@@ -428,19 +443,22 @@ public static class ErrorRegistryHelperEmitter
         return sb.ToString().TrimEnd();
     }
 
-    private static string BuildCSharpDispatchBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string moduleName, string indent)
+    private static string BuildCSharpDispatchBody(ModuleEmissionContext ctx, ITypeDatabase? typeDatabase, string moduleName, string resolvedNamespace, string indent)
     {
-        // Map each Swift module-qualified name to its C# fully-qualified name.
-        // For a first cut we mirror the Swift module-qualified path: WeatherKit.WeatherError
-        // becomes global::WeatherKit.WeatherError. This works for module-top-level error
-        // types — nested error types in a class/struct may need adjustment in a follow-up
-        // (the C# nested-type path can diverge from the Swift module-qualified form).
+        // Map each Swift module-qualified name to its C# fully-qualified name, remapping
+        // the leading Swift module prefix to the resolved C# namespace. Under the default
+        // {Module} pattern these match (e.g. WeatherKit.WeatherError → global::WeatherKit.WeatherError);
+        // when a project sets <NamespacePattern> to something else (StoreKit2's csproj maps
+        // module StoreKit → namespace StoreKit2), the prefix substitution preserves the
+        // resolved namespace (StoreKit.SKError → global::StoreKit2.SKError). Nested error
+        // types in a class/struct may need further adjustment in a follow-up (the C# nested-type
+        // path can diverge from the Swift module-qualified form).
         var sb = new System.Text.StringBuilder();
         var idx = 0;
         foreach (var swiftTypeName in ctx.ErrorTypeOrder)
         {
             idx++;
-            var csharpQualifiedName = ToCSharpFullyQualifiedName(swiftTypeName);
+            var csharpQualifiedName = ToCSharpFullyQualifiedName(swiftTypeName, moduleName, resolvedNamespace);
             var shape = ClassifyShape(swiftTypeName, typeDatabase);
 
             sb.AppendLine($"{indent}case {idx}:");
@@ -541,6 +559,26 @@ public static class ErrorRegistryHelperEmitter
         return CascadePayloadShape.ValueCopy;
     }
 
-    private static string ToCSharpFullyQualifiedName(string swiftModuleQualifiedName) =>
-        $"global::{swiftModuleQualifiedName}";
+    /// <summary>
+    /// Maps a Swift module-qualified name (e.g. <c>StoreKit.SKError</c>) to its C#
+    /// fully-qualified form, substituting the leading Swift module prefix with the
+    /// resolved C# namespace. When the names match (identity pattern), this is a
+    /// straight <c>global::</c> prefix. When they differ (<c>NamespacePattern</c>
+    /// remap), only the module-prefix segment is rewritten so nested-type paths
+    /// are preserved verbatim.
+    /// </summary>
+    internal static string ToCSharpFullyQualifiedName(string swiftModuleQualifiedName, string moduleName, string resolvedNamespace)
+    {
+        if (string.Equals(moduleName, resolvedNamespace, StringComparison.Ordinal))
+            return $"global::{swiftModuleQualifiedName}";
+
+        var prefix = moduleName + ".";
+        if (swiftModuleQualifiedName.StartsWith(prefix, StringComparison.Ordinal))
+            return $"global::{resolvedNamespace}.{swiftModuleQualifiedName.AsSpan(prefix.Length).ToString()}";
+
+        // Types from foreign modules (cross-module error registration) keep their
+        // own module prefix — this path is reserved for a follow-up. Today the
+        // registry is scoped to the current module per ErrorEnumRegistryEmitter.Precompute.
+        return $"global::{swiftModuleQualifiedName}";
+    }
 }

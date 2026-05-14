@@ -25,6 +25,17 @@ public sealed class ModuleEmissionContext
     // ==================== Module / Type Name Collision ====================
 
     /// <summary>
+    /// Resolved C# namespace for the current module. Identity (== <see cref="ModuleDecl.Name"/>)
+    /// under the default <c>{Module}</c> pattern; differs when a binding project sets
+    /// <c>&lt;NamespacePattern&gt;</c> to something else (e.g. StoreKit2's csproj maps Swift
+    /// module <c>StoreKit</c> to C# namespace <c>StoreKit2</c>). Used by emitters that
+    /// generate cross-references to module-scoped helpers/types where the <c>global::</c>
+    /// prefix must point at the C# namespace, not the raw Swift module name.
+    /// Set once at the start of <c>ModuleHandler.Emit</c>.
+    /// </summary>
+    public string? ResolvedNamespace { get; set; }
+
+    /// <summary>
     /// When the current module has a public type with the same name as the module itself
     /// (e.g. module "Reachability" containing class "Reachability"), Swift name lookup inside
     /// the wrapper file resolves the bare module name as the type, not the module. Any

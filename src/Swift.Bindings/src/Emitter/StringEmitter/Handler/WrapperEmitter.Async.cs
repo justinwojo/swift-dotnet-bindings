@@ -2373,17 +2373,23 @@ namespace BindingsGeneration
                 // The helper handles SBW_Free in its own finally — no extra free here.
                 var moduleName = _env.MethodDecl.ModuleDecl?.Name
                     ?? throw new InvalidOperationException("MethodDecl.ModuleDecl required for cascade callback");
-                var helperClassName = ErrorRegistryHelperEmitter.GetCSharpHelperClassName(moduleName);
+                // Helper-class cross-reference is resolved through the central helper so
+                // it cannot drift from AsyncHarnessEmitter / ErrorRegistryHelperEmitter
+                // under NamespacePattern remaps (e.g. StoreKit2 csproj mapping module
+                // "StoreKit" → namespace "StoreKit2"). See ErrorRegistryHelperEmitter
+                // .GetFullyQualifiedHelperReference.
+                var helperRef = ErrorRegistryHelperEmitter.GetFullyQualifiedHelperReference(
+                    moduleName, _emissionContext.ResolvedNamespace);
                 holderErrorBody = $$"""
                                         var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                        var exception = global::{{moduleName}}.{{helperClassName}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage);
+                                        var exception = {{helperRef}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage);
                                         // Free copy buffer memory for non-frozen params and release retained self
                 {{BuildHolderCleanupCode("holder", "                        ", cancelRegVarName: "cancelReg2")}}
                                         holderTcs.TrySetException(exception);
                 """;
                 directErrorBody = $$"""
                                     var errorMessage = Marshal.PtrToStringUTF8(errorMessagePtr) ?? "Unknown Swift error";
-                                    directTcs.TrySetException(global::{{moduleName}}.{{helperClassName}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage));
+                                    directTcs.TrySetException({{helperRef}}.CreateException(errorTypeId, errorPtr, errorSize, errorMessage));
                 """;
             }
             else

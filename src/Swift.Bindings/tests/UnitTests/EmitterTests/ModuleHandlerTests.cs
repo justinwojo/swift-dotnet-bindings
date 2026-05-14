@@ -869,6 +869,40 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_RemappedNamespace_ErrorRegistryHelperEmittedUnderResolvedNamespace()
+    {
+        // Pipeline-level lock for the StoreKit2 regression: ModuleHandler.Emit must
+        // populate ModuleEmissionContext.ResolvedNamespace BEFORE invoking
+        // ErrorRegistryHelperEmitter.EmitCSharpRegistryIfNeeded. A future refactor
+        // that reorders those steps would leave ResolvedNamespace null at the read
+        // site, and the helper would fall back to the raw Swift module name —
+        // emitting a global::StoreKit._SbwModuleErrorRegistry_StoreKit path that
+        // does not resolve to any C# namespace in the consumer csproj.
+        //
+        // The Swift module name "StoreKit" mirrors the production trigger (StoreKit2
+        // csproj sets NamespacePattern="StoreKit2" for Swift module "StoreKit").
+        var namespaceResolver = new NamespacePatternResolver("StoreKit2");
+        var (csOutput, _) = EmitModuleWithDependencies(
+            "StoreKit",
+            new List<string>(),
+            namespaceResolver: namespaceResolver,
+            preEmitHook: ctx => ctx.RegisterErrorTypeId("StoreKit.SKError"));
+
+        // Helper class is emitted inside the resolved C# namespace.
+        Assert.Contains("namespace StoreKit2", csOutput);
+        Assert.Contains("_SbwModuleErrorRegistry_StoreKit", csOutput);
+
+        // The registered error type is rebased to the resolved namespace.
+        Assert.Contains("global::StoreKit2.SKError", csOutput);
+
+        // No stale Swift-module-qualified path leaks into the dispatch body — those
+        // would fail to compile in the consumer csproj because there's no C#
+        // namespace named "StoreKit" under that binding project.
+        Assert.DoesNotContain("global::StoreKit.SKError", csOutput);
+        Assert.DoesNotContain("global::StoreKit._SbwModuleErrorRegistry_StoreKit", csOutput);
+    }
+
+    [Fact]
     public void Emit_ModuleNamedFunctions_WrapperEscalatesToGlobalFunctions()
     {
         // A module literally named "Functions" → namespace Functions.
@@ -1104,7 +1138,8 @@ public class ModuleHandlerTests
         string moduleName,
         List<string> dependencies,
         Action<ModuleDecl> customizeModule = null,
-        NamespacePatternResolver namespaceResolver = null)
+        NamespacePatternResolver namespaceResolver = null,
+        Action<ModuleEmissionContext> preEmitHook = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1135,7 +1170,22 @@ public class ModuleHandlerTests
         var loggerFactory = new Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory();
         var conductor = new Conductor(loggerFactory, namespaceResolver);
 
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        // Pre-emit hook receives a fresh per-test emission context so tests that
+        // mutate state (e.g. RegisterErrorTypeId) don't leak into the shared
+        // ModuleEmissionContext.Default singleton used by other tests.
+        TypeHandlerContext context;
+        if (preEmitHook != null)
+        {
+            var emissionContext = new ModuleEmissionContext();
+            preEmitHook(emissionContext);
+            context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
+        }
+        else
+        {
+            context = TypeHandlerContext.Empty;
+        }
+
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return (csStringWriter.ToString(), swiftStringWriter.ToString());
     }
