@@ -267,8 +267,12 @@ public static class ProtocolExtensionEmitter
         // Build symbol name with overload disambiguation
         var symbolName = BuildSymbolName(flatTypeName, extMethod.MethodName, parameters, useCdecl);
 
-        // Skip if already emitted (e.g., from a parent class conformance)
-        if (!ctx.TryAddProtocolExtSymbol(symbolName))
+        // Early skip if any wrapper kind already claimed this symbol (e.g., a parent class
+        // conformance already emitted it, or MethodWrapperEmitter beat us to it). Read-only
+        // here — we only *claim* the symbol after every other gate passes, otherwise a
+        // failed gate would permanently reserve the name and block a legitimate later
+        // emitter from registering it.
+        if (ctx.IsWrapperSymbolRegistered(symbolName))
             return;
 
         // Check for duplicate methods using reconstructed PrintedName (includes labels).
@@ -388,6 +392,11 @@ public static class ProtocolExtensionEmitter
             // ChildCollection) need that floor or wrapper compile fails.
             var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
 
+            // Claim the symbol now that every gate has passed and we're committed to
+            // emitting. A loser-here (cross-kind collision) skips emission entirely.
+            if (!ctx.TryAddProtocolExtSymbol(symbolName))
+                return;
+
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
                 symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, isThrows, useCdecl,
@@ -406,6 +415,11 @@ public static class ProtocolExtensionEmitter
             // Lift the wrapper's @available floor to also satisfy the protocol-extension's
             // own @available — see closure path comment above.
             var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
+
+            // Claim the symbol now that every gate has passed and we're committed to
+            // emitting. A loser-here (cross-kind collision) skips emission entirely.
+            if (!ctx.TryAddProtocolExtSymbol(symbolName))
+                return;
 
             // Non-closure method: existing path
             EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, useCdecl,
@@ -1230,9 +1244,10 @@ public static class ProtocolExtensionEmitter
     /// <summary>
     /// Renders a non-closure parameter's Swift declaration for the @_silgen_name wrapper.
     /// Existentials → "any Protocol", Data → "Foundation.Data", Array → "UnsafeMutableRawPointer",
-    /// Class → "UnsafeMutableRawPointer", Primitive → rendered type.
-    /// Noncopyable (~Copyable) named types fall through to the generic rendering path
-    /// and require a `borrowing` ownership keyword in Swift 6.
+    /// Class → "UnsafeMutableRawPointer", Optional&lt;Class&gt; → "UnsafeMutableRawPointer?"
+    /// (mirrors <see cref="CdeclParamMapper.IsOptionalWithReferenceInner"/>'s nullable-pointer
+    /// ABI), Primitive → rendered type. Noncopyable (~Copyable) named types fall through to the
+    /// generic rendering path and require a `borrowing` ownership keyword in Swift 6.
     /// </summary>
     private static string RenderSwiftParam(string paramName, TypeSpec typeSpec,
         ExistentialHandler existentialHandler, ITypeDatabase typeDatabase)
@@ -1252,6 +1267,11 @@ public static class ProtocolExtensionEmitter
             return $"_ {paramName}: Foundation.Data";
         if (IsSwiftArrayType(typeSpec))
             return $"_ {paramName}: UnsafeMutableRawPointer";
+        // Optional<reference type>: nullable pointer ABI matching CdeclParamMapper. The C# side
+        // passes IntPtr (0 for nil); without this branch the wrapper renders `Optional<Entity>`
+        // and swiftc rejects with "type is not representable in Objective-C".
+        if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
+            return $"_ {paramName}: UnsafeMutableRawPointer?";
         if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
             !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             return $"_ {paramName}: UnsafeMutableRawPointer";
@@ -1267,11 +1287,12 @@ public static class ProtocolExtensionEmitter
     /// <summary>
     /// Renders a non-closure parameter's call-site argument for the method invocation.
     /// Existentials/Data → pass directly, Array → unsafeBitCast, Class → Unmanaged.fromOpaque,
+    /// Optional&lt;Class&gt; → map nullable-pointer through Unmanaged.fromOpaque,
     /// Primitive → pass through. May emit a local `let` binding via ctx for conversions.
     /// Returns the call argument string (e.g., "label: __paramName" or just "__paramName").
     /// </summary>
     private static string RenderCallArg(string label, string paramName, TypeSpec typeSpec,
-        ExistentialHandler existentialHandler, ModuleEmissionContext ctx)
+        ExistentialHandler existentialHandler, ITypeDatabase typeDatabase, ModuleEmissionContext ctx)
     {
         // Existential and Data: pass directly by value
         if (existentialHandler.IsExistential(typeSpec) || IsFoundationData(typeSpec))
@@ -1287,6 +1308,19 @@ public static class ProtocolExtensionEmitter
             var elementType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arrayTypeSpec.GenericParameters[0]);
             var localName = $"__{paramName}";
             ctx.AddProtocolExtWrapperLine($"    let {localName} = unsafeBitCast({paramName}, to: [{elementType}].self)");
+            return label == "_" ? localName : $"{label}: {localName}";
+        }
+
+        // Optional<reference type>: paired with the UnsafeMutableRawPointer? param shape.
+        // map over the nullable pointer so nil stays nil; reconstruct via AnyObject for
+        // safety against ObjC-bridged structs (IndexPath etc.) — Unmanaged<T> requires
+        // T: AnyObject so Unmanaged<IndexPath> would fail at runtime.
+        if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
+        {
+            var innerType = ((NamedTypeSpec)typeSpec).GenericParameters[0];
+            var renderedInner = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
+            var localName = $"__{paramName}";
+            ctx.AddProtocolExtWrapperLine($"    let {localName}: {renderedInner}? = {paramName}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {renderedInner} }}");
             return label == "_" ? localName : $"{label}: {localName}";
         }
 
@@ -1473,7 +1507,7 @@ public static class ProtocolExtensionEmitter
         for (int i = 0; i < parameters.Count; i++)
         {
             var (label, typeSpec, _) = parameters[i];
-            callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, ctx));
+            callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, typeDatabase, ctx));
         }
 
         // Emit method call
@@ -1862,7 +1896,7 @@ public static class ProtocolExtensionEmitter
             }
             else
             {
-                callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, ctx));
+                callArgs.Add(RenderCallArg(label, uniqueParamNames[i], typeSpec, existentialHandler, typeDatabase, ctx));
             }
         }
 

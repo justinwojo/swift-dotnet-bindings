@@ -673,9 +673,16 @@ public sealed class ModuleEmissionContext
 
     private bool RegisterWrapperSymbolInternal(HashSet<string> kindSet, string symbol)
     {
-        if (!kindSet.Add(symbol))
+        // Cross-kind collision check via the unified registry — two emitters (e.g.
+        // MethodWrapperEmitter + ProtocolExtensionEmitter for the same protocol-extension
+        // method synthesised onto a conforming type) can each try to register the same
+        // @_cdecl C symbol from independent per-kind sets. Both emissions then fire and
+        // swiftc rejects with "multiple definitions of symbol" at link time. The unified
+        // set is the linker's view; if it already has this symbol, reject the second
+        // registration so the caller skips its emission.
+        if (!_registeredWrapperSymbols.Add(symbol))
             return false;
-        _registeredWrapperSymbols.Add(symbol);
+        kindSet.Add(symbol);
         return true;
     }
 

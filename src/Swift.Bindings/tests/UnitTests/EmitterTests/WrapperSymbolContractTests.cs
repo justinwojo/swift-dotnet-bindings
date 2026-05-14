@@ -184,14 +184,17 @@ public class WrapperSymbolContractTests
     }
 
     [Fact]
-    public void Same_Symbol_Across_Multiple_Wrapper_Kinds_Idempotent()
+    public void Same_Symbol_Across_Multiple_Wrapper_Kinds_Rejects_Second()
     {
-        // The kind-specific TryAdd methods independently dedup by kind, but the
-        // unified registry must not double-count. Registering the same symbol
-        // through two kinds still leaves it registered once.
+        // Two emitters racing to claim the same C @_cdecl symbol (e.g. MethodWrapperEmitter
+        // running over a synthetic protocol-extension MethodDecl AND ProtocolExtensionEmitter
+        // emitting its own wrapper for the same conformance) would produce two `@_cdecl`
+        // annotations pointing at one C name — swiftc rejects with "multiple definitions
+        // of symbol" at link time. The unified registry catches this cross-kind collision
+        // so the second caller skips its emission.
         var ctx = new ModuleEmissionContext();
         Assert.True(ctx.TryAddMethodWrapperSymbol("SBW_shared"));
-        Assert.True(ctx.TryAddPropertyWrapperSymbol("SBW_shared"));
+        Assert.False(ctx.TryAddPropertyWrapperSymbol("SBW_shared"));
 
         Assert.True(ctx.IsWrapperSymbolRegistered("SBW_shared"));
         Assert.Single(ctx.RegisteredWrapperSymbols, s => s == "SBW_shared");
