@@ -218,6 +218,33 @@ public class TypeProjectionFactory
                         new ObjCBridgedProjection(bridgedName), isExistentialInner);
                 }
 
+                // Concrete-class fallback for modules that ship Swift-native classes whose
+                // names don't always match an ObjC class prefix (RealityFoundation.Entity,
+                // RealityKit.AnchorEntity). Mirrors WrapperValidation.IsOptionalWithReferenceInner
+                // Path 3 so the C# projection stays in sync with the Swift @_cdecl wrapper's
+                // UnsafeMutableRawPointer? signature. Path 2 above already claimed
+                // ObjC-prefixed names (SCN*, RE*) with ObjCBridgedProjection; anything reaching
+                // here is a non-ObjC Swift class whose C# binding follows the standard
+                // ISwiftObject/.Payload SafeHandle shape — so ClassProjection is the matching
+                // C# side (`.Payload.DangerousGetHandle()` parameter / MarshalFromSwiftObject
+                // return), not ObjCBridgedProjection (which would emit `.Handle` and
+                // `GetNSObject<T>` — the NSObject path).
+                if (inner is NamedTypeSpec innerConcrete &&
+                    innerConcrete.HasModule() &&
+                    !innerConcrete.ContainsGenericParameters &&
+                    !IsStdlibContainer(innerConcrete.Name) &&
+                    !AppleFrameworkRegistry.IsPointerType(innerConcrete.Name) &&
+                    !AppleFrameworkRegistry.IsNestedType(innerConcrete.Name) &&
+                    !TypeDatabaseExtensions.IsKnownAppleValueType(innerConcrete) &&
+                    AppleFrameworkRegistry.IsConcreteClassFallbackModule(innerConcrete.Module))
+                {
+                    var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(innerConcrete.Name, out var remappedConcreteName)
+                        ? remappedConcreteName
+                        : innerConcrete.Name;
+                    return new OptionalProjection(
+                        new ClassProjection(bridgedName), isExistentialInner);
+                }
+
                 return null;
             }
             return new OptionalProjection(innerProjection, isExistentialInner);

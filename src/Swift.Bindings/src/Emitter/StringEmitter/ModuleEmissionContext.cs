@@ -797,6 +797,64 @@ public sealed class ModuleEmissionContext
     public bool TryAddMethodWrapperSymbol(string symbol) =>
         RegisterWrapperSymbolInternal(_methodWrapperSymbols, symbol);
 
+    // ==================== Cross-Emitter Structural Identity ====================
+    //
+    // Two emitters can produce wrappers for the same Swift method with *different*
+    // @_cdecl symbol strings:
+    //   - MethodWrapperEmitter:        SBW_<Module>_<Type>_<method>_<hash8>
+    //   - ProtocolExtensionEmitter:    SBW_<FlatType>_<method>_<labels>
+    // String-keyed dedup misses; both @_cdecl blocks land in the wrapper file and
+    // swiftc rejects "multiple definitions of symbol" at link time. The canonical
+    // dedup key is structural — a 3-tuple of <c>(typeName, methodName, sourceKey)</c>
+    // — independent of the emitter-specific symbol scheme. The <c>sourceKey</c>
+    // slot is filled in differently by each emitter:
+    //   - <see cref="MethodWrapperEmitter"/> uses the rendered <c>SBW_</c> symbol
+    //     name itself for ordinary methods (no separate canonical form is needed
+    //     when only one emitter ever reaches that method).
+    //   - <see cref="Handler.ProtocolExtensionEmitter"/> builds
+    //     <c>"{ProtocolQualifiedName}::{PrintedName}::{RawSignature}"</c> and
+    //     stashes it on the synthetic <see cref="MethodDecl.WrapperSourceKey"/>
+    //     so a later <see cref="MethodWrapperEmitter"/> pass on the same Swift
+    //     method computes the same key and collapses into the prior claim.
+    // The first emitter to claim the structural identity wins; subsequent
+    // emitters for the same Swift method skip emission.
+
+    private readonly HashSet<(string TypeName, string MethodName, string SourceKey)> _wrapperStructuralIdentities = new();
+
+    /// <summary>
+    /// Cross-emitter @_cdecl wrapper dedup keyed by structural identity rather
+    /// than the emitter-specific symbol string. Returns true if this emitter
+    /// wins (first to claim the identity); false if a previous emitter already
+    /// claimed the same <c>(typeName, methodName, sourceKey)</c> triple — in
+    /// which case the caller must skip its emission. Also registers
+    /// <paramref name="symbol"/> in the unified
+    /// <c>_registeredWrapperSymbols</c> set so
+    /// <see cref="IsWrapperSymbolRegistered"/> reflects the surviving wrapper.
+    /// <paramref name="sourceKey"/> is the per-emitter canonical string: the
+    /// rendered <c>SBW_</c> symbol for <see cref="MethodWrapperEmitter"/> on
+    /// ordinary methods, and a <c>ProtocolQualifiedName::PrintedName::RawSignature</c>
+    /// string for the protocol-extension path. See the section header above
+    /// for the rules each emitter follows.
+    /// </summary>
+    public bool TryClaimWrapperSymbol(string typeName, string methodName, string sourceKey, string symbol)
+    {
+        var identity = (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty);
+        if (!_wrapperStructuralIdentities.Add(identity))
+            return false;
+
+        if (!string.IsNullOrEmpty(symbol) && !_registeredWrapperSymbols.Add(symbol))
+        {
+            // The structural slot is now claimed but the symbol string was
+            // already registered by some other path (e.g. constructor wrapper
+            // with a coincidentally-similar SBW_ name). Roll the structural
+            // claim back so the caller doesn't believe it won.
+            _wrapperStructuralIdentities.Remove(identity);
+            return false;
+        }
+
+        return true;
+    }
+
     // ==================== CSM-Async Signature Claims ====================
     // Two-state claim shared between the Phase-4a eligibility predicate and the
     // actual async emitter. Reservation (predicate) is idempotent for the same

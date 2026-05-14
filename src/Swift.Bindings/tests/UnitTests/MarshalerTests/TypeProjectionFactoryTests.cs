@@ -440,6 +440,73 @@ public class TypeProjectionFactoryTests
         Assert.Null(projection);
     }
 
+    #region Optional Concrete-Class Fallback (Path 3)
+
+    // These tests pin the C# side of the concrete-class fallback that
+    // WrapperValidation.IsOptionalWithReferenceInner Path 3 enables on the
+    // Swift side. The Swift @_cdecl wrapper renders Optional<X> as
+    // UnsafeMutableRawPointer? for these modules — the C# marshalling must
+    // match. Swift-native classes (RealityFoundation.Entity etc.) use the
+    // ClassProjection shape (.Payload.DangerousGetHandle() / MarshalFromSwiftObject),
+    // NOT the ObjCBridgedProjection shape (.Handle / GetNSObject<T>), even
+    // though both project to IntPtr through SwiftOptional<T>.
+
+    [Fact]
+    public void Project_OptionalConcreteClassFallback_RealityFoundation_UsesClassProjection()
+    {
+        // No TypeRecord, no ObjC prefix → Path 3 fires. The C# binding for
+        // RealityFoundation.Entity follows the ISwiftObject convention with a
+        // .Payload SafeHandle, so the inner projection must be ClassProjection.
+        var ctx = CreateContext();
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("RealityFoundation.Entity"));
+
+        var projection = _factory.Project(optional, ctx);
+
+        Assert.NotNull(projection);
+        var optProjection = Assert.IsType<OptionalProjection>(projection);
+        Assert.IsType<ClassProjection>(optProjection.InnerProjection);
+        Assert.Equal("RealityFoundation.Entity", optProjection.InnerProjection.PublicType);
+    }
+
+    [Fact]
+    public void Project_OptionalConcreteClassFallback_RealityKitNonPrefixed_UsesClassProjection()
+    {
+        // AnchorEntity has no "RE" prefix → Path 2 (HasObjCClassPrefix) misses,
+        // Path 3 fires. RealityKit ships Swift-native classes, so the C# side
+        // must be ClassProjection.
+        var ctx = CreateContext();
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("RealityKit.AnchorEntity"));
+
+        var projection = _factory.Project(optional, ctx);
+
+        Assert.NotNull(projection);
+        var optProjection = Assert.IsType<OptionalProjection>(projection);
+        Assert.IsType<ClassProjection>(optProjection.InnerProjection);
+    }
+
+    [Fact]
+    public void Project_OptionalObjCPrefixedSceneKit_StillUsesObjCBridgedProjection()
+    {
+        // SCNNode has the "SC" prefix → Path 2 fires before Path 3, returning
+        // ObjCBridgedProjection. This is the correct C# shape for NSObject-
+        // derived classes that expose .Handle. Path 3 only catches names that
+        // Path 2 already rejected, so ObjC-prefixed SceneKit types must not
+        // regress.
+        var ctx = CreateContext();
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("SceneKit.SCNNode"));
+
+        var projection = _factory.Project(optional, ctx);
+
+        Assert.NotNull(projection);
+        var optProjection = Assert.IsType<OptionalProjection>(projection);
+        Assert.IsType<ObjCBridgedProjection>(optProjection.InnerProjection);
+    }
+
+    #endregion
+
     [Fact]
     public void Project_FrozenWithMemoryManagement_ReturnsFrozenWithMemoryProjection()
     {

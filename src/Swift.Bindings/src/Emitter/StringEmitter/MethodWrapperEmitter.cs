@@ -235,7 +235,17 @@ public static class MethodWrapperEmitter
             return;
         }
 
-        if (!ctx.TryAddMethodWrapperSymbol(symbolName))
+        // Route through the cross-emitter structural-identity registry so a prior
+        // claim from ProtocolExtensionEmitter on the same Swift method (carried
+        // forward on the synthetic MethodDecl as WrapperSourceKey) is honored even
+        // when the two emitters would render different @_cdecl symbol strings.
+        // For ordinary methods WrapperSourceKey is null and the symbol string itself
+        // is the structural identity — equivalent to the prior TryAddMethodWrapperSymbol.
+        var sourceKey = methodDecl.WrapperSourceKey ?? symbolName;
+        var sourceTypeName = parentTypeDecl?.SwiftTypeName.ModuleQualifiedName
+            ?? parentModuleDecl?.Name
+            ?? string.Empty;
+        if (!ctx.TryClaimWrapperSymbol(sourceTypeName, methodDecl.Name, sourceKey, symbolName))
             return; // Already emitted
 
         var moduleName = parentTypeDecl?.SwiftTypeName.Module ?? parentModuleDecl!.Name;

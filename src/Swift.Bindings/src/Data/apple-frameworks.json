@@ -638,12 +638,14 @@
     {
       "module": "RealityFoundation",
       "compileImportModule": "RealityKit",
+      "concreteClassFallback": true,
       "packageId": "SwiftBindings.Apple.RealityFoundation"
     },
     {
       "module": "RealityKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "concreteClassFallback": true,
       "objcPrefixes": ["RE"],
       "packageId": "SwiftBindings.Apple.RealityKit"
     },
@@ -664,6 +666,7 @@
       "module": "SceneKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "concreteClassFallback": true,
       "objcPrefixes": ["SC"],
       "valueTypes": [
         "SCNMatrix4",

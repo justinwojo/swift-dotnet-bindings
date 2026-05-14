@@ -275,11 +275,18 @@ public static class ProtocolExtensionEmitter
         if (ctx.IsWrapperSymbolRegistered(symbolName))
             return;
 
-        // Check for duplicate methods using reconstructed PrintedName (includes labels).
-        // Build PrintedName-like keys from existing MethodDecl CSSignatures for comparison.
+        // Check for duplicate methods using a Swift-overload-aware key that pairs the
+        // method name with each parameter's printed Swift type name. Labels-only keys
+        // (e.g. "step(_:)") collapse legitimate Swift overloads that share labels but
+        // differ on parameter type (`step(_:Bool)` vs `step(_:Int32)`), so the second
+        // overload would silently drop here before reaching the structural-identity
+        // claim. Including the Swift type names keeps the fast-path collision check
+        // while letting genuine overloads through; the projected C# signature collision
+        // gate immediately below still catches cases where two Swift overloads project
+        // onto the same C# signature.
         var existingMethodKeys = new HashSet<string>(
-            conformingType.Methods.Select(m => BuildMethodKey(m)));
-        var extensionKey = extMethod.PrintedName; // e.g., "targetCache(_:)"
+            conformingType.Methods.Select(m => BuildOverloadAwareMethodKey(m)));
+        var extensionKey = BuildOverloadAwareExtensionKey(extMethod.MethodName, parameters);
         if (existingMethodKeys.Contains(extensionKey))
         {
             logger.LogDebug("Skipping extension method {Type}.{Method}: collision with ABI method (key: {Key})",
@@ -392,9 +399,12 @@ public static class ProtocolExtensionEmitter
             // ChildCollection) need that floor or wrapper compile fails.
             var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
 
-            // Claim the symbol now that every gate has passed and we're committed to
-            // emitting. A loser-here (cross-kind collision) skips emission entirely.
-            if (!ctx.TryAddProtocolExtSymbol(symbolName))
+            // Claim the wrapper symbol via structural identity so a later
+            // MethodHandler -> MethodWrapperEmitter pass on the synthetic MethodDecl
+            // collapses into the same identity and skips a redundant @_cdecl emission
+            // even if its rendered symbol string would have diverged.
+            var sourceKey = BuildSourceKey(extMethod);
+            if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName))
                 return;
 
             // Closure-bearing method: emit Swift wrapper with closure bridging
@@ -406,6 +416,7 @@ public static class ProtocolExtensionEmitter
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
                 symbolName, closureTypeSpec!, methodLevelGenerics, isThrows, useCdecl);
+            syntheticMethod.WrapperSourceKey = sourceKey;
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -416,9 +427,10 @@ public static class ProtocolExtensionEmitter
             // own @available — see closure path comment above.
             var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
 
-            // Claim the symbol now that every gate has passed and we're committed to
-            // emitting. A loser-here (cross-kind collision) skips emission entirely.
-            if (!ctx.TryAddProtocolExtSymbol(symbolName))
+            // Claim the wrapper symbol via structural identity — see closure path
+            // comment above for the rationale.
+            var sourceKey = BuildSourceKey(extMethod);
+            if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName))
                 return;
 
             // Non-closure method: existing path
@@ -427,6 +439,7 @@ public static class ProtocolExtensionEmitter
 
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows, useCdecl);
+            syntheticMethod.WrapperSourceKey = sourceKey;
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -2384,6 +2397,24 @@ public static class ProtocolExtensionEmitter
     /// for <see cref="PInvokeEmitHelper.SelectCallingConvention"/>'s audit.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Cross-emitter structural identity for a protocol-extension method. Pairs
+    /// the originating protocol's qualified name with the full raw signature so
+    /// two emitters reaching the same underlying Swift function arrive at the
+    /// same key independent of the rendered C symbol — and two overloads with
+    /// identical external labels but different parameter types stay distinct.
+    /// <see cref="ProtocolExtensionMethodDecl.PrintedName"/> alone is label-only
+    /// (e.g. <c>step(_:)</c>), so a <c>step(Bool)</c> / <c>step(Int32)</c>
+    /// overload pair collapses to one key and the second overload's wrapper
+    /// gets silently dropped. <see cref="ProtocolExtensionMethodDecl.RawSignature"/>
+    /// preserves the parameter and return types verbatim, which is enough to
+    /// disambiguate every overload the swiftinterface parser produces. Stashed
+    /// on the synthetic <see cref="MethodDecl.WrapperSourceKey"/> so a downstream
+    /// <see cref="MethodWrapperEmitter"/> pass uses the same identity.
+    /// </summary>
+    private static string BuildSourceKey(ProtocolExtensionMethodDecl extMethod) =>
+        $"{extMethod.ProtocolQualifiedName}::{extMethod.PrintedName}::{extMethod.RawSignature}";
+
     private static string BuildSymbolName(string flatTypeName, string methodName,
         List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
         bool useCdecl = true)
@@ -2428,6 +2459,48 @@ public static class ProtocolExtensionEmitter
             return $"{label}:";
         }));
         return $"{method.Name}({labels})";
+    }
+
+    /// <summary>
+    /// Overload-aware variant of <see cref="BuildMethodKey"/> that pairs each label
+    /// with the parameter's printed Swift type name so genuine Swift overloads sharing
+    /// the same external labels (e.g. <c>step(_:Bool)</c> and <c>step(_:Int32)</c>)
+    /// produce distinct keys. Used by the early collision gate in
+    /// <see cref="TryInjectMethod"/>; the projected C# signature check just below
+    /// stays as the authoritative "would-this-shadow-a-C#-method" arbiter.
+    /// </summary>
+    internal static string BuildOverloadAwareMethodKey(MethodDecl method)
+    {
+        if (method.CSSignature.Count <= 1)
+            return $"{method.Name}()";
+
+        var labelTypes = string.Join(",", method.CSSignature.Skip(1).Select(arg =>
+        {
+            var label = string.IsNullOrEmpty(arg.Name) || arg.Name == "_" ? "_" : arg.Name;
+            var typeName = arg.SwiftTypeSpec?.ToString() ?? string.Empty;
+            return $"{label}:{typeName}";
+        }));
+        return $"{method.Name}({labelTypes})";
+    }
+
+    /// <summary>
+    /// Mirror of <see cref="BuildOverloadAwareMethodKey"/> for a parsed protocol-extension
+    /// method's parameter list. Same key shape so the two sides can be compared in a
+    /// single HashSet lookup.
+    /// </summary>
+    private static string BuildOverloadAwareExtensionKey(
+        string methodName,
+        List<(string label, TypeSpec typeSpec, string swiftType)> parameters)
+    {
+        if (parameters.Count == 0)
+            return $"{methodName}()";
+
+        var labelTypes = string.Join(",", parameters.Select(p =>
+        {
+            var label = string.IsNullOrEmpty(p.label) || p.label == "_" ? "_" : p.label;
+            return $"{label}:{p.typeSpec}";
+        }));
+        return $"{methodName}({labelTypes})";
     }
 
     /// <summary>

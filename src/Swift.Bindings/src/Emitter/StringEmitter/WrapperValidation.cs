@@ -750,6 +750,11 @@ public static class WrapperValidation
     ///
     /// Path 2: Fallback via MarshallingHelpers.IsOptionalObjCBridged for unresolved Apple framework
     /// ObjC classes, with defense-in-depth guards (!ContainsGenericParameters, !IsPointerType).
+    ///
+    /// Path 3: Concrete-class fallback for modules that ship Swift classes whose names do not
+    /// always match an ObjC class prefix (RealityFoundation.Entity, RealityKit.AnchorEntity,
+    /// SceneKit.ProgramNode). Opt-in per-module via the <c>concreteClassFallback</c> flag in
+    /// <c>apple-frameworks.json</c>. Same defense-in-depth guards as Path 2.
     /// </summary>
     public static bool IsOptionalWithReferenceInner(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
@@ -799,6 +804,24 @@ public static class WrapperValidation
             !AppleFrameworkRegistry.IsPointerType(innerNamed.Name) &&
             MarshallingHelpers.IsOptionalObjCBridged(typeSpec, typeDatabase))
             return true;
+
+        // Path 3: Concrete-class fallback for modules that ship Swift classes whose names
+        // don't always match an ObjC class prefix (RealityFoundation.Entity,
+        // RealityKit.AnchorEntity, SceneKit.ProgramNode). Same defense-in-depth as Path 2,
+        // plus the same module/value-type/nested guards TypeProjectionFactory uses.
+        if (!innerNamed.ContainsGenericParameters &&
+            !AppleFrameworkRegistry.IsPointerType(innerNamed.Name) &&
+            !AppleFrameworkRegistry.IsNestedType(innerNamed.Name) &&
+            !AppleFrameworkRegistry.IsKnownValueType(innerNamed.Name))
+        {
+            var dotIndex = innerNamed.Name.IndexOf('.');
+            if (dotIndex > 0)
+            {
+                var moduleName = innerNamed.Name.Substring(0, dotIndex);
+                if (AppleFrameworkRegistry.IsConcreteClassFallbackModule(moduleName))
+                    return true;
+            }
+        }
 
         return false;
     }

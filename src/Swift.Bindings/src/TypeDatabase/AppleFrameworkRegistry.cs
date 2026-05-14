@@ -19,6 +19,7 @@ internal static class AppleFrameworkRegistry
 
     private static readonly HashSet<string> _autoBridgeModules;
     private static readonly HashSet<string> _optionalFallbackModules;
+    private static readonly HashSet<string> _concreteClassFallbackModules;
     private static readonly HashSet<string> _unsupportedModules;
     private static readonly Dictionary<string, string> _moduleNamespaceRemaps;
     private static readonly Dictionary<string, string> _compileImportRemaps;
@@ -64,6 +65,9 @@ internal static class AppleFrameworkRegistry
         [JsonProperty("optionalFallback")]
         public bool OptionalFallback { get; set; }
 
+        [JsonProperty("concreteClassFallback")]
+        public bool ConcreteClassFallback { get; set; }
+
         [JsonProperty("unsupported")]
         public bool Unsupported { get; set; }
 
@@ -106,6 +110,7 @@ internal static class AppleFrameworkRegistry
 
         _autoBridgeModules = new HashSet<string>(StringComparer.Ordinal);
         _optionalFallbackModules = new HashSet<string>(StringComparer.Ordinal);
+        _concreteClassFallbackModules = new HashSet<string>(StringComparer.Ordinal);
         _unsupportedModules = new HashSet<string>(StringComparer.Ordinal);
         _moduleNamespaceRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _compileImportRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -130,6 +135,9 @@ internal static class AppleFrameworkRegistry
 
             if (def.OptionalFallback)
                 _optionalFallbackModules.Add(def.Module);
+
+            if (def.ConcreteClassFallback)
+                _concreteClassFallbackModules.Add(def.Module);
 
             if (def.Unsupported)
                 _unsupportedModules.Add(def.Module);
@@ -230,6 +238,16 @@ internal static class AppleFrameworkRegistry
 
     /// <summary>Broader set used by Optional/Array element fallback.</summary>
     public static bool IsOptionalFallbackModule(string moduleName) => _optionalFallbackModules.Contains(moduleName);
+
+    /// <summary>
+    /// Modules that ship concrete Swift classes whose names do not always match
+    /// an ObjC class prefix (e.g., RealityFoundation.Entity, RealityKit.AnchorEntity,
+    /// SceneKit.ProgramNode). The @_cdecl-wrapper renderer uses this to recognise
+    /// <c>Optional&lt;Class&gt;</c> on cross-module unresolved class names without
+    /// requiring an XML database entry or ObjC prefix match. See
+    /// <see cref="WrapperValidation.IsOptionalWithReferenceInner"/> Path 3.
+    /// </summary>
+    public static bool IsConcreteClassFallbackModule(string moduleName) => _concreteClassFallbackModules.Contains(moduleName);
 
     public static bool IsUnsupportedModule(string moduleName) => _unsupportedModules.Contains(moduleName);
 

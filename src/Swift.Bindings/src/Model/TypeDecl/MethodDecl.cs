@@ -259,6 +259,23 @@ namespace BindingsGeneration
         public bool IsProtocolExtensionMethod { get; set; } = false;
 
         /// <summary>
+        /// Stable cross-emitter identity for the underlying Swift method that this
+        /// wrapper claims. Used by
+        /// <see cref="ModuleEmissionContext.TryClaimWrapperSymbol"/> so two emitters
+        /// reaching the same Swift method through different naming schemes
+        /// (<c>MethodWrapperEmitter</c>'s hash-based <c>SBW_&lt;Module&gt;_&lt;Type&gt;_&lt;method&gt;_&lt;hash8&gt;</c>
+        /// vs. <c>ProtocolExtensionEmitter</c>'s label-based
+        /// <c>SBW_&lt;FlatType&gt;_&lt;method&gt;_&lt;labels&gt;</c>) collapse to a single
+        /// structural identity rather than competing for two distinct symbol-string
+        /// registrations. Synthetic protocol-extension methods carry a key built
+        /// from <c>ProtocolQualifiedName::PrintedName::RawSignature</c> so genuine
+        /// Swift overloads that share external labels but differ on parameter type
+        /// stay distinct. <c>null</c> on ordinary methods, where the rendered
+        /// <c>SBW_</c> symbol string is used as the structural identity directly.
+        /// </summary>
+        public string? WrapperSourceKey { get; set; }
+
+        /// <summary>
         /// Whether this method is defined in a Swift extension (isFromExtension in ABI JSON).
         /// Extension methods use static dispatch — they have no vtable entry and no Tj
         /// dispatch thunk symbol. ComputeEntryPoint must NOT append "Tj" for these methods.

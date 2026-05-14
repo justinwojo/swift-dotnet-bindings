@@ -136,6 +136,11 @@ public class ProxyDisposeTests : TestBase
 
     public void TestProxyDisposeReleasesStrongReference()
     {
+        // Drain pending finalizers so prior tests' leaked impls don't race the
+        // registry sample below. Without this, allocating the new proxy can
+        // trigger GC mid-sample and finalize ~24 stale impls between the two
+        // reads, masking the +1 delta we're actually checking.
+        ForceGC();
         var initialCount = SwiftObjectRegistry.StrongCount;
 
         var proxy = new HasValueProxy(new SimpleHasValue(99));
@@ -143,6 +148,7 @@ public class ProxyDisposeTests : TestBase
         AssertEqual(initialCount + 1, afterCreate, "StrongCount should increase by 1 after proxy creation");
 
         proxy.Dispose();
+        ForceGC();
         var afterDispose = SwiftObjectRegistry.StrongCount;
         AssertEqual(initialCount, afterDispose, "StrongCount should return to initial value after dispose");
     }
