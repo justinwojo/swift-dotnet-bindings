@@ -193,6 +193,18 @@ namespace BindingsGeneration
                             loggerFactory.CreateLogger<ModuleProcessor>());
                         var depModuleDb = depProcessor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
                         typeDatabase.AddModuleDatabase(depModuleDb);
+
+                        // Apply nested-type rename pass to the dep module so cross-module
+                        // references in the bound module's emit resolve to the renamed C# name
+                        // (e.g., Parent.AlertType → Parent.AlertTypeType when the parent has a
+                        // colliding property). Without this, dep TypeRecords keep the raw Swift
+                        // leaf name and the consumer emits `Dep.Parent.AlertType` which C#
+                        // resolves to the property rather than the type — CS0426.
+                        // When the dep XML is pre-loaded via --module-database, the renamed
+                        // managedTypeName is already in the XML; the ABI re-parse branch is the
+                        // gap (BindingTests path uses --framework-dependency without --module-database).
+                        NameProvider.PrecomputeNestedTypeRenames(depParseResult.ModuleDecl, typeDatabase);
+
                         logger.LogInformation("Loaded dependency types from ABI JSON: {Module}", depModuleName);
                     }
                     catch (Exception ex)

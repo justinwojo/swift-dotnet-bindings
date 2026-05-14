@@ -187,3 +187,41 @@ extension DependencyService {
 // NOTE: Module name = type name collision (Reachability pattern) is tested
 // through validation libraries. Swift issue #56573 prevents including this
 // pattern in a library-evolution-enabled module used as a build dependency.
+
+// MARK: - Cross-Module Nested-Type Rename Propagation
+
+/// Returns the alert-type case from a dependency-owned `DependencyContainer`.
+/// Locks the producer-side nested-type rename (`AlertType` -> `AlertTypeType`):
+/// the consumer must reference the renamed C# name when emitting this
+/// function's return type and `Container_AlertType_Get` thunk signature.
+public func getDependencyContainerAlertType(_ container: DependencyContainer) -> DependencyContainer.AlertType {
+    return container.alertType
+}
+
+/// Builds a `DependencyContainer` with the supplied alert type. Locks the
+/// renamed C# name on the parameter side as well.
+public func makeDependencyContainer(name: String, alert: DependencyContainer.AlertType) -> DependencyContainer {
+    return DependencyContainer(name: name, alertType: alert)
+}
+
+/// Holds a renamed cross-module nested type as a property. The consumer-emitted
+/// property type must use `DependencyContainer.AlertTypeType`, otherwise the
+/// generated C# fails to compile with CS0426.
+public struct DependencyContainerHolder {
+    public let label: String
+    public let alert: DependencyContainer.AlertType
+
+    public init(label: String, alert: DependencyContainer.AlertType) {
+        self.label = label
+        self.alert = alert
+    }
+
+    public func summarize() -> String {
+        return "\(label):\(alert.rawValue)"
+    }
+}
+
+/// Factory for `DependencyContainerHolder`.
+public func makeDependencyContainerHolder(label: String, alert: DependencyContainer.AlertType) -> DependencyContainerHolder {
+    return DependencyContainerHolder(label: label, alert: alert)
+}

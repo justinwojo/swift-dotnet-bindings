@@ -11,6 +11,21 @@ using SwiftBindingsTestLib;
 // produces CS0138 because a 'using namespace' directive can only be applied
 // to namespaces, not types. Compile success of these usings is itself the
 // regression gate.
+//
+// Negative consumer pattern (does NOT compile against the post-fix shape —
+// kept as a comment because "must fail to compile" can't be expressed in a
+// runtime test):
+//
+//     using static SwiftBindingsTestLib.LocalFacade;
+//     using static SwiftBindingsTestLib.LocalFacadeEnum;
+//
+// `using static` only resolves type members; once the facade is a real
+// namespace those lines fail CS7007 ("a 'using static' directive can only
+// be applied to types"). Downstream consumers (CryptoKit, Nuke, BlinkID)
+// historically wrote `using static Module.Facade;` against the old
+// `partial class` shape and broke at the 0.11.0 cutover. The replacement
+// is the plain `using SwiftBindingsTestLib.LocalFacade;` directives below
+// — see S6 in `0.11.0-session-plan.md`.
 using SwiftBindingsTestLib.LocalFacade;
 using SwiftBindingsTestLib.LocalFacadeEnum;
 

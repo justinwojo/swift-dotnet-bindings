@@ -190,3 +190,32 @@ public struct DependencyTokenB {
         return "Token(\(identifier))"
     }
 }
+
+// MARK: - Nested-Type / Property Name Collision (cross-module rename propagation)
+
+/// Reproduces BlinkID's `UxEventPinglet` collision shape: a struct with a nested
+/// enum whose name matches a property's PascalCase name. The generator's
+/// `NameProvider.ApplyNestedTypeRenames` renames the nested type with a `Type`
+/// suffix (`AlertType` -> `AlertTypeType`) and the property keeps its original
+/// PascalCase name. The producer module persists the renamed C# name in its
+/// emitted module-database XML so the consumer module resolves cross-module
+/// references against the renamed name.
+public struct DependencyContainer {
+    public enum AlertType: String {
+        case info
+        case warning
+        case critical
+    }
+
+    public let name: String
+    public let alertType: AlertType
+
+    public init(name: String, alertType: AlertType) {
+        self.name = name
+        self.alertType = alertType
+    }
+
+    public func describe() -> String {
+        return "\(name)[\(alertType.rawValue)]"
+    }
+}
