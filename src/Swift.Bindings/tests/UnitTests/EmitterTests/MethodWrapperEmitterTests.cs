@@ -3626,4 +3626,291 @@ public class MethodWrapperEmitterTests
     }
 
     #endregion
+
+    #region Generic Static Dispatch — Selector-Aware Collision Skip (Session 5)
+
+    // The wrapper-emit skip for "extension method has same-name overload on parent type"
+    // was previously gated on base Swift name only. That falsely collapses sibling
+    // overloads that differ in argument label (e.g. `index(before:)` vs
+    // `index(after:)`), parameter type, or inout convention on a Collection-conforming
+    // generic struct, dropping their @_cdecl symbols and stranding the C# P/Invoke as
+    // a tombstoned comment. The refined gate compares full dispatch identities (base
+    // name plus per-slot (label, type, inout) tuples), so only methods Swift truly
+    // can't disambiguate from the unconstrained conformance extension trigger the
+    // skip.
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStruct_IndexBeforeVsAfter_DifferentLabels_EmitsBothWrappers()
+    {
+        // Repro for MusicKit MusicItemCollection<T>: parent has multiple extension
+        // methods sharing the base name `index` but differing by external label
+        // (`before:` vs `after:` vs `_:offsetBy:`). The old base-name-only gate
+        // would emit `// Generic static dispatch wrapper skipped` for all of them.
+        // After the selector-aware fix, every method gets a real @_cdecl wrapper.
+        var (parent, moduleDecl, typeDb) = BuildCollectionParentForSelectorTest("MusicItemCollection");
+
+        var indexBefore = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "index", argLabel: "before", privateName: "i",
+            mangledName: "$sTestMI19MusicItemCollectionV5index6beforeS2i_tF_BEFORE");
+        var indexAfter = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "index", argLabel: "after", privateName: "i",
+            mangledName: "$sTestMI19MusicItemCollectionV5index5afterS2i_tF_AFTER");
+        parent.Methods.Add(indexBefore);
+        parent.Methods.Add(indexAfter);
+
+        var output = EmitOne(indexBefore, typeDb);
+        var afterOutput = EmitOne(indexAfter, typeDb);
+
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", output);
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", afterOutput);
+        Assert.Contains($"@_cdecl(\"{indexBefore.MangledName}\")", output);
+        Assert.Contains($"@_cdecl(\"{indexAfter.MangledName}\")", afterOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStruct_FormIndexBeforeVsAfter_DifferentLabels_EmitsBothWrappers()
+    {
+        // Companion to the index(before:)/index(after:) case for inout siblings:
+        // `formIndex(before: inout Int)` and `formIndex(after: inout Int)` share
+        // the base name `formIndex` but resolve unambiguously by external label.
+        var (parent, moduleDecl, typeDb) = BuildCollectionParentForSelectorTest("MusicItemCollection");
+
+        var formBefore = BuildInoutIntExtensionMethod(parent, moduleDecl,
+            name: "formIndex", argLabel: "before", privateName: "i",
+            mangledName: "$sTestMI_formIndex_BEFORE");
+        var formAfter = BuildInoutIntExtensionMethod(parent, moduleDecl,
+            name: "formIndex", argLabel: "after", privateName: "i",
+            mangledName: "$sTestMI_formIndex_AFTER");
+        parent.Methods.Add(formBefore);
+        parent.Methods.Add(formAfter);
+
+        var beforeOutput = EmitOne(formBefore, typeDb);
+        var afterOutput = EmitOne(formAfter, typeDb);
+
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", beforeOutput);
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", afterOutput);
+        Assert.Contains($"@_cdecl(\"{formBefore.MangledName}\")", beforeOutput);
+        Assert.Contains($"@_cdecl(\"{formAfter.MangledName}\")", afterOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStruct_IndexOffsetBy_DistinctSelectorFromIndexAfter_EmitsWrapper()
+    {
+        // `index(_ i: Int, offsetBy distance: Int) -> Int` shares the base name
+        // `index` with `index(after:)` but has a different selector (`_:offsetBy:`),
+        // so the wrapper must emit and resolve unambiguously inside the protocol-
+        // based static dispatch extension.
+        var (parent, moduleDecl, typeDb) = BuildCollectionParentForSelectorTest("MusicItemCollection");
+
+        var indexAfter = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "index", argLabel: "after", privateName: "i",
+            mangledName: "$sTestMI_index_AFTER_SIBLING");
+        parent.Methods.Add(indexAfter);
+
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        var indexOffsetBy = new MethodDecl
+        {
+            Name = "index",
+            MangledName = "$sTestMI_index_OFFSETBY",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsExtensionMethod = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "", PrivateName = "i", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "offsetBy", PrivateName = "distance", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parent.Methods.Add(indexOffsetBy);
+
+        var output = EmitOne(indexOffsetBy, typeDb);
+
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", output);
+        Assert.Contains($"@_cdecl(\"{indexOffsetBy.MangledName}\")", output);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStruct_IdenticalSelectorSiblings_StillSkips()
+    {
+        // Negative control: two extension methods sharing both base name AND full
+        // selector are still genuinely ambiguous under the unconstrained dispatch
+        // extension (this is the shape the skip was added to guard — typically
+        // constrained extensions producing same-selector overloads). The selector-
+        // aware gate must continue to skip these.
+        var (parent, moduleDecl, typeDb) = BuildCollectionParentForSelectorTest("AmbigCollection");
+
+        var first = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "index", argLabel: "after", privateName: "i",
+            mangledName: "$sTestAmbig_index_after_FIRST");
+        var second = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "index", argLabel: "after", privateName: "i",
+            mangledName: "$sTestAmbig_index_after_SECOND");
+        parent.Methods.Add(first);
+        parent.Methods.Add(second);
+
+        var firstOutput = EmitOne(first, typeDb);
+
+        Assert.Contains("Generic static dispatch wrapper skipped for 'index'", firstOutput);
+        Assert.DoesNotContain($"@_cdecl(\"{first.MangledName}\")", firstOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStruct_SameLabelDistinctParamTypes_EmitsBothWrappers()
+    {
+        // Same external label but distinct parameter types — Swift resolves these at
+        // the call site by argument type, so the wrapper extension can disambiguate
+        // them. The selector-aware gate must treat distinct types as distinct
+        // identities and emit both wrappers.
+        var (parent, moduleDecl, typeDb) = BuildCollectionParentForSelectorTest("MixedCollection");
+
+        var intOverload = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "lookup", argLabel: "by", privateName: "key",
+            mangledName: "$sTestMixed_lookup_by_INT");
+        var stringSpec = new NamedTypeSpec("Swift.String");
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        var stringOverload = new MethodDecl
+        {
+            Name = "lookup",
+            MangledName = "$sTestMixed_lookup_by_STRING",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsExtensionMethod = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = stringSpec, Name = "by", PrivateName = "key", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+        parent.Methods.Add(intOverload);
+        parent.Methods.Add(stringOverload);
+
+        var intOutput = EmitOne(intOverload, typeDb);
+        var stringOutput = EmitOne(stringOverload, typeDb);
+
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", intOutput);
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", stringOutput);
+        Assert.Contains($"@_cdecl(\"{intOverload.MangledName}\")", intOutput);
+        Assert.Contains($"@_cdecl(\"{stringOverload.MangledName}\")", stringOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericStruct_SameLabelDistinctInoutness_EmitsBothWrappers()
+    {
+        // Same external label, same underlying type, but one is `inout`. Swift
+        // resolves these unambiguously at the call site (`x` vs `&x`), so the
+        // selector-aware gate must treat them as distinct dispatch identities.
+        var (parent, moduleDecl, typeDb) = BuildCollectionParentForSelectorTest("InoutMixCollection");
+
+        var byValue = BuildIntInIntOutExtensionMethod(parent, moduleDecl,
+            name: "bump", argLabel: "value", privateName: "i",
+            mangledName: "$sTestInout_bump_byVALUE");
+        var byInout = BuildInoutIntExtensionMethod(parent, moduleDecl,
+            name: "bump", argLabel: "value", privateName: "i",
+            mangledName: "$sTestInout_bump_INOUT");
+        parent.Methods.Add(byValue);
+        parent.Methods.Add(byInout);
+
+        var byValueOutput = EmitOne(byValue, typeDb);
+        var byInoutOutput = EmitOne(byInout, typeDb);
+
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", byValueOutput);
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped", byInoutOutput);
+        Assert.Contains($"@_cdecl(\"{byValue.MangledName}\")", byValueOutput);
+        Assert.Contains($"@_cdecl(\"{byInout.MangledName}\")", byInoutOutput);
+    }
+
+    private static (StructDecl Parent, ModuleDecl Module, TypeDatabase TypeDb) BuildCollectionParentForSelectorTest(string parentName)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment(parentName);
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parent = CreateStructDecl(parentName, moduleDecl);
+        parent.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Element", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        parent.Conformances.Add(new TypeConformance(
+            ConformingType: parent.SwiftTypeName!,
+            Protocol: SwiftTypeName.FromModuleQualifiedName("Swift.Collection"),
+            ProtocolConformanceDescriptor: $"$sTest{parentName}VSKAAMc"));
+
+        return (parent, moduleDecl, typeDb);
+    }
+
+    private static MethodDecl BuildIntInIntOutExtensionMethod(
+        TypeDecl parent, ModuleDecl moduleDecl,
+        string name, string argLabel, string privateName, string mangledName)
+    {
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = mangledName,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsExtensionMethod = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = argLabel, PrivateName = privateName, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl BuildInoutIntExtensionMethod(
+        TypeDecl parent, ModuleDecl moduleDecl,
+        string name, string argLabel, string privateName, string mangledName)
+    {
+        var intSpec = new NamedTypeSpec("Swift.Int");
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = mangledName,
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            IsExtensionMethod = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl { SwiftTypeSpec = TupleTypeSpec.Empty, Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new ArgumentDecl { SwiftTypeSpec = intSpec, Name = argLabel, PrivateName = privateName, IsInOut = true, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static string EmitOne(MethodDecl method, TypeDatabase typeDb)
+    {
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        return sw.ToString();
+    }
+
+    #endregion
 }
