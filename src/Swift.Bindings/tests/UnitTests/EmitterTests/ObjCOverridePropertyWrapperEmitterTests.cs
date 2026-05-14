@@ -164,7 +164,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     {
         var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
             "Lottie", "AnimationViewBase", "contentMode", isGetter: true);
-        Assert.Equal("SBW_Get_Lottie_AnimationViewBase_contentMode", symbol);
+        Assert.Equal("SBSW_Get_Lottie_AnimationViewBase_contentMode", symbol);
     }
 
     [Fact]
@@ -172,7 +172,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     {
         var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
             "Lottie", "AnimationViewBase", "contentMode", isGetter: false);
-        Assert.Equal("SBW_Set_Lottie_AnimationViewBase_contentMode", symbol);
+        Assert.Equal("SBSW_Set_Lottie_AnimationViewBase_contentMode", symbol);
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class ObjCOverridePropertyWrapperEmitterTests
     {
         var symbol = ObjCOverridePropertyWrapperEmitter.GetAccessorSymbolName(
             "MyModule", "Outer.Inner", "prop", isGetter: true);
-        Assert.Equal("SBW_Get_MyModule_Outer_Inner_prop", symbol);
+        Assert.Equal("SBSW_Get_MyModule_Outer_Inner_prop", symbol);
     }
 
     // ==================== Swift Getter Wrapper Tests ====================

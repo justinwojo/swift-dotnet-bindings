@@ -1380,13 +1380,16 @@ namespace BindingsGeneration.Tests
         [Fact]
         public void PInvokeDeclaration_SwiftConvention_EmitsCallConvSwift()
         {
-            // BUG 2 FIX: PInvokeDeclaration.Emit() should use the CallingConvention property
-            // instead of hardcoding Cdecl. When targeting a @_silgen_name wrapper, the convention
-            // should be Swift.
+            // PInvokeDeclaration.Emit() should honour the CallingConvention property
+            // rather than hardcoding Cdecl. When targeting a @_silgen_name wrapper the
+            // convention should be Swift — and the entry-point prefix must signal that
+            // (SBSW_ for Swift CC wrappers, SBW_ reserved for @_cdecl ones). Pairing
+            // SBW_ with Swift CC now throws at construction time, so this test uses the
+            // SBSW_ prefix that legitimate Swift-CC wrappers use.
             var decl = new PInvokeDeclaration
             {
                 LibraryPath = "libTest.dylib",
-                EntryPoint = "SBW_Test",
+                EntryPoint = "SBSW_Test",
                 MethodName = "Test",
                 ReturnType = "void",
                 ParametersString = "",

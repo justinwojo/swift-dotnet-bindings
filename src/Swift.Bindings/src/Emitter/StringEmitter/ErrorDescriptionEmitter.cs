@@ -295,24 +295,47 @@ public static class ErrorDescriptionEmitter
         }
         else
         {
-            csWriter.WriteLines($"""
-                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{descSymbol}")]
-                private static partial IntPtr SBW_GetErrorDescription(IntPtr error);
-
-                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{releaseSymbol}")]
-                private static partial void SBW_ReleaseError(IntPtr error);
-
-                """);
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = descSymbol,
+                MethodName = "SBW_GetErrorDescription",
+                ReturnType = "IntPtr",
+                ParametersString = "IntPtr error",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Private,
+                UseFullyQualifiedNames = true,
+            });
+            csWriter.WriteLine();
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = releaseSymbol,
+                MethodName = "SBW_ReleaseError",
+                ReturnType = "void",
+                ParametersString = "IntPtr error",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Private,
+                UseFullyQualifiedNames = true,
+            });
+            csWriter.WriteLine();
 
             // Emit SBW_Free if not already emitted by Utf8SliceEmitter for this type
             if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, ctx))
             {
                 Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, ctx);
-                csWriter.WriteLines($"""
-                    [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbol}")]
-                    private static partial void SBW_Free(IntPtr ptr);
-
-                    """);
+                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = freeSymbol,
+                    MethodName = "SBW_Free",
+                    ReturnType = "void",
+                    ParametersString = "IntPtr ptr",
+                    CallingConvention = PInvokeCallingConvention.Cdecl,
+                    Visibility = PInvokeVisibility.Private,
+                    UseFullyQualifiedNames = true,
+                });
+                csWriter.WriteLine();
             }
         }
     }
@@ -349,11 +372,18 @@ public static class ErrorDescriptionEmitter
         }
         else
         {
-            csWriter.WriteLines($"""
-                [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{extractorSymbol}")]
-                private static partial IntPtr SBW_ExtractTypedError_{typedErrorSafeSuffix}(IntPtr error);
-
-                """);
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = extractorSymbol,
+                MethodName = $"SBW_ExtractTypedError_{typedErrorSafeSuffix}",
+                ReturnType = "IntPtr",
+                ParametersString = "IntPtr error",
+                CallingConvention = PInvokeCallingConvention.Cdecl,
+                Visibility = PInvokeVisibility.Private,
+                UseFullyQualifiedNames = true,
+            });
+            csWriter.WriteLine();
         }
     }
 

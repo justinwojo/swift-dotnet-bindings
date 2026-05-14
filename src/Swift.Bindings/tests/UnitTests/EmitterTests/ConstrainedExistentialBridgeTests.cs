@@ -180,7 +180,7 @@ public class ConstrainedExistentialBridgeTests
         Assert.Contains("@available(tvOS 16.0, *)", swift);
         Assert.Contains("@available(watchOS 9.0, *)", swift);
         Assert.Contains("@available(visionOS 1.0, *)", swift);
-        Assert.Contains("@_silgen_name(\"SBW_ScannerModel_init_", swift);
+        Assert.Contains("@_cdecl(\"SBW_ScannerModel_init_", swift);
         Assert.Contains("Unmanaged<AnyObject>.fromOpaque(", swift);
         Assert.Contains("as! any TestModule.CameraFrameAnalyzer<TestModule.CameraFrame, TestModule.UIEvent>", swift);
         Assert.Contains("Unmanaged.passRetained(result as AnyObject).toOpaque()", swift);

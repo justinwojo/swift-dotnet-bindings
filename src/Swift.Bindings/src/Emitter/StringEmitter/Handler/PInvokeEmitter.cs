@@ -1045,11 +1045,18 @@ namespace BindingsGeneration
             // In-band wrapper-symbol contract: defense-in-depth assertion. When the
             // pre-emit gate (WrapperSymbolContractGate) misses a path, the throw
             // here surfaces the failure as a hard error rather than letting an
-            // unresolved P/Invoke leak into the generated bindings.
-            if (methodEnv.EmissionContext != null &&
-                WrapperValidation.GetCallingConvention(methodDecl) == PInvokeCallingConvention.Cdecl &&
-                PInvokeEmitHelper.IsWrapperEntryPoint(entryPoint) &&
-                !methodEnv.EmissionContext.IsWrapperSymbolRegistered(entryPoint))
+            // unresolved P/Invoke leak into the generated bindings. Covers both
+            // shapes: Cdecl + SBW_… and Swift CC + SBSW_…. The pairing is selected
+            // through PInvokeEmitHelper.SelectCallingConvention so the prefix and
+            // call-conv stay consistent even if a caller misspecs one half.
+            var declaredCallConv = WrapperValidation.GetCallingConvention(methodDecl);
+            var resolvedCallConv = PInvokeEmitHelper.SelectCallingConvention(entryPoint, declaredCallConv);
+            bool wrapperPair = methodEnv.EmissionContext != null &&
+                ((resolvedCallConv == PInvokeCallingConvention.Cdecl &&
+                  PInvokeEmitHelper.IsWrapperEntryPoint(entryPoint)) ||
+                 (resolvedCallConv == PInvokeCallingConvention.Swift &&
+                  PInvokeEmitHelper.IsSwiftCCWrapperEntryPoint(entryPoint)));
+            if (wrapperPair && !methodEnv.EmissionContext!.IsWrapperSymbolRegistered(entryPoint))
             {
                 throw new WrapperSymbolContractException(entryPoint, pInvokeName);
             }
@@ -1068,7 +1075,16 @@ namespace BindingsGeneration
                     IsAsync = methodDecl.IsAsync,
                     // Propagate the correct calling convention to the helper class P/Invoke declaration.
                     // @_cdecl wrappers and native thunks use Cdecl; @_silgen_name wrappers use Swift.
-                    CallingConvention = WrapperValidation.GetCallingConvention(methodDecl),
+                    CallingConvention = declaredCallConv,
+                    // Carry the wrapper-symbol contract through to the helper-class P/Invoke so
+                    // helper-hoisted declarations get the same gate as direct emissions. The
+                    // format-time check in PInvokeEmitHelper.FormatDeclarationLines runs when
+                    // the helper class is finally written — by then the full module's wrapper-emit
+                    // has finished and the registry is complete. Covers both pairings
+                    // (Cdecl+SBW_ and Swift+SBSW_) — FormatDeclarationLines decides which prefix
+                    // applies based on the resolved calling convention.
+                    EmissionContext = methodEnv.EmissionContext,
+                    EnforceWrapperContract = methodEnv.EmissionContext != null,
                     // Methods with GenericParameters already have per-param TypeMetadata in the
                     // P/Invoke signature via HandleGenericMetadata(). Skip PInvokeHelperContext
                     // trailing metadata to avoid duplicate TypeMetadata params (ABI mismatch).

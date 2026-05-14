@@ -18,8 +18,8 @@ import Foundation
 
 /// Identity function: receives a pointer and returns it.
 /// The T.Type parameter proves TypeMetadata passing works.
-@_silgen_name("SBW_GenericAbi_identity")
-public func SBW_GenericAbi_identity<T>(_ value: UnsafeMutableRawPointer, _ t: T.Type) -> UnsafeMutableRawPointer {
+@_silgen_name("SBSW_GenericAbi_identity")
+public func SBSW_GenericAbi_identity<T>(_ value: UnsafeMutableRawPointer, _ t: T.Type) -> UnsafeMutableRawPointer {
     return value
 }
 
@@ -32,8 +32,8 @@ public func SBW_GenericAbi_sizeOfT_cdecl(_ metadataPtr: UnsafeRawPointer, _ resu
 }
 
 /// Generic sizeOfT — uses T.Type explicit param.
-@_silgen_name("SBW_GenericAbi_sizeOfT")
-public func SBW_GenericAbi_sizeOfT<T>(
+@_silgen_name("SBSW_GenericAbi_sizeOfT")
+public func SBSW_GenericAbi_sizeOfT<T>(
     _ self_: UnsafeMutableRawPointer,
     _ resultBuf: UnsafeMutablePointer<Int>,
     _ t: T.Type
@@ -42,8 +42,8 @@ public func SBW_GenericAbi_sizeOfT<T>(
 }
 
 /// Generic strideOfT
-@_silgen_name("SBW_GenericAbi_strideOfT")
-public func SBW_GenericAbi_strideOfT<T>(
+@_silgen_name("SBSW_GenericAbi_strideOfT")
+public func SBSW_GenericAbi_strideOfT<T>(
     _ self_: UnsafeMutableRawPointer,
     _ resultBuf: UnsafeMutablePointer<Int>,
     _ t: T.Type
@@ -75,8 +75,8 @@ public class GenericAbiBox<Element> {
 /// Filter: calls a C callback with the element from a GenericAbiBox<Element>.
 /// The callback receives the element as a raw pointer.
 /// Result written to resultBuf to avoid Mono JIT crash on Bool return from CallConvSwift.
-@_silgen_name("SBW_GenericAbi_filter")
-public func SBW_GenericAbi_filter<Element>(
+@_silgen_name("SBSW_GenericAbi_filter")
+public func SBSW_GenericAbi_filter<Element>(
     _ self_: UnsafeMutableRawPointer,
     _ predicateFuncPtr: UnsafeMutableRawPointer,
     _ predicateContext: UnsafeMutableRawPointer?,
@@ -104,8 +104,8 @@ public func SBW_GenericAbi_filter<Element>(
 
 /// Map: transforms the element using a C callback.
 /// Two metatype params prove two-metadata passing works.
-@_silgen_name("SBW_GenericAbi_map")
-public func SBW_GenericAbi_map<Element, Result>(
+@_silgen_name("SBSW_GenericAbi_map")
+public func SBSW_GenericAbi_map<Element, Result>(
     _ self_: UnsafeMutableRawPointer,
     _ transformFuncPtr: UnsafeMutableRawPointer,
     _ transformContext: UnsafeMutableRawPointer?,
@@ -135,8 +135,8 @@ public func SBW_GenericAbi_map<Element, Result>(
 
 /// Filter with error propagation: the callback can signal an error via errorOut.
 /// Both result (Bool) and error are written via out-params.
-@_silgen_name("SBW_GenericAbi_filterThrows")
-public func SBW_GenericAbi_filterThrows<Element>(
+@_silgen_name("SBSW_GenericAbi_filterThrows")
+public func SBSW_GenericAbi_filterThrows<Element>(
     _ self_: UnsafeMutableRawPointer,
     _ predicateFuncPtr: UnsafeMutableRawPointer,
     _ predicateContext: UnsafeMutableRawPointer?,
@@ -172,31 +172,31 @@ public func SBW_GenericAbi_filterThrows<Element>(
 // MARK: - Helper Functions
 
 /// Creates a GenericAbiBox containing an Int value.
-@_silgen_name("SBW_GenericAbi_createIntBox")
-public func SBW_GenericAbi_createIntBox(_ value: Int) -> UnsafeMutableRawPointer {
+@_silgen_name("SBSW_GenericAbi_createIntBox")
+public func SBSW_GenericAbi_createIntBox(_ value: Int) -> UnsafeMutableRawPointer {
     let box = GenericAbiBox(value)
     return Unmanaged.passRetained(box).toOpaque()
 }
 
 /// Releases a retained GenericAbiBox.
-@_silgen_name("SBW_GenericAbi_releaseBox")
-public func SBW_GenericAbi_releaseBox(_ ptr: UnsafeMutableRawPointer) {
+@_silgen_name("SBSW_GenericAbi_releaseBox")
+public func SBSW_GenericAbi_releaseBox(_ ptr: UnsafeMutableRawPointer) {
     Unmanaged<AnyObject>.fromOpaque(ptr).release()
 }
 
 // MARK: - Error Helpers
 
 /// Creates an NSError from a C string message. Used by C# callbacks to propagate errors.
-@_silgen_name("SBW_GenericAbi_createError")
-public func SBW_GenericAbi_createError(_ message: UnsafePointer<CChar>) -> UnsafeMutableRawPointer {
+@_silgen_name("SBSW_GenericAbi_createError")
+public func SBSW_GenericAbi_createError(_ message: UnsafePointer<CChar>) -> UnsafeMutableRawPointer {
     let msg = String(cString: message)
     let error = NSError(domain: "SwiftBindingsGenericAbi", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
     return Unmanaged.passRetained(error as AnyObject).toOpaque()
 }
 
 /// Gets the error description as a C string (caller must free with free()).
-@_silgen_name("SBW_GenericAbi_getErrorDescription")
-public func SBW_GenericAbi_getErrorDescription(_ errorPtr: UnsafeMutableRawPointer) -> UnsafeMutablePointer<CChar>? {
+@_silgen_name("SBSW_GenericAbi_getErrorDescription")
+public func SBSW_GenericAbi_getErrorDescription(_ errorPtr: UnsafeMutableRawPointer) -> UnsafeMutablePointer<CChar>? {
     let error = Unmanaged<AnyObject>.fromOpaque(errorPtr).takeUnretainedValue()
     let description: String
     if let nsError = error as? NSError {
@@ -208,7 +208,7 @@ public func SBW_GenericAbi_getErrorDescription(_ errorPtr: UnsafeMutableRawPoint
 }
 
 /// Releases an error object.
-@_silgen_name("SBW_GenericAbi_releaseError")
-public func SBW_GenericAbi_releaseError(_ errorPtr: UnsafeMutableRawPointer) {
+@_silgen_name("SBSW_GenericAbi_releaseError")
+public func SBSW_GenericAbi_releaseError(_ errorPtr: UnsafeMutableRawPointer) {
     Unmanaged<AnyObject>.fromOpaque(errorPtr).release()
 }

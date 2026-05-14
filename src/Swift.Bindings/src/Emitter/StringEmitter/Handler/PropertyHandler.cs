@@ -706,8 +706,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 }
                 else
                 {
-                    csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-                    csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = freeSymbol,
+                        MethodName = "SBW_Free",
+                        ReturnType = "void",
+                        ParametersString = "IntPtr ptr",
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Private,
+                    });
                     csWriter.WriteLine();
                 }
             }

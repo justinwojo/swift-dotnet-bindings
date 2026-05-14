@@ -167,7 +167,8 @@ namespace BindingsGeneration
                     MethodName = wrapperPInvokeName,
                     ReturnType = pInvokeReturnType,
                     ParametersString = string.Join(", ", pInvokeParams),
-                    UseFullyQualifiedNames = true
+                    UseFullyQualifiedNames = true,
+                    CallingConvention = PInvokeCallingConvention.Swift
                 });
                 csWriter.WriteLine();
 

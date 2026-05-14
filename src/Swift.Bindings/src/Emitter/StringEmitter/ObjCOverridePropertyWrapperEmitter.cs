@@ -73,7 +73,10 @@ public static class ObjCOverridePropertyWrapperEmitter
     {
         var safeTypeName = typeName.Replace(".", "_");
         var prefix = isGetter ? "Get" : "Set";
-        return $"SBW_{prefix}_{moduleName}_{safeTypeName}_{propertyName}";
+        // SBSW_ prefix: @_silgen_name wrapper preserves Swift CC because the property
+        // type (and the class self) may not be C-representable. PInvokeEmitHelper
+        // pairs the SBSW_ prefix with CallConvSwift on the C# P/Invoke side.
+        return $"SBSW_{prefix}_{moduleName}_{safeTypeName}_{propertyName}";
     }
 
     /// <summary>

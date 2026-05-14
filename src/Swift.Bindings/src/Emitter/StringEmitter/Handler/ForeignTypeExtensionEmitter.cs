@@ -196,7 +196,7 @@ public static class ForeignTypeExtensionEmitter
         }
 
         var flatTypeName = FlattenQualifiedName(foreignTypeQualifiedName);
-        var getterSymbol = $"SBW_{flatTypeName}_get_{extMethod.MethodName}";
+        var getterSymbol = $"SBSW_{flatTypeName}_get_{extMethod.MethodName}";
 
         if (!ctx.TryAddForeignExtSymbol(getterSymbol))
             return;
@@ -225,7 +225,7 @@ public static class ForeignTypeExtensionEmitter
         {
             if (IsPrimitiveSetter(propertyTypeSpec, typeDatabase))
             {
-                var setterSymbol = $"SBW_{flatTypeName}_set_{extMethod.MethodName}";
+                var setterSymbol = $"SBSW_{flatTypeName}_set_{extMethod.MethodName}";
                 if (ctx.TryAddForeignExtSymbol(setterSymbol))
                 {
                     EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx);
@@ -1095,7 +1095,10 @@ public static class ForeignTypeExtensionEmitter
     private static string BuildSymbolName(string flatTypeName, string methodName,
         List<(string label, TypeSpec typeSpec, string swiftType, bool hasDefault)> parameters)
     {
-        var baseName = $"SBW_{flatTypeName}_{methodName}";
+        // SBSW_ prefix because foreign-type-extension wrappers are emitted as @_silgen_name
+        // (Swift CC P/Invoke). PInvokeEmitHelper enforces SBW_ ↔ Cdecl exclusively, so the
+        // SBSW_ prefix is what signals "Swift CC is the legal pairing" for this wrapper kind.
+        var baseName = $"SBSW_{flatTypeName}_{methodName}";
         if (parameters.Count > 0)
         {
             var labels = string.Join("_", parameters.Select(p =>

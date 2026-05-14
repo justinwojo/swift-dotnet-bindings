@@ -115,25 +115,115 @@ public static class PInvokeEmitHelper
         !string.IsNullOrEmpty(entryPoint) && entryPoint.StartsWith("SBW_", StringComparison.Ordinal);
 
     /// <summary>
+    /// Returns true when <paramref name="entryPoint"/> follows the Swift-CC wrapper-symbol
+    /// naming convention (SBSW_… prefix). SBSW_ wrappers are emitted on the Swift side as
+    /// <c>@_silgen_name</c> functions whose signature is not C-representable; the C# P/Invoke
+    /// must declare <see cref="PInvokeCallingConvention.Swift"/> to match.
+    /// </summary>
+    public static bool IsSwiftCCWrapperEntryPoint(string entryPoint) =>
+        !string.IsNullOrEmpty(entryPoint) && entryPoint.StartsWith("SBSW_", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Single decision point for (entry-point, calling-convention) pairing. Swift mangled
+    /// symbols (<c>$s…</c>) always use <see cref="PInvokeCallingConvention.Swift"/>; the
+    /// <c>SBW_…</c> cdecl-wrapper convention always uses <see cref="PInvokeCallingConvention.Cdecl"/>;
+    /// every other prefix uses the caller-supplied convention. The asymmetric handling of
+    /// the two prefixes is intentional:
+    /// <list type="bullet">
+    ///   <item><description><c>$s…</c> + <see cref="PInvokeCallingConvention.Cdecl"/>: silently
+    ///   coerced to <see cref="PInvokeCallingConvention.Swift"/>. Swift owns the <c>$s</c> mangling
+    ///   convention; any contradiction is always safely resolved by picking Swift CC. This shape
+    ///   was the 0.10.0 mangled-symbol desync; the coercion here, combined with the post-emit
+    ///   <c>EntryPointCallConvPairingTests</c> reflection audit, makes it impossible to ship.</description></item>
+    ///   <item><description><c>SBW_…</c> + <see cref="PInvokeCallingConvention.Swift"/>: throws.
+    ///   <c>SBW_</c> is OUR naming convention reserved for <c>@_cdecl</c> wrappers; a mismatch
+    ///   here means a real wrapper-emit / binding-emit desync that needs a code-level fix, not
+    ///   a silent rewrite. <c>@_silgen_name</c> (Swift CC) wrappers must pick a different prefix
+    ///   (e.g. <c>SBSW_</c>) so the pair stays self-describing.</description></item>
+    /// </list>
+    /// </summary>
+    public static PInvokeCallingConvention SelectCallingConvention(
+        string entryPoint,
+        PInvokeCallingConvention callerSpec)
+    {
+        if (string.IsNullOrEmpty(entryPoint))
+            return callerSpec;
+
+        // Swift mangled symbols use Swift's calling convention exclusively. Silent coercion
+        // here — combined with the post-emit reflection audit — ensures the 0.10.0 mangled-
+        // symbol + Cdecl bug cannot ship even when an upstream caller (test fixture or
+        // production gate) leaves the convention at its default.
+        if (entryPoint.StartsWith("$s", StringComparison.Ordinal))
+            return PInvokeCallingConvention.Swift;
+
+        // SBSW_ is reserved for @_silgen_name (Swift CC) wrappers — used when the wrapper
+        // signature cannot be made C-representable (non-@objc class self, non-blittable
+        // passthrough args). Pin to Swift CC; refuse a Cdecl request explicitly so a
+        // mis-paired caller surfaces here instead of producing a silent ABI desync.
+        // (Branch order vs the SBW_ check below is independent: StartsWith("SBW_") requires
+        // the underscore as the fourth character, so it cannot swallow an SBSW_ entry point.)
+        if (entryPoint.StartsWith("SBSW_", StringComparison.Ordinal))
+        {
+            if (callerSpec == PInvokeCallingConvention.Cdecl)
+                throw new InvalidOperationException(
+                    $"P/Invoke entry point '{entryPoint}' starts with the SBSW_ (Swift-CC wrapper) " +
+                    "convention prefix but the caller requested CallConvCdecl. Either the wrapper " +
+                    "needs to be emitted as @_cdecl with an SBW_ prefix or the caller needs to pass " +
+                    "CallingConvention = PInvokeCallingConvention.Swift.");
+            return PInvokeCallingConvention.Swift;
+        }
+
+        // SBW_ is reserved for @_cdecl wrappers. @_silgen_name wrappers (Swift CC) must
+        // pick a different prefix (e.g. SBSW_) so the pair stays self-describing. Unlike
+        // the $s case, a contradiction here points to a wrapper-emit/binding-emit desync
+        // that needs an explicit code-level fix.
+        if (entryPoint.StartsWith("SBW_", StringComparison.Ordinal))
+        {
+            if (callerSpec == PInvokeCallingConvention.Swift)
+                throw new InvalidOperationException(
+                    $"P/Invoke entry point '{entryPoint}' starts with the SBW_ (cdecl wrapper) " +
+                    "convention prefix but the caller requested CallConvSwift. Either the wrapper " +
+                    "needs to be emitted as @_cdecl (the SBW_ convention) or the entry-point prefix " +
+                    "needs to change to signal Swift calling convention (e.g. SBSW_).");
+            return PInvokeCallingConvention.Cdecl;
+        }
+
+        return callerSpec;
+    }
+
+    /// <summary>
     /// Format a P/Invoke declaration as individual lines (unindented).
     /// Callers prepend their own indentation when appending to StringBuilder or raw strings.
     /// </summary>
     /// <exception cref="WrapperSymbolContractException">
     /// Thrown when <see cref="PInvokeEmissionInfo.EnforceWrapperContract"/> is true,
-    /// <see cref="PInvokeEmissionInfo.EmissionContext"/> is non-null, the calling
-    /// convention is <see cref="PInvokeCallingConvention.Cdecl"/>, the entry point
-    /// matches the wrapper-symbol convention, and the symbol was never registered.
+    /// <see cref="PInvokeEmissionInfo.EmissionContext"/> is non-null, the entry point
+    /// matches the wrapper-symbol convention for its resolved calling convention
+    /// (SBW_… with <see cref="PInvokeCallingConvention.Cdecl"/> or SBSW_… with
+    /// <see cref="PInvokeCallingConvention.Swift"/>), and the symbol was never
+    /// registered.
     /// </exception>
     public static IReadOnlyList<string> FormatDeclarationLines(PInvokeEmissionInfo info)
     {
+        // Single-point (entry-point, call-conv) pairing — Swift mangled $s… always uses
+        // Swift CC, SBW_… always uses Cdecl. Any caller spec that contradicts the prefix
+        // implication is reconciled here so the desync that produced the 0.10.0 mangled-
+        // symbol + Cdecl bug is impossible at construction time.
+        var resolvedCallingConvention = SelectCallingConvention(info.EntryPoint, info.CallingConvention);
+
         // In-band wrapper-symbol contract: refuse to emit a P/Invoke whose entry
-        // point looks like a wrapper symbol (SBW_…) when wrapper-emit never
-        // registered it. Catches the failure shape behind the three 0.10.0 bugs
-        // where binding-emit referenced a symbol that wrapper-emit never produced.
+        // point looks like a wrapper symbol (SBW_… cdecl or SBSW_… Swift-CC) when
+        // wrapper-emit never registered it. Catches the failure shape behind the
+        // three 0.10.0 bugs where binding-emit referenced a symbol that wrapper-emit
+        // never produced. Both prefix shapes funnel through the same registry
+        // (RegisterWrapperSymbolInternal), so the registered-check is identical;
+        // only the (prefix, resolved-CC) gate differs.
         if (info.EnforceWrapperContract &&
             info.EmissionContext != null &&
-            info.CallingConvention == PInvokeCallingConvention.Cdecl &&
-            IsWrapperEntryPoint(info.EntryPoint) &&
+            ((resolvedCallingConvention == PInvokeCallingConvention.Cdecl &&
+              IsWrapperEntryPoint(info.EntryPoint)) ||
+             (resolvedCallingConvention == PInvokeCallingConvention.Swift &&
+              IsSwiftCCWrapperEntryPoint(info.EntryPoint))) &&
             !info.EmissionContext.IsWrapperSymbolRegistered(info.EntryPoint))
         {
             throw new WrapperSymbolContractException(info.EntryPoint, info.MethodName);
@@ -141,8 +231,8 @@ public static class PInvokeEmitHelper
 
         var lines = new List<string>();
 
-        // Calling convention attribute — use the specified convention
-        var callConvType = info.CallingConvention switch
+        // Calling convention attribute — use the resolved convention
+        var callConvType = resolvedCallingConvention switch
         {
             PInvokeCallingConvention.Swift => "CallConvSwift",
             _ => "CallConvCdecl"

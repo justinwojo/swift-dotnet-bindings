@@ -298,6 +298,13 @@ public static class ArraySliceNormalizationEmitter
             normalizedMethodDecl.UsesFreeFunctionWrapper = true;
             normalizedMethodDecl.MangledName = cdeclSymbol;
         }
+        else if (normalizedMethodDecl.MangledName.StartsWith("SBW_", StringComparison.Ordinal))
+        {
+            // Falling back to @_silgen_name (Swift CC P/Invoke) — rename SBW_ → SBSW_ so
+            // the entry-point prefix matches the calling convention. PInvokeEmitHelper
+            // enforces SBW_ ↔ Cdecl exclusively.
+            normalizedMethodDecl.MangledName = "SBSW_" + normalizedMethodDecl.MangledName.Substring(4);
+        }
 
         // Check if the normalized signature is fully marshallable
         var signatureHandler = new SignatureHandler(normalizedEnv);
@@ -613,11 +620,11 @@ public static class ArraySliceNormalizationEmitter
         var tryPrefix = throws ? "try " : "";
         var swiftFuncName = $"_sbw_{originalMethodName}_{DeterministicHash8(originalMethodDecl.MangledName)}";
         var annotation = useCdecl ? "@_cdecl" : "@_silgen_name";
-        // Register the @_cdecl symbol so the wrapper-symbol contract sees it.
-        // The @_silgen_name branch isn't an SBW_… cdecl — the contract check
-        // (gated on PInvokeEmitHelper.IsWrapperEntryPoint) wouldn't look it up.
-        if (useCdecl)
-            emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
+        // Register the wrapper symbol so the wrapper-symbol contract sees it. The
+        // contract gate now covers both shapes: SBW_… (cdecl) and SBSW_… (Swift CC),
+        // so both branches must register or the C# P/Invoke emit will abort with
+        // WrapperSymbolContractException.
+        emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
 
         // @_silgen_name and @_cdecl wrappers are top-level Swift functions (or live in a
         // foreign extension that won't pick up the original declaration's @available); both

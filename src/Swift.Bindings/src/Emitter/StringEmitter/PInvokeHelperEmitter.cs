@@ -624,7 +624,8 @@ public class PInvokeHelperContext
                 ReturnType = "TypeMetadata",
                 ParametersString = "TypeMetadataRequest request",
                 IsAsync = false,
-                MetadataParameters = GetTypeMetadataAccessorParameterDeclarations()
+                MetadataParameters = GetTypeMetadataAccessorParameterDeclarations(),
+                CallingConvention = PInvokeCallingConvention.Swift
             });
             return;
         }
@@ -664,13 +665,17 @@ public class PInvokeHelperContext
 
         var storeBlock = string.Join("\n", storeLines);
 
-        // CallConvCdecl on the buffer P/Invoke matches the Swift ABI for both thin
-        // and buffer metadata-accessor modes. The return remains TypeMetadata (single
-        // IntPtr): Swift's MetadataResponse is (metadata, state) but state is carried
-        // in x1 and we only read x0 — same truncation the thin-mode declaration does.
+        // Swift metadata accessors ($s…Ma) use Swift's calling convention. The arg-count
+        // distinction between thin- and buffer-mode is about register pressure on the Swift
+        // side, not about ABI selection: the C# side must declare CallConvSwift either way
+        // so register layout matches what the Swift compiler emits. Cdecl here happens to
+        // produce identical arm64 code for single-int-in / single-IntPtr-out shapes, which
+        // is why this previously passed runtime smoke despite the ABI lie; nested-type
+        // metadata accessors with multiple metadata args or PWTs go through the same
+        // declaration shape and the lie there reads register state under the wrong ABI.
         return $$"""
             [global::System.Runtime.InteropServices.LibraryImport("{{libraryPath}}", EntryPoint = "{{metadataAccessorSymbol}}")]
-            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
             private static partial global::Swift.Runtime.TypeMetadata PInvoke_getMetadata_buffer(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
 
             internal static global::Swift.Runtime.TypeMetadata PInvoke_getMetadata({{wrapperParamList}})
@@ -827,6 +832,22 @@ public class PInvokeDeclaration
     public bool UsePrivateVisibility { get; init; }
 
     /// <summary>
+    /// Optional handle to the per-module emission context. Forwarded into
+    /// <see cref="PInvokeEmissionInfo.EmissionContext"/> so helper-hoisted P/Invokes
+    /// route through the same wrapper-symbol contract gate as direct emissions.
+    /// </summary>
+    public ModuleEmissionContext? EmissionContext { get; init; }
+
+    /// <summary>
+    /// When true and <see cref="EmissionContext"/> is non-null, the in-band
+    /// wrapper-symbol contract check fires at format time — refusing to emit a
+    /// P/Invoke whose entry point matches a wrapper-symbol convention (SBW_ /
+    /// SBSW_) but was never registered by wrapper-emit. Mirrors the field of
+    /// the same name on <see cref="PInvokeEmissionInfo"/>.
+    /// </summary>
+    public bool EnforceWrapperContract { get; init; }
+
+    /// <summary>
     /// Emits the P/Invoke declaration.
     /// </summary>
     /// <param name="csWriter">The C# code writer.</param>
@@ -842,7 +863,9 @@ public class PInvokeDeclaration
             CallingConvention = CallingConvention,
             Visibility = UsePrivateVisibility ? PInvokeVisibility.Private : PInvokeVisibility.Internal,
             IsAsync = IsAsync,
-            MetadataParameters = MetadataParameters
+            MetadataParameters = MetadataParameters,
+            EmissionContext = EmissionContext,
+            EnforceWrapperContract = EnforceWrapperContract
         });
     }
 }

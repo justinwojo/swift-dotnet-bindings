@@ -1319,6 +1319,7 @@ namespace BindingsGeneration
                 CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, _emissionContext);
                 // SBW_CancelTask P/Invoke: hoist to helper for generic types, emit inline otherwise
                 var cancelWriter = _env.PInvokeHelperContext != null ? callbackWriter : csWriter;
+                cancelWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 cancelWriter.WriteLines($"""
                     [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                     {AsyncFieldVisibility} static partial void SBW_CancelTask(long taskId);
@@ -2461,8 +2462,9 @@ namespace BindingsGeneration
                 Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, _emissionContext);
             }
             return needsFreePInvoke
-                ? $"""
-                        [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
+                ? $$"""
+                        [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+                        [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbolName}}")]
                         private static partial void SBW_Free(IntPtr ptr);
 
                 """

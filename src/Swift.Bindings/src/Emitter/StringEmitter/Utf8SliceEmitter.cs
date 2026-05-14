@@ -65,7 +65,7 @@ public static class Utf8SliceEmitter
         var symbolName = GetFreeSymbolName(moduleName);
 
         swiftWriter.WriteLines(
-            $"@_silgen_name(\"{symbolName}\")\n" +
+            $"@_cdecl(\"{symbolName}\")\n" +
             "public func SBW_Free(_ ptr: UnsafeMutableRawPointer?) {\n" +
             "    ptr?.deallocate()\n" +
             "}\n");

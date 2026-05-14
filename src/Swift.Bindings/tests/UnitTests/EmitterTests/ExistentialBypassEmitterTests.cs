@@ -39,10 +39,10 @@ public class ExistentialBypassEmitterTests
         Assert.NotEqual(string.Empty, csOutput);
         Assert.NotEqual(string.Empty, swiftOutput);
         Assert.Contains("Create_", csOutput);
-        Assert.Contains("SBW_Config_init_", csOutput);
+        Assert.Contains("SBSW_Config_init_", csOutput);
         Assert.Contains("@_silgen_name", swiftOutput);
-        Assert.Contains("SBW_Config_init_", swiftOutput);
-        Assert.Contains("SBW_Config_free_", swiftOutput);
+        Assert.Contains("SBSW_Config_init_", swiftOutput);
+        Assert.Contains("SBSW_Config_free_", swiftOutput);
     }
 
     [Fact]
@@ -147,8 +147,8 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains($"SBW_Config_init_{mangledHash}", swiftOutput);
-        Assert.Contains($"SBW_Config_free_{mangledHash}", swiftOutput);
+        Assert.Contains($"SBSW_Config_init_{mangledHash}", swiftOutput);
+        Assert.Contains($"SBSW_Config_free_{mangledHash}", swiftOutput);
         Assert.Contains($"Create_{mangledHash}", csOutput);
     }
 
@@ -179,7 +179,7 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
-    public void TryEmit_PInvoke_UsesCallConvCdecl()
+    public void TryEmit_PInvoke_UsesCallConvSwift()
     {
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -198,7 +198,9 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
 
-        Assert.Contains("CallConvCdecl", csOutput);
+        // Bypass wrappers use SBSW_ prefix + @_silgen_name (Swift CC) because passthrough
+        // args may carry non-@objc class types that can't be expressed under @_cdecl.
+        Assert.Contains("CallConvSwift", csOutput);
         Assert.Contains("LibraryImport", csOutput);
     }
 

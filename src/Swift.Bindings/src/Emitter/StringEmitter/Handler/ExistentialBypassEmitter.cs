@@ -249,8 +249,10 @@ public static class ExistentialBypassEmitter
             : swiftModuleQualifiedName;
 
         var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
-        var wrapperSymbol = $"SBW_{typeName}_init_{mangledHash}";
-        var freeSymbol = $"SBW_{typeName}_free_{mangledHash}";
+        // SBSW_ prefix marks Swift-CC wrappers (@_silgen_name) so the P/Invoke calling-convention
+        // picker pairs them with CallConvSwift instead of the SBW_ → CallConvCdecl default.
+        var wrapperSymbol = $"SBSW_{typeName}_init_{mangledHash}";
+        var freeSymbol = $"SBSW_{typeName}_free_{mangledHash}";
         var factoryName = $"Create_{mangledHash}";
 
         // Determine library path for the wrapper
@@ -558,7 +560,10 @@ public static class ExistentialBypassEmitter
             : swiftModuleQualifiedName;
 
         var mangledHash = EmitterUtility.DeterministicHash8(methodDecl.MangledName);
-        var wrapperSymbol = $"SBW_{typeName}_{methodDecl.Name}_{mangledHash}";
+        // SBSW_ prefix marks the Swift-CC (@_silgen_name) method wrapper. See EmitSwiftWrapper
+        // for the rationale: method-on-class passes `self` as the parent class type, which is
+        // not C-representable under @_cdecl when the class isn't @objc.
+        var wrapperSymbol = $"SBSW_{typeName}_{methodDecl.Name}_{mangledHash}";
 
         // Determine library path for the wrapper
         var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
@@ -652,6 +657,10 @@ public static class ExistentialBypassEmitter
 
         swiftWriter.WriteLine();
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, methodAvailability);
+        // @_silgen_name keeps Swift CC because the method wrapper takes the parent class as
+        // self and may pass non-@objc class types in passthroughArgs — neither is C-representable
+        // under @_cdecl. Symbol uses the SBSW_ prefix so PInvokeEmitHelper.SelectCallingConvention
+        // routes the matching P/Invoke to CallConvSwift instead of throwing on SBW_+Swift.
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) {{");
         swiftWriter.Indent++;
@@ -737,7 +746,15 @@ public static class ExistentialBypassEmitter
             pInvokeParamsList.Add(pInvokePassthroughParams);
         var pInvokeParams = string.Join(", ", pInvokeParamsList);
 
-        // Emit P/Invoke declaration
+        // Register the SBSW_ wrapper symbol so the wrapper-symbol contract sees it. The
+        // method bypass emits a @_silgen_name (Swift CC) wrapper; the contract gate covers
+        // both SBW_ (Cdecl) and SBSW_ (Swift CC) shapes, so the corresponding P/Invoke emit
+        // would throw WrapperSymbolContractException without this registration.
+        env.EmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
+
+        // Emit P/Invoke declaration. SBSW_ wrappers use @_silgen_name (Swift CC) — set
+        // CallingConvention explicitly so PInvokeEmitHelper.SelectCallingConvention's safety
+        // check doesn't throw on the default Cdecl spec.
         if (env.PInvokeHelperContext != null)
         {
             env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
@@ -748,7 +765,10 @@ public static class ExistentialBypassEmitter
                 ReturnType = "void",
                 ParametersString = pInvokeParams,
                 IsAsync = false,
-                MetadataParameters = null
+                MetadataParameters = null,
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = env.EmissionContext,
+                EnforceWrapperContract = env.EmissionContext != null
             });
         }
         else
@@ -759,7 +779,10 @@ public static class ExistentialBypassEmitter
                 EntryPoint = wrapperSymbol,
                 MethodName = wrapperSymbol,
                 ReturnType = "void",
-                ParametersString = pInvokeParams
+                ParametersString = pInvokeParams,
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = env.EmissionContext,
+                EnforceWrapperContract = env.EmissionContext != null
             });
             csWriter.WriteLine();
         }
@@ -905,6 +928,9 @@ public static class ExistentialBypassEmitter
 
         swiftWriter.WriteLine();
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+        // @_silgen_name keeps Swift CC because passthroughArgs may carry non-@objc class
+        // types that swiftc rejects under @_cdecl. Symbol uses the SBSW_ prefix so
+        // PInvokeEmitHelper.SelectCallingConvention routes the P/Invoke to CallConvSwift.
         swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
@@ -916,6 +942,8 @@ public static class ExistentialBypassEmitter
         swiftWriter.WriteLine("}");
         swiftWriter.WriteLine();
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+        // Free wrapper takes UnsafeMutableRawPointer — kept on @_silgen_name to share the
+        // SBSW_ Swift-CC convention with the init wrapper above.
         swiftWriter.WriteLine($"@_silgen_name(\"{freeSymbol}\")");
         swiftWriter.WriteLine($"public func {freeSymbol}(_ ptr: UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;
@@ -945,7 +973,16 @@ public static class ExistentialBypassEmitter
         // P/Invoke extern declarations use the P/Invoke (low-level) signature
         var pInvokeParams = reducedPInvokeSig.PInvokeParametersString();
 
-        // Emit P/Invoke declarations
+        // Register both SBSW_ wrapper symbols (init + free) so the wrapper-symbol contract
+        // sees them. Constructor bypass emits a pair of @_silgen_name (Swift CC) wrappers;
+        // the contract gate covers both SBW_ (Cdecl) and SBSW_ (Swift CC) shapes, so the
+        // corresponding P/Invoke emits would throw WrapperSymbolContractException otherwise.
+        env.EmissionContext?.TryAddConstructorWrapperSymbol(wrapperSymbol);
+        env.EmissionContext?.TryAddMethodWrapperSymbol(freeSymbol);
+
+        // Emit P/Invoke declarations. SBSW_ wrappers use @_silgen_name (Swift CC) — set
+        // CallingConvention explicitly so the helper's safety check doesn't throw on
+        // the default Cdecl spec.
         if (env.PInvokeHelperContext != null)
         {
             // Generic type: route through PInvokeHelperContext.
@@ -958,7 +995,10 @@ public static class ExistentialBypassEmitter
                 ReturnType = "IntPtr",
                 ParametersString = pInvokeParams,
                 IsAsync = false,
-                MetadataParameters = null
+                MetadataParameters = null,
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = env.EmissionContext,
+                EnforceWrapperContract = env.EmissionContext != null
             });
             env.PInvokeHelperContext.AddDeclaration(new PInvokeDeclaration
             {
@@ -968,7 +1008,10 @@ public static class ExistentialBypassEmitter
                 ReturnType = "void",
                 ParametersString = "IntPtr ptr",
                 IsAsync = false,
-                MetadataParameters = null
+                MetadataParameters = null,
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = env.EmissionContext,
+                EnforceWrapperContract = env.EmissionContext != null
             });
         }
         else
@@ -980,7 +1023,10 @@ public static class ExistentialBypassEmitter
                 EntryPoint = wrapperSymbol,
                 MethodName = wrapperSymbol,
                 ReturnType = "IntPtr",
-                ParametersString = pInvokeParams
+                ParametersString = pInvokeParams,
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = env.EmissionContext,
+                EnforceWrapperContract = env.EmissionContext != null
             });
             csWriter.WriteLine();
             PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
@@ -989,7 +1035,10 @@ public static class ExistentialBypassEmitter
                 EntryPoint = freeSymbol,
                 MethodName = freeSymbol,
                 ReturnType = "void",
-                ParametersString = "IntPtr ptr"
+                ParametersString = "IntPtr ptr",
+                CallingConvention = PInvokeCallingConvention.Swift,
+                EmissionContext = env.EmissionContext,
+                EnforceWrapperContract = env.EmissionContext != null
             });
             csWriter.WriteLine();
         }

@@ -289,7 +289,12 @@ public static class ProtocolExtensionClosureBridge
             MethodName = pInvokeName,
             ReturnType = pinvokeReturnType,
             ParametersString = string.Join(", ", pinvokeParams),
-            Visibility = PInvokeVisibility.Internal
+            Visibility = PInvokeVisibility.Internal,
+            // SBW_ (UsesCdeclMethodWrapper=true) ↔ Cdecl; SBSW_ (UsesCdeclMethodWrapper=false) ↔ Swift CC.
+            // BuildSymbolName encodes this in the prefix; the calling-convention pick must agree.
+            CallingConvention = method.UsesCdeclMethodWrapper
+                ? PInvokeCallingConvention.Cdecl
+                : PInvokeCallingConvention.Swift
         });
         csWriter.WriteLine();
     }

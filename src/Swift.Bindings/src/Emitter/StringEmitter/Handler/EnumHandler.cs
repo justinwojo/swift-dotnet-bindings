@@ -599,9 +599,19 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            // P/Invoke declaration for the case constructor
-            csWriter.WriteLine($"[LibraryImport(\"{libPath}\", EntryPoint = \"{caseDecl.MangledName}\")]");
-            csWriter.WriteLine($"private static partial IntPtr {pInvokeName}();");
+            // P/Invoke declaration for the case constructor. The entry point is the raw
+            // Swift-mangled symbol — PInvokeEmitHelper.SelectCallingConvention pairs $s…
+            // with CallConvSwift automatically.
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = libPath,
+                EntryPoint = caseDecl.MangledName,
+                MethodName = pInvokeName,
+                ReturnType = "IntPtr",
+                ParametersString = string.Empty,
+                CallingConvention = PInvokeCallingConvention.Swift,
+                Visibility = PInvokeVisibility.Private,
+            });
             csWriter.WriteLine();
         }
 
@@ -869,6 +879,7 @@ namespace BindingsGeneration
         private void EmitEqualityPInvoke(string symbolName)
         {
             _writer.WriteLines($$"""
+            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
             [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);

@@ -499,6 +499,7 @@ namespace BindingsGeneration
                     var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? "[MarshalAs(UnmanagedType.U1)] " : "";
                     pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
                 }
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
                 csWriter.WriteLine();
@@ -549,6 +550,7 @@ namespace BindingsGeneration
                 }
 
                 var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
@@ -844,6 +846,7 @@ namespace BindingsGeneration
 
                 // P/Invoke
                 var pinvokeReturnType = returnsEnum ? csUnderlyingType : csReturnType;
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
@@ -959,6 +962,7 @@ namespace BindingsGeneration
                 }
 
                 var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
@@ -1044,6 +1048,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
 
                 // P/Invoke
+                csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                 csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine("[return: MarshalAs(UnmanagedType.U1)]");
@@ -1371,6 +1376,7 @@ namespace BindingsGeneration
 
             // P/Invoke for getter
             var pinvokeParams = isStatic ? "" : $"{csUnderlyingType} tag";
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
             csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_Get{propertyPascalName}({pinvokeParams});");
             csWriter.WriteLine();
@@ -1439,6 +1445,7 @@ namespace BindingsGeneration
             }
             var hasStringParam = pinvokeParams.Any(p => p.Contains("string ") || p.Contains("string?"));
             var stringMarshal = hasStringParam ? ", StringMarshalling = StringMarshalling.Utf8" : "";
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
             csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\"{stringMarshal})]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({string.Join(", ", pinvokeParams)});");
             csWriter.WriteLine();
@@ -1482,6 +1489,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
             csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_Get{propertyPascalName}();");
             csWriter.WriteLine();
@@ -1497,6 +1505,7 @@ namespace BindingsGeneration
             if (_freePInvokeEmittedInExtensions) return;
             _freePInvokeEmittedInExtensions = true;
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
+            csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
             csWriter.WriteLine($"[LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{freeSymbol}\")]");
             csWriter.WriteLine("private static partial void PInvoke_SBW_Free(IntPtr ptr);");
             csWriter.WriteLine();

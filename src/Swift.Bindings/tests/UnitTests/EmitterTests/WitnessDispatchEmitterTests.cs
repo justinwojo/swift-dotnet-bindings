@@ -30,7 +30,7 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasValue_get_value_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasValue_get_value_0\")", output);
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasValue", "value", new NamedTypeSpec("Swift.Int32"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasValue_free_get_value_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasValue_free_get_value_0\")", output);
         Assert.Contains("ptr.assumingMemoryBound(to: Int32.self).deinitialize(count: 1)", output);
         Assert.Contains("ptr.deallocate()", output);
     }
@@ -88,7 +88,7 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasFlag", "isActive", new NamedTypeSpec("Swift.Bool"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasFlag_get_isActive_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasFlag_get_isActive_0\")", output);
         Assert.Contains("UnsafeMutablePointer<Bool>.allocate(capacity: 1)", output);
     }
 
@@ -112,8 +112,8 @@ public class WitnessDispatchEmitterTests
             returnType: new NamedTypeSpec("Swift.Int32"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasValue_method_getValue_0\")", output);
-        Assert.Contains("@_silgen_name(\"SBW_HasValue_free_method_getValue_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasValue_method_getValue_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasValue_free_method_getValue_0\")", output);
         Assert.Contains("existential.getValue()", output);
     }
 
@@ -123,7 +123,7 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithVoidMethod("HasValue", "reset");
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasValue_method_reset_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasValue_method_reset_0\")", output);
         Assert.DoesNotContain("SBW_HasValue_free_method_reset_0", output);
     }
 
@@ -473,7 +473,7 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasName", "name", new NamedTypeSpec("Swift.String"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasName_get_name_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasName_get_name_0\")", output);
         Assert.Contains("SBW_Utf8Slice", output);
         Assert.Contains("Array(result.utf8)", output);
         Assert.Contains("withUnsafeBufferPointer", output);
@@ -486,7 +486,7 @@ public class WitnessDispatchEmitterTests
             returnType: new NamedTypeSpec("Swift.String"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("@_silgen_name(\"SBW_HasName_method_getName_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_HasName_method_getName_0\")", output);
         Assert.Contains("let result: String = existential.getName()", output);
         Assert.Contains("SBW_Utf8Slice", output);
     }
@@ -518,7 +518,7 @@ public class WitnessDispatchEmitterTests
         protocolDecl.Properties.Add(CreateProperty("items", arrayType));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.DoesNotContain("@_silgen_name", output);
+        Assert.DoesNotContain("@_cdecl(\"SBW_HasItems_", output);
     }
 
     [Fact]
@@ -1991,8 +1991,8 @@ public class WitnessDispatchEmitterTests
             new[] { ("map", (TypeSpec)new NamedTypeSpec("TestModule.MPIMap")) });
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
-        // Verify @_silgen_name generated
-        Assert.Contains("@_silgen_name(\"SBW_MapDelegate_method_onMapChanged_0\")", output);
+        // Verify @_cdecl generated
+        Assert.Contains("@_cdecl(\"SBW_MapDelegate_method_onMapChanged_0\")", output);
         // Verify param unmarshal uses Unmanaged pattern
         Assert.Contains("rawPtr0", output);
         Assert.Contains("takeUnretainedValue()", output);
@@ -2170,13 +2170,13 @@ public class WitnessDispatchEmitterTests
         var protocol = CreateProtocolWithProperty("MyProtocol", "items", arrayType);
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
-        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_get_items_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_get_items_0\")", output);
         Assert.Contains("UnsafeMutablePointer<[String]>.allocate(capacity: 1)", output);
         Assert.Contains("ptr.initialize(to: result)", output);
         Assert.Contains("return UnsafeMutableRawPointer(ptr)", output);
 
         // Free function
-        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_free_get_items_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_free_get_items_0\")", output);
         Assert.Contains("assumingMemoryBound(to: [String].self).deinitialize(count: 1)", output);
         Assert.Contains("ptr.deallocate()", output);
     }
@@ -2194,9 +2194,9 @@ public class WitnessDispatchEmitterTests
         var protocol = CreateProtocolWithMethod("MyProtocol", "getMap", dictType);
         var output = EmitDispatchWithEmitter(emitter, protocol, ctx);
 
-        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_method_getMap_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_method_getMap_0\")", output);
         Assert.Contains("UnsafeMutablePointer<[String: Int]>.allocate(capacity: 1)", output);
-        Assert.Contains("@_silgen_name(\"SBW_MyProtocol_free_method_getMap_0\")", output);
+        Assert.Contains("@_cdecl(\"SBW_MyProtocol_free_method_getMap_0\")", output);
         Assert.Contains("assumingMemoryBound(to: [String: Int].self).deinitialize(count: 1)", output);
     }
 
@@ -2357,7 +2357,7 @@ public class WitnessDispatchEmitterTests
         protocol.Properties.Add(CreateProperty("isTorchEnabled", new NamedTypeSpec("Swift.Bool")));
         var output = EmitDispatch(protocol);
 
-        Assert.Contains("@MainActor @_silgen_name(\"SBW_CameraModel_get_isTorchEnabled_0\")", output);
+        Assert.Contains("@MainActor @_cdecl(\"SBW_CameraModel_get_isTorchEnabled_0\")", output);
     }
 
     [Fact]
@@ -2381,7 +2381,7 @@ public class WitnessDispatchEmitterTests
         });
         var output = EmitDispatch(protocol);
 
-        Assert.Contains("@MainActor @_silgen_name(\"SBW_CameraModel_set_isTorchEnabled_0\")", output);
+        Assert.Contains("@MainActor @_cdecl(\"SBW_CameraModel_set_isTorchEnabled_0\")", output);
     }
 
     [Fact]
@@ -2395,7 +2395,7 @@ public class WitnessDispatchEmitterTests
         protocol.Properties.Add(prop);
         var output = EmitDispatch(protocol);
 
-        Assert.Contains("@MainActor @_silgen_name(\"SBW_SomeProtocol_get_isolatedProp_0\")", output);
+        Assert.Contains("@MainActor @_cdecl(\"SBW_SomeProtocol_get_isolatedProp_0\")", output);
     }
 
     [Fact]
@@ -2431,7 +2431,7 @@ public class WitnessDispatchEmitterTests
         protocol.Properties.Add(CreateProperty("name", new NamedTypeSpec("Swift.String")));
         var output = EmitDispatch(protocol);
 
-        Assert.Contains("@MainActor @_silgen_name(\"SBW_CameraModel_get_name_0\")", output);
+        Assert.Contains("@MainActor @_cdecl(\"SBW_CameraModel_get_name_0\")", output);
     }
 
     #endregion

@@ -132,6 +132,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // P/Invoke for the Swift wrapper (not the original init)
+                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                     csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
                     csWriter.WriteLine();
@@ -170,7 +171,8 @@ namespace BindingsGeneration
                             ReturnType = "IntPtr",
                             ParametersString = $"{csharpRawType} rawValue",
                             IsAsync = false,
-                            MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                            MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
+                            CallingConvention = PInvokeCallingConvention.Swift
                         });
                     }
                     else
@@ -181,7 +183,8 @@ namespace BindingsGeneration
                             EntryPoint = initRawValueMethod.MangledName,
                             MethodName = "PInvoke_InitWithRawValue",
                             ReturnType = "IntPtr",
-                            ParametersString = $"{csharpRawType} rawValue"
+                            ParametersString = $"{csharpRawType} rawValue",
+                            CallingConvention = PInvokeCallingConvention.Swift
                         });
                         csWriter.WriteLine();
                     }
@@ -299,6 +302,7 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: P/Invoke for the Swift wrapper
+                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                     csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
                     csWriter.WriteLine();
@@ -326,7 +330,8 @@ namespace BindingsGeneration
                         ReturnType = "void",
                         ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue",
                         IsAsync = false,
-                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
+                        CallingConvention = PInvokeCallingConvention.Swift
                     });
                 }
                 else
@@ -337,7 +342,8 @@ namespace BindingsGeneration
                         EntryPoint = initRawValueMethod.MangledName,
                         MethodName = "PInvoke_InitWithRawValue",
                         ReturnType = "void",
-                        ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue"
+                        ParametersString = $"SwiftIndirectResult result, {csharpRawType} rawValue",
+                        CallingConvention = PInvokeCallingConvention.Swift
                     });
                     csWriter.WriteLine();
                 }
@@ -352,7 +358,8 @@ namespace BindingsGeneration
                         MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
                         ReturnType = "TypeMetadata",
                         ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
-                        IsAsync = false
+                        IsAsync = false,
+                        CallingConvention = PInvokeCallingConvention.Swift
                     });
                 }
                 else
@@ -364,7 +371,8 @@ namespace BindingsGeneration
                         EntryPoint = "$sSqMa",
                         MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
                         ReturnType = "TypeMetadata",
-                        ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata"
+                        ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
+                        CallingConvention = PInvokeCallingConvention.Swift
                     });
                     csWriter.WriteLine();
                 }
@@ -388,6 +396,7 @@ namespace BindingsGeneration
                 }
                 else
                 {
+                    csWriter.WriteLine("[UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]");
                     csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{caseByIndexSymbol}\")]");
                     csWriter.WriteLine("private static partial IntPtr PInvoke_CaseByIndex(nint index);");
                     csWriter.WriteLine();

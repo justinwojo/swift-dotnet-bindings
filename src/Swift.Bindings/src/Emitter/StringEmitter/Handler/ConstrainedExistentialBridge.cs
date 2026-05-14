@@ -7,7 +7,7 @@ using Swift.Runtime;
 namespace BindingsGeneration;
 
 /// <summary>
-/// Generates a @_silgen_name Swift wrapper + C# constructor + P/Invoke for constructors
+/// Generates a @_cdecl Swift wrapper + C# constructor + P/Invoke for constructors
 /// blocked by constrained existential parameters (e.g., any CameraFrameAnalyzer&lt;CameraFrame, UIEvent&gt;).
 ///
 /// The Swift wrapper takes opaque UnsafeMutableRawPointer for constrained existential params
@@ -272,7 +272,10 @@ public static class ConstrainedExistentialBridge
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
         if (isMainActorIsolated)
             swiftWriter.WriteLine("@MainActor");
-        swiftWriter.WriteLine($"@_silgen_name(\"{wrapperSymbol}\")");
+        // SBW_ prefix encodes @_cdecl — must match the C# P/Invoke side, which
+        // PInvokeEmitHelper.SelectCallingConvention pins to CallConvCdecl for SBW_.
+        // Bridge params are Primitive (numeric) or IntPtr/UnsafeRawPointer, all C-representable.
+        swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
         swiftWriter.WriteLine($"public func {wrapperSymbol}({swiftParamString}) -> UnsafeMutableRawPointer {{");
         swiftWriter.Indent++;
 

@@ -35,18 +35,18 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public void TestGenericIdentityInt()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(42);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(42);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
-            var result = GenericAbiNativeMethods.SBW_GenericAbi_identity(boxPtr, intMetadata);
+            var result = GenericAbiNativeMethods.SBSW_GenericAbi_identity(boxPtr, intMetadata);
 
             AssertEqual(boxPtr, result, "Identity should return same pointer");
             TestLogger.Info("Generic identity with Int metadata — PASS");
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -57,35 +57,35 @@ public class GenericAbiTests : TestBase
     public unsafe void TestSizeOfTWithMetadata()
     {
         nint result = 0;
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(1); // dummy self_
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(1); // dummy self_
 
         try
         {
             // Int (nint on arm64 = 8 bytes) — pass metadata TWICE (explicit T.Type + implicit)
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
-            GenericAbiNativeMethods.SBW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), intMetadata, intMetadata);
+            GenericAbiNativeMethods.SBSW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), intMetadata, intMetadata);
             AssertEqual((nint)8, result, "sizeof(Int) should be 8 on arm64");
 
             // Bool (1 byte)
             var boolMetadata = TypeMetadata.GetTypeMetadataOrThrow<bool>();
-            GenericAbiNativeMethods.SBW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), boolMetadata, boolMetadata);
+            GenericAbiNativeMethods.SBSW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), boolMetadata, boolMetadata);
             AssertEqual((nint)1, result, "sizeof(Bool) should be 1");
 
             // Int32 (4 bytes)
             var int32Metadata = TypeMetadata.GetTypeMetadataOrThrow<int>();
-            GenericAbiNativeMethods.SBW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), int32Metadata, int32Metadata);
+            GenericAbiNativeMethods.SBSW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), int32Metadata, int32Metadata);
             AssertEqual((nint)4, result, "sizeof(Int32) should be 4");
 
             // Double (8 bytes)
             var doubleMetadata = TypeMetadata.GetTypeMetadataOrThrow<double>();
-            GenericAbiNativeMethods.SBW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), doubleMetadata, doubleMetadata);
+            GenericAbiNativeMethods.SBSW_GenericAbi_sizeOfT(boxPtr, (IntPtr)(&result), doubleMetadata, doubleMetadata);
             AssertEqual((nint)8, result, "sizeof(Double) should be 8");
 
             TestLogger.Info("sizeOfT with various TypeMetadata — PASS");
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -95,17 +95,17 @@ public class GenericAbiTests : TestBase
     public unsafe void TestStrideOfTWithMetadata()
     {
         nint result = 0;
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(1);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(1);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
-            GenericAbiNativeMethods.SBW_GenericAbi_strideOfT(boxPtr, (IntPtr)(&result), intMetadata, intMetadata);
+            GenericAbiNativeMethods.SBSW_GenericAbi_strideOfT(boxPtr, (IntPtr)(&result), intMetadata, intMetadata);
             AssertEqual((nint)8, result, "stride(Int) should be 8 on arm64");
             TestLogger.Info("strideOfT — PASS");
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -119,7 +119,7 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public unsafe void TestFilterIntElement()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(42);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(42);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
@@ -127,13 +127,13 @@ public class GenericAbiTests : TestBase
 
             // Predicate: value > 10 → true
             var callbackPtr = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, byte>)&FilterIntCallback_GreaterThan10;
-            GenericAbiNativeMethods.SBW_GenericAbi_filter(
+            GenericAbiNativeMethods.SBSW_GenericAbi_filter(
                 boxPtr, callbackPtr, IntPtr.Zero, (IntPtr)(&resultBuf), intMetadata, intMetadata);
             AssertTrue(resultBuf != 0, "42 > 10 should be true");
 
             // Predicate: value > 100 → false
             var callbackPtr2 = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, byte>)&FilterIntCallback_GreaterThan100;
-            GenericAbiNativeMethods.SBW_GenericAbi_filter(
+            GenericAbiNativeMethods.SBSW_GenericAbi_filter(
                 boxPtr, callbackPtr2, IntPtr.Zero, (IntPtr)(&resultBuf), intMetadata, intMetadata);
             AssertTrue(resultBuf == 0, "42 > 100 should be false");
 
@@ -141,7 +141,7 @@ public class GenericAbiTests : TestBase
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -165,7 +165,7 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public unsafe void TestFilterWithContext()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(42);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(42);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
@@ -177,7 +177,7 @@ public class GenericAbiTests : TestBase
             var gcHandle = GCHandle.Alloc(state);
             try
             {
-                GenericAbiNativeMethods.SBW_GenericAbi_filter(
+                GenericAbiNativeMethods.SBSW_GenericAbi_filter(
                     boxPtr, callbackPtr, GCHandle.ToIntPtr(gcHandle), (IntPtr)(&resultBuf), intMetadata, intMetadata);
                 AssertTrue(resultBuf == 0, "42 < 50 threshold should be false");
             }
@@ -191,7 +191,7 @@ public class GenericAbiTests : TestBase
             var gcHandle2 = GCHandle.Alloc(state2);
             try
             {
-                GenericAbiNativeMethods.SBW_GenericAbi_filter(
+                GenericAbiNativeMethods.SBSW_GenericAbi_filter(
                     boxPtr, callbackPtr, GCHandle.ToIntPtr(gcHandle2), (IntPtr)(&resultBuf), intMetadata, intMetadata);
                 AssertTrue(resultBuf != 0, "42 > 30 threshold should be true");
             }
@@ -204,7 +204,7 @@ public class GenericAbiTests : TestBase
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -228,7 +228,7 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public unsafe void TestMapIntToInt()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(21);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(21);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
@@ -238,7 +238,7 @@ public class GenericAbiTests : TestBase
             var callbackPtr = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&MapIntDoubleCallback;
 
             // Two metadata params: Element=Int, Result=Int
-            GenericAbiNativeMethods.SBW_GenericAbi_map(
+            GenericAbiNativeMethods.SBSW_GenericAbi_map(
                 boxPtr, callbackPtr, IntPtr.Zero, (IntPtr)(&resultVal),
                 intMetadata, intMetadata, intMetadata, intMetadata);
 
@@ -247,7 +247,7 @@ public class GenericAbiTests : TestBase
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -264,7 +264,7 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public unsafe void TestMapIntToBool()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(42);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(42);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
@@ -274,7 +274,7 @@ public class GenericAbiTests : TestBase
             var callbackPtr = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&MapIntIsEvenCallback;
 
             // Two DIFFERENT metadata params: Element=Int, Result=Bool
-            GenericAbiNativeMethods.SBW_GenericAbi_map(
+            GenericAbiNativeMethods.SBSW_GenericAbi_map(
                 boxPtr, callbackPtr, IntPtr.Zero, (IntPtr)(&resultVal),
                 intMetadata, boolMetadata, intMetadata, boolMetadata);
 
@@ -283,7 +283,7 @@ public class GenericAbiTests : TestBase
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -303,7 +303,7 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public unsafe void TestFilterThrowsNoError()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(42);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(42);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
@@ -311,7 +311,7 @@ public class GenericAbiTests : TestBase
 
             byte resultBuf = 0;
             IntPtr errorPtr = IntPtr.Zero;
-            GenericAbiNativeMethods.SBW_GenericAbi_filterThrows(
+            GenericAbiNativeMethods.SBSW_GenericAbi_filterThrows(
                 boxPtr, callbackPtr, IntPtr.Zero, (IntPtr)(&resultBuf), &errorPtr, intMetadata, intMetadata);
 
             AssertTrue(resultBuf != 0, "Predicate should return true");
@@ -321,7 +321,7 @@ public class GenericAbiTests : TestBase
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -339,7 +339,7 @@ public class GenericAbiTests : TestBase
     /// </summary>
     public unsafe void TestFilterThrowsWithError()
     {
-        var boxPtr = GenericAbiNativeMethods.SBW_GenericAbi_createIntBox(42);
+        var boxPtr = GenericAbiNativeMethods.SBSW_GenericAbi_createIntBox(42);
         try
         {
             var intMetadata = TypeMetadata.GetTypeMetadataOrThrow<nint>();
@@ -347,14 +347,14 @@ public class GenericAbiTests : TestBase
 
             byte resultBuf = 0;
             IntPtr errorPtr = IntPtr.Zero;
-            GenericAbiNativeMethods.SBW_GenericAbi_filterThrows(
+            GenericAbiNativeMethods.SBSW_GenericAbi_filterThrows(
                 boxPtr, callbackPtr, IntPtr.Zero, (IntPtr)(&resultBuf), &errorPtr, intMetadata, intMetadata);
 
             AssertTrue(resultBuf == 0, "Result should be false when error occurs");
             AssertTrue(errorPtr != IntPtr.Zero, "Error pointer should be non-null");
 
             // Extract error description
-            var descPtr = GenericAbiNativeMethods.SBW_GenericAbi_getErrorDescription(errorPtr);
+            var descPtr = GenericAbiNativeMethods.SBSW_GenericAbi_getErrorDescription(errorPtr);
             try
             {
                 var desc = Marshal.PtrToStringUTF8(descPtr) ?? "";
@@ -365,14 +365,14 @@ public class GenericAbiTests : TestBase
             {
                 if (descPtr != IntPtr.Zero)
                     NativeMemory.Free((void*)descPtr);
-                GenericAbiNativeMethods.SBW_GenericAbi_releaseError(errorPtr);
+                GenericAbiNativeMethods.SBSW_GenericAbi_releaseError(errorPtr);
             }
 
             TestLogger.Info("FilterThrows with error propagation — PASS");
         }
         finally
         {
-            GenericAbiNativeMethods.SBW_GenericAbi_releaseBox(boxPtr);
+            GenericAbiNativeMethods.SBSW_GenericAbi_releaseBox(boxPtr);
         }
     }
 
@@ -383,7 +383,7 @@ public class GenericAbiTests : TestBase
         var msgBytes = System.Text.Encoding.UTF8.GetBytes("generic abi test error\0");
         fixed (byte* msgPtr = msgBytes)
         {
-            var errorObj = GenericAbiNativeMethods.SBW_GenericAbi_createError((IntPtr)msgPtr);
+            var errorObj = GenericAbiNativeMethods.SBSW_GenericAbi_createError((IntPtr)msgPtr);
             *(IntPtr*)errorOutPtr = errorObj;
         }
         return 0;
@@ -403,67 +403,67 @@ public class GenericAbiTests : TestBase
 internal static partial class GenericAbiNativeMethods
 {
     // identity<T>(value, T.Type) → UnsafeMutableRawPointer
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_identity")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_identity")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial IntPtr SBW_GenericAbi_identity(IntPtr value, TypeMetadata tMetadata);
+    internal static partial IntPtr SBSW_GenericAbi_identity(IntPtr value, TypeMetadata tMetadata);
 
     // sizeOfT<T>(self_, resultBuf, T.Type, /*implicit*/ T_metadata)
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_sizeOfT")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_sizeOfT")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial void SBW_GenericAbi_sizeOfT(IntPtr self_, IntPtr resultBuf,
+    internal static partial void SBSW_GenericAbi_sizeOfT(IntPtr self_, IntPtr resultBuf,
         TypeMetadata explicitType, TypeMetadata implicitMetadata);
 
     // strideOfT<T>(self_, resultBuf, T.Type, /*implicit*/ T_metadata)
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_strideOfT")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_strideOfT")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial void SBW_GenericAbi_strideOfT(IntPtr self_, IntPtr resultBuf,
+    internal static partial void SBSW_GenericAbi_strideOfT(IntPtr self_, IntPtr resultBuf,
         TypeMetadata explicitType, TypeMetadata implicitMetadata);
 
     // filter<Element>(self_, funcPtr, ctx, resultBuf, Element.Type, /*implicit*/ Element_metadata)
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_filter")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_filter")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial void SBW_GenericAbi_filter(
+    internal static partial void SBSW_GenericAbi_filter(
         IntPtr self_, IntPtr predicateFuncPtr, IntPtr predicateContext,
         IntPtr resultBuf, TypeMetadata explicitElementType, TypeMetadata implicitElementMetadata);
 
     // map<Element, Result>(self_, funcPtr, ctx, resultBuf, Element.Type, Result.Type,
     //                      /*implicit*/ Element_metadata, Result_metadata)
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_map")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_map")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial void SBW_GenericAbi_map(
+    internal static partial void SBSW_GenericAbi_map(
         IntPtr self_, IntPtr transformFuncPtr, IntPtr transformContext, IntPtr resultBuf,
         TypeMetadata explicitElementType, TypeMetadata explicitResultType,
         TypeMetadata implicitElementMetadata, TypeMetadata implicitResultMetadata);
 
     // filterThrows<Element>(self_, funcPtr, ctx, resultBuf, errorOut, Element.Type,
     //                       /*implicit*/ Element_metadata)
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_filterThrows")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_filterThrows")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static unsafe partial void SBW_GenericAbi_filterThrows(
+    internal static unsafe partial void SBSW_GenericAbi_filterThrows(
         IntPtr self_, IntPtr predicateFuncPtr, IntPtr predicateContext,
         IntPtr resultBuf, IntPtr* errorOut,
         TypeMetadata explicitElementType, TypeMetadata implicitElementMetadata);
 
     // Helper: Create GenericAbiBox<Int>
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_createIntBox")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_createIntBox")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial IntPtr SBW_GenericAbi_createIntBox(nint value);
+    internal static partial IntPtr SBSW_GenericAbi_createIntBox(nint value);
 
     // Helper: Release GenericAbiBox
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_releaseBox")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_releaseBox")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial void SBW_GenericAbi_releaseBox(IntPtr ptr);
+    internal static partial void SBSW_GenericAbi_releaseBox(IntPtr ptr);
 
     // Error helpers
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_createError")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_createError")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial IntPtr SBW_GenericAbi_createError(IntPtr message);
+    internal static partial IntPtr SBSW_GenericAbi_createError(IntPtr message);
 
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_getErrorDescription")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_getErrorDescription")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial IntPtr SBW_GenericAbi_getErrorDescription(IntPtr errorPtr);
+    internal static partial IntPtr SBSW_GenericAbi_getErrorDescription(IntPtr errorPtr);
 
-    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBW_GenericAbi_releaseError")]
+    [LibraryImport("SwiftBindingsTestLib", EntryPoint = "SBSW_GenericAbi_releaseError")]
     [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvSwift) })]
-    internal static partial void SBW_GenericAbi_releaseError(IntPtr errorPtr);
+    internal static partial void SBSW_GenericAbi_releaseError(IntPtr errorPtr);
 }

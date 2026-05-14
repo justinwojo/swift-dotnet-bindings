@@ -96,6 +96,12 @@ namespace BindingsGeneration
             if (context.CompositionCollector != null)
                 methodEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
 
+            // Make the emission context available to bypass/bridge emitters that participate
+            // in the wrapper-symbol contract (e.g. ExistentialBypassEmitter registers its
+            // SBSW_ wrappers via env.EmissionContext). The later assignments at the WrapperEmitter
+            // path remain — this one just covers the constructor-bypass branches that fire first.
+            methodEnv.EmissionContext = context.GetEmissionContext();
+
             // Closure-param tombstone (Layer A): see MethodHandler.Emit for design.
             if (methodEnv.MethodDecl.IsClosureParamTombstone)
             {
@@ -1374,8 +1380,16 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        csWriter.WriteLine($"[LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{freeSymbol}\")]");
-                        csWriter.WriteLine("private static partial void SBW_Free(IntPtr ptr);");
+                        PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                        {
+                            LibraryPath = wrapperLibPath,
+                            EntryPoint = freeSymbol,
+                            MethodName = "SBW_Free",
+                            ReturnType = "void",
+                            ParametersString = "IntPtr ptr",
+                            CallingConvention = PInvokeCallingConvention.Cdecl,
+                            Visibility = PInvokeVisibility.Private,
+                        });
                         csWriter.WriteLine();
                     }
                 }

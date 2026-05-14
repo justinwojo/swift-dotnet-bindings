@@ -94,6 +94,7 @@ public static class AsyncStreamEmitter
         var selfParam = isStatic ? "" : "void* self, ";
 
         csWriter.WriteLines($$"""
+            [UnmanagedCallConv(CallConvs = new Type[] { typeof(CallConvCdecl) })]
             [LibraryImport("{{libraryPath}}", EntryPoint = "{{swiftWrapperName}}")]
             private static unsafe partial void PInvoke_{{swiftWrapperName}}(
                 {{selfParam}}delegate* unmanaged[Cdecl]<void*, long, byte> elementCallback,

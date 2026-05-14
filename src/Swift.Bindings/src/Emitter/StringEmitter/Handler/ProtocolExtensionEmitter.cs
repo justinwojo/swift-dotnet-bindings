@@ -238,8 +238,34 @@ public static class ProtocolExtensionEmitter
             }
         }
 
+        // Compute @_cdecl eligibility BEFORE BuildSymbolName so the prefix encodes the calling
+        // convention: SBW_ ↔ @_cdecl (Cdecl), SBSW_ ↔ @_silgen_name (Swift CC).
+        // @_cdecl is illegal on generic functions, so generic conforming types and method-level
+        // generics force the @_silgen_name path. Throwing methods are kept on @_silgen_name to
+        // avoid changing the working Cdecl+throws bridging for protocol-ext wrappers in this pass.
+        // Existential and Foundation.Data params/returns are also not C-representable: the Swift
+        // wrapper would emit `any Protocol` / `Foundation.Data` in the @_cdecl signature and
+        // swiftc refuses ("type is not representable in C"). Those methods stay on @_silgen_name
+        // where the wrapper-side renders existentials by value through the Swift CC ABI.
+        bool isThrowsEarly = IsThrowingSignature(extMethod.RawSignature);
+        bool hasClosureEarly = parameters.Any(p => p.typeSpec is ClosureTypeSpec);
+        var methodLevelGenericsEarly = hasClosureEarly
+            ? ExtractMethodLevelGenerics(extMethod.RawSignature, extMethod.MethodName)
+            : new List<string>();
+        var existentialHandlerEarly = new ExistentialHandler(typeDatabase);
+        bool hasNonCRepresentableParam = parameters.Any(p =>
+            ContainsNonCRepresentable(p.typeSpec, existentialHandlerEarly));
+        bool hasNonCRepresentableReturn = returnTypeSpec != null &&
+            !returnTypeSpec.IsEmptyTuple &&
+            ContainsNonCRepresentable(returnTypeSpec, existentialHandlerEarly);
+        bool useCdecl = !conformingType.IsGeneric &&
+                        methodLevelGenericsEarly.Count == 0 &&
+                        !isThrowsEarly &&
+                        !hasNonCRepresentableParam &&
+                        !hasNonCRepresentableReturn;
+
         // Build symbol name with overload disambiguation
-        var symbolName = BuildSymbolName(flatTypeName, extMethod.MethodName, parameters);
+        var symbolName = BuildSymbolName(flatTypeName, extMethod.MethodName, parameters, useCdecl);
 
         // Skip if already emitted (e.g., from a parent class conformance)
         if (!ctx.TryAddProtocolExtSymbol(symbolName))
@@ -364,13 +390,13 @@ public static class ProtocolExtensionEmitter
 
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
-                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, isThrows, typeDatabase, ctx,
-                protocolAvailability);
+                symbolName, closureTypeSpec!, closureParamIndex, methodLevelGenerics, isThrows, useCdecl,
+                typeDatabase, ctx, protocolAvailability);
 
             // Build synthetic MethodDecl preserving ClosureTypeSpec
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
-                symbolName, closureTypeSpec!, methodLevelGenerics, isThrows);
+                symbolName, closureTypeSpec!, methodLevelGenerics, isThrows, useCdecl);
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -382,11 +408,11 @@ public static class ProtocolExtensionEmitter
             var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
 
             // Non-closure method: existing path
-            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, typeDatabase, ctx,
-                protocolAvailability);
+            EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, useCdecl,
+                typeDatabase, ctx, protocolAvailability);
 
             var syntheticMethod = BuildSyntheticMethodDecl(
-                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows);
+                moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows, useCdecl);
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -1160,6 +1186,28 @@ public static class ProtocolExtensionEmitter
         => typeSpec is NamedTypeSpec n && n.Name == "Foundation.Data";
 
     /// <summary>
+    /// Recursive non-C-representable check: returns true if <paramref name="typeSpec"/> or
+    /// any Optional generic argument it wraps is an existential or Foundation.Data. The
+    /// useCdecl gate must reject Optional&lt;any P&gt; / Optional&lt;Foundation.Data&gt; alongside
+    /// the bare forms — the wrapper would render Swift.Optional&lt;any P&gt; in the @_cdecl
+    /// signature and swiftc refuses ("type is not representable in C").
+    /// </summary>
+    private static bool ContainsNonCRepresentable(TypeSpec typeSpec, ExistentialHandler existentialHandler)
+    {
+        if (existentialHandler.IsExistential(typeSpec) || IsFoundationData(typeSpec))
+            return true;
+
+        if (typeSpec is NamedTypeSpec named &&
+            named.Name == "Swift.Optional" &&
+            named.GenericParameters.Count == 1)
+        {
+            return ContainsNonCRepresentable(named.GenericParameters[0], existentialHandler);
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a TypeSpec represents Swift.Array&lt;T&gt;.
     /// Used in wrapper param rendering to decide unsafeBitCast vs Unmanaged.
     /// </summary>
@@ -1272,6 +1320,7 @@ public static class ProtocolExtensionEmitter
         TypeSpec? returnTypeSpec,
         string symbolName,
         bool isThrows,
+        bool useCdecl,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx,
         IReadOnlyList<AvailabilityAnnotation>? protocolAvailability = null)
@@ -1370,19 +1419,32 @@ public static class ProtocolExtensionEmitter
         var throwsClause = isThrows ? " throws" : "";
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
-        // Emit the wrapper function
+        // Emit the wrapper function. The annotation choice mirrors the entry-point prefix:
+        // useCdecl=true ⇒ SBW_ + @_cdecl (Cdecl P/Invoke); useCdecl=false ⇒ SBSW_ + @_silgen_name
+        // (Swift CC P/Invoke). @_cdecl is illegal on generic functions, so generic conforming
+        // types and method-level generics force @_silgen_name.
         ctx.AddProtocolExtWrapperLine("");
-        // _silgen_name wrappers are top-level Swift functions and don't inherit the
-        // conforming type's availability. Without these annotations the wrapper body
-        // can reference types/constraints (e.g. ActionAnimation<ActionType> where
-        // ActionType : EntityAction, both iOS 18+) that the host wrapper module — built
-        // at the framework's deployment target — doesn't satisfy. Emit the strictest
-        // per-platform introduced version walking the conforming type's ancestor chain.
+        // Top-level Swift wrappers don't inherit the conforming type's availability. Without
+        // these annotations the wrapper body can reference types/constraints the host wrapper
+        // module — built at the framework's deployment target — doesn't satisfy. Emit the
+        // strictest per-platform introduced version walking the conforming type's ancestor chain.
         EmitProtocolExtAvailabilityLines(conformingType, ctx, protocolAvailability);
-        ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-        if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
+        bool needsMainActor = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated;
+        if (useCdecl)
         {
-            ctx.AddProtocolExtWrapperLine("@MainActor");
+            if (needsMainActor)
+            {
+                ctx.AddProtocolExtWrapperLine("@MainActor");
+            }
+            ctx.AddProtocolExtWrapperLine($"@_cdecl(\"{symbolName}\")");
+        }
+        else
+        {
+            ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
+            if (needsMainActor)
+            {
+                ctx.AddProtocolExtWrapperLine("@MainActor");
+            }
         }
         ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
 
@@ -1494,6 +1556,7 @@ public static class ProtocolExtensionEmitter
         int closureParamIndex,
         List<string> methodLevelGenerics,
         bool isThrows,
+        bool useCdecl,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext ctx,
         IReadOnlyList<AvailabilityAnnotation>? protocolAvailability = null)
@@ -1604,13 +1667,28 @@ public static class ProtocolExtensionEmitter
         var throwsClause = isThrows ? " throws" : "";
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
-        // Emit the wrapper function
+        // Emit the wrapper function. useCdecl=true ⇒ SBW_ + @_cdecl (Cdecl P/Invoke);
+        // useCdecl=false ⇒ SBSW_ + @_silgen_name (Swift CC P/Invoke). @_cdecl is illegal on
+        // generic functions, so generic conforming types and method-level generics force
+        // @_silgen_name regardless of closure presence.
         ctx.AddProtocolExtWrapperLine("");
         EmitProtocolExtAvailabilityLines(conformingType, ctx, protocolAvailability);
-        ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
-        if (extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated)
+        bool needsMainActorClosure = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated;
+        if (useCdecl)
         {
-            ctx.AddProtocolExtWrapperLine("@MainActor");
+            if (needsMainActorClosure)
+            {
+                ctx.AddProtocolExtWrapperLine("@MainActor");
+            }
+            ctx.AddProtocolExtWrapperLine($"@_cdecl(\"{symbolName}\")");
+        }
+        else
+        {
+            ctx.AddProtocolExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
+            if (needsMainActorClosure)
+            {
+                ctx.AddProtocolExtWrapperLine("@MainActor");
+            }
         }
         ctx.AddProtocolExtWrapperLine($"public func {symbolName}{genericClause}({string.Join(", ", swiftParams)}){throwsClause}{returnArrow}{whereClause} {{");
 
@@ -1865,7 +1943,8 @@ public static class ProtocolExtensionEmitter
         string symbolName,
         ClosureTypeSpec closureTypeSpec,
         List<string> methodLevelGenerics,
-        bool isThrows)
+        bool isThrows,
+        bool useCdecl)
     {
         var csSignature = new List<ArgumentDecl>();
 
@@ -1984,6 +2063,7 @@ public static class ProtocolExtensionEmitter
             ModuleDecl = moduleDecl,
             UsesWrapperLibrary = true,
             UsesFreeFunctionWrapper = true,
+            UsesCdeclMethodWrapper = useCdecl,
             IsProtocolExtensionMethod = true,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
             IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
@@ -2003,7 +2083,8 @@ public static class ProtocolExtensionEmitter
         TypeSpec? returnTypeSpec,
         string returnTypeName,
         string symbolName,
-        bool isThrows)
+        bool isThrows,
+        bool useCdecl)
     {
         // Build CSSignature: [returnType, param1, param2, ...]
         var csSignature = new List<ArgumentDecl>();
@@ -2093,6 +2174,7 @@ public static class ProtocolExtensionEmitter
             ModuleDecl = moduleDecl,
             UsesWrapperLibrary = true,
             UsesFreeFunctionWrapper = true,
+            UsesCdeclMethodWrapper = useCdecl,
             IsProtocolExtensionMethod = true,
             IsActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
             IsMainActorIsolated = extMethod.IsMainActorIsolated || conformingType.IsMainActorIsolated,
@@ -2258,13 +2340,22 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// Builds a unique symbol name for the Swift wrapper function.
-    /// Format: SBW_{FlatTypeName}_{methodName}[_{label1}_{label2}_...] for disambiguation.
+    /// Format: <c>{prefix}{FlatTypeName}_{methodName}[_{label1}_{label2}_...]</c>.
     /// Uses parameter labels (like Swift's PrintedName) for precise overload disambiguation.
+    /// <para>
+    /// Prefix is <c>SBW_</c> when the wrapper is emitted as <c>@_cdecl</c> (Cdecl P/Invoke)
+    /// and <c>SBSW_</c> when it must remain <c>@_silgen_name</c> (Swift CC P/Invoke — used
+    /// for generic conforming types and method-level generics where <c>@_cdecl</c> is illegal).
+    /// The distinct prefix keeps the (entry-point → calling-convention) pairing self-describing
+    /// for <see cref="PInvokeEmitHelper.SelectCallingConvention"/>'s audit.
+    /// </para>
     /// </summary>
     private static string BuildSymbolName(string flatTypeName, string methodName,
-        List<(string label, TypeSpec typeSpec, string swiftType)> parameters)
+        List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
+        bool useCdecl = true)
     {
-        var baseName = $"SBW_{flatTypeName}_{methodName}";
+        var prefix = useCdecl ? "SBW_" : "SBSW_";
+        var baseName = $"{prefix}{flatTypeName}_{methodName}";
         if (parameters.Count > 0)
         {
             // Use parameter labels for disambiguation (mirrors Swift's PrintedName semantics)

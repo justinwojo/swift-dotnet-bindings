@@ -232,7 +232,8 @@ namespace BindingsGeneration
                     MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
                     ReturnType = "TypeMetadata",
                     ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
-                    IsAsync = false
+                    IsAsync = false,
+                    CallingConvention = PInvokeCallingConvention.Swift
                 });
             }
             else
@@ -243,7 +244,8 @@ namespace BindingsGeneration
                     EntryPoint = "$sSqMa",
                     MethodName = "PInvokesForSwiftOptional_MetadataAccessor",
                     ReturnType = "TypeMetadata",
-                    ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata"
+                    ParametersString = "TypeMetadataRequest request, TypeMetadata typeMetadata",
+                    CallingConvention = PInvokeCallingConvention.Swift
                 });
                 csWriter.WriteLine();
             }

@@ -18,10 +18,13 @@ namespace BindingsGeneration.Tests;
 /// <remarks>
 /// The contract has three orthogonal dimensions and these tests pin each:
 /// <list type="bullet">
-///   <item>Entry-point shape — only <c>SBW_…</c> symbols participate; direct Swift
-///   mangled names (<c>$s…</c>) and ObjC selectors are out of scope.</item>
-///   <item>Calling convention — only <see cref="PInvokeCallingConvention.Cdecl"/>
-///   is enforced (Swift CC P/Invokes target raw symbols, not wrappers).</item>
+///   <item>Entry-point shape — <c>SBW_…</c> (Cdecl) and <c>SBSW_…</c> (Swift CC)
+///   wrapper symbols participate; direct Swift mangled names (<c>$s…</c>) and
+///   ObjC selectors are out of scope.</item>
+///   <item>Calling convention — enforced for both shapes via the resolved
+///   pairing: <see cref="PInvokeCallingConvention.Cdecl"/> + SBW_ and
+///   <see cref="PInvokeCallingConvention.Swift"/> + SBSW_. Swift CC P/Invokes
+///   that target raw <c>$s…</c> symbols (not wrappers) remain out of scope.</item>
 ///   <item>Opt-in via <see cref="PInvokeEmissionInfo.EnforceWrapperContract"/> +
 ///   <see cref="PInvokeEmissionInfo.EmissionContext"/> — both must be set for
 ///   the check to fire, so existing call sites stay non-breaking until they
@@ -97,9 +100,11 @@ public class WrapperSymbolContractTests
     {
         // Direct Swift mangled symbols ($s…) bypass wrapper-emit entirely; the
         // contract check must not fire for them, otherwise we'd reject every
-        // legitimate WrapperStrategy.None call.
+        // legitimate WrapperStrategy.None call. The $s prefix pairs exclusively
+        // with CallConvSwift — SelectCallingConvention throws on $s + Cdecl by design.
         var ctx = new ModuleEmissionContext();
-        var info = MakeInfo("$s4Test6doWorkyyF", ctx, enforce: true);
+        var info = MakeInfo("$s4Test6doWorkyyF", ctx, enforce: true,
+            cc: PInvokeCallingConvention.Swift);
 
         var lines = PInvokeEmitHelper.FormatDeclarationLines(info);
 
@@ -107,18 +112,41 @@ public class WrapperSymbolContractTests
     }
 
     [Fact]
-    public void Skips_When_CallingConvention_Is_Swift()
+    public void Coerces_DollarS_With_CallingConvention_Cdecl_To_Swift()
     {
-        // CallConvSwift means the P/Invoke is going to a raw Swift symbol, not a
-        // wrapper. Even an SBW_-shaped symbol shouldn't trigger the gate when CC
-        // is Swift — wrappers always use Cdecl.
-        var ctx = new ModuleEmissionContext();
-        var info = MakeInfo("SBW_Looks_Like_Wrapper", ctx, enforce: true,
-            cc: PInvokeCallingConvention.Swift);
+        // $s… is reserved for Swift CC. Pairing it with CallConvCdecl reads register
+        // state under the wrong ABI for the implicit self / metadata / error registers
+        // Swift relies on, which produced the 0.10.0 mangled-symbol desync bug.
+        // The pairing helper silently coerces to CallConvSwift — combined with the
+        // post-emit EntryPointCallConvPairingTests reflection audit, this makes the
+        // desync impossible to ship even when an upstream gate leaves the convention
+        // at its Cdecl default.
+        var info = MakeInfo("$s4Test6doWorkyyF", ctx: null, enforce: false,
+            cc: PInvokeCallingConvention.Cdecl);
 
         var lines = PInvokeEmitHelper.FormatDeclarationLines(info);
 
         Assert.Contains(lines, l => l.Contains("CallConvSwift"));
+        Assert.DoesNotContain(lines, l => l.Contains("CallConvCdecl"));
+    }
+
+    [Fact]
+    public void Throws_When_SBW_Paired_With_CallingConvention_Swift()
+    {
+        // SBW_ is reserved for the @_cdecl wrapper convention. Pairing it with
+        // CallConvSwift contradicts the (entry-point prefix → calling-convention)
+        // invariant enforced by PInvokeEmitHelper.SelectCallingConvention, so the
+        // helper must throw at construction time rather than emit a mismatched
+        // declaration that reads register state under the wrong ABI at runtime.
+        // The legal pairings are SBW_ ↔ Cdecl and SBSW_ (or any non-SBW_ prefix) ↔ Swift.
+        var info = MakeInfo("SBW_Looks_Like_Wrapper", ctx: null, enforce: false,
+            cc: PInvokeCallingConvention.Swift);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => PInvokeEmitHelper.FormatDeclarationLines(info));
+
+        Assert.Contains("SBW_Looks_Like_Wrapper", ex.Message);
+        Assert.Contains("SBSW_", ex.Message);
     }
 
     [Fact]

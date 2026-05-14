@@ -709,7 +709,8 @@ namespace BindingsGeneration
                         ReturnType = "void",
                         ParametersString = string.Join(", ", pInvokeParams),
                         IsAsync = false,
-                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations()
+                        MetadataParameters = pinvokeHelperContext.GetMetadataParameterDeclarations(),
+                        CallingConvention = PInvokeCallingConvention.Swift
                     });
                 }
                 else
@@ -720,7 +721,8 @@ namespace BindingsGeneration
                         EntryPoint = caseDecl.MangledName,
                         MethodName = pInvokeName,
                         ReturnType = "void",
-                        ParametersString = string.Join(", ", pInvokeParams)
+                        ParametersString = string.Join(", ", pInvokeParams),
+                        CallingConvention = PInvokeCallingConvention.Swift
                     });
                     csWriter.WriteLine();
                 }

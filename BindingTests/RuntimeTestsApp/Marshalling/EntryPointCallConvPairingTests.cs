@@ -31,7 +31,6 @@ public class EntryPointCallConvPairingTests : TestBase
 {
     public EntryPointCallConvPairingTests(TestResults results) : base(results) { }
 
-    [Skip("Disabled pending the metadata-fallback / cdecl-wrapper EntryPoint-CallConv consolidation scheduled as Session 7 in src/docs/0.10.0-final-sessions.md. The reflection audit catches the broader-category violations described in bug-0.10.0-swift-mangled-symbol-with-cdecl-callconv.md — as of 2026-05-13 the test library has 603 `$s...` + CallConvCdecl pairings (dominated by `PInvoke_getMetadata_fallback` declarations) and 6 inverse `SBW_...` + CallConvSwift pairings. Re-enable when the emit path decides entry-point + call-conv from a single point and the violation set is zero.")]
     public void TestEveryMangledEntryPointDeclaresSwiftCallConv()
     {
         var assembly = typeof(TestLibFunctions).Assembly;
@@ -73,6 +72,25 @@ public class EntryPointCallConvPairingTests : TestBase
                             $"hasSwift={hasSwift}, hasCdecl={hasCdecl}). " +
                             "Anything other than exactly CallConvSwift reads register state under " +
                             "the wrong ABI for at least one call path.");
+                    }
+                }
+                else if (entryPoint.StartsWith("SBSW_", StringComparison.Ordinal))
+                {
+                    // SBSW_ wrappers are emitted as @_silgen_name Swift functions whose signature
+                    // can't be made C-representable (non-@objc class self, non-blittable passthrough).
+                    // They MUST declare exactly one call-conv: CallConvSwift. Checked before the
+                    // SBW_ branch for readability; the two prefixes do not actually collide because
+                    // StartsWith("SBW_") requires the underscore as the fourth character.
+                    bool exclusiveSwiftCC = convs.Length == 1 && convs[0] == typeof(CallConvSwift);
+                    if (!exclusiveSwiftCC)
+                    {
+                        violations.Add(
+                            $"{type.FullName}.{method.Name}: EntryPoint=\"{entryPoint}\" " +
+                            "is an SBSW_ Swift-CC wrapper; the only correct pairing is " +
+                            "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })] " +
+                            $"(observed convs: [{string.Join(", ", convs.Select(t => t.Name))}], " +
+                            $"hasSwift={hasSwift}, hasCdecl={hasCdecl}). " +
+                            "Swift-CC wrapper symbols always use the Swift calling convention exclusively.");
                     }
                 }
                 else if (entryPoint.StartsWith("SBW_", StringComparison.Ordinal))

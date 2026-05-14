@@ -171,7 +171,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_doWork",
             ReturnType = "void",
             ParametersString = "IntPtr self",
-            IsAsync = false
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift
         };
 
         context.AddDeclaration(decl);
@@ -190,7 +191,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_getMetadata",
             ReturnType = "TypeMetadata",
             ParametersString = "",
-            IsAsync = false
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift
         };
         var decl2 = new PInvokeDeclaration
         {
@@ -199,7 +201,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_getMetadata",
             ReturnType = "TypeMetadata",
             ParametersString = "",
-            IsAsync = false
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift
         };
 
         context.AddDeclaration(decl1);
@@ -291,7 +294,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_doWork",
             ReturnType = "void",
             ParametersString = "IntPtr self",
-            IsAsync = false
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift
         });
 
         var output = new StringWriter();
@@ -313,7 +317,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_doWork",
             ReturnType = "void",
             ParametersString = "IntPtr self",
-            IsAsync = false
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift
         });
 
         var output = new StringWriter();
@@ -339,7 +344,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_isValid",
             ReturnType = "bool",
             ParametersString = "",
-            IsAsync = false
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift
         };
 
         var output = new StringWriter();
@@ -361,7 +367,8 @@ public class PInvokeHelperEmitterTests
             MethodName = "PInvoke_load",
             ReturnType = "Int64",
             ParametersString = "void* callback",
-            IsAsync = true
+            IsAsync = true,
+            CallingConvention = PInvokeCallingConvention.Swift
         };
 
         var output = new StringWriter();
@@ -384,7 +391,8 @@ public class PInvokeHelperEmitterTests
             ReturnType = "void",
             ParametersString = "IntPtr self",
             IsAsync = false,
-            MetadataParameters = new[] { "TypeMetadata t0Metadata" }
+            MetadataParameters = new[] { "TypeMetadata t0Metadata" },
+            CallingConvention = PInvokeCallingConvention.Swift
         };
 
         var output = new StringWriter();
@@ -393,6 +401,127 @@ public class PInvokeHelperEmitterTests
 
         var result = output.ToString();
         Assert.Contains("PInvoke_doWork(IntPtr self, TypeMetadata t0Metadata);", result);
+    }
+
+    [Fact]
+    public void PInvokeDeclaration_Emit_ForwardsEmissionContext_ThrowsForUnregisteredSBW()
+    {
+        // PInvokeDeclaration.Emit() must forward EmissionContext + EnforceWrapperContract
+        // into PInvokeEmissionInfo so the wrapper-symbol contract gate fires at write time
+        // for helper-hoisted P/Invokes. Without the forward, generic-type P/Invokes
+        // referencing an unregistered SBW_ wrapper would silently emit and crash at runtime.
+        var ctx = new ModuleEmissionContext();
+        var decl = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/lib.dylib",
+            EntryPoint = "SBW_Container_doWork_xyz",
+            MethodName = "PInvoke_doWork",
+            ReturnType = "void",
+            ParametersString = "IntPtr self",
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            EmissionContext = ctx,
+            EnforceWrapperContract = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        var ex = Assert.Throws<WrapperSymbolContractException>(() => decl.Emit(csWriter));
+        Assert.Equal("SBW_Container_doWork_xyz", ex.EntryPoint);
+        Assert.Equal("PInvoke_doWork", ex.MethodName);
+    }
+
+    [Fact]
+    public void PInvokeDeclaration_Emit_ForwardsEmissionContext_PassesWhenRegistered()
+    {
+        // Counterpart to the throwing test: once wrapper-emit registers the SBW_ symbol
+        // on the same EmissionContext, Emit() must succeed and produce the LibraryImport.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddMethodWrapperSymbol("SBW_Container_doWork_xyz"));
+
+        var decl = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/lib.dylib",
+            EntryPoint = "SBW_Container_doWork_xyz",
+            MethodName = "PInvoke_doWork",
+            ReturnType = "void",
+            ParametersString = "IntPtr self",
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Cdecl,
+            EmissionContext = ctx,
+            EnforceWrapperContract = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        decl.Emit(csWriter);
+
+        var result = output.ToString();
+        Assert.Contains("EntryPoint = \"SBW_Container_doWork_xyz\"", result);
+        Assert.Contains("PInvoke_doWork(IntPtr self);", result);
+    }
+
+    [Fact]
+    public void PInvokeDeclaration_Emit_ForwardsEmissionContext_ThrowsForUnregisteredSBSW()
+    {
+        // Counterpart to the SBW_ + Cdecl forwarding test: the same gate must fire for
+        // SBSW_ + Swift CC pairings (e.g. ExistentialBypassEmitter's @_silgen_name wrappers).
+        // Without the parity check, unregistered SBSW_ entry points would silently emit
+        // into a generic-type helper class and crash at runtime when the symbol is missing.
+        var ctx = new ModuleEmissionContext();
+        var decl = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/lib.dylib",
+            EntryPoint = "SBSW_Container_init_xyz",
+            MethodName = "PInvoke_initContainer",
+            ReturnType = "IntPtr",
+            ParametersString = "",
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift,
+            EmissionContext = ctx,
+            EnforceWrapperContract = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        var ex = Assert.Throws<WrapperSymbolContractException>(() => decl.Emit(csWriter));
+        Assert.Equal("SBSW_Container_init_xyz", ex.EntryPoint);
+        Assert.Equal("PInvoke_initContainer", ex.MethodName);
+    }
+
+    [Fact]
+    public void PInvokeDeclaration_Emit_ForwardsEmissionContext_PassesWhenSBSWRegistered()
+    {
+        // Once wrapper-emit registers the SBSW_ symbol on the EmissionContext (as
+        // ExistentialBypassEmitter does via TryAddConstructorWrapperSymbol /
+        // TryAddMethodWrapperSymbol), the helper-hoisted P/Invoke must emit successfully
+        // with CallConvSwift attached.
+        var ctx = new ModuleEmissionContext();
+        Assert.True(ctx.TryAddConstructorWrapperSymbol("SBSW_Container_init_xyz"));
+
+        var decl = new PInvokeDeclaration
+        {
+            LibraryPath = "/tmp/lib.dylib",
+            EntryPoint = "SBSW_Container_init_xyz",
+            MethodName = "PInvoke_initContainer",
+            ReturnType = "IntPtr",
+            ParametersString = "",
+            IsAsync = false,
+            CallingConvention = PInvokeCallingConvention.Swift,
+            EmissionContext = ctx,
+            EnforceWrapperContract = true
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        decl.Emit(csWriter);
+
+        var result = output.ToString();
+        Assert.Contains("EntryPoint = \"SBSW_Container_init_xyz\"", result);
+        Assert.Contains("CallConvSwift", result);
+        Assert.Contains("PInvoke_initContainer", result);
     }
 
     [Fact]
@@ -410,7 +539,8 @@ public class PInvokeHelperEmitterTests
             ReturnType = "TypeMetadata",
             ParametersString = "TypeMetadataRequest request",
             IsAsync = false,
-            MetadataParameters = new[] { "TypeMetadata tMetadata" }
+            MetadataParameters = new[] { "TypeMetadata tMetadata" },
+            CallingConvention = PInvokeCallingConvention.Swift
         };
 
         var output = new StringWriter();

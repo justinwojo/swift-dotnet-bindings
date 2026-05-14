@@ -232,7 +232,10 @@ public class ForeignTypeExtensionEmitterTests
 
         var result = swiftOutput.ToString();
         Assert.Contains("@_silgen_name", result);
-        Assert.Contains("SBW_", result);
+        // SBSW_ (Swift CC wrapper convention) — foreign-type extension wrappers stay on
+        // @_silgen_name so SwiftIndirectResult maps correctly, and PInvokeEmitHelper
+        // enforces SBW_ ↔ Cdecl exclusively. See ForeignTypeExtensionEmitter.BuildSymbolName.
+        Assert.Contains("SBSW_", result);
         Assert.Contains("UIView", result);
         Assert.Contains("Unmanaged", result);
     }

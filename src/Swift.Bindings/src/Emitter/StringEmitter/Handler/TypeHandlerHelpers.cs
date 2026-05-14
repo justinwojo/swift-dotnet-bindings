@@ -117,7 +117,8 @@ namespace BindingsGeneration
                         MethodName = "PInvoke_getMetadata",
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
-                        Visibility = PInvokeVisibility.Internal
+                        Visibility = PInvokeVisibility.Internal,
+                        CallingConvention = PInvokeCallingConvention.Swift
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -161,7 +162,8 @@ namespace BindingsGeneration
                         _writer.WriteLine(line);
                     _writer.WriteLine();
 
-                    // Fallback P/Invoke targeting the dylib's metadata accessor directly
+                    // Fallback P/Invoke targeting the dylib's metadata accessor directly.
+                    // Raw Swift mangled symbol — must pair with CallConvSwift.
                     foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
                     {
                         LibraryPath = libPath,
@@ -169,7 +171,8 @@ namespace BindingsGeneration
                         MethodName = "PInvoke_getMetadata_fallback",
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
-                        Visibility = PInvokeVisibility.Internal
+                        Visibility = PInvokeVisibility.Internal,
+                        CallingConvention = PInvokeCallingConvention.Swift
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -188,7 +191,8 @@ namespace BindingsGeneration
                     MethodName = "PInvoke_getMetadata",
                     ReturnType = "TypeMetadata",
                     ParametersString = "",
-                    Visibility = PInvokeVisibility.Internal
+                    Visibility = PInvokeVisibility.Internal,
+                    CallingConvention = PInvokeCallingConvention.Swift
                 }))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
@@ -738,6 +742,7 @@ namespace BindingsGeneration
         private void EmitEqualityPInvoke(string symbolName)
         {
             _writer.WriteLines($$"""
+            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
             [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);

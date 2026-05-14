@@ -35,6 +35,23 @@ public static class MethodClosureBridge
         bool IsEffectivelyEscaping);
 
     /// <summary>
+    /// Builds the wrapper symbol name for an MCB bridge. Uses the <c>SBSW_</c> prefix when the
+    /// Swift wrapper must be a generic-extension <c>@_silgen_name</c> (generic parent + instance
+    /// method — <c>@_cdecl</c> is illegal on a generic extension method, so the Swift CC is the
+    /// only legal pairing). Uses the regular <c>SBW_</c> prefix otherwise, which signals the
+    /// matching <c>@_cdecl</c> + <c>CallConvCdecl</c> P/Invoke. The distinct prefix keeps the
+    /// (entry-point → calling-convention) pairing self-describing: <c>SBW_</c> ↔ Cdecl,
+    /// <c>SBSW_</c> ↔ Swift, enforced centrally by <see cref="PInvokeEmitHelper.SelectCallingConvention"/>.
+    /// </summary>
+    private static string BuildBridgeSymbolName(MethodDecl method, TypeDecl? parentDecl, string callbackBaseName)
+    {
+        bool isInstance = method.MethodType != MethodType.Static && parentDecl != null;
+        bool isGenericParent = parentDecl is TypeDecl ptd && ptd.IsGeneric;
+        var prefix = (isGenericParent && isInstance) ? "SBSW_" : "SBW_";
+        return $"{prefix}{callbackBaseName}_{method.Name}";
+    }
+
+    /// <summary>
     /// Checks if a method is eligible for the MethodClosureBridge pattern.
     /// </summary>
     public static bool IsEligible(MethodDecl method, ClosureHandler closureHandler, ITypeDatabase typeDatabase)
@@ -210,13 +227,15 @@ public static class MethodClosureBridge
         if (closures.Any(c => c.IsEffectivelyEscaping))
             ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, ctx);
 
-        // Register the SBW_ symbol with the wrapper-symbol contract before emitting
-        // the Swift wrapper. EmitSwiftWrapper writes either @_cdecl (non-generic parent)
-        // or @_silgen_name (generic parent) but both author the same Swift symbol, and
-        // the matching P/Invoke at EmitPInvoke uses that name as its EntryPoint. The
-        // contract check only fires on Cdecl callers, but registering both branches
-        // keeps the registry semantically complete.
-        var bridgeSilgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
+        // Register the wrapper symbol with the wrapper-symbol contract before emitting
+        // the Swift wrapper. EmitSwiftWrapper writes either @_cdecl (non-generic parent,
+        // SBW_ prefix, Cdecl P/Invoke) or @_silgen_name (generic parent, SBSW_ prefix,
+        // Swift CC P/Invoke). Distinct prefixes keep the (entry-point → calling-convention)
+        // pairing self-describing and let PInvokeEmitHelper.SelectCallingConvention enforce
+        // it at construction time. The contract check fires for both pairings now
+        // (Cdecl + SBW_ and Swift + SBSW_), so both branches must register or the
+        // matching P/Invoke would throw WrapperSymbolContractException.
+        var bridgeSilgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName);
         ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
 
         // Emit Swift wrapper
@@ -279,8 +298,10 @@ public static class MethodClosureBridge
         // Non-generic types use @_cdecl free function with explicit self parameter.
         bool isGenericParent = parentDecl is TypeDecl ptd && ptd.IsGeneric;
 
-        // Use the first closure's callback base name for the silgen symbol (backward compat for single closure)
-        var silgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
+        // SBW_ ↔ @_cdecl (Cdecl), SBSW_ ↔ @_silgen_name (Swift CC) — prefix selected by
+        // BuildBridgeSymbolName so the (symbol → CC) pairing is self-describing and the
+        // central PInvokeEmitHelper.SelectCallingConvention check stays an identity.
+        var silgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName);
 
         // Build Swift wrapper params
         var swiftParams = new List<string>();
@@ -1040,7 +1061,7 @@ public static class MethodClosureBridge
             pinvokeReturnType = GetPInvokePrimitiveType(returnSpec);
         }
 
-        var silgenName = $"SBW_{closures[0].CallbackBaseName}_{method.Name}";
+        var silgenName = BuildBridgeSymbolName(method, method.ParentDecl as TypeDecl, closures[0].CallbackBaseName);
         var pInvokeName = $"PInvoke_{closures[0].CallbackBaseName}";
 
         PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo

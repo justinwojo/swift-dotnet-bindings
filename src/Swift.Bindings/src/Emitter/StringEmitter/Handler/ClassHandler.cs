@@ -697,7 +697,8 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl)
+                        HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
+                        CallingConvention = PInvokeCallingConvention.Swift
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -753,7 +754,8 @@ namespace BindingsGeneration
                         ReturnType = "TypeMetadata",
                         ParametersString = "",
                         Visibility = PInvokeVisibility.Internal,
-                        HasNewModifier = hasNew
+                        HasNewModifier = hasNew,
+                        CallingConvention = PInvokeCallingConvention.Swift
                     }))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
@@ -774,7 +776,8 @@ namespace BindingsGeneration
                     ReturnType = "TypeMetadata",
                     ParametersString = "",
                     Visibility = PInvokeVisibility.Internal,
-                    HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl)
+                    HasNewModifier = HasMetadataPInvokeInResolvedAncestors(_classDecl),
+                    CallingConvention = PInvokeCallingConvention.Swift
                 }))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
@@ -1304,6 +1307,7 @@ namespace BindingsGeneration
         private void EmitEqualityPInvoke(string symbolName)
         {
             _writer.WriteLines($$"""
+            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
             [return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
