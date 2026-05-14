@@ -162,6 +162,23 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 SkipProperty(SkipReason.UnsupportedClosure, "Closure type is not supported.");
                 return;
             }
+            // Async closure-typed properties cannot be safely stored. The async-throwing
+            // and async-non-throwing baselines bridge closure *invocation* inside an
+            // async outer method frame (Task { await closure(args) } via
+            // withCheckedThrowingContinuation). A property setter is sync and only
+            // needs to *store* the closure, but Swift has no way to synthesize a
+            // (Args...) async (throws) -> T closure value from a C# (funcPtr, context)
+            // pair without that bridge. Without the skip, PInvokeEmitter emits a
+            // Swift.AnyType placeholder for the setter argument (asyncBridgeEligible
+            // is false on accessor frames) and MethodMarshalPlanBuilder + the
+            // marshalling emitter disagree on the handle declaration site.
+            if (closureTypeSpec.IsAsync)
+            {
+                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} — async closure-typed properties cannot be stored via a sync accessor (no Swift-side closure synthesis from a C# function pointer).");
+                SkipProperty(SkipReason.UnsupportedClosure,
+                    "Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -> T closure from a C# (funcPtr, context) pair.");
+                return;
+            }
             // When the closure's parameters can't be marshalled for invocation from C#,
             // or the return type requires unsupported marshalling, emit as setter-only.
             // The setter (callback) marshalling is supported; runtime success depends on

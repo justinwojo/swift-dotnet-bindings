@@ -699,6 +699,144 @@ public class MethodMarshalPlanBuilderTests
         Assert.Contains(plan.DeclarationLines, l => l.Contains("IntPtr") && l.Contains("IntPtr.Zero"));
     }
 
+    [Fact]
+    public void DeclarationLines_NonAsyncClosureParam_DeclaresGCHandle()
+    {
+        // Baseline for the closure declaration gate: a plain `(Int32) -> Void`
+        // parameter takes the legacy thunked GCHandle path. The pre-declaration
+        // is required so the finally block can free the handle.
+        var closureSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32") }),
+            TupleTypeSpec.Empty);
+        var plan = BuildClosureParamPlan("acceptCallback", closureSpec, "callback");
+
+        Assert.Contains("GCHandle callbackHandle = default;", plan.DeclarationLines);
+    }
+
+    [Fact]
+    public void DeclarationLines_NonBaselineAsyncThrowingClosureParam_DeclaresGCHandle()
+    {
+        // Stripe ConfirmHandler-shape closure: `(Int32, Bool) async throws -> String`.
+        // Bool is outside GetAsyncThrowingArgCategory's blittable-primitive set, so
+        // IsBaselineAsyncClosure returns false and WrapperEmitter.Marshalling falls
+        // to the legacy GCHandle path that emits `valueHandle = GCHandle.Alloc(value)`.
+        // The plan builder must pair that assignment with a pre-try declaration —
+        // otherwise the generated C# fails to compile (CS0103 undeclared identifier).
+        var closureSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int32"),
+                new NamedTypeSpec("Swift.Bool"),
+            }),
+            new NamedTypeSpec("Swift.String"))
+        {
+            IsAsync = true,
+            Throws = true,
+        };
+        var plan = BuildClosureParamPlan("setConfirmHandler", closureSpec, "handler");
+
+        Assert.Contains("GCHandle handlerHandle = default;", plan.DeclarationLines);
+    }
+
+    [Fact]
+    public void DeclarationLines_BaselineAsyncThrowingClosureParam_SuppressesGCHandle()
+    {
+        // Baseline-shape async throwing closure `(Int32) async throws -> Int32`.
+        // EmitAsyncThrowingClosureMarshallingSetup synthesizes the handle internally
+        // (`var handlerHandle = GCHandle.Alloc(...)`), so a pre-try declaration here
+        // would duplicate the symbol. The gate must suppress it.
+        var closureSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32") }),
+            new NamedTypeSpec("Swift.Int32"))
+        {
+            IsAsync = true,
+            Throws = true,
+        };
+        var plan = BuildClosureParamPlan("setHandler", closureSpec, "handler");
+
+        Assert.DoesNotContain(plan.DeclarationLines, l => l.Contains("GCHandle handlerHandle"));
+    }
+
+    [Fact]
+    public void DeclarationLines_BaselineAsyncNonThrowingClosureParam_SuppressesGCHandle()
+    {
+        // Baseline-shape async non-throwing closure `() async -> Int32` — same gate
+        // as the throwing baseline: the bridge declares its own handle, so the
+        // pre-try declaration must be suppressed.
+        var closureSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            new NamedTypeSpec("Swift.Int32"))
+        {
+            IsAsync = true,
+            Throws = false,
+        };
+        var plan = BuildClosureParamPlan("setFactory", closureSpec, "factory");
+
+        Assert.DoesNotContain(plan.DeclarationLines, l => l.Contains("GCHandle factoryHandle"));
+    }
+
+    private static SyncMethodPlan BuildClosureParamPlan(
+        string methodName, ClosureTypeSpec closureSpec, string paramName)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Holder", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            // Mangled name without 'XC' so HasConventionCInMangledName returns false
+            // and the closure routes through the normal thunked-closure path.
+            MangledName = $"$s10TestModule6Holder{methodName.Length}{methodName}yyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                CreateArg(paramName, closureSpec, moduleDecl),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+        };
+        classDecl.Methods.Add(method);
+
+        var typeDb = CreateTypeDatabaseWithClosurePrimitives("Holder");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("void", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        return BuildPlan(env, wrapperSig, pInvokeSig);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithClosurePrimitives(string className)
+    {
+        var typeDb = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        RegisterPrimitive(swiftModule, "Swift.Int", "System", "Int64", "$sSiMa");
+        RegisterPrimitive(swiftModule, "Swift.Int32", "System", "Int32", "$ss5Int32VMa");
+        RegisterPrimitive(swiftModule, "Swift.Bool", "System", "Boolean", "$sSbMa");
+        RegisterPrimitive(swiftModule, "Swift.String", "Swift", "SwiftString", "$sSSMa",
+            TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement);
+        typeDb.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", className),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{className}"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            });
+        typeDb.AddModuleDatabase(testModule);
+        return typeDb;
+    }
+
     #endregion
 
     #region PInvokeCall Tests

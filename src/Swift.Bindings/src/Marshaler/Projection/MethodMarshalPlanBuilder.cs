@@ -210,20 +210,22 @@ internal class MethodMarshalPlanBuilder
             }
         }
 
-        // Declare GCHandle variables for escaping closures. Skip only closures
-        // that the async bridge (Session A/B throwing baseline, Session C
-        // non-throwing baseline) handles internally via
-        // EmitAsyncThrowingClosureMarshallingSetup — those emit their own
-        // handle. Non-baseline async non-throwing closures still take the
-        // legacy SwiftClosureData path, which requires this declaration.
+        // Declare GCHandle variables for escaping closures. The gate mirrors the
+        // assignment site in WrapperEmitter.Marshalling.EmitClosureMarshalling:
+        // baseline async closures (throwing or non-throwing) take a state-based
+        // bridge in EmitAsyncThrowingClosureMarshallingSetup which declares its
+        // own `var {csName}Handle = GCHandle.Alloc(...)`. Every other thunked
+        // closure — including non-baseline async-throwing shapes that fall back
+        // to the legacy GCHandle path — needs the pre-declaration so the
+        // finally-block free can reference it.
         var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
         foreach (var argument in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
         {
             var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(argument)!;
             if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
                 _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, closureParamCount) &&
-                !_env.ClosureHandler.IsAsyncThrowingClosure(closureTypeSpec) &&
-                !_env.ClosureHandler.IsBaselineAsyncNonThrowingClosure(closureTypeSpec))
+                !(_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
+                  _env.ClosureHandler.IsBaselineAsyncClosure(closureTypeSpec)))
             {
                 var csName = NameProvider.GetCSharpParameterName(argument);
                 lines.Add($"GCHandle {csName}Handle = default;");

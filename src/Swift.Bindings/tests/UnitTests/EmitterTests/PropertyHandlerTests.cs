@@ -281,6 +281,59 @@ public class PropertyHandlerTests
     }
 
     [Fact]
+    public void Emit_OptionalAsyncThrowingClosureProperty_SkipsEmission()
+    {
+        // Regression: Stripe's StripePaymentSheet.ConfirmHandler shape — setter-only
+        // property whose type is Optional<(STPPaymentMethod, Bool) async throws -> String>.
+        // The async-throwing bridge synthesizes a Swift closure for *invocation* inside
+        // an async outer method; it cannot construct a stored async closure value from
+        // a C# function pointer. Before this skip, the setter accessor emitted
+        // `valueHandle = GCHandle.Alloc(value)` without a matching declaration and
+        // typed the P/Invoke parameter as `Swift.AnyType` (asyncBridgeEligible is
+        // false on accessor frames), producing CS0103 + CS1503 in downstream compile.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("PaymentSheet", moduleDecl);
+        var asyncThrowingClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Bool") }),
+            new NamedTypeSpec("Swift.String"))
+        {
+            IsAsync = true,
+            Throws = true
+        };
+        var propertyType = new NamedTypeSpec("Swift.Optional", asyncThrowingClosure);
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "confirmHandler", propertyType, hasGetter: false, hasSetter: true);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_OptionalAsyncNonThrowingClosureProperty_SkipsEmission()
+    {
+        // Async non-throwing closure properties hit the same Swift-side synthesis gap
+        // as the async-throwing case (different bridge, same constraint: the bridge
+        // covers invocation in an async outer frame, not stored-closure construction).
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Producer", moduleDecl);
+        var asyncClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32"))
+        {
+            IsAsync = true,
+            Throws = false
+        };
+        var propertyType = new NamedTypeSpec("Swift.Optional", asyncClosure);
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "factory", propertyType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
+
+        Assert.Equal(string.Empty, csOutput);
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
+    [Fact]
     public void Emit_PropertyWithExistentialBoundGeneric_SkipsEmission()
     {
         var typeDatabase = CreateTypeDatabaseWithInt();
