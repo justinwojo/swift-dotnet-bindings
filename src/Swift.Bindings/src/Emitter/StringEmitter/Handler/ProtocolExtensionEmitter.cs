@@ -416,7 +416,7 @@ public static class ProtocolExtensionEmitter
             var syntheticMethod = BuildClosureSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
                 symbolName, closureTypeSpec!, methodLevelGenerics, isThrows, useCdecl);
-            syntheticMethod.WrapperSourceKey = sourceKey;
+            syntheticMethod.StructuralIdentityKey = sourceKey;
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -439,7 +439,7 @@ public static class ProtocolExtensionEmitter
 
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows, useCdecl);
-            syntheticMethod.WrapperSourceKey = sourceKey;
+            syntheticMethod.StructuralIdentityKey = sourceKey;
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -2448,7 +2448,7 @@ public static class ProtocolExtensionEmitter
     /// gets silently dropped. <see cref="ProtocolExtensionMethodDecl.RawSignature"/>
     /// preserves the parameter and return types verbatim, which is enough to
     /// disambiguate every overload the swiftinterface parser produces. Stashed
-    /// on the synthetic <see cref="MethodDecl.WrapperSourceKey"/> so a downstream
+    /// on the synthetic <see cref="MethodDecl.StructuralIdentityKey"/> so a downstream
     /// <see cref="MethodWrapperEmitter"/> pass uses the same identity.
     /// </summary>
     private static string BuildSourceKey(ProtocolExtensionMethodDecl extMethod) =>

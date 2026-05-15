@@ -454,6 +454,10 @@ namespace BindingsGeneration
 
             // All parameters validated — now emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
+            // S5 audited (Tier B): simple-enum instance method wrapper. The
+            // _simpleEnumEmissionContext is a per-enum context disjoint from regular
+            // type emission; wrapper symbols include the enum name, so cross-emitter
+            // collision is impossible. Per-kind method bucket is collision-safe.
             _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
             EmitSimpleEnumSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString);
@@ -816,6 +820,10 @@ namespace BindingsGeneration
             // Compute wrapper symbol
             var getterMangledName = getter.Method.MangledName;
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
+            // S5 audited (Tier B): simple-enum instance property getter. The `_get_`
+            // infix and per-enum scoping make this symbol structurally distinct from
+            // method wrappers and from non-simple-enum property wrappers. Per-kind
+            // property bucket is collision-safe.
             _simpleEnumEmissionContext?.TryAddPropertyWrapperSymbol(wrapperSymbol);
 
             // Emit Swift wrapper
@@ -913,6 +921,9 @@ namespace BindingsGeneration
 
             // Emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
+            // S5 audited (Tier B): simple-enum static method — same per-enum scoping as
+            // the instance method path; static-vs-instance distinction is encoded in the
+            // mangled-name hash. Per-kind method bucket is collision-safe.
             _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
             EmitSimpleEnumStaticMethodSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString);
@@ -1024,6 +1035,9 @@ namespace BindingsGeneration
 
             var getterMangledName = getter.Method.MangledName;
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_get_{propertyDecl.Name}_{DeterministicHash8(getterMangledName)}";
+            // S5 audited (Tier B): simple-enum static property getter — same per-enum
+            // scoping as the instance variant; static-vs-instance distinction is encoded
+            // in the getter's mangled-name hash. Per-kind property bucket is collision-safe.
             _simpleEnumEmissionContext?.TryAddPropertyWrapperSymbol(wrapperSymbol);
 
             // Emit Swift wrapper (no tag param for static)

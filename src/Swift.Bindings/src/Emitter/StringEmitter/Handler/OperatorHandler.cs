@@ -903,6 +903,10 @@ namespace BindingsGeneration
             var moduleName = parentDecl.SwiftTypeName.Module;
             var symbolName = GetOperatorCdeclSymbol(moduleName, parentDecl.Name, operatorDecl.OperatorSymbol, methodDecl.MangledName);
 
+            // S5 audited (Tier B): operator wrappers carry an `_{opName}_` segment
+            // (e.g. `_Equal_`, `_Add_`) that namespaces them away from regular
+            // `_{methodName}_` symbols. The mangled-name hash makes the symbol unique
+            // per overload. Per-kind method bucket is collision-safe.
             if (!ctx.TryAddMethodWrapperSymbol(symbolName))
                 return symbolName; // Already emitted, but still use it
 

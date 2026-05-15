@@ -1270,7 +1270,7 @@ namespace BindingsGeneration
 
             var symbolName = GetEqualitySymbolName(_classDecl);
 
-            // Check dedup — don't emit twice for the same symbol
+            // S5 audited (Tier B): equality helpers live in the shared `_equality` bucket (also written by EnumHandler and TypeHandlerHelpers). One helper per class type; symbol name from GetEqualitySymbolName is unique per type, so cross-emitter collisions in the bucket are impossible by construction.
             if (!_emissionContext.TryAddEqualityWrapperSymbol(symbolName))
                 return symbolName; // Already emitted, return for C# P/Invoke
 

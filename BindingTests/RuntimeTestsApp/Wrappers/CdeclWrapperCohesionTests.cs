@@ -131,4 +131,38 @@ public class CdeclWrapperCohesionTests : TestBase
         AssertEqual(0, falseResult, "Some(false) round-trips through the pointer-typed fallback");
         AssertEqual(0, holder.ObservedBoolByte, "Some(false) records 0 into observedBoolByte");
     }
+
+    public void TestExistentialBypassPairBothMethodsReachable()
+    {
+        // S5 Tier A widening: both methods on the same class go through the
+        // ExistentialBypassEmitter claim-then-emit guard, with structural
+        // sourceKeys anchored to their distinct Swift mangled names. If the
+        // sourceKeys collapsed (e.g. an emitter regression that dropped the
+        // mangled-name anchor), the second method's wrapper would be silently
+        // skipped and the second P/Invoke would throw at runtime.
+        using var pair = new WrapperCohesionExistentialPair("alpha", "beta");
+
+        var primary = pair.DescribePrimary();
+        AssertNotNull(primary, "Primary existential return is non-null");
+
+        var secondary = pair.DescribeSecondary();
+        AssertNotNull(secondary, "Secondary existential return is non-null — proves the second wrapper survived dedup");
+    }
+
+    public void TestExistentialBypassSameNameOverloadsBothReachable()
+    {
+        // The describeBy(Int32) and describeBy(String) overloads share the same
+        // (typeName, methodName) at the structural-identity tuple level — only
+        // the mangled-name-anchored sourceKey distinguishes them. Reaching both
+        // P/Invokes proves the bypass sourceKey discriminator is load-bearing,
+        // not just a redundant tag (which Round-1 fixture's distinct method
+        // names couldn't prove because methodName already differed).
+        using var pair = new WrapperCohesionExistentialPair("alpha", "beta");
+
+        var bySlot = pair.DescribeBy(0);
+        AssertNotNull(bySlot, "describeBy(Int32) overload is reachable");
+
+        var byLabel = pair.DescribeBy("primary");
+        AssertNotNull(byLabel, "describeBy(String) overload is reachable — proves the second mangled-name discriminator survived");
+    }
 }

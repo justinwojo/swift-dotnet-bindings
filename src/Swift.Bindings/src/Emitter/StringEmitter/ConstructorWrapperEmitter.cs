@@ -347,6 +347,11 @@ public static class ConstructorWrapperEmitter
         if (parentTypeDecl == null) return;
 
         var symbolName = methodDecl.MangledName; // Already set to cdecl symbol by caller
+        // S5 audited (Tier B): the constructor bucket is structurally distinct from the
+        // method/property/subscript buckets — no other emitter ever registers a constructor
+        // mangled name. The cdecl symbol is unique per overload by construction, so the
+        // per-kind dedup gate is collision-safe without routing through the structural-
+        // identity registry.
         if (!ctx.TryAddConstructorWrapperSymbol(symbolName))
             return; // Already emitted
 
@@ -1285,6 +1290,10 @@ public static class ConstructorWrapperEmitter
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
         var symbolName = GetOptionalTagSymbolName(moduleName, parentTypeDecl.Name);
 
+        // S5 audited (Tier C): singleton helper per (module, type). The fixed
+        // `SBW_GetOptionalTag_` prefix is uniquely shaped and cannot alias any
+        // method/property/constructor wrapper symbol; the per-kind helper dedup
+        // gate is sufficient.
         if (!ctx.TryAddOptionalTagHelperSymbol(symbolName))
             return; // Already emitted for this type
 

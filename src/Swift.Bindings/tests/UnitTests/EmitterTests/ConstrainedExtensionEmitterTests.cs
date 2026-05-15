@@ -304,14 +304,14 @@ public class ConstrainedExtensionEmitterTests
 
         // C# extension class wraps a closed-generic extension method bound to the
         // SBW_CEGet_* @_cdecl symbol. Utf8Slice marshalling reads the result.
-        Assert.Contains("public static partial class WrapperConcreteAExtensions", csOutput);
+        Assert.Contains("public static partial class TestModule_DWrapper_TestModule_DConcreteAExtensions", csOutput);
         Assert.Contains("public static string GetJwsRepresentation(this Wrapper<TestModule.ConcreteA> self)", csOutput);
-        Assert.Contains("SBW_CEGet_TestModule_Wrapper_ConcreteA_jwsRepresentation", csOutput);
+        Assert.Contains("SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_jwsRepresentation_instance", csOutput);
         Assert.Contains("SwiftMarshal.ReadUtf8Slice(resultPtr)", csOutput);
         Assert.Contains("(IntPtr resultPtr, IntPtr _self)", csOutput);
 
         // Swift wrapper hands back via Utf8Slice; @_cdecl + indirect-buffer shape.
-        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_jwsRepresentation\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_jwsRepresentation_instance\")", swiftOutput);
         Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
         Assert.Contains("_ self_: UnsafeRawPointer", swiftOutput);
         Assert.Contains("obj.jwsRepresentation", swiftOutput);
@@ -351,7 +351,7 @@ public class ConstrainedExtensionEmitterTests
 
         // Swift wrapper writes the value into the caller-provided buffer via
         // initializeMemory(as:repeating:count:) — the resilient-struct shape.
-        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_signature\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signature_instance\")", swiftOutput);
         Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
         // Module-qualified Swift type spec — `.initializeMemory(as:)`
         // needs the source module prefix because the wrapper file may
@@ -375,14 +375,14 @@ public class ConstrainedExtensionEmitterTests
 
         Assert.Contains("public static System.DateTimeOffset GetSignedDate(this Wrapper<TestModule.ConcreteA> self)", csOutput);
         // P/Invoke takes only _self and returns double — Date is NOT routed through indirect-result.
-        Assert.Contains("partial double SBW_CEGet_TestModule_Wrapper_ConcreteA_signedDate(IntPtr _self)", csOutput);
+        Assert.Contains("partial double SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signedDate_instance(IntPtr _self)", csOutput);
         Assert.DoesNotContain("SwiftIndirectResult indirectResult, IntPtr _self", csOutput.Replace("\r", "")); // sanity: not the indirect shape
         // Epoch arithmetic mirrors DateProjection.GetReturnPlan(Direct).
         Assert.Contains("AddSeconds(seconds)", csOutput);
         Assert.Contains("new System.DateTimeOffset(2001, 1, 1, 0, 0, 0, System.TimeSpan.Zero)", csOutput);
 
         // Swift wrapper returns Double directly via timeIntervalSinceReferenceDate.
-        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_signedDate\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signedDate_instance\")", swiftOutput);
         Assert.Contains("-> Double", swiftOutput);
         Assert.Contains("return obj.signedDate.timeIntervalSinceReferenceDate", swiftOutput);
     }
@@ -406,7 +406,7 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("NativeMemory.Free((void*)buffer)", csOutput);
 
         // Swift wrapper writes the UUID into the caller buffer.
-        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_deviceVerificationNonce\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_deviceVerificationNonce_instance\")", swiftOutput);
         Assert.Contains("_ resultPtr: UnsafeMutableRawPointer", swiftOutput);
         Assert.Contains("resultPtr.initializeMemory(as: Foundation.UUID.self, repeating: result, count: 1)", swiftOutput);
     }
@@ -429,7 +429,7 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("NativeMemory.Free((void*)buffer)", csOutput);
 
         // Swift wrapper writes the Data into the caller buffer (it's a 16-byte struct).
-        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_Wrapper_ConcreteA_headerData\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_headerData_instance\")", swiftOutput);
         Assert.Contains("resultPtr.initializeMemory(as: Foundation.Data.self, repeating: result, count: 1)", swiftOutput);
     }
 
@@ -483,6 +483,78 @@ public class ConstrainedExtensionEmitterTests
         {
             AppleSupplementReferences.Reset();
         }
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_StaticConstrainedProperty_EmitsSkipDiagnostic()
+    {
+        // The property emit shape always reconstructs `obj` from `_self` and
+        // accesses `obj.{name}` — no static branch mirroring the method path.
+        // A constrained `static var` must therefore be skipped with an explicit
+        // diagnostic rather than silently emitting an instance-shaped wrapper
+        // that the Swift wrapper-build script strips, leaving a missing-symbol
+        // C# extern.
+        var tdb = BuildEmissionTypeDatabase(extraTypes: null);
+        var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
+        enumDecl.Properties.Add(CreateStaticPropertyWithConstraint(
+            "rank", "TestModule.ConcreteA", new NamedTypeSpec("Swift.Int32")));
+
+        var csSw = new StringWriter();
+        var csWriter = new CSharpWriter(csSw);
+        var swiftSw = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftSw);
+        var emissionContext = new ModuleEmissionContext();
+        ILogger logger = NullLogger<ConstrainedExtensionEmitterTests>.Instance;
+
+        ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+            csWriter, swiftWriter, enumDecl, tdb, emissionContext, logger);
+
+        var csOutput = csSw.ToString();
+        var swiftOutput = swiftSw.ToString();
+
+        Assert.Contains("constrained static property emission not yet supported", csOutput);
+        // The Swift wrapper must NOT be emitted — no SBW_CEGet symbol on the
+        // wire for a skipped declaration.
+        Assert.DoesNotContain("SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_rank", swiftOutput);
+    }
+
+    private static PropertyDecl CreateStaticPropertyWithConstraint(string name, string concreteType, TypeSpec returnTypeSpec)
+    {
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0" },
+            SwiftTypeName.FromModuleQualifiedName(concreteType),
+            ConformanceKind.ConcreteType);
+
+        var getterMethod = new MethodDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule7WrapperV{name}Z",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance> { conformance }, new())
+            },
+            CSSignature = new List<ArgumentDecl>(),
+            AvailabilityAnnotations = null
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = returnTypeSpec,
+            HasStorage = false,
+            IsStatic = true,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            AvailabilityAnnotations = null
+        };
     }
 
     /// <summary>
@@ -891,16 +963,16 @@ public class ConstrainedExtensionEmitterTests
         // Method emits as a plain static (no `this`) on the extensions class — C# can't
         // dispatch static extension methods on closed generic instantiations, so static
         // factories live on the extensions class itself.
-        Assert.Contains("public static partial class WrapperConcreteAExtensions", csOutput);
+        Assert.Contains("public static partial class TestModule_DWrapper_TestModule_DConcreteAExtensions", csOutput);
         // Swift.Int -> nint (word-sized) per ExtensionMarshallingHelper.ResolveCSharpTypeName.
         Assert.Contains("public static nint Rank()", csOutput);
         // Symbol prefix distinguishes methods from properties.
-        Assert.Contains("SBW_CEMethod_TestModule_Wrapper_ConcreteA_rank", csOutput);
+        Assert.Contains("SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_rank_static", csOutput);
         // Static methods omit `_self` from the P/Invoke signature entirely.
-        Assert.Contains("partial nint SBW_CEMethod_TestModule_Wrapper_ConcreteA_rank()", csOutput);
+        Assert.Contains("partial nint SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_rank_static()", csOutput);
 
         // Swift wrapper calls the static factory on the closed-generic type.
-        Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_Wrapper_ConcreteA_rank\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_rank_static\")", swiftOutput);
         Assert.Contains("TestModule.Wrapper<TestModule.ConcreteA>.rank()", swiftOutput);
     }
 
@@ -916,12 +988,12 @@ public class ConstrainedExtensionEmitterTests
             isStatic: false);
 
         Assert.Contains("public static void Ping(this Wrapper<TestModule.ConcreteA> self)", csOutput);
-        Assert.Contains("partial void SBW_CEMethod_TestModule_Wrapper_ConcreteA_ping(IntPtr _self)", csOutput);
+        Assert.Contains("partial void SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_ping_instance(IntPtr _self)", csOutput);
         // The C# call passes the SafeHandle.
         Assert.Contains("self.Payload.DangerousGetHandle()", csOutput);
 
         // Swift wrapper materializes `obj` from `self_` and invokes the no-arg method.
-        Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_Wrapper_ConcreteA_ping\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_ping_instance\")", swiftOutput);
         Assert.Contains("_ self_: UnsafeRawPointer", swiftOutput);
         Assert.Contains("obj.ping()", swiftOutput);
     }
@@ -952,7 +1024,7 @@ public class ConstrainedExtensionEmitterTests
 
         var (csOutput, _) = RunEmitter(typeDecl);
 
-        Assert.DoesNotContain("SBW_CEMethod_TestModule_Wrapper_ConcreteA_withArg", csOutput);
+        Assert.DoesNotContain("SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_withArg", csOutput);
         Assert.DoesNotContain("WithArg(", csOutput);
     }
 

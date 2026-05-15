@@ -348,6 +348,10 @@ public static class MethodGenericBridgeEmitter
         string cdeclSymbol,
         ModuleEmissionContext ctx)
     {
+        // S5 audited (Tier B): the `_XM` suffix namespaces this symbol away from the
+        // plain method wrapper (`SBW_{module}_{type}_{method}_{hash}`) and from the async
+        // generic bridge (`_XMA`). Collision is impossible by suffix convention even for
+        // the same method.
         if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol))
             return; // Already emitted
 

@@ -457,6 +457,7 @@ public static partial class SwiftUIBridgeEmitter
         // Create function (async factory)
         EmitDataDrivenAsyncCreate(sb, prefix, sessionClass, handlesVar, moduleName, info, pattern, emissionContext);
 
+        // S5 audited (Tier C): SwiftUI async-pattern GetViewController in `_direct_helper` bucket. Per-view `prefix` + fixed `_GetViewController` suffix — at most one per bridge.
         // GetViewController function
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
@@ -481,6 +482,7 @@ public static partial class SwiftUIBridgeEmitter
         // loop spins. The postReleaseFreeFn trampoline frees any GCHandles the C# side
         // packed into handleBuffer — invoked strictly AFTER Unmanaged.release so Swift
         // session state cannot dereference a stale handle.
+        // S5 audited (Tier C): SwiftUI async-pattern Free in `_direct_helper` bucket. Per-view `prefix` + fixed `_Free` suffix — at most one per bridge.
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(");
@@ -660,6 +662,7 @@ public static partial class SwiftUIBridgeEmitter
     {
         var chain = pattern.ConstructionChain;
 
+        // S5 audited (Tier C): SwiftUI async-pattern Create in `_direct_helper` bucket. Per-view `prefix` + fixed `_Create` suffix — at most one per bridge.
         // @_cdecl signature with flattened params + callbacks
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");

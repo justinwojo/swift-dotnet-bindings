@@ -317,6 +317,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // Registry guard — catches different pairings producing the same cdeclSymbol.
+        // S5 audited (Tier B): the `SBW_CSM_` prefix is a dedicated namespace for per-
+        // conformer specialization wrappers; no other emitter produces an `SBW_CSM_`
+        // symbol. Per-kind method bucket is collision-safe.
         if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
             return false;
 

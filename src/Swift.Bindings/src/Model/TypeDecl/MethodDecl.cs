@@ -273,7 +273,7 @@ namespace BindingsGeneration
         /// stay distinct. <c>null</c> on ordinary methods, where the rendered
         /// <c>SBW_</c> symbol string is used as the structural identity directly.
         /// </summary>
-        public string? WrapperSourceKey { get; set; }
+        public string? StructuralIdentityKey { get; set; }
 
         /// <summary>
         /// Whether this method is defined in a Swift extension (isFromExtension in ABI JSON).

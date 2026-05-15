@@ -187,6 +187,10 @@ public static class EnumCaseWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
+        // S5 audited (Tier B): enum case factories live in the constructor bucket; no
+        // method/property/subscript emitter ever registers symbols here. The cdecl symbol
+        // is unique per enum case overload by construction, so the per-kind dedup gate
+        // is collision-safe without routing through the structural-identity registry.
         if (!ctx.TryAddConstructorWrapperSymbol(symbolName))
             return; // Already emitted
 

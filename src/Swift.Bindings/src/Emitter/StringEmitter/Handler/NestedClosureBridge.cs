@@ -216,6 +216,10 @@ public static class NestedClosureBridge
         // its EntryPoint; without registration a future Cdecl path would trip the
         // contract check.
         var bridgeSilgenName = $"SBW_{nestedClosures[0].CallbackBaseName}_{method.Name}";
+        // S5 audited (Tier B): same callback-base-name namespace as MethodClosureBridge —
+        // the nested-closure variant is distinguished by the per-nested closure's unique
+        // CallbackBaseName, owned exclusively by the closure-bridge family. Per-kind
+        // method bucket is collision-safe.
         ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
 
         // Emit a single Swift wrapper that receives all outer closures' funcPtr/context pairs

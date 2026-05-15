@@ -91,6 +91,10 @@ public static class ObjCOverridePropertyWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
+        // S5 audited (Tier B): ObjC override property accessors use @_silgen_name (not
+        // @_cdecl) and are registered in the dedicated ObjC-property bucket. No other
+        // emitter touches @_silgen_name override symbols, and the symbol is unique per
+        // (property, getter) by ObjC selector mangling.
         if (!ctx.TryAddObjCPropertyWrapperSymbol(symbolName))
             return; // Already emitted
 
@@ -136,6 +140,9 @@ public static class ObjCOverridePropertyWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
+        // S5 audited (Tier B): ObjC override property setter — same dedicated bucket as
+        // the getter above. Setter and getter symbols are distinct ObjC selectors, and
+        // no other emitter writes to the @_silgen_name override slot.
         if (!ctx.TryAddObjCPropertyWrapperSymbol(symbolName))
             return; // Already emitted
 

@@ -476,6 +476,9 @@ public static class AsyncMethodGenericBridgeEmitter
         TypeRecord? returnTypeRecord,
         ModuleEmissionContext ctx)
     {
+        // S5 audited (Tier B): the `_XMA` suffix distinguishes async-generic-bridge symbols
+        // from both `_XM` (sync generic bridge) and unsuffixed plain method wrappers.
+        // Inter-emitter collision is impossible by the suffix convention.
         if (!ctx.TryAddMethodWrapperSymbol(cdeclSymbol))
             return;
 

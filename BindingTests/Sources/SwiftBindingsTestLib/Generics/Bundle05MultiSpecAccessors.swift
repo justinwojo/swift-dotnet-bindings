@@ -213,7 +213,7 @@ extension Bundle05Container where Key == Bundle05SpecKeyA {
 
     /// Zero-arg sync non-throwing STATIC method, primitive return —
     /// canonical WeatherKit static-factory shape. Emits on the per-spec
-    /// extensions class itself (`Bundle05ContainerBundle05SpecKeyAExtensions
+    /// extensions class itself (`SwiftBindingsTestLib_DBundle05Container_SwiftBindingsTestLib_DBundle05SpecKeyAExtensions
     /// .DefaultAlphaRank()`), no `this` receiver. The fixed integer literal
     /// lets the test assert the exact value reached the C# side through the
     /// `@_cdecl` static call.

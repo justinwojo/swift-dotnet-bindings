@@ -236,6 +236,10 @@ public static class MethodClosureBridge
         // (Cdecl + SBW_ and Swift + SBSW_), so both branches must register or the
         // matching P/Invoke would throw WrapperSymbolContractException.
         var bridgeSilgenName = BuildBridgeSymbolName(method, parentDecl, closures[0].CallbackBaseName);
+        // S5 audited (Tier B): the bridge symbol is keyed on the closure type's
+        // CallbackBaseName, not the method's own mangled name. That namespace is owned
+        // exclusively by MethodClosureBridge / NestedClosureBridge and cannot collide
+        // with any method/property/constructor wrapper. Per-kind method bucket is safe.
         ctx.TryAddMethodWrapperSymbol(bridgeSilgenName);
 
         // Emit Swift wrapper

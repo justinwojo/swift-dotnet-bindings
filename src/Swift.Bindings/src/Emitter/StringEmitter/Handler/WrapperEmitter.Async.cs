@@ -1260,6 +1260,10 @@ namespace BindingsGeneration
             // referencing an unproduced symbol. The async wrapper template
             // bypasses MethodWrapperEmitter, so registration has to happen
             // alongside the WriteLine that emits the Swift wrapper.
+            // S5 audited (Tier B): the async wrapper bypasses MethodWrapperEmitter; the
+            // method's mangled name is unique per overload, and `IsAsync` gating ensures
+            // this path is mutually exclusive with the sync MethodWrapperEmitter path for
+            // the same method. Per-kind method bucket is collision-safe.
             if (_emissionContext != null && _env.MethodDecl.UsesCdeclMethodWrapper)
             {
                 _emissionContext.TryAddMethodWrapperSymbol(NameProvider.GetMangledName(_env.MethodDecl));

@@ -198,7 +198,15 @@ public static class ForeignTypeExtensionEmitter
         var flatTypeName = FlattenQualifiedName(foreignTypeQualifiedName);
         var getterSymbol = $"SBSW_{flatTypeName}_get_{extMethod.MethodName}";
 
-        if (!ctx.TryAddForeignExtSymbol(getterSymbol))
+        // S5: structural-identity claim. The (foreignTypeQualifiedName, methodName, sourceKey)
+        // triple is the cross-emitter dedup boundary; "get " prefix in sourceKey keeps the
+        // getter distinct from the setter on the same property. ForeignTypeExtensionEmitter
+        // is the only path that produces wrappers for foreign-type extension members today —
+        // these come from parsed Swift interface text, not from a MethodDecl that MWE walks,
+        // so there is no MethodWrapperEmitter counterpart to align with. The structural claim
+        // is preventive against a future emitter joining the same surface.
+        var getterSourceKey = $"get {extMethod.MethodName}::{extMethod.RawSignature}";
+        if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, getterSourceKey, getterSymbol))
             return;
 
         // Emit Swift getter wrapper
@@ -226,23 +234,28 @@ public static class ForeignTypeExtensionEmitter
             if (IsPrimitiveSetter(propertyTypeSpec, typeDatabase))
             {
                 var setterSymbol = $"SBSW_{flatTypeName}_set_{extMethod.MethodName}";
-                if (ctx.TryAddForeignExtSymbol(setterSymbol))
-                {
-                    EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx);
+                // "set " prefix in sourceKey keeps the setter structurally distinct from the
+                // getter on the same property — the rendered symbol already differs (set_/get_)
+                // but the structural-identity tuple must match the rendering split for cross-
+                // emitter dedup to stay correct.
+                var setterSourceKey = $"set {extMethod.MethodName}::{extMethod.RawSignature}";
+                if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, setterSourceKey, setterSymbol))
+                    return;
 
-                    classInfo.Members.Add(new ForeignExtensionMemberInfo
-                    {
-                        SymbolName = setterSymbol,
-                        CSharpMethodName = $"Set{ToPascalCase(extMethod.MethodName)}",
-                        ExtMethod = extMethod,
-                        Parameters = new() { ("value", propertyTypeSpec, afterColon, false) },
-                        ReturnTypeSpec = null,
-                        ReturnTypeName = "void",
-                        ReturnCategory = ReturnKind.Void,
-                        IsPropertySetter = true,
-                    });
-                    ctx.ForeignExtEmittedCount++;
-                }
+                EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx);
+
+                classInfo.Members.Add(new ForeignExtensionMemberInfo
+                {
+                    SymbolName = setterSymbol,
+                    CSharpMethodName = $"Set{ToPascalCase(extMethod.MethodName)}",
+                    ExtMethod = extMethod,
+                    Parameters = new() { ("value", propertyTypeSpec, afterColon, false) },
+                    ReturnTypeSpec = null,
+                    ReturnTypeName = "void",
+                    ReturnCategory = ReturnKind.Void,
+                    IsPropertySetter = true,
+                });
+                ctx.ForeignExtEmittedCount++;
             }
         }
     }
@@ -316,7 +329,13 @@ public static class ForeignTypeExtensionEmitter
         var flatTypeName = FlattenQualifiedName(foreignTypeQualifiedName);
         var symbolName = BuildSymbolName(flatTypeName, extMethod.MethodName, compatibleParams);
 
-        if (!ctx.TryAddForeignExtSymbol(symbolName))
+        // S5: structural-identity claim. The raw signature uniquely identifies the
+        // underlying Swift extension method even when the rendered SBSW_ symbol's label
+        // suffix would differ across emitters (e.g. parameter-type rename in a future
+        // emitter rewrite). Two genuine overloads on the same foreign type stay distinct
+        // because RawSignature embeds the parameter types verbatim.
+        var sourceKey = $"method {extMethod.MethodName}::{extMethod.RawSignature}";
+        if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, sourceKey, symbolName))
             return;
 
         // Emit Swift wrapper

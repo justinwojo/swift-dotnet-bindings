@@ -264,6 +264,26 @@ public static class ExistentialBypassEmitter
         var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
         bool isFrozenValue = MarshallingHelpers.IsTypeFrozen(typeRecord) && !MarshallingHelpers.RequiresMemoryManagement(typeRecord);
 
+        // S5 claim-then-emit guard: route through TryClaimWrapperSymbol BEFORE writing any
+        // Swift / C# code. The init claim is the structural gate (sourceKey anchored to the
+        // original Swift mangled name) and we stash it on methodDecl.StructuralIdentityKey so
+        // a future MethodWrapperEmitter pass on the same Swift declaration computes the SAME
+        // (typeName, methodName, sourceKey) triple — typeName uses ModuleQualifiedName to
+        // match MWE. On dup the entire constructor pair is a no-op so the standard path or
+        // prior emitter is the source of truth. The free claim follows for contract-gate
+        // bookkeeping — it lives in a distinct method-name bucket ("free") so it cannot
+        // collide with init.
+        var initSourceKey = $"existential-bypass-init::{env.MethodDecl.MangledName}";
+        env.MethodDecl.StructuralIdentityKey = initSourceKey;
+        if (env.EmissionContext != null &&
+            !env.EmissionContext.TryClaimWrapperSymbol(swiftModuleQualifiedName, "init",
+                initSourceKey, wrapperSymbol))
+        {
+            return false;
+        }
+        env.EmissionContext?.TryClaimWrapperSymbol(swiftModuleQualifiedName, "free",
+            $"existential-bypass-free::{env.MethodDecl.MangledName}", freeSymbol);
+
         // --- Emit Swift wrapper ---
         EmitSwiftWrapper(swiftWriter, wrapperSymbol, freeSymbol, swiftTypeName, passthroughArgs, existentialArgs, env);
 
@@ -570,6 +590,22 @@ public static class ExistentialBypassEmitter
         var moduleLibPath = env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
         var wrapperLibPath = env.TypeDatabase.AsyncLibraryName ?? moduleLibPath;
 
+        // S5 claim-then-emit guard: route through TryClaimWrapperSymbol BEFORE writing any
+        // Swift / C# code. sourceKey anchors to the original Swift mangled name and we stash
+        // it on methodDecl.StructuralIdentityKey so a future MethodWrapperEmitter pass on the
+        // same Swift declaration computes the SAME (typeName, methodName, sourceKey) triple —
+        // typeName uses ModuleQualifiedName to match MWE's `parentTypeDecl?.SwiftTypeName.
+        // ModuleQualifiedName ?? parentModuleDecl?.Name`. On dup-claim the bypass is a no-op
+        // and the prior emitter (or fallback MWE) is the source of truth.
+        var bypassSourceKey = $"existential-bypass-method::{methodDecl.MangledName}";
+        methodDecl.StructuralIdentityKey = bypassSourceKey;
+        if (env.EmissionContext != null &&
+            !env.EmissionContext.TryClaimWrapperSymbol(swiftModuleQualifiedName, methodDecl.Name,
+                bypassSourceKey, wrapperSymbol))
+        {
+            return false;
+        }
+
         // --- Emit Swift wrapper ---
         EmitMethodSwiftWrapper(swiftWriter, wrapperSymbol, swiftTypeName, isClass,
             passthroughArgs, existentialArgs, env, isExistentialReturn);
@@ -746,11 +782,8 @@ public static class ExistentialBypassEmitter
             pInvokeParamsList.Add(pInvokePassthroughParams);
         var pInvokeParams = string.Join(", ", pInvokeParamsList);
 
-        // Register the SBSW_ wrapper symbol so the wrapper-symbol contract sees it. The
-        // method bypass emits a @_silgen_name (Swift CC) wrapper; the contract gate covers
-        // both SBW_ (Cdecl) and SBSW_ (Swift CC) shapes, so the corresponding P/Invoke emit
-        // would throw WrapperSymbolContractException without this registration.
-        env.EmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
+        // (Wrapper symbol was already claimed via TryClaimWrapperSymbol BEFORE Swift emission;
+        //  see the claim-then-emit guard at the top of TryEmitMethodBypass.)
 
         // Emit P/Invoke declaration. SBSW_ wrappers use @_silgen_name (Swift CC) — set
         // CallingConvention explicitly so PInvokeEmitHelper.SelectCallingConvention's safety
@@ -973,12 +1006,8 @@ public static class ExistentialBypassEmitter
         // P/Invoke extern declarations use the P/Invoke (low-level) signature
         var pInvokeParams = reducedPInvokeSig.PInvokeParametersString();
 
-        // Register both SBSW_ wrapper symbols (init + free) so the wrapper-symbol contract
-        // sees them. Constructor bypass emits a pair of @_silgen_name (Swift CC) wrappers;
-        // the contract gate covers both SBW_ (Cdecl) and SBSW_ (Swift CC) shapes, so the
-        // corresponding P/Invoke emits would throw WrapperSymbolContractException otherwise.
-        env.EmissionContext?.TryAddConstructorWrapperSymbol(wrapperSymbol);
-        env.EmissionContext?.TryAddMethodWrapperSymbol(freeSymbol);
+        // (Wrapper symbols init+free were already claimed via TryClaimWrapperSymbol BEFORE Swift
+        //  emission; see the claim-then-emit guard at the top of TryEmitConstructorBypass.)
 
         // Emit P/Invoke declarations. SBSW_ wrappers use @_silgen_name (Swift CC) — set
         // CallingConvention explicitly so the helper's safety check doesn't throw on

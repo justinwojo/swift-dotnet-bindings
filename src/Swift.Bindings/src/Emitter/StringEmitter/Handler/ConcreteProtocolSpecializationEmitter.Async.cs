@@ -58,6 +58,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Wrapper symbol dedup is independent — different methods/conformers should
         // never produce the same mangled wrapper symbol because the hash seed is
         // (method MangledName + all conformer qualified names).
+        // S5 audited (Tier B): same `SBW_CSM_` prefix as the sync path; this async-only
+        // branch is gated by `IsAsync` upstream so the two paths never co-emit for the
+        // same method. Per-kind method bucket is collision-safe.
         if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol))
         {
             return false;

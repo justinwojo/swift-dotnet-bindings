@@ -226,7 +226,17 @@ public static class ConstrainedExtensionEmitter
         }
 
         var closedGenericCsType = $"{parentCsName}<{concreteCsName}>";
-        var className = $"{parentCsName}{SanitizeTypeName(concreteTypeName.Name)}Extensions";
+        // Both the parent slot and the concretization slot are rendered through the
+        // injective `SanitizeForSymbol(ModuleQualifiedName)` encoding, AND a literal
+        // `_` separator is placed between them so that two pairs whose encoded
+        // segments could otherwise concatenate to the same string (e.g.
+        // parent=`A.A`, concrete=`AA.A` → `A_DAAA_DA` vs parent=`A.AA`,
+        // concrete=`A.A` → same `A_DAAA_DA` without a boundary char) instead
+        // render distinct class names. `parentCsName` alone is the leaf declaration
+        // name (e.g. `Box` for both `Mod.Box` and `Mod.Outer.Box`); without parent
+        // qualification, two nested generic parents would produce duplicate
+        // `BoxFooExtensions` classes (CS0102).
+        var className = $"{SanitizeParent(typeDecl)}_{SanitizeConcretization(concreteTypeName)}Extensions";
 
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>");
@@ -358,6 +368,25 @@ public static class ConstrainedExtensionEmitter
         ILogger logger,
         TypeSpec? substitutedReturnTypeSpec)
     {
+        // The property emit shape always reconstructs `obj` from a `_self`
+        // pointer and accesses `obj.{property.Name}` — there is no static branch
+        // mirroring the method path's `if (isStatic)` (no `Container<C>.foo`
+        // call form, no dropped self_ param). A constrained `static var` would
+        // therefore generate Swift that is silently stripped at wrapper-build
+        // time, producing a missing-symbol C# extension. Skip with an explicit
+        // diagnostic so the unsupported shape is visible rather than absorbed.
+        if (property.IsStatic)
+        {
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, property.Name, BindingItemKind.Property,
+                SkipReason.UnsupportedSignature,
+                $"on {parentTypeDecl.Name}<{concreteTypeName.Name}>: constrained static property emission not yet supported");
+            logger.LogDebug(
+                "ConstrainedExtensionEmitter: Skipping static property {Name} on {Parent}<{Concrete}> — static-property emission not yet supported.",
+                property.Name, parentTypeDecl.Name, concreteTypeName.Name);
+            return false;
+        }
+
         // For open-generic-return properties (`payloadValue`-shape), substitute the
         // parent's open generic parameter with the concrete specialization before
         // classifying the return shape. Constrained-extension properties pass null
@@ -399,12 +428,46 @@ public static class ConstrainedExtensionEmitter
 
         var propertyName = NameProvider.ToPascalCase(property.Name);
 
-        // Build @_cdecl symbol name
-        var safeConcreteName = SanitizeTypeName(concreteTypeName.Name);
-        var symbolName = $"SBW_CEGet_{moduleName}_{parentTypeDecl.Name}_{safeConcreteName}_{property.Name}";
+        // Build @_cdecl symbol name. Both the parent slot and the concretization
+        // slot use the injective `SanitizeForSymbol(ModuleQualifiedName)` encoding
+        // so two distinct Swift parents that share a leaf name (e.g. `Mod.Box` vs
+        // `Mod.Outer.Box`) and two concrete types in different modules with the
+        // same leaf name (e.g. `A.User` vs `B.User`) all render to distinct SBW_
+        // strings. Without that, the structural-identity tuple distinguishes them
+        // but `_registeredWrapperSymbols.Add(symbol)` would reject the second
+        // claim on a colliding `SBW_CEGet_..._User_*` and silently drop the wrapper.
+        // The static/instance marker is forward-defense for Swift's allowance
+        // of `var rank` alongside `static var rank` on the same type. Static
+        // constrained properties are currently rejected at the top of this
+        // method (the property emit shape has no static branch), so all
+        // wrappers reaching this point use `_instance`; the marker keeps the
+        // dedup discipline correct if static-property emission is added later
+        // without revisiting the structural-identity keys.
+        var safeParentName = SanitizeParent(parentTypeDecl);
+        var safeConcreteName = SanitizeConcretization(concreteTypeName);
+        var staticMarker = property.IsStatic ? "_static" : "_instance";
+        var symbolName = $"SBW_CEGet_{safeParentName}_{safeConcreteName}_{property.Name}{staticMarker}";
 
-        // Dedup guard
-        if (!emissionContext.TryAddPropertyWrapperSymbol(symbolName))
+        // Dedup guard via the structural-identity claim API. S5: routing through
+        // TryClaimWrapperSymbol with a sourceKey that anchors to the constrained-extension
+        // identity (parent type + concretization + static/instance + getter for property)
+        // locks the bug class closed for any future overlap with adjacent property-wrapper
+        // paths on the same closed generic shape. The structural tuple uses the parent's
+        // and concrete type's raw `SwiftTypeName.ModuleQualifiedName` (not the leaf
+        // `Name`) so two parents that share a leaf (`Mod.Box` vs `Mod.Outer.Box`) and
+        // two concretes that share a leaf across modules (`A.User` vs `B.User`) get
+        // distinct identity buckets. There is no MethodWrapperEmitter counterpart to
+        // align with — MWE walks the open generic parent, never the closed generic
+        // concretizations this emitter synthesizes — so the structural identity is
+        // intentionally intra-emitter (constrained-extension → constrained-extension only).
+        var qualifiedParent = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var qualifiedConcrete = concreteTypeName.ModuleQualifiedName;
+        var dispatchMarker = property.IsStatic ? "static" : "instance";
+        if (!emissionContext.TryClaimWrapperSymbol(
+                $"{qualifiedParent}<{qualifiedConcrete}>",
+                $"{property.Name}::{dispatchMarker}",
+                $"constrained-extension::get::{qualifiedParent}::{qualifiedConcrete}::{dispatchMarker}::{property.Name}",
+                symbolName))
             return false;
 
         // ----- C# extension method -----
@@ -1181,14 +1244,40 @@ public static class ConstrainedExtensionEmitter
         var methodPublicName = NameProvider.ToPascalCase(method.Name);
 
         // Symbol naming uses a SBW_CEMethod_ prefix to keep methods distinguishable
-        // from properties (`SBW_CEGet_*`). The shape parallels the property one
-        // so the renderer / wrapper-symbol dedup can apply uniformly.
-        var safeConcreteName = SanitizeTypeName(concreteTypeName.Name);
-        var symbolName = $"SBW_CEMethod_{moduleName}_{parentTypeDecl.Name}_{safeConcreteName}_{method.Name}";
+        // from properties (`SBW_CEGet_*`). The shape parallels the property one so
+        // the renderer / wrapper-symbol dedup can apply uniformly. Both the parent
+        // slot and the concretization slot are rendered through the injective
+        // `SanitizeForSymbol(ModuleQualifiedName)` encoding — see the property-path
+        // comment for the full rationale. The static/instance marker is part of the
+        // SBW symbol because Swift permits `func rank()` and `static func rank()`
+        // on the same type with the same identifier; without the marker, both
+        // declarations would render to the same SBW string and the second
+        // `_registeredWrapperSymbols.Add` would silently drop one wrapper even
+        // though the structural tuple distinguishes them.
+        var safeParentName = SanitizeParent(parentTypeDecl);
+        var safeConcreteName = SanitizeConcretization(concreteTypeName);
+        var staticMarker = isStatic ? "_static" : "_instance";
+        var symbolName = $"SBW_CEMethod_{safeParentName}_{safeConcreteName}_{method.Name}{staticMarker}";
 
-        // Dedup guard — same symbol set as properties (ModuleEmissionContext
-        // tracks per-module symbol uniqueness across all wrapper emit paths).
-        if (!emissionContext.TryAddPropertyWrapperSymbol(symbolName))
+        // Dedup guard via the structural-identity claim API. S5: routing through
+        // TryClaimWrapperSymbol with a sourceKey that anchors to the constrained-extension
+        // method identity (parent type + concretization + static/instance marker + method)
+        // locks the bug class closed for any future overlap with adjacent method-wrapper
+        // paths on the same closed generic shape. The structural tuple uses the parent's
+        // and concrete type's raw `SwiftTypeName.ModuleQualifiedName` (not the leaf
+        // `Name`) — see the property-path comment for the full rationale. There is no
+        // MethodWrapperEmitter counterpart to align with — MWE walks the open generic
+        // parent, never the closed generic concretizations this emitter synthesizes — so
+        // the structural identity is intentionally intra-emitter (constrained-extension →
+        // constrained-extension only).
+        var qualifiedParent = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        var qualifiedConcrete = concreteTypeName.ModuleQualifiedName;
+        var dispatchMarker = isStatic ? "static" : "instance";
+        if (!emissionContext.TryClaimWrapperSymbol(
+                $"{qualifiedParent}<{qualifiedConcrete}>",
+                $"{method.Name}::{dispatchMarker}",
+                $"constrained-extension::method::{qualifiedParent}::{qualifiedConcrete}::{dispatchMarker}::{method.Name}",
+                symbolName))
             return false;
 
         // ----- C# extension method -----
@@ -1515,6 +1604,64 @@ public static class ConstrainedExtensionEmitter
 
         // Fallback: use simple name (the type might be in the same module)
         return swiftTypeName.Name;
+    }
+
+    // Render the concretization slot for both the C# extension class name and the
+    // SBW_CE{Get,Method}_ symbol. Uses the injective `SanitizeForSymbol` over
+    // `ModuleQualifiedName` so two distinct Swift identities (e.g.
+    // `Mod.Outer.User` vs `Mod.Outer_User`, or `Mod.User` vs `Mod.Outer.User`)
+    // never render the same SBW_ string. The structural-identity tuple already
+    // distinguishes them via the raw `ModuleQualifiedName`, but
+    // `_registeredWrapperSymbols.Add(symbol)` rejects collisions independently
+    // and would silently drop one wrapper.
+    private static string SanitizeConcretization(SwiftTypeName concreteTypeName)
+    {
+        return SanitizeForSymbol(concreteTypeName.ModuleQualifiedName);
+    }
+
+    // Render the parent type's slot for both the C# extension class name and the
+    // SBW_CE{Get,Method}_ symbol. Uses the injective encoding over the parent's
+    // `SwiftTypeName.ModuleQualifiedName` so two nested generic parents that
+    // share a leaf name (e.g. `Mod.Box` and `Mod.Outer.Box`) cannot collide.
+    private static string SanitizeParent(TypeDecl parentTypeDecl)
+    {
+        return SanitizeForSymbol(parentTypeDecl.SwiftTypeName.ModuleQualifiedName);
+    }
+
+    // Injective Swift-qualified-name → C-identifier encoding. Each special char
+    // becomes a 2-char `_<marker>` sequence with a unique second char per source
+    // char, so distinct Swift inputs always render to distinct strings. Earlier
+    // sequential-Replace schemes (e.g. `_` → `__` then `.` → `_`) were
+    // non-injective at separator/underscore boundaries because a literal `_`
+    // adjacent to a `.` would render the same as the swap (`Mod.A_.B` and
+    // `Mod.A._B` both collapsed to `Mod_A___B`). The 2-char marker scheme is
+    // injective by construction: every `_` in the output is followed by exactly
+    // one of the marker letters, and the encoder produces one marker per source
+    // special char, so the encoding is uniquely length-decomposable. Used only
+    // on the SBW_ symbol / className paths where the rendered string itself is
+    // the dedup key in `_registeredWrapperSymbols`.
+    private static string SanitizeForSymbol(string swiftQualifiedName)
+    {
+        var sb = new System.Text.StringBuilder(swiftQualifiedName.Length);
+        foreach (var c in swiftQualifiedName)
+        {
+            switch (c)
+            {
+                case '_': sb.Append("__"); break;
+                case '.': sb.Append("_D"); break;
+                case '<': sb.Append("_L"); break;
+                case '>': sb.Append("_R"); break;
+                case '[': sb.Append("_B"); break;
+                case ']': sb.Append("_E"); break;
+                case '(': sb.Append("_P"); break;
+                case ')': sb.Append("_Q"); break;
+                case ',': sb.Append("_C"); break;
+                case ' ': sb.Append("_S"); break;
+                case '?': sb.Append("_O"); break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
     }
 
     private static string SanitizeTypeName(string name)

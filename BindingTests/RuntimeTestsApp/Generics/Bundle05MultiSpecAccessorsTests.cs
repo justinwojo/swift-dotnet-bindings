@@ -239,14 +239,14 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
     /// Static-factory method shape (canonical WeatherKit
     /// <c>*Query.temperature()</c> / MusicKit no-arg accessor pattern).
     /// Static methods on a constrained extension emit on the per-spec
-    /// extensions class itself (<c>Bundle05ContainerBundle05SpecKeyAExtensions
+    /// extensions class itself (<c>SwiftBindingsTestLib_DBundle05Container_SwiftBindingsTestLib_DBundle05SpecKeyAExtensions
     /// .DefaultAlphaRank()</c>) — no <c>this</c> receiver — because C#
     /// can't dispatch static extension methods on closed generic
     /// instantiations.
     /// </summary>
     public void TestAlphaSpecialization_DefaultAlphaRankStaticMethod()
     {
-        var rank = Bundle05ContainerBundle05SpecKeyAExtensions.DefaultAlphaRank();
+        var rank = SwiftBindingsTestLib_DBundle05Container_SwiftBindingsTestLib_DBundle05SpecKeyAExtensions.DefaultAlphaRank();
         AssertEqual(17, rank,
             "Bundle 05 #3 (Fix J): static-factory method shape must emit on the per-spec " +
             "extensions class with no `this` receiver and round-trip the Swift body's " +
@@ -260,7 +260,7 @@ public class Bundle05MultiSpecAccessorsTests : TestBase
     /// </summary>
     public void TestBetaSpecialization_DefaultBetaRankStaticMethod()
     {
-        var rank = Bundle05ContainerBundle05SpecKeyBExtensions.DefaultBetaRank();
+        var rank = SwiftBindingsTestLib_DBundle05Container_SwiftBindingsTestLib_DBundle05SpecKeyBExtensions.DefaultBetaRank();
         AssertEqual(23, rank,
             "Bundle 05 #3 (Fix J): beta static-factory must reach C# at its own mangled " +
             "symbol (23). Combined with the alpha case, a single test would not catch " +

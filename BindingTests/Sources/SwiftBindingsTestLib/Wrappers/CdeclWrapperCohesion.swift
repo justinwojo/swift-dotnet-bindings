@@ -156,3 +156,51 @@ public final class WrapperCohesionRemainingHolder: WrapperCohesionRemaining {
 
     public init() {}
 }
+
+// S5 Tier A widening: a single class hosting two distinct existential-return
+// methods on the bypass path (different mangled names, both produce SBSW_
+// wrappers via ExistentialBypassEmitter). The structural-claim sourceKeys are
+// `existential-bypass-method::{MangledName}` — anchored to the original Swift
+// mangled name so the two methods land in distinct identity buckets even
+// though they share the same parent type, the same return shape (any
+// Describable), and the same omittable existential parameter shape. Without
+// the per-method mangled-name anchoring, both could collapse into one
+// surviving wrapper and the second method would silently disappear from the
+// dylib (DllNotFoundException at the second P/Invoke).
+public class WrapperCohesionExistentialPair {
+    private let primary: SimpleItem
+    private let secondary: SimpleItem
+
+    public init(primaryLabel: String, secondaryLabel: String) {
+        self.primary = SimpleItem(id: "wc-pair-primary", label: primaryLabel)
+        self.secondary = SimpleItem(id: "wc-pair-secondary", label: secondaryLabel)
+    }
+
+    public func describePrimary(_ filters: [any Equatable] = []) -> any Describable {
+        _ = filters
+        return primary
+    }
+
+    public func describeSecondary(_ filters: [any Equatable] = []) -> any Describable {
+        _ = filters
+        return secondary
+    }
+
+    // Same-name overloads on the same parent — distinct Swift mangled names,
+    // identical (typeName, methodName) at the structural-identity tuple level.
+    // The bypass sourceKey `existential-bypass-method::{MangledName}` is the
+    // ONLY discriminator that keeps these two from collapsing onto the same
+    // structural identity. Drop the mangled-name anchor (e.g. use just
+    // `existential-bypass-method::describe`) and the second TryClaimWrapperSymbol
+    // returns false, the second wrapper is silently skipped, and DescribeBy(Int32)
+    // throws EntryPointNotFoundException at runtime.
+    public func describeBy(_ slot: Int32, _ filters: [any Equatable] = []) -> any Describable {
+        _ = filters
+        return slot == 0 ? primary : secondary
+    }
+
+    public func describeBy(_ label: String, _ filters: [any Equatable] = []) -> any Describable {
+        _ = filters
+        return label == "primary" ? primary : secondary
+    }
+}

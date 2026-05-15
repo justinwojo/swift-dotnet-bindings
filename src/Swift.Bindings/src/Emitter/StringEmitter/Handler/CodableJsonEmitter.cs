@@ -98,6 +98,10 @@ internal static class CodableJsonEmitter
         // Register both @_cdecl symbols with the wrapper-symbol contract so a
         // future Cdecl P/Invoke caller for these entry points doesn't trip the
         // contract check.
+        // S5 audited (Tier C): the `_EncodeJson` / `_DecodeJson` suffixes are exclusive
+        // to these synthetic Codable trampolines (one pair per Codable type per module).
+        // No regular method or property wrapper produces a symbol with these suffixes;
+        // per-kind method bucket is collision-safe.
         emissionContext?.TryAddMethodWrapperSymbol(encodeSymbol);
         emissionContext?.TryAddMethodWrapperSymbol(decodeSymbol);
 

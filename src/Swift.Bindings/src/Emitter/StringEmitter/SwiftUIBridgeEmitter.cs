@@ -869,6 +869,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine($"var {handlesVar} = Set<UnsafeMutableRawPointer>()");
         sb.AppendLine();
 
+        // S5 audited (Tier C): SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
         // Create function
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Create");
         sb.AppendLine($"@_cdecl(\"{prefix}_Create\")");
@@ -986,6 +987,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("}");
         sb.AppendLine();
 
+        // S5 audited (Tier C): SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
         // GetViewController function
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_GetViewController");
         sb.AppendLine($"@_cdecl(\"{prefix}_GetViewController\")");
@@ -1014,6 +1016,7 @@ public static partial class SwiftUIBridgeEmitter
         // managed handles outlive any Swift state that may capture them. C# may
         // not free those handles itself after calling _Free because the off-main
         // path returns before release runs.
+        // S5 audited (Tier C): SwiftUI bridge helpers live in the shared `_direct_helper` bucket (also written by ThemeBridgeEmitter). Per-view `prefix` ensures symbol uniqueness across the bucket: one Create/GetViewController/Free per SwiftUI view bridge, prefix collision impossible because each view bridge mints its own.
         emissionContext?.TryAddDirectHelperWrapperSymbol($"{prefix}_Free");
         sb.AppendLine($"@_cdecl(\"{prefix}_Free\")");
         sb.AppendLine($"public func {prefix}_Free(");
@@ -1342,6 +1345,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
             var funcName = $"{prefix}_Update{pascalName}";
+            // S5 audited (Tier C): SwiftUI per-param updater in `_direct_helper` bucket. funcName combines per-view `prefix` + per-param Pascal name — unique within the bridge.
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
@@ -1709,6 +1713,7 @@ public static partial class SwiftUIBridgeEmitter
         foreach (var mod in modifiers)
         {
             var funcName = $"{prefix}_Set{mod.PascalName}";
+            // S5 audited (Tier C): SwiftUI per-modifier setter in `_direct_helper` bucket. funcName combines per-view `prefix` + per-modifier Pascal name — unique within the bridge.
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");

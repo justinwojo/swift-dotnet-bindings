@@ -108,11 +108,25 @@ public static class MetatypeArrayBridgeEmitter
             return false;
         }
 
+        // S5 claim-then-emit guard: route through TryClaimWrapperSymbol BEFORE writing any
+        // Swift / C# code. sourceKey anchors to the original Swift mangled name (captured
+        // before the line-99 stomp via the original methodDecl) and we stash it on the
+        // ORIGINAL methodDecl.StructuralIdentityKey so a future MethodWrapperEmitter pass
+        // on the same free function computes the SAME (typeName, methodName, sourceKey)
+        // triple — typeName uses moduleName to match MWE's `parentTypeDecl?.SwiftTypeName.
+        // ModuleQualifiedName ?? parentModuleDecl?.Name` for free-function declarations
+        // (parentTypeDecl is null, so MWE falls back to parentModuleDecl.Name). On dup the
+        // bridge is a no-op and the prior emitter (or fallback MWE) is the source of truth.
+        var bridgeSourceKey = $"metatype-array-bridge::{methodDecl.MangledName}";
+        methodDecl.StructuralIdentityKey = bridgeSourceKey;
+        if (emissionContext != null &&
+            !emissionContext.TryClaimWrapperSymbol(moduleName, methodDecl.Name,
+                bridgeSourceKey, cdeclSymbol))
+        {
+            return false;
+        }
+
         EmitSwiftWrapper(swiftWriter, methodDecl, normalized, cdeclSymbol, moduleFilter);
-        // Register the bridge's @_cdecl symbol so the wrapper-symbol contract
-        // sees it as authored by wrapper-emit. This bridge bypasses the
-        // standard MethodWrapperEmitter.EmitSwiftMethodWrapper registration.
-        emissionContext?.TryAddMethodWrapperSymbol(cdeclSymbol);
 
         TypeDatabaseExtensions.AnyTypeFallbackInfo? fallbackInfo = null;
         foreach (var argument in normalized.CSSignature)

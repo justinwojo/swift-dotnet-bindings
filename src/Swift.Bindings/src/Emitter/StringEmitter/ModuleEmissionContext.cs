@@ -806,18 +806,59 @@ public sealed class ModuleEmissionContext
     // String-keyed dedup misses; both @_cdecl blocks land in the wrapper file and
     // swiftc rejects "multiple definitions of symbol" at link time. The canonical
     // dedup key is structural — a 3-tuple of <c>(typeName, methodName, sourceKey)</c>
-    // — independent of the emitter-specific symbol scheme. The <c>sourceKey</c>
-    // slot is filled in differently by each emitter:
-    //   - <see cref="MethodWrapperEmitter"/> uses the rendered <c>SBW_</c> symbol
-    //     name itself for ordinary methods (no separate canonical form is needed
-    //     when only one emitter ever reaches that method).
-    //   - <see cref="Handler.ProtocolExtensionEmitter"/> builds
-    //     <c>"{ProtocolQualifiedName}::{PrintedName}::{RawSignature}"</c> and
-    //     stashes it on the synthetic <see cref="MethodDecl.WrapperSourceKey"/>
-    //     so a later <see cref="MethodWrapperEmitter"/> pass on the same Swift
-    //     method computes the same key and collapses into the prior claim.
+    // — independent of the emitter-specific symbol scheme.
+    //
+    // Tier A emitters (per-emitter sourceKey conventions; all of these route
+    // through TryClaimWrapperSymbol on every emit):
+    //   - <see cref="MethodWrapperEmitter"/> — typeName is the parent's
+    //     <c>SwiftTypeName.ModuleQualifiedName</c> (or parent module name for
+    //     free functions); sourceKey is <see cref="MethodDecl.StructuralIdentityKey"/>
+    //     when set by an upstream emitter, otherwise the rendered <c>SBW_</c>
+    //     symbol itself. The fallback is equivalent to the prior per-kind
+    //     <c>TryAddMethodWrapperSymbol</c> for ordinary methods.
+    //   - <see cref="Handler.ProtocolExtensionEmitter"/> — stashes
+    //     <c>"{ProtocolQualifiedName}::{PrintedName}::{RawSignature}"</c> on the
+    //     synthetic <see cref="MethodDecl.StructuralIdentityKey"/> so a later
+    //     <see cref="MethodWrapperEmitter"/> pass on the same Swift method
+    //     collapses into the same identity.
+    //   - <see cref="Handler.ExistentialBypassEmitter"/> — claim-then-emit;
+    //     sourceKey is <c>"existential-bypass-{init|free|method}::{MangledName}"</c>
+    //     and is also stashed on the original <see cref="MethodDecl.StructuralIdentityKey"/>
+    //     so a fallback <see cref="MethodWrapperEmitter"/> pass canonicalizes
+    //     to the same triple.
+    //   - <see cref="Handler.MetatypeArrayBridgeEmitter"/> — claim-then-emit;
+    //     sourceKey is <c>"metatype-array-bridge::{MangledName}"</c> (captured
+    //     from the original <c>methodDecl.MangledName</c> before the line-99
+    //     stomp) and is also stashed on the original
+    //     <see cref="MethodDecl.StructuralIdentityKey"/>.
+    //   - <see cref="Handler.ForeignTypeExtensionEmitter"/> — sourceKey is
+    //     <c>"{role} {MethodName}::{RawSignature}"</c> where <c>role</c> is
+    //     <c>"get"</c>, <c>"set"</c>, or <c>"method"</c>. No
+    //     <see cref="MethodWrapperEmitter"/> counterpart exists today (foreign-
+    //     type extension surfaces don't flow through a parsed
+    //     <see cref="MethodDecl"/>); the claim is preventive against a future
+    //     emitter joining the same surface.
+    //   - <see cref="Handler.ConstrainedExtensionEmitter"/> — typeName is
+    //     <c>"{ParentTypeName.ModuleQualifiedName}&lt;{ConcreteTypeName.ModuleQualifiedName}&gt;"</c>
+    //     so two parents that share a leaf name (e.g. <c>Mod.Box</c> vs
+    //     <c>Mod.Outer.Box</c>) and two concretes that share a leaf across
+    //     modules (e.g. <c>A.User</c> vs <c>B.User</c>) cannot collide; sourceKey
+    //     for properties is
+    //     <c>"constrained-extension::get::{Parent.ModuleQualifiedName}::{Concrete.ModuleQualifiedName}::{static|instance}::{Name}"</c>
+    //     and for methods is
+    //     <c>"constrained-extension::method::{Parent.ModuleQualifiedName}::{Concrete.ModuleQualifiedName}::{static|instance}::{Name}"</c>.
+    //     The static/instance marker disambiguates Swift's allowance of
+    //     <c>func rank()</c> alongside <c>static func rank()</c> (and
+    //     analogously <c>var rank</c> alongside <c>static var rank</c>) on the
+    //     same type. Intentionally intra-emitter — MWE walks the open generic
+    //     parent, never these closed generic concretizations.
+    //
     // The first emitter to claim the structural identity wins; subsequent
-    // emitters for the same Swift method skip emission.
+    // emitters for the same Swift method skip emission. Tier B/C emitters
+    // (synthetic / dedicated namespace wrappers like _equality, _XM/_XMA, JSON
+    // codable, SwiftUI direct helpers, metadata accessors, closure bridges)
+    // remain on per-kind <c>TryAdd*WrapperSymbol</c> sets — see the audit
+    // comments at each call site for why their bucket is collision-safe.
 
     private readonly HashSet<(string TypeName, string MethodName, string SourceKey)> _wrapperStructuralIdentities = new();
 

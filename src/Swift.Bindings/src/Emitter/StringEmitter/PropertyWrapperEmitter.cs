@@ -222,6 +222,11 @@ public static class PropertyWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
+        // S5 audited (Tier B): property getters live in the property bucket; no
+        // method/constructor/subscript emitter ever registers a getter mangled name.
+        // Swift mangles property accessors with a distinct accessor-kind discriminator,
+        // so the symbol is unique per property and the per-kind dedup gate is
+        // collision-safe without routing through the structural-identity registry.
         if (!ctx.TryAddPropertyWrapperSymbol(symbolName))
             return; // Already emitted
 
@@ -490,6 +495,10 @@ public static class PropertyWrapperEmitter
     {
         ctx ??= ModuleEmissionContext.Default;
 
+        // S5 audited (Tier B): property setters share the property bucket with getters but
+        // Swift's accessor mangling distinguishes setter from getter at the symbol level, so
+        // the symbol is unique per (property, accessor-kind). No method/constructor/subscript
+        // emitter ever registers symbols here; the per-kind dedup gate is collision-safe.
         if (!ctx.TryAddPropertyWrapperSymbol(symbolName))
             return; // Already emitted
 

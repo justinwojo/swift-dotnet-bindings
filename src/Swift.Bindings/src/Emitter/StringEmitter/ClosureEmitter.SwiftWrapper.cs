@@ -1075,6 +1075,10 @@ public static partial class ClosureEmitter
         // authored. The @_silgen_name branch isn't an SBW_… cdecl wrapper, so
         // the contract check (which only fires for SBW_-shaped entry points)
         // would never look it up — gate on useCdecl to keep registry intent precise.
+        // S5 audited (Tier B): closure-bearing methods bypass MethodWrapperEmitter; the
+        // method's mangled name is unique per overload and this path is mutually
+        // exclusive with the standard wrapper for the same method. Per-kind method bucket
+        // is collision-safe.
         if (useCdecl)
             emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
         swiftWriter.WriteLine($"{annotation}(\"{wrapperSymbol}\")");

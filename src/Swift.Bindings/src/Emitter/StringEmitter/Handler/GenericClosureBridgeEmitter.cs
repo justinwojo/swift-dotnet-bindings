@@ -156,6 +156,7 @@ public static class GenericClosureBridgeEmitter
             }
 
             """);
+        // S5 audited (Tier C): generic-closure bridge create-error helper in `_direct_helper` bucket. Per-bridge `symbol` is unique per closure shape; the `GenericClosureBridgeCreateErrorEmitted` flag below also gates re-emission within a module pass.
         // Register the helper so the wrapper-symbol registry reflects every SBW_…
         // symbol we actually emit. Closes a registry hole that would false-trip the
         // contract gate if direct-helper enforcement is widened.

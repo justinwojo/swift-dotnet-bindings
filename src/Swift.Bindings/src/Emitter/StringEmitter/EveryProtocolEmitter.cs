@@ -44,6 +44,10 @@ public class EveryProtocolEmitter
         // wrapper-symbol contract. The matching P/Invokes live in
         // ProtocolProxyEmitter.SwiftObject and would trip the contract check if
         // their callsites later opt into EnforceWrapperContract.
+        // S5 audited (Tier C): four singleton literals — there is exactly one
+        // EveryProtocol synthetic type per module build, and these names cannot be
+        // produced by any per-type emitter, so the per-kind method bucket is
+        // collision-safe.
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_CreateEveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryProtocol");
@@ -3021,6 +3025,10 @@ public class EveryProtocolEmitter
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+        // S5 audited (Tier C): protocol async-closure invoke thunk — the entry-point
+        // shape is `SBW_{protocol}_{method}_m{i}_arg{j}_AsyncInvCR`, structurally
+        // disjoint from any non-thunk wrapper symbol. Per-kind method bucket is
+        // collision-safe.
         _emissionContext?.TryAddMethodWrapperSymbol(entryPoint);
     }
 

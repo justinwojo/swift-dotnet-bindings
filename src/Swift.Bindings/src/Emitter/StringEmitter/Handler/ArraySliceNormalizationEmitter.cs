@@ -624,6 +624,10 @@ public static class ArraySliceNormalizationEmitter
         // contract gate now covers both shapes: SBW_… (cdecl) and SBSW_… (Swift CC),
         // so both branches must register or the C# P/Invoke emit will abort with
         // WrapperSymbolContractException.
+        // S5 audited (Tier B): ArraySliceNormalizationEmitter synthesizes a replacement
+        // MethodDecl whose mangled name has been rewritten to use the normalized (non-
+        // slice) ABI. That rewritten mangled name is unique and disjoint from the
+        // original method's symbol, so it cannot alias any non-normalized wrapper.
         emissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol);
 
         // @_silgen_name and @_cdecl wrappers are top-level Swift functions (or live in a

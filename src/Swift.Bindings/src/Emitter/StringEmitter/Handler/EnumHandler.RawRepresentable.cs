@@ -530,7 +530,7 @@ namespace BindingsGeneration
         private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
             ctx ??= ModuleEmissionContext.Default;
-            // Skip if this wrapper has already been emitted (nested enums may be processed multiple times)
+            // S5 audited (Tier B): RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
             {
                 return;
@@ -613,6 +613,7 @@ namespace BindingsGeneration
         private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null)
         {
             ctx ??= ModuleEmissionContext.Default;
+            // S5 audited (Tier B): RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol))
                 return;
 
@@ -640,6 +641,7 @@ namespace BindingsGeneration
         private void EmitCaseByIndexSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, string caseByIndexSymbol, ModuleEmissionContext? ctx = null)
         {
             ctx ??= ModuleEmissionContext.Default;
+            // S5 audited (Tier B): RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One case-by-index wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol))
                 return;
 
