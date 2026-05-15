@@ -637,6 +637,22 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void GetAsyncPattern_BlinkIDUXView_ModelStep_DoesNotInjectSessionNumber()
+    {
+        // BlinkIDUX 0.11.x removed BlinkIDUXModel.init(analyzer:uxSettings:sessionNumber:) and
+        // ships only init(analyzer:uxSettings:). The dictionary entry must mirror the live API
+        // — supplying sessionNumber to the new init makes swiftc reject the SwiftUIBridge.swift
+        // file with "extra argument 'sessionNumber' in call". Pinning the arg list here keeps
+        // the dictionary honest if BlinkIDUX shifts its surface again.
+        var pattern = SwiftUIBridgeEmitter.GetAsyncPattern("BlinkIDUXView", "BlinkIDUX");
+        Assert.NotNull(pattern);
+
+        var modelStep = pattern!.ConstructionChain.Single(s => s.VariableName == "model");
+        Assert.Equal(new[] { "analyzer", "uxSettings" }, modelStep.Args.Select(a => a.ParamLabel).ToArray());
+        Assert.DoesNotContain(modelStep.Args, a => a.ParamLabel == "sessionNumber");
+    }
+
+    [Fact]
     public void EmitAsyncViewBridge_Swift_GeneratesAsyncCreate()
     {
         var views = new List<TypeDecl> { CreateSimpleViewStruct("BlinkIDUXView") };

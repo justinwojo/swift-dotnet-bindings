@@ -384,6 +384,72 @@ public class OptionalMarshalStrategyTests
         Assert.Null(result);
     }
 
+    // ─── TryGetBlittablePrimitiveOptionalDecode — shared @_cdecl decode shape ────
+    //
+    // Pins the single source of truth that CdeclParamMapper.Map (regular method path)
+    // and ProtocolExtensionEmitter (synthesised protocol-extension wrapper path) both
+    // route through. If either emitter forks its own copy, this test still passes — but
+    // the integration suite will catch the drift via the unit/runtime gates above.
+
+    [Theory]
+    [InlineData("Swift.Int32", "Int32?", "4", "Int32")]
+    [InlineData("Swift.Int64", "Int64?", "8", "Int64")]
+    [InlineData("Swift.Int", "Int?", "8", "Int")]
+    [InlineData("Swift.UInt32", "UInt32?", "4", "UInt32")]
+    [InlineData("Swift.Double", "Double?", "8", "Double")]
+    [InlineData("Swift.Float", "Float?", "4", "Float")]
+    [InlineData("Swift.Int8", "Int8?", "1", "Int8")]
+    public void TryGetBlittablePrimitiveOptionalDecode_BlittablePrimitive_ReturnsTagByteShape(
+        string innerSwiftName, string expectedLocalType, string expectedTagOffset, string expectedRawType)
+    {
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", new[] { new NamedTypeSpec(innerSwiftName) });
+
+        var decode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(optionalSpec, "stateDuration");
+
+        Assert.NotNull(decode);
+        var (localType, rhs) = decode.Value;
+        Assert.Equal(expectedLocalType, localType);
+        Assert.Equal(
+            $"stateDuration.advanced(by: {expectedTagOffset}).load(as: UInt8.self) == 0 ? stateDuration.load(as: {expectedRawType}.self) : nil",
+            rhs);
+    }
+
+    [Fact]
+    public void TryGetBlittablePrimitiveOptionalDecode_OptionalBool_ReturnsNull()
+    {
+        // Bool is excluded from IsBlittablePrimitiveSwiftType because Optional<Bool> uses
+        // extra-inhabitant encoding (size 1, no separate tag byte). Caller must fall through
+        // to the generic Swift.Optional<T>.self pointee fallback.
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", new[] { new NamedTypeSpec("Swift.Bool") });
+
+        var decode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(optionalSpec, "flag");
+
+        Assert.Null(decode);
+    }
+
+    [Fact]
+    public void TryGetBlittablePrimitiveOptionalDecode_NonOptional_ReturnsNull()
+    {
+        var nonOptionalSpec = new NamedTypeSpec("Swift.Int32");
+
+        var decode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(nonOptionalSpec, "v");
+
+        Assert.Null(decode);
+    }
+
+    [Fact]
+    public void TryGetBlittablePrimitiveOptionalDecode_OptionalNonPrimitive_ReturnsNull()
+    {
+        // Optional<UserType> is not blittable — gate-rejected upstream in the protocol-extension
+        // path, opaque-pointer-decoded in the regular method path. Either way this helper
+        // returns null so the caller routes through its own branch.
+        var optionalSpec = new NamedTypeSpec("Swift.Optional", new[] { new NamedTypeSpec("TestModule.SomeStruct") });
+
+        var decode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(optionalSpec, "p");
+
+        Assert.Null(decode);
+    }
+
     /// <summary>
     /// Verifies that the emitter's GetSwiftTagByteOffset produces the same offsets
     /// as the runtime's GetBlittablePrimitiveTagOffset for each corresponding type pair.

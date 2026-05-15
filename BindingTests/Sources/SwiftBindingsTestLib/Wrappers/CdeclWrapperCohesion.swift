@@ -100,3 +100,59 @@ public final class WrapperCohesionBuilder: WrapperCohesionBuildable {
 
     public init() {}
 }
+
+// Protocol-extension default method with `Optional<value-type>` parameters —
+// the BlinkIDUX `ReticleStateMachineProtocol.calculateRemainingTime(stateDuration:)`
+// shape. Round-1 emitted the @_cdecl wrapper with bare `Optional<Double>` /
+// `Optional<Int32>` / `Optional<Bool>` parameter types, which `@_cdecl` rejects
+// because those generic types aren't C-representable. The wrapper must accept an
+// `UnsafeRawPointer` to a Swift.Optional<T> payload and decode inside the body —
+// the same shape `CdeclParamMapper.Map` uses on the regular method path.
+public protocol WrapperCohesionRemaining: AnyObject {
+    var observedDouble: Double { get set }
+    var observedInt32: Int32 { get set }
+    var observedBoolByte: Int32 { get set }
+}
+
+extension WrapperCohesionRemaining {
+    // Optional<Double> param — the literal BlinkIDUX trigger.
+    public func remainingTime(stateDuration: Double? = nil) -> Double {
+        if let stateDuration = stateDuration {
+            observedDouble = stateDuration
+            return stateDuration * 2.0
+        }
+        observedDouble = -1.0
+        return -1.0
+    }
+
+    // Optional<Int32> param — exercises the tag-byte offset for a smaller
+    // primitive than Double; catches an off-by-one in the offset lookup.
+    public func remainingCount(_ count: Int32? = nil) -> Int32 {
+        if let count = count {
+            observedInt32 = count
+            return count * 3
+        }
+        observedInt32 = -1
+        return -1
+    }
+
+    // Optional<Bool> param — Bool is not in `IsBlittablePrimitiveSwiftType`, so
+    // this lands on the generic `Swift.Optional<Bool>` pointer fallback. Returns
+    // Int32 to keep the result-side gate boring (avoid Optional<Bool> return).
+    public func remainingFlag(_ flag: Bool? = nil) -> Int32 {
+        if let flag = flag {
+            observedBoolByte = flag ? 1 : 0
+            return flag ? 1 : 0
+        }
+        observedBoolByte = -1
+        return -1
+    }
+}
+
+public final class WrapperCohesionRemainingHolder: WrapperCohesionRemaining {
+    public var observedDouble: Double = 0
+    public var observedInt32: Int32 = 0
+    public var observedBoolByte: Int32 = 0
+
+    public init() {}
+}

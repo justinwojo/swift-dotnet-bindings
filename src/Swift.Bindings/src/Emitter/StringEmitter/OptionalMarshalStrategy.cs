@@ -189,6 +189,39 @@ public static class OptionalMarshalClassifier
         => GetSwiftTagByteOffset(swiftTypeName)?.ToString();
 
     /// <summary>
+    /// For an <c>Optional&lt;BlittablePrimitive&gt;</c> param marshalled across @_cdecl
+    /// as an <c>UnsafeRawPointer</c>, returns the Swift decode shape — local-binding
+    /// type plus RHS expression — so callers can compose:
+    /// <code>let {localName}: {LocalType} = {Rhs}</code>
+    /// inside their wrapper body. The RHS references the supplied
+    /// <paramref name="paramName"/> as the source pointer. Returns <c>null</c> when
+    /// the Optional inner isn't a blittable primitive (Bool, frozen value-type
+    /// struct, reference type, opaque struct/enum, …) — caller falls through to its
+    /// own fallback shape (typically <c>assumingMemoryBound(to: Swift.Optional&lt;T&gt;.self).pointee</c>).
+    ///
+    /// Shared by <see cref="CdeclParamMapper"/>.<c>Map</c> (regular method path) and
+    /// <c>ProtocolExtensionEmitter</c> (synthesised protocol-extension wrapper path)
+    /// so the blittable-primitive set × tag-byte offset table × decode RHS shape can
+    /// only drift in one place.
+    /// </summary>
+    public static (string LocalType, string Rhs)? TryGetBlittablePrimitiveOptionalDecode(
+        TypeSpec optionalSpec, string paramName)
+    {
+        if (optionalSpec is not NamedTypeSpec optSpec
+            || optSpec.Name != "Swift.Optional"
+            || optSpec.GenericParameters.Count != 1)
+            return null;
+        if (optSpec.GenericParameters[0] is not NamedTypeSpec innerNamed
+            || !CdeclParamMapper.IsBlittablePrimitiveSwiftType(innerNamed.Name))
+            return null;
+
+        var rawType = CdeclParamMapper.GetSwiftRawValueType(innerNamed.Name);
+        var tagOffset = GetSwiftTagByteOffsetString(innerNamed.Name) ?? "8";
+        return ($"{rawType}?",
+                $"{paramName}.advanced(by: {tagOffset}).load(as: UInt8.self) == 0 ? {paramName}.load(as: {rawType}.self) : nil");
+    }
+
+    /// <summary>
     /// Checks whether the inner type of an Optional makes it "large" (>= 8 bytes),
     /// matching BoundGenericsHandler.IsLargeOptionalParam logic for non-reference,
     /// non-protocol inner types that are not in the small-optional set.

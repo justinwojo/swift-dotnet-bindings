@@ -88,4 +88,47 @@ public class CdeclWrapperCohesionTests : TestBase
         AssertEqual(7, second, "Step(Int32) accumulates");
         AssertEqual(7, builder.StrideCounter, "strideCounter accumulates");
     }
+
+    public void TestProtocolExtensionRemainingDoubleNilAndSome()
+    {
+        using var holder = new WrapperCohesionRemainingHolder();
+
+        var nilResult = holder.RemainingTime(stateDuration: null);
+        AssertEqual(-1.0, nilResult, "Nil Optional<Double> yields the sentinel return");
+        AssertEqual(-1.0, holder.ObservedDouble, "Nil case stamps the sentinel into observedDouble");
+
+        var someResult = holder.RemainingTime(stateDuration: 12.5);
+        AssertEqual(25.0, someResult, "Some(12.5) round-trips through the @_cdecl wrapper");
+        AssertEqual(12.5, holder.ObservedDouble, "Some case records the decoded Double payload");
+    }
+
+    public void TestProtocolExtensionRemainingInt32NilAndSome()
+    {
+        using var holder = new WrapperCohesionRemainingHolder();
+
+        var nilResult = holder.RemainingCount(null);
+        AssertEqual(-1, nilResult, "Nil Optional<Int32> yields the sentinel return");
+        AssertEqual(-1, holder.ObservedInt32, "Nil case stamps the sentinel into observedInt32");
+
+        var someResult = holder.RemainingCount(7);
+        AssertEqual(21, someResult, "Some(7) round-trips through the @_cdecl wrapper");
+        AssertEqual(7, holder.ObservedInt32, "Some case records the decoded Int32 payload");
+    }
+
+    public void TestProtocolExtensionRemainingBoolNilAndSome()
+    {
+        using var holder = new WrapperCohesionRemainingHolder();
+
+        var nilResult = holder.RemainingFlag(null);
+        AssertEqual(-1, nilResult, "Nil Optional<Bool> yields the sentinel return");
+        AssertEqual(-1, holder.ObservedBoolByte, "Nil case stamps the sentinel into observedBoolByte");
+
+        var trueResult = holder.RemainingFlag(true);
+        AssertEqual(1, trueResult, "Some(true) round-trips through the pointer-typed fallback");
+        AssertEqual(1, holder.ObservedBoolByte, "Some(true) records 1 into observedBoolByte");
+
+        var falseResult = holder.RemainingFlag(false);
+        AssertEqual(0, falseResult, "Some(false) round-trips through the pointer-typed fallback");
+        AssertEqual(0, holder.ObservedBoolByte, "Some(false) records 0 into observedBoolByte");
+    }
 }

@@ -61,6 +61,85 @@ public class ProtocolExtensionEmitterTests
         Assert.Contains(".map", wrapperLines);
     }
 
+    // ─── Bug 1b: Optional<value-type> param renders UnsafeRawPointer ────
+
+    [Fact]
+    public void OptionalDoubleParam_WrapperRendersUnsafeRawPointerWithTagByteDecode()
+    {
+        // BlinkIDUX.ReticleStateMachineProtocol.calculateRemainingTime(stateDuration: Double? = nil)
+        // shape. Before the fix, RenderSwiftParam fell through ContainsGenericParameters and
+        // emitted bare `Swift.Optional<Swift.Double>` in the @_cdecl wrapper signature; swiftc
+        // rejected with "type is not representable in Objective-C". Wrapper must accept the
+        // payload via UnsafeRawPointer and decode using the tag-byte pattern (the C# side already
+        // ships a SwiftOptional<double> payload via DangerousGetHandle()), matching the proven
+        // pattern in CdeclParamMapper.Map for the same shape.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyHolder", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("remainingTime", "public func remainingTime(stateDuration: Swift.Double?) -> Swift.Double"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+
+        Assert.Single(conformingType.Methods);
+        // Param must render as UnsafeRawPointer — @_cdecl rejects bare Optional<Double>.
+        Assert.Contains("stateDuration: UnsafeRawPointer", wrapperLines);
+        Assert.DoesNotContain("Swift.Optional<Swift.Double>", wrapperLines);
+        Assert.DoesNotContain("stateDuration: Swift.Double?", wrapperLines);
+        // Call site decodes via tag-byte pattern (mirrors CdeclParamMapper.Map line ~201).
+        Assert.Contains("load(as: UInt8.self) == 0", wrapperLines);
+        Assert.Contains("load(as: Double.self)", wrapperLines);
+    }
+
+    [Fact]
+    public void OptionalInt32Param_WrapperRendersUnsafeRawPointerWithTagByteDecode()
+    {
+        // Sibling shape to Optional<Double> with a smaller primitive — exercises the
+        // tag-byte offset lookup. Off-by-one in the offset would mis-read nil-vs-some
+        // at runtime; we pin the offset string against the canonical map.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyHolder", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("remainingCount", "public func remainingCount(count: Swift.Int32?) -> Swift.Int32"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+
+        Assert.Single(conformingType.Methods);
+        Assert.Contains("count: UnsafeRawPointer", wrapperLines);
+        Assert.DoesNotContain("Swift.Optional<Swift.Int32>", wrapperLines);
+        Assert.Contains("load(as: UInt8.self) == 0", wrapperLines);
+        Assert.Contains("load(as: Int32.self)", wrapperLines);
+    }
+
+    [Fact]
+    public void OptionalBoolParam_WrapperRendersUnsafeRawPointerWithPointeeFallback()
+    {
+        // Bool is excluded from IsBlittablePrimitiveSwiftType because Optional<Bool> uses
+        // extra-inhabitant encoding (size 1, no separate tag byte). The wrapper must still
+        // accept UnsafeRawPointer (bare Optional<Bool> isn't ObjC-representable), but the
+        // call-site reconstruction goes through the generic-container fallback —
+        // assumingMemoryBound(to: Swift.Optional<Bool>.self).pointee — matching the proven
+        // pattern in CdeclParamMapper.Map line ~290.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyHolder", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("remainingFlag", "public func remainingFlag(flag: Swift.Bool?) -> Swift.Int32"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var wrapperLines = string.Join("\n", ctx.ProtocolExtSwiftWrapperLines);
+
+        Assert.Single(conformingType.Methods);
+        Assert.Contains("flag: UnsafeRawPointer", wrapperLines);
+        Assert.DoesNotContain(": Swift.Bool?", wrapperLines);
+        // Pointer-typed access fallback — no tag-byte read because Bool has no separate tag byte.
+        Assert.Contains("assumingMemoryBound(to: Swift.Optional<Swift.Bool>.self).pointee", wrapperLines);
+        Assert.DoesNotContain("load(as: UInt8.self) == 0", wrapperLines);
+    }
+
     // ─── Bug 2: cross-kind @_cdecl symbol dedup ────────────────────────
 
     [Fact]

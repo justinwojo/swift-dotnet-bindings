@@ -1285,6 +1285,13 @@ public static class ProtocolExtensionEmitter
         // and swiftc rejects with "type is not representable in Objective-C".
         if (WrapperValidation.IsOptionalWithReferenceInner(typeSpec, typeDatabase))
             return $"_ {paramName}: UnsafeMutableRawPointer?";
+        // Optional<value-type> (Optional<Double>, Optional<Int32>, Optional<Bool>, …):
+        // bare Optional<…> isn't C-representable, so @_cdecl rejects it. The C# side already
+        // passes a SwiftOptional<T>.Payload IntPtr through DangerousGetHandle, so accept
+        // UnsafeRawPointer here and let RenderCallArg decode (tag-byte for blittable primitives,
+        // assumingMemoryBound pointee fallback for everything else — mirrors CdeclParamMapper.Map).
+        if (WrapperValidation.IsOptionalType(typeSpec))
+            return $"_ {paramName}: UnsafeRawPointer";
         if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
             !MarshallingHelpers.IsSwiftPrimitive(namedType.Name))
             return $"_ {paramName}: UnsafeMutableRawPointer";
@@ -1334,6 +1341,38 @@ public static class ProtocolExtensionEmitter
             var renderedInner = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
             var localName = $"__{paramName}";
             ctx.AddProtocolExtWrapperLine($"    let {localName}: {renderedInner}? = {paramName}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() as! {renderedInner} }}");
+            return label == "_" ? localName : $"{label}: {localName}";
+        }
+
+        // Optional<value-type>: paired with the UnsafeRawPointer param shape.
+        // The upstream IsCdeclCompatibleType gate only admits Optional<primitive> here
+        // (Int*, UInt*, Float, Double, CGFloat, CGSize/CGPoint/CGRect, Bool) — structs and
+        // complex enums are rejected entirely before reaching this branch. Two sub-paths:
+        //   (a) Blittable primitive — tag-byte at offset sizeof(T); shared with
+        //       CdeclParamMapper.Map via OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode
+        //       so the (blittable set × tag-offset table × decode RHS) can't drift.
+        //   (b) Bool (extra-inhabitant encoding, no separate tag byte) and frozen primitive
+        //       value-types (CGSize/CGPoint/CGRect) — assumingMemoryBound(to:
+        //       Swift.Optional<T>.self).pointee fallback.
+        // If the gate is ever lifted to admit non-class structs or complex enums, this branch
+        // must grow the opaque-pointer decode path that mirrors CdeclParamMapper.Map's
+        // Optional<OpaqueType> branch (lines ~215-247) — SwiftOptional<IntPtr> on the C# side
+        // ships a pointer-or-null buffer, not an Optional<T> tag-byte buffer.
+        if (WrapperValidation.IsOptionalType(typeSpec))
+        {
+            var localName = $"__{paramName}";
+            var blittableDecode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(typeSpec, paramName);
+            if (blittableDecode is not null)
+            {
+                var (localType, rhs) = blittableDecode.Value;
+                ctx.AddProtocolExtWrapperLine($"    let {localName}: {localType} = {rhs}");
+            }
+            else
+            {
+                var renderedOptional = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
+                ctx.AddProtocolExtWrapperLine(
+                    $"    let {localName} = {paramName}.assumingMemoryBound(to: {renderedOptional}.self).pointee");
+            }
             return label == "_" ? localName : $"{label}: {localName}";
         }
 

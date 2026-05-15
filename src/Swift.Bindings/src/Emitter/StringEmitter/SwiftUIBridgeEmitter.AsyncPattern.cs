@@ -75,7 +75,6 @@ public static partial class SwiftUIBridgeEmitter
                     {
                         new("analyzer", ConstructionArgKind.ChainReference, "analyzer"),
                         new("uxSettings", ConstructionArgKind.ChainReference, "uxSettings"),
-                        new("sessionNumber", ConstructionArgKind.FieldAccess, "analyzer.sessionNumber"),
                     }),
             },
             ResultCallback: new AsyncResultCallbackConfig(

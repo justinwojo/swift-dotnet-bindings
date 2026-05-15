@@ -180,12 +180,12 @@ public static class CdeclParamMapper
 
         // Optional<BlittablePrimitive>: read value and tag byte separately from UnsafeRawPointer
         // instead of using assumingMemoryBound(to: Optional<T>.self).pointee, which misinterprets
-        // the tag byte for Optional<Int32> on some runtimes.
-        if (swiftTypeSpec is NamedTypeSpec optSpec && optSpec.Name == "Swift.Optional"
-            && optSpec.GenericParameters.Count == 1)
+        // the tag byte for Optional<Int32> on some runtimes. The blittable-primitive set ×
+        // tag-byte offset table × decode RHS shape is centralised in OptionalMarshalClassifier
+        // so the protocol-extension emitter and this regular-method path can't drift apart.
         {
-            var innerSpec = optSpec.GenericParameters[0];
-            if (innerSpec is NamedTypeSpec innerNamed && IsBlittablePrimitiveSwiftType(innerNamed.Name))
+            var decode = OptionalMarshalClassifier.TryGetBlittablePrimitiveOptionalDecode(swiftTypeSpec, label);
+            if (decode is not null)
             {
                 // When calling _dbw_init_* (omitLabels=true), the dispatch method accepts
                 // UnsafeRawPointer and decodes the Optional internally. Pass the pointer through
@@ -194,11 +194,8 @@ public static class CdeclParamMapper
                 {
                     return ($"_ {label}: UnsafeRawPointer", null, $"{label}");
                 }
-                var rawType = GetSwiftRawValueType(innerNamed.Name);
-                // Compute the tag byte offset = size of the inner type (centralized in OptionalMarshalClassifier)
-                var tagOffset = OptionalMarshalClassifier.GetSwiftTagByteOffsetString(innerNamed.Name) ?? "8";
-                // Read payload and tag separately, reconstruct Optional
-                var reconstruction = $"let {label}Opt: {rawType}? = {label}.advanced(by: {tagOffset}).load(as: UInt8.self) == 0 ? {label}.load(as: {rawType}.self) : nil";
+                var (localType, rhs) = decode.Value;
+                var reconstruction = $"let {label}Opt: {localType} = {rhs}";
                 return ($"_ {label}: UnsafeRawPointer",
                         reconstruction,
                         $"{argLabel}{label}Opt");
