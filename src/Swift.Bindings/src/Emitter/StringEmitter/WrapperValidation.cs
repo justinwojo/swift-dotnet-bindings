@@ -735,6 +735,15 @@ public static class WrapperValidation
                 // which incorrectly flags Optional<Self> as Optional<existential>. Allow it here.
                 if (optSpec.GenericParameters[0].IsDynamicSelf)
                     return true;
+                // Exception: Optional<generic-param> on generic-extension static dispatch
+                // (ObjectMapper's `Mapper<N>.map(...) -> N?` shape). The ABI looks up τ_0_X
+                // and returns a Protocol-kind TypeRecord placeholder, which makes
+                // IsProtocolExistentialType report true. The protocol-based static dispatch
+                // path handles the wrapping correctly via RenderSwiftTypeSpecWithSugaredNames
+                // + initializeMemory(as: Optional<N>.self).
+                if (optSpec.GenericParameters[0] is NamedTypeSpec genericInner
+                    && TypeSpecHelpers.IsGenericTypeParameter(genericInner.Name))
+                    return true;
             }
             return false;
         }

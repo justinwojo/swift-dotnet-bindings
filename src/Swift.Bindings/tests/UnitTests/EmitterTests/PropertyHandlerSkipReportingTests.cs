@@ -58,6 +58,45 @@ public class PropertyHandlerSkipReportingTests
     }
 
     [Fact]
+    public void Emit_NestedClassParent_AsyncThrowingClosureProperty_RecordsUnsupportedClosureSkip()
+    {
+        // Stripe's exact PaymentSheet.IntentConfiguration.ConfirmHandler shape:
+        // an async-throwing Optional<closure> property on a *nested* class.
+        // Round-1 (commit 2ca32c33) added the IsAsync skip but its unit-test
+        // fixture used a flat class — this guard pins the predicate's
+        // behaviour on the nested-class path.
+        var asyncThrowingClosure = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int32"),
+                new NamedTypeSpec("Swift.Bool"),
+            }),
+            new NamedTypeSpec("Swift.String"))
+        {
+            IsAsync = true,
+            Throws = true,
+        };
+        var propertyType = new NamedTypeSpec("Swift.Optional", asyncThrowingClosure);
+        AssertNestedClassPropertyRecordedAsUnsupportedClosureSkip("confirmHandler", propertyType, hasGetter: false, hasSetter: true);
+    }
+
+    [Fact]
+    public void Emit_NestedStructParent_AsyncNonThrowingClosureProperty_RecordsUnsupportedClosureSkip()
+    {
+        // PaymentSheet.IntentConfiguration is actually a *struct* in Stripe's
+        // public API — same nested-name shape as the class case, but with a
+        // struct parent. PropertyHandler runs through the same predicate
+        // regardless of the parent kind; this test pins that.
+        var asyncClosure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32"))
+        {
+            IsAsync = true,
+            Throws = false,
+        };
+        var propertyType = new NamedTypeSpec("Swift.Optional", asyncClosure);
+        AssertNestedStructPropertyRecordedAsUnsupportedClosureSkip("factory", propertyType, hasGetter: true, hasSetter: true);
+    }
+
+    [Fact]
     public void Emit_BaselineAsyncThrowingClosureProperty_RecordsUnsupportedClosureSkip()
     {
         // Baseline-shape async-throwing closure `((Int32) async throws -> Int32)?`
@@ -97,6 +136,66 @@ public class PropertyHandlerSkipReportingTests
                 item.Kind == BindingItemKind.Property &&
                 item.Name == propertyName &&
                 item.ContainingType == "TestModule.PaymentSheet" &&
+                item.Reason == SkipReason.UnsupportedClosure);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    private static void AssertNestedClassPropertyRecordedAsUnsupportedClosureSkip(
+        string propertyName,
+        TypeSpec propertyType,
+        bool hasGetter,
+        bool hasSetter)
+    {
+        try
+        {
+            var typeDatabase = CreateTypeDatabaseWithIntAndBool();
+            var moduleDecl = CreateModuleDecl("TestModule");
+            var outerClass = CreateClassDecl("PaymentSheet", moduleDecl);
+            var nestedClass = CreateNestedClassDecl("IntentConfiguration", outerClass, moduleDecl);
+            CreatePropertyOnType(nestedClass, moduleDecl, propertyName, propertyType, hasGetter, hasSetter);
+
+            ReportCollector.Start(moduleDecl);
+            EmitProperty(nestedClass.Properties[0], typeDatabase);
+            var report = ReportCollector.Complete();
+
+            Assert.NotNull(report);
+            Assert.Contains(report!.SkippedItems, item =>
+                item.Kind == BindingItemKind.Property &&
+                item.Name == propertyName &&
+                item.Reason == SkipReason.UnsupportedClosure);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    private static void AssertNestedStructPropertyRecordedAsUnsupportedClosureSkip(
+        string propertyName,
+        TypeSpec propertyType,
+        bool hasGetter,
+        bool hasSetter)
+    {
+        try
+        {
+            var typeDatabase = CreateTypeDatabaseWithIntAndBool();
+            var moduleDecl = CreateModuleDecl("TestModule");
+            var outerClass = CreateClassDecl("PaymentSheet", moduleDecl);
+            var nestedStruct = CreateNestedStructDecl("IntentConfiguration", outerClass, moduleDecl);
+            CreatePropertyOnType(nestedStruct, moduleDecl, propertyName, propertyType, hasGetter, hasSetter);
+
+            ReportCollector.Start(moduleDecl);
+            EmitProperty(nestedStruct.Properties[0], typeDatabase);
+            var report = ReportCollector.Complete();
+
+            Assert.NotNull(report);
+            Assert.Contains(report!.SkippedItems, item =>
+                item.Kind == BindingItemKind.Property &&
+                item.Name == propertyName &&
                 item.Reason == SkipReason.UnsupportedClosure);
         }
         finally
@@ -178,6 +277,151 @@ public class PropertyHandlerSkipReportingTests
         };
         moduleDecl.Types.Add(classDecl);
         return classDecl;
+    }
+
+    private static ClassDecl CreateNestedClassDecl(string className, TypeDecl outerType, ModuleDecl moduleDecl)
+    {
+        var nested = new ClassDecl
+        {
+            Name = className,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{outerType.Name}.{className}"),
+            MangledName = $"$s10TestModule{outerType.Name.Length}{outerType.Name}C{className.Length}{className}CN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = outerType,
+            ModuleDecl = moduleDecl,
+        };
+        outerType.Types.Add(nested);
+        return nested;
+    }
+
+    private static StructDecl CreateNestedStructDecl(string structName, TypeDecl outerType, ModuleDecl moduleDecl)
+    {
+        var nested = new StructDecl
+        {
+            Name = structName,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{outerType.Name}.{structName}"),
+            MangledName = $"$s10TestModule{outerType.Name.Length}{outerType.Name}C{structName.Length}{structName}VN",
+            MetadataAccessor = $"$s10TestModule{outerType.Name.Length}{outerType.Name}C{structName.Length}{structName}VMa",
+            IsFrozen = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = outerType,
+            ModuleDecl = moduleDecl,
+        };
+        outerType.Types.Add(nested);
+        return nested;
+    }
+
+    // Polymorphic helper so nested-struct tests can reuse the property-creation
+    // shape without needing a separate ClassDecl-typed parent.
+    private static void CreatePropertyOnType(
+        TypeDecl parentType,
+        ModuleDecl moduleDecl,
+        string propertyName,
+        TypeSpec propertyType,
+        bool hasGetter,
+        bool hasSetter)
+    {
+        var accessors = new List<AccessorDecl>();
+        var property = new PropertyDecl
+        {
+            Name = propertyName,
+            SwiftTypeSpec = propertyType,
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = accessors,
+            ParentDecl = parentType,
+            ModuleDecl = moduleDecl,
+        };
+
+        if (hasGetter)
+        {
+            accessors.Add(new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{propertyName}_Get",
+                    MangledName = $"$s{propertyName}g",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = propertyType,
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl,
+                        },
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = parentType,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public,
+                },
+            });
+        }
+
+        if (hasSetter)
+        {
+            accessors.Add(new SetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = $"{propertyName}_Set",
+                    MangledName = $"$s{propertyName}s",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = TupleTypeSpec.Empty,
+                            Name = string.Empty,
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl,
+                        },
+                        new ArgumentDecl
+                        {
+                            SwiftTypeSpec = propertyType,
+                            Name = "value",
+                            PrivateName = string.Empty,
+                            IsInOut = false,
+                            IsGeneric = false,
+                            ParentDecl = null,
+                            ModuleDecl = moduleDecl,
+                        },
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = parentType,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    Visibility = Visibility.Public,
+                },
+            });
+        }
+
+        parentType.Properties.Add(property);
     }
 
     private static void CreateProperty(

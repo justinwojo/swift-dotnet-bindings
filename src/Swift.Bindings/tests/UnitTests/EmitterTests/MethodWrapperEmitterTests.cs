@@ -3913,4 +3913,115 @@ public class MethodWrapperEmitterTests
     }
 
     #endregion
+
+    #region Generic Class Optional<T> Return — ObjectMapper Static Dispatch
+
+    // ObjectMapper's `Mapper<N>.map(...) -> N?` shape. Pre-fix: the
+    // `IsOptionalSupportedForCdecl` gate classified `Optional<τ_0_0>` as
+    // `Optional<protocol existential>` (the τ-name lookup returns a Protocol-kind
+    // TypeRecord), so the @_cdecl wrapper was never emitted and the C# P/Invoke
+    // silently fell back to CallConvSwift. The fix carves out `Optional<generic-param>`
+    // alongside the existing `Optional<Any>` / `Optional<Self>` exceptions.
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClass_OptionalGenericReturn_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var method = CreateMethodWithReturn("map", optionalReturn, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericClass_OptionalGenericReturn_EmitsOptionalNTyped()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var method = CreateMethodWithReturn("map", optionalReturn, parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        method.MangledName = "SBW_TestModule_Mapper_map";
+
+        var output = EmitOne(method, typeDb);
+
+        // The protocol-based static dispatch extension must declare `result` with the
+        // full Optional<N> shape so Swift overload resolution picks the Optional
+        // sibling (not the non-optional one).
+        Assert.Contains("let result: Optional<N>", output);
+        Assert.Contains("initializeMemory(as: Optional<N>.self", output);
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_GenericClass_OptionalArrayGenericReturn_ReturnsTrue()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        // Optional<Array<N>> — covers the validated one-level nesting shape.
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(arraySpec);
+        var method = CreateMethodWithReturn("mapArrayOptional", optionalReturn, parentDecl, moduleDecl);
+        var env = new MethodEnvironment(method, typeDb);
+
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+    }
+
+    [Fact]
+    public void EmitSwiftMethodWrapper_GenericClass_OptionalArrayGenericReturn_EmitsOptionalArrayTyped()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+
+        var arraySpec = new NamedTypeSpec("Swift.Array");
+        arraySpec.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var optionalReturn = new NamedTypeSpec("Swift.Optional");
+        optionalReturn.GenericParameters.Add(arraySpec);
+        var method = CreateMethodWithReturn("mapArrayOptional", optionalReturn, parentDecl, moduleDecl);
+        method.UsesCdeclMethodWrapper = true;
+        method.UsesWrapperLibrary = true;
+        method.UsesFreeFunctionWrapper = true;
+        method.MangledName = "SBW_TestModule_Mapper_mapArrayOptional";
+
+        var output = EmitOne(method, typeDb);
+
+        Assert.Contains("let result: Optional<Array<N>>", output);
+        Assert.Contains("initializeMemory(as: Optional<Array<N>>.self", output);
+    }
+
+    #endregion
 }

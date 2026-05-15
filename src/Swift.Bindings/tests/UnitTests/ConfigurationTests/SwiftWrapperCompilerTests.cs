@@ -1685,6 +1685,250 @@ namespace BindingsGeneration.Tests
         }
     }
 
+    public class LLVMProfileRuntimeAutoLinkTests
+    {
+        [Fact]
+        public void IsLLVMProfileRuntimeMissing_DetectsExactSymbolToken()
+        {
+            var stderr =
+                "Undefined symbols for architecture arm64:\n" +
+                "  \"___llvm_profile_runtime\", referenced from:\n" +
+                "      ___llvm_profile_runtime_user in Mappedin[arm64][2](Mappedin.o)\n" +
+                "ld: symbol(s) not found for architecture arm64";
+            Assert.True(SwiftWrapperCompiler.IsLLVMProfileRuntimeMissing(stderr));
+        }
+
+        [Fact]
+        public void IsLLVMProfileRuntimeMissing_UnrelatedLinkErrors_ReturnsFalse()
+        {
+            var stderr =
+                "Undefined symbols for architecture arm64:\n" +
+                "  \"_OBJC_CLASS_$_FIRApp\", referenced from:\n" +
+                "ld: symbol(s) not found for architecture arm64";
+            Assert.False(SwiftWrapperCompiler.IsLLVMProfileRuntimeMissing(stderr));
+        }
+
+        [Fact]
+        public void IsLLVMProfileRuntimeMissing_EmptyStderr_ReturnsFalse()
+        {
+            Assert.False(SwiftWrapperCompiler.IsLLVMProfileRuntimeMissing(""));
+            Assert.False(SwiftWrapperCompiler.IsLLVMProfileRuntimeMissing(null!));
+        }
+
+        [Theory]
+        [InlineData("arm64-apple-ios18.0-simulator", "iossim")]
+        [InlineData("x86_64-apple-ios18.0-simulator", "iossim")]
+        [InlineData("arm64-apple-ios18.0", "ios")]
+        [InlineData("arm64-apple-ios18.0-macabi", "osx")]
+        [InlineData("arm64-apple-tvos18.0-simulator", "tvossim")]
+        [InlineData("arm64-apple-tvos18.0", "tvos")]
+        [InlineData("arm64-apple-watchos11.0-simulator", "watchossim")]
+        [InlineData("arm64-apple-watchos11.0", "watchos")]
+        [InlineData("arm64-apple-xros2.0-simulator", "xrossim")]
+        [InlineData("arm64-apple-xros2.0", "xros")]
+        [InlineData("arm64-apple-visionos2.0-simulator", "xrossim")]
+        [InlineData("arm64-apple-macos15.0", "osx")]
+        public void MapTargetTripleToProfilePlatform_KnownTriples_ReturnsExpectedSuffix(
+            string triple, string expected)
+        {
+            Assert.Equal(expected, SwiftWrapperCompiler.MapTargetTripleToProfilePlatform(triple));
+        }
+
+        [Fact]
+        public void MapTargetTripleToProfilePlatform_UnknownPlatform_ReturnsNull()
+        {
+            Assert.Null(SwiftWrapperCompiler.MapTargetTripleToProfilePlatform("riscv64-unknown-linux"));
+            Assert.Null(SwiftWrapperCompiler.MapTargetTripleToProfilePlatform(""));
+            Assert.Null(SwiftWrapperCompiler.MapTargetTripleToProfilePlatform(null!));
+        }
+
+        [Fact]
+        public void ResolveProfileRuntimeArchive_ArchivePresent_ReturnsExpectedPath()
+        {
+            var resourceDir = Path.Combine(Path.GetTempPath(), $"profile_rt_{Guid.NewGuid():N}");
+            var archiveDir = Path.Combine(resourceDir, "lib", "darwin");
+            Directory.CreateDirectory(archiveDir);
+            var archivePath = Path.Combine(archiveDir, "libclang_rt.profile_iossim.a");
+            File.WriteAllText(archivePath, "");
+            try
+            {
+                var runner = new MockCommandRunner();
+                runner.SetResponse("clang -print-resource-dir", 0, resourceDir);
+                var resolved = SwiftWrapperCompiler.ResolveProfileRuntimeArchive(
+                    "arm64-apple-ios18.0-simulator", runner, NullLogger.Instance);
+                Assert.Equal(archivePath, resolved);
+            }
+            finally
+            {
+                Directory.Delete(resourceDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void ResolveProfileRuntimeArchive_ArchiveMissing_ReturnsNull()
+        {
+            var resourceDir = Path.Combine(Path.GetTempPath(), $"profile_rt_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(resourceDir);
+            try
+            {
+                var runner = new MockCommandRunner();
+                runner.SetResponse("clang -print-resource-dir", 0, resourceDir);
+                var resolved = SwiftWrapperCompiler.ResolveProfileRuntimeArchive(
+                    "arm64-apple-ios18.0-simulator", runner, NullLogger.Instance);
+                Assert.Null(resolved);
+            }
+            finally
+            {
+                Directory.Delete(resourceDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void ResolveProfileRuntimeArchive_UnknownTriple_ReturnsNull()
+        {
+            var runner = new MockCommandRunner();
+            var resolved = SwiftWrapperCompiler.ResolveProfileRuntimeArchive(
+                "riscv64-unknown-linux", runner, NullLogger.Instance);
+            Assert.Null(resolved);
+            // No xcrun call should be issued for unknown triples — the early
+            // platform-mapping return prevents pointless subprocess fan-out.
+            Assert.Empty(runner.Invocations);
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ProfileRuntimeMissing_RetriesWithArchive()
+        {
+            var resourceDir = Path.Combine(Path.GetTempPath(), $"profile_rt_{Guid.NewGuid():N}");
+            var archiveDir = Path.Combine(resourceDir, "lib", "darwin");
+            Directory.CreateDirectory(archiveDir);
+            var archivePath = Path.Combine(archiveDir, "libclang_rt.profile_iossim.a");
+            File.WriteAllText(archivePath, "");
+            try
+            {
+                var runner = new ScriptedCommandRunner();
+                // First swiftc invocation: link fails with the profile-runtime symbol error.
+                runner.QueueResponse(
+                    matchSubstring: "swiftc",
+                    exitCode: 1,
+                    stdOut: "",
+                    stdErr: "Undefined symbols for architecture arm64:\n" +
+                            "  \"___llvm_profile_runtime\", referenced from:\n" +
+                            "      ___llvm_profile_runtime_user in Mappedin[arm64][2](Mappedin.o)\n" +
+                            "ld: symbol(s) not found for architecture arm64");
+                // xcrun clang -print-resource-dir resolution.
+                runner.QueueResponse(
+                    matchSubstring: "clang -print-resource-dir",
+                    exitCode: 0,
+                    stdOut: resourceDir);
+                // Retry succeeds.
+                runner.QueueResponse(matchSubstring: "swiftc", exitCode: 0, stdOut: "");
+
+                var files = new List<string> { "/tmp/a.swift" };
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios18.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance);
+
+                Assert.Equal(3, runner.Invocations.Count);
+                var firstSwiftc = runner.Invocations[0].Arguments;
+                var retrySwiftc = runner.Invocations[2].Arguments;
+                Assert.DoesNotContain("libclang_rt.profile_", firstSwiftc);
+                Assert.Contains($"-Xlinker \"{archivePath}\"", retrySwiftc);
+            }
+            finally
+            {
+                Directory.Delete(resourceDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_ProfileRuntimeMissing_RetryAlsoFails_ThrowsWithRetryStderr()
+        {
+            var resourceDir = Path.Combine(Path.GetTempPath(), $"profile_rt_{Guid.NewGuid():N}");
+            var archiveDir = Path.Combine(resourceDir, "lib", "darwin");
+            Directory.CreateDirectory(archiveDir);
+            File.WriteAllText(
+                Path.Combine(archiveDir, "libclang_rt.profile_iossim.a"), "");
+            try
+            {
+                var runner = new ScriptedCommandRunner();
+                runner.QueueResponse(
+                    matchSubstring: "swiftc", exitCode: 1, stdOut: "",
+                    stdErr: "Undefined symbols for architecture arm64:\n" +
+                            "  \"___llvm_profile_runtime\", referenced from:\n" +
+                            "      ___llvm_profile_runtime_user in X[arm64][2](X.o)");
+                runner.QueueResponse(
+                    matchSubstring: "clang -print-resource-dir", exitCode: 0, stdOut: resourceDir);
+                runner.QueueResponse(
+                    matchSubstring: "swiftc", exitCode: 1, stdOut: "",
+                    stdErr: "ld: error: some other failure on retry");
+
+                var files = new List<string> { "/tmp/a.swift" };
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    SwiftWrapperCompiler.InvokeSwiftCompiler(
+                        files, "/tmp/out/Binary", "TestSwiftBindings",
+                        "arm64-apple-ios18.0-simulator", "/sdk/path", "/fw/search",
+                        runner, NullLogger.Instance));
+                Assert.Contains("compilation failed", ex.Message);
+                // The message should reflect the retry's stderr, not the first attempt's.
+                Assert.Contains("some other failure on retry", ex.Message);
+            }
+            finally
+            {
+                Directory.Delete(resourceDir, recursive: true);
+            }
+        }
+
+        [Fact]
+        public void InvokeSwiftCompiler_UnrelatedLinkError_DoesNotRetry()
+        {
+            var runner = new ScriptedCommandRunner();
+            runner.QueueResponse(
+                matchSubstring: "swiftc", exitCode: 1, stdOut: "",
+                stdErr: "ld: error: framework not found Foo");
+
+            var files = new List<string> { "/tmp/a.swift" };
+            Assert.Throws<InvalidOperationException>(() =>
+                SwiftWrapperCompiler.InvokeSwiftCompiler(
+                    files, "/tmp/out/Binary", "TestSwiftBindings",
+                    "arm64-apple-ios18.0-simulator", "/sdk/path", "/fw/search",
+                    runner, NullLogger.Instance));
+            // Single invocation — no retry path exercised for unrelated failures.
+            Assert.Single(runner.Invocations);
+        }
+    }
+
+    /// <summary>
+    /// FIFO scripted runner: each Run() consumes the next queued response whose
+    /// matchSubstring appears in the command/arguments. Lets us script multi-call
+    /// sequences (initial swiftc fail → resource-dir lookup → retry swiftc) where
+    /// the same command name is reused with different intended outcomes.
+    /// </summary>
+    internal sealed class ScriptedCommandRunner : ICommandRunner
+    {
+        private readonly Queue<(string Match, int ExitCode, string StdOut, string StdErr)> _responses = new();
+        public List<(string Command, string Arguments)> Invocations { get; } = new();
+
+        public void QueueResponse(string matchSubstring, int exitCode, string stdOut, string stdErr = "")
+        {
+            _responses.Enqueue((matchSubstring, exitCode, stdOut, stdErr));
+        }
+
+        public (int ExitCode, string StdOut, string StdErr) Run(string command, string arguments, int timeoutMs = 30000)
+        {
+            Invocations.Add((command, arguments));
+            if (_responses.Count == 0)
+                return (0, "", "");
+            var (match, exit, stdout, stderr) = _responses.Peek();
+            if (($"{command} {arguments}").Contains(match, StringComparison.Ordinal))
+            {
+                _responses.Dequeue();
+                return (exit, stdout, stderr);
+            }
+            return (0, "", "");
+        }
+    }
+
     #endregion
 
     #region H. Platform Path Resolution Tests

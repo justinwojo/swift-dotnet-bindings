@@ -212,11 +212,14 @@ namespace BindingsGeneration
 
             // Bound generic returns requiring marshalling: @_cdecl can't return generics directly.
             // Swift wrapper writes to resultPtr via initializeMemory(as:).
-            // Exceptions: Optional (handled above), ObjC-bridgeable containers (retained pointer).
+            // Exceptions: Optional (handled above), ObjC-bridgeable containers (retained pointer),
+            // bound-generic CLASS returns (use ClassPointer convention — retained AnyObject pointer
+            // returned by value; matches CdeclReturnMapping.Classify's typeRecord.Kind == Class branch).
             if (env.BoundGenericsHandler.IsBoundGeneric(returnTypeForCdecl) &&
                 env.BoundGenericsHandler.RequiresBoundGenericMarshalling(returnTypeForCdecl) &&
                 !MethodWrapperEmitter.IsOptionalType(returnTypeForCdecl.SwiftTypeSpec) &&
-                !CdeclParamMapper.IsObjCBridgeableContainer(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
+                !CdeclParamMapper.IsObjCBridgeableContainer(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase) &&
+                !IsBoundGenericClassReturn(returnTypeForCdecl.SwiftTypeSpec, env.TypeDatabase))
                 return true;
 
             // DynamicSelf (Self): @_cdecl wrapper returns retained class pointer directly.
@@ -228,6 +231,22 @@ namespace BindingsGeneration
                 return true;
 
             return null; // No @_cdecl-specific decision — fall through
+        }
+
+        /// <summary>
+        /// Returns true when the bound-generic type's parent generic (the unbound type) is a
+        /// Swift class in the database. Bound-generic class returns use the ClassPointer
+        /// convention — the @_cdecl wrapper returns the retained AnyObject pointer by value
+        /// as UnsafeMutableRawPointer; the C# P/Invoke must receive IntPtr directly, NOT via
+        /// indirect resultPtr buffer. Mirrors CdeclReturnMapping.Classify's class branch.
+        /// </summary>
+        internal static bool IsBoundGenericClassReturn(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            if (typeSpec is not NamedTypeSpec namedTypeSpec)
+                return false;
+            var swiftTypeName = SwiftTypeName.FromTypeSpec(namedTypeSpec);
+            return typeDatabase.TryGetTypeRecord(swiftTypeName, out var record) &&
+                   record.Kind == TypeRecordKind.Class;
         }
 
         /// <summary>

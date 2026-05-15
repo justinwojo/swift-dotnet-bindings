@@ -1484,20 +1484,47 @@ namespace BindingsGeneration
                 }
             }
 
-            var args = $"swiftc -emit-library -target {targetTriple} " +
-                       $"-sdk \"{sdkPath}\" " +
-                       $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
-                       $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
-                       $"-module-name {wrapperModuleName} " +
-                       $"{thunkLinkerFlags}" +
-                       $"{transitiveFrameworkLinkerFlags}" +
-                       $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
-                       $"-o \"{outputBinaryPath}\" " +
-                       fileArgs;
+            string BuildArgs(string extraLinkerFlags) =>
+                $"swiftc -emit-library -target {targetTriple} " +
+                $"-sdk \"{sdkPath}\" " +
+                $"-strict-concurrency=minimal " +   // Temporary: see roadmap for actor-aware emission
+                $"{precompiledFFlag}-F \"{frameworkSearchPath}\"{additionalFFlags} " +
+                $"-module-name {wrapperModuleName} " +
+                $"{thunkLinkerFlags}" +
+                $"{transitiveFrameworkLinkerFlags}" +
+                $"{extraLinkerFlags}" +
+                $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
+                $"-o \"{outputBinaryPath}\" " +
+                fileArgs;
+
+            var args = BuildArgs("");
 
             logger.LogDebug("Invoking: xcrun {Args}", args);
 
             var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 120000);
+
+            // Profile-runtime auto-link retry: bound frameworks compiled with
+            // `-fprofile-instr-generate` reference `___llvm_profile_runtime_user`,
+            // which pulls in the unresolved `___llvm_profile_runtime` weak symbol
+            // satisfied by `libclang_rt.profile_<platform>.a`. swiftc -emit-library
+            // does not auto-link this archive (clang does, when invoked with the
+            // matching -fprofile-* flag). Detect this specific link failure and
+            // retry with the toolchain archive appended via -Xlinker. The archive
+            // is benign for non-instrumented inputs (ar lazy-resolution leaves it
+            // unused), so we only pay the retry cost for libraries that need it.
+            if (exitCode != 0 && IsLLVMProfileRuntimeMissing(stderr))
+            {
+                var profileArchive = ResolveProfileRuntimeArchive(targetTriple, commandRunner, logger);
+                if (!string.IsNullOrEmpty(profileArchive))
+                {
+                    logger.LogInformation(
+                        "Retrying wrapper compile with profile runtime archive: {Archive}", profileArchive);
+                    var retryFlags = $"-Xlinker \"{profileArchive}\" ";
+                    var retryArgs = BuildArgs(retryFlags);
+                    logger.LogDebug("Retrying: xcrun {Args}", retryArgs);
+                    (exitCode, stdout, stderr) = commandRunner.Run("xcrun", retryArgs, timeoutMs: 120000);
+                }
+            }
 
             if (exitCode != 0)
             {
@@ -1621,6 +1648,96 @@ namespace BindingsGeneration
                 .Select(m => m.Groups[1].Value)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
+        }
+
+        /// <summary>
+        /// Detects whether swiftc stderr describes the LLVM profile-runtime
+        /// undefined-symbol failure produced when the bound framework was built
+        /// with profile coverage instrumentation but the wrapper link line does
+        /// not include the matching libclang_rt.profile_*.a archive.
+        /// </summary>
+        internal static bool IsLLVMProfileRuntimeMissing(string stderr)
+        {
+            if (string.IsNullOrEmpty(stderr))
+                return false;
+            // The exact ld diagnostic shape:
+            //   "___llvm_profile_runtime", referenced from:
+            //       ___llvm_profile_runtime_user in <frameworkBinary>(<obj>)
+            // Matching on the bare symbol token is sufficient — it never appears
+            // outside of profile-instrumentation link errors.
+            return stderr.Contains("___llvm_profile_runtime", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Maps a swiftc target triple to the platform suffix used by clang's
+        /// per-platform profile runtime archive (libclang_rt.profile_<suffix>.a).
+        /// Returns null when the triple is not recognised — callers fall back to
+        /// re-throwing the original link error rather than guessing.
+        /// </summary>
+        internal static string? MapTargetTripleToProfilePlatform(string targetTriple)
+        {
+            if (string.IsNullOrEmpty(targetTriple))
+                return null;
+            bool isSimulator = targetTriple.EndsWith("-simulator", StringComparison.Ordinal);
+            bool isMacCatalyst = targetTriple.Contains("-macabi", StringComparison.Ordinal);
+            // Order matters: macabi check before plain ios so iOS Mac Catalyst
+            // doesn't fall into the device-iOS branch. Mac Catalyst links the
+            // host's libclang_rt.profile_osx.a — clang's `-target *-macabi
+            // -fprofile-instr-generate -###` confirms; the toolchain ships no
+            // standalone `iosmaccatalyst` profile archive.
+            if (isMacCatalyst)
+                return "osx";
+            if (targetTriple.Contains("-ios", StringComparison.Ordinal))
+                return isSimulator ? "iossim" : "ios";
+            if (targetTriple.Contains("-tvos", StringComparison.Ordinal))
+                return isSimulator ? "tvossim" : "tvos";
+            if (targetTriple.Contains("-watchos", StringComparison.Ordinal))
+                return isSimulator ? "watchossim" : "watchos";
+            if (targetTriple.Contains("-xros", StringComparison.Ordinal)
+                || targetTriple.Contains("-visionos", StringComparison.Ordinal))
+                return isSimulator ? "xrossim" : "xros";
+            if (targetTriple.Contains("-macos", StringComparison.Ordinal)
+                || targetTriple.Contains("-darwin", StringComparison.Ordinal))
+                return "osx";
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves the absolute path to libclang_rt.profile_&lt;platform&gt;.a inside
+        /// the active Xcode toolchain. Returns null when the platform is unknown
+        /// or the archive cannot be located so the caller surfaces the original
+        /// linker error rather than a synthesised one.
+        /// </summary>
+        internal static string? ResolveProfileRuntimeArchive(
+            string targetTriple, ICommandRunner commandRunner, ILogger logger)
+        {
+            var platform = MapTargetTripleToProfilePlatform(targetTriple);
+            if (platform == null)
+            {
+                logger.LogDebug(
+                    "Unable to map target triple '{Triple}' to profile runtime platform.",
+                    targetTriple);
+                return null;
+            }
+            var (exitCode, stdout, _) = commandRunner.Run(
+                "xcrun", "clang -print-resource-dir", timeoutMs: 30000);
+            if (exitCode != 0 || string.IsNullOrWhiteSpace(stdout))
+            {
+                logger.LogDebug(
+                    "xcrun clang -print-resource-dir failed (exit {Code}); cannot locate profile runtime archive.",
+                    exitCode);
+                return null;
+            }
+            var resourceDir = stdout.Trim();
+            var archivePath = Path.Combine(
+                resourceDir, "lib", "darwin", $"libclang_rt.profile_{platform}.a");
+            if (!File.Exists(archivePath))
+            {
+                logger.LogDebug(
+                    "Profile runtime archive not found at expected path: {Path}", archivePath);
+                return null;
+            }
+            return archivePath;
         }
 
         /// <summary>

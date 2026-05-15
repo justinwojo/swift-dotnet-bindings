@@ -338,6 +338,22 @@ public class MarshallingHelpersTests
         Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
     }
 
+    [Fact]
+    public void MethodRequiresIndirectResult_CdeclBoundGenericClassReturn_ReturnsFalse()
+    {
+        // Bound generic CLASS returns (e.g., `Mapper<T>`) use the ClassPointer convention:
+        // the @_cdecl wrapper returns `Unmanaged.passRetained(... as AnyObject).toOpaque()` as
+        // `UnsafeMutableRawPointer`, and the C# P/Invoke must receive IntPtr directly — NOT via
+        // an indirect resultPtr buffer. CdeclReturnMapping.Classify already picks ClassPointer
+        // for typeRecord.Kind == Class; IsCdeclIndirectResultRequired must agree (the two
+        // emitters have to match or factory dispose crashes on swift_release of a garbage ptr).
+        var classReturn = new NamedTypeSpec("TestModule.MyClass");
+        classReturn.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        var env = CreateMethodEnv(returnType: classReturn);
+        env.MethodDecl.UsesCdeclMethodWrapper = true;
+        Assert.False(MarshallingHelpers.MethodRequiresIndirectResult(env));
+    }
+
     #endregion
 
     #region IsCoreFoundationType Tests

@@ -388,12 +388,12 @@ internal static class GenericDispatchEmitter
     /// <summary>
     /// Returns true when <paramref name="spec"/> is either a bare parent generic param
     /// (e.g. <c>T</c>) or a NamedTypeSpec like <c>AliasGenericPayload&lt;T&gt;</c> whose
-    /// every T-referencing generic argument is itself a bare parent generic. The static
-    /// dispatch wrapper can render this shape directly via
+    /// every T-referencing generic argument is itself a bare parent generic, or
+    /// <c>Array&lt;T&gt;</c> / <c>Optional&lt;T&gt;</c> (the validated one-level nesting
+    /// shapes). The static dispatch wrapper can render these shapes directly via
     /// <c>RenderSwiftTypeSpecWithSugaredNames</c> + <c>initializeMemory(as: ...)</c>.
-    /// Nested bound generics like <c>Foo&lt;Bar&lt;T&gt;&gt;</c> are excluded — they
-    /// would render correctly but haven't been validated end-to-end and would expand
-    /// the supported surface beyond what the gate is currently proven to handle.
+    /// Deeper nesting like <c>Foo&lt;Bar&lt;T&gt;&gt;</c> is still excluded — those would
+    /// render correctly but haven't been validated end-to-end.
     /// </summary>
     internal static bool IsBareOrSimplyParameterizedNamedTypeSpec(TypeSpec spec, HashSet<string> genericParamNames)
     {
@@ -414,6 +414,14 @@ internal static class GenericDispatchEmitter
             if (!WrapperValidation.TypeSpecReferencesGenericParam(gp, genericParamNames))
                 continue;
             if (gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name))
+                continue;
+            // Validated one-level nesting: Array<T> (covers the ObjectMapper
+            // `Mapper<N>.map(...) -> [N]?` shape — the outer here is Optional with
+            // GP=Array<N>, which is what GenericExtensionOptionalReturn exercises).
+            // Array<Optional<T>> (`[N?]`) would route through IsOptionalOfParentGeneric
+            // here but has no end-to-end coverage; it stays behind the gate until a
+            // BindingTest proves the static-dispatch round-trip.
+            if (IsArrayOfParentGeneric(gp, genericParamNames))
                 continue;
             return false;
         }

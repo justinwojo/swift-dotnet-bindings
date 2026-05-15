@@ -577,11 +577,24 @@ namespace BindingsGeneration
 
                     {
                         var rln = ReturnLocalName;
-                        csWriter.WriteLines($$"""
-                            unsafe {
-                                return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
-                            }
-                            """);
+                        // Bound-generic class returns use ClassPointer convention: the Swift
+                        // @_cdecl wrapper returns the retained AnyObject pointer by value. Pass
+                        // result directly to NewFromPayload — NOT &result, which would point at
+                        // the stack-local IntPtr instead of the class instance.
+                        if (MarshallingHelpers.IsBoundGenericClassReturn(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                        {
+                            csWriter.WriteLines($$"""
+                                return SwiftMarshal.MarshalFromSwift<{{marshalType}}>({{rln}});
+                                """);
+                        }
+                        else
+                        {
+                            csWriter.WriteLines($$"""
+                                unsafe {
+                                    return SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
+                                }
+                                """);
+                        }
                     }
                     return;
                 }
@@ -595,12 +608,23 @@ namespace BindingsGeneration
                 _emissionContext.RecordBoundGenericSwiftObjectType(fallbackType);
                 {
                     var rln = ReturnLocalName;
-                    csWriter.WriteLines($$"""
-                        // Bound-generic fallback: factory cannot project {{fallbackType}}
-                        unsafe {
-                            return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>(new IntPtr(&{{rln}}));
-                        }
-                        """);
+                    // Same ClassPointer-vs-buffer split as the projection branch above.
+                    if (MarshallingHelpers.IsBoundGenericClassReturn(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    {
+                        csWriter.WriteLines($$"""
+                            // Bound-generic fallback (ClassPointer): factory cannot project {{fallbackType}}
+                            return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>({{rln}});
+                            """);
+                    }
+                    else
+                    {
+                        csWriter.WriteLines($$"""
+                            // Bound-generic fallback: factory cannot project {{fallbackType}}
+                            unsafe {
+                                return SwiftMarshal.MarshalFromSwift<{{fallbackType}}>(new IntPtr(&{{rln}}));
+                            }
+                            """);
+                    }
                 }
                 return;
             }
