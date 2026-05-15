@@ -96,18 +96,21 @@ public static class CdeclParamMapper
                     $"{argLabel}{label}Val");
         }
 
-        // Optional<Any> (Any?): nullable object reference pointer.
-        // The "Any" existential is an empty protocol list. At the @_cdecl boundary,
-        // non-nil values are passed as opaque pointers to AnyObject, nil is null pointer.
-        // Used for NSObject.isEqual(_ object: Any?) and similar ObjC-inherited methods.
-        // Must come before IsProtocolExistentialType which would route to UnsafeRawPointer
-        // (non-nullable) with invalid "Optional<(any Any)>" reconstruction.
+        // Optional<Any> (Any?): existential-Any wrapped in Optional, passed by buffer pointer.
+        // The "Any" existential is an empty protocol list. C# emits SwiftOptional<ExistentialContainer0>
+        // and passes its PayloadBuffer pointer — a 32-byte buffer with Swift's Optional<Any> layout
+        // (4-word ExistentialContainer: 3 payload words + 1 metadata pointer; nil is encoded via the
+        // null-metadata extra-inhabitant, so no separate tag byte). The Swift wrapper reads it as
+        // Optional<Any> directly via load(as:), which works uniformly across the payload types the
+        // bare-Any projection currently supports (bool/int/double/string — all value types stored
+        // inline in the EC). Must come before IsProtocolExistentialType, which routes Optional<any
+        // Protocol> through a different path that needs "any" prefixing.
         if (swiftTypeSpec is NamedTypeSpec optAnySpec && optAnySpec.Name == "Swift.Optional"
             && optAnySpec.GenericParameters.Count == 1
             && optAnySpec.GenericParameters[0] is ProtocolListTypeSpec { Protocols.Count: 0 })
         {
-            return ($"_ {label}: UnsafeMutableRawPointer?",
-                    $"let {label}Val: AnyObject? = {label}.map {{ Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }}",
+            return ($"_ {label}: UnsafeRawPointer",
+                    $"let {label}Val: Any? = {label}.load(as: Optional<Any>.self)",
                     $"{argLabel}{label}Val");
         }
 

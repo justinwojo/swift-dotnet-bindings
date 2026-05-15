@@ -235,6 +235,32 @@ public static class MethodWrapperEmitter
             return;
         }
 
+        // Constrained-extension methods on generic parents: the wrapper's conformance
+        // extension is emitted WITHOUT a where-clause, so any extra constraints (e.g.
+        // `extension Mapper where N : ImmutableMappable` or `where N.Element : P`)
+        // drop on the floor. Two failure modes follow, depending on dispatch path:
+        // (1) GSM path — the constrained method becomes invisible at the wrapper call
+        //     site and Swift's overload resolution bridges via implicit conversions
+        //     (Any → Any?, etc.), producing wrappers that fail to compile
+        //     (ObjectMapper's `map(JSONObject:Any) throws -> N` mis-resolves to
+        //     `map(JSONObject:Any?) -> N?`).
+        // (2) Instance-class-dispatch path (EmitGenericClassProtocolAndConformance)
+        //     — swiftc rejects `extension Box: _SBW_P_<hash> {}` outright because the
+        //     protocol requirement is only available under the extension's where-clause.
+        // Skip in both cases until conditional-conformance wrapper extensions are supported.
+        if (parentTypeDecl != null
+            && WouldGenericStaticDispatchSkipForNarrowerConstraint(env, parentTypeDecl, out var narrowedSwiftName))
+        {
+            swiftWriter.WriteLine();
+            swiftWriter.WriteLines($$"""
+                // Generic static dispatch wrapper skipped for '{{narrowedSwiftName}}':
+                // method has narrower generic constraints than its parent type —
+                // the wrapper extension is unconstrained, so the constrained method
+                // is invisible at the call site (conditional-conformance wrapper not yet supported).
+                """);
+            return;
+        }
+
         // Route through the cross-emitter structural-identity registry so a prior
         // claim from ProtocolExtensionEmitter on the same Swift method (carried
         // forward on the synthetic MethodDecl as StructuralIdentityKey) is honored
@@ -692,6 +718,86 @@ public static class MethodWrapperEmitter
             && !m.IsAccessor
             && BuildSwiftSelectorSignature(m) == thisSelector);
     }
+
+    /// <summary>
+    /// Returns true when the method's generic parameters carry conformance constraints
+    /// on the PARENT's generic parameters that the parent type itself does not declare
+    /// (a constrained extension like <c>extension Mapper where N : ImmutableMappable</c>,
+    /// <c>extension Mapper where N.Element : ImmutableMappable</c>, or the same-type
+    /// shape <c>extension Mapper where N == Foo</c>).
+    /// <para>
+    /// The generated wrapper's conformance extension is emitted unconditionally (no
+    /// where-clause), so any extra constraint on a parent-declared generic parameter
+    /// becomes invisible at the call site. This affects BOTH dispatch paths:
+    /// (1) the generic-static-dispatch (GSM) path, where the constrained method
+    /// becomes invisible and Swift's overload resolution silently bridges to a sibling;
+    /// (2) the instance-class-dispatch path (<c>EmitGenericClassProtocolAndConformance</c>
+    /// → <c>extension Box: _SBW_P_&lt;hash&gt; {}</c>), where swiftc rejects the
+    /// unconditional conformance because the protocol requirement is only available
+    /// under the extension's where-clause.
+    /// </para>
+    /// <para>
+    /// Method-local generic parameters (depth &gt; 0, i.e. introduced by the method
+    /// signature itself rather than inherited from the parent) are filtered out: their
+    /// constraints are scoped to the method and don't require propagation onto the
+    /// conformance extension. Static methods are also excluded — they don't reach the
+    /// GSM/instance-class-dispatch emission paths in the same way (statics flow through
+    /// metatype-derived dispatch with a different emission shape), and no real-world
+    /// constrained-static-extension regression has been observed; the
+    /// <c>GenericStaticDispatch_StaticConstrainedExtension_DoesNotMisfire</c> unit
+    /// test pins this behavior.
+    /// </para>
+    /// </summary>
+    private static bool WouldGenericStaticDispatchSkipForNarrowerConstraint(
+        MethodEnvironment env, TypeDecl parentTypeDecl, out string swiftMethodName)
+    {
+        swiftMethodName = NameProvider.ParserNameToSwift(env.MethodDecl);
+        var methodDecl = env.MethodDecl;
+        if (methodDecl.MethodType == MethodType.Static) return false;
+        if (!parentTypeDecl.IsGeneric) return false;
+
+        // Parent's set of generic-parameter names (τ_0_X, depth 0). Method-local
+        // generics live at depth > 0 (τ_1_X etc.); their constraints don't require
+        // propagation onto the conformance extension.
+        var parentParamNames = new HashSet<string>(StringComparer.Ordinal);
+        var parentConformances = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            parentParamNames.Add(gp.TypeName);
+            foreach (var c in gp.GenericConformances)
+                parentConformances.Add(BuildNarrowingConformanceKey(c));
+            foreach (var c in gp.AssosiatedTypeConformances)
+                parentConformances.Add(BuildNarrowingConformanceKey(c));
+        }
+
+        foreach (var gp in methodDecl.GenericParameters)
+        {
+            // Only constraints on parent-declared generic params can narrow the
+            // conformance extension — method-local generics are scoped to the method.
+            if (!parentParamNames.Contains(gp.TypeName)) continue;
+            foreach (var c in gp.GenericConformances)
+            {
+                if (!parentConformances.Contains(BuildNarrowingConformanceKey(c)))
+                    return true;
+            }
+            foreach (var c in gp.AssosiatedTypeConformances)
+            {
+                if (!parentConformances.Contains(BuildNarrowingConformanceKey(c)))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Builds a path + target + kind key for narrowing-conformance comparison. Path
+    /// captures both direct (<c>τ_0_0</c>) and associated-type (<c>τ_0_0.Element</c>)
+    /// constraints, ConformanceTarget distinguishes different protocols/types on the
+    /// same parameter, and Kind separates protocol conformance from same-type
+    /// constraints (<c>where N == Foo</c>).
+    /// </summary>
+    private static string BuildNarrowingConformanceKey(GenericParameterConformance c)
+        => $"{string.Join(".", c.Path)}|{c.ConformanceTarget.ModuleQualifiedName}|{c.Kind}";
 
     /// <summary>
     /// Builds the dispatch-identity signature for a method: base name plus the tuple of

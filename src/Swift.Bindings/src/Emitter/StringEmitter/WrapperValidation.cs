@@ -710,7 +710,8 @@ public static class WrapperValidation
     /// Returns true for Optional types that can be handled by @_cdecl wrappers:
     /// - Optional&lt;reference&gt;: nullable pointer ABI (UnsafeMutableRawPointer?)
     /// - Optional&lt;value-type&gt;: IndirectResult via resultPtr
-    /// - Optional&lt;Any&gt;: nullable pointer ABI (UnsafeMutableRawPointer?) with AnyObject reconstruction
+    /// - Optional&lt;Any&gt;: buffer-pointer ABI (UnsafeRawPointer to a SwiftOptional&lt;ExistentialContainer0&gt;
+    ///   payload, loaded as Optional&lt;Any&gt; in the wrapper)
     /// - Optional&lt;Self&gt;: nullable class pointer ABI (ObjC-bridged protocol methods)
     /// Returns false for Optional&lt;protocol existential&gt; which needs proxy conversion
     /// that the @_cdecl IndirectResult path doesn't handle.
@@ -724,9 +725,10 @@ public static class WrapperValidation
         {
             if (typeSpec is NamedTypeSpec optSpec && optSpec.GenericParameters.Count == 1)
             {
-                // Exception: Optional<Any> (empty protocol list) — passed as nullable pointer.
-                // Used for NSObject.isEqual(_ object: Any?) and similar ObjC-inherited methods.
-                // CdeclParamMapper handles reconstruction via Unmanaged<AnyObject>.
+                // Exception: Optional<Any> (empty protocol list) — passed by buffer pointer.
+                // C# emits SwiftOptional<ExistentialContainer0> matching Swift's 32-byte
+                // Optional<Any> layout (4-word EC; nil via null-metadata extra-inhabitant).
+                // CdeclParamMapper loads as Optional<Any> directly.
                 if (optSpec.GenericParameters[0] is ProtocolListTypeSpec { Protocols.Count: 0 })
                     return true;
                 // Exception: Optional<Self> — Self resolves to the concrete class type at call site.

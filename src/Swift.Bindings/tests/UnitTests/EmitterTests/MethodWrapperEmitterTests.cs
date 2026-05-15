@@ -2671,8 +2671,8 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_OptionalAnyParam_ReturnsTrue()
     {
-        // Optional<Any> (Any?) — empty protocol list. Used for NSObject.isEqual(_ object: Any?).
-        // CdeclParamMapper handles as nullable pointer (UnsafeMutableRawPointer?).
+        // Optional<Any> (Any?) — empty protocol list. CdeclParamMapper handles via
+        // buffer-pointer ABI (UnsafeRawPointer + load(as: Optional<Any>.self)).
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2699,7 +2699,7 @@ public class MethodWrapperEmitterTests
     [Fact]
     public void ShouldEmitWrapper_OptionalAnyReturn_ReturnsTrue()
     {
-        // Optional<Any> (Any?) return type — allowed via nullable pointer ABI
+        // Optional<Any> (Any?) return type — allowed via existential IndirectResult path
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2714,9 +2714,14 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void CdeclParamMapper_OptionalAny_MapsToNullablePointer()
+    public void CdeclParamMapper_OptionalAny_LoadsAsOptionalAnyFromBufferPointer()
     {
-        // Verify CdeclParamMapper.Map produces UnsafeMutableRawPointer? for Any?
+        // Optional<Any> at the @_cdecl boundary: C# packs into SwiftOptional<ExistentialContainer0>
+        // and passes its 32-byte payload pointer (4-word EC: 3 payload words + 1 metadata pointer;
+        // nil via null-metadata extra-inhabitant — Swift's Optional<Any> layout). The wrapper must
+        // read the buffer as Optional<Any> via load(as:), not as a single AnyObject pointer — the
+        // prior path crashed on value-typed payloads because the EC's first word is the inline
+        // payload bytes (e.g. an Int's bit pattern), not a class reference.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -2741,8 +2746,10 @@ public class MethodWrapperEmitterTests
 
         var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, "other", env);
 
-        Assert.Contains("UnsafeMutableRawPointer?", cdeclParam);
-        Assert.Contains("Unmanaged<AnyObject>", reconstruction!);
+        Assert.Contains("UnsafeRawPointer", cdeclParam);
+        Assert.DoesNotContain("UnsafeMutableRawPointer?", cdeclParam);
+        Assert.Contains("load(as: Optional<Any>.self)", reconstruction!);
+        Assert.DoesNotContain("Unmanaged<AnyObject>", reconstruction!);
         Assert.Contains("other: otherVal", callArg);
     }
 
@@ -3475,6 +3482,338 @@ public class MethodWrapperEmitterTests
         Assert.Contains("byteCount: resultSize", output);
         Assert.DoesNotContain(".rawValue", output);
         Assert.DoesNotContain("load(as: Int.self)", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_ConstrainedExtensionMethod_SkipsWrapper()
+    {
+        // ObjectMapper regression: `extension Mapper where N : ImmutableMappable` adds
+        // `func map(JSONObject: Any) throws -> N`. The class body has an unconstrained
+        // `func map(JSONObject: Any?) -> N?`. The GSM wrapper was being emitted as an
+        // UNCONSTRAINED extension `extension Mapper: _SBW_GSM_<hash>`, where the constrained
+        // method is invisible. Swift's overload resolution then bridged `Any` → `Any?` and
+        // resolved the call to the wrong overload, yielding `'N?' must be unwrapped to a
+        // value of type 'N'`. Until conditional-conformance wrapper extensions are supported,
+        // we must skip GSM emission for methods whose generic constraints narrow the parent's.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        var baseMappable = SwiftTypeName.FromModuleQualifiedName("TestModule.BaseMappable");
+        var immutableMappable = SwiftTypeName.FromModuleQualifiedName("TestModule.ImmutableMappable");
+        // Parent constraint: N : BaseMappable
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, baseMappable, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+
+        // Unconstrained sibling on parent: `map(JSONObject: Any?) -> N?` — class-body method
+        var optionalAny = new NamedTypeSpec("Swift.Optional");
+        optionalAny.GenericParameters.Add(new NamedTypeSpec("Swift.Any"));
+        var optionalN = new NamedTypeSpec("Swift.Optional");
+        optionalN.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var sibling = CreateMethodWithParam("map", optionalAny, "JSONObject", parentDecl, moduleDecl);
+        sibling.CSSignature[0] = new ArgumentDecl
+        {
+            SwiftTypeSpec = optionalN,
+            Name = "",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        sibling.IsExtensionMethod = false;
+        sibling.GenericParameters = new List<GenericArgumentDecl>(parentDecl.GenericParameters);
+        parentDecl.Methods.Add(sibling);
+
+        // Constrained-extension method: `map(JSONObject: Any) throws -> N`
+        // — N is narrowed to ImmutableMappable
+        var bareN = new NamedTypeSpec("τ_0_0");
+        var anyParam = new NamedTypeSpec("Swift.Any");
+        var constrained = CreateMethodWithParam("map", anyParam, "JSONObject", parentDecl, moduleDecl);
+        constrained.CSSignature[0] = new ArgumentDecl
+        {
+            SwiftTypeSpec = bareN,
+            Name = "",
+            PrivateName = "",
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl
+        };
+        constrained.IsExtensionMethod = true;
+        constrained.Throws = true;
+        constrained.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, immutableMappable, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        parentDecl.Methods.Add(constrained);
+
+        var env = new MethodEnvironment(constrained, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // The constrained-extension method must NOT produce a wrapper, because the wrapper's
+        // unconstrained extension would mis-resolve the call. Expect a skip-comment instead.
+        Assert.DoesNotContain("extension TestModule.Mapper: _SBW_GSM_", output);
+        Assert.DoesNotContain("let result: ", output);
+        // A skip comment must be present so the generator's downstream report records the omission.
+        Assert.Contains("Generic static dispatch wrapper skipped", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_UnconstrainedOptionalGenericReturn_EmitsWrapper()
+    {
+        // Sanity check: an unconstrained extension method returning Optional<N> on a generic
+        // parent should still produce a wrapper, and the wrapper must preserve the Optional
+        // (else Swift can't unwrap N? to N inside the body). Guards against over-firing of the
+        // constrained-extension skip introduced for ObjectMapper.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        };
+        // Method: func peek() -> N? on a generic class, no narrower constraint.
+        var optionalN = new NamedTypeSpec("Swift.Optional");
+        optionalN.GenericParameters.Add(new NamedTypeSpec("τ_0_0"));
+        var method = CreateMethodWithReturn("peek", optionalN, parentDecl, moduleDecl);
+        method.GenericParameters = new List<GenericArgumentDecl>(parentDecl.GenericParameters);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Wrapper must be present and Optional<N> must be preserved on both annotation and metatype.
+        Assert.Contains("extension TestModule.Box: _SBW_GSM_", output);
+        Assert.Contains("let result: Optional<N> = ", output);
+        Assert.Contains("initializeMemory(as: Optional<N>.self,", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_ConstrainedExtensionInstanceClassDispatch_SkipsWrapper()
+    {
+        // Sibling failure mode to the GSM constrained-extension case: a constrained
+        // extension method on a generic CLASS whose signature does not reference the
+        // parent's generic parameter (so it routes through instance-class dispatch,
+        // not GSM). The previous predicate gated on NeedsGenericDispatch and missed
+        // this path, leaving EmitGenericClassProtocolAndConformance to emit
+        // `extension Box: _SBW_P_<hash> {}` unconditionally — swiftc rejects that
+        // because the protocol requirement is only available under the where-clause.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        var pProtocol = SwiftTypeName.FromModuleQualifiedName("TestModule.P");
+        // Parent: class Box<T> — no constraints on T.
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        // Constrained-extension method: `extension Box where T: P { func isReady() -> Bool }`.
+        // Return type is Bool — does not reference T. NeedsGenericDispatch returns false
+        // for this shape, so the method would route through instance-class dispatch.
+        var boolReturn = TypeSpecParser.Parse("Swift.Bool")!;
+        var method = CreateMethodWithReturn("isReady", boolReturn, parentDecl, moduleDecl);
+        method.IsExtensionMethod = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, pProtocol, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // No instance-class conformance extension must be emitted.
+        Assert.DoesNotContain("extension TestModule.Box: _SBW_P_", output);
+        // Skip comment must be present.
+        Assert.Contains("Generic static dispatch wrapper skipped", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_AssociatedTypeNarrowing_SkipsWrapper()
+    {
+        // Associated-type narrowing: `extension Mapper where N.Element : P`. The previous
+        // predicate only walked GenericConformances (Path.Length == 1) and would miss this
+        // shape, leaving an unconstrained wrapper extension that swiftc rejects. The fix
+        // also walks AssosiatedTypeConformances.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Mapper");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Mapper", moduleDecl);
+        var pProtocol = SwiftTypeName.FromModuleQualifiedName("TestModule.P");
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        // Method narrows via N.Element: P. AssosiatedTypeConformances carries the path
+        // [τ_0_0, Element] with target P.
+        var bareN = new NamedTypeSpec("τ_0_0");
+        var method = CreateMethodWithParam("mapElements", bareN, "container", parentDecl, moduleDecl);
+        method.IsExtensionMethod = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "N",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0", "Element" }, pProtocol, ConformanceKind.Protocol)
+                })
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        Assert.DoesNotContain("extension TestModule.Mapper: _SBW_GSM_", output);
+        Assert.DoesNotContain("extension TestModule.Mapper: _SBW_P_", output);
+        Assert.Contains("Generic static dispatch wrapper skipped", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_MethodLocalGeneric_DoesNotMisfire()
+    {
+        // Regression guard for the predicate fix: a method-local generic `<U: P>` on a
+        // generic-parent method must NOT trigger the constrained-extension skip. Method-local
+        // generics live at depth > 0 (τ_1_X) and don't require propagation onto the parent's
+        // conformance extension. Without the parent-param filter, the predicate would compare
+        // method-local U's conformances against parent's empty set and falsely fire.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        var pProtocol = SwiftTypeName.FromModuleQualifiedName("TestModule.P");
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        // Method: `func map<U: P>(u: U) -> Bool` on Box<T>. Method-local U lives at τ_1_0.
+        var bareU = new NamedTypeSpec("τ_1_0");
+        var method = CreateMethodWithParam("map", bareU, "u", parentDecl, moduleDecl);
+        method.IsExtensionMethod = false;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            // Parent's T (no constraint), inherited.
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>()),
+            // Method-local U: P.
+            new("τ_1_0", "U",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_1_0" }, pProtocol, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Wrapper must NOT be skipped — method-local generics are scoped to the signature.
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped for 'map'", output);
+    }
+
+    [Fact]
+    public void GenericStaticDispatch_StaticConstrainedExtension_DoesNotMisfire()
+    {
+        // Pins current behavior: static methods are explicitly excluded from the
+        // narrowing-conformance skip. Statics on generic classes flow through a
+        // different metatype-derived dispatch shape; no real-world regression has
+        // surfaced from a static constrained extension. If one does, lift the
+        // static guard in WouldGenericStaticDispatchSkipForNarrowerConstraint and
+        // mirror the predicate to ConstructorWrapperEmitter.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Box");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("Box", moduleDecl);
+        var pProtocol = SwiftTypeName.FromModuleQualifiedName("TestModule.P");
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>(),
+                new List<GenericParameterConformance>())
+        };
+
+        // `extension Box where T: P { static func create() -> Bool }`.
+        var boolReturn = TypeSpecParser.Parse("Swift.Bool")!;
+        var method = CreateMethodWithReturn("create", boolReturn, parentDecl, moduleDecl);
+        method.MethodType = MethodType.Static;
+        method.IsExtensionMethod = true;
+        method.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" }, pProtocol, ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        parentDecl.Methods.Add(method);
+
+        var env = new MethodEnvironment(method, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+
+        MethodWrapperEmitter.EmitSwiftMethodWrapper(swiftWriter, env, ctx);
+        var output = sw.ToString();
+
+        // Skip-comment must NOT be emitted for the static case — the guard short-circuits
+        // before the conformance diff. (This is a behavior pin, not a correctness claim
+        // that statics are safe — see the predicate's doc comment.)
+        Assert.DoesNotContain("Generic static dispatch wrapper skipped for 'create'", output);
     }
 
     [Fact]
