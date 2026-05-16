@@ -768,6 +768,14 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleGenericMetadata()
         {
+            // Closed static factory @_cdecl wrapper takes only resultPtr — no metadata threading.
+            // The Swift wrapper hard-codes the closed T at the source-level call so the Swift
+            // compiler resolves all parent metadata at compile time. See ClosedStaticFactoryGate.
+            if (_env.MethodDecl.IsAccessor &&
+                _env.MethodDecl.UsesCdeclPropertyWrapper &&
+                ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(_env.MethodDecl))
+                return;
+
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
                 var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
@@ -792,6 +800,13 @@ namespace BindingsGeneration
         /// </summary>
         public void HandleProtocolConformance()
         {
+            // Closed static factory @_cdecl wrapper takes only resultPtr — no PWT threading.
+            // See ClosedStaticFactoryGate.
+            if (_env.MethodDecl.IsAccessor &&
+                _env.MethodDecl.UsesCdeclPropertyWrapper &&
+                ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(_env.MethodDecl))
+                return;
+
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
                 var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);

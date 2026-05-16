@@ -48,8 +48,12 @@ public static class PropertyWrapperEmitter
             // (PropertyWrapperEmitter.cs:342) and never touch _sbw_meta_*, so the gates must NOT
             // reject them. NeedsStaticDispatchForProperty = true iff the property is on a generic
             // struct OR its type references the parent's generic params.
+            // Closed static factories also skip the metadata-helper path entirely (the wrapper
+            // takes only resultPtr — no parent metadata or PWT threading), so the gates must
+            // not reject them either.
             // Dynamic PWT resolution and buffer-mode ABI are tracked in src/docs/roadmap.md.
-            if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl))
+            if (GenericDispatchEmitter.NeedsStaticDispatchForProperty(accessorEnv, td, propertyDecl)
+                && !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl))
             {
                 if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(td, accessorEnv.TypeDatabase))
                     return false;
@@ -318,6 +322,19 @@ public static class PropertyWrapperEmitter
         string returnClause = needsResultPtr ? "" : $" -> {returnMapping.CdeclReturnType}";
 
         var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
+
+        // Closed static factory shape — a static property on a generic type whose return
+        // type is a fully closed bound generic of the parent (e.g.
+        // `PatBoundedStatsQuery<T>.presetA : PatBoundedStatsQuery<StatPayloadA>`). The
+        // accessor doesn't depend on the receiver's open T, so we emit a parameter-free
+        // @_cdecl wrapper that source-calls the closed instantiation directly. The Swift
+        // compiler resolves all metadata + PWTs at the hard-coded T'.
+        if (isStatic && parentTypeDecl != null &&
+            ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl))
+        {
+            EmitClosedStaticFactoryGetterWrapper(swiftWriter, propertyDecl, symbolName, env, moduleQualifiedName);
+            return;
+        }
 
         // Determine which generic dispatch pattern to use for the getter.
         // needsStaticGetterDispatch: generic struct OR generic class with T-typed property
@@ -787,9 +804,15 @@ public static class PropertyWrapperEmitter
         PropertyDecl propertyDecl, TypeDecl parentTypeDecl)
     {
         // Static properties don't need self-based erasure, but static dispatch
-        // uses wrong metadata for generic types — skip for now
+        // uses wrong metadata for generic types — skip for now.
+        // EXCEPTION — closed static factory: a static property whose return type is a
+        // fully closed bound generic of the parent (e.g.
+        // `PatBoundedStatsQuery<T>.presetA : PatBoundedStatsQuery<StatPayloadA>`) emits
+        // a parameter-free @_cdecl wrapper that source-calls the closed instantiation.
+        // No parent metadata or PWT threading required — the Swift compiler resolves
+        // both at the hard-coded `T'`. See ClosedStaticFactoryGate.
         if (propertyDecl.IsStatic)
-            return false;
+            return ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl);
 
         // Check if property type references the parent's generic type parameters
         var genericParamNames = parentTypeDecl.GenericParameters
@@ -855,6 +878,48 @@ public static class PropertyWrapperEmitter
 
         // Generic class with concrete property type — use existing instance dispatch
         return true;
+    }
+
+    /// <summary>
+    /// Emits a parameter-free @_cdecl getter wrapper for the closed-static-factory shape
+    /// (e.g. <c>PatBoundedStatsQuery&lt;T&gt;.presetA : PatBoundedStatsQuery&lt;StatPayloadA&gt;</c>).
+    /// The Swift body source-calls the closed instantiation directly so the Swift compiler
+    /// resolves all parent metadata + PWTs at compile time. Wrapper signature is just
+    /// <c>resultPtr: UnsafeMutableRawPointer</c>; the C# P/Invoke side passes only that.
+    /// </summary>
+    private static void EmitClosedStaticFactoryGetterWrapper(
+        SwiftWriter swiftWriter,
+        PropertyDecl propertyDecl,
+        string symbolName,
+        MethodEnvironment env,
+        string moduleQualifiedName)
+    {
+        var hash = EmitterUtility.DeterministicHash8(symbolName);
+        var swiftFuncName = $"_sbw_get_{propertyDecl.Name}_{hash}";
+
+        // Closed return type rendered with module-qualified names so the generated Swift
+        // disambiguates collisions with other imported modules (e.g.
+        // "SwiftBindingsTestLib.PatBoundedStatsQuery<SwiftBindingsTestLib.StatPayloadA>").
+        var closedReturnType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(propertyDecl.SwiftTypeSpec);
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Property getter @_cdecl wrapper for {{moduleQualifiedName}}.{{propertyDecl.Name}}
+            // (closed static factory — return type is fully closed; no metadata/PWT threading).
+            """);
+
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            env.ParentDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, env.ParentDecl));
+        swiftWriter.WriteLine($"public func {swiftFuncName}(_ resultPtr: UnsafeMutableRawPointer) {{");
+        swiftWriter.Indent++;
+        // Source-level call to the closed instantiation. Swift compiler resolves the open T
+        // metadata and any PWTs at compile time, so the wrapper takes no extra parameters.
+        swiftWriter.WriteLine($"let result = {closedReturnType}.{propertyDecl.Name}");
+        swiftWriter.WriteLine($"resultPtr.initializeMemory(as: {closedReturnType}.self, repeating: result, count: 1)");
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
     }
 
     /// <summary>

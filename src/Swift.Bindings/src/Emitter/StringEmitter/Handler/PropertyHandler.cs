@@ -455,7 +455,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Inject composition collector into accessor's ExistentialHandler
                 if (context.CompositionCollector != null)
                     accessorEnv.ExistentialHandler.SetCompositionCollector(context.CompositionCollector);
-                if (MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv))
+                // Closed-static-factory bypass: parent-PAT constraints inherited by a static
+                // accessor whose return type is a fully closed bound generic of the parent
+                // are irrelevant — see ClosedStaticFactoryGate for the rule.
+                if (!ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl, accessor.Method)
+                    && MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv))
                 {
                     _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported protocol constraints.");
                     SkipProperty(SkipReason.GenericProtocolConstraint, $"Accessor '{accessor.Method.Name}' has constraints on protocols with associated types or self requirements.");

@@ -137,6 +137,14 @@ internal class MethodMarshalPlanBuilder
         // Both constructor and method @_cdecl wrappers need PWT for constrained generic types —
         // the metadata accessor requires PWT to instantiate the specialized metatype.
         var lines = new List<string>();
+
+        // Closed static factory accessors don't thread the parent's T or any PWTs
+        // across the @_cdecl boundary, so the C# side has nothing to bind a PWT to.
+        // Emitting GetOrThrow<T, …> here would also throw at runtime when the parent
+        // is instantiated over a T that doesn't carry a registered conformance.
+        if (IsClosedStaticFactoryAccessorCall())
+            return lines;
+
         foreach (var genericParameter in _env.MethodDecl.GenericParameters)
         {
             var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
@@ -169,11 +177,17 @@ internal class MethodMarshalPlanBuilder
     {
         var lines = new List<string>();
 
-        foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+        // Closed static factory accessors take no metadata locals — the @_cdecl wrapper
+        // takes only resultPtr. See ClosedStaticFactoryGate.
+        bool skipMetadataLocals = IsClosedStaticFactoryAccessorCall();
+        if (!skipMetadataLocals)
         {
-            var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
-            var metadataName = NameProvider.GetMetadataName(csTypeParamName);
-            lines.Add($"TypeMetadata {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
+            foreach (var genericParameter in _env.MethodDecl.GenericParameters)
+            {
+                var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
+                var metadataName = NameProvider.GetMetadataName(csTypeParamName);
+                lines.Add($"TypeMetadata {metadataName} = TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>();");
+            }
         }
 
         // Swift's calling convention for non-constructor methods on a generic struct expects
@@ -1059,7 +1073,14 @@ internal class MethodMarshalPlanBuilder
             // Protocol extension methods handle their own metadata via HandleGenericMetadata
             // (explicit + implicit for @_silgen_name ABI). Don't append PInvokeHelperContext metadata.
             string metadataArgs;
-            if (_env.MethodDecl.IsProtocolExtensionMethod)
+            if (IsClosedStaticFactoryAccessorCall())
+            {
+                // Closed static factory @_cdecl wrapper: takes only resultPtr. The Swift
+                // wrapper hard-codes the closed T at the source-level call, so no parent
+                // metadata / PWT threading required. See ClosedStaticFactoryGate.
+                metadataArgs = "";
+            }
+            else if (_env.MethodDecl.IsProtocolExtensionMethod)
             {
                 metadataArgs = "";
             }
@@ -1253,5 +1274,18 @@ internal class MethodMarshalPlanBuilder
         if (_env.ParentDecl is not TypeDecl { IsGeneric: true }) return false;
         if (_env.MethodDecl.GenericParameters.Count == 0) return false;
         return true;
+    }
+
+    /// <summary>
+    /// True when the current accessor is a closed-static-factory getter (e.g.
+    /// <c>PatBoundedStatsQuery&lt;T&gt;.presetA</c>) routed through a parameter-free @_cdecl
+    /// wrapper. The wrapper hard-codes the closed T at the source-level call, so the C#
+    /// side must not append parent metadata or PWT args to the P/Invoke call.
+    /// </summary>
+    private bool IsClosedStaticFactoryAccessorCall()
+    {
+        if (!_env.MethodDecl.UsesCdeclPropertyWrapper) return false;
+        if (!_env.MethodDecl.IsAccessor) return false;
+        return ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(_env.MethodDecl);
     }
 }

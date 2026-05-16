@@ -405,7 +405,14 @@ public static class MemberEmissionValidator
             // on SUPPORTED protocols are skipped (handled by type-level where clause).
             // Unsupported protocols (PAT or Self) always block, even if parent-declared.
             // Extra constraints (conditional extension) on supported protocols pass through.
-            if (accessorMethod.IsGeneric)
+            //
+            // Closed-static-factory bypass: a STATIC property whose accessor takes no value
+            // params and returns a fully closed bound generic of the parent nominal does NOT
+            // depend on the receiver's open T, so PAT constraints inherited from the parent
+            // are irrelevant — the Swift compiler resolves all metadata + PWTs at the
+            // hard-coded concrete instantiation. See ClosedStaticFactoryGate for the rule.
+            if (accessorMethod.IsGeneric &&
+                !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(property, accessorMethod))
             {
                 var parentTypeGenericParams = accessorMethod.ParentDecl is TypeDecl accessorParentType
                     ? accessorParentType.GenericParameters
