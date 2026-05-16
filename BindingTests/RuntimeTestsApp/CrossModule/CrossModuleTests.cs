@@ -255,4 +255,51 @@ public class CrossModuleTests : TestBase
     }
 
     #endregion
+
+    #region Cross-Module Struct Extension (frozen-struct receiver via @_cdecl trampoline)
+
+    public void TestDependencyPointScaledExtension()
+    {
+        var point = new DependencyPoint(3.0, 4.0);
+
+        var scaled = point.Scaled(2.5);
+        AssertEqual(7.5, scaled.X, "Cross-module struct extension method returns frozen struct (X)");
+        AssertEqual(10.0, scaled.Y, "Cross-module struct extension method returns frozen struct (Y)");
+    }
+
+    public void TestDependencyPointManhattanDistanceExtension()
+    {
+        var point = new DependencyPoint(-3.0, 4.0);
+
+        AssertEqual(7.0, point.GetManhattanDistance(),
+            "Cross-module struct extension property routes |x|+|y| through @_cdecl trampoline");
+    }
+
+    public void TestDependencyPointClassifyExtension_SimpleEnumLowering()
+    {
+        // Cross-module struct-extension method whose param AND return are a
+        // SimpleEnum (DependencyStatus). Locks in the @_cdecl SimpleEnum
+        // lowering on the struct-receiver trampoline path: (int)status crosses
+        // the boundary as a raw scalar, the Swift trampoline reconstructs the
+        // enum via DependencyStatus(rawValue:)!, and surfaces .rawValue on return.
+        var origin = new DependencyPoint(0.0, 0.0);
+        AssertEqual(SwiftBindingsTestLibDependency.DependencyStatus.Unknown,
+            origin.Classify(SwiftBindingsTestLibDependency.DependencyStatus.Unknown),
+            "Unknown @ origin -> Unknown (raw-value round-trip through @_cdecl)");
+
+        var right = new DependencyPoint(1.0, 0.0);
+        AssertEqual(SwiftBindingsTestLibDependency.DependencyStatus.Pending,
+            right.Classify(SwiftBindingsTestLibDependency.DependencyStatus.Unknown),
+            "Unknown @ x>0 -> Pending (receiver state observed under @_cdecl)");
+
+        AssertEqual(SwiftBindingsTestLibDependency.DependencyStatus.Active,
+            right.Classify(SwiftBindingsTestLibDependency.DependencyStatus.Pending),
+            "Pending -> Active (raw-int round-trip)");
+
+        AssertEqual(SwiftBindingsTestLibDependency.DependencyStatus.Pending,
+            right.Classify(SwiftBindingsTestLibDependency.DependencyStatus.Inactive),
+            "Inactive -> Pending (raw-int round-trip)");
+    }
+
+    #endregion
 }

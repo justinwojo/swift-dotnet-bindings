@@ -104,6 +104,19 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(structDecl);
 
+            // Cross-module extension: frozen struct defined in module A, extended in module B.
+            // Emit as a static extension class instead of a duplicate partial struct.
+            // Mirrors ClassHandler.cs dispatch around RecordTypeEmitted — the parser only
+            // surfaces foreign struct receivers when they carry extension members from the
+            // current module (SwiftABIParser.HandleTypeDecl), so cross-module dispatch can
+            // happen unconditionally for the module-mismatch shape.
+            if (!string.IsNullOrEmpty(structDecl.SwiftTypeName.Module) &&
+                structDecl.SwiftTypeName.Module != moduleDecl.Name)
+            {
+                CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, _logger);
+                return;
+            }
+
             // Retrieve type info from the type database
             var typeRecord = env.TypeDatabase.GetTypeRecordOrThrow(structDecl.SwiftTypeName);
             bool isProjectedAsClass = MarshallingHelpers.IsFrozenStructProjectedAsClass(typeRecord!);

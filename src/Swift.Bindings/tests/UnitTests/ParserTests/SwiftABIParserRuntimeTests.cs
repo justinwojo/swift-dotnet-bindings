@@ -1214,12 +1214,83 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
-    public void ParseModule_ForeignStruct_WithExtensionMembersFromCurrentModule_IsStillSkipped()
+    public void ParseModule_ForeignStruct_WithExtensionMembersFromCurrentModule_IsRouted()
     {
-        // Phase 1 of the cross-module-extension fix only routes class receivers.
-        // Foreign structs/enums with extension members still take the original
-        // skip path (struct/enum extension support is deferred — they need
-        // distinct trampoline emission for value-type self).
+        // Phase 2 of the cross-module-extension fix routes Class AND Struct receivers
+        // through CrossModuleExtensionEmitter. Struct receivers use @_cdecl trampolines
+        // that read self via `assumingMemoryBound(to: T.self).pointee`, so the parser
+        // keeps the foreign struct in the current module's Types list when the foreign
+        // module's database registered it as a frozen value struct (the only safe shape
+        // for the pointee path).
+        var typeDatabase = new TypeDatabase();
+        var foreignModule = new ModuleTypeDatabase("ForeignLib", "/fake/path");
+        var foreignSwiftName = SwiftTypeName.FromModuleQualifiedName("ForeignLib.ForeignValue");
+        foreignModule.RegisterType(foreignSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "ForeignValue"),
+            SwiftTypeName = foreignSwiftName,
+            MetadataAccessor = "$s10ForeignLib12ForeignValueVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
+        typeDatabase.AddModuleDatabase(foreignModule);
+
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+
+        var extensionMethod = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "tagged",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModuleE6taggedSiyF");
+
+        var foreignStruct = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "ForeignValue",
+            moduleName: "ForeignLib",
+            mangledName: "$s10ForeignLib12ForeignValueV",
+            children: new[] { extensionMethod });
+
+        using var fixture = CreateParserWithNodes(typeDatabase, importNode, foreignStruct);
+        var result = fixture.Parser.ParseModule();
+
+        var type = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("ForeignValue", type.Name);
+        Assert.Equal("ForeignLib", type.SwiftTypeName.Module);
+    }
+
+    [Fact]
+    public void ParseModule_ForeignStruct_NonFrozen_IsSkippedAtParser()
+    {
+        // Non-frozen foreign struct receivers are not yet supported by the cross-module
+        // struct trampoline path: `assumingMemoryBound(to: T.self).pointee` is only ABI-safe
+        // for frozen value structs. The parser must consult the dependency type database
+        // and skip foreign structs that lack the Frozen flag, so the foreign type doesn't
+        // get registered in the current module's database with a stub metadata accessor
+        // and zero usable members (database pollution).
+        //
+        // NOTE on unknown-at-probe-time foreign structs: when a non-frozen foreign type
+        // has not been registered in the dependency database at parse time, the probe
+        // here cannot reject it. That case is tolerated by design — the emitter's own
+        // fallback-receiver guard runs later and simply produces zero members for the
+        // unsupported shape. This split keeps the parser fast (no eager dependency
+        // loading) without giving up correctness.
+        var typeDatabase = new TypeDatabase();
+        var foreignSwiftName = SwiftTypeName.FromModuleQualifiedName("ForeignLib.ForeignValue");
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (foreignSwiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "ForeignValue"),
+                SwiftTypeName = foreignSwiftName,
+                MetadataAccessor = "$s10ForeignLib12ForeignValueVMa",
+                // No Frozen flag — the foreign struct is resilient and must be skipped.
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+
         var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
 
         var extensionMethod = CreateNode(
@@ -1237,7 +1308,52 @@ public class SwiftABIParserRuntimeTests
             mangledName: "$s10ForeignLib12ForeignValueVN",
             children: new[] { extensionMethod });
 
-        using var fixture = CreateParserWithNodes(importNode, foreignStruct);
+        using var fixture = CreateParserWithNodes(typeDatabase, importNode, foreignStruct);
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.Types);
+    }
+
+    [Fact]
+    public void ParseModule_ForeignStruct_NonTrivial_IsSkippedAtParser()
+    {
+        // RequiresMemoryManagement is the marker for non-trivial (ARC-bearing) value types.
+        // Even a Frozen struct with RequiresMemoryManagement is unsafe for the
+        // `.pointee` trampoline path because copying the value across the C ABI without
+        // proper retain/release would corrupt the reference count of its stored class
+        // payloads. The parser must skip this shape too.
+        var typeDatabase = new TypeDatabase();
+        var foreignSwiftName = SwiftTypeName.FromModuleQualifiedName("ForeignLib.ForeignValue");
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (foreignSwiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "ForeignValue"),
+                SwiftTypeName = foreignSwiftName,
+                MetadataAccessor = "$s10ForeignLib12ForeignValueVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+
+        var importNode = CreateNode(kind: "Import", moduleName: "TestModule", name: "TestModule");
+
+        var extensionMethod = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "tagged",
+            moduleName: "TestModule",
+            mangledName: "$s10TestModuleE6taggedSiyF");
+
+        var foreignStruct = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "ForeignValue",
+            moduleName: "ForeignLib",
+            mangledName: "$s10ForeignLib12ForeignValueVN",
+            children: new[] { extensionMethod });
+
+        using var fixture = CreateParserWithNodes(typeDatabase, importNode, foreignStruct);
         var result = fixture.Parser.ParseModule();
 
         Assert.Empty(result.ModuleDecl.Types);
@@ -1304,11 +1420,26 @@ public class SwiftABIParserRuntimeTests
 
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
-        return CreateParserWithNodes(availabilityAnnotations: null, nodes);
+        return CreateParserWithNodes(availabilityAnnotations: null, typeDatabase: null, nodes);
+    }
+
+    private static ParserFixture CreateParserWithNodes(
+        TypeDatabase typeDatabase,
+        params Node[] nodes)
+    {
+        return CreateParserWithNodes(availabilityAnnotations: null, typeDatabase, nodes);
     }
 
     private static ParserFixture CreateParserWithNodes(
         Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations,
+        params Node[] nodes)
+    {
+        return CreateParserWithNodes(availabilityAnnotations, typeDatabase: null, nodes);
+    }
+
+    private static ParserFixture CreateParserWithNodes(
+        Dictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations,
+        TypeDatabase? typeDatabase,
         params Node[] nodes)
     {
         var root = new ABIRootNode
@@ -1331,7 +1462,7 @@ public class SwiftABIParserRuntimeTests
 
         var parser = new SwiftABIParser(
             filePath,
-            new TypeDatabase(),
+            typeDatabase ?? new TypeDatabase(),
             CreateEmptyDemanglingResults(),
             NullLogger.Instance,
             facts);

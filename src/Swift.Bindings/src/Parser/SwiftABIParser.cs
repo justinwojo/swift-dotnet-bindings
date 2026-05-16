@@ -838,19 +838,46 @@ namespace BindingsGeneration
             {
                 bool hasExtensionMembers = node.Children?.Any(child =>
                     !string.IsNullOrEmpty(child.ModuleName) && child.ModuleName == moduleDecl.Name) ?? false;
+                // Phase 2 of cross-module extension support: route both Class and Struct
+                // receivers through CrossModuleExtensionEmitter. Class receivers use direct
+                // CallConvSwift dispatch against the foreign module's Swift symbol (SwiftSelf
+                // routes via x20 with a class pointer). Struct receivers add @_cdecl trampolines
+                // in the current module's wrapper library that pin self as
+                // `UnsafeMutableRawPointer` + load `.pointee`, since Swift's CallConvSwift
+                // splits struct-by-value self across registers and .NET cannot synthesize that.
+                // Enum receivers and non-frozen-struct receivers are deferred — both add
+                // significant runtime/wrapper complexity (existential boxes, ARC field walking)
+                // and were not part of the SDK 0.11.0 surface restoration scope.
                 bool isClassReceiver = node.DeclKind == "Class";
-                // Phase 1 of cross-module extension support: route Class receivers through the
-                // existing CrossModuleExtensionEmitter (which handles the SwiftSelf-in-x20 ABI
-                // and Payload SafeHandle indirection that class instances use). Struct/Enum
-                // receivers need @_cdecl trampoline emission to bridge value-type self across
-                // the C# boundary safely; that infrastructure is tracked as Bundle 13 follow-up
-                // and the foreign-receiver node continues to be skipped here in the meantime.
-                if (!hasExtensionMembers || !isClassReceiver)
+                bool isStructReceiver = node.DeclKind == "Struct";
+                if (!hasExtensionMembers || (!isClassReceiver && !isStructReceiver))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
                     return null;
                 }
-                _logger.LogInformation($"Foreign class '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
+
+                // Non-frozen foreign struct receivers are not yet supported: the cross-module
+                // struct trampoline path reads `self` via `assumingMemoryBound(to: T.self).pointee`
+                // which is only ABI-safe for frozen value structs. Without this gate the foreign
+                // type still gets registered in the current module's database (with a synthesized
+                // metadata accessor) even though the emitter would later skip every member —
+                // polluting the database with an entry that has no usable members. Look up the
+                // foreign type in the dependency type database we already have; if it's a struct
+                // that is NOT a frozen value, skip cleanly here. Unknown types (no record yet)
+                // are tolerated because the emitter has its own fallback-receiver guard.
+                if (isStructReceiver)
+                {
+                    var probeName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName);
+                    if (_typeDatabase.TryGetTypeRecord(probeName, out var foreignRecord) &&
+                        foreignRecord.Kind == TypeRecordKind.Struct &&
+                        (!foreignRecord.Flags.HasFlag(TypeRecordFlags.Frozen) ||
+                         foreignRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
+                    {
+                        _logger.LogInformation($"Skipping cross-module extension on non-frozen or non-trivial (RequiresMemoryManagement) foreign struct '{node.Name}' (canonical module: {node.ModuleName}) — only frozen value structs without managed payload are supported by the cross-module struct trampoline path.");
+                        return null;
+                    }
+                }
+                _logger.LogInformation($"Foreign {(isStructReceiver ? "struct" : "class")} '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
             }
 
             // When a system-module type appears in another module's ABI (e.g., Swift.KeyPath
@@ -1174,18 +1201,23 @@ namespace BindingsGeneration
         }
 
         // Resolves the metadata accessor symbol for a struct/enum decl. Prefers the demangled
-        // TBD entry; falls back to the canonical Swift mangling ({mangledName}Ma) only when the
-        // node belongs to the module being parsed — covering umbrella re-exports where
-        // RealityFoundation parses RealityKit-mangled types as its own (node.ModuleName ==
-        // moduleDecl.Name) but the accessor symbol lives in RealityKit.tbd. Cross-module
-        // extension types from other Apple frameworks (e.g., a SwiftUI.Label extension declared
-        // in FamilyControls) keep the original throw-and-drop behavior so they aren't mistakenly
-        // registered into the wrong module's database.
+        // TBD entry; falls back to the canonical Swift mangling ({mangledName}Ma) when the
+        // node belongs to the module being parsed (umbrella re-exports where
+        // RealityFoundation parses RealityKit-mangled types as its own) or when the foreign
+        // type is already registered in the dependency type database (third-party-to-third-party
+        // cross-module struct extension, e.g. SwiftBindingsTestLib's `extension DependencyPoint`).
+        // In the cross-module case the symbol resolves at runtime via the dependency framework's
+        // dylib; the upstream parser gate above this function (the non-frozen/non-trivial probe
+        // on `extension` nodes) prevents unsupported foreign struct shapes from being routed
+        // here. Truly unknown cross-module types still throw so a missing dependency surfaces
+        // loudly instead of producing a broken accessor.
         private string ResolveMetadataAccessor(Node node, SwiftTypeName swiftTypeName, ModuleDecl moduleDecl)
         {
             if (_demangledTbd.TryGetMetadataAccessor(swiftTypeName, out var symbol))
                 return symbol;
             if (string.IsNullOrEmpty(node.ModuleName) || node.ModuleName == moduleDecl.Name)
+                return $"{node.MangledName}Ma";
+            if (_typeDatabase.IsTypeProcessed(swiftTypeName))
                 return $"{node.MangledName}Ma";
             return _demangledTbd.GetMetadataAccessor(swiftTypeName);
         }

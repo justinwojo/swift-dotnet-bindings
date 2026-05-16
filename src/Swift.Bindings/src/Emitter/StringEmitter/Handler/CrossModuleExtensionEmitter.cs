@@ -20,8 +20,39 @@ namespace BindingsGeneration;
 /// 4. Properties → Get/Set extension method pairs
 /// 5. P/Invoke uses existing mangled names (no Swift wrappers needed)
 /// </summary>
-public static class CrossModuleExtensionEmitter
+public static partial class CrossModuleExtensionEmitter
 {
+    /// <summary>
+    /// Dispatches to the class- or struct-receiver emission path based on the foreign
+    /// receiver's TypeDecl shape. ClassHandler and FrozenStructHandler both call into
+    /// this entry point when they observe a cross-module receiver (decl module ≠ current
+    /// emission module). Enum and non-frozen struct receivers are not currently routed
+    /// here and remain skipped at the parser gate (SwiftABIParser.HandleTypeDecl).
+    /// </summary>
+    public static void Emit(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        TypeDecl typeDecl,
+        ModuleDecl moduleDecl,
+        Conductor conductor,
+        IEnvironment env,
+        ILogger logger)
+    {
+        switch (typeDecl)
+        {
+            case ClassDecl classDecl:
+                Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, logger);
+                break;
+            case StructDecl structDecl:
+                EmitStruct(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, logger);
+                break;
+            default:
+                logger.LogDebug("Cross-module extension on {Kind} '{Name}' not supported.",
+                    typeDecl.GetType().Name, typeDecl.Name);
+                break;
+        }
+    }
+
     /// <summary>
     /// Emits a C# static extension class for cross-module type extensions.
     /// </summary>
@@ -188,15 +219,16 @@ public static class CrossModuleExtensionEmitter
         if (returnCategory == null)
             return false;
 
-        // Phase 1 limitation: non-frozen-struct returns (including Swift.String) require
+        // Phase 1 limitation: non-frozen-struct and frozen-value-struct returns require
         // a @_cdecl Swift trampoline because Swift's CallConvSwift returns small structs
-        // in registers (x0+x1 for Swift.String), not via the SwiftIndirectResult slot.
-        // The current emitter dispatches the raw CallConvSwift symbol — that path works
-        // for void, primitive, SwiftClass, and ObjCClass returns (single-register or
-        // primitive returns). Non-frozen-struct returns silently leave the indirect
-        // buffer untouched and surface as empty results. Wrapper-emission for cross-
-        // module extension methods is deferred to a future phase.
-        if (returnCategory == ReturnKind.NonFrozenStruct)
+        // in registers (x0+x1 for Swift.String, d0+d1 for `struct Point { Double; Double }`),
+        // not via the SwiftIndirectResult slot. The class-receiver path dispatches the raw
+        // CallConvSwift symbol — that works for void, primitive, SwiftClass, and ObjCClass
+        // returns (single-register or primitive returns). Struct returns silently leave the
+        // indirect buffer untouched and surface as empty results. The cross-module struct
+        // RECEIVER path (EmitStruct below) generates its own trampolines and can return
+        // frozen structs; that is gated to that path only.
+        if (returnCategory == ReturnKind.NonFrozenStruct || returnCategory == ReturnKind.FrozenStruct)
             return false;
 
         // Build parameter list — skip methods with unsupported param types
@@ -205,7 +237,11 @@ public static class CrossModuleExtensionEmitter
         {
             var arg = method.CSSignature[i];
             var paramCategory = ClassifyParameterType(arg.SwiftTypeSpec, typeDatabase);
-            if (paramCategory == null)
+            // FrozenStruct params route through pinned-pointer + cdecl wrappers in the
+            // struct-receiver path; the class path has no fixed-pointer plumbing for
+            // arbitrary param positions, so reject the kind here even though the helper
+            // now classifies it.
+            if (paramCategory == null || paramCategory == ParamKind.FrozenStruct)
                 return false;
 
             var paramName = NameProvider.GetCSharpParameterName(arg);
@@ -370,7 +406,7 @@ public static class CrossModuleExtensionEmitter
             return false;
 
         // Phase 1 limitation — see TryEmitMethodExtension for rationale.
-        if (returnCategory.Value == ReturnKind.NonFrozenStruct)
+        if (returnCategory.Value == ReturnKind.NonFrozenStruct || returnCategory.Value == ReturnKind.FrozenStruct)
             return false;
 
         var propertyName = NameProvider.ToPascalCase(property.Name);
@@ -458,7 +494,7 @@ public static class CrossModuleExtensionEmitter
         {
             var arg = method.CSSignature[i];
             var paramCategory = ClassifyParameterType(arg.SwiftTypeSpec, typeDatabase);
-            if (paramCategory == null)
+            if (paramCategory == null || paramCategory == ParamKind.FrozenStruct)
                 return;
 
             var paramName = NameProvider.GetCSharpParameterName(arg);
@@ -515,6 +551,10 @@ public static class CrossModuleExtensionEmitter
             return;
 
         var returnCategory = ClassifyReturnType(property.SwiftTypeSpec, typeDatabase);
+        // FrozenStruct returns are handled only in the struct-receiver path; suppress
+        // them here so TryEmitPropertyExtension's gate stays the single source of truth.
+        if (returnCategory == ReturnKind.FrozenStruct)
+            return;
         if (returnCategory == null || returnCategory.Value == ReturnKind.Void)
             return;
 

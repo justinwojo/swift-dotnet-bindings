@@ -23,6 +23,7 @@ public static class ExtensionMarshallingHelper
         ObjCClass,
         SwiftClass,
         NonFrozenStruct,
+        FrozenStruct,
     }
 
     /// <summary>
@@ -34,6 +35,7 @@ public static class ExtensionMarshallingHelper
         ObjCClass,
         SwiftClass,
         SimpleEnum,
+        FrozenStruct,
     }
 
     /// <summary>
@@ -79,7 +81,7 @@ public static class ExtensionMarshallingHelper
                     bool isFrozen = typeRecord.Flags.HasFlag(TypeRecordFlags.Frozen);
                     bool hasRefFields = typeRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
                     if (isFrozen && !hasRefFields)
-                        return null; // Frozen value-type struct not supported yet
+                        return ReturnKind.FrozenStruct;
                     return ReturnKind.NonFrozenStruct;
                 }
                 if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
@@ -125,6 +127,14 @@ public static class ExtensionMarshallingHelper
                     return ParamKind.ObjCClass;
                 if (typeRecord.Kind == TypeRecordKind.Class)
                     return ParamKind.SwiftClass;
+                if (typeRecord.Kind == TypeRecordKind.Struct)
+                {
+                    bool isFrozen = typeRecord.Flags.HasFlag(TypeRecordFlags.Frozen);
+                    bool hasRefFields = typeRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
+                    if (isFrozen && !hasRefFields)
+                        return ParamKind.FrozenStruct;
+                    return null;
+                }
                 if (typeRecord.Kind == TypeRecordKind.Enum && typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
                     return ParamKind.SimpleEnum;
             }

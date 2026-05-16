@@ -291,7 +291,11 @@ public static class ForeignTypeExtensionEmitter
         else
         {
             var classified = ClassifyReturnType(returnTypeSpec, typeDatabase);
-            if (classified == null)
+            // FrozenStruct returns were previously rejected by ClassifyReturnType itself; that
+            // shared helper now accepts them on behalf of the cross-module struct-receiver
+            // emitter, so this emitter must re-impose the historical rejection so its
+            // ReturnKind switches (which have no FrozenStruct arms) stay total.
+            if (classified == null || classified == ReturnKind.FrozenStruct)
             {
                 logger.LogDebug("Skipping foreign extension method {Type}.{Method}: unsupported return type",
                     foreignTypeQualifiedName, extMethod.MethodName);
@@ -827,7 +831,11 @@ public static class ForeignTypeExtensionEmitter
                 return false;
             }
 
-            return ClassifyParameterType(typeSpec, typeDatabase) != null;
+            // FrozenStruct params route through pinned-pointer + cdecl wrappers in the
+            // cross-module struct-receiver path; this emitter has no equivalent plumbing,
+            // so reject them here (historically rejected at the helper level).
+            var kind = ClassifyParameterType(typeSpec, typeDatabase);
+            return kind != null && kind != ParamKind.FrozenStruct;
         }
 
         if (typeSpec is ClosureTypeSpec) return false;

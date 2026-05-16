@@ -2031,6 +2031,65 @@ public class EnumHandlerOutputTests
         return typeDatabase;
     }
 
+    private static TypeDatabase CreateTypeDatabaseWithCrossModuleClass()
+    {
+        // Two modules: `Lib` (where the enum is declared) and `Dep` (which owns the class payload).
+        // Mirrors the Stripe shape where an enum in one module carries a payload type owned by another.
+        var typeDatabase = CreateTypeDatabase();
+        var depModule = new ModuleTypeDatabase("Dep", "/tmp/Dep.dylib");
+        depModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Dep.ForeignClass"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Dep", "ForeignClass"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Dep.ForeignClass"),
+                MetadataAccessor = "$s3Dep12ForeignClassCMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(depModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("Lib", "/tmp/Lib.dylib"));
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithCrossModuleFrozenStruct()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var depModule = new ModuleTypeDatabase("Dep", "/tmp/Dep.dylib");
+        depModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Dep.ForeignPoint"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Dep", "ForeignPoint"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Dep.ForeignPoint"),
+                MetadataAccessor = "$s3Dep12ForeignPointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(depModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("Lib", "/tmp/Lib.dylib"));
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithCrossModuleNonFrozenStruct()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var depModule = new ModuleTypeDatabase("Dep", "/tmp/Dep.dylib");
+        depModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Dep.ForeignConfig"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Dep", "ForeignConfig"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Dep.ForeignConfig"),
+                MetadataAccessor = "$s3Dep13ForeignConfigVMa",
+                Flags = TypeRecordFlags.None, // NOT frozen — ClassWithOpaquePayload shape
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(depModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("Lib", "/tmp/Lib.dylib"));
+        return typeDatabase;
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithProtocol(string protocolModule, string protocolName)
     {
         var typeDatabase = new TypeDatabase();
@@ -2189,6 +2248,100 @@ public class EnumHandlerOutputTests
         // P/Invoke declaration should use IntPtr, not ImageResponse
         Assert.Contains("PInvoke_Failed(SwiftIndirectResult", csOutput);
         Assert.DoesNotContain("PInvoke_Failed(SwiftIndirectResult result, Nuke.ImageResponse", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithCrossModuleClassPayload_EmitsFactoryAndExtractor()
+    {
+        // S-3 regression: an enum in module `Lib` with `.completed(payload: Dep.ForeignClass)`
+        // must emit BOTH the `Completed` factory AND the `TryGetCompleted` extractor when the
+        // payload type lives in a *different* module. The original Stripe bug had the
+        // factory + extractor silently dropped while the sibling `failed(error: any Swift.Error)`
+        // case still emitted — this test locks the cross-module class-payload code path so the
+        // TypeDatabase lookup, projection, and guard wiring stay symmetric.
+        var typeDatabase = CreateTypeDatabaseWithCrossModuleClass();
+        var moduleDecl = CreateModuleDecl("Lib");
+        var enumDecl = CreateEnumDecl("CrossModResult", moduleDecl, isFrozen: false);
+
+        var completedCase = CreateCase("completed");
+        completedCase.AssociatedValues.Add(new NamedTypeSpec("Dep.ForeignClass") { TypeLabel = "payload" });
+        enumDecl.Cases.Add(completedCase);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }) { TypeLabel = "error" });
+        enumDecl.Cases.Add(failedCase);
+
+        enumDecl.Cases.Add(CreateCase("canceled"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Factory: signature must use the cross-module class type
+        Assert.Contains("public static unsafe CrossModResult Completed(Dep.ForeignClass payload)", csOutput);
+        // Extractor: signature must use the cross-module class type
+        Assert.Contains("public bool TryGetCompleted([MaybeNullWhen(false)] out Dep.ForeignClass value)", csOutput);
+        // Class-payload extraction uses Arc.Retain (the Swift class refcounted handle path)
+        Assert.Contains("Swift.Runtime.Arc.Retain(", csOutput);
+        // Sibling Failed case still emits via AnyError (well-known proxy)
+        Assert.Contains("public bool TryGetFailed([MaybeNullWhen(false)] out Swift.Foundation.AnyError value)", csOutput);
+        // Sentinel: the payload must NOT have collapsed to AnyType (that's the bug shape)
+        Assert.DoesNotContain("out Swift.AnyType", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithCrossModuleFrozenStructPayload_EmitsFactoryAndExtractor()
+    {
+        // S-3 regression (frozen-struct variant): cross-module `.completed(payload: Dep.ForeignPoint)`
+        // where the payload is a `@frozen` struct must round-trip through factory + extractor with
+        // the foreign struct's namespace preserved.
+        var typeDatabase = CreateTypeDatabaseWithCrossModuleFrozenStruct();
+        var moduleDecl = CreateModuleDecl("Lib");
+        var enumDecl = CreateEnumDecl("CrossModFrozenResult", moduleDecl, isFrozen: false);
+
+        var completedCase = CreateCase("completed");
+        completedCase.AssociatedValues.Add(new NamedTypeSpec("Dep.ForeignPoint") { TypeLabel = "payload" });
+        enumDecl.Cases.Add(completedCase);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }) { TypeLabel = "error" });
+        enumDecl.Cases.Add(failedCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Factory + extractor must both name the cross-module frozen struct
+        Assert.Contains("Completed(Dep.ForeignPoint payload)", csOutput);
+        Assert.Contains("TryGetCompleted([MaybeNullWhen(false)] out Dep.ForeignPoint value)", csOutput);
+        // Sentinel: must not collapse to AnyType or IntPtr (those are non-frozen / unknown shapes)
+        Assert.DoesNotContain("out Swift.AnyType", csOutput);
+    }
+
+    [Fact]
+    public void Emit_EnumCaseWithCrossModuleNonFrozenStructPayload_EmitsFactoryAndExtractor()
+    {
+        // S-3 regression (non-frozen-struct variant): cross-module `.completed(payload: Dep.ForeignConfig)`
+        // where the payload is a non-`@frozen` struct (`ClassWithOpaquePayload` shape) must round-trip
+        // through the `SwiftSafeHandle<T>` + `InitializeWithCopy` heap path with the foreign namespace
+        // preserved.
+        var typeDatabase = CreateTypeDatabaseWithCrossModuleNonFrozenStruct();
+        var moduleDecl = CreateModuleDecl("Lib");
+        var enumDecl = CreateEnumDecl("CrossModNonFrozenResult", moduleDecl, isFrozen: false);
+
+        var completedCase = CreateCase("completed");
+        completedCase.AssociatedValues.Add(new NamedTypeSpec("Dep.ForeignConfig") { TypeLabel = "payload" });
+        enumDecl.Cases.Add(completedCase);
+
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }) { TypeLabel = "error" });
+        enumDecl.Cases.Add(failedCase);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        // Factory + extractor must both name the cross-module non-frozen struct
+        Assert.Contains("Completed(Dep.ForeignConfig payload)", csOutput);
+        Assert.Contains("TryGetCompleted([MaybeNullWhen(false)] out Dep.ForeignConfig value)", csOutput);
+        // Non-frozen struct payload extracts via SafeHandle path
+        Assert.Contains(".Payload.DangerousGetHandle()", csOutput);
+        // Sentinel: must not collapse to AnyType
+        Assert.DoesNotContain("out Swift.AnyType", csOutput);
     }
 
     [Fact]

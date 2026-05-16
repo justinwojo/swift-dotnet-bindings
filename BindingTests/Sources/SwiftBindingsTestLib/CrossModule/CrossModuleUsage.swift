@@ -151,6 +151,22 @@ extension DependencyPoint {
     public var manhattanDistance: Double {
         return abs(x) + abs(y)
     }
+
+    /// Cross-module struct-extension method taking and returning a SimpleEnum
+    /// (`DependencyStatus`). Locks in the @_cdecl SimpleEnum lowering on the
+    /// struct-receiver trampoline path: the C# side casts (int)status across
+    /// the boundary, the Swift trampoline reconstructs the enum via
+    /// `DependencyStatus(rawValue:)!` for the call and surfaces `.rawValue` on
+    /// the return.
+    public func classify(against status: DependencyStatus) -> DependencyStatus {
+        switch status {
+        case .unknown: return x > 0 ? .pending : .unknown
+        case .pending: return .active
+        case .active: return .active
+        case .inactive: return .pending
+        @unknown default: return .unknown
+        }
+    }
 }
 
 /// Free function that uses the extension method.
