@@ -776,19 +776,7 @@ namespace BindingsGeneration
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
                 var arg = methodDecl.CSSignature[i];
-                string paramType;
-                try
-                {
-                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(arg.SwiftTypeSpec);
-                    paramType = typeRecord.CSharpTypeName.FullyQualifiedName;
-                }
-                catch (Exception ex)
-                {
-                    // For generic type parameters or other unsupported types,
-                    // use the string representation of the type spec
-                    logger?.LogWarning($"GetMethodSignatureKey: Failed to resolve type '{arg.SwiftTypeSpec}' for method '{methodDecl.Name}', using string fallback: {ex.Message}");
-                    paramType = arg.SwiftTypeSpec?.ToString() ?? "unknown";
-                }
+                string paramType = BuildPrimaryParamKey(arg.SwiftTypeSpec, typeDatabase, methodDecl.Name, logger);
                 // Label is the external Swift argument label (or "argN" for `_`-prefixed
                 // positional labels — synthesized by SwiftABIParser.ExtractParameterNames).
                 paramEntries.Add($"{arg.Name}:{paramType}");
@@ -798,6 +786,53 @@ namespace BindingsGeneration
             if (methodDecl.IsAsync) qualifiers.Append("|async");
             if (methodDecl.Throws) qualifiers.Append("|throws");
             return $"{prefix}{methodDecl.Name}{qualifiers}({string.Join(",", paramEntries)})";
+        }
+
+        /// <summary>
+        /// Builds the per-parameter contribution to <see cref="GetMethodSignatureKey"/>.
+        /// Recursively encodes generic-argument types so that e.g. <c>Array&lt;URL&gt;</c>
+        /// and <c>Array&lt;ImageRequest&gt;</c> produce distinct keys — the previous
+        /// implementation collapsed both to bare <c>Swift.SwiftArray</c> (the container's
+        /// resolved C# name without generic args), causing primary dedup to silently drop
+        /// every container-typed overload past the first one.
+        /// </summary>
+        private static string BuildPrimaryParamKey(TypeSpec? typeSpec, ITypeDatabase typeDatabase, string methodName, ILogger? logger)
+        {
+            if (typeSpec is null) return "unknown";
+            if (typeSpec is NamedTypeSpec named)
+            {
+                string baseName;
+                try
+                {
+                    var typeRecord = typeDatabase.GetTypeRecordOrAnyType(named);
+                    baseName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogWarning($"GetMethodSignatureKey: Failed to resolve type '{named}' for method '{methodName}', using string fallback: {ex.Message}");
+                    baseName = named.Name;
+                }
+                if (named.GenericParameters.Count == 0)
+                    return baseName;
+                var args = string.Join(",", named.GenericParameters.Select(g => BuildPrimaryParamKey(g, typeDatabase, methodName, logger)));
+                return $"{baseName}<{args}>";
+            }
+            if (typeSpec is TupleTypeSpec tuple)
+            {
+                if (tuple.IsEmptyTuple) return "Swift.Void";
+                var elems = string.Join(",", tuple.Elements.Select(e => BuildPrimaryParamKey(e, typeDatabase, methodName, logger)));
+                return $"({elems})";
+            }
+            try
+            {
+                var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+                return typeRecord.CSharpTypeName.FullyQualifiedName;
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning($"GetMethodSignatureKey: Failed to resolve type '{typeSpec}' for method '{methodName}', using string fallback: {ex.Message}");
+                return typeSpec.ToString() ?? "unknown";
+            }
         }
     }
 }

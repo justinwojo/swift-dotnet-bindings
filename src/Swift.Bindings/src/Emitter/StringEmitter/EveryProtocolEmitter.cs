@@ -2496,9 +2496,12 @@ public class EveryProtocolEmitter
     /// <summary>
     /// Returns true for closure-receiving protocol methods that have a real
     /// Swift→C# proxy dispatch implementation (rather than the `fatalError` / `NotSupportedException`
-    /// stub). Accepts methods whose only non-self parameter is either a bare closure
-    /// (`ClosureTypeSpec`) or an `Optional<Closure>` whose closure passes
-    /// <see cref="IsDispatchableClosureShape"/>.
+    /// stub). Accepts methods with exactly one dispatchable closure-bearing parameter — a bare
+    /// closure (`ClosureTypeSpec`) or an `Optional<Closure>` whose closure passes
+    /// <see cref="IsDispatchableClosureShape"/> — plus zero or more non-closure value-shape
+    /// parameters. Any other reachable closure in a value param (including nested closures
+    /// inside tuples, arrays, dictionaries, or optionals) disqualifies the method, because
+    /// the dispatch path can only marshal one (fnPtr, ctx) pair per method.
     /// </summary>
     internal static bool IsDispatchableClosureMethod(MethodDecl method, ClosureHandler closureHandler)
     {
@@ -2515,14 +2518,38 @@ public class EveryProtocolEmitter
         if (HasSelfTypeParamInSignature(method) || HasOnlyMethodLevelGenerics(method))
             return false;
 
-        // Walk non-self parameters; we accept exactly one closure-bearing param (bare
-        // closure or `Optional<Closure>`) and zero other params.
+        // Accept exactly one dispatchable closure-bearing param (bare closure or
+        // `Optional<Closure>`) plus zero or more non-closure value-shape params.
+        // Multi-arg shapes (e.g. Stripe's
+        // `createIssuingCardKey(withAPIVersion: String, completion: @escaping ...)`)
+        // marshal each non-closure param through the standard receiver path and the
+        // dispatchable closure param through the (fnPtr, ctx) pair — same machinery as
+        // the single-arg case, just iterated. Reject other closure shapes (async,
+        // non-dispatchable, multi-closure) and inout — those need richer plumbing.
         var nonSelfParams = method.CSSignature.Skip(1).ToList();
-        if (nonSelfParams.Count != 1)
+        if (nonSelfParams.Count == 0)
             return false;
 
-        var only = nonSelfParams[0];
-        return TryGetDispatchableClosureParam(only.SwiftTypeSpec, closureHandler, out _, out _);
+        int dispatchableClosureCount = 0;
+        foreach (var p in nonSelfParams)
+        {
+            if (p.IsInOut)
+                return false;
+            if (TryGetDispatchableClosureParam(p.SwiftTypeSpec, closureHandler, out _, out _))
+            {
+                dispatchableClosureCount++;
+                continue;
+            }
+            // Reject any remaining param that carries a closure anywhere in its type tree:
+            // bare non-dispatchable closures, Optional<Closure>, async closures, and value
+            // shapes that nest a closure (tuple/array/dictionary/Result with a closure
+            // payload, etc.). The dispatch path can only marshal one (fnPtr, ctx) pair per
+            // method; any other reachable closure would produce a vtable slot the proxy
+            // receiver cannot wire.
+            if (ContainsClosureType(p.SwiftTypeSpec))
+                return false;
+        }
+        return dispatchableClosureCount == 1;
     }
 
     /// <summary>

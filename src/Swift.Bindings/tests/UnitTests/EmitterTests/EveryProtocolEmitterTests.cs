@@ -2403,6 +2403,45 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
+    public void EmitProtocolExtension_MultiArg_DispatchablePlusArrayOfClosure_SkipsDispatch()
+    {
+        // One dispatchable @escaping () -> Void plus a value param that nests a closure
+        // (Array<() -> Void>) must NOT dispatch — the receiver path can only marshal one
+        // (fnPtr, ctx) pair per method, and an Array<Closure> would silently emit a vtable
+        // slot the proxy cannot wire.
+        var protocol = CreateSimpleProtocol("FanOut");
+        var arrayOfClosure = new NamedTypeSpec(
+            "Swift.Array",
+            CreateEscapingClosure());
+        protocol.Methods.Add(CreateMethodWithDispatchableClosureAndNonClosureValueParam(
+            "register", "completion", arrayOfClosure, "fallbacks"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("closure method 'register' cannot be dispatched", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_MultiArg_DispatchablePlusTupleContainingClosure_SkipsDispatch()
+    {
+        // One dispatchable @escaping () -> Void plus a tuple value param containing a
+        // closure ((Int, () -> Void)). Tuples are TupleTypeSpec, so the rejection takes
+        // a different recursion path through ContainsClosureType than the Array case.
+        var protocol = CreateSimpleProtocol("PairedHandler");
+        var tupleWithClosure = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Int"),
+            CreateEscapingClosure()
+        });
+        protocol.Methods.Add(CreateMethodWithDispatchableClosureAndNonClosureValueParam(
+            "schedule", "primary", tupleWithClosure, "secondary"));
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("closure method 'schedule' cannot be dispatched", output);
+    }
+
+    [Fact]
     public void EmitProtocolVtableStruct_OptionalClosureParam_IncludesVtableField()
     {
         // Optional<Closure> is dispatchable in 4b — vtable field emitted as a closure slot.
@@ -2752,6 +2791,61 @@ public class EveryProtocolEmitterTests
                     Name = paramLabel,
                     SwiftTypeSpec = closure,
                     PrivateName = paramLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+    }
+
+    private static MethodDecl CreateMethodWithDispatchableClosureAndNonClosureValueParam(
+        string name,
+        string closureLabel,
+        TypeSpec extraParamType,
+        string extraParamLabel)
+    {
+        var closure = CreateEscapingClosure();
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    Name = "",
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = closureLabel,
+                    SwiftTypeSpec = closure,
+                    PrivateName = closureLabel,
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = null
+                },
+                new ArgumentDecl
+                {
+                    Name = extraParamLabel,
+                    SwiftTypeSpec = extraParamType,
+                    PrivateName = extraParamLabel,
                     IsInOut = false,
                     IsGeneric = false,
                     ParentDecl = null,

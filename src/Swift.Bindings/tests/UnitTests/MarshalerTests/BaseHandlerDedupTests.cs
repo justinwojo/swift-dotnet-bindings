@@ -194,10 +194,11 @@ public class BaseHandlerDedupTests
     }
 
     [Fact]
-    public void GetMethodSignatureKey_NonEmptyTuple_ResolvesToAnyType()
+    public void GetMethodSignatureKey_NonEmptyTuple_ResolvesToProjectedTuple()
     {
-        // Non-empty tuples hit the `_ => AnyType` default in GetTypeRecordOrAnyType(TypeSpec),
-        // so they resolve without throwing. This tests the normal AnyType fallback, not the catch block.
+        // Tuple elements are recursively resolved so that overloads differing only in
+        // tuple element types stay distinct at primary dedup. This matches the projected
+        // key's tuple handling (GetProjectedCSharpMethodKey_NonEmptyTuple_ResolvesToProjectedTuple).
         var typeDatabase = new BasicTypeDatabase();
         var moduleDecl = CreateModuleDecl();
         var tupleParam = new TupleTypeSpec(new List<TypeSpec>
@@ -227,7 +228,70 @@ public class BaseHandlerDedupTests
         var result = InvokeGetMethodSignatureKey(method, typeDatabase);
 
         Assert.NotNull(result);
-        Assert.Contains("Swift.AnyType", result);
+        Assert.Contains("(long,bool)", result);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_ContainerOverloads_DistinctByElementType()
+    {
+        // N-1 regression: Two methods that differ only in the generic element type of a
+        // container parameter (e.g. `startPrefetching(with: [URL])` vs
+        // `startPrefetching(with: [ImageRequest])`) must produce distinct primary keys so
+        // both flow through to secondary (projected C#) dedup. The pre-fix implementation
+        // collapsed both to bare `Swift.SwiftArray` (container name without generic args),
+        // dropping every overload past the first.
+        var typeDatabase = new BasicTypeDatabase();
+        var arrayOfInt = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var arrayOfString = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String"));
+        var methodA = CreateMethod("startPrefetching", arrayOfInt);
+        var methodB = CreateMethod("startPrefetching", arrayOfString);
+
+        var keyA = InvokeGetMethodSignatureKey(methodA, typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
+
+        Assert.NotEqual(keyA, keyB);
+        Assert.Contains("<long>", keyA);
+        Assert.Contains("Swift.SwiftString", keyB);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_SameContainerSameElement_StillCollides()
+    {
+        // Genuine duplicates (same container, same element type) must still produce
+        // identical primary keys so the dedup HashSet drops the redundant copy. Guards
+        // against an over-aggressive recursion that uses object identity rather than
+        // structural equality.
+        var typeDatabase = new BasicTypeDatabase();
+        var arrayOfInt1 = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var arrayOfInt2 = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        var methodA = CreateMethod("process", arrayOfInt1);
+        var methodB = CreateMethod("process", arrayOfInt2);
+
+        var keyA = InvokeGetMethodSignatureKey(methodA, typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
+
+        Assert.Equal(keyA, keyB);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_NestedContainer_FullyEncoded()
+    {
+        // Nested containers (`[[Int]]` vs `[[String]]`) must also discriminate so that
+        // higher-order container overloads aren't silently dropped at primary dedup.
+        var typeDatabase = new BasicTypeDatabase();
+        var nestedInt = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int")));
+        var nestedString = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")));
+        var methodA = CreateMethod("flatten", nestedInt);
+        var methodB = CreateMethod("flatten", nestedString);
+
+        var keyA = InvokeGetMethodSignatureKey(methodA, typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(methodB, typeDatabase);
+
+        Assert.NotEqual(keyA, keyB);
+        Assert.Contains("Swift.SwiftArray<Swift.SwiftArray<long>>", keyA);
+        Assert.Contains("Swift.SwiftArray<Swift.SwiftArray<Swift.SwiftString>>", keyB);
     }
 
     [Fact]
@@ -683,6 +747,14 @@ public class BaseHandlerDedupTests
             {
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Swift.Array"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
                 MetadataAccessor = "",
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct

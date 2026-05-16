@@ -424,3 +424,69 @@ public class MultiShapeRouter {
         }
     }
 }
+
+// MARK: - S-2: Multi-arg method with value param + closure (Stripe shape)
+//
+// `STPIssuingCardEphemeralKeyProvider.createIssuingCardKey(withAPIVersion: String,
+// completion: @escaping STPJSONResponseCompletionBlock)` is a pure-Swift protocol
+// whose only method takes a non-closure (String) param followed by a dispatchable
+// closure. Pre-fix, `IsDispatchableClosureMethod` rejected multi-arg signatures,
+// so the proxy emitted the field but never assigned it — and the EveryProtocol
+// extension generated a `fatalError` stub instead of a real witness. Both halves
+// silently broke C#→Swift dispatch.
+
+/// Provides keys via a completion handler. Mirrors the Stripe ephemeral-key
+/// provider shape: leading non-closure param + trailing escaping closure.
+public protocol EphemeralKeyProvider {
+    func createKey(withAPIVersion version: String,
+                   completion: @escaping (String) -> Void)
+}
+
+/// Calls the provider's `createKey` and surfaces the last completion payload
+/// so test code can assert that the C# impl's completion call round-tripped
+/// back through the Swift trampoline.
+public class EphemeralKeyConsumer {
+    public var provider: (any EphemeralKeyProvider)?
+    public var lastVersion: String = ""
+    public var lastKey: String = ""
+    public var completionFireCount: Int32 = 0
+
+    public init() {
+        self.provider = nil
+    }
+
+    public func requestKey(version: String) {
+        lastVersion = version
+        provider?.createKey(withAPIVersion: version, completion: { [weak self] key in
+            self?.lastKey = key
+            self?.completionFireCount += 1
+        })
+    }
+}
+
+/// Three-arg variant — two non-closure params + closure — to lock the gate
+/// behaviour beyond the two-arg Stripe shape.
+public protocol RetryingKeyProvider {
+    func fetchKey(version: String,
+                  attempt: Int32,
+                  completion: @escaping (Int32) -> Void)
+}
+
+public class RetryingKeyConsumer {
+    public var provider: (any RetryingKeyProvider)?
+    public var lastVersion: String = ""
+    public var lastAttempt: Int32 = -1
+    public var lastResult: Int32 = -1
+
+    public init() {
+        self.provider = nil
+    }
+
+    public func request(version: String, attempt: Int32) {
+        lastVersion = version
+        lastAttempt = attempt
+        provider?.fetchKey(version: version, attempt: attempt, completion: { [weak self] r in
+            self?.lastResult = r
+        })
+    }
+}

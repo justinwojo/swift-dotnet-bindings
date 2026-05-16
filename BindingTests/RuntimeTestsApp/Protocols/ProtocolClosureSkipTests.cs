@@ -9,6 +9,47 @@ using SwiftBindingsTestLib.SwiftInterop;
 namespace RuntimeTestsApp.Protocols;
 
 /// <summary>
+/// C# implementation of IEphemeralKeyProvider — mirrors the Stripe
+/// STPIssuingCardEphemeralKeyProvider shape (non-closure leading param +
+/// trailing escaping closure). The C# impl captures the version and fires the
+/// completion with a derived key so the round trip back through the Swift
+/// trampoline is observable from the EphemeralKeyConsumer harness.
+/// </summary>
+internal class TestEphemeralKeyProvider : IEphemeralKeyProvider
+{
+    public int CreateKeyCallCount { get; private set; }
+    public string LastVersion { get; private set; } = "";
+    public Action<string>? LastCompletion { get; private set; }
+
+    public void CreateKey(string version, Action<string> completion)
+    {
+        CreateKeyCallCount++;
+        LastVersion = version;
+        LastCompletion = completion;
+        completion("key-for-" + version);
+    }
+}
+
+/// <summary>
+/// C# implementation of IRetryingKeyProvider — three-arg shape (two value
+/// params + closure). Locks the gate beyond the two-arg Stripe minimum.
+/// </summary>
+internal class TestRetryingKeyProvider : IRetryingKeyProvider
+{
+    public int FetchKeyCallCount { get; private set; }
+    public string LastVersion { get; private set; } = "";
+    public int LastAttempt { get; private set; } = -1;
+
+    public void FetchKey(string version, int attempt, Action<int> completion)
+    {
+        FetchKeyCallCount++;
+        LastVersion = version;
+        LastAttempt = attempt;
+        completion(attempt * 10);
+    }
+}
+
+/// <summary>
 /// C# implementation of IEventDelegate for testing proxy wrapping.
 /// `OnComplete` is now a real receiver — it stores the incoming Action so
 /// tests can assert the closure crossed the Swift→C# boundary and (when invoked) the
@@ -1272,6 +1313,67 @@ public class ProtocolClosureSkipTests : TestBase
         AssertEqual(2, impl.ProcessPipelineStateThrowingCallCount, "Swift drove the throwing receiver again for failure branch");
         AssertEqual(false, impl.LastThrowingResultIsSuccess, "Failure branch produced a SwiftResult.IsSuccess=false");
         AssertTrue(impl.LastThrowingFailureHadNonNullError, "Failure branch produced a SwiftError with a non-null Value (retained Swift error pointer)");
+    }
+
+    #endregion
+
+    #region S-2: Multi-Arg Method (Value Param + Closure) — Stripe Shape
+
+    // Regression for bug-0.10.0-empty-proxy-vtables-for-closure-protocol-methods.
+    // STPIssuingCardEphemeralKeyProvider and STPCustomerEphemeralKeyProvider are
+    // pure-Swift protocols whose only method is
+    // `func createKey(withAPIVersion: String, completion: @escaping ...)` — a value
+    // param plus a trailing dispatchable closure. Pre-fix the dispatch gate rejected
+    // multi-arg shapes (`nonSelfParams.Count != 1`), so the C# proxy class declared
+    // the function-pointer slot for the closure but never assigned it, and the
+    // Swift EveryProtocol extension emitted a `fatalError` stub. Either side broke
+    // C#→Swift dispatch silently. The post-fix gate accepts one closure + N value
+    // params, and the existing emit paths iterate per-param the same way the
+    // single-arg shape already did.
+
+    public void TestEphemeralKeyProviderProxyConstruction()
+    {
+        var impl = new TestEphemeralKeyProvider();
+        var proxy = new EphemeralKeyProviderProxy(impl);
+        AssertNotNull(proxy, "EphemeralKeyProviderProxy with multi-arg closure method constructs");
+    }
+
+    // Closure-arg shape (Swift→C# closure invocation) is gated separately on
+    // ClosureEmitter.InvokeThunk's IsInvokeThunkCompatibleArg — currently
+    // primitives + simple/complex enums only. EphemeralKeyProvider's closure is
+    // `(String) -> Void`, so EveryProtocol's extension still emits a fatalError
+    // stub and dispatch through the proxy would crash on the Swift side.
+    // RetryingKeyProvider (closure arg is Int32) exercises the same multi-arg
+    // dispatch path end-to-end. Lift this Skip once String invoke-thunk args land.
+    [Skip("S-2 follow-up: closure arg is String, invoke thunk needs UTF-8 marshalling extension")]
+    public void TestEphemeralKeyProviderProxy_DispatchesThroughSwift()
+    {
+        var impl = new TestEphemeralKeyProvider();
+        var proxy = new EphemeralKeyProviderProxy(impl);
+
+        var consumer = new EphemeralKeyConsumer();
+        consumer.Provider = proxy;
+        consumer.RequestKey("2026-05-15");
+
+        AssertEqual(1, impl.CreateKeyCallCount, "Swift drove the C# impl's CreateKey once");
+        AssertEqual("2026-05-15", impl.LastVersion, "Leading value param round-tripped through trampoline");
+        AssertEqual("key-for-2026-05-15", consumer.LastKey.ToString(), "Closure callback round-tripped back into Swift");
+        AssertEqual(1, consumer.CompletionFireCount, "Completion fired exactly once");
+    }
+
+    public void TestRetryingKeyProviderProxy_DispatchesThroughSwift()
+    {
+        var impl = new TestRetryingKeyProvider();
+        var proxy = new RetryingKeyProviderProxy(impl);
+
+        var consumer = new RetryingKeyConsumer();
+        consumer.Provider = proxy;
+        consumer.Request("v42", 3);
+
+        AssertEqual(1, impl.FetchKeyCallCount, "Three-arg shape dispatched once");
+        AssertEqual("v42", impl.LastVersion, "First value param round-tripped");
+        AssertEqual(3, impl.LastAttempt, "Second value param round-tripped");
+        AssertEqual(30, consumer.LastResult, "Closure callback delivered the int payload back to Swift");
     }
 
     #endregion

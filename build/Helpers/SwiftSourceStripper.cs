@@ -82,6 +82,14 @@ public static class SwiftSourceStripper
         // closure / Int32 property) must dispatch via a real vtable receiver, mirroring
         // Nuke ImagePipelineDelegate / BlinkIDUX CameraModel richness.
         "MultiShapeDelegate",
+        // S-2 multi-arg dispatchable-closure shape (Stripe STPIssuingCard/STPCustomer
+        // EphemeralKeyProvider parity). EphemeralKeyProvider's closure currently has a
+        // String arg that the invoke thunk doesn't yet marshal — the EveryProtocol
+        // extension still emits fatalError — but the proxy-construction test depends on
+        // the witness-table accessor existing. RetryingKeyProvider has a primitive-arg
+        // closure and exercises the full multi-arg vtable dispatch end-to-end.
+        "EphemeralKeyProvider",
+        "RetryingKeyProvider",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(
