@@ -1335,6 +1335,67 @@ public class PropertyHandlerTests
 
     #endregion
 
+    #region A-4 — Nullable struct setter pins value SafeHandle for the P/Invoke
+
+    // sdk-0.11.0-residual-gaps.md A-4: the decomposed Optional<inner> setter on a
+    // non-generic parent passes `value?.Payload.DangerousGetHandle()` + a hasValue
+    // bool to Swift. Without the SafeHandlePin bracket the GC can run between
+    // DangerousGetHandle and the P/Invoke return, run `value`'s SafeHandle
+    // finalizer, and free the buffer Swift is still reading from — a textbook
+    // use-after-free that only fires under load. The fix bracket-pins `value.Payload`
+    // for the duration of the call.
+
+    [Fact]
+    public void Emit_OptionalNonGenericInnerSetter_BracketsValueWithSafeHandlePin()
+    {
+        // Optional<ComplexEnum> setter on a non-generic parent is the practical
+        // fixture: ShapeHolder.currentShape (Shape?) in
+        // BindingTests/Sources/SwiftBindingsTestLib/WrapperCoverage/OptionalPropertyPaths.swift
+        // emits this exact shape end-to-end; this unit test pins the generator
+        // contract so the BindingTests harness can lean on it.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // xcframework mode → cdecl wrapper
+
+        // Register the complex enum. No Frozen flag — DecomposedBuffers strategy
+        // requires this to be a SafeHandle-backed projection (.Payload).
+        // TestModule is already registered by CreateTypeDatabaseWithInt; add the
+        // type via the out-of-module store to avoid the duplicate-module guard.
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.Shape"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Shape"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Shape"),
+                MetadataAccessor = "$s10TestModule5ShapeOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
+            })
+        });
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("ShapeHolder", moduleDecl);
+
+        var optionalEnumType = new NamedTypeSpec(
+            "Swift.Optional",
+            new NamedTypeSpec("TestModule.Shape"));
+        var registeredType = new NamedTypeSpec("Swift.Int");
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "currentShape", registeredType, hasGetter: true, hasSetter: true);
+        property.SwiftTypeSpec = optionalEnumType;
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // The SafeHandlePin bracket — the A-4 fix.
+        Assert.Contains("using var __valuePin = new global::Swift.Runtime.SafeHandlePin(value.Payload);", csOutput);
+        // Setter must pass the pinned handle, not raw DangerousGetHandle directly.
+        Assert.Contains("CurrentShape_Set(__valuePin.Handle, true);", csOutput);
+        // Null path stays a plain pass-through (no payload to pin).
+        Assert.Contains("CurrentShape_Set(IntPtr.Zero, false);", csOutput);
+        // Pre-fix expression must not appear — that's the use-after-free shape.
+        Assert.DoesNotContain("set => CurrentShape_Set(value?.Payload.DangerousGetHandle()", csOutput);
+    }
+
+    #endregion
+
     #region G1 — Generic Type Params in Properties Tests
 
     [Fact]

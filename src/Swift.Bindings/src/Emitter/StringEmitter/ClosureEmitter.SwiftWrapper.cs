@@ -193,12 +193,19 @@ public static partial class ClosureEmitter
 
         // Build closure parameter list and identify complex enum args needing heap allocation
         var closureParams = new List<string>();
-        // Owning-transfer heap args: complex enums and ARC-bearing frozen structs
-        // (ClassWithBufferStruct). C# wraps with `MarshalFromSwift<T>` whose
+        // Owning-transfer heap args: complex enums. C# `NewFromPayload` wraps the SAME
+        // pointer in `SwiftSafeHandle<T>(handle)` (see `EnumISwiftObjectMethodWriter`).
         // SwiftSafeHandle.ReleaseHandle pairs VWT.Destroy + NativeMemory.Free.
         // NO Swift-side defer — the C# delegate may capture-out the wrapper and
         // C# owns destroy/free.
         var heapAllocArgs = new List<(int index, string swiftType)>();
+        // Copy-transfer heap args: ARC-bearing frozen structs (`ClassWithBufferStruct`,
+        // `IsFrozenStructProjectedAsClass`). C# `NewFromPayload` `InitializeWithCopy`s
+        // into a fresh `NativeMemory.Alloc` buffer (see
+        // `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`), leaving the Swift-side
+        // source buffer orphaned. Swift MUST defer-deallocate the source.
+        // S-4 / sdk-0.11.0-residual-gaps.md.
+        var heapAllocCopiedArgs = new List<(int index, string swiftType)>();
         // Pure (blittable) frozen struct heap args. C# reads the value directly
         // via `MarshalBorrowedFromSwift<T>` without taking ownership of the buffer.
         // Swift MUST defer-deallocate or the buffer leaks per call.
@@ -242,12 +249,14 @@ public static partial class ClosureEmitter
                          !closureHandler.IsClassType(frozenNamed) && !closureHandler.IsObjCBridgedClass(frozenNamed) &&
                          !closureHandler.IsSimpleEnum(frozenNamed))
                 {
-                    // ClassWithBufferStruct (frozen + ref fields): owning-transfer to C#
-                    // (MarshalFromSwift<T> wraps Buffer.Payload, ReleaseHandle pairs
-                    // VWT.Destroy + NativeMemory.Free). Pure blittable frozen structs
-                    // are read-by-value on the C# side, so Swift defer-deallocates.
+                    // ClassWithBufferStruct (frozen + ref fields, IsFrozenStructProjectedAsClass):
+                    // C# `NewFromPayload` `InitializeWithCopy`s into a fresh
+                    // `NativeMemory.Alloc` buffer, leaving the Swift source orphaned.
+                    // Swift MUST defer-deallocate. Pure blittable frozen structs
+                    // are read-by-value on the C# side, so they also defer-deallocate.
+                    // (S-4 / sdk-0.11.0-residual-gaps.md.)
                     if (closureHandler.IsFrozenStructWithRefFields(frozenNamed))
-                        heapAllocArgs.Add((argIndex, swiftType));
+                        heapAllocCopiedArgs.Add((argIndex, swiftType));
                     else
                         blittableFrozenHeapArgs.Add((argIndex, swiftType));
                 }
@@ -306,6 +315,7 @@ public static partial class ClosureEmitter
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             var heapArg = heapAllocArgs.FirstOrDefault(h => h.index == argIndex);
+            var heapCopiedArg = heapAllocCopiedArgs.FirstOrDefault(h => h.index == argIndex);
             var blittableFrozenHeapArg = blittableFrozenHeapArgs.FirstOrDefault(h => h.index == argIndex);
             var primitiveOptHeapArg = primitiveOptHeapArgs.FirstOrDefault(h => h.index == argIndex);
             var nonFrozenHeapArg = nonFrozenHeapArgs.FirstOrDefault(h => h.index == argIndex);
@@ -313,7 +323,12 @@ public static partial class ClosureEmitter
             var existentialArg = existentialArgs.FirstOrDefault(h => h.index == argIndex);
             if (heapArg != default)
             {
-                // Complex enum / ClassWithBufferStruct: owning-transfer heap pointer.
+                // Complex enum: owning-transfer heap pointer.
+                cdeclArgs.Add($"__heap_{argIndex}");
+            }
+            else if (heapCopiedArg != default)
+            {
+                // ClassWithBufferStruct: heap pointer (Swift defers deallocate; C# copies).
                 cdeclArgs.Add($"__heap_{argIndex}");
             }
             else if (blittableFrozenHeapArg != default)
@@ -378,9 +393,14 @@ public static partial class ClosureEmitter
             : "";
 
         // Heap allocation lines for closure-arg payloads.
-        // - heapAllocArgs (complex enum, ClassWithBufferStruct): no defer; C# takes
-        //   ownership via MarshalFromSwift — SwiftSafeHandle.ReleaseHandle pairs
-        //   VWT.Destroy + NativeMemory.Free on disposal.
+        // - heapAllocArgs (complex enum): no defer; C# takes ownership via
+        //   `MarshalFromSwift` -> `NewFromPayload` wraps the SAME pointer in
+        //   `SwiftSafeHandle<T>(handle)`. `ReleaseHandle` pairs VWT.Destroy +
+        //   NativeMemory.Free on disposal.
+        // - heapAllocCopiedArgs (`IsFrozenStructProjectedAsClass`): defer-deallocate;
+        //   C# `NewFromPayload` `InitializeWithCopy`s into a fresh `NativeMemory.Alloc`
+        //   buffer (see `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`), so the
+        //   source must be freed here. (S-4 / sdk-0.11.0-residual-gaps.md.)
         // - blittableFrozenHeapArgs (pure frozen struct, no ARC payload): defer
         //   deallocate; C# reads the value by copy and never owns the buffer.
         // - primitiveOptHeapArgs (Optional<NumericPrimitive>): defer deallocate;
@@ -391,6 +411,12 @@ public static partial class ClosureEmitter
         {
             heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
             heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
+        }
+        foreach (var (idx, swiftType) in heapAllocCopiedArgs)
+        {
+            heapAllocLines.Add($"{indent}    let __heap_{idx} = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<{swiftType}>.size, alignment: MemoryLayout<{swiftType}>.alignment)");
+            heapAllocLines.Add($"{indent}    __heap_{idx}.initializeMemory(as: {swiftType}.self, repeating: p{idx}, count: 1)");
+            heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         foreach (var (idx, swiftType) in blittableFrozenHeapArgs)
         {

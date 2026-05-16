@@ -27,7 +27,8 @@ public static partial class ClosureEmitter
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler,
         string mangledName,
-        bool useCdecl = false)
+        bool useCdecl = false,
+        bool useBoxedContext = false)
     {
         var callbackName = ClosureHandler.GetCallbackFunctionName(methodName, parameterName, mangledName);
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
@@ -120,13 +121,19 @@ public static partial class ClosureEmitter
         // Callback never frees the GCHandle — the calling method's finally block handles cleanup
         // for non-escaping closures (Cat 1). Escaping closures may fire multiple times
         // (e.g., callMultipleTimes), so freeing in the callback would crash on the second
-        // invocation. Escaping-closure GCHandle leaks are deferred to 0.11 via the Swift-side
-        // owner-token deinit upcall. See bug-0.10.0-callback-trampoline-gchandle-leak.md.
+        // invocation. Escaping-closure GCHandle leaks are closed via the Swift-side
+        // _SBClosureCtx box deinit upcall — for cdecl the Swift wrapper unboxes before
+        // calling C# (raw GCHandle ptr arrives here); for the legacy SwiftClosureData
+        // path the context slot stores the box pointer itself, so the trampoline calls
+        // GetDelegateFromBoxedContext to resolve it via SwiftClosureContext.GetCtx.
+        var extractCall = useBoxedContext
+            ? $"SwiftClosureMarshaller.GetDelegateFromBoxedContext<{delegateType}>({contextExtraction})"
+            : $"SwiftClosureMarshaller.GetDelegateFromContext<{delegateType}>({contextExtraction})";
         csWriter.WriteLines($$"""
             [UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
             {
-                var del = SwiftClosureMarshaller.GetDelegateFromContext<{{delegateType}}>({{contextExtraction}});
+                var del = {{extractCall}};
                 {{returnStatement}}
             }
             """);

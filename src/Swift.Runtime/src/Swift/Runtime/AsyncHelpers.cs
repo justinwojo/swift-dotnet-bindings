@@ -90,6 +90,21 @@ namespace Swift.Runtime
     }
 
     /// <summary>
+    /// Wraps a <see cref="NativeMemory.Alloc(nuint)"/> buffer that holds a Swift
+    /// existential container (e.g. <see cref="ExistentialContainer1"/>) handed
+    /// to an async Swift entry point. The async-callback cleanup loop frees
+    /// the buffer with <see cref="NativeMemory.Free(void*)"/> after the Swift
+    /// continuation has finished reading it. Freeing in the foreground
+    /// wrapper's <c>finally</c> would dangle the pointer Swift still holds.
+    /// </summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public readonly struct ExistentialContainerHeap
+    {
+        public readonly IntPtr Ptr;
+        public ExistentialContainerHeap(IntPtr ptr) => Ptr = ptr;
+    }
+
+    /// <summary>
     /// Wraps a CancellationTokenRegistration for disposal in async callbacks.
     /// Stored in the async holder array so the callback can dispose the registration
     /// after completion, cancellation, or error.

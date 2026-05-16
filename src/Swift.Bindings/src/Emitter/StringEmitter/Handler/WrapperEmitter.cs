@@ -696,9 +696,6 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitClosureOwnershipTransferred(CSharpWriter csWriter)
         {
-            if (!_env.MethodDecl.HasCdeclClosureMarshalling)
-                return;
-
             var closureParamCount = _env.MethodDecl.CSSignature.Skip(1).Count(_env.ClosureHandler.IsClosure);
             foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1).Where(_env.ClosureHandler.IsClosure))
             {
@@ -715,6 +712,13 @@ namespace BindingsGeneration
                 if (!WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler))
                     continue;
 
+                // Both cdecl and legacy SwiftClosureData escaping paths declare the
+                // {csName}Transferred flag (see MethodMarshalPlanBuilder.cs). The
+                // legacy path additionally allocates an `_SBClosureCtx` box from C#
+                // when the runtime dylib is present; on dylib-absent builds the box
+                // pointer stays IntPtr.Zero and Swift's release of the raw GCHandle
+                // ptr is a no-op — the leak persists for those builds (matching 0.10
+                // behaviour) since there is no notification channel.
                 var csName = NameProvider.GetCSharpParameterName(argumentDecl);
                 csWriter.WriteLine($"{csName}Transferred = true;");
             }
@@ -768,9 +772,17 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Frees heap-allocated existential container memory in the finally block.
+        /// For async methods the cleanup is owned by the callback's holder-cleanup
+        /// loop (the heap is registered as an <c>ExistentialContainerHeap</c> entry
+        /// in <c>_asyncCallHolder</c> by <see cref="EmitExistentialContainerMarshalling"/>);
+        /// freeing in the foreground finally would dangle Swift's pointer because
+        /// the continuation runs after the wrapper has returned <c>_tcs.Task</c>.
         /// </summary>
         private void EmitExistentialContainerCleanup(CSharpWriter csWriter)
         {
+            if (_requiresSwiftAsync)
+                return;
+
             foreach (var heapName in _existentialHeapNames)
             {
                 csWriter.WriteLine($"NativeMemory.Free({heapName});");
@@ -831,8 +843,11 @@ namespace BindingsGeneration
             if (!_env.MethodDecl.IsConstructor && _syncPlan?.IndirectResultMethod?.CleanupCode != null)
                 return true;
 
-            // Existential container heap allocations need cleanup
-            if (HasExistentialHeapAllocations)
+            // Existential container heap allocations need cleanup.
+            // Async methods register the heap with the callback holder cleanup loop
+            // (see EmitExistentialContainerMarshalling); a foreground finally would
+            // dangle Swift's pointer once the continuation runs on its own thread.
+            if (HasExistentialHeapAllocations && !_requiresSwiftAsync)
                 return true;
 
             return false;

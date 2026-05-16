@@ -456,6 +456,19 @@ public func swiftBindingsNewClosureContext(
     return Unmanaged.passRetained(box).toOpaque()
 }
 
+/// Extracts the original `ctx` pointer from an `_SBClosureCtx` box returned by
+/// `SwiftBindings_NewClosureContext`. Used by C# trampolines on the legacy
+/// `SwiftClosureData` path where the SwiftClosureData context slot stores the
+/// box pointer (so Swift's release of the closure deinits the box and frees
+/// the wrapped `GCHandle`). Does NOT retain or release the box — the trampoline
+/// borrows the ctx for the duration of the callback only.
+@_cdecl("SBW_UnboxClosureContext")
+public func sbwUnboxClosureContext(
+    _ box: UnsafeMutableRawPointer
+) -> UnsafeMutableRawPointer {
+    Unmanaged<_SBClosureCtx>.fromOpaque(box).takeUnretainedValue().ctx
+}
+
 // MARK: - CoreGraphics Type Metadata
 //
 // CGPoint, CGRect, CGSize are Clang-imported types whose metadata descriptors

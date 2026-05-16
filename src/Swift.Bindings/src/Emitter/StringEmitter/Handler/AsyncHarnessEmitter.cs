@@ -1197,29 +1197,11 @@ namespace BindingsGeneration
             var cancellationBlock = $$"""
                                     if (isCancellation != 0)
                                     {
-                                        // Swift reported CancellationError — find token and cancel the Task
+                                        // Swift reported CancellationError — find token and cancel the Task.
+                                        // Loop body shared via BuildCancellationCleanupLoop so this hand-rolled
+                                        // block cannot drift from WrapperEmitter.Async's equivalent block.
                                         global::System.Threading.CancellationToken cancelToken = default;
-                                        for (int i = 1; i < holder.Length; i++)
-                                        {
-                                            if (holder[i] is CancellationRegistrationHolder cancelReg)
-                                            {
-                                                cancelToken = cancelReg.Token;
-                                                cancelReg.Registration.Dispose();
-                                            }
-                                            else if (holder[i] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                                Arc.Release(retained.Ptr);
-                                            else if (holder[i] is DeferredSafeHandleRelease deferred)
-                                                deferred.Handle.DangerousRelease();
-                                            else if (holder[i] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                            {
-                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                                NativeMemory.Free((void*)copyBuffer.Buffer);
-                                            }
-                                            else if (holder[i] is AsyncDeferredDisposeList __deferredList)
-                                            {
-                                                foreach (var __d in __deferredList.Items) __d.Dispose();
-                                            }
-                                        }{{freeErrorInCancellation}}
+                {{BuildCancellationCleanupLoop("holder", "i", "                                        ")}}{{freeErrorInCancellation}}
                                         holderTcs.TrySetCanceled(cancelToken);
                                     }
                 """;
@@ -1642,6 +1624,11 @@ namespace BindingsGeneration
         /// <param name="indent">The whitespace indent prefix for each line.</param>
         /// <param name="includeCancellationReg">Whether to include CancellationRegistrationHolder cleanup.</param>
         /// <param name="cancelRegVarName">Variable name for the CancellationRegistrationHolder (to avoid shadowing).</param>
+        // MIRROR with WrapperEmitter.Async.BuildHolderCleanupCode. Any new holder
+        // slot type (RetainedSelfPtr, ExistentialContainerHeap, ...) must be added
+        // here AND in WrapperEmitter.Async.BuildHolderCleanupCode AND in
+        // BuildCancellationCleanupLoop (used by both BuildErrorCallbackBlock helpers)
+        // or the slot will leak on success / exception / cancellation paths.
         public static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
         {
             var cancelRegLine = includeCancellationReg
@@ -1663,10 +1650,52 @@ namespace BindingsGeneration
                 {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                 {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
                 {{indent}}    }
+                {{indent}}    else if ({{holderVar}}[i] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
+                {{indent}}        NativeMemory.Free((void*)existentialHeap.Ptr);
                 {{indent}}    else if ({{holderVar}}[i] is AsyncDeferredDisposeList __deferredList)
                 {{indent}}    {
                 {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
                 {{indent}}    }{{cancelRegLine}}
+                {{indent}}}
+                """;
+        }
+
+        /// <summary>
+        /// Builds the cancellation-path holder cleanup loop emitted inside
+        /// <c>BuildErrorCallbackBlock</c> when Swift reports CancellationError.
+        /// Identical slot-walk to <see cref="BuildHolderCleanupCode"/>, but with
+        /// <c>CancellationRegistrationHolder</c> as the FIRST branch so the loop
+        /// can capture <c>cancelToken</c> before disposing the registration.
+        /// Shared between this file and <c>WrapperEmitter.Async</c> so the two
+        /// hand-rolled cancellation blocks cannot drift apart.
+        /// </summary>
+        // MIRROR with BuildHolderCleanupCode and WrapperEmitter.Async.BuildHolderCleanupCode.
+        // Any new holder slot type must also appear in those two helpers.
+        internal static string BuildCancellationCleanupLoop(string holderVar, string loopVarName, string indent)
+        {
+            return $$"""
+                {{indent}}for (int {{loopVarName}} = 1; {{loopVarName}} < {{holderVar}}.Length; {{loopVarName}}++)
+                {{indent}}{
+                {{indent}}    if ({{holderVar}}[{{loopVarName}}] is CancellationRegistrationHolder cancelReg)
+                {{indent}}    {
+                {{indent}}        cancelToken = cancelReg.Token;
+                {{indent}}        cancelReg.Registration.Dispose();
+                {{indent}}    }
+                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
+                {{indent}}        Arc.Release(retained.Ptr);
+                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is DeferredSafeHandleRelease deferred)
+                {{indent}}        deferred.Handle.DangerousRelease();
+                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
+                {{indent}}    {
+                {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
+                {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
+                {{indent}}    }
+                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
+                {{indent}}        NativeMemory.Free((void*)existentialHeap.Ptr);
+                {{indent}}    else if ({{holderVar}}[{{loopVarName}}] is AsyncDeferredDisposeList __deferredList)
+                {{indent}}    {
+                {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
+                {{indent}}    }
                 {{indent}}}
                 """;
         }

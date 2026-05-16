@@ -1119,7 +1119,21 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     """);
                 return;
             }
-            csWriter.WriteLine($"set => {methodName}(value?.Payload.DangerousGetHandle() ?? IntPtr.Zero, value != null);");
+            // Bracket the value's payload with DangerousAddRef/Release via SafeHandlePin
+            // for the duration of the P/Invoke. Without the pin, GC running between
+            // DangerousGetHandle() and the P/Invoke return could collect `value`, run its
+            // SafeHandle finalizer, and free the buffer while Swift is still reading from it.
+            // The receiver's own SafeHandle is already bracketed inside the accessor method body.
+            csWriter.WriteLines($$"""
+                set {
+                    if (value is not null) {
+                        using var __valuePin = new global::Swift.Runtime.SafeHandlePin(value.Payload);
+                        {{methodName}}(__valuePin.Handle, true);
+                    } else {
+                        {{methodName}}(IntPtr.Zero, false);
+                    }
+                }
+                """);
             return;
         }
 

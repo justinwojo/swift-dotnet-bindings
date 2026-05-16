@@ -182,6 +182,82 @@ public class ClosureEmitterDirectTests
 
     #endregion
 
+    #region N-3 — Legacy SwiftClosureData escaping trampoline unbox
+
+    [Fact]
+    public void EmitEscapingClosureCallback_LegacyEscaping_UsesBoxedContextExtraction()
+    {
+        // N-3: legacy SwiftClosureData escaping closures pass the _SBClosureCtx
+        // box pointer in the context slot; the trampoline must unbox via
+        // GetDelegateFromBoxedContext to recover the GCHandle.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "stream", "onChunk", closureTypeSpec, closureHandler,
+            "$s10TestModule6streamyyF", useCdecl: false, useBoxedContext: true);
+
+        var result = output.ToString();
+        Assert.Contains("GetDelegateFromBoxedContext", result);
+        Assert.DoesNotContain("GetDelegateFromContext<", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_CdeclEscaping_KeepsRawContextExtraction()
+    {
+        // The cdecl path's Swift wrapper unboxes before invoking the C# trampoline,
+        // so the trampoline still receives a raw GCHandle pointer and must use
+        // GetDelegateFromContext. Switching it to the boxed variant would attempt
+        // to unbox a non-box pointer and crash.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "stream", "onChunk", closureTypeSpec, closureHandler,
+            "$s10TestModule6streamyyF", useCdecl: true, useBoxedContext: false);
+
+        var result = output.ToString();
+        Assert.Contains("GetDelegateFromContext<", result);
+        Assert.DoesNotContain("GetDelegateFromBoxedContext", result);
+    }
+
+    [Fact]
+    public void EmitEscapingClosureCallback_DefaultFlag_UsesRawContextExtraction()
+    {
+        // Default useBoxedContext=false preserves the legacy non-box trampoline shape
+        // — the migration is opt-in per call site.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int"),
+            TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+
+        ClosureEmitter.EmitEscapingClosureCallback(
+            csWriter, "stream", "onChunk", closureTypeSpec, closureHandler,
+            "$s10TestModule6streamyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("GetDelegateFromContext<", result);
+        Assert.DoesNotContain("GetDelegateFromBoxedContext", result);
+    }
+
+    #endregion
+
     private static TypeDatabase CreateTypeDatabaseWithSwiftInt()
     {
         var typeDatabase = new TypeDatabase();
@@ -1661,6 +1737,146 @@ public class ClosureEmitterDirectTests
                 Kind = TypeRecordKind.Struct
             });
         typeDatabase.AddModuleDatabase(swiftModule);
+
+        return typeDatabase;
+    }
+
+    #endregion
+
+    #region S-4 — Frozen-struct-with-ref-fields closure arg defer-deallocate
+
+    // sdk-0.11.0-residual-gaps.md S-4: a closure parameter typed as a frozen struct
+    // with ref-type fields (IsFrozenStructProjectedAsClass) hits a copy-transfer
+    // path on the C# side — `NewFromPayload` `InitializeWithCopy`s into a fresh
+    // `NativeMemory.Alloc` buffer (see `TypeHandlerHelpers.WriteNewFromPayloadFrozenStruct`),
+    // leaving the Swift-side heap source orphaned. The Swift adapter MUST emit
+    // a `defer { ... deinitialize ... deallocate }` for the source buffer or the
+    // process leaks one allocation per closure call. Without the defer the leak
+    // is silent and only shows up under sustained load.
+
+    [Fact]
+    public void SwiftClosureAdapter_FrozenStructWithRefFieldsArg_EmitsHeapAllocWithDefer()
+    {
+        var typeDatabase = CreateTypeDatabaseWithFrozenStructWithRefFields();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        // Closure: (TestModule.FrozenStructWithRef) -> Void — frozen + RequiresMemoryManagement
+        // routes through heapAllocCopiedArgs.
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.FrozenStructWithRef"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
+        Assert.Contains("__heap_0.initializeMemory(as: TestModule.FrozenStructWithRef.self", result);
+        // The defer-deallocate is the S-4 fix — without it the buffer leaks
+        // on every closure invocation because C# does NOT take ownership of
+        // the source pointer for the IsFrozenStructProjectedAsClass path.
+        Assert.Contains("defer", result);
+        Assert.Contains("__heap_0.assumingMemoryBound(to: TestModule.FrozenStructWithRef.self).deinitialize(count: 1)", result);
+        Assert.Contains("__heap_0.deallocate()", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_MultipleFrozenStructWithRefFieldsArgs_EachGetsDefer()
+    {
+        // Multi-arg closure with two FrozenStructWithRef params: each __heap_N
+        // must be matched by its own defer-deinitialize-deallocate.
+        var typeDatabase = CreateTypeDatabaseWithFrozenStructWithRefFields();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("TestModule.FrozenStructWithRef"),
+                new NamedTypeSpec("TestModule.FrozenStructWithRef")
+            }),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "handler", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("__heap_0.deallocate()", result);
+        Assert.Contains("__heap_1.deallocate()", result);
+        Assert.Contains("__heap_0.assumingMemoryBound(to: TestModule.FrozenStructWithRef.self).deinitialize(count: 1)", result);
+        Assert.Contains("__heap_1.assumingMemoryBound(to: TestModule.FrozenStructWithRef.self).deinitialize(count: 1)", result);
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ComplexEnumArg_RemainsWithoutDefer()
+    {
+        // Regression sanity: the S-4 fix must NOT change the complex-enum path —
+        // those still transfer ownership to C# (SwiftSafeHandle pairs VWT.Destroy
+        // + NativeMemory.Free on disposal). Double-freeing would happen if a
+        // defer were added here.
+        var typeDatabase = CreateTypeDatabaseWithFrozenStructWithRefFields();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.LoadingState"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.Contains("__heap_0 = UnsafeMutableRawPointer.allocate", result);
+        Assert.DoesNotContain("defer", result);
+        Assert.DoesNotContain("deallocate()", result);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithFrozenStructWithRefFields()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        // Frozen struct WITH ref fields — IsFrozenStructProjectedAsClass is true.
+        // The Frozen + RequiresMemoryManagement flag combination is exactly what
+        // MarshallingHelpers.IsFrozenStructProjectedAsClass tests for.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenStructWithRef"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "FrozenStructWithRef"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.FrozenStructWithRef"),
+                MetadataAccessor = "$s10TestModule20FrozenStructWithRefVMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        // Complex enum sibling — used by SwiftClosureAdapter_ComplexEnumArg_RemainsWithoutDefer
+        // to confirm the S-4 fix didn't regress the existing complex-enum heap-no-defer
+        // contract.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LoadingState"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LoadingState"),
+                MetadataAccessor = "$s10TestModule12LoadingStateOMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Enum
+            });
+        typeDatabase.AddModuleDatabase(testModule);
 
         return typeDatabase;
     }

@@ -164,6 +164,45 @@ public static class SwiftClosureMarshaller
         GCHandle handle = GCHandle.FromIntPtr(context);
         return (TDelegate)handle.Target!;
     }
+
+    /// <summary>
+    /// Extracts the delegate from an escaping closure's context that may be either
+    /// a raw <see cref="GCHandle"/> pointer (when the SwiftBindings runtime dylib
+    /// is absent) or an <c>_SBClosureCtx</c> box pointer (the normal case where
+    /// Swift owns the GCHandle through the box's deinit). Resolves the box via
+    /// the closure-context owner-token bridge when present.
+    /// </summary>
+    /// <remarks>
+    /// Used by trampolines on the legacy <c>SwiftClosureData</c> escaping path
+    /// (e.g. <c>ImagePipeline.loadData(didReceiveData:)</c>) — the cdecl path
+    /// must continue using <see cref="GetDelegateFromContext{TDelegate}"/>
+    /// because the Swift wrapper unboxes before calling the C# trampoline.
+    /// </remarks>
+    public static TDelegate GetDelegateFromBoxedContext<TDelegate>(IntPtr maybeBoxedContext) where TDelegate : Delegate
+    {
+        IntPtr ctx = SwiftClosureContext.GetCtx(maybeBoxedContext);
+        GCHandle handle = GCHandle.FromIntPtr(ctx);
+        return (TDelegate)handle.Target!;
+    }
+
+    /// <summary>
+    /// Wraps a pinned <see cref="GCHandle"/> pointer in an <c>_SBClosureCtx</c>
+    /// ARC box returned by the SwiftBindings runtime dylib. Returns
+    /// <see cref="IntPtr.Zero"/> when the dylib is absent — callers fall back to
+    /// passing the raw GCHandle pointer (preserving the pre-0.11 leak behaviour
+    /// rather than crashing). Used by generated wrappers on the legacy
+    /// <c>SwiftClosureData</c> escaping closure path.
+    /// </summary>
+    public static IntPtr TryAllocateBoxedContext(IntPtr ctx)
+        => SwiftClosureContext.TryAllocateBox(ctx);
+
+    /// <summary>
+    /// Releases a box pointer returned by <see cref="TryAllocateBoxedContext"/>,
+    /// firing the Swift-side <c>_SBClosureCtx.deinit</c> which frees the wrapped
+    /// <see cref="GCHandle"/>. No-op for <see cref="IntPtr.Zero"/>.
+    /// </summary>
+    public static void ReleaseBoxedContext(IntPtr boxPtr)
+        => SwiftClosureContext.ReleaseBox(boxPtr);
 }
 
 /// <summary>

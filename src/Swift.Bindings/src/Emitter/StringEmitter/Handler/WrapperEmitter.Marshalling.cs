@@ -403,8 +403,15 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        // Legacy SwiftClosureData path (for async methods with non-async closures)
+                        // Legacy SwiftClosureData path (for async methods with non-async closures,
+                        // and for didReceiveData-shape streaming callbacks). For escaping shapes we
+                        // wrap the GCHandle in an `_SBClosureCtx` ARC box via the runtime helper
+                        // so Swift's release of the closure frees the handle exactly once. The box
+                        // pointer falls back to the raw GCHandle pointer when the runtime dylib is
+                        // not packaged — preserving prior behaviour (leak rather than crash).
                         var callbackName = ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.MethodDecl.MangledName);
+                        bool legacyEscaping = WrapperValidation.IsEffectivelyEscaping(
+                            closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
 
                         if (isOptional)
                         {
@@ -414,7 +421,15 @@ namespace BindingsGeneration
                             csWriter.WriteLine("{");
                             csWriter.Indent++;
                             csWriter.WriteLine($"{csName}Handle = GCHandle.Alloc({csName});");
-                            csWriter.WriteLine($"{csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));");
+                            if (legacyEscaping)
+                            {
+                                csWriter.WriteLine($"{csName}Box = SwiftClosureMarshaller.TryAllocateBoxedContext(GCHandle.ToIntPtr({csName}Handle));");
+                                csWriter.WriteLine($"{csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, {csName}Box != IntPtr.Zero ? {csName}Box : GCHandle.ToIntPtr({csName}Handle));");
+                            }
+                            else
+                            {
+                                csWriter.WriteLine($"{csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, GCHandle.ToIntPtr({csName}Handle));");
+                            }
                             csWriter.Indent--;
                             csWriter.WriteLine("}");
                             csWriter.WriteLine("else");
@@ -423,6 +438,14 @@ namespace BindingsGeneration
                             csWriter.WriteLine($"{csName}Closure = default; // Zero-initialized = nil in Swift");
                             csWriter.Indent--;
                             csWriter.WriteLine("}");
+                        }
+                        else if (legacyEscaping)
+                        {
+                            csWriter.WriteLines($"""
+                                {csName}Handle = GCHandle.Alloc({csName});
+                                {csName}Box = SwiftClosureMarshaller.TryAllocateBoxedContext(GCHandle.ToIntPtr({csName}Handle));
+                                var {csName}Closure = new SwiftClosureData((IntPtr)s_{callbackName}, {csName}Box != IntPtr.Zero ? {csName}Box : GCHandle.ToIntPtr({csName}Handle));
+                                """);
                         }
                         else
                         {
@@ -482,6 +505,16 @@ namespace BindingsGeneration
             if (!_env.MethodDecl.UsesCdeclWrapper)
                 return;
 
+            // For async methods the cleanup is owned by the callback's holder-cleanup loop
+            // (see ExistentialContainerHeap in AsyncHelpers.cs and the matching branch in
+            // AsyncHarnessEmitter.BuildHolderCleanupCode). Track which holder slot each
+            // heap takes — the trailing `null!` cancellation slot stays last, so the
+            // existential slots sit at Length-1-existentialCount .. Length-2. They were
+            // reserved in EmitAsync via existentialPlaceholders.
+            bool isAsync = _requiresSwiftAsync;
+            int existentialIndex = 0;
+            int existentialTotal = _existentialHeapNames.Count;
+
             foreach (var arg in _env.MethodDecl.CSSignature.Skip(1)
                 .Where(a => _env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)))
             {
@@ -516,6 +549,15 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"{csName}Heap = NativeMemory.Alloc((nuint)Unsafe.SizeOf<{containerType}>());");
                 csWriter.WriteLine($"Unsafe.Copy({csName}Heap, ref {csName}Container);");
                 csWriter.WriteLine($"IntPtr {csName}Ptr = (IntPtr){csName}Heap;");
+
+                if (isAsync)
+                {
+                    // Slot index counts back from the trailing cancellation slot (Length-1)
+                    // and forward through the reserved existential slots.
+                    int reverseOffset = existentialTotal - existentialIndex;
+                    csWriter.WriteLine($"_asyncCallHolder[_asyncCallHolder.Length - 1 - {reverseOffset}] = new ExistentialContainerHeap((IntPtr){csName}Heap);");
+                    existentialIndex++;
+                }
             }
         }
 
@@ -839,8 +881,14 @@ namespace BindingsGeneration
                     }
                     else
                     {
+                        // Legacy SwiftClosureData escaping path: SwiftClosureData.context stores
+                        // an `_SBClosureCtx` box pointer (when the runtime dylib is packaged)
+                        // so Swift's release of the closure deinits the box and frees the
+                        // wrapped GCHandle. The trampoline must unbox to recover the GCHandle.
+                        bool useBoxedContext = !useCdecl
+                            && WrapperValidation.IsEffectivelyEscaping(closureTypeSpec, argumentDecl.SwiftTypeSpec, _env.ClosureHandler);
                         ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
-                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl);
+                        ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.MethodDecl.MangledName, useCdecl, useBoxedContext);
                     }
                     csWriter.WriteLine();
                 }
@@ -1188,6 +1236,32 @@ namespace BindingsGeneration
                         // body ran. If we never got there (Transferred still false), free
                         // here to close the alloc-but-no-call leak window.
                         csWriter.WriteLine($"if (!{csName}Transferred && {csName}Handle.IsAllocated) {csName}Handle.Free();");
+                    }
+                    else if (!_env.MethodDecl.HasCdeclClosureMarshalling &&
+                        _env.ClosureHandler.IsSupportedClosure(closureTypeSpec) &&
+                        _env.ClosureHandler.RequiresThunk(closureTypeSpec, _env.MethodDecl.MangledName, cleanupClosureCount) &&
+                        !_env.ClosureHandler.IsAsyncClosure(closureTypeSpec) &&
+                        isEffectivelyEscaping)
+                    {
+                        // Legacy SwiftClosureData escaping closure: Swift's release of
+                        // the closure deinits the `_SBClosureCtx` box and frees the
+                        // GCHandle exactly once (when {csName}Box is non-zero). If we
+                        // never reached the P/Invoke body (Transferred still false), we
+                        // must release the box ourselves (which fires the deinit) and
+                        // free the GCHandle directly when no box was allocated.
+                        csWriter.WriteLines($$"""
+                            if (!{{csName}}Transferred)
+                            {
+                                if ({{csName}}Box != IntPtr.Zero)
+                                {
+                                    SwiftClosureMarshaller.ReleaseBoxedContext({{csName}}Box);
+                                }
+                                else if ({{csName}}Handle.IsAllocated)
+                                {
+                                    {{csName}}Handle.Free();
+                                }
+                            }
+                            """);
                     }
                 }
             }

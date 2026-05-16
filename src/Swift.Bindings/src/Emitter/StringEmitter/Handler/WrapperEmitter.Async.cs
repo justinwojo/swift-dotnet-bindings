@@ -82,6 +82,24 @@ namespace BindingsGeneration
             // Detect Array<String> return type - requires flat buffer marshalling
             bool isArrayStringReturn = !isEmptyTuple && IsArrayOfString(returnTypeSpec);
 
+            // Reserve one trailing slot per existential heap allocation so the
+            // async callback cleanup loop can free each NativeMemory.Alloc buffer
+            // backing an existential container. Populated names live in
+            // _existentialHeapNames (filled by EmitExistentialHeapDeclarations
+            // which runs before EmitAsync). The matching ExistentialContainerHeap
+            // assignments are emitted by EmitExistentialContainerMarshalling.
+            //
+            // For an async instance method the foreground wrapper has no finally
+            // block (NeedsTryFinallyForMethod returns false), so without these
+            // holder slots the heap leaks. For static async / async constructors
+            // the foreground finally would otherwise free the buffer while Swift
+            // still reads from it on the continuation thread (UAF) — registering
+            // the buffer in the holder also defers cleanup until the callback.
+            int existentialSlotCount = _existentialHeapNames.Count;
+            string existentialPlaceholders = existentialSlotCount > 0
+                ? string.Concat(Enumerable.Repeat(", null!", existentialSlotCount))
+                : "";
+
             // Identify parameters that need copy-buffer treatment for async safety.
             // Non-frozen types always need this. Enum types also need it regardless of
             // frozen status because they're projected as managed C# classes with SafeHandle
@@ -292,7 +310,7 @@ namespace BindingsGeneration
                 if (needsDeferredList)
                     csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
                 csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}{{originalParamSuffix}}{{selfInHolder}}{{deferredListInHolder}}, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, {{copyBufferList}}{{originalParamSuffix}}{{selfInHolder}}{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -314,7 +332,7 @@ namespace BindingsGeneration
                     if (needsDeferredList)
                         csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
                     csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -333,7 +351,7 @@ namespace BindingsGeneration
                     if (needsDeferredList)
                         csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
                     csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new RetainedSelfPtr(_selfPtr), (object)this{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -346,7 +364,7 @@ namespace BindingsGeneration
                     if (needsDeferredList)
                         csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
                     csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this{{deferredListInHolder}}, null! };
+            object[] _asyncCallHolder = new object[] { _tcs, new DeferredSafeHandleRelease(_payload), (object)this{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
                 }
@@ -364,7 +382,7 @@ namespace BindingsGeneration
                 if (needsDeferredList)
                     csWriter.WriteLine("AsyncDeferredDisposeList _asyncDeferredList = new AsyncDeferredDisposeList();");
                 csWriter.WriteLines($$"""
-            object[] _asyncCallHolder = new object[] { _tcs{{deferredListInHolder}}, null! };
+            object[] _asyncCallHolder = new object[] { _tcs{{deferredListInHolder}}{{existentialPlaceholders}}, null! };
             GCHandle handle = GCHandle.Alloc(_asyncCallHolder, GCHandleType.Normal);
             """);
             }
@@ -2299,26 +2317,12 @@ namespace BindingsGeneration
                                     if (isCancellation != 0)
                                     {
                                         // Swift reported CancellationError — find token and cancel the Task.
-                                        // Loop variable __cleanupIdx (not "i") avoids any future risk of
+                                        // Loop body shared via AsyncHarnessEmitter.BuildCancellationCleanupLoop
+                                        // so this hand-rolled block cannot drift from its sibling in
+                                        // AsyncHarnessEmitter. Loop variable __cleanupIdx (not "i") avoids
                                         // shadowing a user parameter if this block ever moves into a user method.
                                         global::System.Threading.CancellationToken cancelToken = default;
-                                        for (int __cleanupIdx = 1; __cleanupIdx < holder.Length; __cleanupIdx++)
-                                        {
-                                            if (holder[__cleanupIdx] is CancellationRegistrationHolder cancelReg)
-                                            {
-                                                cancelToken = cancelReg.Token;
-                                                cancelReg.Registration.Dispose();
-                                            }
-                                            else if (holder[__cleanupIdx] is RetainedSelfPtr retained && retained.Ptr != IntPtr.Zero)
-                                                Arc.Release(retained.Ptr);
-                                            else if (holder[__cleanupIdx] is DeferredSafeHandleRelease deferred)
-                                                deferred.Handle.DangerousRelease();
-                                            else if (holder[__cleanupIdx] is CopyBufferWithType copyBuffer && copyBuffer.Buffer != IntPtr.Zero)
-                                            {
-                                                copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
-                                                NativeMemory.Free((void*)copyBuffer.Buffer);
-                                            }
-                                        }{{freeErrorInCancellation}}
+                {{AsyncHarnessEmitter.BuildCancellationCleanupLoop("holder", "__cleanupIdx", "                                        ")}}{{freeErrorInCancellation}}
                                         holderTcs.TrySetCanceled(cancelToken);
                                     }
                 """;
@@ -2737,7 +2741,18 @@ namespace BindingsGeneration
         /// <c>insert(contentsOf:before i: Int)</c>). C# CS0136 forbids shadowing an
         /// enclosing parameter with a local of the same name.
         /// </remarks>
-        private static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
+        // MIRROR with AsyncHarnessEmitter.BuildHolderCleanupCode — the two helpers
+        // emit the same holder-walk shape (one uses `i`, this one uses `__cleanupIdx`
+        // to avoid shadowing user parameters in inlined contexts). Any new holder
+        // slot type (RetainedSelfPtr, ExistentialContainerHeap, ...) must be added
+        // to BOTH helpers AND to AsyncHarnessEmitter.BuildCancellationCleanupLoop
+        // (the shared cancellation-path walk used by both BuildErrorCallbackBlock
+        // helpers), or the slot will leak on cancellation / exception paths.
+        // Accessibility note: kept `internal` (not `private`) so unit tests can assert
+        // both this variant AND the public AsyncHarnessEmitter.BuildHolderCleanupCode
+        // emit the same set of branches — the gap between them is exactly what allowed
+        // the S-5 ExistentialContainerHeap leak to slip past the test suite originally.
+        internal static string BuildHolderCleanupCode(string holderVar, string indent, bool includeCancellationReg = true, string cancelRegVarName = "cancelReg")
         {
             var cancelRegLine = includeCancellationReg
                 ? $"\n{indent}    else if ({holderVar}[__cleanupIdx] is CancellationRegistrationHolder {cancelRegVarName})\n{indent}        {cancelRegVarName}.Registration.Dispose();"
@@ -2758,6 +2773,8 @@ namespace BindingsGeneration
                 {{indent}}        copyBuffer.Metadata.ValueWitnessTable->Destroy((void*)copyBuffer.Buffer, copyBuffer.Metadata);
                 {{indent}}        NativeMemory.Free((void*)copyBuffer.Buffer);
                 {{indent}}    }
+                {{indent}}    else if ({{holderVar}}[__cleanupIdx] is ExistentialContainerHeap existentialHeap && existentialHeap.Ptr != IntPtr.Zero)
+                {{indent}}        NativeMemory.Free((void*)existentialHeap.Ptr);
                 {{indent}}    else if ({{holderVar}}[__cleanupIdx] is AsyncDeferredDisposeList __deferredList)
                 {{indent}}    {
                 {{indent}}        foreach (var __d in __deferredList.Items) __d.Dispose();
