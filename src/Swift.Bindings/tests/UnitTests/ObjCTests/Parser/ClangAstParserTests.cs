@@ -3448,4 +3448,91 @@ public class ClangAstParserTests
         var method = module.Classes[0].Methods[0];
         Assert.False(method.IsDesignatedInitializer);
     }
+
+    [Fact]
+    public void Parse_DeprecatedSubclassAlias_DroppedFromClasses()
+    {
+        // Apple's MTR_DEPRECATED rename pattern: legacy spelling subclasses canonical, names differ
+        // only by letter case. Both clang AST nodes look identical to the parser because
+        // -ast-dump=json omits availability platform/deprecated fields entirely.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MTROTAFooParams",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MTROtaFooParams",
+            {{MakeLoc()}},
+            "super": { "name": "MTROTAFooParams" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Single(module.Classes);
+        Assert.Equal("MTROTAFooParams", module.Classes[0].Name);
+    }
+
+    [Fact]
+    public void Parse_DeprecatedSubclassAlias_CategoryOnDroppedClass_AlsoDropped()
+    {
+        // Categories targeting a dropped alias would emit [BaseType(typeof(MissingClass))] —
+        // filter them alongside the class itself.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MTROTAFooParams",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MTROtaFooParams",
+            {{MakeLoc()}},
+            "super": { "name": "MTROTAFooParams" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCCategoryDecl",
+            "name": "Deprecated",
+            {{MakeLoc()}},
+            "interface": { "name": "MTROtaFooParams" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Empty(module.Categories);
+    }
+
+    [Fact]
+    public void Parse_SubclassWithDifferentName_NotDropped()
+    {
+        // Guard against false positives — a normal subclass whose name doesn't match the parent
+        // case-insensitively must be preserved.
+        var json = WrapInTranslationUnit($$"""
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MTRBaseDevice",
+            {{MakeLoc()}},
+            "super": { "name": "NSObject" },
+            "inner": []
+        },
+        {
+            "kind": "ObjCInterfaceDecl",
+            "name": "MTRDevice",
+            {{MakeLoc()}},
+            "super": { "name": "MTRBaseDevice" },
+            "inner": []
+        }
+        """);
+
+        var module = ClangAstParser.Parse(json, "TestLib", HeadersPath);
+        Assert.Equal(2, module.Classes.Count);
+    }
 }

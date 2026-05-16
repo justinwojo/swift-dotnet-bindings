@@ -1720,6 +1720,14 @@ public class TypeDatabaseExtensionsTests
     [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLLanguage", "NaturalLanguage.NLLanguage", TypeRecordKind.Struct)]
     [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLTagScheme", "NaturalLanguage.NLTagScheme", TypeRecordKind.Struct)]
     [InlineData("NaturalLanguageDatabase.xml", "NaturalLanguage.NLTokenUnit", "NaturalLanguage.NLTokenUnit", TypeRecordKind.Struct)]
+    // Matter — NS_ENUM(uint8_t) and NS_OPTIONS(uint8_t) referenced from MatterSupport's
+    // WiFiScanResult. WiFiBand is a real NS_ENUM (kind=enum, rawValueType=UInt8 → byte
+    // in generated C#); WiFiSecurity is NS_OPTIONS (kind=struct, no rawValueType) so the
+    // consumer's bound type is the OptionSet itself. UInt8 (not Int) matters: the
+    // headers use uint8_t, and Int would emit a platform-width long projection that
+    // mismatches the wire size of the ObjC enum.
+    [InlineData("MatterDatabase.xml", "Matter.MTRNetworkCommissioningWiFiBand", "Matter.MTRNetworkCommissioningWiFiBand", TypeRecordKind.Enum)]
+    [InlineData("MatterDatabase.xml", "Matter.MTRNetworkCommissioningWiFiSecurity", "Matter.MTRNetworkCommissioningWiFiSecurity", TypeRecordKind.Struct)]
     public async Task TryGetTypeRecord_NewFrameworkDatabase_ResolvesCorrectly(
         string xmlFile, string swiftType, string expectedCSharp, TypeRecordKind expectedKind)
     {
@@ -1733,6 +1741,22 @@ public class TypeDatabaseExtensionsTests
         Assert.Equal(expectedCSharp, record.CSharpTypeName.FullyQualifiedName);
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
         Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Fact]
+    public async Task TryGetTypeRecord_MatterWiFiBand_HasUInt8RawType()
+    {
+        // The header declares MTRNetworkCommissioningWiFiBand as NS_ENUM(uint8_t).
+        // UInt8 in the XML maps to C# byte via EnumHandler.GetCSharpEnumUnderlyingType.
+        // Using Int here would be wrong: that maps to long (8 bytes), versus the wire
+        // size of 1 byte, and any cross-module @_cdecl wrapper would mismatch.
+        var typeDatabase = await CreateDbWithXmlAsync("MatterDatabase.xml");
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            new NamedTypeSpec("Matter.MTRNetworkCommissioningWiFiBand"), out var record));
+        Assert.NotNull(record);
+        Assert.Equal("UInt8", record!.RawValueTypeName);
+        Assert.Equal("byte", EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName!));
     }
 
     // --- Types that previously returned AnyType now resolve when XML is loaded ---

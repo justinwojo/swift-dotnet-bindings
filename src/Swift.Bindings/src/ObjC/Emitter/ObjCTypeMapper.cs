@@ -258,26 +258,14 @@ public static class ObjCTypeMapper
         if (blockTypedefMap != null && blockTypedefMap.TryGetValue(typeRef.Name, out var blockResolved))
             return MapBlockType(blockResolved, genericTypeParams, typedefMap);
 
-        // 11. ObjC-to-.NET naming convention fallback
-        // .NET MAUI lowercases URL→Url and HTTP→Http in NS-prefixed type names.
-        // Apply anywhere in the name (NSCachedURLResponse → NSCachedUrlResponse).
-        var name = typeRef.Name;
-        if (name.StartsWith("NS", StringComparison.Ordinal) &&
-            (name.Contains("URL", StringComparison.Ordinal) || name.Contains("HTTP", StringComparison.Ordinal)))
-        {
-            return name
-                .Replace("HTTP", "Http", StringComparison.Ordinal)
-                .Replace("URL", "Url", StringComparison.Ordinal);
-        }
-
-        // 12. Passthrough / fallback
-        return name;
+        // 11. ObjC-to-.NET naming convention fallback (NS-prefix only)
+        return ApplyDotNetAcronymConvention(typeRef.Name);
     }
 
     /// <summary>
     /// Maps an ObjC class name to its .NET MAUI binding name.
     /// Like MapProtocolName but for class names used in BaseType attributes.
-    /// Applies URL→Url and HTTP→Http convention without pointer type semantics
+    /// Applies acronym conventions without pointer type semantics
     /// (NSString stays NSString, not string).
     /// </summary>
     public static string MapClassName(string name)
@@ -287,32 +275,63 @@ public static class ObjCTypeMapper
         if (PointerTypeMappings.TryGetValue(name, out var mapped) && mapped != "string" && mapped != "bool")
             return mapped;
 
-        // Apply URL/HTTP convention
-        if (name.StartsWith("NS", StringComparison.Ordinal) &&
-            (name.Contains("URL", StringComparison.Ordinal) || name.Contains("HTTP", StringComparison.Ordinal)))
-        {
-            return name
-                .Replace("HTTP", "Http", StringComparison.Ordinal)
-                .Replace("URL", "Url", StringComparison.Ordinal);
-        }
-
-        return name;
+        return ApplyDotNetAcronymConvention(name);
     }
 
     /// <summary>
     /// Maps an ObjC protocol name to its .NET MAUI binding convention name.
-    /// E.g., NSURLSessionTaskDelegate → NSUrlSessionTaskDelegate.
+    /// E.g., NSURLSessionTaskDelegate → NSUrlSessionTaskDelegate, NSXPCListenerDelegate → NSXpcListenerDelegate.
     /// </summary>
-    public static string MapProtocolName(string name)
+    public static string MapProtocolName(string name) => ApplyDotNetAcronymConvention(name);
+
+    /// <summary>
+    /// Acronyms that Microsoft.iOS/MAUI bgen lowercases in the body of NS-prefixed
+    /// managed type names (per .NET naming guidelines: acronym keeps first letter
+    /// uppercase, rest lowercase when 3+ chars long). Ordered LONGER FIRST so that
+    /// substring overlaps (HTTPS contains HTTP) are handled correctly via Replace.
+    /// </summary>
+    private static readonly (string ObjC, string Dotnet)[] AcronymConventions = new[]
     {
-        if (name.StartsWith("NS", StringComparison.Ordinal) &&
-            (name.Contains("URL", StringComparison.Ordinal) || name.Contains("HTTP", StringComparison.Ordinal)))
+        ("HTTPS", "Https"),
+        ("HTTP",  "Http"),
+        ("JSON",  "Json"),
+        ("HTML",  "Html"),
+        ("URL",   "Url"),
+        ("XPC",   "Xpc"),
+    };
+
+    /// <summary>
+    /// Applies .NET naming convention to ObjC type names: NSXPC* → NSXpc*, NSURL* → NSUrl*,
+    /// etc. Only triggers on NS-prefixed names — other framework prefixes (CB, CG, AV, ...)
+    /// keep their original casing because Microsoft.iOS does not apply the convention there.
+    /// </summary>
+    internal static string ApplyDotNetAcronymConvention(string name)
+    {
+        if (!name.StartsWith("NS", StringComparison.Ordinal))
+            return name;
+        var result = name;
+        foreach (var (objc, dn) in AcronymConventions)
         {
-            return name
-                .Replace("HTTP", "Http", StringComparison.Ordinal)
-                .Replace("URL", "Url", StringComparison.Ordinal);
+            if (result.Contains(objc, StringComparison.Ordinal))
+                result = result.Replace(objc, dn, StringComparison.Ordinal);
         }
-        return name;
+        return result;
+    }
+
+    /// <summary>
+    /// Reverses <see cref="ApplyDotNetAcronymConvention"/> for SDK-name lookups: takes a
+    /// .NET-cased managed name and recovers the original ObjC acronym casing so the name
+    /// can be looked up in <c>appleSdkTypeNames</c> (which stores raw clang AST names).
+    /// </summary>
+    internal static string ReverseDotNetAcronymConvention(string mappedName)
+    {
+        var result = mappedName;
+        foreach (var (objc, dn) in AcronymConventions)
+        {
+            if (result.Contains(dn, StringComparison.Ordinal))
+                result = result.Replace(dn, objc, StringComparison.Ordinal);
+        }
+        return result;
     }
 
     /// <summary>
@@ -466,20 +485,15 @@ public static class ObjCTypeMapper
 
     /// <summary>
     /// Checks if a mapped C# type name exists in the Apple SDK type names set.
-    /// Handles the URL→Url, HTTP→Http rename convention: the SDK set stores raw ObjC names
-    /// (e.g., NSURLSessionDelegate) but the mapped name uses .NET convention (NSUrlSessionDelegate).
+    /// The SDK set stores raw ObjC names (e.g., NSURLSessionDelegate, NSXPCConnection) but the
+    /// mapped name uses .NET acronym convention (NSUrlSessionDelegate, NSXpcConnection), so we
+    /// also try the reverse-renamed form.
     /// </summary>
     private static bool ContainsAppleSdkType(HashSet<string> appleSdkTypeNames, string mappedName)
     {
         if (appleSdkTypeNames.Contains(mappedName)) return true;
-        // Reverse the .NET naming convention to recover the original ObjC name
-        if (mappedName.Contains("Url", StringComparison.Ordinal) || mappedName.Contains("Http", StringComparison.Ordinal))
-        {
-            var objcName = mappedName
-                .Replace("Http", "HTTP", StringComparison.Ordinal)
-                .Replace("Url", "URL", StringComparison.Ordinal);
-            if (appleSdkTypeNames.Contains(objcName)) return true;
-        }
+        var objcName = ReverseDotNetAcronymConvention(mappedName);
+        if (!string.Equals(objcName, mappedName, StringComparison.Ordinal) && appleSdkTypeNames.Contains(objcName)) return true;
         return false;
     }
 

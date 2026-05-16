@@ -226,9 +226,42 @@ public static class ClangAstParser
         constants = DeduplicateByFirst(constants, c => c.Name);
         typedefs = DeduplicateByFirst(typedefs, t => t.Name);
 
+        // Pass 3.5: Drop deprecated-subclass legacy-name aliases. Must run AFTER MergeClasses so
+        // SuperclassName is populated from the definition node (not a stray forward-decl instance).
+        // Apple's MTR_DEPRECATED rename pattern: the canonical class (MTROTAFoo) is preserved, and a
+        // fully-deprecated subclass with the legacy spelling (MTROtaFoo) re-declares the parent's
+        // properties verbatim purely so existing source keeps compiling. Emitting both produces
+        // duplicate partial interfaces and bgen .g.cs collisions on case-insensitive macOS
+        // filesystems. The alias's name differs from its superclass's name only by letter casing —
+        // that is the most reliable signal because clang's JSON AST dump omits the platform/
+        // deprecated/unavailable fields on AvailabilityAttr nodes, so the parsed Availability list
+        // is always empty.
+        var droppedAliasNames = new HashSet<string>(StringComparer.Ordinal);
+        var aliasToCanonical = new Dictionary<string, string>(StringComparer.Ordinal);
+        classes = DropDeprecatedSubclassAliases(classes, droppedAliasNames, aliasToCanonical);
+
+        // Rewrite any remaining class whose SuperclassName points at a dropped alias to point at
+        // the alias's superclass (the canonical class). Defensive — Apple's rename pattern places
+        // the alias as the leaf, but a future framework may break that assumption.
+        if (aliasToCanonical.Count > 0)
+        {
+            classes = classes
+                .Select(c => c.SuperclassName != null && aliasToCanonical.TryGetValue(c.SuperclassName, out var canonical)
+                    ? c with { SuperclassName = canonical }
+                    : c)
+                .ToList();
+        }
+
         // Pass 4: Deduplicate categories by (ClassName, CategoryName).
         // Same category can appear through umbrella + public header.
-        var dedupedCategories = MergeCategories(categories);
+        // Also drop categories whose owning class was a deprecated-subclass alias that we just
+        // removed — emitting them would reference a non-existent base type. We only filter against
+        // the exact alias drop set (not all-classes-not-in-module), because the downstream pipeline
+        // pass ObjCPipeline.FilterToForeignCategories preserves legitimately-foreign categories on
+        // Apple SDK types (e.g. NSNull+RLMValue).
+        var dedupedCategories = MergeCategories(categories)
+            .Where(c => !droppedAliasNames.Contains(c.ClassName))
+            .ToList();
 
         return new ObjCModule
         {
@@ -1336,6 +1369,42 @@ public static class ClangAstParser
         return items.GroupBy(nameSelector)
             .Select(g => g.OrderByDescending(richnessSelector).First())
             .ToList();
+    }
+
+    /// <summary>
+    /// Drops "deprecated-subclass alias" classes — Apple's rename pattern where the legacy spelling
+    /// becomes a fully-deprecated subclass of the canonical class (e.g. Matter's
+    /// <c>MTROtaSoftware…</c> subclassing <c>MTROTASoftware…</c>, or
+    /// <c>MTRTimeSynchronizationClusterSetUtcTimeParams</c> subclassing the all-caps UTC variant).
+    /// Signal: subclass and superclass share the same name except for letter casing. Records each
+    /// dropped name into <paramref name="droppedAliasNames"/> so the category filter can also drop
+    /// categories that target the alias.
+    /// </summary>
+    private static List<ObjCClassDecl> DropDeprecatedSubclassAliases(List<ObjCClassDecl> classes, HashSet<string> droppedAliasNames, Dictionary<string, string> aliasToCanonical)
+    {
+        if (classes.Count == 0) return classes;
+        var classNames = new HashSet<string>(classes.Select(c => c.Name));
+        var kept = new List<ObjCClassDecl>(classes.Count);
+        foreach (var c in classes)
+        {
+            if (IsDeprecatedSubclassAlias(c, classNames))
+            {
+                droppedAliasNames.Add(c.Name);
+                if (c.SuperclassName != null)
+                    aliasToCanonical[c.Name] = c.SuperclassName;
+            }
+            else
+                kept.Add(c);
+        }
+        return kept;
+    }
+
+    private static bool IsDeprecatedSubclassAlias(ObjCClassDecl cls, HashSet<string> moduleClassNames)
+    {
+        if (cls.SuperclassName == null) return false;
+        if (!moduleClassNames.Contains(cls.SuperclassName)) return false;
+        if (string.Equals(cls.Name, cls.SuperclassName, StringComparison.Ordinal)) return false;
+        return string.Equals(cls.Name, cls.SuperclassName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

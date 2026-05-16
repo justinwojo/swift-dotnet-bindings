@@ -433,6 +433,16 @@
       ]
     },
     {
+      "module": "Matter",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "objcPrefixes": ["MTR"],
+      "valueTypes": [
+        "MTRNetworkCommissioningWiFiBand",
+        "MTRNetworkCommissioningWiFiSecurity"
+      ]
+    },
+    {
       "module": "MediaPlayer",
       "optionalFallback": true,
       "objcPrefixes": ["MP"]

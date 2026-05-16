@@ -371,6 +371,56 @@ public class StrategyTests
     }
 
     [Fact]
+    public void ObjCBridgingStrategy_SynthesizesMatterClassRecord()
+    {
+        // Pure-ObjC Matter framework: MatterSupport's MatterAddDeviceRequest.setupPayload
+        // is typed as Matter.MTRSetupPayload?. Apple's Matter framework ships no
+        // .swiftinterface, so AppleSupplementResolver misses; the ObjC bridging
+        // strategy is the path that synthesizes the Class record pointing at
+        // global::Matter.MTRSetupPayload. autoBridge:true in apple-frameworks.json
+        // is what makes this work.
+        var strategy = new ObjCBridgingStrategy();
+
+        var resolved = strategy.TryResolve(
+            new NamedTypeSpec("Matter.MTRSetupPayload"),
+            new ResolutionContext(EmptyDatabase()),
+            out var result);
+
+        Assert.True(resolved);
+        Assert.NotNull(result!.Record);
+        Assert.True((result.Record!.Flags & TypeRecordFlags.ObjCBridged) != 0);
+        Assert.Equal(TypeRecordKind.Class, result.Record.Kind);
+        Assert.Equal("Matter", result.Record.CSharpTypeName.Namespace);
+        Assert.Equal("MTRSetupPayload", result.Record.CSharpTypeName.Name);
+        Assert.Equal("Matter.MTRSetupPayload", result.Record.CSharpTypeName.FullyQualifiedName);
+    }
+
+    [Fact]
+    public void ObjCBridgingStrategy_DeclinesMatterWiFiValueTypes()
+    {
+        // The two Matter WiFi types are listed under valueTypes in
+        // apple-frameworks.json, so ObjCBridgingStrategy must decline them — they
+        // belong to MatterDatabase.xml's DatabaseLookupStrategy path. If the bridge
+        // synthesized Class records here, we'd emit references to non-existent
+        // global::Matter.MTRNetworkCommissioningWiFi{Band,Security} as classes.
+        var strategy = new ObjCBridgingStrategy();
+
+        foreach (var name in new[]
+        {
+            "Matter.MTRNetworkCommissioningWiFiBand",
+            "Matter.MTRNetworkCommissioningWiFiSecurity",
+        })
+        {
+            var resolved = strategy.TryResolve(
+                new NamedTypeSpec(name),
+                new ResolutionContext(EmptyDatabase()),
+                out var result);
+            Assert.False(resolved, $"ObjCBridgingStrategy must decline value-typed '{name}'");
+            Assert.Null(result);
+        }
+    }
+
+    [Fact]
     public void AppleSupplementStrategy_ResolvesSupplementOwnedIdentity()
     {
         // Foundation.Locale.Language is registered to TypeOwnerKind.AppleSupplement

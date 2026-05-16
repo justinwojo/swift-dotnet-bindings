@@ -701,6 +701,12 @@ public class ObjCTypeMapperTests
     [InlineData("NSURLSessionTaskDelegate", "NSUrlSessionTaskDelegate")]
     [InlineData("NSURLSessionDataDelegate", "NSUrlSessionDataDelegate")]
     [InlineData("NSURLSessionWebSocketMessage", "NSUrlSessionWebSocketMessage")]
+    // NSXPC types are declared in Foundation but Microsoft.iOS projects them under the
+    // .NET acronym convention (NSXpc*). The Matter framework's MTRDeviceController+XPC
+    // and MTRXPCDeviceControllerParameters reference these directly.
+    [InlineData("NSXPCConnection", "NSXpcConnection")]
+    [InlineData("NSXPCInterface", "NSXpcInterface")]
+    [InlineData("NSXPCListener", "NSXpcListener")]
     public void MapType_NSURLPrefixFallback_MapsCorrectly(string objcType, string expected)
     {
         // These types aren't in PointerTypeMappings but hit the prefix-based fallback
@@ -732,6 +738,14 @@ public class ObjCTypeMapperTests
     [InlineData("NSHTTPCookieStorageDelegate", "NSHttpCookieStorageDelegate")]
     [InlineData("NSCoding", "NSCoding")]
     [InlineData("UITableViewDelegate", "UITableViewDelegate")]
+    // Acronym conventions on additional Apple-projected acronyms:
+    // NSXPC* exists in Microsoft.iOS as NSXpc*; NSJSON* as NSJson*; NSHTML* as NSHtml*;
+    // NSHTTPS overlap with NSHTTP is resolved by longer-first ordering in AcronymConventions.
+    [InlineData("NSXPCListenerDelegate", "NSXpcListenerDelegate")]
+    [InlineData("NSXPCProxyCreating", "NSXpcProxyCreating")]
+    [InlineData("NSJSONSerialization", "NSJsonSerialization")]
+    [InlineData("NSHTMLReader", "NSHtmlReader")]
+    [InlineData("NSHTTPSConnection", "NSHttpsConnection")]
     public void MapProtocolName_AppliesNamingConvention(string input, string expected)
     {
         Assert.Equal(expected, ObjCTypeMapper.MapProtocolName(input));
@@ -812,7 +826,7 @@ public class ObjCTypeMapperTests
     }
 
     // ──────────────────────────────────────────────
-    // IsApiDefinitionTypeResolvable — source-aware + URL/HTTP rename
+    // IsApiDefinitionTypeResolvable — source-aware + acronym rename
     // ──────────────────────────────────────────────
 
     [Theory]
@@ -822,11 +836,37 @@ public class ObjCTypeMapperTests
     [InlineData("UIColor", true)]                 // Direct match (in SDK set as-is)
     [InlineData("ThirdPartyType", false)]         // Not in SDK set or known types
     [InlineData("pb_wire_type_t", false)]         // C-internal type
-    public void IsApiDefinitionTypeResolvable_WithSdkNames_HandlesUrlHttpRename(string mappedType, bool expected)
+    [InlineData("NSXpcConnection", true)]         // Reverse acronym: NSXpcConnection → NSXPCConnection (in SDK set)
+    [InlineData("NSXpcInterface", true)]          // Reverse acronym: NSXpcInterface → NSXPCInterface (in SDK set)
+    public void IsApiDefinitionTypeResolvable_WithSdkNames_HandlesAcronymConvention(string mappedType, bool expected)
     {
         var knownTypes = ObjCTypeMapper.BuildKnownMappedTypes();
-        var sdkNames = new HashSet<string> { "NSHTTPURLResponse", "NSURLSession", "NSURLSessionDelegate", "UIColor" };
+        var sdkNames = new HashSet<string> { "NSHTTPURLResponse", "NSURLSession", "NSURLSessionDelegate", "UIColor", "NSXPCConnection", "NSXPCInterface" };
         Assert.Equal(expected, ObjCTypeMapper.IsApiDefinitionTypeResolvable(mappedType, knownTypes, sdkNames));
+    }
+
+    // Direct coverage of the reverse-acronym helper, including roundtrip with Apply.
+    [Theory]
+    [InlineData("NSHttpUrlResponse", "NSHTTPURLResponse")]
+    [InlineData("NSXpcConnection", "NSXPCConnection")]
+    [InlineData("NSJsonSerialization", "NSJSONSerialization")]
+    [InlineData("NSHtmlParser", "NSHTMLParser")]
+    [InlineData("UIColor", "UIColor")]                 // non-NS prefix → unchanged
+    [InlineData("NSObject", "NSObject")]               // no acronym substring → unchanged
+    public void ReverseDotNetAcronymConvention_ReversesPascalToAllCaps(string mapped, string expected)
+    {
+        Assert.Equal(expected, ObjCTypeMapper.ReverseDotNetAcronymConvention(mapped));
+    }
+
+    [Theory]
+    [InlineData("NSHTTPURLResponse")]
+    [InlineData("NSXPCConnection")]
+    [InlineData("NSJSONSerialization")]
+    [InlineData("NSHTMLParser")]
+    public void AcronymConvention_RoundTrip_ApplyThenReverse_RestoresOriginal(string original)
+    {
+        var applied = ObjCTypeMapper.ApplyDotNetAcronymConvention(original);
+        Assert.Equal(original, ObjCTypeMapper.ReverseDotNetAcronymConvention(applied));
     }
 
     [Theory]

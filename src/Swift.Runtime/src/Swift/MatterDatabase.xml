@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<swifttypedatabase version="1.0" moduleName="Matter" modulePath="/System/Library/Frameworks/Matter.framework/Matter">
+    <entities>
+        <entity managedNameSpace="Matter" managedTypeName="MTRNetworkCommissioningWiFiBand">
+            <typedeclaration kind="enum" name="MTRNetworkCommissioningWiFiBand" module="Matter" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt8" />
+        </entity>
+        <entity managedNameSpace="Matter" managedTypeName="MTRNetworkCommissioningWiFiSecurity">
+            <typedeclaration kind="struct" name="MTRNetworkCommissioningWiFiSecurity" module="Matter" frozen="true" requiresMemoryManagement="false" />
+        </entity>
+    </entities>
+</swifttypedatabase>

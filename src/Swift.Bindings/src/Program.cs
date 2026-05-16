@@ -598,7 +598,7 @@ namespace BindingsGeneration
                 "DispatchDatabase.xml", "CoreImageDatabase.xml", "SwiftUIDatabase.xml",
                 "AVFoundationDatabase.xml", "CoreTextDatabase.xml", "SecurityDatabase.xml",
                 "QuartzCoreDatabase.xml", "PhotosDatabase.xml", "CoreBluetoothDatabase.xml",
-                "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MetalDatabase.xml",
+                "CoreLocationDatabase.xml", "MapKitDatabase.xml", "MatterDatabase.xml", "MetalDatabase.xml",
                 "CoreMLDatabase.xml", "StoreKitDatabase.xml", "SceneKitDatabase.xml",
                 "NaturalLanguageDatabase.xml", "CoreMediaDatabase.xml", "ManagedSettingsDatabase.xml",
                 // simd is a C module shipped by every Apple platform; the database exposes

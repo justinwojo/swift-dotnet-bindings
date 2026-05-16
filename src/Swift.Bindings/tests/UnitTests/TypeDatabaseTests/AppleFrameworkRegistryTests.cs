@@ -72,7 +72,7 @@ public class AppleFrameworkRegistryTests
             "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
             "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
             "Intents", "IntentsUI", "QuartzCore", "AVFAudio",
-            "CoreLocation", "MapKit",
+            "CoreLocation", "MapKit", "Matter",
         };
 
         foreach (var module in autoBridgeModules)
@@ -153,6 +153,11 @@ public class AppleFrameworkRegistryTests
     // synthesised a non-existent flattened identifier.
     [InlineData("ARKit.ARHitTestResult.ResultType", true)]
     [InlineData("UIKit.UIAccessibilityCustomRotor.Direction", true)]
+    // Matter — the two cross-module ObjC enums referenced by MatterSupport's
+    // WiFiScanResult. Must stay off the Class-bridged path so the resolver
+    // picks them up from MatterDatabase.xml as proper enum/struct records.
+    [InlineData("Matter.MTRNetworkCommissioningWiFiBand", true)]
+    [InlineData("Matter.MTRNetworkCommissioningWiFiSecurity", true)]
     [InlineData("PassKit.PKPayment", false)]   // Class (NSObject subclass)
     [InlineData("UIKit.UIImage", false)]       // Class, not value type
     [InlineData("Foundation.NSObject", false)]  // Class
@@ -552,7 +557,7 @@ public class AppleFrameworkRegistryTests
             "CoreML", "Vision", "NaturalLanguage", "SoundAnalysis", "Speech",
             "MultipeerConnectivity", "UserNotifications", "NetworkExtension",
             "Intents", "IntentsUI", "QuartzCore", "AVFAudio",
-            "CoreLocation", "MapKit", "PassKit",
+            "CoreLocation", "MapKit", "Matter", "PassKit",
         };
 
         foreach (var module in expectedModules)
@@ -569,7 +574,7 @@ public class AppleFrameworkRegistryTests
         var expectedModules = new[]
         {
             "CoreAnimation", "CoreBluetooth", "CoreLocation", "CoreMedia", "CoreML",
-            "CoreMotion", "MapKit", "Metal", "MetalKit", "PassKit", "PhotosUI",
+            "CoreMotion", "MapKit", "Matter", "Metal", "MetalKit", "PassKit", "PhotosUI",
             "QuartzCore", "SceneKit", "SpriteKit", "StoreKit", "WebKit",
             "ARKit", "RealityKit", "GameKit", "HealthKit", "HomeKit",
             "AuthenticationServices", "LocalAuthentication", "NaturalLanguage",
@@ -726,6 +731,12 @@ public class AppleFrameworkRegistryTests
             "CoreBluetooth.CBManagerState", "CoreBluetooth.CBManagerAuthorization",
             "CoreBluetooth.CBPeripheralState", "CoreBluetooth.CBCharacteristicProperties",
             "CoreBluetooth.CBAttributePermissions", "CoreBluetooth.CBCharacteristicWriteType",
+            // Matter — MatterSupport's WiFiScanResult.security/.band reference these enums
+            // from Apple's pure-ObjC Matter framework. valueTypes-listing keeps them off
+            // the Class-bridged path; MatterDatabase.xml supplies the actual TypeRecord
+            // (enum for Band/uint8_t, struct for Security/NS_OPTIONS).
+            "Matter.MTRNetworkCommissioningWiFiBand",
+            "Matter.MTRNetworkCommissioningWiFiSecurity",
             // Photos
             "Photos.PHImageContentMode",
             "Photos.PHAuthorizationStatus", "Photos.PHAccessLevel",
@@ -944,6 +955,7 @@ public class AppleFrameworkRegistryTests
             ("Module.GCController", true), // GC
             ("Module.NLTagger", true),     // NL
             ("Module.SNRequest", true),    // SN
+            ("Module.MTRSetupPayload", true), // MTR (Matter framework)
         };
 
         foreach (var (name, expected) in prefixTests)
@@ -1106,6 +1118,12 @@ public class AppleFrameworkRegistryTests
     // ARKit declares ["AR"]: ARSession is ObjC; valueTypes-listed entries stay false.
     [InlineData("ARKit", "ARKit.ARSession", true)]
     [InlineData("ARKit", "ARKit.ARRaycastQuery.Target", false)]   // listed in valueTypes
+    // Matter declares ["MTR"]: MTRSetupPayload is genuine ObjC; the two WiFi value
+    // types are excluded so MatterDatabase.xml supplies their TypeRecords instead
+    // of synthesizing bogus Class records.
+    [InlineData("Matter", "Matter.MTRSetupPayload", true)]
+    [InlineData("Matter", "Matter.MTRNetworkCommissioningWiFiBand", false)]
+    [InlineData("Matter", "Matter.MTRNetworkCommissioningWiFiSecurity", false)]
     // Foundation declares ["NS"]: NSString is ObjC; non-NS Foundation types
     // (Bundle, Timer, etc. — handled separately by TryGetNetTypeName).
     [InlineData("Foundation", "Foundation.NSString", true)]

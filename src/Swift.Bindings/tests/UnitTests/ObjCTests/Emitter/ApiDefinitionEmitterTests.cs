@@ -3495,4 +3495,341 @@ public class ApiDefinitionEmitterTests
         Assert.Contains("NSNumber DefaultValue { get; }", result);
     }
 
+    [Fact]
+    public void Emit_ChildProtocol_SignatureClashWithInheritedParent_RenamedViaFullSelector()
+    {
+        // Reproduces the IMTRXPCServerProtocol pattern from Matter: child protocol's own method
+        // and an inherited parent method PascalCase to the same name + same C# param signature.
+        // bgen flattens inherited methods into the generated concrete class, so the clash would
+        // produce CS0111 without cross-interface dedup. The emitter must seed the child's dedup
+        // set with parent signatures and rename the child's method via SelectorToFullMethodName.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "ParentProto",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:withState:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters =
+                            [
+                                new ObjCParameterDecl { Name = "thing", Type = new ObjCTypeRef { Name = "NSUUID", IsPointer = true } },
+                                new ObjCParameterDecl { Name = "state", Type = new ObjCTypeRef { Name = "NSDictionary", IsPointer = true } },
+                            ]
+                        }
+                    ]
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "ChildProto",
+                    InheritedProtocolNames = ["ParentProto"],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:withContext:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters =
+                            [
+                                new ObjCParameterDecl { Name = "thing", Type = new ObjCTypeRef { Name = "NSUUID", IsPointer = true } },
+                                new ObjCParameterDecl { Name = "context", Type = new ObjCTypeRef { Name = "NSDictionary", IsPointer = true } },
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        // Parent keeps the short name; child renames to full-selector form.
+        Assert.Contains("void DoThing(NSUuid thing, NSDictionary state);", result);
+        Assert.Contains("void DoThingWithContext(NSUuid thing, NSDictionary context);", result);
+        Assert.DoesNotContain("void DoThing(NSUuid thing, NSDictionary context);", result);
+    }
+
+    [Fact]
+    public void Emit_TransitiveInheritance_ChildSeesGrandparentInducedRename()
+    {
+        // Three-level chain where the parent's own method gets renamed by a grandparent-induced
+        // collision. If the child's seed records the parent under its naïve short name (instead of
+        // recursively resolving the parent's actual emission), the child can emit a duplicate of
+        // the parent's renamed method. Verifies SeedInheritedProtocolSignatures handles transitive
+        // renames via recursive memoization.
+        //
+        // Selector + param shape:
+        //   Grand: do:    (NSUUID) → emits Do(NSUuid)
+        //   Parent : Grand: do:    (NSUUID) → start "Do(NSUuid)" collides → rename to full
+        //                                       "Do" (single part) → suffix → Do2(NSUuid)
+        //   Child  : Parent: do:   (NSUUID) → must avoid both Do(NSUuid) and Do2(NSUuid) → Do3(NSUuid)
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "GrandProto",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "do:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [ new ObjCParameterDecl { Name = "x", Type = new ObjCTypeRef { Name = "NSUUID", IsPointer = true } } ]
+                        }
+                    ]
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "ParentProto",
+                    InheritedProtocolNames = ["GrandProto"],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "do:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [ new ObjCParameterDecl { Name = "x", Type = new ObjCTypeRef { Name = "NSUUID", IsPointer = true } } ]
+                        }
+                    ]
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "ChildProto",
+                    InheritedProtocolNames = ["ParentProto"],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "do:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [ new ObjCParameterDecl { Name = "x", Type = new ObjCTypeRef { Name = "NSUUID", IsPointer = true } } ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("void Do(NSUuid x);", result);
+        Assert.Contains("void Do2(NSUuid x);", result);
+        Assert.Contains("void Do3(NSUuid x);", result);
+    }
+
+    [Fact]
+    public void Emit_ChildMethod_CollidingWithInheritedParentProperty_RenamedViaFullSelector()
+    {
+        // Parent protocol exposes property `foo`; child protocol exposes method `foo:` (one param).
+        // bgen flattens both into the concrete class — property Foo and method Foo(...) would
+        // collide as CS0102 ("type already contains a definition for 'Foo'"). The seed must record
+        // the ancestor's property name into emittedMemberNames AND EmitMethod must consult that
+        // set during dedup, renaming the child method via SelectorToFullMethodName.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "ParentProto",
+                    Properties =
+                    [
+                        new ObjCPropertyDecl
+                        {
+                            Name = "foo",
+                            Type = new ObjCTypeRef { Name = "NSString", IsPointer = true },
+                            IsReadonly = true,
+                        }
+                    ]
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "ChildProto",
+                    InheritedProtocolNames = ["ParentProto"],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "foo:withBar:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters =
+                            [
+                                new ObjCParameterDecl { Name = "a", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+                                new ObjCParameterDecl { Name = "b", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("string Foo { get; }", result);
+        Assert.Contains("void FooWithBar(string a, string b);", result);
+        // The naïve short name must NOT be emitted — it would collide with parent's Foo property.
+        Assert.DoesNotContain("void Foo(string a, string b);", result);
+    }
+
+    [Fact]
+    public void Emit_MethodOverloads_SameShortName_DifferentSignatures_NotRenamed()
+    {
+        // Two methods on the same protocol that PascalCase to the same name but have different
+        // parameter signatures are legal C# overloads (CS0111 only fires on identical signatures).
+        // The cross-set dedup that prevents method-vs-property name collisions must NOT block
+        // legitimate method overloads.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "Proto",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [ new ObjCParameterDecl { Name = "a", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } } ]
+                        },
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:withCount:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters =
+                            [
+                                new ObjCParameterDecl { Name = "a", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+                                new ObjCParameterDecl { Name = "n", Type = new ObjCTypeRef { Name = "int" } },
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("void DoThing(string a);", result);
+        Assert.Contains("void DoThing(string a, int n);", result);
+        Assert.DoesNotContain("DoThingWithCount", result);
+    }
+
+    [Fact]
+    public void Emit_ChildMethodOverload_SameShortNameAsInheritedMethod_DifferentSignature_NotRenamed()
+    {
+        // Same rule across inheritance: child method with same short name as parent's method but
+        // different signature is a legal overload after bgen flattens, and must not be renamed.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols =
+            [
+                new ObjCProtocolDecl
+                {
+                    Name = "ParentProto",
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters = [ new ObjCParameterDecl { Name = "a", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } } ]
+                        }
+                    ]
+                },
+                new ObjCProtocolDecl
+                {
+                    Name = "ChildProto",
+                    InheritedProtocolNames = ["ParentProto"],
+                    Methods =
+                    [
+                        new ObjCMethodDecl
+                        {
+                            Selector = "doThing:withCount:",
+                            ReturnType = new ObjCTypeRef { Name = "void" },
+                            IsInstanceMethod = true,
+                            Parameters =
+                            [
+                                new ObjCParameterDecl { Name = "a", Type = new ObjCTypeRef { Name = "NSString", IsPointer = true } },
+                                new ObjCParameterDecl { Name = "n", Type = new ObjCTypeRef { Name = "int" } },
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        var result = EmitAndRead(module);
+        Assert.Contains("void DoThing(string a);", result);
+        Assert.Contains("void DoThing(string a, int n);", result);
+        Assert.DoesNotContain("DoThingWithCount", result);
+    }
+
+    [Fact]
+    public void Emit_WeakDelegatePattern_DroppedWhenWeakNameCollidesWithPriorMethod()
+    {
+        // The WeakDelegate/Wrap pattern emits two members (PropName + WeakPropName).
+        // If a previously emitted method has already claimed either name, both members must
+        // be dropped — otherwise the generated binding would have a duplicate-name CS0102.
+        // Here a method named `weakDelegate` PascalCases to `WeakDelegate`, which is the
+        // exact synthetic name the WeakDelegate pattern would emit.
+        var module = new ObjCModule
+        {
+            ModuleName = "Test",
+            Protocols = [new ObjCProtocolDecl
+            {
+                Name = "MyViewDelegate",
+                IsDelegateProtocol = true
+            }],
+            Classes = [new ObjCClassDecl
+            {
+                Name = "MyView",
+                Methods =
+                [
+                    new ObjCMethodDecl
+                    {
+                        Selector = "weakDelegate",
+                        ReturnType = new ObjCTypeRef { Name = "NSObject", IsPointer = true },
+                        IsInstanceMethod = true,
+                        Parameters = []
+                    }
+                ],
+                Properties = [new ObjCPropertyDecl
+                {
+                    Name = "delegate",
+                    Type = new ObjCTypeRef
+                    {
+                        Name = "id",
+                        IsPointer = true,
+                        ProtocolQualifications = ["MyViewDelegate"]
+                    },
+                    IsReadonly = false,
+                    GetterSelector = "delegate"
+                }]
+            }]
+        };
+
+        var result = EmitAndRead(module);
+
+        // The method must still be emitted.
+        Assert.Contains("WeakDelegate", result);
+        // The WeakDelegate/Wrap pattern must NOT be emitted (would duplicate WeakDelegate).
+        Assert.DoesNotContain("[Wrap(\"WeakDelegate\")]", result);
+        Assert.DoesNotContain("MyViewDelegate Delegate { get; set; }", result);
+    }
 }

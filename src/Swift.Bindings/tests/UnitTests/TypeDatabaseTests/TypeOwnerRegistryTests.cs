@@ -49,6 +49,14 @@ public class TypeOwnerRegistryTests
     [InlineData("Foundation.Measurement<Foundation.UnitLength>")]
     [InlineData("ManagedSettings.Token")]
     [InlineData("ManagedSettings.Token<Application>")]
+    // Matter framework — pure ObjC, ships no .swiftinterface. Owner resolution lands on
+    // AppleSupplement (Matter is in s_defaultAppleModules); the actual TypeRecord is then
+    // synthesized by ObjCBridgingStrategy (class types) or DatabaseLookupStrategy (the
+    // two WiFi value types in MatterDatabase.xml). MatterSupport's cross-module fix
+    // depends on this owner classification.
+    [InlineData("Matter.MTRSetupPayload")]
+    [InlineData("Matter.MTRNetworkCommissioningWiFiBand")]
+    [InlineData("Matter.MTRNetworkCommissioningWiFiSecurity")]
     public void Resolve_AppleSupplementCanonical_ResolvesToAppleSupplement(string swiftIdentity)
     {
         // Previously pinned to Runtime (legacy canonical list). Now resolve via the Apple

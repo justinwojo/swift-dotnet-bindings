@@ -1018,6 +1018,21 @@ public class TypeDatabaseTests
             Assert.Contains("SimdDatabase.xml", databases);
         }
 
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.tvOS)]
+        [InlineData(ApplePlatform.macOS)]
+        [InlineData(ApplePlatform.MacCatalyst)]
+        public void GetBuiltInDatabases_AllPlatforms_IncludeMatterDatabase(ApplePlatform platform)
+        {
+            // Matter (pure-ObjC Apple framework) is referenced by MatterSupport (Swift) on
+            // every Apple platform that ships MatterSupport. Without this database the
+            // generator degrades MatterSupport.MatterAddDeviceRequest.setupPayload and
+            // WiFiScanResult.security/.band to AnyType.
+            var databases = BindingsGenerator.GetBuiltInDatabases(platform);
+            Assert.Contains("MatterDatabase.xml", databases);
+        }
+
         /// <summary>
         /// Points to the runtime XML databases directory via relative path from the test output.
         /// </summary>
