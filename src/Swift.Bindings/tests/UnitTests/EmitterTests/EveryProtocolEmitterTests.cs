@@ -1360,8 +1360,13 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void EmitProtocolConformance_NSObjectProtocolInheritor_SkipsEmission()
+    public void EmitProtocolConformance_NSObjectProtocolInheritor_RoutesThroughEveryObjCProtocol()
     {
+        // S-2: @objc protocols inheriting only NSObjectProtocol (no NSCoding et al.)
+        // route through the NSObject-rooted EveryObjCProtocol helper class instead of
+        // skipping. The emitted extension hangs off EveryObjCProtocol so Swift's
+        // type-checker accepts the conformance, and the witness-table getter / vtable
+        // setter use the same class.
         var protocol = CreateProtocolWithMethod("STPFormEncodable", "encode");
         protocol.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
 
@@ -1370,7 +1375,29 @@ public class EveryProtocolEmitterTests
         _emitter.EmitProtocolConformance(writer, protocol);
         var output = stringWriter.ToString();
 
-        Assert.DoesNotContain("EveryProtocol", output);
+        // The extension hangs off EveryObjCProtocol (NSObject-rooted) so the
+        // synthesized conformance type-checks against an @objc protocol that
+        // inherits NSObjectProtocol. The protocol name is emitted module-qualified.
+        Assert.Contains("extension EveryObjCProtocol: TestModule.STPFormEncodable", output);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.STPFormEncodable", output);
+    }
+
+    [Fact]
+    public void EmitProtocolConformance_NSCodingInheritor_StillSkipsEmission()
+    {
+        // S-2 negative: NSCoding (and NSSecureCoding/NSCopying/NSMutableCopying)
+        // require encoding/copying surfaces the EveryObjCProtocol synthesis can't
+        // supply, so these remain on the skip path.
+        var protocol = CreateProtocolWithMethod("EncodableThing", "doIt");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Foundation.NSCoding"));
+
+        var stringWriter = new StringWriter();
+        var writer = new SwiftWriter(stringWriter);
+        _emitter.EmitProtocolConformance(writer, protocol);
+        var output = stringWriter.ToString();
+
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.EncodableThing", output);
+        Assert.DoesNotContain("extension EveryObjCProtocol: TestModule.EncodableThing", output);
     }
 
     [Fact]

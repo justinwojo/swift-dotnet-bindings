@@ -26,6 +26,31 @@ public class EveryProtocolEmitter
     /// </summary>
     private readonly HashSet<string> _skippedProtocols = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Module-local protocol list set during <see cref="PreScanProtocols"/>. Used by
+    /// <see cref="IsClassBoundProtocol(ProtocolDecl, IReadOnlyList{ProtocolDecl}?)"/> and
+    /// <see cref="IsNSObjectProtocolOnly(ProtocolDecl, IReadOnlyList{ProtocolDecl}?)"/>
+    /// at routing checkpoints so a module-local protocol inheriting another module-local
+    /// NSObjectProtocol-rooted protocol is correctly routed through EveryObjCProtocol
+    /// rather than being treated as a non-class-bound stranger.
+    /// </summary>
+    private IReadOnlyList<ProtocolDecl>? _allProtocols;
+
+    /// <summary>
+    /// True while emitting an NSObjectProtocol-only conformance: the Swift extension
+    /// must hang off <c>EveryObjCProtocol</c> (NSObject-rooted) rather than the plain
+    /// Swift <c>EveryProtocol</c>. Reset between protocols by
+    /// <see cref="EmitProtocolConformance(SwiftWriter, ProtocolDecl, HashSet{string}?, HashSet{string}?)"/>.
+    /// </summary>
+    private bool _useObjCBase;
+
+    /// <summary>
+    /// Swift identifier of the base class to emit the current protocol's extension
+    /// against — either <c>EveryProtocol</c> (default) or <c>EveryObjCProtocol</c>
+    /// (S-2 NSObjectProtocol-only path).
+    /// </summary>
+    private string BaseClassName => _useObjCBase ? "EveryObjCProtocol" : "EveryProtocol";
+
     public EveryProtocolEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? emissionContext = null)
     {
         _typeDatabase = typeDatabase;
@@ -52,6 +77,16 @@ public class EveryProtocolEmitter
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryProtocol");
         _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryProtocolDeinitCallback");
+        // EveryObjCProtocol mirrors the above for NSObject-rooted @objc protocols
+        // (S-2): the plain Swift EveryProtocol class cannot satisfy NSObjectProtocol
+        // because that requirement transitively demands NSObject identity. The
+        // NSObject-rooted variant is generated alongside EveryProtocol whenever
+        // EveryProtocolEmitter runs, so the wrapper carries both factories
+        // unconditionally — register the symbols to keep the wrapper contract honest.
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_CreateEveryObjCProtocol");
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_ReleaseEveryObjCProtocol");
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_GetMetadata_EveryObjCProtocol");
+        _emissionContext?.TryAddMethodWrapperSymbol("SBW_SetEveryObjCProtocolDeinitCallback");
 
         writer.WriteLines($$"""
             // EveryProtocol is a Swift class that can conform to any protocol.
@@ -127,6 +162,62 @@ public class EveryProtocolEmitter
                 _ context: UnsafeRawPointer
             ) {
                 let ep = Unmanaged<EveryProtocol>.fromOpaque(instance).takeUnretainedValue()
+                ep.onDeinit = callback
+                ep.onDeinitCtx = context
+            }
+
+            // EveryObjCProtocol is the NSObject-rooted twin of EveryProtocol. Swift
+            // forbids conforming a non-NSObject class to any @objc protocol that
+            // inherits NSObjectProtocol (Stripe's STPAuthenticationContext is the
+            // motivating shape). Conformances synthesised on this class satisfy the
+            // NSObjectProtocol requirement via NSObject's built-in implementations
+            // of isEqual:/hash/description, leaving the protocol's own requirements
+            // to the same vtable-callback pattern used for EveryProtocol.
+            @objc public final class EveryObjCProtocol: NSObject, @unchecked Sendable {
+                public let handle: UnsafeRawPointer?
+                fileprivate var onDeinit: (@convention(c) (UnsafeRawPointer) -> Void)?
+                fileprivate var onDeinitCtx: UnsafeRawPointer?
+
+                public override init() {
+                    self.handle = nil
+                    super.init()
+                }
+
+                public init(handle: UnsafeRawPointer) {
+                    self.handle = handle
+                    super.init()
+                }
+
+                deinit {
+                    if let cb = onDeinit, let ctx = onDeinitCtx {
+                        cb(ctx)
+                    }
+                }
+            }
+
+            @_cdecl("SBW_CreateEveryObjCProtocol")
+            public func _sbw_createEveryObjCProtocol() -> UnsafeMutableRawPointer {
+                let instance = EveryObjCProtocol()
+                return Unmanaged.passRetained(instance).toOpaque()
+            }
+
+            @_cdecl("SBW_ReleaseEveryObjCProtocol")
+            public func _sbw_releaseEveryObjCProtocol(_ ptr: UnsafeMutableRawPointer) {
+                Unmanaged<EveryObjCProtocol>.fromOpaque(ptr).release()
+            }
+
+            @_cdecl("SBW_GetMetadata_EveryObjCProtocol")
+            public func _sbw_getEveryObjCProtocolMetadata() -> UnsafeRawPointer {
+                return unsafeBitCast(EveryObjCProtocol.self, to: UnsafeRawPointer.self)
+            }
+
+            @_cdecl("SBW_SetEveryObjCProtocolDeinitCallback")
+            public func _sbw_setEveryObjCProtocolDeinitCallback(
+                _ instance: UnsafeMutableRawPointer,
+                _ callback: @convention(c) (UnsafeRawPointer) -> Void,
+                _ context: UnsafeRawPointer
+            ) {
+                let ep = Unmanaged<EveryObjCProtocol>.fromOpaque(instance).takeUnretainedValue()
                 ep.onDeinit = callback
                 ep.onDeinitCtx = context
             }
@@ -385,11 +476,11 @@ public class EveryProtocolEmitter
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
         var closureHandler = new ClosureHandler(_typeDatabase);
 
-        writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name}");
+        writer.WriteLine($"// {BaseClassName} conformance to {protocolDecl.Name}");
         var availAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
             protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
         WrapperEmitterHelpers.EmitSwiftAvailability(writer, availAnnotations);
-        writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
+        writer.WriteLine($"extension {BaseClassName}: {protocolName} {{");
         writer.Indent++;
 
         // Emit typealiases for associated types
@@ -624,12 +715,13 @@ public class EveryProtocolEmitter
             protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
         var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availAnnotations, "            ");
 
+        var baseClass = BaseClassName;
         writer.WriteLines($$"""
-            // Returns the protocol witness table pointer for EveryProtocol conforming to {{protocolDecl.Name}}.
+            // Returns the protocol witness table pointer for {{baseClass}} conforming to {{protocolDecl.Name}}.
             // C# calls this via P/Invoke to obtain the witness table for existential container construction.
             {{availPrefix}}@_silgen_name("{{mangledGetterName}}")
             public func {{getterFunctionName}}() -> UnsafeRawPointer {
-                let instance = EveryProtocol()
+                let instance = {{baseClass}}()
                 return withExtendedLifetime(instance) {
                     var proto: any {{protocolName}} = instance
                     return withUnsafeBytes(of: &proto) { buffer in
@@ -704,6 +796,11 @@ public class EveryProtocolEmitter
     /// </summary>
     public void PreScanProtocols(IReadOnlyList<ProtocolDecl> protocols)
     {
+        // Capture the module-local protocol list so transitive class-bound /
+        // NSObjectProtocol-only checks can resolve inherited module-local protocols
+        // by name at the routing checkpoints below.
+        _allProtocols = protocols;
+
         // Pass 1: identify protocols that will be skipped by structural gates
         foreach (var protocolDecl in protocols)
         {
@@ -797,8 +894,15 @@ public class EveryProtocolEmitter
         if (protocolDecl.Subscripts.Any(s => !s.IsStatic && HasSubscriptLevelGenericDependentMember(s)))
             return true;
 
-        if (IsClassBoundProtocol(protocolDecl))
-            return true;
+        if (IsClassBoundProtocol(protocolDecl, _allProtocols))
+        {
+            // S-2: NSObjectProtocol-only protocols (e.g. STPAuthenticationContext) re-route
+            // through the NSObject-rooted EveryObjCProtocol helper class instead of skipping.
+            // Protocols that ALSO require NSCoding / NSSecureCoding / NSCopying / NSMutableCopying
+            // still skip — those need encoding / copying surfaces a synthesised proxy can't supply.
+            if (!IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
+                return true;
+        }
 
         if (HasClassSuperclassRequirement(protocolDecl, _typeDatabase))
             return true;
@@ -902,6 +1006,10 @@ public class EveryProtocolEmitter
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides)
     {
+        // Reset per-protocol routing state — the NSObjectProtocol-only gate below sets
+        // _useObjCBase=true only for the protocols that need EveryObjCProtocol.
+        _useObjCBase = false;
+
         // Helper to record a skip decision and track the protocol for genericSig constraint checks
         void RecordSkip(string reason)
         {
@@ -991,11 +1099,26 @@ public class EveryProtocolEmitter
         // Skip protocols that require NSObjectProtocol identity semantics.
         // Pure AnyObject (class-bound) protocols are allowed since EveryProtocol is a class.
         // Only NSObjectProtocol requires NSObject methods (isEqual:, hash, description).
-        if (IsClassBoundProtocol(protocolDecl))
+        //
+        // S-2: protocols whose only ObjC-rooted requirement is NSObjectProtocol itself
+        // (no NSCoding / NSSecureCoding / NSCopying / NSMutableCopying) are routed
+        // through the NSObject-rooted EveryObjCProtocol helper class instead of being
+        // skipped. NSObject's built-in isEqual:/hash/description satisfy the
+        // NSObjectProtocol requirement automatically, and the rest of the protocol
+        // body emits via the same vtable-callback pattern as EveryProtocol.
+        if (IsClassBoundProtocol(protocolDecl, _allProtocols))
         {
-            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: requires NSObjectProtocol identity semantics");
-            RecordSkip("NSObjectProtocolRequired");
-            return;
+            if (IsNSObjectProtocolOnly(protocolDecl, _allProtocols))
+            {
+                _useObjCBase = true;
+                _emissionContext?.MarkObjCBase(protocolDecl.Name);
+            }
+            else
+            {
+                _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: requires NSObjectProtocol identity semantics");
+                RecordSkip("NSObjectProtocolRequired");
+                return;
+            }
         }
 
         // Skip protocols that name a concrete class in their inheritance list
@@ -1179,11 +1302,11 @@ public class EveryProtocolEmitter
             // Composition / empty marker protocol: emit a trivial empty conformance so
             // C# can construct existential containers via the witness-table getter below.
             var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
-            writer.WriteLine($"// EveryProtocol conformance to {protocolDecl.Name} (composition/marker protocol)");
+            writer.WriteLine($"// {BaseClassName} conformance to {protocolDecl.Name} (composition/marker protocol)");
             var staticAvailAnnotations = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
                 protocolDecl.AvailabilityAnnotations, protocolDecl.ParentDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(writer, staticAvailAnnotations);
-            writer.WriteLine($"extension EveryProtocol: {protocolName} {{");
+            writer.WriteLine($"extension {BaseClassName}: {protocolName} {{");
             writer.WriteLine("}");
             writer.WriteLine();
         }
@@ -3599,6 +3722,73 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Returns true if the protocol's inheritance chain (transitively) requires
+    /// <c>NSObjectProtocol</c> but does NOT also require NSCoding / NSSecureCoding /
+    /// NSCopying / NSMutableCopying. Such protocols can be satisfied by routing the
+    /// generated <c>extension</c> through an NSObject-rooted helper class
+    /// (<c>EveryObjCProtocol</c>) instead of the plain Swift <c>EveryProtocol</c>.
+    /// NSCoding et al. inherit from NSObjectProtocol but additionally require
+    /// encoding / copying implementations that a synthesised proxy cannot provide,
+    /// so they remain in the skip path.
+    /// </summary>
+    internal static bool IsNSObjectProtocolOnly(ProtocolDecl protocolDecl, IReadOnlyList<ProtocolDecl>? allProtocols = null)
+    {
+        // Walk the inheritance chain collecting every transitive ObjC-rooted requirement.
+        // If any of the disqualifying super-protocols (NSCoding/NSSecureCoding/NSCopying/
+        // NSMutableCopying) appear at any depth, fall back to the skip path.
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        bool sawNSObjectProtocol = false;
+        bool sawDisqualifying = false;
+        CollectObjCRootKinds(protocolDecl, allProtocols, visited, ref sawNSObjectProtocol, ref sawDisqualifying);
+        return sawNSObjectProtocol && !sawDisqualifying;
+    }
+
+    private static void CollectObjCRootKinds(
+        ProtocolDecl protocolDecl,
+        IReadOnlyList<ProtocolDecl>? allProtocols,
+        HashSet<string> visited,
+        ref bool sawNSObjectProtocol,
+        ref bool sawDisqualifying)
+    {
+        var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+        if (!visited.Add(qualifiedName))
+            return;
+
+        if (!string.IsNullOrEmpty(protocolDecl.GenericSignature) &&
+            protocolDecl.GenericSignature.Contains("NSObjectProtocol"))
+        {
+            sawNSObjectProtocol = true;
+        }
+
+        foreach (var inherited in protocolDecl.InheritedProtocols)
+        {
+            var simpleName = GetSimpleName(inherited.Name);
+            if (simpleName == "NSObjectProtocol")
+            {
+                sawNSObjectProtocol = true;
+                continue;
+            }
+            if (simpleName is "NSCoding" or "NSSecureCoding" or "NSCopying" or "NSMutableCopying")
+            {
+                sawDisqualifying = true;
+                // NSCoding et al. inherit from NSObjectProtocol — we don't need to recurse
+                // further to confirm the NSObjectProtocol requirement.
+                sawNSObjectProtocol = true;
+                continue;
+            }
+
+            if (allProtocols != null)
+            {
+                var inheritedDecl = allProtocols.FirstOrDefault(p =>
+                    p.Name == simpleName || p.Name == inherited.Name ||
+                    p.SwiftTypeName?.ToString() == inherited.Name);
+                if (inheritedDecl != null)
+                    CollectObjCRootKinds(inheritedDecl, allProtocols, visited, ref sawNSObjectProtocol, ref sawDisqualifying);
+            }
+        }
+    }
+
+    /// <summary>
     /// Checks whether the protocol's inheritance list (transitively) names a
     /// concrete class. A Swift declaration of the form
     /// <c>protocol P : SomeClass</c> constrains Self to be (a subclass of)
@@ -3702,6 +3892,15 @@ public class EveryProtocolEmitter
 
             var moduleName = constraint.Substring(0, dotIdx);
             var typeName = constraint.Substring(dotIdx + 1);
+
+            // Qualified form of a trivial protocol (e.g. ObjectiveC.NSObjectProtocol)
+            // is also satisfied — the trivial set above is consulted as the unqualified
+            // typeName here. Without this branch S-2 NSObjectProtocol-only @objc
+            // protocols would still skip below because their protocol-level genericSig
+            // names the constraint as ObjectiveC.NSObjectProtocol, which the unqualified
+            // trivial-set check at the top of the loop never sees.
+            if (trivialProtocols.Contains(typeName))
+                continue;
 
             // Case 1: Known ObjC/Apple framework module
             if (AppleFrameworkRegistry.IsAutoBridgeModule(moduleName) ||

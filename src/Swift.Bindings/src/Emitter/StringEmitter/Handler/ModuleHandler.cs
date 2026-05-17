@@ -861,14 +861,30 @@ namespace BindingsGeneration
                 // Check the mangled name: module-defined protocols encode the module name as
                 // $s{length}{moduleName}... (e.g., $s11CryptoSwift...), while stdlib protocols
                 // use abbreviated forms ($sSl, $sSB, $ss17...).
-                .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name))
+                //
+                // S-2: @objc protocols have an empty mangled name in the ABI JSON (Swift omits
+                // the mangling for protocols visible through the Objective-C runtime). Fall
+                // back to the SwiftTypeName.Module check so NSObjectProtocol-only @objc protocols
+                // (Stripe's STPAuthenticationContext, our NumberProvider fixture) aren't
+                // categorically dropped by the mangled-name check before the routing gate
+                // downstream can promote them to EveryObjCProtocol.
+                .Where(p => IsMangledNameFromModule(p.MangledName, moduleDecl.Name)
+                            || (string.IsNullOrEmpty(p.MangledName)
+                                && p.SwiftTypeName != null
+                                && string.Equals(p.SwiftTypeName.Module, moduleDecl.Name, StringComparison.Ordinal)))
                 .Where(p => !HasMembersReferencingUnsupportedModule(p, typeDatabase))
                 // Note: InheritsCodable filter removed — EveryProtocol now emits Codable/Error
                 // stub conformances so protocols that inherit Decodable/Encodable are supported.
                 // Skip protocols requiring NSObjectProtocol identity semantics —
                 // EveryProtocol can't provide NSObject methods (isEqual:, hash, etc.).
                 // Pure AnyObject class-bound protocols are allowed (EveryProtocol is a class).
-                .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols))
+                // S-2: protocols whose only ObjC-rooted requirement is NSObjectProtocol
+                // (no NSCoding / NSSecureCoding / NSCopying / NSMutableCopying) are routed
+                // through the NSObject-rooted EveryObjCProtocol helper class downstream,
+                // so they remain "suitable" here. NSCoding et al. still drop out because
+                // their encoding / copying surfaces cannot be synthesized.
+                .Where(p => !EveryProtocolEmitter.IsClassBoundProtocol(p, protocols)
+                            || EveryProtocolEmitter.IsNSObjectProtocolOnly(p, protocols))
                 // Skip protocols whose inheritance names a concrete class (e.g.
                 // `protocol P : UIGestureRecognizer`). EveryProtocol is a plain
                 // Swift class and cannot satisfy a class superclass constraint.

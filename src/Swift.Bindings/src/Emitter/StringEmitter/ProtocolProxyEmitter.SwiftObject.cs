@@ -11,6 +11,34 @@ public partial class ProtocolProxyEmitter
         var witnessTableSymbol = GetWitnessTableSymbol(protocolDecl);
         var wrapperLibPath = _typeDatabase.AsyncLibraryName ?? _typeDatabase.GetLibraryPath(_moduleName);
 
+        // GetTypeMetadata source: class-bound (NSObjectProtocol-rooted EveryObjCProtocol)
+        // proxies must NOT return EveryProtocol's metadata — that's a different Swift
+        // type's metadata. Read directly from the EveryObjCProtocol accessor without
+        // caching into the EveryProtocol static slot (priming that slot from the ObjC
+        // code path would poison later opaque-layout proxies — same invariant as the
+        // constructor's metadataInitBlock).
+        var getTypeMetadataBody = _useObjCBase
+            ? $"return TypeMetadata.FromHandle(NativeMethods.{GetMetadataMethodName}());"
+            : "// Proxy classes don't have their own Swift metadata\n                // They use the EveryProtocol metadata\n                return EveryProtocol.GetTypeMetadata();";
+
+        // NewFromPayload: Swift→C# wrap factory. Symmetric to the receiver-side fix —
+        // for class-bound (EveryObjCProtocol) proxies, Swift passes a 2-word existential
+        // (`[classRef][witnessTable]`), so dereferencing a full 5-word ExistentialContainer1
+        // would over-read stack memory. Read exactly the two wire words and preserve BOTH
+        // — Payload0 carries the class reference (proxy handle when the existential IS our
+        // proxy, foreign class ref otherwise), and Payload1 carries the witness table the
+        // sender used. Preserving the wire witness table is required so that a foreign
+        // Swift/ObjC implementation of the protocol round-trips through its own witness
+        // table when marshalled back to Swift (synthesizing our `ProtocolWitnessTableHandle`
+        // here would dispatch foreign payloads through our @_cdecl wrappers, whose
+        // TryGetProxy<T> lookup would silently miss and return zero — losing the foreign
+        // implementation's behaviour). For the our-proxy-on-the-wire case, word 1 IS our
+        // witness table already (set by the ctor that originated the proxy), so preserving
+        // is also correct.
+        var newFromPayloadBody = _useObjCBase
+            ? $"// Class-bound (EveryObjCProtocol): Swift passes a 2-word existential\n                // ([classRef][witnessTable]). Read exactly two wire words; preserve\n                // both so foreign implementations round-trip through their own WT.\n                var wordPtr = (IntPtr*)payload;\n                var container = new ExistentialContainer1\n                {{\n                    Payload0 = wordPtr[0],\n                    Payload1 = wordPtr[1],\n                }};\n                return new {proxyClassName}(container);"
+            : $"// Create from existential container\n                var container = *(ExistentialContainer1*)payload;\n                return new {proxyClassName}(container);";
+
         writer.WriteLines($$"""
             #region ISwiftObject Implementation
 
@@ -47,16 +75,12 @@ public partial class ProtocolProxyEmitter
 
             public static TypeMetadata GetTypeMetadata()
             {
-                // Proxy classes don't have their own Swift metadata
-                // They use the EveryProtocol metadata
-                return EveryProtocol.GetTypeMetadata();
+                {{getTypeMetadataBody}}
             }
 
             public static ISwiftObject NewFromPayload(IntPtr payload)
             {
-                // Create from existential container
-                var container = *(ExistentialContainer1*)payload;
-                return new {{proxyClassName}}(container);
+                {{newFromPayloadBody}}
             }
 
             IntPtr ISwiftObject.SwiftHandle => _swiftContainer.Payload0;
@@ -183,24 +207,24 @@ public partial class ProtocolProxyEmitter
         PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
         {
             LibraryPath = wrapperLibPath,
-            EntryPoint = "SBW_CreateEveryProtocol",
-            MethodName = "CreateEveryProtocol",
+            EntryPoint = CreateHelperEntryPoint,
+            MethodName = CreateHelperMethodName,
             ReturnType = "IntPtr",
             ParametersString = "",
             CallingConvention = PInvokeCallingConvention.Cdecl,
             Visibility = PInvokeVisibility.Public
         });
         writer.WriteLine();
-        // SBW_SetEveryProtocolDeinitCallback — wires a C# unmanaged callback onto an
-        // EveryProtocol instance so Swift's deinit can drive the strong-registry and
-        // ProxyLifetimeTracker teardown. The function-pointer parameter requires an
-        // unsafe P/Invoke; [LibraryImport] supports `delegate* unmanaged[Cdecl]<...>`
-        // in .NET 10.
+        // SBW_SetEveryProtocolDeinitCallback (or its EveryObjCProtocol twin) — wires
+        // a C# unmanaged callback onto a helper instance so Swift's deinit can drive
+        // the strong-registry and ProxyLifetimeTracker teardown. The function-pointer
+        // parameter requires an unsafe P/Invoke; [LibraryImport] supports
+        // `delegate* unmanaged[Cdecl]<...>` in .NET 10.
         PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
         {
             LibraryPath = wrapperLibPath,
-            EntryPoint = "SBW_SetEveryProtocolDeinitCallback",
-            MethodName = "SetEveryProtocolDeinitCallback",
+            EntryPoint = SetDeinitCallbackEntryPoint,
+            MethodName = SetDeinitCallbackMethodName,
             ReturnType = "void",
             ParametersString = "IntPtr instance, delegate* unmanaged[Cdecl]<IntPtr, void> callback, IntPtr context",
             CallingConvention = PInvokeCallingConvention.Cdecl,
@@ -211,8 +235,8 @@ public partial class ProtocolProxyEmitter
         PInvokeEmitHelper.EmitDeclaration(writer, new PInvokeEmissionInfo
         {
             LibraryPath = wrapperLibPath,
-            EntryPoint = "SBW_GetMetadata_EveryProtocol",
-            MethodName = "GetEveryProtocolMetadata",
+            EntryPoint = GetMetadataEntryPoint,
+            MethodName = GetMetadataMethodName,
             ReturnType = "IntPtr",
             ParametersString = "",
             CallingConvention = PInvokeCallingConvention.Cdecl,
