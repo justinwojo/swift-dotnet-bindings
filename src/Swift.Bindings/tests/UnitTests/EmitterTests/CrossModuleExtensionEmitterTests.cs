@@ -57,7 +57,7 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
-    #region Emit: gates — generic, async, throwing, mutating methods skipped
+    #region Emit: gates — generic and mutating methods skipped; async/throws emit via trampoline
 
     [Fact]
     public void Emit_GenericMethod_Skipped()
@@ -76,7 +76,7 @@ public class CrossModuleExtensionEmitterTests
     }
 
     [Fact]
-    public void Emit_AsyncMethod_Skipped()
+    public void Emit_AsyncMethod_EmitsViaAsyncTrampoline()
     {
         var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
 
@@ -87,11 +87,14 @@ public class CrossModuleExtensionEmitterTests
         CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
 
         var result = csOutput.ToString();
-        Assert.DoesNotContain("DoWork", result);
+        // Async methods on class receivers now route through the async-throws
+        // trampoline path and surface as a Task-returning extension method.
+        Assert.Contains("DoWorkAsync", result);
+        Assert.Contains("System.Threading.Tasks.Task", result);
     }
 
     [Fact]
-    public void Emit_ThrowingMethod_Skipped()
+    public void Emit_ThrowingMethod_EmitsViaAsyncTrampoline()
     {
         var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
 
@@ -102,7 +105,9 @@ public class CrossModuleExtensionEmitterTests
         CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
 
         var result = csOutput.ToString();
-        Assert.DoesNotContain("DoWork", result);
+        // Throwing methods on class receivers now route through the async-throws
+        // trampoline path and surface as a regular (synchronous) extension method.
+        Assert.Contains("DoWork(this", result);
     }
 
     [Fact]

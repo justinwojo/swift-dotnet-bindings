@@ -90,12 +90,19 @@ public static partial class CrossModuleExtensionEmitter
                 continue;
             if (method.IsConstructor)
                 continue;
+            // @usableFromInline-internal and @_spi members are visible at C# level via the
+            // ABI dump but the wrapper trampoline (compiled in its own module, outside the SPI
+            // group) cannot resolve them.
+            if (method.IsModuleInternal || method.IsSpiProtected)
+                continue;
             methods.Add(method);
         }
 
         foreach (var property in structDecl.Properties)
         {
             if (property.ModuleDecl?.Name != currentModule)
+                continue;
+            if (property.IsModuleInternal || property.IsSpiProtected)
                 continue;
             properties.Add(property);
         }

@@ -14,22 +14,53 @@
 ## Summary
 
 Of the 10 must-fix items in the original residual-gaps doc, status
-after R2-1 (2026-05-17):
+after Session 1 close-out (2026-05-17):
 
 - **FIXED in original round-1 (3):** N-1, N-3, S-5
 - **FIXED in R2-1 (2):** S-2 (NSObject-rooted proxy subsystem),
   S-3 (cross-module nested-type emission on struct and class receivers)
+- **FIXED in Session 1 (1):** S-1 (cross-module class-receiver
+  extensions — closure-bearing, async/throws, and @objc static methods)
 - **PARTIALLY FIXED (1):** A-2 (static factories landed round-1;
   instance members covered by Session 2 below)
-- **NOT FIXED (4):** S-1 (Session 1), A-1 (Session 2),
-  S-4 + A-4 (Session 3)
+- **NOT FIXED (3):** A-1 (Session 2), S-4 + A-4 (Session 3)
 
-**Close-out plan:** 3 sessions close the remaining 5 items, followed
+**Close-out plan:** 2 sessions close the remaining 4 items, followed
 by an end-of-wave regression sweep. Detailed in the
-[Session plan](#session-plan) section below. Sessions are numbered
-1/2/3; "Pre-work" covers wrap-up of R2-1 itself.
+[Session plan](#session-plan) section below. R2-1 pre-work landed
+2026-05-17 (S-2 + S-3 + parser infra + 2 BindingTests fixtures; merge
+commit `1208c389`). Session 1 landed 2026-05-17.
 
 ---
+
+## Confirmed FIXED in Session 1 (2026-05-17, no further action)
+
+- **S-1.** Cross-module class-receiver extensions now emit closure-bearing,
+  `async throws`, and `@objc class func` static methods via per-method
+  `@_cdecl` Swift trampolines in the current module's wrapper library
+  (wrapper-path **A** — mirrors the in-module `WrapperEmitter` and the
+  R2-1 struct-receiver path). New `CrossModuleExtensionEmitter.Class.cs`
+  carries the closure-trampoline + async-throws-trampoline emission;
+  `CrossModuleExtensionEmitter.cs` routes class-receiver methods to the
+  trampoline path when they're closure-bearing, async, throwing, or
+  static-with-args. The previously-empty Stripe extension classes are
+  now populated:
+  - `STPAPIClientStripePaymentsExtensions` contains `CreateToken`,
+    `CreateSource`, `CreatePaymentMethod`, `ConfirmPaymentIntent`,
+    `RetrievePaymentIntent`, `CreateRadarSession` (closure-bearing)
+    plus matching `*Async` variants.
+  - `StripeAPIStripePaymentsExtensions` contains
+    `PaymentRequest(string merchantIdentifier)` (static `@objc class func`).
+  Bool widening on the async-throws success path (Swift `Bool` →
+  cdecl `UInt8`) and ObjC class return ownership (Swift `Unmanaged.passRetained`
+  → C# `ownsReference: true`) closed by Codex review. Symmetric
+  IsModuleInternal/IsSpiProtected gates added to both class and struct
+  paths so `@usableFromInline internal` / `@_spi(...)` members aren't
+  emitted from the wrapper module (where they're unresolvable).
+  BindingTests fixture at `BindingTests/Sources/SwiftBindingsTestLib/CrossModule/`
+  covers 7 shapes: closure + Optional<class> + Optional<Error>, sync
+  throws, async, async throws, static class func, plus String-param
+  variants.
 
 ## Confirmed FIXED in R2-1 (2026-05-17, no further action)
 
@@ -74,33 +105,11 @@ by an end-of-wave regression sweep. Detailed in the
 
 ---
 
-## Still-open must-fix items (5)
+## Still-open must-fix items (4)
 
-S-2 and S-3 are fixed in R2-1 — see *Confirmed FIXED in R2-1* above.
-The five remaining items below are: S-1, S-4, A-1, A-2 (partial), A-4.
-
-### S-1. StripePayments → StripeCore cross-module extensions still dropped
-
-**Severity:** High (entire extension surface removed; consumer-visible).
-**Original source:** [Resolved/bug-0.10.0-cross-module-extensions-dropped.md](Resolved/bug-0.10.0-cross-module-extensions-dropped.md).
-**Targeted by:** Session 1 (S-1) of the prior plan — `CrossModuleExtensionEmitter`
-routing path 2-3 (third-party-module-A → third-party-module-B).
-
-The class body is still empty in the 0.11.0 regen:
-
-```csharp
-// libraries/Stripe/StripePayments/obj/Debug/net10.0-ios/swift-binding/StripePayments.cs:58808-58810
-public static partial class STPAPIClientStripePaymentsExtensions
-{
-}
-```
-
-Sibling `StripeAPIStripePaymentsExtensions` at `StripePayments.cs:58798`
-is also empty. The 0.10.0 fix that covered Apple/system-module extensions
-(path 1 of 3) still hasn't been extended to the third-party-A →
-third-party-B path. Consumer impact unchanged from the prior doc:
-`STPAPIClient.createToken / createSource / confirmPaymentIntent / …`
-are all absent from the C# surface.
+S-1, S-2, and S-3 are fixed — see *Confirmed FIXED in Session 1* and
+*Confirmed FIXED in R2-1* above. The four remaining items below are:
+S-4, A-1, A-2 (partial), A-4.
 
 ### S-4. StripeCardScan completion-wrapper heap still leaks
 
@@ -225,13 +234,13 @@ across the other nullable `Measurement<T>?` setters in `Wind`,
 
 ## Open-item priority table (gates 0.11.0)
 
-5 open items (4 NOT FIXED + 1 PARTIALLY FIXED), keeping the same numbering
-as the original residual-gaps doc. The S-2 / S-3 rows are retained for
-traceability but marked **FIXED in R2-1**:
+4 open items (3 NOT FIXED + 1 PARTIALLY FIXED), keeping the same numbering
+as the original residual-gaps doc. The S-1 / S-2 / S-3 rows are retained
+for traceability but marked **FIXED**:
 
 | Priority | Item | Status | Emitter area | Session |
 |---|---|---|---|---|
-| 🔥 1 | **S-1** cross-module ext routing — completion-block + async/throws on class receivers | NOT FIXED | `CrossModuleExtensionEmitter` | **Session 1** |
+| 🔥 1 | **S-1** cross-module ext routing — completion-block + async/throws + static class func on class receivers | **FIXED in Session 1** | new `CrossModuleExtensionEmitter.Class.cs` (closure + async-throws trampolines) + IsModuleInternal/IsSpiProtected gates | Session 1 (landed) |
 | 🔥 2 | **S-3** cross-module nested type emission on struct receivers | **FIXED in R2-1** | `CrossModuleExtensionEmitter.Struct.cs` mirror partial-class wrapper + parser `OuterTupleLabel` | R2-1 (landed) |
 | 🔥 3 | **S-2** proxy vtable emission for closure-taking ObjC protocol methods | **FIXED in R2-1** | new `EveryObjCProtocol: NSObject` subsystem in Swift.Runtime + `EveryProtocolEmitter` / `ProtocolProxyEmitter` branch | R2-1 (landed) |
 | 🔥 4 | **A-1** `MultiSpecialization` accessor surface on class generics (wiring exists; blocked by PAT-constraint + async-in-generic-type gates) | NOT FIXED | PAT-constraint gate + per-instantiation harness infrastructure | **Session 2** |
@@ -295,40 +304,49 @@ sweep. Each session has a hard ship list, hard validation gates, and a
 binary exit criterion. No autonomous deferral inside a session — if
 something genuinely can't close, ask the user.
 
-### Pre-work (this session) — close out R2-1
+### Pre-work — close out R2-1 — **DONE 2026-05-17**
 
-**Ships:**
-- Runtime gate green on both R2-1 work products (S-2 worktree + S-3 main).
-- `/codex-review` + `/grok-cli-review` complete on both, findings addressed.
-- `s-2-objc-proxy` worktree merged into main.
-- R2-1 work committed to main (S-3 + parser infra + 2 BindingTests
-  fixtures + the s-2 changes).
+Landed on main:
+- `9b840c1c` S-2 — NSObjectProtocol-only @objc proxy routing
+- `91f8bcec` S-3 — cross-module nested types + outer-tuple enum case payloads
+- `1208c389` merge commit
 
-**Validation gates (all must pass before commit):**
-1. `nuke test` green on main.
-2. `nuke binding-tests --skip-regen` green on main (sim).
-3. `nuke binding-tests --skip-regen --device` green on main — S-2
-   touches ObjC dispatch / NSObject, both runtimes must clear.
-4. Per-item regen-and-grep against swift-dotnet-packages:
-   - **S-2:** `STPAuthenticationContextProxy.InitializeVtable`
-     contains `SetSTPAuthenticationContext_vtable(...)`; the
-     "No SetXxx_vtable trampoline" comment is gone; same for the two
-     StripeIssuing proxies.
-   - **S-3:** `DependencyPoint.HostedTag` /
-     `DependencyService.HostedPayload` partials are reachable via
-     `using SwiftBindingsTestLib;` (or the equivalent current-module
-     namespace import) from a consumer .cs. Stripe-shape equivalent:
-     `StripeFinancialConnections.StripeAPI.FinancialConnectionsSession`
-     reachable via `using StripeFinancialConnections;` once that lib regens.
-5. Diff vs pre-image: only intended changes.
-6. Codex + Grok-CLI: zero High/Critical findings open.
+Runtime gates green on both work products pre-merge:
+unit 11513 pass / 1 skip / 0 fail; sim 2086 (s-2) / 2101 (main) pass, 0 crash;
+device 2107 (s-2) / 2122 (main) pass, 0 crash. Post-merge baseline stored
+at 2101 sim / 2122 device — auto-ratchets to the combined value on the
+next gate run.
 
-**Exit:** main contains R2-1 commit(s) with all gates green;
-s-2 worktree deleted.
+Reviews closed clean (Codex r5 main + Codex r4 s-2: "No issues found";
+Grok r4 s-2 confirmed). One High during the loop was fixed at the right
+layer: `ProtocolProxyEmitter.SwiftObject.cs` `NewFromPayload` preserves
+both wire words for the `_useObjCBase` branch (class-bound existentials
+are 2-word `[classRef][WT]`, confirmed via Wrapper.swift fixture).
 
-### Session 1 — S-1 (Stripe cross-module extensions with closures + async/throws)
+s-2-objc-proxy worktree removed; branch deleted.
+
+### Session 1 — S-1 (Stripe cross-module extensions with closures + async/throws) — **DONE 2026-05-17**
 
 🔥 High. Closes S-1.
+
+**Landed:** wrapper-path **A** (per-method `@_cdecl` Swift trampolines
+in the current module's wrapper library) — chosen over path B for
+fidelity with the in-module `WrapperEmitter` and the R2-1 struct
+path. New `CrossModuleExtensionEmitter.Class.cs` carries closure +
+async-throws + static-with-args trampoline emission;
+`CrossModuleExtensionEmitter.cs` routes class-receiver methods to it
+when the simple-direct CallConvSwift path can't apply. Symmetric
+IsModuleInternal/IsSpiProtected gates added to both class and struct
+paths. Codex round 1 produced 1 High (Bool async-throws cdecl
+widening) and 1 Medium (ObjC class return ownership) — both fixed in
+`CrossModuleExtensionEmitter.Class.cs` (Bool widening on the success
+path of `EmitAsyncTrampolineCallback`; `ownsReference: true` on
+`FormatObjCBridgeCall` in `EmitClosureCallSiteReturnWithTransfer`).
+Grok round 1: zero High/Critical. Per-item regen confirmed
+`STPAPIClientStripePaymentsExtensions` populated (CreateToken,
+CreateSource, CreatePaymentMethod, ConfirmPaymentIntent,
+RetrievePaymentIntent, CreateRadarSession, all `*Async` variants) and
+`StripeAPIStripePaymentsExtensions` populated (PaymentRequest).
 
 **Diagnosis** (refined during R2-1 investigation, supersedes the
 original S-1 writeup): receiver shape is not the blocker — the parser
@@ -669,9 +687,9 @@ above. Two operational notes that apply to the end-of-wave
 
 ## Wave parameters (confirmed)
 
-- **`$VERSION = 0.11.0`** (SDK lane) — rebuilt-in-place across both
-  sessions per the SDK-version-stability memory; stale same-version
-  nupkgs wiped before each redeploy.
+- **`$VERSION = 0.11.0`** (SDK lane) — rebuilt-in-place across the
+  remaining sessions per the SDK-version-stability memory; stale
+  same-version nupkgs wiped before each redeploy.
 - **`$APPLE_VERSION = 26.2.3`** (Apple-supplement lane) — same train
   we've already been testing against.
 - **`swift-dotnet-packages` clone**: `/Users/wojo/Dev/swift-dotnet-packages`.

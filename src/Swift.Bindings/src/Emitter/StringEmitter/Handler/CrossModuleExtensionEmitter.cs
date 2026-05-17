@@ -104,12 +104,18 @@ public static partial class CrossModuleExtensionEmitter
                 continue;
             if (method.IsConstructor)
                 continue;
+            // SPI / @usableFromInline-internal Stripe-style methods are visible at C# level
+            // but the wrapper trampoline (compiled outside the SPI group) cannot resolve them.
+            if (method.IsModuleInternal || method.IsSpiProtected)
+                continue;
             methods.Add(method);
         }
 
         foreach (var property in classDecl.Properties)
         {
             if (property.ModuleDecl?.Name != currentModule)
+                continue;
+            if (property.IsModuleInternal || property.IsSpiProtected)
                 continue;
             properties.Add(property);
         }
@@ -147,6 +153,13 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.Indent++;
 
             var emittedSignatures = new HashSet<string>();
+            // Trampoline P/Invokes accumulate here so the NativeMethods block can emit
+            // their Cdecl declarations alongside the existing Swift-conv P/Invokes.
+            var trampolinePinvokes = new List<ClassTrampolinePInvokeInfo>();
+            var origSwiftTypeQualified = $"{origModule}.{classDecl.Name}";
+            // Methods routed through the trampoline path — tracked so the NativeMethods
+            // pass below can skip emitting their direct Swift-conv P/Invoke as well.
+            var methodsRoutedToTrampoline = new HashSet<MethodDecl>();
 
             // Emit properties as Get/Set methods
             foreach (var property in properties)
@@ -155,14 +168,35 @@ public static partial class CrossModuleExtensionEmitter
                     emittedCount++;
             }
 
-            // Emit methods
+            // Emit methods. The simple direct-CallConvSwift path is tried first; methods
+            // it rejects (closure params, etc.) fall through to the trampoline path.
             foreach (var method in methods)
             {
                 if (method.IsAccessor)
                     continue; // Property accessors handled above
 
                 if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                {
                     emittedCount++;
+                    continue;
+                }
+
+                if (TryEmitAsyncOrThrowsExtensionTrampoline(
+                        csWriter, swiftWriter, method, classDecl, origCSharpType, origSwiftTypeQualified,
+                        wrapperLibPath, currentModule, typeDatabase, emittedSignatures, trampolinePinvokes, context, logger))
+                {
+                    methodsRoutedToTrampoline.Add(method);
+                    emittedCount++;
+                    continue;
+                }
+
+                if (TryEmitClosureMethodExtensionTrampoline(
+                        csWriter, swiftWriter, method, classDecl, origCSharpType, origSwiftTypeQualified,
+                        wrapperLibPath, currentModule, typeDatabase, emittedSignatures, trampolinePinvokes, context, logger))
+                {
+                    methodsRoutedToTrampoline.Add(method);
+                    emittedCount++;
+                }
             }
 
             // Emit NativeMethods if we emitted anything
@@ -182,7 +216,27 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     if (method.IsAccessor)
                         continue;
+                    if (methodsRoutedToTrampoline.Contains(method))
+                        continue;
                     EmitMethodNativeMethod(csWriter, method, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                }
+
+                foreach (var info in trampolinePinvokes)
+                {
+                    // Trampoline P/Invokes pass closure pairs as `delegate*<...>`,
+                    // which require the `unsafe` modifier on the P/Invoke declaration.
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = info.EntryPoint,
+                        MethodName = info.MethodName,
+                        ReturnType = info.ReturnType,
+                        ParametersString = string.Join(", ", info.Parameters),
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Internal,
+                        IsUnsafe = true,
+                    });
+                    csWriter.WriteLine();
                 }
 
                 csWriter.Indent--;

@@ -260,6 +260,136 @@ public class CrossModuleTests : TestBase
             "Cross-module class extension can mutate receiver state and report via CallConvSwift primitive return");
     }
 
+    public void TestDependencyServiceComputeWithCompletion()
+    {
+        using var active = new DependencyService("Worker", true);
+        int activeCaught = 0;
+        active.ComputeWithCompletion(7, v => activeCaught = v);
+        AssertEqual(14, activeCaught,
+            "Cross-module class-extension closure parameter dispatches via @_cdecl trampoline (active receiver, value * 2)");
+
+        using var idle = new DependencyService("Worker", false);
+        int idleCaught = 0;
+        idle.ComputeWithCompletion(11, v => idleCaught = v);
+        AssertEqual(-11, idleCaught,
+            "Cross-module class-extension closure parameter dispatches via @_cdecl trampoline (inactive receiver, -value)");
+    }
+
+    public void TestDependencyServiceProduceTokenSuccessPath()
+    {
+        using var active = new DependencyService("Worker", true);
+        SwiftBindingsTestLib.DependencyToken? caughtToken = null;
+        Foundation.NSError? caughtError = null;
+        bool fired = false;
+
+        active.ProduceToken(true, (token, error) =>
+        {
+            caughtToken = token;
+            caughtError = error;
+            fired = true;
+        });
+
+        AssertTrue(fired, "Completion fired");
+        AssertTrue(caughtToken != null, "Success path delivered a non-null DependencyToken");
+        AssertTrue(caughtError == null, "Success path delivered a null error");
+        AssertEqual(42, caughtToken!.Value, "Optional<class> closure arg round-trips DependencyToken.value");
+        caughtToken.Dispose();
+    }
+
+    public void TestDependencyServiceProduceTokenFailurePath()
+    {
+        using var idle = new DependencyService("Worker", false);
+        SwiftBindingsTestLib.DependencyToken? caughtToken = null;
+        Foundation.NSError? caughtError = null;
+        bool fired = false;
+
+        idle.ProduceToken(false, (token, error) =>
+        {
+            caughtToken = token;
+            caughtError = error;
+            fired = true;
+        });
+
+        AssertTrue(fired, "Completion fired");
+        AssertTrue(caughtToken == null, "Failure path delivered a null DependencyToken");
+        AssertTrue(caughtError != null, "Failure path delivered a non-null NSError");
+        AssertEqual("DependencyService", caughtError!.Domain, "Optional<any Error> closure arg bridges NSError.domain");
+        AssertEqual(2, (int)caughtError.Code, "Optional<any Error> closure arg bridges NSError.code");
+    }
+
+    public void TestDependencyServiceComputeAsyncSuccess()
+    {
+        using var active = new DependencyService("Worker", true);
+        var result = active.ComputeAsync(7).GetAwaiter().GetResult();
+        AssertEqual(21, result,
+            "async throws cross-module class extension delivers result via TaskCompletionSource (active receiver, value * 3)");
+    }
+
+    public void TestDependencyServiceComputeAsyncFailure()
+    {
+        using var idle = new DependencyService("Worker", false);
+        var task = idle.ComputeAsync(7);
+        try
+        {
+            _ = task.GetAwaiter().GetResult();
+            AssertTrue(false, "ComputeAsync on inactive receiver should throw");
+        }
+        catch (global::Swift.Runtime.SwiftException ex)
+        {
+            AssertTrue(ex.Message.Contains("inactive"),
+                $"SwiftException carries the Swift NSError.localizedDescription (got: {ex.Message})");
+        }
+    }
+
+    public void TestDependencyServiceMakeWithSeed()
+    {
+        using var positive = DependencyServiceSwiftBindingsTestLibExtensions.MakeWithSeed(7);
+        AssertEqual("seed-7", positive.Name.ToString(),
+            "Static class func on a class receiver returns a DependencyService with expected Name (positive seed)");
+        AssertTrue(positive.IsActive,
+            "Static class func wires the seed sign into IsActive (positive seed -> active)");
+
+        using var negative = DependencyServiceSwiftBindingsTestLibExtensions.MakeWithSeed(-3);
+        AssertEqual("seed--3", negative.Name.ToString(),
+            "Static class func returns DependencyService with expected Name (negative seed)");
+        AssertTrue(!negative.IsActive,
+            "Static class func wires the seed sign into IsActive (negative seed -> inactive)");
+    }
+
+    public void TestDependencyServiceMakeWithLabel()
+    {
+        using var made = DependencyServiceSwiftBindingsTestLibExtensions.MakeWithLabel("payment-merchant.id");
+        AssertEqual("payment-merchant.id", made.Name.ToString(),
+            "Static class func with Swift.String param round-trips the label through the wrapper trampoline");
+        AssertTrue(made.IsActive,
+            "Static class func with String param produces an active DependencyService");
+
+        using var unicode = DependencyServiceSwiftBindingsTestLibExtensions.MakeWithLabel("café-🍵");
+        AssertEqual("café-🍵", unicode.Name.ToString(),
+            "Static class func with String param round-trips multi-byte UTF-8 (combining diacritics + emoji)");
+    }
+
+    public void TestDependencyServiceNotifyLabel()
+    {
+        using var active = new DependencyService("svc", true);
+        int caught = -1;
+        bool fired = false;
+        active.NotifyLabel("hello", value =>
+        {
+            caught = value;
+            fired = true;
+        });
+        AssertTrue(fired, "Closure completion fired for active receiver");
+        AssertEqual(6, caught,
+            "Closure-bearing instance method with String param delivers (label.count + isActive ? 1 : 0) = 5 + 1");
+
+        using var idle = new DependencyService("svc", false);
+        int caughtIdle = -1;
+        idle.NotifyLabel("world!", value => caughtIdle = value);
+        AssertEqual(6, caughtIdle,
+            "Closure-bearing instance method with String param delivers (label.count + isActive ? 1 : 0) = 6 + 0");
+    }
+
     #endregion
 
     #region Cross-Module Struct Extension (frozen-struct receiver via @_cdecl trampoline)

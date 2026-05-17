@@ -174,6 +174,14 @@ public func scaleDependencyPoint(_ point: DependencyPoint, factor: Double) -> De
     return point.scaled(by: factor)
 }
 
+/// Lightweight pure-Swift class used as the success-path payload of the
+/// Stripe-shape `produceToken` completion below. Reproduces the
+/// `(STPToken?, (any Error)?) -> Void` Optional<class> closure-arg shape.
+public class DependencyToken {
+    public let value: Int32
+    public init(value: Int32) { self.value = value }
+}
+
 // MARK: - Cross-Module Class Extension (Stripe STPAPIClient shape)
 
 /// Extension on `DependencyService` (a class declared in the dependency
@@ -197,6 +205,62 @@ extension DependencyService {
     public func activateAndReport() -> Bool {
         self.isActive = true
         return self.isActive
+    }
+
+    /// Closure-bearing cross-module class extension — reproduces the Stripe
+    /// `STPAPIClient.createToken(withCard:completion:)` shape on a pure Swift
+    /// class receiver. The completion block fires synchronously inside the
+    /// trampoline so a per-call GCHandle lifetime is sufficient.
+    public func computeWithCompletion(value: Int32, completion: @escaping (Int32) -> Void) {
+        completion(self.isActive ? value * 2 : -value)
+    }
+
+    /// Stripe-shape completion block exercising Optional<class> + Optional<any Error>
+    /// closure args end-to-end. When `activate` is true the receiver hands back
+    /// a `DependencyToken` and a nil error; otherwise it hands back a nil token
+    /// and an `NSError` so both nil legs of the optional bridge are covered.
+    public func produceToken(activate: Bool, completion: @escaping (DependencyToken?, (any Error)?) -> Void) {
+        if activate {
+            completion(DependencyToken(value: 42), nil)
+        } else {
+            completion(nil, NSError(domain: "DependencyService", code: 2, userInfo: [NSLocalizedDescriptionKey: "inactive"]))
+        }
+    }
+
+    /// Async-throws cross-module class extension — reproduces the
+    /// `STPAPIClient.createToken(withCard:) async throws -> STPToken` shape.
+    /// Throws when the receiver is inactive so the failure path is exercised
+    /// alongside the happy path.
+    public func computeAsync(value: Int32) async throws -> Int32 {
+        if !self.isActive {
+            throw NSError(domain: "DependencyService", code: 1, userInfo: [NSLocalizedDescriptionKey: "inactive"])
+        }
+        return value * 3
+    }
+
+    /// Static class func on a class receiver — reproduces the
+    /// `StripeAPI.paymentRequest(withMerchantIdentifier:)` shape but with
+    /// primitive arg + primitive return.
+    public class func makeWithSeed(_ seed: Int32) -> DependencyService {
+        return DependencyService(name: "seed-\(seed)", isActive: seed > 0)
+    }
+
+    /// Static class func taking a Swift.String — locks the full Stripe
+    /// `StripeAPI.paymentRequest(withMerchantIdentifier:)` shape (static,
+    /// String param, class return). Routes through the wrapper-library
+    /// trampoline because the simple direct-CallConvSwift path cannot
+    /// synthesize the Swift.String two-word value layout.
+    public class func makeWithLabel(_ label: String) -> DependencyService {
+        return DependencyService(name: label, isActive: true)
+    }
+
+    /// Closure-bearing instance method with a Swift.String parameter —
+    /// reproduces the Stripe `confirmPaymentIntent(clientSecret:completion:)`
+    /// shape where the receiver, a String arg, and an escaping completion
+    /// closure all co-occur. Routes through the trampoline because of the
+    /// String + closure pair.
+    public func notifyLabel(_ label: String, completion: @escaping (Int32) -> Void) {
+        completion(Int32(label.count) + (self.isActive ? 1 : 0))
     }
 }
 
