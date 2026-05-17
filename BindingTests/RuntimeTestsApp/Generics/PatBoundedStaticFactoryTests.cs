@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using RuntimeTestsApp.Infrastructure;
@@ -59,6 +60,14 @@ public class PatBoundedStaticFactoryTests : TestBase
             "PresetA returns independent payloads on each call");
     }
 
+    // NativeAOT trims P/Invoke methods that are only reached via direct call —
+    // their reflection metadata (parameters, attributes) disappears with them.
+    // Root only the specific cdecl wrapper this test reflects over; rooting
+    // the helper's other methods would preserve sibling CallConvSwift P/Invokes
+    // that TrimmerRoots.xml deliberately avoids (ILC bus error risk).
+    // If the Swift signature ever shifts the hash suffix, the assertion below
+    // will fail loudly with the existing "PInvoke_presetA_Get_* exists" message.
+    [DynamicDependency("PInvoke_presetA_Get_89055DEA(System.IntPtr)", typeof(PatBoundedStatsQuery_PInvoke))]
     public void TestPresetA_PInvokeSignature_TakesOnlyResultPtr()
     {
         // Pins the ABI contract: the @_cdecl wrapper for the closed-static
@@ -66,10 +75,7 @@ public class PatBoundedStaticFactoryTests : TestBase
         // no PWTs. A regression that re-threaded TMetadata.Handle or a
         // ProtocolWitnessTable handle would add parameters here and a wrapper
         // mismatch would slip past the value-shape assertions above.
-        var pinvokeType = typeof(PatBoundedStatsQuery<StatPayloadA>).Assembly
-            .GetType("SwiftBindingsTestLib.PatBoundedStatsQuery_PInvoke",
-                throwOnError: true)!;
-        var method = pinvokeType
+        var method = typeof(PatBoundedStatsQuery_PInvoke)
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Static)
             .FirstOrDefault(m => m.Name.StartsWith("PInvoke_presetA_Get", StringComparison.Ordinal));
         AssertNotNull(method, "PInvoke_presetA_Get_* exists on PatBoundedStatsQuery_PInvoke");

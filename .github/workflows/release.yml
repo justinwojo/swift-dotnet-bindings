@@ -446,11 +446,26 @@ jobs:
       - name: Generate release notes
         if: steps.version.outputs.is_dryrun == 'false'
         env:
+          # Grok 4-1 was retired upstream. The prompt + Python below is kept
+          # intact for a future provider swap (Grok 4.3 non-reasoning, GPT,
+          # etc.) — flip ENABLE_LLM_RELEASE_NOTES to 'true' and re-point the
+          # model/endpoint at the bottom of this step once that's wired.
+          # While disabled: the release step picks up RELEASE-NOTES.md from
+          # the release branch if present, otherwise falls through to
+          # GitHub auto-generated notes.
+          ENABLE_LLM_RELEASE_NOTES: 'false'
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           LANE: ${{ steps.version.outputs.lane }}
           SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
           APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
         run: |
+          if [ "$ENABLE_LLM_RELEASE_NOTES" != "true" ]; then
+            echo "LLM release-notes generation disabled."
+            echo "If RELEASE-NOTES.md is staged on the release branch, it will be used;"
+            echo "otherwise GitHub auto-generated notes will be used."
+            exit 0
+          fi
+
           # Falls back to GitHub's auto-generated notes if no API key configured.
           if [ -z "$XAI_API_KEY" ]; then
             echo "No XAI_API_KEY configured, skipping LLM release notes"
