@@ -240,23 +240,69 @@ done; true"
          Check for the Modules/ subdirectory rather than the framework dir itself — some frameworks
          (e.g., MusicKit) ship an empty stub framework at the iOSSupport path with only a Versions/
          subdirectory and no swiftmodule, so Exists($dir) is true but the swiftinterface is absent.
-         The regular macOS SDK path usually carries both the macos and ios-macabi swiftmodule slices. -->
-    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingPlatform)' == 'maccatalyst' AND !Exists('$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule')">
+         The regular macOS SDK path usually carries both the macos and ios-macabi swiftmodule slices.
+         For ObjC-only frameworks (Matter, etc.) there is no swiftmodule, so also fall back when
+         the iOSSupport overlay has no module.modulemap — the regular path has the modulemap. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingPlatform)' == 'maccatalyst'
+                              AND !Exists('$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule')
+                              AND !Exists('$(_SwiftAppleFrameworkDir)/Modules/module.modulemap')">
       <_SwiftAppleFrameworkSdkSubpath>System/Library/Frameworks</_SwiftAppleFrameworkSdkSubpath>
       <_SwiftAppleFrameworkDir>$(_SwiftAppleFrameworkSdkPath)/$(_SwiftAppleFrameworkSdkSubpath)/$(_SwiftAppleFrameworkModule).framework</_SwiftAppleFrameworkDir>
     </PropertyGroup>
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftAppleFrameworkInterface>$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule/$(_SwiftInterfaceSlice).swiftinterface</_SwiftAppleFrameworkInterface>
       <_SwiftAppleFrameworkTbd>$(_SwiftAppleFrameworkDir)/$(_SwiftAppleFrameworkModule).tbd</_SwiftAppleFrameworkTbd>
+      <_SwiftAppleFrameworkModulemap>$(_SwiftAppleFrameworkDir)/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>
     </PropertyGroup>
 
     <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND !Exists('$(_SwiftAppleFrameworkDir)')"
            Code="SWIFTBIND013"
            Text="Apple framework '$(_SwiftAppleFrameworkModule)' not found in SDK at '$(_SwiftAppleFrameworkDir)'. Verify the framework name and Xcode version." />
 
-    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND !Exists('$(_SwiftAppleFrameworkInterface)')"
+    <!-- Detect Swift vs ObjC framework type.
+         Swift frameworks ship a .swiftinterface under Modules/<Name>.swiftmodule/.
+         ObjC-only frameworks (Matter, etc.) ship Modules/module.modulemap with no swiftmodule.
+         Mixed frameworks (Swift API + ObjC headers) have BOTH — treat as Swift since the
+         Swift interface drives the generator. The user can override with <SwiftFrameworkType>
+         to force ObjC mode. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == ''">
+      <_SwiftAppleFrameworkType Condition="Exists('$(_SwiftAppleFrameworkInterface)')">Swift</_SwiftAppleFrameworkType>
+      <_SwiftAppleFrameworkType Condition="'$(_SwiftAppleFrameworkType)' == '' AND Exists('$(_SwiftAppleFrameworkModulemap)')">ObjC</_SwiftAppleFrameworkType>
+    </PropertyGroup>
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND !Exists('$(_SwiftAppleFrameworkInterface)')"
            Code="SWIFTBIND014"
            Text="Swift interface not found at '$(_SwiftAppleFrameworkInterface)'. The framework may not have a Swift module for this platform/architecture." />
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == ''"
+           Code="SWIFTBIND017"
+           Text="Apple framework '$(_SwiftAppleFrameworkModule)' has neither a Swift interface ('$(_SwiftAppleFrameworkInterface)') nor an ObjC module.modulemap ('$(_SwiftAppleFrameworkModulemap)') at the resolved SDK path. The framework may not be available for this platform/architecture, or it uses an older umbrella-header-only layout not supported by SDK direct mode." />
+
+    <!-- ObjC AppleFramework mode requires THREE properties in the csproj body:
+           <SwiftFrameworkType>ObjC</SwiftFrameworkType>     — engages our ObjC pipeline
+           <IsBindingProject>true</IsBindingProject>          — engages the .NET iOS bgen pipeline
+           <SwiftAppleFrameworkTarget Include="..." />         — selects the framework module
+         Both properties must be in the body (or earlier — Directory.Build.props, globals).
+         IsBindingProject in particular is consumed at PROPS time by Microsoft.iOS.Sdk's
+         Xamarin.Shared.props (gates binding-project defaults), so it must be observable
+         before that import. Setting it from this target — or from a PropertyGroup in our
+         Sdk.props gated on SwiftFrameworkType — is too late, because both the body and our
+         Sdk.props execute AFTER Microsoft.NET.Sdk.props (which pulls in the iOS workload).
+         Fail fast with actionable guidance if either is missing, instead of letting the
+         build silently miss the bgen pipeline. -->
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC' AND '$(SwiftFrameworkType)' != 'ObjC'"
+           Code="SWIFTBIND018"
+           Text="Apple framework '$(_SwiftAppleFrameworkModule)' is ObjC-only (no Swift interface). Add &lt;SwiftFrameworkType&gt;ObjC&lt;/SwiftFrameworkType&gt; AND &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; to your project's PropertyGroup. Both must be declared in the csproj body (not from a target) so the .NET iOS workload's binding-project pipeline engages before this target runs." />
+
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC' AND '$(SwiftFrameworkType)' == 'ObjC' AND '$(IsBindingProject)' != 'true'"
+           Code="SWIFTBIND021"
+           Text="Apple framework '$(_SwiftAppleFrameworkModule)' is configured for ObjC binding (SwiftFrameworkType=ObjC), but &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; is missing from the csproj body. The .NET iOS workload reads IsBindingProject at evaluation time to engage the bgen pipeline — without it, generated ApiDefinition.cs files will not be processed and the build will produce an empty binding assembly. Add &lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt; to the same PropertyGroup that declares SwiftFrameworkType." />
+
+    <!-- Catch the opposite mistake: user declared SwiftFrameworkType=ObjC but the framework has a
+         Swift interface. Refuse to silently mis-route to bgen on a Swift framework. -->
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(SwiftFrameworkType)' == 'ObjC'"
+           Code="SWIFTBIND019"
+           Text="Apple framework '$(_SwiftAppleFrameworkModule)' has a Swift interface, but &lt;SwiftFrameworkType&gt;ObjC&lt;/SwiftFrameworkType&gt; was declared. Remove SwiftFrameworkType=ObjC to use the Swift binding pipeline, or pick a framework that is ObjC-only." />
 
     <!-- Resolve the platform version that threads into the generator and the fingerprint.
          The consumer-settable <SwiftAppleFrameworkPlatformVersion> property wins over MSBuild's
@@ -286,6 +332,110 @@ done; true"
            etc.) and regular frameworks path (frameworks not in iOSSupport). -->
       <_SwiftDigesterExtraFlags Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">-F "$(_SwiftAppleFrameworkSdkPath)/System/iOSSupport/System/Library/Frameworks" -F "$(_SwiftAppleFrameworkSdkPath)/System/Library/Frameworks"</_SwiftDigesterExtraFlags>
     </PropertyGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 1d: Synthesize xcframework for ObjC AppleFramework mode         -->
+  <!-- ObjC Apple system frameworks (Matter, etc.) ship as a single .framework -->
+  <!-- per-slice under the SDK, never as a packaged xcframework. The generator -->
+  <!-- and downstream resolvers expect an xcframework directory layout. Build  -->
+  <!-- one in $(IntermediateOutputPath) by hand: Info.plist + a single slice    -->
+  <!-- referencing the SDK framework directly (cp -R so the modulemap +        -->
+  <!-- headers + .tbd land inside, but no Mach-O binary — Apple system          -->
+  <!-- frameworks have no binary, only a .tbd link stub).                       -->
+  <!--                                                                          -->
+  <!-- xcodebuild -create-xcframework would be the obvious tool here, but it    -->
+  <!-- rejects .tbd-only frameworks ("unable to read the file at ...") because  -->
+  <!-- it expects a Mach-O binary it can lipo-inspect. Hand-synthesizing the    -->
+  <!-- directory layout (Info.plist + slice dir) is the documented workaround.  -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_SynthesizeAppleFrameworkXcframework"
+          DependsOnTargets="_DetectSwiftBindingTargetKind;_ResolveAppleFrameworkPaths"
+          BeforeTargets="_ComputeSwiftFingerprint">
+
+    <!-- All tasks gated on AppleFramework+ObjC mode at task level. Target-level
+         Conditions evaluate BEFORE DependsOnTargets run, so we cannot gate on
+         $(_SwiftAppleFrameworkType) at the target level — it would always be
+         empty. Mirrors the pattern used by _ResolveAppleFrameworkPaths above. -->
+
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'">
+      <!-- Output xcframework location -->
+      <_SwiftAppleFrameworkSynthXcfw>$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).xcframework</_SwiftAppleFrameworkSynthXcfw>
+
+      <!-- Plist platform string ("ios", "tvos", "macos") -->
+      <_AFW_SynthPlatform Condition="'$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'maccatalyst'">ios</_AFW_SynthPlatform>
+      <_AFW_SynthPlatform Condition="'$(_SwiftBindingPlatform)' == 'tvos'">tvos</_AFW_SynthPlatform>
+      <_AFW_SynthPlatform Condition="'$(_SwiftBindingPlatform)' == 'macos'">macos</_AFW_SynthPlatform>
+
+      <!-- Slice directory name. Matches the SDK's _SwiftBindingDeviceSliceId /
+           _SwiftBindingSimulatorSliceId conventions so downstream pack/resolve
+           paths line up. -->
+      <_AFW_SynthSliceId Condition="'$(SwiftPlatformTarget)' == 'simulator'">$(_SwiftBindingSimulatorSliceId)</_AFW_SynthSliceId>
+      <_AFW_SynthSliceId Condition="'$(SwiftPlatformTarget)' != 'simulator'">$(_SwiftBindingDeviceSliceId)</_AFW_SynthSliceId>
+
+      <!-- SupportedPlatformVariant: "simulator" for sim, "maccatalyst" for catalyst, empty otherwise.
+           Apple's Info.plist convention omits the key for plain device slices. -->
+      <_AFW_SynthVariant Condition="'$(SwiftPlatformTarget)' == 'simulator'">simulator</_AFW_SynthVariant>
+      <_AFW_SynthVariant Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">maccatalyst</_AFW_SynthVariant>
+    </PropertyGroup>
+
+    <!-- Wipe stale synthesized xcframework. Cheap (small tree) and avoids
+         leaving half-populated slice dirs if the user upgrades Xcode and the
+         framework's Headers/Modules layout changes. -->
+    <RemoveDir Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'"
+               Directories="$(_SwiftAppleFrameworkSynthXcfw)" />
+    <MakeDir Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'"
+             Directories="$(_SwiftAppleFrameworkSynthXcfw)/$(_AFW_SynthSliceId)" />
+
+    <!-- Copy the SDK's framework directory into the synthesized slice. cp -R
+         preserves the symlink structure inside .framework bundles (Versions/A,
+         Headers, Modules, etc.). The .tbd link stub comes along — the generator
+         uses it for ABI resolution; no Mach-O binary is needed because system
+         frameworks are provided by the OS at runtime. -->
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'"
+          Command="cp -R &quot;$(_SwiftAppleFrameworkDir)&quot; &quot;$(_SwiftAppleFrameworkSynthXcfw)/$(_AFW_SynthSliceId)/&quot;"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+
+    <!-- Synthesize Info.plist with a single AvailableLibrary entry.
+         The SupportedPlatformVariant key is omitted for plain device slices
+         (matches Apple convention; XCFrameworkResolver.SelectSlice treats
+         null/missing as device). -->
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'">
+      <_AFW_SynthPlistLines Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;" />
+      <_AFW_SynthPlistLines Include="&lt;!DOCTYPE plist PUBLIC &quot;-//Apple//DTD PLIST 1.0//EN&quot; &quot;http://www.apple.com/DTDs/PropertyList-1.0.dtd&quot;&gt;" />
+      <_AFW_SynthPlistLines Include="&lt;plist version=&quot;1.0&quot;&gt;" />
+      <_AFW_SynthPlistLines Include="&lt;dict&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;key&gt;AvailableLibraries&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;array&gt;" />
+      <_AFW_SynthPlistLines Include="        &lt;dict&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;key&gt;LibraryIdentifier&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;string&gt;$(_AFW_SynthSliceId)&lt;/string&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;key&gt;LibraryPath&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;string&gt;$(_SwiftAppleFrameworkModule).framework&lt;/string&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;key&gt;SupportedArchitectures&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;array&gt;" />
+      <_AFW_SynthPlistLines Include="                &lt;string&gt;arm64&lt;/string&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;/array&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;key&gt;SupportedPlatform&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;string&gt;$(_AFW_SynthPlatform)&lt;/string&gt;" />
+      <_AFW_SynthPlistLines Include="            &lt;key&gt;SupportedPlatformVariant&lt;/key&gt;"
+                            Condition="'$(_AFW_SynthVariant)' != ''" />
+      <_AFW_SynthPlistLines Include="            &lt;string&gt;$(_AFW_SynthVariant)&lt;/string&gt;"
+                            Condition="'$(_AFW_SynthVariant)' != ''" />
+      <_AFW_SynthPlistLines Include="        &lt;/dict&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;/array&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;key&gt;CFBundlePackageType&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;string&gt;XFWK&lt;/string&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;key&gt;XCFrameworkFormatVersion&lt;/key&gt;" />
+      <_AFW_SynthPlistLines Include="    &lt;string&gt;1.0&lt;/string&gt;" />
+      <_AFW_SynthPlistLines Include="&lt;/dict&gt;" />
+      <_AFW_SynthPlistLines Include="&lt;/plist&gt;" />
+    </ItemGroup>
+
+    <WriteLinesToFile Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'"
+                      File="$(_SwiftAppleFrameworkSynthXcfw)/Info.plist"
+                      Lines="@(_AFW_SynthPlistLines)"
+                      Overwrite="true" />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -345,12 +495,21 @@ done; true"
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
     </Exec>
 
-    <!-- Apple-framework mode fingerprint: hash swiftinterface + TBD + SDK path + metadata -->
+    <!-- Apple-framework mode fingerprint: hash swiftinterface (Swift) or
+         modulemap+headers (ObjC) + TBD + SDK path + metadata. The Swift and
+         ObjC branches are unified into one shasum pipeline; nonexistent
+         inputs (e.g. swiftinterface for an ObjC framework) are skipped via
+         `[ -f ]` guards so the fingerprint stays well-defined for both modes.
+         _SwiftAppleFrameworkType is bumped into the hash so an accidental
+         user switch between Swift and ObjC modes for the same framework
+         re-runs the generator instead of silently reusing stale output. -->
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'"
           Command="(
-      shasum -a 256 &quot;$(_SwiftAppleFrameworkInterface)&quot; ; \
+      if [ -f &quot;$(_SwiftAppleFrameworkInterface)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkInterface)&quot;; fi ; \
       if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
+      if [ -f &quot;$(_SwiftAppleFrameworkModulemap)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkModulemap)&quot;; fi ; \
+      if [ -d &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; ]; then find -L &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; -type f -name '*.h' -exec shasum -a 256 {} \; ; fi ; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -398,7 +557,11 @@ done; true"
   <Target Name="_DumpAppleFrameworkAbi"
           DependsOnTargets="_ComputeSwiftFingerprint;_ValidateSwiftAppleSupplementPrototypeDir;_ResolveAppleFrameworkPaths">
 
-    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
+    <!-- Gated on _SwiftAppleFrameworkType == 'Swift'. ObjC-only frameworks
+         (Matter, etc.) have no Swift module for swift-api-digester to consume —
+         the generator instead reads the clang-imported AST via the synthesized
+         xcframework's module.modulemap. -->
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="xcrun swift-api-digester -dump-sdk -module $(_SwiftAppleFrameworkModule) -target $(_SwiftDigesterTarget) -sdk &quot;$(_SwiftAppleFrameworkSdkPath)&quot; $(_SwiftDigesterExtraFlags) -o &quot;$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
   </Target>
@@ -408,10 +571,11 @@ done; true"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindingsAppleFramework"
           BeforeTargets="ResolveProjectReferences"
-          DependsOnTargets="_DumpAppleFrameworkAbi;_CollectSwiftModuleDatabases">
+          DependsOnTargets="_SynthesizeAppleFrameworkXcframework;_DumpAppleFrameworkAbi;_CollectSwiftModuleDatabases">
 
-    <!-- Build direct-mode generator command (gated on fingerprint + mode) -->
-    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'">
+    <!-- Build direct-mode generator command (gated on fingerprint + Swift mode).
+         ObjC mode uses the second PropertyGroup below (xcframework + objc flags). -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'">
       <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -a "$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json"</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) -d "$(_SwiftAppleFrameworkTbd)"</_SwiftGenCmd>
@@ -433,6 +597,36 @@ done; true"
            RealityFoundation's RealityFoundationDatabase.xml). Without this, the
            generator can't resolve umbrella references back to their source module
            and emits qualified type names rooted at the wrong namespace. -->
+      <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
+    </PropertyGroup>
+
+    <!-- ObjC framework: feed the synthesized xcframework + the objc flag.
+         The generator's ObjC pipeline reads the slice's Headers/ and
+         module.modulemap via clang. swift-api-digester and the swiftinterface/tbd
+         do not apply. The generator's ObjCMetadataPropsEmitter writes a starter
+         binding-metadata.props with extracted plist values; the SDK synthesis
+         block below INTENTIONALLY overwrites it for AppleFramework mode with
+         the authoritative SDK-side values (user-declared MinDeploymentVersion
+         from SwiftAppleFrameworkTarget item metadata, $(Version) from the
+         consumer project, filesystem-probed wrapper presence). For Apple system
+         frameworks the generator has no real package version or plist to read,
+         so the SDK values are the ground truth. The _SwiftBindingFrameworkType
+         field in the emitted props lets downstream consumers distinguish Swift
+         vs ObjC modes without re-probing. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC' AND '$(_SwiftBindingUpToDate)' != 'true'">
+      <_SwiftGenCmd>dotnet exec "$(_SwiftBindingGeneratorDir)Swift.Bindings.dll"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --xcframework "$(_SwiftAppleFrameworkSynthXcfw)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --objc</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) -o "$(_SwiftBindingIntermediateDir)"</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform $(_SwiftBindingPlatform)</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftGenCmd) --platform-target $(SwiftPlatformTarget)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --platform-version $(SwiftAppleFrameworkPlatformVersion)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
+      <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
@@ -487,6 +681,11 @@ done; true"
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingHasWrapperXCFramework&gt;$(_AFW_HasWrapper)&lt;/_SwiftBindingHasWrapperXCFramework&gt;" />
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingWrapperModuleName&gt;$(_AFW_WrapperModule)&lt;/_SwiftBindingWrapperModuleName&gt;" />
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingWrapperSliceCount&gt;$(_AFW_WrapperSliceCount)&lt;/_SwiftBindingWrapperSliceCount&gt;" />
+      <!-- _SwiftBindingFrameworkType lets downstream consumers (e.g., binding
+           projects that import this metadata for cross-module wiring) tell
+           Swift, Mixed, and ObjC AppleFramework modes apart without re-probing
+           the project for SwiftFrameworkType. Empty == Swift (the default). -->
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingFrameworkType&gt;$(_SwiftAppleFrameworkType)&lt;/_SwiftBindingFrameworkType&gt;" />
       <_AFW_MetadataLines Include="  &lt;/PropertyGroup&gt;" />
       <_AFW_MetadataLines Include="  &lt;Import Project=&quot;apple-supplement.props&quot; Condition=&quot;Exists('apple-supplement.props')&quot; /&gt;" />
       <_AFW_MetadataLines Include="&lt;/Project&gt;" />

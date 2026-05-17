@@ -74,23 +74,35 @@
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);_ConfigureSwiftBindingPack</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
 
-  <!-- ObjC-only framework overrides: binding project, no Swift.Runtime, no unsafe -->
-  <PropertyGroup Condition="'$(SwiftFrameworkType)' == 'ObjC'">
-    <IsBindingProject>true</IsBindingProject>
-    <DisableImplicitSwiftRuntimeReference>true</DisableImplicitSwiftRuntimeReference>
-    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
-  </PropertyGroup>
+  <!-- ObjC AppleFramework contract (three properties REQUIRED in consumer csproj body):
+         <SwiftAppleFrameworkTarget Include="Matter" />     (item — selects the framework)
+         <SwiftFrameworkType>ObjC</SwiftFrameworkType>     (property — engages ObjC pipeline)
+         <IsBindingProject>true</IsBindingProject>          (property — engages iOS bgen)
 
-  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types -->
+       IsBindingProject MUST be set in the body (or earlier — Directory.Build.props, globals).
+       A PropertyGroup here gated on `'$(SwiftFrameworkType)' == 'ObjC'` would never fire,
+       because Sdk.props is evaluated BEFORE the user csproj body (where SwiftFrameworkType is
+       declared). The .NET iOS workload's binding-project setup in Xamarin.Shared.props is
+       imported via Microsoft.NET.Sdk.props at line 2 above — by the time the body has set
+       SwiftFrameworkType, IsBindingProject is no longer observable to those iOS-SDK props.
+       SWIFTBIND018 (Sdk.targets) validates this contract and emits an actionable error if
+       either body property is missing. ItemGroup Conditions below (and in Sdk.targets) do
+       evaluate AFTER the body runs, so item-level gating on body-set properties is OK. -->
+
+  <!-- LibraryImport requires DisableRuntimeMarshalling for Swift interop types.
+       Item-level Condition (not PropertyGroup): evaluated after body, so SwiftFrameworkType
+       from the user csproj is observable here. -->
   <ItemGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
     <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
   </ItemGroup>
 
   <!-- Implicit Swift.Runtime reference. Uses the bounded range (not bare version) so NuGet
        pins consumers inside the current minor and they can't silently slide across a
-       compatibility boundary (see SwiftRuntimePackageVersionRange above). -->
+       compatibility boundary (see SwiftRuntimePackageVersionRange above). Skipped for ObjC
+       AppleFramework projects (no Swift runtime types in pure-ObjC bindings); item-level
+       Condition sees the body-set SwiftFrameworkType correctly. -->
   <ItemGroup>
-    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimePackageVersionRange)" Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true'" />
+    <PackageReference Include="SwiftBindings.Runtime" Version="$(SwiftRuntimePackageVersionRange)" Condition="'$(DisableImplicitSwiftRuntimeReference)' != 'true' AND '$(SwiftFrameworkType)' != 'ObjC'" />
   </ItemGroup>
 
   <!-- Implicit SwiftBindings.Apple reference.

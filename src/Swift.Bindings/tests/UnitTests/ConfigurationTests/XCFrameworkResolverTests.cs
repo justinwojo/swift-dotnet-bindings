@@ -1398,6 +1398,122 @@ namespace BindingsGeneration.Tests
                     XCFrameworkPlatformTarget.Simulator, NullLogger.Instance, runner));
         }
 
+        // ─────────────────────────────────────────────────────────────────
+        // Synthesized-xcframework regression tests.
+        // The SDK's _SynthesizeAppleFrameworkXcframework target hand-builds a
+        // single-slice xcframework around an Apple system framework (Matter,
+        // etc.) because xcodebuild -create-xcframework rejects .tbd-only
+        // frameworks. These tests confirm XCFrameworkResolver accepts the
+        // exact layout the SDK emits: device slice (no SupportedPlatformVariant
+        // key), arm64-only, with the .tbd link stub but no Mach-O binary.
+        // If these regress, Matter and MatterSupport stop building.
+        // ─────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ResolveObjCFramework_DeviceOnlySynthesizedSlice_Resolves()
+        {
+            using var fixture = new XCFrameworkFixture("Matter.xcframework");
+            fixture.WriteInfoPlist(MakeSynthesizedDevicePlist("Matter"));
+            // SDK uses "ios-arm64" as the device slice id (matches
+            // _SwiftBindingDeviceSliceId for iOS device targets).
+            var sliceDir = Path.Combine(fixture.RootPath, "ios-arm64",
+                "Matter.framework");
+            Directory.CreateDirectory(sliceDir);
+            // .tbd link stub instead of a Mach-O binary — Apple system
+            // frameworks ship as .tbd-only and that's what cp -R copies.
+            File.WriteAllText(Path.Combine(sliceDir, "Matter.tbd"), "--- !tapi-tbd");
+            // ObjC modulemap (no swiftmodule).
+            var modulesDir = Path.Combine(sliceDir, "Modules");
+            Directory.CreateDirectory(modulesDir);
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                "framework module Matter {\n  umbrella header \"Matter.h\"\n}\n");
+
+            var result = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Device, NullLogger.Instance);
+
+            Assert.NotNull(result);
+            Assert.Equal("Matter", result.ModuleName);
+            Assert.False(result.IsSimulatorSlice);
+            Assert.Contains("ios-arm64", result.FrameworkSearchPath);
+        }
+
+        [Fact]
+        public void ResolveObjCFramework_SimulatorSynthesizedSlice_Resolves()
+        {
+            using var fixture = new XCFrameworkFixture("Matter.xcframework");
+            fixture.WriteInfoPlist(MakeSynthesizedSimulatorPlist("Matter"));
+            // Simulator slice id matches _SwiftBindingSimulatorSliceId.
+            var sliceDir = Path.Combine(fixture.RootPath, "ios-arm64-simulator",
+                "Matter.framework");
+            Directory.CreateDirectory(sliceDir);
+            File.WriteAllText(Path.Combine(sliceDir, "Matter.tbd"), "--- !tapi-tbd");
+            var modulesDir = Path.Combine(sliceDir, "Modules");
+            Directory.CreateDirectory(modulesDir);
+            File.WriteAllText(Path.Combine(modulesDir, "module.modulemap"),
+                "framework module Matter {\n  umbrella header \"Matter.h\"\n}\n");
+
+            var result = XCFrameworkResolver.ResolveObjCFramework(
+                fixture.RootPath, XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+
+            Assert.NotNull(result);
+            Assert.Equal("Matter", result.ModuleName);
+            Assert.True(result.IsSimulatorSlice);
+            Assert.Contains("ios-arm64-simulator", result.FrameworkSearchPath);
+        }
+
+        // Mimics _SynthesizeAppleFrameworkXcframework's Info.plist exactly:
+        // one device slice with no SupportedPlatformVariant key. Apple's plist
+        // convention OMITS the variant key for plain device slices; XCFrameworkResolver
+        // must treat null/missing variant as device.
+        private static string MakeSynthesizedDevicePlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """;
+        }
+
+        // Mimics _SynthesizeAppleFrameworkXcframework's Info.plist for the
+        // simulator case: the SupportedPlatformVariant key IS present.
+        private static string MakeSynthesizedSimulatorPlist(string name)
+        {
+            return $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """;
+        }
+
         private static string MakeObjCPlist(string name)
         {
             return $$"""

@@ -755,6 +755,337 @@ namespace BindingsGeneration.Tests
             Assert.Equal(1, CountOccurrences(output, "SIBLING_PKG:SwiftBindings.Runtime|"));
         }
 
+        // ── ObjC AppleFramework synthesis: _SynthesizeAppleFrameworkXcframework ──
+        // Apple system frameworks like Matter ship as a single .framework per slice
+        // under the SDK with a .tbd link stub and no Mach-O binary. xcodebuild
+        // -create-xcframework refuses to package those, so the SDK hand-builds a
+        // single-slice xcframework into $(IntermediateOutputPath). These tests
+        // override _ResolveAppleFrameworkPaths to plant fake state and assert
+        // the synthesis target produces the exact directory + plist layout that
+        // XCFrameworkResolver later consumes. The contract is load-bearing for
+        // issue #38 (SwiftBindings.Apple.Matter, SwiftBindings.Apple.MatterSupport).
+
+        [Fact]
+        public void SynthesizeAppleFrameworkXcframework_ObjcMode_BuildsSliceWithInfoPlist()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Plant a fake SDK framework dir: Foo.framework/Modules/module.modulemap + Foo.tbd.
+            // This models the layout cp -R will copy from the real Xcode SDK.
+            var fakeSdk = Path.Combine(_tempDir, "fake-sdk");
+            var fakeFrameworkDir = Path.Combine(fakeSdk, "Foo.framework");
+            Directory.CreateDirectory(Path.Combine(fakeFrameworkDir, "Modules"));
+            Directory.CreateDirectory(Path.Combine(fakeFrameworkDir, "Headers"));
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Modules", "module.modulemap"),
+                "framework module Foo {\n  umbrella header \"Foo.h\"\n}\n");
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Foo.tbd"), "--- !tapi-tbd");
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Headers", "Foo.h"), "// public header");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // The strategy: import real Sdk.targets, then override _ResolveAppleFrameworkPaths
+            // and _DetectSwiftBindingTargetKind with stubs that bypass xcrun and plant the
+            // resolved state directly (last-Target-wins replaces the SDK's definitions).
+            // This isolates the synthesis target so we can test its directory/plist output
+            // without needing a real Xcode SDK with the Matter framework installed.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="Foo" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <!-- Override the SDK's xcrun-dependent path resolution. We plant the
+                       AppleFramework state directly so the synthesis target can run in
+                       isolation against our fake framework dir. -->
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                      <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
+                      <_SwiftBindingDeviceSliceId>ios-arm64</_SwiftBindingDeviceSliceId>
+                      <_SwiftBindingSimulatorSliceId>ios-arm64-simulator</_SwiftBindingSimulatorSliceId>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkModule>Foo</_SwiftAppleFrameworkModule>
+                      <_SwiftAppleFrameworkDir>{fakeFrameworkDir}</_SwiftAppleFrameworkDir>
+                      <_SwiftAppleFrameworkModulemap>{fakeFrameworkDir}/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>
+                      <_SwiftAppleFrameworkType>ObjC</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_SynthesizeAppleFrameworkXcframework -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_SynthesizeAppleFrameworkXcframework failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            // The synthesized xcframework should appear under the intermediate dir
+            // with the exact name convention the SDK's downstream targets expect.
+            var synthXcfw = Path.Combine(intermediateDir, "Foo.xcframework");
+            Assert.True(Directory.Exists(synthXcfw),
+                $"Synthesized xcframework not created at {synthXcfw}");
+
+            // Device slice dir (ios-arm64) must be present with the copied framework.
+            // SDK uses _SwiftBindingDeviceSliceId="ios-arm64" for iOS device.
+            var sliceDir = Path.Combine(synthXcfw, "ios-arm64");
+            Assert.True(Directory.Exists(sliceDir), $"Slice dir not found at {sliceDir}");
+            var copiedFramework = Path.Combine(sliceDir, "Foo.framework");
+            Assert.True(Directory.Exists(copiedFramework),
+                $"Copied Foo.framework missing under slice dir {sliceDir}");
+            Assert.True(File.Exists(Path.Combine(copiedFramework, "Modules", "module.modulemap")),
+                "modulemap not copied into synthesized slice");
+            Assert.True(File.Exists(Path.Combine(copiedFramework, "Foo.tbd")),
+                ".tbd link stub not copied into synthesized slice");
+
+            // Info.plist must validate as an XCFramework Info.plist and parse via
+            // XCFrameworkResolver — that's the actual downstream contract.
+            var plistPath = Path.Combine(synthXcfw, "Info.plist");
+            Assert.True(File.Exists(plistPath), "Synthesized Info.plist missing");
+            var plistContent = File.ReadAllText(plistPath);
+            Assert.Contains("AvailableLibraries", plistContent);
+            Assert.Contains("<string>ios-arm64</string>", plistContent);
+            Assert.Contains("<string>Foo.framework</string>", plistContent);
+            Assert.Contains("<string>arm64</string>", plistContent);
+            Assert.Contains("<string>ios</string>", plistContent);
+            Assert.Contains("XFWK", plistContent);
+            // SupportedPlatformVariant MUST be omitted for a plain device slice
+            // — Apple's convention, and XCFrameworkResolver.SelectSlice treats
+            // missing as device. A stray variant key would cause the device
+            // path to be misclassified.
+            Assert.DoesNotContain("SupportedPlatformVariant", plistContent);
+        }
+
+        [Fact]
+        public void SynthesizeAppleFrameworkXcframework_ObjcMode_SimulatorEmitsVariant()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            // Mirror of the device test, but with SwiftPlatformTarget=simulator.
+            // The plist MUST carry SupportedPlatformVariant=simulator so
+            // XCFrameworkResolver routes through the simulator path.
+            var fakeFrameworkDir = Path.Combine(_tempDir, "fake-sdk", "Foo.framework");
+            Directory.CreateDirectory(Path.Combine(fakeFrameworkDir, "Modules"));
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Modules", "module.modulemap"),
+                "framework module Foo {}\n");
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Foo.tbd"), "--- !tapi-tbd");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <SwiftPlatformTarget>simulator</SwiftPlatformTarget>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="Foo" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                      <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
+                      <_SwiftBindingDeviceSliceId>ios-arm64</_SwiftBindingDeviceSliceId>
+                      <_SwiftBindingSimulatorSliceId>ios-arm64-simulator</_SwiftBindingSimulatorSliceId>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkModule>Foo</_SwiftAppleFrameworkModule>
+                      <_SwiftAppleFrameworkDir>{fakeFrameworkDir}</_SwiftAppleFrameworkDir>
+                      <_SwiftAppleFrameworkModulemap>{fakeFrameworkDir}/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>
+                      <_SwiftAppleFrameworkType>ObjC</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_SynthesizeAppleFrameworkXcframework -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_SynthesizeAppleFrameworkXcframework (simulator) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var synthXcfw = Path.Combine(intermediateDir, "Foo.xcframework");
+            var sliceDir = Path.Combine(synthXcfw, "ios-arm64-simulator");
+            Assert.True(Directory.Exists(sliceDir),
+                $"Simulator slice dir not found at {sliceDir}");
+
+            var plistContent = File.ReadAllText(Path.Combine(synthXcfw, "Info.plist"));
+            Assert.Contains("<string>ios-arm64-simulator</string>", plistContent);
+            // Simulator MUST emit SupportedPlatformVariant=simulator so
+            // XCFrameworkResolver picks the simulator slice when requested.
+            Assert.Contains("SupportedPlatformVariant", plistContent);
+            Assert.Contains("<string>simulator</string>", plistContent);
+        }
+
+        [Fact]
+        public void SynthesizeAppleFrameworkXcframework_SwiftMode_NoOps()
+        {
+            // When the framework is a Swift framework (e.g. CryptoKit), the
+            // synthesis target's task-level conditions must all evaluate false
+            // and produce NO xcframework. The Swift binding pipeline uses the
+            // direct .swiftinterface path, not a synthesized xcframework.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="Foo" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                      <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
+                      <_SwiftBindingDeviceSliceId>ios-arm64</_SwiftBindingDeviceSliceId>
+                      <_SwiftBindingSimulatorSliceId>ios-arm64-simulator</_SwiftBindingSimulatorSliceId>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkModule>Foo</_SwiftAppleFrameworkModule>
+                      <!-- Swift type — synthesis must be a no-op -->
+                      <_SwiftAppleFrameworkType>Swift</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_SynthesizeAppleFrameworkXcframework -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_SynthesizeAppleFrameworkXcframework (Swift no-op) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            // No synthesized xcframework should have been created.
+            Assert.False(Directory.Exists(Path.Combine(intermediateDir, "Foo.xcframework")),
+                "Synthesis target must NOT produce an xcframework for Swift-type AppleFramework mode");
+        }
+
+        [Fact]
+        public void SynthesizeAppleFrameworkXcframework_ObjcMode_TvosSimulatorEmitsCorrectPlatform()
+        {
+            // Synthesis must emit the tvOS platform string in the plist when
+            // _SwiftBindingPlatform=tvos, plus SupportedPlatformVariant=simulator
+            // for SwiftPlatformTarget=simulator. The platform mapping at
+            // Sdk.targets:365-368 has three branches (ios/maccatalyst, tvos, macos)
+            // and the iOS path was the only one covered by behavioral tests until now.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var fakeFrameworkDir = Path.Combine(_tempDir, "fake-sdk", "Foo.framework");
+            Directory.CreateDirectory(Path.Combine(fakeFrameworkDir, "Modules"));
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Modules", "module.modulemap"),
+                "framework module Foo {}\n");
+            File.WriteAllText(Path.Combine(fakeFrameworkDir, "Foo.tbd"), "--- !tapi-tbd");
+
+            var intermediateDir = Path.Combine(_tempDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <SwiftPlatformTarget>simulator</SwiftPlatformTarget>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="Foo" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                  </PropertyGroup>
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                      <_SwiftBindingPlatform>tvos</_SwiftBindingPlatform>
+                      <_SwiftBindingDeviceSliceId>tvos-arm64</_SwiftBindingDeviceSliceId>
+                      <_SwiftBindingSimulatorSliceId>tvos-arm64-simulator</_SwiftBindingSimulatorSliceId>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkModule>Foo</_SwiftAppleFrameworkModule>
+                      <_SwiftAppleFrameworkDir>{fakeFrameworkDir}</_SwiftAppleFrameworkDir>
+                      <_SwiftAppleFrameworkModulemap>{fakeFrameworkDir}/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>
+                      <_SwiftAppleFrameworkType>ObjC</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ComputeSwiftFingerprint" />
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:_SynthesizeAppleFrameworkXcframework -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"_SynthesizeAppleFrameworkXcframework (tvOS simulator) failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var synthXcfw = Path.Combine(intermediateDir, "Foo.xcframework");
+            var sliceDir = Path.Combine(synthXcfw, "tvos-arm64-simulator");
+            Assert.True(Directory.Exists(sliceDir),
+                $"tvOS simulator slice dir not found at {sliceDir}");
+
+            var plistContent = File.ReadAllText(Path.Combine(synthXcfw, "Info.plist"));
+            // tvos platform string (not ios) — checks the SwiftBindingPlatform mapping branch
+            Assert.Contains("<string>tvos</string>", plistContent);
+            Assert.DoesNotContain("<string>ios</string>", plistContent);
+            // Simulator variant must still be emitted on tvOS
+            Assert.Contains("SupportedPlatformVariant", plistContent);
+            Assert.Contains("<string>simulator</string>", plistContent);
+            Assert.Contains("<string>tvos-arm64-simulator</string>", plistContent);
+        }
+
         // Regression guard against re-introducing custom-metadata-in-Condition patterns
         // anywhere in Sdk.props. The original failure: an ItemGroup at evaluation time
         // declared a PackageReference with a Condition that referenced qualified custom

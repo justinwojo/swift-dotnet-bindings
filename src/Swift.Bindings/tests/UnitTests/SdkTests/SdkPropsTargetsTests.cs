@@ -74,6 +74,40 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Props_SwiftRuntimePackageReference_SkippedForObjCFrameworkBindings()
+        {
+            // Pure-ObjC AppleFramework bindings (Matter, MatterSupport) must NOT pull in
+            // SwiftBindings.Runtime — there are no Swift interop types in the binding.
+            // The gate lives on the PackageReference itself (item-level Condition) because
+            // ItemGroup conditions evaluate AFTER the body has set SwiftFrameworkType.
+            // A PropertyGroup-level gate in Sdk.props (e.g. setting
+            // DisableImplicitSwiftRuntimeReference based on SwiftFrameworkType) would NOT
+            // work — Sdk.props evaluates before the body, so the property would be empty.
+            Assert.Contains(
+                "<PackageReference Include=\"SwiftBindings.Runtime\"",
+                PropsContent);
+            Assert.Contains(
+                "AND '$(SwiftFrameworkType)' != 'ObjC'",
+                PropsContent);
+        }
+
+        [Fact]
+        public void Props_DoesNotSetIsBindingProjectFromBrokenPropertyGroup()
+        {
+            // Sdk.props is evaluated BEFORE the user csproj body — so a PropertyGroup
+            // gated on $(SwiftFrameworkType) would never fire (SwiftFrameworkType is set
+            // by the user's body PropertyGroup, which runs later). Earlier shapes of this
+            // SDK had such a PropertyGroup at the top of Sdk.props that silently failed to
+            // assign IsBindingProject=true. The fix is to require the user to declare
+            // <IsBindingProject>true</IsBindingProject> explicitly in their csproj body;
+            // SWIFTBIND018 / SWIFTBIND021 validate that contract at targets time. This
+            // test prevents the broken-by-design PropertyGroup from creeping back in.
+            Assert.DoesNotContain(
+                "<PropertyGroup Condition=\"'$(SwiftFrameworkType)' == 'ObjC'\">",
+                PropsContent);
+        }
+
+        [Fact]
         public void Props_DefaultsWrapperArchitecturesToAll()
         {
             Assert.Contains("<SwiftWrapperArchitectures Condition=", PropsContent);
@@ -879,6 +913,292 @@ namespace BindingsGeneration.Tests
             // SwiftPlatformTarget should only default to 'simulator' for platforms with simulator slices
             Assert.Contains("_SwiftBindingHasSimulatorSlice", TargetsContent);
             Assert.Contains(">simulator</SwiftPlatformTarget>", TargetsContent);
+        }
+
+        // ------------------------------------------------------------------
+        // ObjC AppleFramework mode (Matter, MatterSupport, etc.):
+        // these system frameworks ship with a module.modulemap but no
+        // Swift interface. The SDK auto-detects the framework type from
+        // the SDK layout and routes the build through bgen instead of the
+        // Swift binding generator. The user must declare a THREE-property
+        // contract in the csproj body:
+        //   <SwiftAppleFrameworkTarget Include="Matter" />  (the framework)
+        //   <SwiftFrameworkType>ObjC</SwiftFrameworkType>  (our pipeline gate)
+        //   <IsBindingProject>true</IsBindingProject>      (iOS bgen pipeline gate)
+        // IsBindingProject must be set in the body (not by a PropertyGroup in
+        // our Sdk.props gated on SwiftFrameworkType) because Sdk.props evaluates
+        // BEFORE the user csproj body — by the time SwiftFrameworkType is set,
+        // Microsoft.iOS.Sdk's binding-project props have already run. These tests
+        // pin the detection, validation (SWIFTBIND017/018/019/021), and
+        // xcframework-synthesis machinery.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void Targets_AppleFrameworkType_DetectsSwiftFromInterface()
+        {
+            // Swift interface presence is the positive signal. The exact
+            // assignment uses Exists() on _SwiftAppleFrameworkInterface and
+            // is gated on the empty default so a user override (declared
+            // SwiftFrameworkType) is respected.
+            Assert.Contains(
+                "<_SwiftAppleFrameworkType Condition=\"Exists('$(_SwiftAppleFrameworkInterface)')\">Swift</_SwiftAppleFrameworkType>",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkType_DetectsObjCFromModulemap()
+        {
+            // ObjC detection only fires when the Swift branch already failed
+            // (mixed frameworks have both — Swift wins). The empty-default
+            // guard on the Condition is the load-bearing piece — without it
+            // a mixed framework would silently route through bgen.
+            Assert.Contains(
+                "<_SwiftAppleFrameworkType Condition=\"'$(_SwiftAppleFrameworkType)' == '' AND Exists('$(_SwiftAppleFrameworkModulemap)')\">ObjC</_SwiftAppleFrameworkType>",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind017ErrorCode_NeitherSwiftNorObjC()
+        {
+            Assert.Contains("SWIFTBIND017", TargetsContent);
+            Assert.Contains("neither a Swift interface", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind018ErrorCode_ObjcRequiresSwiftFrameworkTypeDeclaration()
+        {
+            // Actionable text must mention BOTH body properties the user has to set.
+            // SwiftFrameworkType engages our ObjC pipeline; IsBindingProject engages
+            // the .NET iOS workload's bgen pipeline at evaluation time (which is too
+            // early for our props to set it conditionally — both must come from the
+            // user's csproj body / Directory.Build.props / globals).
+            Assert.Contains("SWIFTBIND018", TargetsContent);
+            Assert.Contains("&lt;SwiftFrameworkType&gt;ObjC&lt;/SwiftFrameworkType&gt;", TargetsContent);
+            Assert.Contains("&lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt;", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind019ErrorCode_RefuseToRouteSwiftFrameworkToBgen()
+        {
+            Assert.Contains("SWIFTBIND019", TargetsContent);
+            Assert.Contains("has a Swift interface", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_HasSwiftBind021ErrorCode_ObjcRequiresIsBindingProject()
+        {
+            // Companion to SWIFTBIND018: when SwiftFrameworkType=ObjC IS declared but
+            // IsBindingProject is missing, surface a separate actionable error pointing
+            // at the missing property. Splitting the diagnostics lets users see exactly
+            // which property they forgot rather than guessing from a generic message.
+            Assert.Contains("SWIFTBIND021", TargetsContent);
+            Assert.Contains("&lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt;", TargetsContent);
+            Assert.Contains("'$(IsBindingProject)' != 'true'", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkType_SwiftBindError014_GatedOnSwiftType()
+        {
+            // SWIFTBIND014 is the original "missing swiftinterface" error.
+            // With the type-detection layer it must only fire on Swift frameworks
+            // (ObjC frameworks legitimately have no swiftinterface).
+            var swiftbind014 = TargetsContent.IndexOf("SWIFTBIND014", StringComparison.Ordinal);
+            Assert.True(swiftbind014 > 0);
+            // Walk backward to the enclosing <Error tag to inspect its Condition
+            var errOpen = TargetsContent.LastIndexOf("<Error", swiftbind014, StringComparison.Ordinal);
+            Assert.True(errOpen > 0);
+            var errEnd = TargetsContent.IndexOf('>', swiftbind014);
+            Assert.True(errEnd > swiftbind014);
+            var errTag = TargetsContent.Substring(errOpen, errEnd - errOpen + 1);
+            Assert.Contains("'$(_SwiftAppleFrameworkType)' == 'Swift'", errTag);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkPaths_ResolveModulemapPath()
+        {
+            // Modulemap path must be computed alongside Interface and Tbd paths
+            // — used by both detection and fingerprinting.
+            Assert.Contains(
+                "<_SwiftAppleFrameworkModulemap>$(_SwiftAppleFrameworkDir)/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkPaths_CatalystFallbackProbesModulemap()
+        {
+            // The Catalyst fallback originally only probed the .swiftmodule directory.
+            // ObjC-only frameworks (Matter) have no swiftmodule, so the iOSSupport
+            // overlay would short-circuit before falling back to the regular path
+            // where the modulemap actually lives.
+            Assert.Contains(
+                "!Exists('$(_SwiftAppleFrameworkDir)/Modules/module.modulemap')",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_SynthesizeAppleFrameworkXcframeworkTarget_Exists()
+        {
+            Assert.Contains("Name=\"_SynthesizeAppleFrameworkXcframework\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_SynthesizeAppleFrameworkXcframework_RunsBeforeFingerprint()
+        {
+            // The synthesized xcframework path is one of the fingerprint inputs,
+            // so the synthesis target must run BeforeTargets="_ComputeSwiftFingerprint".
+            var synthIdx = TargetsContent.IndexOf("Name=\"_SynthesizeAppleFrameworkXcframework\"", StringComparison.Ordinal);
+            Assert.True(synthIdx > 0);
+            var tagEnd = TargetsContent.IndexOf('>', synthIdx);
+            var tag = TargetsContent.Substring(synthIdx, tagEnd - synthIdx);
+            Assert.Contains("BeforeTargets=\"_ComputeSwiftFingerprint\"", tag);
+            Assert.Contains("DependsOnTargets=\"_DetectSwiftBindingTargetKind;_ResolveAppleFrameworkPaths\"", tag);
+        }
+
+        [Fact]
+        public void Targets_SynthesizeAppleFrameworkXcframework_HasTaskLevelGating()
+        {
+            // Target-level Conditions evaluate before DependsOnTargets run, so
+            // gating on $(_SwiftAppleFrameworkType) (which is set by
+            // _ResolveAppleFrameworkPaths) MUST happen at task level. A Target-
+            // level Condition would always evaluate to false (property still
+            // empty at gate time) and the synthesis would never fire.
+            var synthIdx = TargetsContent.IndexOf("Name=\"_SynthesizeAppleFrameworkXcframework\"", StringComparison.Ordinal);
+            Assert.True(synthIdx > 0);
+            var tagEnd = TargetsContent.IndexOf('>', synthIdx);
+            var tag = TargetsContent.Substring(synthIdx, tagEnd - synthIdx);
+            // No target-level Condition referencing _SwiftAppleFrameworkType
+            Assert.DoesNotContain("_SwiftAppleFrameworkType", tag);
+            // Each child task within the body IS gated on ObjC type.
+            // Find the end of this target's body (closing </Target>).
+            var bodyEnd = TargetsContent.IndexOf("</Target>", synthIdx, StringComparison.Ordinal);
+            var body = TargetsContent.Substring(synthIdx, bodyEnd - synthIdx);
+            // RemoveDir, MakeDir, Exec, ItemGroup, WriteLinesToFile each gated
+            Assert.Contains("<RemoveDir Condition=\"'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'\"", body);
+            Assert.Contains("<MakeDir Condition=\"'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'\"", body);
+            Assert.Contains("<Exec Condition=\"'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'\"", body);
+            Assert.Contains("<WriteLinesToFile Condition=\"'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'\"", body);
+        }
+
+        [Fact]
+        public void Targets_SynthesizeAppleFrameworkXcframework_EmitsInfoPlistWithCorrectKeys()
+        {
+            // Info.plist must declare AvailableLibraries with LibraryIdentifier,
+            // LibraryPath (=Module.framework), SupportedArchitectures (arm64),
+            // SupportedPlatform, and optionally SupportedPlatformVariant.
+            // XCFrameworkResolver.SelectSlice keys on these.
+            Assert.Contains("&lt;key&gt;AvailableLibraries&lt;/key&gt;", TargetsContent);
+            Assert.Contains("&lt;key&gt;LibraryIdentifier&lt;/key&gt;", TargetsContent);
+            Assert.Contains("&lt;key&gt;LibraryPath&lt;/key&gt;", TargetsContent);
+            Assert.Contains("&lt;key&gt;SupportedArchitectures&lt;/key&gt;", TargetsContent);
+            Assert.Contains("&lt;key&gt;SupportedPlatform&lt;/key&gt;", TargetsContent);
+            Assert.Contains("&lt;key&gt;SupportedPlatformVariant&lt;/key&gt;", TargetsContent);
+            // CFBundlePackageType=XFWK + XCFrameworkFormatVersion=1.0 are
+            // required by xcodebuild's xcframework spec.
+            Assert.Contains("&lt;string&gt;XFWK&lt;/string&gt;", TargetsContent);
+            Assert.Contains("&lt;key&gt;XCFrameworkFormatVersion&lt;/key&gt;", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_SynthesizeAppleFrameworkXcframework_OmitsVariantForDevice()
+        {
+            // SupportedPlatformVariant must be conditionally emitted — Apple's
+            // convention is to OMIT the key entirely for plain device slices.
+            // XCFrameworkResolver.SelectSlice treats null/missing as device.
+            // Both the <key> AND <string> lines must be gated on _AFW_SynthVariant.
+            Assert.Contains(
+                "Include=\"            &lt;key&gt;SupportedPlatformVariant&lt;/key&gt;\"\n                            Condition=\"'$(_AFW_SynthVariant)' != ''\"",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkFingerprint_HashesModulemapAndHeaders()
+        {
+            // The fingerprint must include the modulemap and header hashes so
+            // that ObjC framework changes invalidate the cache. The Swift-only
+            // fingerprint (interface + tbd) is insufficient for ObjC mode.
+            var fingerprintIdx = TargetsContent.IndexOf(
+                "Apple-framework mode fingerprint", StringComparison.Ordinal);
+            Assert.True(fingerprintIdx > 0);
+            // Pull the block up to the closing </Exec> tag of the fingerprint Exec.
+            var blockEnd = TargetsContent.IndexOf("</Exec>", fingerprintIdx, StringComparison.Ordinal);
+            var block = TargetsContent.Substring(fingerprintIdx, blockEnd - fingerprintIdx);
+            Assert.Contains("_SwiftAppleFrameworkModulemap", block);
+            Assert.Contains("$(_SwiftAppleFrameworkDir)/Headers", block);
+            // Type must be in the metadata string so a Swift↔ObjC switch
+            // invalidates the cache even if every other input is identical.
+            Assert.Contains("$(_SwiftAppleFrameworkType)", block);
+            // find -L follows symlinked Headers trees so frameworks that use
+            // a Versions/Current/Headers symlink layout (macOS-style) have their
+            // public header surface fully covered by the fingerprint. iOS-style
+            // flat Headers/ frameworks are unaffected (no symlinks to follow).
+            Assert.Contains("find -L", block);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkAbiDump_GatedOnSwiftType()
+        {
+            // _DumpAppleFrameworkAbi runs swift-api-digester which only applies
+            // to Swift frameworks. ObjC frameworks have no Swift module to dump.
+            var abiDumpIdx = TargetsContent.IndexOf("_DumpAppleFrameworkAbi", StringComparison.Ordinal);
+            Assert.True(abiDumpIdx > 0);
+            // Find the next <Exec inside this target — that's the digester invocation.
+            var execStart = TargetsContent.IndexOf("<Exec", abiDumpIdx, StringComparison.Ordinal);
+            Assert.True(execStart > 0);
+            var execTagEnd = TargetsContent.IndexOf('>', execStart);
+            var execTag = TargetsContent.Substring(execStart, execTagEnd - execStart);
+            Assert.Contains("'$(_SwiftAppleFrameworkType)' == 'Swift'", execTag);
+        }
+
+        [Fact]
+        public void Targets_GenerateBindings_ObjCBranchPassesObjcFlag()
+        {
+            // The ObjC PropertyGroup must add --objc and point --xcframework
+            // at the synthesized xcframework (NOT the SDK framework directly,
+            // which would fail the XCFrameworkResolver's Info.plist validation).
+            var generateIdx = TargetsContent.IndexOf(
+                "Name=\"_GenerateSwiftBindingsAppleFramework\"", StringComparison.Ordinal);
+            Assert.True(generateIdx > 0);
+            var generateEnd = TargetsContent.IndexOf("</Target>", generateIdx, StringComparison.Ordinal);
+            var generateBody = TargetsContent.Substring(generateIdx, generateEnd - generateIdx);
+            // ObjC-gated PropertyGroup exists
+            Assert.Contains(
+                "'$(_SwiftAppleFrameworkType)' == 'ObjC' AND '$(_SwiftBindingUpToDate)' != 'true'",
+                generateBody);
+            // --objc flag emitted
+            Assert.Contains("--objc", generateBody);
+            // --xcframework points at the synthesized xcframework
+            Assert.Contains("$(_SwiftAppleFrameworkSynthXcfw)", generateBody);
+            // Swift PropertyGroup is itself gated on 'Swift' type (so ObjC mode
+            // does NOT silently invoke the Swift binding pipeline).
+            Assert.Contains(
+                "'$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'",
+                generateBody);
+        }
+
+        [Fact]
+        public void Targets_GenerateBindingsAppleFramework_DependsOnSynthesisAndMetadata()
+        {
+            // The generation target must chain through _SynthesizeAppleFrameworkXcframework
+            // so the synth output exists before the generator runs in ObjC mode.
+            var generateIdx = TargetsContent.IndexOf(
+                "Name=\"_GenerateSwiftBindingsAppleFramework\"", StringComparison.Ordinal);
+            Assert.True(generateIdx > 0);
+            var tagEnd = TargetsContent.IndexOf('>', generateIdx);
+            var tag = TargetsContent.Substring(generateIdx, tagEnd - generateIdx);
+            var depsMatch = Regex.Match(tag, "DependsOnTargets=\"([^\"]*)\"");
+            Assert.True(depsMatch.Success);
+            var deps = depsMatch.Groups[1].Value.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Contains("_SynthesizeAppleFrameworkXcframework", deps);
+            Assert.Contains("_CollectSwiftModuleDatabases", deps);
+        }
+
+        [Fact]
+        public void Targets_BindingMetadataPropsSynthesis_RecordsFrameworkType()
+        {
+            // The metadata props synthesized for AppleFramework mode must carry
+            // _SwiftBindingFrameworkType so downstream consumers (Apple supplement
+            // injection, packaging) can distinguish Swift- vs ObjC-rooted bindings.
+            Assert.Contains("_SwiftBindingFrameworkType&gt;$(_SwiftAppleFrameworkType)&lt;/_SwiftBindingFrameworkType", TargetsContent);
         }
 
         private static string FindRepoRoot()
