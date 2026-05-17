@@ -566,29 +566,18 @@ namespace BindingsGeneration
                         continue;
                     }
                 }
-                // C11: Optional<Closure> and bare Closure are the same overload in C#
-                // (nullable reference types don't affect overload resolution).
-                // Unwrap Optional<Closure> so both produce the same projected key.
-                var typeSpecForKey = arg.SwiftTypeSpec;
-                if (typeSpecForKey is NamedTypeSpec optionalClosureSpec &&
-                    optionalClosureSpec.Name == "Swift.Optional" &&
-                    optionalClosureSpec.GenericParameters.Count == 1 &&
-                    optionalClosureSpec.GenericParameters[0] is ClosureTypeSpec)
-                {
-                    typeSpecForKey = optionalClosureSpec.GenericParameters[0];
-                }
-                // Optional<GenericParam> and bare GenericParam collapse to the same overload
-                // for reference-constrained T (and the compiler emits CS0111 for unconstrained
-                // T too — `Foo<T>(T)` and `Foo<T>(T?)` would conflict for `T = string`). Unwrap
-                // the Optional layer when its element is a generic-param reference visible in
-                // this method's scope.
-                if (typeSpecForKey is NamedTypeSpec optGenericSpec &&
-                    optGenericSpec.Name == "Swift.Optional" &&
-                    optGenericSpec.GenericParameters.Count == 1 &&
-                    IsGenericParamReference(optGenericSpec.GenericParameters[0], parentGenericNames))
-                {
-                    typeSpecForKey = optGenericSpec.GenericParameters[0];
-                }
+                // C11: Optional<ClassLike> and bare ClassLike are the same overload in C#
+                // (nullability annotations on reference types are erased at runtime). The
+                // recursive helper unwraps Optional<ClassLike> at every depth — top-level,
+                // nested inside containers like Array<Optional<Class>>, and inside tuples —
+                // so two Swift overloads taking `Array<T>` and `Array<Optional<T>>` collapse
+                // onto the same projected key when T projects to a reference type. Without
+                // this, projection of the container produces `IEnumerable<T?>` vs
+                // `IEnumerable<T>` and the CS0111 collision slips through dedup.
+                // The helper also covers the top-level Optional<Closure> and
+                // Optional<GenericParam> cases that earlier dedicated branches handled.
+                var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                    arg.SwiftTypeSpec, typeDatabase, parentGenericNames);
                 string paramType;
                 try
                 {

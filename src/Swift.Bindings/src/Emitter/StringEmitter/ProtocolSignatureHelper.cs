@@ -123,6 +123,7 @@ internal static class ProtocolSignatureHelper
             isSelfReturning: isSelfReturning,
             parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
         var paramTypes = new List<string>();
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
         {
@@ -133,7 +134,9 @@ internal static class ProtocolSignatureHelper
             // Empty tuple () params are stripped from the C# signature (zero-sized Void)
             if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
-            var projected = ProjectTypeToCSharp(arg.SwiftTypeSpec, typeDatabase, protocolContext, isParameter: true);
+            var typeSpecForKey = StripOptionalClassLikeForOverloadIdentity(
+                arg.SwiftTypeSpec, typeDatabase, visibleGenericNames);
+            var projected = ProjectTypeToCSharp(typeSpecForKey, typeDatabase, protocolContext, isParameter: true);
             projected = NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, typeDatabase);
             paramTypes.Add(projected);
         }
@@ -277,6 +280,98 @@ internal static class ProtocolSignatureHelper
     /// </summary>
     private static string MaybeNarrow(string typeName, bool narrow)
         => narrow ? NativeIntOverloadEmitter.NarrowNativeIntType(typeName) : typeName;
+
+    /// <summary>
+    /// Recursively unwraps <c>Swift.Optional&lt;T&gt;</c> where <c>T</c> projects to a C# reference
+    /// type at any depth inside a TypeSpec, returning a structurally normalized spec for
+    /// overload-identity comparison. Top-level Optional&lt;ClassLike&gt; is already handled
+    /// post-projection by <see cref="NormalizeParamTypeForOverloadIdentity"/> (string trim),
+    /// but the projected string for a container like <c>Array&lt;Optional&lt;Class&gt;&gt;</c>
+    /// comes out as <c>IEnumerable&lt;Class?&gt;</c> — the <c>?</c> sits inside the generic
+    /// argument and the trailing-trim approach can't see it. Two overloads taking
+    /// <c>Array&lt;Class&gt;</c> and <c>Array&lt;Optional&lt;Class&gt;&gt;</c> resolve to the
+    /// same C# overload (nullability is erased for reference types) and produce CS0111
+    /// unless we collapse them before projection.
+    ///
+    /// "ClassLike" = the same set already enumerated in <see cref="NormalizeParamTypeForOverloadIdentity"/>:
+    /// Class, Protocol, Existential, non-simple Enum, non-Frozen Struct, frozen-struct-projected-as-class,
+    /// ClosureTypeSpec, and Swift value types whose C# projection is a reference type
+    /// (string, object). Generic parameters visible in scope are also stripped — for a
+    /// reference-constrained T, <c>Array&lt;T?&gt;</c> and <c>Array&lt;T&gt;</c> collide too.
+    /// </summary>
+    public static TypeSpec StripOptionalClassLikeForOverloadIdentity(
+        TypeSpec spec,
+        ITypeDatabase typeDatabase,
+        IReadOnlyCollection<string>? genericParamNamesInScope = null)
+    {
+        switch (spec)
+        {
+            case NamedTypeSpec named when named.Name == "Swift.Optional" && named.GenericParameters.Count == 1:
+            {
+                var innerStripped = StripOptionalClassLikeForOverloadIdentity(named.GenericParameters[0], typeDatabase, genericParamNamesInScope);
+                if (IsReferenceLikeForOverloadIdentity(innerStripped, typeDatabase, genericParamNamesInScope))
+                    return innerStripped;
+                return new NamedTypeSpec(named.Name, innerStripped);
+            }
+            case NamedTypeSpec named when named.GenericParameters.Count > 0:
+            {
+                var rebuilt = new NamedTypeSpec(
+                    named.Name,
+                    named.GenericParameters
+                        .Select(g => StripOptionalClassLikeForOverloadIdentity(g, typeDatabase, genericParamNamesInScope))
+                        .ToArray());
+                rebuilt.InnerType = named.InnerType;
+                return rebuilt;
+            }
+            case TupleTypeSpec tuple:
+                return new TupleTypeSpec(
+                    tuple.Elements.Select(e => StripOptionalClassLikeForOverloadIdentity(e, typeDatabase, genericParamNamesInScope)));
+            default:
+                return spec;
+        }
+    }
+
+    /// <summary>
+    /// Mirrors the ClassLike branch of <see cref="NormalizeParamTypeForOverloadIdentity"/>:
+    /// returns true when the type, if wrapped in <c>Swift.Optional&lt;_&gt;</c>, projects to
+    /// a nullable annotation on a CLR reference type — meaning <c>T?</c> and <c>T</c> are
+    /// indistinguishable for C# overload resolution.
+    /// </summary>
+    private static bool IsReferenceLikeForOverloadIdentity(
+        TypeSpec spec,
+        ITypeDatabase typeDatabase,
+        IReadOnlyCollection<string>? genericParamNamesInScope)
+    {
+        if (spec is ClosureTypeSpec)
+            return true;
+        if (spec is NamedTypeSpec named)
+        {
+            if (genericParamNamesInScope != null && genericParamNamesInScope.Contains(named.Name))
+                return true;
+            if (TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                return true;
+        }
+        try
+        {
+            var record = typeDatabase.GetTypeRecordOrAnyType(spec);
+            if (record.Kind == TypeRecordKind.Class ||
+                record.Kind == TypeRecordKind.Protocol ||
+                record.Kind == TypeRecordKind.Existential ||
+                (record.Kind == TypeRecordKind.Enum && !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)) ||
+                (record.Kind == TypeRecordKind.Struct && !record.Flags.HasFlag(TypeRecordFlags.Frozen)) ||
+                MarshallingHelpers.IsFrozenStructProjectedAsClass(record))
+                return true;
+            // Swift value types whose C# projection is a reference type (Swift.String → string).
+            var name = record.CSharpTypeName.FullyQualifiedName;
+            if (name == "string" || name == "object")
+                return true;
+        }
+        catch
+        {
+            // Unknown record — be conservative and don't strip.
+        }
+        return false;
+    }
 
     /// <summary>
     /// Normalizes a projected C# parameter type for overload identity comparison.

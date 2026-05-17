@@ -2352,4 +2352,543 @@ public class BoundGenericsHandlerTests
     }
 
     #endregion
+
+    #region ConformanceUnreachableInCSharp — Swift Extension on Foreign Type
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ExtensionOnForeignType_RejectsUnreachableConformance()
+    {
+        // Kingfisher regression: `extension Foundation.Data: DataTransformable`
+        // adds Swift-level conformance via a local TypeDecl, but C# cannot
+        // retrofit an interface onto a type from another assembly. Binding
+        // Backend<Foundation.Data> with `where T: IDataTransformable` produces
+        // CS0315 at consumer build time. Detect and skip the member instead.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Kingfisher.DataTransformable"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "IDataTransformable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            },
+            ["Kingfisher.Backend"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "Backend"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Foundation.Data"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var backendDecl = new StructDecl
+        {
+            Name = "Backend",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        backendDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"), ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        // The Swift extension shows up as a local StructDecl in the Kingfisher module
+        // whose SwiftTypeName points at the foreign type Foundation.Data and carries
+        // the DataTransformable conformance — exactly what the parser produces for
+        // `extension Foundation.Data: DataTransformable`.
+        var foreignExtensionDecl = new StructDecl
+        {
+            Name = "Data",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = true,
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                    ProtocolConformanceDescriptor: "")
+            },
+            MetadataAccessor = ""
+        };
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "Kingfisher",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new(),
+            Methods = new(),
+            Types = new List<TypeDecl> { backendDecl, foreignExtensionDecl },
+            Dependencies = new(),
+            Protocols = new()
+        };
+        backendDecl.ModuleDecl = moduleDecl;
+        foreignExtensionDecl.ModuleDecl = moduleDecl;
+
+        // DiskStorage holds a Backend<Foundation.Data> field — the binding site
+        // where the constraint must hold.
+        var diskStorage = new StructDecl
+        {
+            Name = "DiskStorage",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DiskStorage"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+
+        var boundGeneric = new NamedTypeSpec("Kingfisher.Backend", new NamedTypeSpec("Foundation.Data"));
+
+        var method = new MethodDecl
+        {
+            Name = "getBackend",
+            ParentDecl = diskStorage,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+        };
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out var details);
+
+        // The local extension makes SatisfiesConstraint return true, but the conformance
+        // is unreachable in C# — must be rejected, leaving the member dropped.
+        Assert.True(found);
+        Assert.Contains("DataTransformable", details);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_NativeTypeArgumentWithLocalConformance_NotRejected()
+    {
+        // Counter-test: the unreachable-conformance filter MUST NOT fire when the
+        // type argument lives in the same module as the constraint's evidence.
+        // `extension Kingfisher.PNGImage: DataTransformable` is reachable in C# —
+        // the C# `Kingfisher.PNGImage` class actually implements `IDataTransformable`.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Kingfisher.DataTransformable"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "IDataTransformable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            },
+            ["Kingfisher.Backend"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "Backend"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Kingfisher.PNGImage"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "PNGImage"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.PNGImage"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var backendDecl = new StructDecl
+        {
+            Name = "Backend",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        backendDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"), ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var pngImageDecl = new StructDecl
+        {
+            Name = "PNGImage",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.PNGImage"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("Kingfisher.PNGImage"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Kingfisher.DataTransformable"),
+                    ProtocolConformanceDescriptor: "")
+            },
+            MetadataAccessor = ""
+        };
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "Kingfisher",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new(),
+            Methods = new(),
+            Types = new List<TypeDecl> { backendDecl, pngImageDecl },
+            Dependencies = new(),
+            Protocols = new()
+        };
+        backendDecl.ModuleDecl = moduleDecl;
+        pngImageDecl.ModuleDecl = moduleDecl;
+
+        var diskStorage = new StructDecl
+        {
+            Name = "DiskStorage",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DiskStorage"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+
+        var boundGeneric = new NamedTypeSpec("Kingfisher.Backend", new NamedTypeSpec("Kingfisher.PNGImage"));
+
+        var method = new MethodDecl
+        {
+            Name = "getBackend",
+            ParentDecl = diskStorage,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+        };
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
+
+        // Local module + local conformance → reachable in C#, member must NOT be skipped.
+        Assert.False(found);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ClassBoundConstraintAcrossModules_NotRejected()
+    {
+        // Class-bound constraints (`<T : SomeClass>`) flow through C# inheritance,
+        // not interface implementation — the "extension on foreign type" filter is
+        // interface-shaped and must not apply. Without the protocol-record gate,
+        // `Box<PDFKit.PDFView>` for `Box<T: UIKit.UIView>` emitted from a third
+        // module would be rejected because PDFKit ≠ emittingModule and UIKit ≠ PDFKit
+        // triggers the module-difference heuristic.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["UIKit.UIView"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIView"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            },
+            ["PDFKit.PDFView"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("PDFKit", "PDFView"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("PDFKit.PDFView"),
+                MetadataAccessor = "",
+                SuperclassTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            },
+            ["ThirdParty.Box"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("ThirdParty", "Box"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ThirdParty.Box"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var boxDecl = new StructDecl
+        {
+            Name = "Box",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ThirdParty.Box"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        boxDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>
+            {
+                // Parser tags `T : UIView` as ConformanceKind.Protocol — the gate
+                // distinguishes class vs protocol by the TypeRecord.Kind, not by ConformanceKind.
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"), ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "ThirdParty",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new(),
+            Methods = new(),
+            Types = new List<TypeDecl> { boxDecl },
+            Dependencies = new(),
+            Protocols = new()
+        };
+        boxDecl.ModuleDecl = moduleDecl;
+
+        var container = new StructDecl
+        {
+            Name = "Container",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("ThirdParty.Container"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+
+        var boundGeneric = new NamedTypeSpec("ThirdParty.Box", new NamedTypeSpec("PDFKit.PDFView"));
+
+        var method = new MethodDecl
+        {
+            Name = "wrap",
+            ParentDecl = container,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+        };
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
+
+        // Class subtyping IS reachable in C# — the gate must NOT fire on class-bound constraints.
+        Assert.False(found);
+    }
+
+    [Fact]
+    public void TryGetFirstUnsatisfiedConstraint_ForeignTypeArgumentForeignProtocol_NotRejected()
+    {
+        // Second counter-test: when the protocol constraint also belongs to the
+        // foreign module (e.g. Foundation.Data : Foundation.ContiguousBytes), the
+        // conformance is owned by that module's projection, not the emitting one.
+        // The filter must not fire on this shape — only on the
+        // local-extension-on-foreign-type case.
+        var types = new Dictionary<string, TypeRecord>
+        {
+            ["Foundation.ContiguousBytes"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "IContiguousBytes"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.ContiguousBytes"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            },
+            ["Kingfisher.Backend"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Kingfisher", "Backend"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            },
+            ["Foundation.Data"] = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSData"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            }
+        };
+        var db = new MockTypeDatabaseWithCustomTypes(types);
+        var handler = new BoundGenericsHandler(db);
+
+        var backendDecl = new StructDecl
+        {
+            Name = "Backend",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.Backend"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+        backendDecl.GenericParameters.Add(new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance>
+            {
+                new(new[] { "τ_0_0" }, SwiftTypeName.FromModuleQualifiedName("Foundation.ContiguousBytes"), ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>()));
+
+        // Foundation.Data carries the Foundation.ContiguousBytes conformance — represents
+        // a stdlib pairing that is reachable through the Apple supplement's projection.
+        var foundationDataDecl = new StructDecl
+        {
+            Name = "Data",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = true,
+            Conformances = new()
+            {
+                new TypeConformance(
+                    ConformingType: SwiftTypeName.FromModuleQualifiedName("Foundation.Data"),
+                    Protocol: SwiftTypeName.FromModuleQualifiedName("Foundation.ContiguousBytes"),
+                    ProtocolConformanceDescriptor: "")
+            },
+            MetadataAccessor = ""
+        };
+
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "Kingfisher",
+            ParentDecl = null,
+            ModuleDecl = null,
+            Properties = new(),
+            Methods = new(),
+            Types = new List<TypeDecl> { backendDecl, foundationDataDecl },
+            Dependencies = new(),
+            Protocols = new()
+        };
+        backendDecl.ModuleDecl = moduleDecl;
+        foundationDataDecl.ModuleDecl = moduleDecl;
+
+        var diskStorage = new StructDecl
+        {
+            Name = "DiskStorage",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kingfisher.DiskStorage"),
+            MangledName = "",
+            Properties = new(),
+            Methods = new(),
+            Types = new(),
+            Operators = new(),
+            IsFrozen = false,
+            Conformances = new(),
+            MetadataAccessor = ""
+        };
+
+        var boundGeneric = new NamedTypeSpec("Kingfisher.Backend", new NamedTypeSpec("Foundation.Data"));
+
+        var method = new MethodDecl
+        {
+            Name = "getBackend",
+            ParentDecl = diskStorage,
+            ModuleDecl = moduleDecl,
+            MangledName = "",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>(),
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Visibility = Visibility.Public,
+        };
+
+        var found = handler.TryGetFirstUnsatisfiedConstraint(boundGeneric, method, out _);
+
+        // Foreign-type + foreign-protocol → constraint protocol is owned by the
+        // foreign module's projection. Filter MUST NOT fire here.
+        Assert.False(found);
+    }
+
+    #endregion
 }

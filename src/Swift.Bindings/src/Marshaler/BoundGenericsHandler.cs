@@ -1149,10 +1149,11 @@ public class BoundGenericsHandler
                 if (conformance.Kind != ConformanceKind.Protocol)
                     continue;
 
-                if (ShouldSkipConstraint(conformance.ConformanceTarget))
+                if (ShouldSkipConstraint(conformance.ConformanceTarget, typeArgument, parentTypeGenericParams, methodGenericParams))
                     continue;
 
-                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl, parentTypeGenericParams, methodGenericParams))
+                if (SatisfiesConstraint(typeArgument, conformance.ConformanceTarget, moduleDecl, parentTypeGenericParams, methodGenericParams)
+                    && !ConformanceUnreachableInCSharp(typeArgument, conformance.ConformanceTarget, moduleDecl))
                     continue;
 
                 details = $"Type argument '{typeArgument}' does not satisfy constraint '{conformance.ConformanceTarget.ModuleQualifiedName}' on '{boundGenericType.NameWithoutModule}'.";
@@ -1163,7 +1164,94 @@ public class BoundGenericsHandler
         return false;
     }
 
-    private bool ShouldSkipConstraint(SwiftTypeName protocolType)
+    /// <summary>
+    /// Detects the Swift-extension-on-foreign-type pattern that <see cref="SatisfiesConstraint"/>
+    /// cannot reject by itself: the current module owns an <c>extension</c> on a type from a
+    /// different module that adds protocol conformance (e.g. Kingfisher's
+    /// <c>extension Foundation.Data: DataTransformable</c>). Swift permits this freely; C#
+    /// does not — you cannot post-hoc add an interface implementation to a type declared in
+    /// another assembly. The bound type <c>Backend&lt;Foundation.Data&gt;</c> is emitted with
+    /// the C# constraint <c>where T : IDataTransformable</c> on the Apple-supplement
+    /// <c>Foundation.Data</c>, which does not implement that interface, producing CS0315.
+    ///
+    /// Returns true when (a) the type argument lives in a different Swift module than the
+    /// bound generic's emitting module, AND (b) the local TypeDecl carrying the conformance
+    /// evidence is itself an extension (Kind=Struct/Class/Enum with no own primary declaration
+    /// in the type argument's source module). Pragmatic detection: if the typeArgument's
+    /// Swift module differs from the emitting module, the conformance has to come from a
+    /// local extension — and that extension is unreachable in the C# projection.
+    /// </summary>
+    private bool ConformanceUnreachableInCSharp(TypeSpec typeArgument, SwiftTypeName protocolConstraint, ModuleDecl moduleDecl)
+    {
+        if (typeArgument is not NamedTypeSpec namedTypeArgument || !namedTypeArgument.HasModule())
+            return false;
+
+        // Generic parameter — propagates through the surrounding `where` clause; not subject
+        // to this filter.
+        if (TypeSpecHelpers.IsGenericTypeParameter(namedTypeArgument))
+            return false;
+
+        // Class-bound constraints (`<T : SomeClass>`) flow through C# inheritance, not
+        // interface implementation — `IsSubclassOfViaTypeDatabase` and the local
+        // SuperclassNames walk in SatisfiesConstraint already verify them correctly.
+        // The "extension on foreign type" problem is interface-implementation-shaped
+        // (you can't post-hoc add an interface to a type in another assembly), so it
+        // doesn't apply to class subtyping at all. Without this gate, a valid binding
+        // site like `Box<PDFKit.PDFView>` for `Box<T: UIKit.UIView>` emitted from a
+        // third module would be rejected — PDFKit ≠ emittingModule and UIKit ≠ PDFKit
+        // triggers the module-difference heuristic even though the inheritance chain
+        // is reachable in C#.
+        if (_typeDatabase.TryGetTypeRecord(protocolConstraint, out var constraintRecord) &&
+            constraintRecord.Kind != TypeRecordKind.Protocol)
+            return false;
+
+        var typeArgumentName = SwiftTypeName.FromTypeSpec(namedTypeArgument);
+
+        // Self-conformance (typeArgument == protocolConstraint) and stdlib well-knowns
+        // resolve to real C#-visible relationships — keep them.
+        if (typeArgumentName == protocolConstraint)
+            return false;
+        if (HasWellKnownStdlibConformance(typeArgumentName, protocolConstraint))
+            return false;
+
+        // The "extension on foreign type" shape: the typeArgument's home module differs from
+        // the module currently being emitted. Any conformance evidence we found inside
+        // moduleDecl can only have come from a Swift extension on a foreign type — which the
+        // C# side projects via the foreign module's existing static class and cannot retrofit
+        // an interface onto.
+        var emittingModule = moduleDecl.Name;
+        if (string.IsNullOrEmpty(typeArgumentName.Module) || typeArgumentName.Module == emittingModule)
+            return false;
+
+        // Constraint protocol owned by the foreign module too → conformance must already
+        // exist in that module's projection. Only Swift extensions inside the emitting
+        // module produce the unreachable shape.
+        if (protocolConstraint.Module == typeArgumentName.Module)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Decides whether a protocol-conformance constraint on a generic parameter should be
+    /// skipped at bound-generic validation time. Sendable and constraints from unsupported
+    /// modules (e.g. SwiftUI) are always skipped — they aren't modeled in C# at all.
+    ///
+    /// For PAT / Self-requirement / method-Self protocols, the skip is conditional on the
+    /// type argument. When the argument is itself a generic parameter visible in scope
+    /// (parent type or method generics), the constraint propagates through the surrounding
+    /// C# `where` clause and bound-time validation has nothing to verify — skip. When the
+    /// argument is a CONCRETE type (e.g. <c>Backend&lt;Swift.Foundation.Data&gt;</c>),
+    /// the C# constraint emitted on the bound type's declaration (<c>where T : IDataTransformable</c>)
+    /// still needs to be satisfied at the binding site, and a foreign supplement type with
+    /// no local conformance evidence will fail <c>CS0315</c>. Letting the skip fire here
+    /// silently emitted bound generics whose constraints could never be satisfied. Falling
+    /// through to <see cref="SatisfiesConstraint"/> for concrete arguments fail-closes
+    /// correctly — the member is dropped from the binding instead of emitting unbuildable code.
+    /// </summary>
+    private bool ShouldSkipConstraint(SwiftTypeName protocolType, TypeSpec typeArgument,
+        IReadOnlyList<GenericArgumentDecl>? parentTypeGenericParams,
+        IReadOnlyList<GenericArgumentDecl>? methodGenericParams)
     {
         if (protocolType.Name == "Sendable")
             return true;
@@ -1177,7 +1265,11 @@ public class BoundGenericsHandler
              protocolRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) ||
              protocolRecord.Flags.HasFlag(TypeRecordFlags.HasMethodSelfTypeParams)))
         {
-            return true;
+            // Generic-param argument → constraint flows through the C# `where` clause
+            // of the enclosing type/method. Concrete argument → must verify conformance.
+            return TypeSpecHelpers.IsGenericTypeParameter(typeArgument)
+                || IsDeclaredGenericParam(typeArgument, parentTypeGenericParams)
+                || IsDeclaredGenericParam(typeArgument, methodGenericParams);
         }
 
         return false;

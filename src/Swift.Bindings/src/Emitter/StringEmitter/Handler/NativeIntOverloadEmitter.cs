@@ -333,6 +333,7 @@ internal static class NativeIntOverloadEmitter
     {
         var methodDecl = methodEnv.MethodDecl;
         var methodName = methodEnv.CSharpMethodName;
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
 
         var paramTypes = new List<string>();
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -348,17 +349,9 @@ internal static class NativeIntOverloadEmitter
             }
             else
             {
-                // Mirror GetProjectedCSharpMethodKey: unwrap Optional<Closure> before resolving
-                var typeSpecForKey = arg.SwiftTypeSpec;
-                if (typeSpecForKey is NamedTypeSpec optSpec &&
-                    optSpec.Name == "Swift.Optional" &&
-                    optSpec.GenericParameters.Count == 1 &&
-                    optSpec.GenericParameters[0] is ClosureTypeSpec)
-                {
-                    typeSpecForKey = optSpec.GenericParameters[0];
-                }
+                var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                    arg.SwiftTypeSpec, methodEnv.TypeDatabase, visibleGenericNames);
                 var paramType = ResolveType(typeSpecForKey, methodEnv, isParameter: true);
-                // Normalize nullable reference types (Optional<Class> ≡ Class for overload identity)
                 paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, methodEnv.TypeDatabase);
                 paramTypes.Add(paramType);
             }

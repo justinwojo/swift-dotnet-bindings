@@ -685,6 +685,7 @@ public class ProtocolConformanceValidator
         var methodName = NameProvider.GetPublicMethodName(protoMethod.Name, protoMethod.IsAsync, hasReturnValue: hasReturnValue, isSelfReturning: isSelfReturning,
             parameterCount: protoMethod.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(protoMethod);
         var parameterTypes = new List<string>();
         for (int i = 1; i < protoMethod.CSSignature.Count; i++)
         {
@@ -694,7 +695,9 @@ public class ProtocolConformanceValidator
                 continue;
             if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
-            var projected = ResolveInterfaceMethodTypeName(arg.SwiftTypeSpec, isParameter: true, protocolContext);
+            var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                arg.SwiftTypeSpec, _typeDatabase, visibleGenericNames);
+            var projected = ResolveInterfaceMethodTypeName(typeSpecForKey, isParameter: true, protocolContext);
             parameterTypes.Add(ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(projected, arg.SwiftTypeSpec, _typeDatabase));
         }
 

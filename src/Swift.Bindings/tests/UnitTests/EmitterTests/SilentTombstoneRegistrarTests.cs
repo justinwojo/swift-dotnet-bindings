@@ -84,6 +84,80 @@ public class SilentTombstoneRegistrarTests
     }
 
     [Fact]
+    public void Precompute_CrossModuleExtensionStruct_NotRegistered()
+    {
+        // Mirror of Precompute_CrossModuleExtensionClass_NotRegistered for StructDecl.
+        // FrozenStructHandler and NonFrozenStructHandler route cross-module struct
+        // extensions through CrossModuleExtensionEmitter (static extension surface),
+        // never through the opaque-tombstone branch. A struct registered here would
+        // trip AssertSilentTombstoneInvariant because no AddEmittedOpaqueType call
+        // ever happens on that path. Reproduces the Stripe regression where a
+        // Foundation frozen struct surfaced through Stripe's ABI as a cross-module
+        // extension receiver.
+        var moduleDecl = BuildModule("StripeCoreModule");
+        var structDecl = new StructDecl
+        {
+            Name = "Decimal",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Decimal"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new(),
+            Properties = new(),
+            Methods = new() { BuildGenericSkippedMethod(moduleDecl) },
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new(),
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(structDecl);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.False(ctx.IsSilentTombstone("Foundation.Decimal"));
+    }
+
+    [Fact]
+    public void Precompute_CrossModuleExtensionStruct_NonFrozenShape_NotRegistered()
+    {
+        // The parser sets StructDecl.IsFrozen from the extension node's own attributes,
+        // which never carry @frozen — so cross-module extension receivers like
+        // `extension Swift.Array where Element == UInt8` in CryptoSwift arrive at the
+        // emitter with IsFrozen = false and dispatch to NonFrozenStructHandler. That
+        // handler's cross-module guard must mirror FrozenStructHandler's: route to
+        // CrossModuleExtensionEmitter and never register here. Without this guard, the
+        // wrapper class is emitted into the host module's namespace (CryptoSwift.SwiftArray
+        // colliding with Swift.SwiftArray; partial class double colliding with primitive).
+        var moduleDecl = BuildModule("CryptoSwiftModule");
+        var structDecl = new StructDecl
+        {
+            Name = "Array",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            MangledName = "",
+            IsFrozen = false,
+            GenericParameters = new(),
+            Properties = new(),
+            Methods = new() { BuildGenericSkippedMethod(moduleDecl) },
+            Types = new(),
+            Operators = new(),
+            Subscripts = new(),
+            Conformances = new(),
+            MetadataAccessor = "",
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        moduleDecl.Types.Add(structDecl);
+
+        var ctx = new ModuleEmissionContext();
+        SilentTombstoneRegistrar.Precompute(moduleDecl, new StubTypeDatabase(), ctx);
+
+        Assert.False(ctx.IsSilentTombstone("Swift.Array"));
+    }
+
+    [Fact]
     public void Precompute_UnderscoreSuppressedStruct_NotRegistered()
     {
         // HandleBaseDecl suppresses underscore-prefixed types registered via

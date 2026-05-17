@@ -102,6 +102,23 @@ internal static class SilentTombstoneRegistrar
             && classDecl.SwiftTypeName.Module != moduleDecl.Name)
             return false;
 
+        // FrozenStructHandler / NonFrozenStructHandler: cross-module struct extensions
+        // are emitted via CrossModuleExtensionEmitter (a separate static extension surface),
+        // NOT via the opaque-tombstone branch. Both handlers carry the same cross-module
+        // guard because the parser sets StructDecl.IsFrozen from the extension node's own
+        // attributes (the extension never carries @frozen), so a foreign frozen struct
+        // like Swift.Array or Foundation.Date dispatches to NonFrozenStructHandler — not
+        // FrozenStructHandler — when surfaced as an extension receiver. Without this
+        // guard, a foreign frozen struct gets registered as a silent tombstone here but
+        // the handler exits via the cross-module path without calling AddEmittedOpaqueType,
+        // leaving the invariant check in AssertSilentTombstoneInvariant to fire. Mirror the
+        // ClassDecl guard above for every TypeDecl that participates in the cross-module
+        // extension path.
+        if (typeDecl is StructDecl structDecl
+            && !string.IsNullOrEmpty(structDecl.SwiftTypeName.Module)
+            && structDecl.SwiftTypeName.Module != moduleDecl.Name)
+            return false;
+
         // EnumHandler: three early-return paths precede the opaque branch.
         if (typeDecl is EnumDecl enumDecl)
         {

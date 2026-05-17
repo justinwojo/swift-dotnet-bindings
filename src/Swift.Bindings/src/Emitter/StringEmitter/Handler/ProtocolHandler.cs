@@ -1300,6 +1300,7 @@ namespace BindingsGeneration
                 propertyNames: propertyNames, isSelfReturning: isSelfReturning,
                 parameterCount: methodDecl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple));
 
+            var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
             var paramTypes = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -1308,7 +1309,9 @@ namespace BindingsGeneration
                     continue;
                 if (arg.SwiftTypeSpec.IsEmptyTuple)
                     continue;
-                var paramType = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
+                var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                    arg.SwiftTypeSpec, typeDatabase, visibleGenericNames);
+                var paramType = GetCSharpTypeName(typeSpecForKey, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
                 paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
                 paramTypes.Add(paramType);
             }
@@ -1369,6 +1372,7 @@ namespace BindingsGeneration
             bool hasReturn = !returnTypeSpec.IsEmptyTuple;
 
             // Dedup: build projected key with narrowed types
+            var dimVisibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
             var dimParamTypes = new List<string>();
             for (int i = 1; i < csSignature.Count; i++)
             {
@@ -1382,7 +1386,9 @@ namespace BindingsGeneration
                     dimParamTypes.Add(conv.isOptional ? $"{conv.convType}?" : conv.convType);
                 else
                 {
-                    var paramType = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
+                    var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                        arg.SwiftTypeSpec, typeDatabase, dimVisibleGenericNames);
+                    var paramType = GetCSharpTypeName(typeSpecForKey, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
                     paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
                     dimParamTypes.Add(paramType);
                 }

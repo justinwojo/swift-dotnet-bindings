@@ -1006,6 +1006,216 @@ public class ProtocolSignatureHelperTests
         };
     }
 
+    #region StripOptionalClassLikeForOverloadIdentity Tests
+
+    [Fact]
+    public void StripOptionalClassLike_TopLevelOptionalClass_StripsToClass()
+    {
+        // Optional<Class> at the top level reduces to Class — the trailing-trim
+        // path in NormalizeParamTypeForOverloadIdentity already handles this for
+        // string output, but the structural stripper must produce the same shape
+        // so callers can compare TypeSpecs (e.g. inside a container).
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var optional = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader"));
+
+        var result = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(optional, typeDatabase);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("TestModule.Loader", named.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_ArrayOfOptionalClass_StripsInnerOptional()
+    {
+        // TipKit regression: foo(_: [RuleBuilder]) and foo(_: [RuleBuilder?]) both
+        // project to IEnumerable<RuleBuilder?>/IEnumerable<RuleBuilder> — same C#
+        // overload after nullability erasure on reference types. Dedup must see
+        // the same structural key, so the stripper has to descend into generic
+        // parameters and collapse Optional<Class> there.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var arrayOfOptionalClass = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")));
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfOptionalClass, typeDatabase);
+
+        var arr = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("Swift.Array", arr.Name);
+        Assert.Single(arr.GenericParameters);
+        var inner = Assert.IsType<NamedTypeSpec>(arr.GenericParameters[0]);
+        Assert.Equal("TestModule.Loader", inner.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_ArrayOfOptionalClass_MatchesArrayOfClass()
+    {
+        // The two specs must structurally compare equal after stripping —
+        // this is the property the dedup keys ultimately rely on.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var arrayOfClass = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestModule.Loader"));
+        var arrayOfOptionalClass = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")));
+
+        var stripped1 = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfClass, typeDatabase);
+        var stripped2 = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(arrayOfOptionalClass, typeDatabase);
+
+        Assert.Equal(stripped1.ToString(), stripped2.ToString());
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_TupleOfOptionalClasses_StripsAllElements()
+    {
+        // Tuples need recursive descent too — each element is normalized
+        // independently. (Optional<Class>, Optional<Class>) collapses to
+        // (Class, Class) for overload identity.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var tuple = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")),
+        });
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(tuple, typeDatabase);
+
+        var stripTuple = Assert.IsType<TupleTypeSpec>(stripped);
+        Assert.Equal(2, stripTuple.Elements.Count);
+        foreach (var element in stripTuple.Elements)
+        {
+            var named = Assert.IsType<NamedTypeSpec>(element);
+            Assert.Equal("TestModule.Loader", named.Name);
+        }
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_OptionalFrozenStruct_Preserved()
+    {
+        // Frozen structs are emitted as C# value types — Optional<T> projects to
+        // T? which is a distinct CLR type from T. The stripper must NOT collapse
+        // these, otherwise overload(Point) and overload(Point?) would dedup away.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            });
+        typeDatabase.AddModuleDatabase(module);
+
+        var optional = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Point"));
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(optional, typeDatabase);
+
+        var named = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("Swift.Optional", named.Name);
+        var inner = Assert.IsType<NamedTypeSpec>(named.GenericParameters[0]);
+        Assert.Equal("TestModule.Point", inner.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_NestedOptionalOptionalClass_CollapsesToClass()
+    {
+        // Optional<Optional<Class>> projects to Class? in C# (the runtime doesn't
+        // express double-Optional for reference types). Both layers must strip.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var nested = new NamedTypeSpec("Swift.Optional",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")));
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(nested, typeDatabase);
+
+        var named = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("TestModule.Loader", named.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_OptionalGenericParamInScope_TreatedAsReference()
+    {
+        // For a reference-constrained T (or a generic param visible in scope at all,
+        // since C# nullability is annotation-only for any reference type), Array<T?>
+        // and Array<T> collide. The stripper must treat in-scope generic params as
+        // reference-like.
+        var typeDatabase = CreateTypeDatabase();
+        var optionalT = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("MusicItem"));
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+            optionalT, typeDatabase, new HashSet<string> { "MusicItem" });
+
+        var named = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("MusicItem", named.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_OptionalClosure_Strips()
+    {
+        // Closures are reference types in C#, so Optional<Closure> and Closure are
+        // the same CLR type at the call site.
+        var typeDatabase = CreateTypeDatabase();
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty);
+        var optional = new NamedTypeSpec("Swift.Optional", closure);
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(optional, typeDatabase);
+
+        Assert.IsType<ClosureTypeSpec>(stripped);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_SetOfOptionalClass_StripsInnerOptional()
+    {
+        // Set<Optional<Class>> and Set<Class> both project to IEnumerable<Class>
+        // (params project Set→IEnumerable). Same nullability-erasure collision as Array.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var setOfOptionalClass = new NamedTypeSpec("Swift.Set",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")));
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(setOfOptionalClass, typeDatabase);
+
+        var set = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("Swift.Set", set.Name);
+        var inner = Assert.IsType<NamedTypeSpec>(set.GenericParameters[0]);
+        Assert.Equal("TestModule.Loader", inner.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_DictionaryValueOptionalClass_StripsInnerOptional()
+    {
+        // Dictionary<K, Optional<Class>> and Dictionary<K, Class> are the same
+        // IReadOnlyDictionary<K, Class> overload. Strip must descend into both
+        // key and value generic positions.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var dictWithOptionalValue = new NamedTypeSpec("Swift.Dictionary",
+            new NamedTypeSpec("Swift.String"),
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("TestModule.Loader")));
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(dictWithOptionalValue, typeDatabase);
+
+        var dict = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("Swift.Dictionary", dict.Name);
+        Assert.Equal(2, dict.GenericParameters.Count);
+        var key = Assert.IsType<NamedTypeSpec>(dict.GenericParameters[0]);
+        Assert.Equal("Swift.String", key.Name);
+        var value = Assert.IsType<NamedTypeSpec>(dict.GenericParameters[1]);
+        Assert.Equal("TestModule.Loader", value.Name);
+    }
+
+    [Fact]
+    public void StripOptionalClassLike_NonOptionalType_ReturnedUnchanged()
+    {
+        // Non-Optional types pass through untouched — the stripper only normalizes
+        // Optional<ClassLike>, leaving everything else structurally identical.
+        var typeDatabase = CreateTypeDatabaseWithClassAndProtocol();
+        var plain = new NamedTypeSpec("TestModule.Loader");
+
+        var stripped = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(plain, typeDatabase);
+
+        var named = Assert.IsType<NamedTypeSpec>(stripped);
+        Assert.Equal("TestModule.Loader", named.Name);
+    }
+
+    #endregion
+
     [Fact]
     public void ProjectTypeToCSharp_ClosureReturningArray_UsesIReadOnlyListNotIEnumerable()
     {

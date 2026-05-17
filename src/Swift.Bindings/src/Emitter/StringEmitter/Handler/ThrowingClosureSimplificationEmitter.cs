@@ -383,6 +383,7 @@ internal static class ThrowingClosureSimplificationEmitter
         var methodDecl = methodEnv.MethodDecl;
         var methodName = methodEnv.CSharpMethodName;
         var closureHandler = methodEnv.ClosureHandler;
+        var visibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
 
         var paramTypes = new List<string>();
         for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -398,7 +399,11 @@ internal static class ThrowingClosureSimplificationEmitter
             }
             else
             {
-                paramTypes.Add(NativeIntOverloadEmitter.ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true));
+                var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                    arg.SwiftTypeSpec, methodEnv.TypeDatabase, visibleGenericNames);
+                var paramType = NativeIntOverloadEmitter.ResolveType(typeSpecForKey, methodEnv, isParameter: true);
+                paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, methodEnv.TypeDatabase);
+                paramTypes.Add(paramType);
             }
         }
 

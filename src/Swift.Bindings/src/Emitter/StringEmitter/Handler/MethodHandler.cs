@@ -1497,21 +1497,29 @@ namespace BindingsGeneration
                 // Must match the key format from IHandler.GetProjectedCSharpMethodKey so that
                 // completion handler wrappers collide with native async methods of the same name.
                 var overloadParamTypes = new List<string>();
+                var asyncWrapperGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
                 foreach (var p in parameters.Take(parameters.Count - 1))
                 {
-                    var factory = new TypeProjectionFactory();
-                    var projection = factory.Project(p.SwiftTypeSpec, new ProjectionContext
-                    {
-                        TypeDatabase = methodEnv.TypeDatabase,
-                        IsParameter = true
-                    });
+                    var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                        p.SwiftTypeSpec, methodEnv.TypeDatabase, asyncWrapperGenericNames);
                     string paramType;
-                    if (projection != null)
-                        paramType = projection.PublicType;
-                    else if (methodEnv.TypeDatabase.TryGetTypeRecord(p.SwiftTypeSpec, out var record))
-                        paramType = record.CSharpTypeName.FullyQualifiedName;
-                    else
-                        paramType = p.SwiftTypeSpec.ToString();
+                    try
+                    {
+                        var factory = new TypeProjectionFactory();
+                        var projection = factory.Project(typeSpecForKey, new ProjectionContext
+                        {
+                            TypeDatabase = methodEnv.TypeDatabase,
+                            IsParameter = true
+                        });
+                        if (projection != null)
+                            paramType = projection.PublicType;
+                        else
+                            paramType = BaseHandler.NormalizeContainerForOverloadKey(typeSpecForKey, methodEnv.TypeDatabase);
+                    }
+                    catch
+                    {
+                        paramType = typeSpecForKey?.ToString() ?? "unknown";
+                    }
                     paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(
                         paramType, p.SwiftTypeSpec, methodEnv.TypeDatabase);
                     overloadParamTypes.Add(paramType);

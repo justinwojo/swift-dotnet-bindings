@@ -102,6 +102,25 @@ namespace BindingsGeneration
 
             ReportCollector.RecordTypeEmitted(structDecl);
 
+            // Cross-module extension: foreign struct extended by the current module. The
+            // parser surfaces these with SwiftTypeName.Module set to the canonical owner
+            // (e.g. Swift.Array extended by CryptoSwift, Foundation.Date extended by
+            // StripeCore). Cross-module extension receivers come through here — not
+            // FrozenStructHandler — because the extension node itself doesn't carry
+            // @frozen, so the parser builds StructDecl.IsFrozen = false even when the
+            // canonical owner struct is @frozen. Without this guard, the wrapper class
+            // below is emitted into the current module's namespace, colliding with the
+            // canonical type's projection (e.g. CryptoSwift.SwiftArray vs Swift.SwiftArray;
+            // partial class double vs the primitive). CrossModuleExtensionEmitter.EmitStruct
+            // gates on the canonical TypeRecord's Frozen flag and emits a static extension
+            // class or skips cleanly when the receiver isn't a frozen value struct.
+            if (!string.IsNullOrEmpty(structDecl.SwiftTypeName.Module) &&
+                structDecl.SwiftTypeName.Module != moduleDecl.Name)
+            {
+                CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, _logger);
+                return;
+            }
+
             // Get generic type parts if this is a generic type
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(structDecl, env.TypeDatabase);
             var whereClause = GenericTypeEmitter.GetWhereClause(structDecl, env.TypeDatabase);

@@ -677,28 +677,13 @@ public static class DefaultParameterOverloadEmitter
             // Empty tuple () params are stripped from the C# signature (zero-sized Void)
             if (arg.SwiftTypeSpec.IsEmptyTuple)
                 continue;
-            // P1: Unwrap Optional<Closure> to bare Closure, matching the main pass (C11 in IHandler.cs).
-            // Nullable reference types don't affect C# overload resolution — Action<T>? and Action<T>
-            // are the same signature. Without this, cross-pass dedup misses collisions.
-            var typeSpecForKey = arg.SwiftTypeSpec;
-            if (typeSpecForKey is NamedTypeSpec optionalClosureSpec &&
-                optionalClosureSpec.Name == "Swift.Optional" &&
-                optionalClosureSpec.GenericParameters.Count == 1 &&
-                optionalClosureSpec.GenericParameters[0] is ClosureTypeSpec)
-            {
-                typeSpecForKey = optionalClosureSpec.GenericParameters[0];
-            }
-            // Optional<GenericParam> → bare GenericParam (mirrors IHandler.GetProjectedCSharpMethodKey).
-            // Without this, a default-trimmed ctor overload and an explicit ctor with the same
-            // post-trim shape produce different keys and the cross-pass dedup misses.
-            if (typeSpecForKey is NamedTypeSpec optGenericSpec &&
-                optGenericSpec.Name == "Swift.Optional" &&
-                optGenericSpec.GenericParameters.Count == 1 &&
-                optGenericSpec.GenericParameters[0] is NamedTypeSpec optGenericInner &&
-                (parentGenericNames.Contains(optGenericInner.Name) || TypeSpecHelpers.IsGenericTypeParameter(optGenericInner.Name)))
-            {
-                typeSpecForKey = optGenericInner;
-            }
+            // Mirror IHandler.GetProjectedCSharpMethodKey: recursively strip Optional<ClassLike>
+            // at every depth so Array<Optional<Class>> and Array<Class> collapse onto the same
+            // key (both project to IEnumerable<Class[?]>, identical for C# overload resolution).
+            // The helper subsumes the older top-level Optional<Closure> and
+            // Optional<GenericParam> unwraps.
+            var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
+                arg.SwiftTypeSpec, typeDatabase, parentGenericNames);
             var factory = new TypeProjectionFactory();
             var projection = factory.Project(typeSpecForKey, new ProjectionContext
             {
