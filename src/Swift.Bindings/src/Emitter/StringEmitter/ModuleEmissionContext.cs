@@ -1150,6 +1150,26 @@ public sealed class ModuleEmissionContext
         return _setVtableEmitted.Contains(protocolName);
     }
 
+    private readonly HashSet<string> _objCBaseProtocols = new();
+
+    /// <summary>
+    /// Records that the EveryProtocol conformance for the given protocol was routed
+    /// through the NSObject-rooted <c>EveryObjCProtocol</c> helper class instead of
+    /// the plain Swift <c>EveryProtocol</c>. Set by <see cref="EveryProtocolEmitter"/>
+    /// for @objc protocols that inherit only <c>NSObjectProtocol</c> (S-2). Read by
+    /// <see cref="ProtocolProxyEmitter"/> so the C# proxy's static ctor calls the
+    /// matching <c>SBW_CreateEveryObjCProtocol</c> / <c>SBW_GetMetadata_EveryObjCProtocol</c>
+    /// / <c>SBW_SetEveryObjCProtocolDeinitCallback</c> factories instead of the
+    /// EveryProtocol equivalents.
+    /// </summary>
+    public void MarkObjCBase(string protocolName) => _objCBaseProtocols.Add(protocolName);
+
+    /// <summary>
+    /// Returns true when the given protocol's EveryProtocol conformance was emitted
+    /// on the NSObject-rooted <c>EveryObjCProtocol</c> helper class.
+    /// </summary>
+    public bool UsesObjCBase(string protocolName) => _objCBaseProtocols.Contains(protocolName);
+
     // ==================== Escaping-Closure Context Owner Token ====================
 
     /// <summary>

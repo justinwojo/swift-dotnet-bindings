@@ -24,19 +24,21 @@ namespace Swift.Runtime;
 /// The tracker stores a <see cref="ConditionalWeakTable{TKey, TValue}"/> keyed
 /// weakly by the impl. When the impl is garbage-collected, the associated
 /// <c>ProxyCleanup</c> becomes unreachable and its finalizer runs
-/// <see cref="Arc.Release"/> on every tracked handle. Combined with the Swift
-/// <c>EveryProtocol.deinit</c> callback routed to <see cref="OnEveryProtocolDeinit"/>,
-/// this releases the <see cref="SwiftObjectRegistry"/> strong root and allows the
-/// proxy to be collected.
+/// <see cref="SwiftReleaseTrampoline.Release"/> on every tracked handle (the
+/// finalizer-safe path that routes through the <c>SBW_SwiftRelease</c> Swift
+/// wrapper). Combined with the Swift <c>EveryProtocol.deinit</c> callback routed
+/// to <see cref="OnEveryProtocolDeinit"/>, this releases the
+/// <see cref="SwiftObjectRegistry"/> strong root and allows the proxy to be
+/// collected.
 ///
 /// <para>
 /// Deinit/finalizer race: each handle is represented by a <c>HandleEntry</c>
 /// with an atomic <c>Released</c> flag. Whichever path (Swift deinit callback or
 /// managed finalizer) observes the flag == 0 via <c>Interlocked.Exchange</c>
 /// "wins" the release; the loser sees 1 and becomes a no-op. This guarantees
-/// exactly-one <see cref="Arc.Release"/> per tracked handle and prevents the
-/// stale-pointer <c>swift_isDeallocating</c> read that was possible in the
-/// earlier WeakReference-keyed design.
+/// exactly-one native release per tracked handle and prevents the stale-pointer
+/// <c>swift_isDeallocating</c> read that was possible in the earlier
+/// WeakReference-keyed design.
 /// </para>
 ///
 /// <para>
@@ -58,24 +60,24 @@ public static class ProxyLifetimeTracker
     // state (NOT a WeakReference<impl>) so that a Swift-driven deinit can detach the
     // handle even if the impl object is already unreachable. The entry's atomic
     // Released flag serializes Swift's deinit callback against the finalizer so
-    // Arc.Release runs exactly once per handle.
+    // SwiftReleaseTrampoline.Release runs exactly once per handle.
     private static readonly ConcurrentDictionary<IntPtr, HandleEntry> s_entries = new();
 
     /// <summary>
     /// Associates an EveryProtocol handle with the lifetime of <paramref name="impl"/>.
-    /// The tracker takes responsibility for calling <see cref="Arc.Release"/> on
-    /// <paramref name="handle"/> when <paramref name="impl"/> becomes unreachable
-    /// (unless Swift's deinit runs first, in which case <see cref="OnEveryProtocolDeinit"/>
-    /// marks the entry released so the finalizer skips it).
+    /// The tracker takes responsibility for calling
+    /// <see cref="SwiftReleaseTrampoline.Release"/> on <paramref name="handle"/> when
+    /// <paramref name="impl"/> becomes unreachable (unless Swift's deinit runs first,
+    /// in which case <see cref="OnEveryProtocolDeinit"/> marks the entry released so
+    /// the finalizer skips it).
     /// </summary>
     /// <remarks>
     /// Transactional publication: the secondary map is written FIRST with a
     /// placeholder-but-valid entry; if attaching the entry to the cleanup bundle
     /// throws, the secondary map write is rolled back so a subsequent
     /// <see cref="NotifyDeinit"/> sees no leftover state and the caller's
-    /// compensating <see cref="Arc.Release"/> is the only path that touches the
-    /// handle. This guarantees Track is all-or-nothing with respect to the
-    /// global handle index.
+    /// compensating release is the only path that touches the handle. This
+    /// guarantees Track is all-or-nothing with respect to the global handle index.
     /// </remarks>
     public static void Track(object impl, IntPtr handle)
     {
@@ -118,7 +120,8 @@ public static class ProxyLifetimeTracker
             return;
 
         // Claim the release — if the cleanup finalizer has already snapshotted the
-        // _entries list, it will see this flag set and skip Arc.Release for this entry.
+        // _entries list, it will see this flag set and skip the trampoline release
+        // (SwiftReleaseTrampoline.Release) for this entry.
         Interlocked.Exchange(ref entry.Released, 1);
     }
 
@@ -163,10 +166,11 @@ public static class ProxyLifetimeTracker
 
     /// <summary>
     /// Test helper: drops every tracked handle for <paramref name="impl"/> without
-    /// calling <see cref="Arc.Release"/>. Used by unit tests that register mock
-    /// pointers which cannot be passed to <c>swift_release</c>. Each entry is marked
-    /// released so any racing deinit/finalizer becomes a no-op, and the global
-    /// secondary index is scrubbed of the handles.
+    /// calling the native release path (<see cref="SwiftReleaseTrampoline.Release"/>).
+    /// Used by unit tests that register mock pointers which cannot be passed to
+    /// <c>swift_release</c>. Each entry is marked released so any racing
+    /// deinit/finalizer becomes a no-op, and the global secondary index is
+    /// scrubbed of the handles.
     /// </summary>
     internal static bool TryDropAllForTest(object impl)
     {
@@ -188,7 +192,7 @@ public static class ProxyLifetimeTracker
     /// Per-handle entry. Held by both the global <see cref="s_entries"/> dictionary
     /// AND the per-impl <see cref="ProxyCleanup"/> list, with an atomic
     /// <see cref="Released"/> flag that the deinit callback and the finalizer race
-    /// on so exactly one path calls <see cref="Arc.Release"/>.
+    /// on so exactly one path releases the handle.
     ///
     /// <para>
     /// Deliberately does NOT carry a back-reference to its owning
@@ -196,7 +200,8 @@ public static class ProxyLifetimeTracker
     /// <see cref="s_entries"/> dictionary transitively root the cleanup, defeating
     /// the impl-keyed <see cref="ConditionalWeakTable{TKey, TValue}"/> weak collection
     /// and reintroducing the original +1 leak. NotifyDeinit only flips Released —
-    /// the cleanup's eventual finalizer is the path that runs Arc.Release.
+    /// the cleanup's eventual finalizer is the path that runs the trampoline
+    /// release (SwiftReleaseTrampoline.Release).
     /// </para>
     /// </summary>
     private sealed class HandleEntry
@@ -272,14 +277,19 @@ public static class ProxyLifetimeTracker
             {
                 // Atomically claim the release — if NotifyDeinit already marked it
                 // (Swift deinit beat us to the finalizer), skip this entry so
-                // Arc.Release is not called on a dead pointer.
+                // SwiftReleaseTrampoline.Release is not called on a dead pointer.
                 if (Interlocked.Exchange(ref entry.Released, 1) == 1)
                     continue;
 
                 s_entries.TryRemove(entry.Handle, out _);
                 try
                 {
-                    Arc.Release(entry.Handle);
+                    // Finalizer thread: must route through the SBW_SwiftRelease Swift
+                    // wrapper, not Arc.Release directly. Arc.cs documents the direct
+                    // path as crashing Mono with `jit-info.c:918 !ji->async` after
+                    // CallConvSwift JIT state contamination — the same reason
+                    // SwiftClassHandle<T>.ReleaseHandle uses the trampoline.
+                    SwiftReleaseTrampoline.Release(entry.Handle);
                 }
                 catch
                 {

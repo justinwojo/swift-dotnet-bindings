@@ -36,6 +36,36 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private bool _setVtableEmitted = true;
 
+    /// <summary>
+    /// True when the corresponding EveryProtocol conformance was emitted on the
+    /// NSObject-rooted <c>EveryObjCProtocol</c> helper class (S-2 NSObjectProtocol-only
+    /// path). The proxy's static ctor and instance ctor must then call the matching
+    /// <c>SBW_CreateEveryObjCProtocol</c> / <c>SBW_GetMetadata_EveryObjCProtocol</c> /
+    /// <c>SBW_SetEveryObjCProtocolDeinitCallback</c> P/Invokes instead of the
+    /// EveryProtocol equivalents — otherwise the existential container's payload would
+    /// reference an EveryProtocol instance and Swift's NSObjectProtocol witness call
+    /// (isEqual: / hash / description) would land on a non-NSObject class and trap.
+    /// </summary>
+    private bool _useObjCBase;
+
+    /// <summary>Name of the C# Swift-side factory P/Invoke used to allocate the helper instance.</summary>
+    private string CreateHelperMethodName => _useObjCBase ? "CreateEveryObjCProtocol" : "CreateEveryProtocol";
+
+    /// <summary>Symbol name of the Swift @_cdecl factory for the helper instance.</summary>
+    private string CreateHelperEntryPoint => _useObjCBase ? "SBW_CreateEveryObjCProtocol" : "SBW_CreateEveryProtocol";
+
+    /// <summary>C# method name for the metadata accessor of the helper class.</summary>
+    private string GetMetadataMethodName => _useObjCBase ? "GetEveryObjCProtocolMetadata" : "GetEveryProtocolMetadata";
+
+    /// <summary>Symbol name of the metadata accessor for the helper class.</summary>
+    private string GetMetadataEntryPoint => _useObjCBase ? "SBW_GetMetadata_EveryObjCProtocol" : "SBW_GetMetadata_EveryProtocol";
+
+    /// <summary>C# method name for the deinit-callback setter of the helper class.</summary>
+    private string SetDeinitCallbackMethodName => _useObjCBase ? "SetEveryObjCProtocolDeinitCallback" : "SetEveryProtocolDeinitCallback";
+
+    /// <summary>Symbol name of the deinit-callback setter for the helper class.</summary>
+    private string SetDeinitCallbackEntryPoint => _useObjCBase ? "SBW_SetEveryObjCProtocolDeinitCallback" : "SBW_SetEveryProtocolDeinitCallback";
+
     public ProtocolProxyEmitter(ITypeDatabase typeDatabase, ILogger logger, string moduleName, ModuleEmissionContext? ctx = null)
     {
         _typeDatabase = typeDatabase;
@@ -123,6 +153,12 @@ public partial class ProtocolProxyEmitter
         {
             _logger.LogDebug($"Emitting proxy class for {protocolDecl.Name} with no-op InitializeVtable: EveryProtocolEmitter did not emit Set{protocolDecl.Name}_vtable; only Swift→C# wrap path will function.");
         }
+
+        // S-2: pick the NSObject-rooted helper symbols when EveryProtocolEmitter routed
+        // this protocol through EveryObjCProtocol. The proxy P/Invoke names and entry
+        // points all switch to the matching SBW_*EveryObjCProtocol* symbols.
+        _useObjCBase = _emissionContext != ModuleEmissionContext.Default
+            && _emissionContext.UsesObjCBase(protocolDecl.Name);
 
         // Inherited protocol requirements are now handled: the proxy emits implementations
         // for inherited interface members (see EmitInheritedInterfaceImplementations).

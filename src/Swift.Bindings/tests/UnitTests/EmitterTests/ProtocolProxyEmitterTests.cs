@@ -498,10 +498,14 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // Receivers use TryGetProxyFromContainer so unregistered handles produce
-        // a safe default return rather than throwing across the
-        // [UnmanagedCallersOnly] boundary (Codex P0 / P1 #3 regression guard).
-        Assert.Contains("SwiftObjectRegistry.TryGetProxyFromContainer<TestProtocolProxy>", output);
+        // Receivers read only the first existential word (handle) and look the proxy
+        // up via TryGetProxy(handle, ...) so unregistered handles produce a safe
+        // default return rather than throwing across the [UnmanagedCallersOnly]
+        // boundary (Codex P0 / P1 #3 regression guard). Reading the full
+        // ExistentialContainer1 (5 words) over-reads stack memory when Swift passes
+        // a class-bound (2-word) existential for EveryObjCProtocol-rooted proxies.
+        Assert.Contains("var handle = *(IntPtr*)selfContainer;", output);
+        Assert.Contains("SwiftObjectRegistry.TryGetProxy<TestProtocolProxy>(handle", output);
     }
 
     [Fact]
