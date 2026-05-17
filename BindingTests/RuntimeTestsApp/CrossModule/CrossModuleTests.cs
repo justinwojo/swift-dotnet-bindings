@@ -5,6 +5,12 @@ using RuntimeTestsApp.Infrastructure;
 using Swift;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLibDependency;
+// Pin unqualified DependencyPoint/DependencyService to the dep-module originals.
+// The S-3 mirror emits same-named partial-class wrappers in SwiftBindingsTestLib
+// to host nested extension types; consumers dual-importing both modules
+// disambiguate via using-aliases (mirrors the SwiftEventHandler pattern in CLAUDE.md).
+using DependencyPoint = SwiftBindingsTestLibDependency.DependencyPoint;
+using DependencyService = SwiftBindingsTestLibDependency.DependencyService;
 
 namespace RuntimeTestsApp.CrossModule;
 

@@ -20,6 +20,13 @@ namespace BindingsGeneration
         // This is true for closed generics, where a generic definition is in one module and instantiation is in another.
         private readonly ConcurrentDictionary<SwiftTypeName, TypeRecord> _outOfModuleTypes = new();
 
+        // Pending cross-module records discovered when loading a module's XML before the
+        // foreign module that owns them has been loaded. Drained when AddModuleDatabase
+        // is called for the foreign module. Keyed by the FOREIGN module name (i.e. the
+        // record's SwiftTypeName.Module), values are the records to inject into that
+        // foreign module's database once it becomes available. See AddModuleDatabase.
+        private readonly ConcurrentDictionary<string, List<(SwiftTypeName Name, TypeRecord Record)>> _pendingCrossModuleRecords = new();
+
         // Module aliases for types that appear under different module names in ABI JSON vs their canonical location.
         // For example, CGSize appears as CoreFoundation.CGSize in ABI JSON but is registered under CoreGraphics.
         private static readonly Dictionary<string, string> _moduleAliases = new()
@@ -85,7 +92,14 @@ namespace BindingsGeneration
         public bool IsModuleLoaded(string moduleName) => _modules.ContainsKey(moduleName);
 
         /// <summary>
-        /// Adds a module database to the type database.
+        /// Adds a module database to the type database. Also re-homes any entity whose
+        /// <see cref="SwiftTypeName.Module"/> differs from the database's own name into
+        /// the foreign module's database — the cross-module nested type mirror serialized
+        /// by <see cref="Emitter.ModuleDatabaseEmitter"/>. Without this routing,
+        /// <see cref="TryGetTypeRecordInternal"/> (which keys by <see cref="SwiftTypeName.Module"/>)
+        /// would never reach the record because it lives in the wrong module's database.
+        /// Records whose foreign module is not loaded yet are queued and drained on the next
+        /// matching <see cref="AddModuleDatabase"/> call (dependency-load ordering varies).
         /// </summary>
         /// <param name="moduleDatabase">The module database to add.</param>
         /// <exception cref="Exception">Thrown if a module with the same name already exists in the database.</exception>
@@ -94,6 +108,60 @@ namespace BindingsGeneration
             if (!_modules.TryAdd(moduleDatabase.Name, moduleDatabase))
             {
                 throw new Exception($"Module {moduleDatabase.Name} already exists in the database.");
+            }
+
+            // Drain any cross-module records queued for this module from earlier sibling loads.
+            if (_pendingCrossModuleRecords.TryRemove(moduleDatabase.Name, out var pending))
+            {
+                foreach (var (name, record) in pending)
+                {
+                    moduleDatabase.RegisterType(name, record);
+                }
+            }
+
+            // Route this module's cross-module mirror records to their owning foreign module.
+            // If the foreign module isn't loaded yet, queue for later. The record also stays in
+            // this module's own DB as a benign duplicate (never reached via standard lookup,
+            // which keys by SwiftTypeName.Module).
+            foreach (var kvp in moduleDatabase.GetAllTypeRecords())
+            {
+                var record = kvp.Value;
+                var foreignModule = record.SwiftTypeName.Module;
+                if (foreignModule == moduleDatabase.Name)
+                    continue;
+
+                if (_modules.TryGetValue(foreignModule, out var foreignDb))
+                {
+                    foreignDb.RegisterType(record.SwiftTypeName, record);
+                }
+                else
+                {
+                    var queue = _pendingCrossModuleRecords.GetOrAdd(
+                        foreignModule, _ => new List<(SwiftTypeName, TypeRecord)>());
+                    lock (queue)
+                    {
+                        queue.Add((record.SwiftTypeName, record));
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Inserts a type record into a foreign module's in-memory database if loaded.
+        /// Used for nested types declared inside `extension ForeignModule.ForeignType {...}`
+        /// blocks: the SwiftTypeName lives under <c>ForeignModule</c> (so lookups by Swift
+        /// name route to that module's database), but the type is physically owned by — and
+        /// emitted from — the current module. Without this hop the entry would only exist in
+        /// the current module's database and the standard <see cref="TryGetTypeRecordInternal"/>
+        /// path (keyed on <c>swiftTypeName.Module</c>) would fail to resolve it. Silently no-ops
+        /// when the foreign module isn't loaded — downstream lookups will fall back through the
+        /// alias / Apple-supplement resolution paths exactly as they would have without the type.
+        /// </summary>
+        public void RegisterCrossModuleType(SwiftTypeName swiftTypeName, TypeRecord record)
+        {
+            if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
+            {
+                moduleDatabase.RegisterType(swiftTypeName, record);
             }
         }
 

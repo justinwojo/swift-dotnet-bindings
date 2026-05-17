@@ -304,6 +304,14 @@ public static class EnumCaseWrapperEmitter
             return $"{enumQualifiedName}.{caseDecl.Name}({string.Join(", ", destructuredArgs)})";
         }
 
+        // `case foo(label: (a:, b:, ...))` was flattened upstream into N AssociatedValues
+        // (a, b, …) but the constructor still expects a single labeled tuple parameter.
+        // Wrap the flattened call args back into `label: (a: …, b: …)`.
+        if (!string.IsNullOrEmpty(caseDecl.OuterTupleLabel) && callArgs.Count > 1)
+        {
+            return $"{enumQualifiedName}.{caseDecl.Name}({caseDecl.OuterTupleLabel}: ({string.Join(", ", callArgs)}))";
+        }
+
         // Standard path: callArgs from GetCdeclParamMapping already include labels
         var argsString = string.Join(", ", callArgs);
         return $"{enumQualifiedName}.{caseDecl.Name}({argsString})";

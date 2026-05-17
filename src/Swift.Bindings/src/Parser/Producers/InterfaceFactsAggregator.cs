@@ -90,6 +90,7 @@ public sealed class InterfaceFactsAggregator
             ProtocolNames = Pick(results, InterfaceFactKind.ProtocolNames, p => p.ProtocolNames, empty.ProtocolNames),
             ProtocolExtensionMethods = Pick(results, InterfaceFactKind.ProtocolExtensionMethods, p => p.ProtocolExtensionMethods, empty.ProtocolExtensionMethods),
             ExtensionMemberCandidates = Pick(results, InterfaceFactKind.ExtensionMemberCandidates, p => p.ExtensionMemberCandidates, empty.ExtensionMemberCandidates),
+            SpiOnlyConformances = Pick(results, InterfaceFactKind.SpiOnlyConformances, p => p.SpiOnlyConformances, empty.SpiOnlyConformances),
         };
     }
 

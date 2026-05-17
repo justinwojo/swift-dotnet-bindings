@@ -332,6 +332,28 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Resolves the C# namespace-owning module for a parsed type. Normally this is the type's
+        /// Swift-qualified module. Exception: when the current module declares a nested type inside
+        /// a foreign module's type via `extension ForeignModule.ForeignType { struct Nested {} }`,
+        /// the nested type is physically emitted in the current module's binding assembly under a
+        /// partial-class wrapper of the foreign type. The TypeRecord's CSharpTypeName must point
+        /// at the current module's namespace so downstream consumers (enum case payload lookup,
+        /// property type resolution) find the actually-emitted C# type. The discriminator is
+        /// `ParentDecl is TypeDecl` — top-level cross-module re-exports keep the foreign namespace.
+        /// </summary>
+        private static string ResolveEmittingModuleName(TypeDecl typeDecl, NamedTypeSpec namedTypeSpec)
+        {
+            if (typeDecl.ParentDecl is TypeDecl &&
+                typeDecl.ModuleDecl != null &&
+                !string.IsNullOrEmpty(typeDecl.ModuleDecl.Name) &&
+                typeDecl.ModuleDecl.Name != namedTypeSpec.Module)
+            {
+                return typeDecl.ModuleDecl.Name;
+            }
+            return namedTypeSpec.Module;
+        }
+
+        /// <summary>
         /// Inserts a struct's details (e.g. name, metadata accessor, frozenness, blittability) into the type database.
         /// </summary>
         /// <param name="namedTypeSpec">The Swift type specification, including module name.</param>
@@ -344,7 +366,8 @@ namespace BindingsGeneration
             SwiftTypeInfo swiftTypeInfo,
             TypeRecordFlags flags)
         {
-            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
+            var emittingModuleName = ResolveEmittingModuleName(structDecl, namedTypeSpec);
+            var @namespace = _namespacePatternResolver.ResolveNamespace(emittingModuleName);
             var rawIdentifier = structDecl.SwiftTypeName.Module == ""
                 ? structDecl.SwiftTypeName.Name
                 : structDecl.SwiftTypeName.ModuleQualifiedName.Substring(
@@ -387,6 +410,17 @@ namespace BindingsGeneration
             };
 
             _moduleDatabase.RegisterType(structDecl.SwiftTypeName, typeRecord);
+
+            // Cross-module nested type (e.g. `extension ForeignModule.ForeignType { struct Nested {} }`):
+            // the SwiftTypeName starts with the foreign module, so the standard module-keyed lookup
+            // in TypeDatabase routes to that module's database — which doesn't know about us. Mirror
+            // the record into the foreign module's database (if loaded) so enum case extractor /
+            // property type resolution can find it without changing the Swift-name truth.
+            if (emittingModuleName != namedTypeSpec.Module &&
+                _typeDatabase is TypeDatabase concreteDatabase)
+            {
+                concreteDatabase.RegisterCrossModuleType(structDecl.SwiftTypeName, typeRecord);
+            }
         }
 
         /// <summary>
@@ -680,7 +714,8 @@ namespace BindingsGeneration
             SwiftTypeInfo swiftTypeInfo,
             TypeRecordFlags flags)
         {
-            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
+            var emittingModuleName = ResolveEmittingModuleName(enumDecl, namedTypeSpec);
+            var @namespace = _namespacePatternResolver.ResolveNamespace(emittingModuleName);
             var rawIdentifier = enumDecl.SwiftTypeName.Module == ""
                 ? enumDecl.SwiftTypeName.Name
                 : enumDecl.SwiftTypeName.ModuleQualifiedName.Substring(
@@ -714,6 +749,13 @@ namespace BindingsGeneration
             };
 
             _moduleDatabase.RegisterType(enumDecl.SwiftTypeName, typeRecord);
+
+            // See RegisterStructType for the cross-module nested mirror rationale.
+            if (emittingModuleName != namedTypeSpec.Module &&
+                _typeDatabase is TypeDatabase concreteDatabase)
+            {
+                concreteDatabase.RegisterCrossModuleType(enumDecl.SwiftTypeName, typeRecord);
+            }
         }
 
         /// <summary>
@@ -730,7 +772,8 @@ namespace BindingsGeneration
             TypeRecordFlags flags = TypeRecordFlags.RequiresMemoryManagement;
             if (classDecl.IsObjCRooted)
                 flags |= TypeRecordFlags.ObjCRooted;
-            var @namespace = _namespacePatternResolver.ResolveNamespace(namedTypeSpec.Module);
+            var emittingModuleName = ResolveEmittingModuleName(classDecl, namedTypeSpec);
+            var @namespace = _namespacePatternResolver.ResolveNamespace(emittingModuleName);
             var rawIdentifier = classDecl.SwiftTypeName.Module == ""
                 ? classDecl.SwiftTypeName.Name
                 : classDecl.SwiftTypeName.ModuleQualifiedName.Substring(
@@ -755,6 +798,13 @@ namespace BindingsGeneration
             };
 
             _moduleDatabase.RegisterType(classDecl.SwiftTypeName, typeRecord);
+
+            // See RegisterStructType for the cross-module nested mirror rationale.
+            if (emittingModuleName != namedTypeSpec.Module &&
+                _typeDatabase is TypeDatabase concreteDatabase)
+            {
+                concreteDatabase.RegisterCrossModuleType(classDecl.SwiftTypeName, typeRecord);
+            }
         }
 
         /// <summary>

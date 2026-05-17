@@ -3754,4 +3754,116 @@ public class DisposeBag {
     }
 
     #endregion
+
+    #region GetSpiOnlyConformances Tests
+
+    [Fact]
+    public void GetSpiOnlyConformances_PlainConformance_CapturesQualifiedTypeAndProtocol()
+    {
+        var privateInterface = """
+            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : Swift.Equatable {
+              public static func == (lhs: StripeCore.StripeAPI.BankAccountToken, rhs: StripeCore.StripeAPI.BankAccountToken) -> Swift.Bool
+            }
+            """;
+        var path = WriteTempFile(privateInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Equatable", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSpiOnlyConformances_RetroactiveAttributedConformance_StripsAttrAndCapturesProtocol()
+    {
+        // Compiler sometimes requires `@retroactive` on conformances declared in a
+        // different module than the protocol. Without the regex/loop tolerance the
+        // whole extension is silently dropped from the filter set.
+        var privateInterface = """
+            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : @retroactive Swift.Equatable, @retroactive Swift.Hashable {
+              public static func == (lhs: StripeCore.StripeAPI.BankAccountToken, rhs: StripeCore.StripeAPI.BankAccountToken) -> Swift.Bool
+            }
+            """;
+        var path = WriteTempFile(privateInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Equatable", result);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Hashable", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSpiOnlyConformances_CodableTypealias_ExpandsToEncodableAndDecodable()
+    {
+        // `Codable` is a typealias for `Encodable & Decodable`; ABI JSON records the
+        // expanded pair, so the filter must emit both keys to match.
+        var privateInterface = """
+            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : Swift.Codable {
+              public func encode(to encoder: any Swift.Encoder) throws
+            }
+            """;
+        var path = WriteTempFile(privateInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Encodable", result);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Decodable", result);
+            Assert.DoesNotContain("StripeCore.StripeAPI.BankAccountToken::Codable", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSpiOnlyConformances_MissingPath_ReturnsEmpty()
+    {
+        var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances("/nonexistent/path.private.swiftinterface");
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void GetSpiOnlyConformances_ParenthesizedAttribute_StripsAndCapturesProtocol()
+    {
+        // Attributes with arguments (parentheses) must not cause the parser to drop the
+        // entire extension. The previous regex stopped at the first '(', silently losing
+        // the conformance and emitting unbuildable wrapper references.
+        var privateInterface = """
+            @_spi(Internal) extension StripeCore.StripeAPI.BankAccountToken : @available(*, deprecated) Swift.Equatable, @objc(SBKHashable) Swift.Hashable {
+              public static func == (lhs: StripeCore.StripeAPI.BankAccountToken, rhs: StripeCore.StripeAPI.BankAccountToken) -> Swift.Bool
+            }
+            """;
+        var path = WriteTempFile(privateInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Equatable", result);
+            Assert.Contains("StripeCore.StripeAPI.BankAccountToken::Hashable", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetSpiOnlyConformances_GenericConformanceAndWhereClause_CapturesProtocol()
+    {
+        // The depth-aware splitter must not break on commas inside generic arguments and
+        // must trim a trailing 'where ...' generic-requirements clause off the conformance
+        // list. Otherwise the second protocol gets lost in the split.
+        var privateInterface = """
+            @_spi(Internal) extension StripeCore.Container : Swift.Collection, Foundation.NSCopying where Element : Swift.Hashable {
+              public func copy(with zone: Foundation.NSZone? = nil) -> Any
+            }
+            """;
+        var path = WriteTempFile(privateInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetSpiOnlyConformances(path);
+            Assert.Contains("StripeCore.Container::Collection", result);
+            Assert.Contains("StripeCore.Container::NSCopying", result);
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
 }

@@ -100,10 +100,20 @@ namespace BindingsGeneration
 
             // Cross-module extension: type defined in module A, extended in module B.
             // Emit as a static extension class instead of a duplicate partial class.
+            // Restrict to top-level receivers: nested types under a cross-module-extension
+            // parent are physically owned by the current module (they were declared via
+            // `extension ForeignModule.ForeignType { struct Nested {} }`) and must emit
+            // through the normal type path so members are produced rather than re-routed as
+            // a second cross-module hop that would skip on missing TypeDatabase entries.
             if (!string.IsNullOrEmpty(classDecl.SwiftTypeName.Module) &&
-                classDecl.SwiftTypeName.Module != moduleDecl.Name)
+                classDecl.SwiftTypeName.Module != moduleDecl.Name &&
+                classDecl.ParentDecl is ModuleDecl)
             {
-                CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, _logger);
+                CrossModuleExtensionEmitter.Emit(
+                    csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, _logger,
+                    context: context,
+                    recurseNestedTypes: (decls, ctx) =>
+                        base.HandleBaseDecl(csWriter, swiftWriter, decls, conductor, env.TypeDatabase, ctx));
                 return;
             }
 

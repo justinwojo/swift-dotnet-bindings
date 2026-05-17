@@ -4,6 +4,10 @@
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLibDependency;
+// Pin unqualified DependencyService to the dep-module original; the S-3 mirror
+// emits a same-named partial-class wrapper in SwiftBindingsTestLib to host
+// nested extension types.
+using DependencyService = SwiftBindingsTestLibDependency.DependencyService;
 
 namespace RuntimeTestsApp.Marshalling;
 

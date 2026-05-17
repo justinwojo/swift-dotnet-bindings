@@ -1011,6 +1011,224 @@ public static class SwiftInterfaceAccessParser
         return result;
     }
 
+    // Regex for the SPI extension header: matches "@_spi(SomeGroup) extension Mod.Type : "
+    // up to (and including) the colon. The qualified extended type is captured as group 1.
+    // The conformance list itself is NOT captured by regex — instead we hand the post-colon
+    // slice to ExtractConformanceSection + SplitConformancesAtTopLevel + StripLeadingAttributes
+    // so per-protocol attributes with balanced parens like "@available(*, deprecated) Equatable"
+    // or "@objc(foo) Hashable" are tolerated (the previous character-class regex stopped at
+    // the first '(' and silently dropped the entire extension from the filter set).
+    private static readonly Regex SpiExtensionHeaderRegex = new(
+        @"^@_spi\([^)]*\)\s+(?:public\s+|open\s+)?extension\s+([\w.]+)\s*:\s*",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Parses a <c>*.private.swiftinterface</c> for <c>@_spi(...) extension Mod.Type : Proto1, Proto2 { ... }</c>
+    /// blocks and returns the set of conformances unreachable under a plain (non-<c>@_spi</c>)
+    /// <c>import</c>. Each entry has the form <c>"QualifiedType::UnqualifiedProtocol"</c>
+    /// (e.g., <c>"StripeCore.StripeAPI.BankAccountToken::Equatable"</c>).
+    /// <para/>
+    /// SPI extensions are syntactically valid Swift but their conformances are stripped from
+    /// the module's public interface — a wrapper that does <c>import Foo</c> (not
+    /// <c>@_spi(...) import Foo</c>) cannot call <c>==</c> or
+    /// <c>JSONEncoder().encode(value)</c> on those types. ABI JSON dumps the conformance
+    /// regardless of access, so without this filter the generated wrapper emits unbuildable
+    /// references.
+    /// <para/>
+    /// Returns an empty set when <paramref name="privateSwiftInterfacePath"/> is null, empty,
+    /// or missing. Caller is expected to derive the path from the public swiftinterface
+    /// (replace <c>.swiftinterface</c> with <c>.private.swiftinterface</c>) and tolerate
+    /// absence.
+    /// </summary>
+    public static HashSet<string> GetSpiOnlyConformances(string? privateSwiftInterfacePath)
+    {
+        var result = new HashSet<string>();
+
+        if (string.IsNullOrWhiteSpace(privateSwiftInterfacePath) || !File.Exists(privateSwiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(privateSwiftInterfacePath);
+
+        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
+        {
+            var trimmed = lines[lineIdx].TrimStart();
+            if (!trimmed.StartsWith("@_spi(", StringComparison.Ordinal))
+                continue;
+
+            var headerMatch = SpiExtensionHeaderRegex.Match(trimmed);
+            if (!headerMatch.Success)
+                continue;
+
+            var qualifiedType = headerMatch.Groups[1].Value;
+            var afterColon = trimmed.Substring(headerMatch.Index + headerMatch.Length);
+            var conformanceSection = ExtractConformanceSection(afterColon);
+            if (conformanceSection is null)
+                continue;
+
+            foreach (var proto in SplitConformancesAtTopLevel(conformanceSection))
+            {
+                var protoName = StripLeadingAttributes(proto);
+                if (string.IsNullOrEmpty(protoName))
+                    continue;
+
+                // ABI JSON stores conformance protocol names unqualified (e.g., "Equatable"
+                // not "Swift.Equatable"), so the filter key matches on the unqualified tail.
+                var dotIdx = protoName.LastIndexOf('.');
+                var unqualifiedName = dotIdx >= 0 ? protoName.Substring(dotIdx + 1) : protoName;
+
+                // The Codable typealias expands to Encodable + Decodable in ABI JSON — the
+                // compiler synthesizes two separate conformance entries, not one. Expand here
+                // so the filter matches the conformance shape the parser actually sees.
+                if (unqualifiedName == "Codable")
+                {
+                    result.Add($"{qualifiedType}::Encodable");
+                    result.Add($"{qualifiedType}::Decodable");
+                }
+                else
+                {
+                    result.Add($"{qualifiedType}::{unqualifiedName}");
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Slices the substring between an extension header's ':' and its body-opening '{',
+    /// excluding any trailing 'where ...' generic-requirements clause. Returns null if the
+    /// line is malformed (no body brace, or angle/paren depth never returns to zero).
+    /// </summary>
+    private static string? ExtractConformanceSection(string afterColon)
+    {
+        // Walk depth-aware to find the '{' that opens the extension body — must be at
+        // depth zero so '<' / '>' inside generic args and '(' / ')' inside attributes
+        // don't terminate prematurely.
+        int parenDepth = 0;
+        int angleDepth = 0;
+        int braceIdx = -1;
+        for (int i = 0; i < afterColon.Length; i++)
+        {
+            var c = afterColon[i];
+            if (c == '(') parenDepth++;
+            else if (c == ')') { if (parenDepth > 0) parenDepth--; }
+            else if (c == '<') angleDepth++;
+            else if (c == '>') { if (angleDepth > 0) angleDepth--; }
+            else if (c == '{' && parenDepth == 0 && angleDepth == 0)
+            {
+                braceIdx = i;
+                break;
+            }
+        }
+        if (braceIdx < 0)
+            return null;
+
+        var section = afterColon.Substring(0, braceIdx);
+
+        // Strip trailing 'where <requirements>' clause. The 'where' must be a standalone
+        // token at top level (parenDepth/angleDepth both zero) — string 'where' inside a
+        // generic constraint would already be inside angle brackets.
+        var whereIdx = FindTopLevelWhereKeyword(section);
+        if (whereIdx >= 0)
+            section = section.Substring(0, whereIdx);
+
+        return section.TrimEnd();
+    }
+
+    /// <summary>
+    /// Finds the index of the 'where' keyword at top level (zero paren/angle depth) in the
+    /// extension's conformance section, or -1 if none. Used to trim the generic-requirements
+    /// clause off the conformance list before splitting.
+    /// </summary>
+    private static int FindTopLevelWhereKeyword(string section)
+    {
+        int parenDepth = 0;
+        int angleDepth = 0;
+        for (int i = 0; i + 5 <= section.Length; i++)
+        {
+            var c = section[i];
+            if (c == '(') { parenDepth++; continue; }
+            if (c == ')') { if (parenDepth > 0) parenDepth--; continue; }
+            if (c == '<') { angleDepth++; continue; }
+            if (c == '>') { if (angleDepth > 0) angleDepth--; continue; }
+            if (parenDepth != 0 || angleDepth != 0) continue;
+            if (c != 'w') continue;
+            if (i > 0 && (char.IsLetterOrDigit(section[i - 1]) || section[i - 1] == '_'))
+                continue;
+            if (string.CompareOrdinal(section, i, "where", 0, 5) != 0)
+                continue;
+            var nextIdx = i + 5;
+            if (nextIdx >= section.Length || char.IsLetterOrDigit(section[nextIdx]) || section[nextIdx] == '_')
+                continue;
+            return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Splits a conformance section on commas that lie at top level (zero paren/angle depth).
+    /// Commas inside <c>@available(*, deprecated)</c> or <c>SomeProtocol&lt;A, B&gt;</c> stay
+    /// glued to their attribute / generic argument.
+    /// </summary>
+    private static IEnumerable<string> SplitConformancesAtTopLevel(string section)
+    {
+        int parenDepth = 0;
+        int angleDepth = 0;
+        int start = 0;
+        for (int i = 0; i < section.Length; i++)
+        {
+            var c = section[i];
+            if (c == '(') parenDepth++;
+            else if (c == ')') { if (parenDepth > 0) parenDepth--; }
+            else if (c == '<') angleDepth++;
+            else if (c == '>') { if (angleDepth > 0) angleDepth--; }
+            else if (c == ',' && parenDepth == 0 && angleDepth == 0)
+            {
+                yield return section.Substring(start, i - start);
+                start = i + 1;
+            }
+        }
+        if (start < section.Length)
+            yield return section.Substring(start);
+    }
+
+    /// <summary>
+    /// Strips zero or more leading attribute tokens (e.g. <c>@retroactive</c>,
+    /// <c>@available(*, deprecated)</c>, <c>@objc(foo)</c>) from a single conformance entry
+    /// and returns the bare protocol name (whitespace-trimmed). Returns the empty string if
+    /// the entry is entirely attributes.
+    /// </summary>
+    private static string StripLeadingAttributes(string entry)
+    {
+        var current = entry.Trim();
+        while (current.Length > 0 && current[0] == '@')
+        {
+            // Consume '@' + identifier characters.
+            int i = 1;
+            while (i < current.Length && (char.IsLetterOrDigit(current[i]) || current[i] == '_'))
+                i++;
+            // Consume optional balanced parens immediately after the identifier.
+            if (i < current.Length && current[i] == '(')
+            {
+                int depth = 1;
+                i++;
+                while (i < current.Length && depth > 0)
+                {
+                    if (current[i] == '(') depth++;
+                    else if (current[i] == ')') depth--;
+                    i++;
+                }
+                if (depth != 0)
+                    return string.Empty; // unbalanced — give up rather than emit garbage
+            }
+            // Consume trailing whitespace separating attribute from next token.
+            while (i < current.Length && char.IsWhiteSpace(current[i]))
+                i++;
+            current = current.Substring(i);
+        }
+        return current.Trim();
+    }
+
     // Regex for protocol declarations: matches "public protocol Name" or "open protocol Name"
     private static readonly Regex ProtocolDeclRegex = new(
         @"(?:public|open)\s+protocol\s+(\w+)",

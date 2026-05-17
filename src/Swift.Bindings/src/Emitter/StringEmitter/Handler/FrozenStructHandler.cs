@@ -110,10 +110,20 @@ namespace BindingsGeneration
             // surfaces foreign struct receivers when they carry extension members from the
             // current module (SwiftABIParser.HandleTypeDecl), so cross-module dispatch can
             // happen unconditionally for the module-mismatch shape.
+            // Top-level cross-module receivers only. Nested types whose parent is a
+            // cross-module-extension TypeDecl (e.g. structs declared inside
+            // `extension ForeignModule.ForeignType { ... }`) are owned by the current
+            // module and must emit normally so their members surface — re-routing them
+            // through the cross-module path would skip on missing TypeDatabase entries.
             if (!string.IsNullOrEmpty(structDecl.SwiftTypeName.Module) &&
-                structDecl.SwiftTypeName.Module != moduleDecl.Name)
+                structDecl.SwiftTypeName.Module != moduleDecl.Name &&
+                structDecl.ParentDecl is ModuleDecl)
             {
-                CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, _logger);
+                CrossModuleExtensionEmitter.Emit(
+                    csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, _logger,
+                    context: context,
+                    recurseNestedTypes: (decls, ctx) =>
+                        base.HandleBaseDecl(csWriter, swiftWriter, decls, conductor, env.TypeDatabase, ctx));
                 return;
             }
 

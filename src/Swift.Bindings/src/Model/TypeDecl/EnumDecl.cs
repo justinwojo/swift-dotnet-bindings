@@ -38,6 +38,16 @@ namespace BindingsGeneration
         /// When null, the case name is used as the raw value (Swift default behavior).
         /// </summary>
         public string? RawValue { get; set; }
+
+        /// <summary>
+        /// When the source declaration was <c>case foo(label: (a:, b:, ...))</c> — i.e. a single
+        /// associated value that is itself a labeled tuple — TypeSpecParser unwraps the outer
+        /// one-element tuple and the ABI parser flattens the inner tuple's elements into
+        /// <see cref="AssociatedValues"/>. The outer label survives here so the @_cdecl wrapper
+        /// can reconstruct the call as <c>EnumType.foo(label: (a: ..., b: ...))</c> rather than
+        /// the malformed <c>EnumType.foo(a: ..., b: ...)</c>. Null when no outer label exists.
+        /// </summary>
+        public string? OuterTupleLabel { get; set; }
     }
 
     /// <summary>

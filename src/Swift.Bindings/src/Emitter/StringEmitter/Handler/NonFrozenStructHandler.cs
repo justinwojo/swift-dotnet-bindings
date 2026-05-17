@@ -114,10 +114,17 @@ namespace BindingsGeneration
             // partial class double vs the primitive). CrossModuleExtensionEmitter.EmitStruct
             // gates on the canonical TypeRecord's Frozen flag and emits a static extension
             // class or skips cleanly when the receiver isn't a frozen value struct.
+            // Top-level cross-module receivers only — nested types inside a cross-module
+            // extension are owned by the current module and emit through the normal path.
             if (!string.IsNullOrEmpty(structDecl.SwiftTypeName.Module) &&
-                structDecl.SwiftTypeName.Module != moduleDecl.Name)
+                structDecl.SwiftTypeName.Module != moduleDecl.Name &&
+                structDecl.ParentDecl is ModuleDecl)
             {
-                CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, _logger);
+                CrossModuleExtensionEmitter.Emit(
+                    csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, _logger,
+                    context: context,
+                    recurseNestedTypes: (decls, ctx) =>
+                        base.HandleBaseDecl(csWriter, swiftWriter, decls, conductor, env.TypeDatabase, ctx));
                 return;
             }
 

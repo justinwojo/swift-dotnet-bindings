@@ -1159,6 +1159,38 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Materializes a type's <see cref="TypeConformance"/> list from <c>node.Conformances</c>
+        /// and drops entries that are SPI-only — declared in <c>*.private.swiftinterface</c>
+        /// behind a <c>@_spi(...) extension</c> and therefore invisible to a plain
+        /// (non-<c>@_spi</c>) <c>import</c> at wrapper compile time. ABI JSON ships every
+        /// conformance regardless of access, so without this filter the generator would emit
+        /// wrapper code (<c>==</c> operator wrappers, <c>JSONEncoder().encode(value)</c>
+        /// stubs, etc.) that fails to typecheck. The SPI fact is harvested by
+        /// <see cref="SwiftInterfaceAccessParser.GetSpiOnlyConformances"/> and threaded in
+        /// via <see cref="SwiftInterfaceFacts.SpiOnlyConformances"/>.
+        /// </summary>
+        private List<TypeConformance> BuildFilteredConformances(Node node, SwiftTypeName swiftTypeName)
+        {
+            var conformances = new List<TypeConformance>();
+            var spiSet = _facts.SpiOnlyConformances;
+            var qualified = swiftTypeName.ModuleQualifiedName;
+            foreach (var c in node.Conformances)
+            {
+                var conformance = HandleConformance(c, swiftTypeName);
+                if (spiSet.Count > 0 &&
+                    spiSet.Contains($"{qualified}::{conformance.Protocol.Name}"))
+                {
+                    _logger.LogDebug(
+                        "Filtered SPI-only conformance '{Type}: {Protocol}' (declared via @_spi extension in private.swiftinterface).",
+                        qualified, conformance.Protocol.Name);
+                    continue;
+                }
+                conformances.Add(conformance);
+            }
+            return conformances;
+        }
+
+        /// <summary>
         /// Creates a struct declaration from a node.
         /// </summary>
         /// <param name="node">The node representing the struct declaration.</param>
@@ -1181,7 +1213,7 @@ namespace BindingsGeneration
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
                 GenericParameters = genericParameters,
-                Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
+                Conformances = BuildFilteredConformances(node, swiftTypeName),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
@@ -1246,7 +1278,7 @@ namespace BindingsGeneration
                 Operators = new List<OperatorDecl>(),
                 Cases = new List<EnumCaseDecl>(),
                 GenericParameters = genericParameters,
-                Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
+                Conformances = BuildFilteredConformances(node, swiftTypeName),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsFrozen = hasFrozenAttribute,
@@ -1327,6 +1359,16 @@ namespace BindingsGeneration
                                     List<TypeSpec> parsedElements;
                                     if (parsedTuple is TupleTypeSpec tupleSpec)
                                     {
+                                        // Detect the `case foo(label: (a:, b:, ...))` shape:
+                                        // TypeSpecParser unwraps the outer one-element tuple and
+                                        // moves the "label" onto the inner tuple. Without this
+                                        // detection the inner tuple is flattened to bare params
+                                        // and the @_cdecl wrapper emits `foo(a:, b:)` instead of
+                                        // the required `foo(label: (a:, b:))`.
+                                        if (!string.IsNullOrEmpty(tupleSpec.TypeLabel))
+                                        {
+                                            enumCaseDecl.OuterTupleLabel = tupleSpec.TypeLabel;
+                                        }
                                         parsedElements = tupleSpec.Elements;
                                     }
                                     else if (parsedTuple != null)
@@ -1487,7 +1529,7 @@ namespace BindingsGeneration
                 Types = new List<TypeDecl>(),
                 Operators = new List<OperatorDecl>(),
                 GenericParameters = genericParameters,
-                Conformances = [.. node.Conformances.Select(x => HandleConformance(x, swiftTypeName))],
+                Conformances = BuildFilteredConformances(node, swiftTypeName),
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 IsActor = isActor,

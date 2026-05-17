@@ -36,15 +36,17 @@ public static partial class CrossModuleExtensionEmitter
         ModuleDecl moduleDecl,
         Conductor conductor,
         IEnvironment env,
-        ILogger logger)
+        ILogger logger,
+        TypeHandlerContext? context = null,
+        Action<IEnumerable<BaseDecl>, TypeHandlerContext>? recurseNestedTypes = null)
     {
         switch (typeDecl)
         {
             case ClassDecl classDecl:
-                Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, logger);
+                Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, logger, context, recurseNestedTypes);
                 break;
             case StructDecl structDecl:
-                EmitStruct(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, logger);
+                EmitStruct(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, logger, context, recurseNestedTypes);
                 break;
             default:
                 logger.LogDebug("Cross-module extension on {Kind} '{Name}' not supported.",
@@ -63,7 +65,9 @@ public static partial class CrossModuleExtensionEmitter
         ModuleDecl moduleDecl,
         Conductor conductor,
         IEnvironment env,
-        ILogger logger)
+        ILogger logger,
+        TypeHandlerContext? context = null,
+        Action<IEnumerable<BaseDecl>, TypeHandlerContext>? recurseNestedTypes = null)
     {
         var typeDatabase = env.TypeDatabase;
         var origModule = classDecl.SwiftTypeName.Module;
@@ -110,77 +114,125 @@ public static partial class CrossModuleExtensionEmitter
             properties.Add(property);
         }
 
-        if (methods.Count == 0 && properties.Count == 0)
+        // Nested type definitions added via `extension ForeignModule.ForeignType { struct Nested {} }`
+        // surface as TypeDecl children whose ModuleDecl is the current module. These are physically
+        // emitted in the current module's binding assembly under a partial-class wrapper of the
+        // foreign type so consumers can reference them as `CurrentModule.ForeignType.Nested`.
+        // Member-only extensions (no nested types) still take the methods/properties-only path below.
+        var nestedTypes = classDecl.Types
+            .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
+            .ToList();
+
+        if (methods.Count == 0 && properties.Count == 0 && nestedTypes.Count == 0)
         {
-            logger.LogDebug("Cross-module extension {Type} from {Module}: no members from current module, skipping.",
+            logger.LogDebug("Cross-module extension {Type} from {Module}: no members or nested types from current module, skipping.",
                 classDecl.Name, currentModule);
             return;
         }
 
-        var className = $"{classDecl.Name}{currentModule}Extensions";
-        var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
-        var moduleLibPath = typeDatabase.GetLibraryPath(currentModule);
-
-        csWriter.WriteLine();
-        csWriter.WriteLine($"/// <summary>");
-        csWriter.WriteLine($"/// Extension methods for {classDecl.Name} defined in {currentModule}.");
-        csWriter.WriteLine($"/// </summary>");
-        csWriter.WriteLine($"public static partial class {className}");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-
         int emittedCount = 0;
-        var emittedSignatures = new HashSet<string>();
 
-        // Emit properties as Get/Set methods
-        foreach (var property in properties)
+        if (methods.Count > 0 || properties.Count > 0)
         {
-            if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
-                emittedCount++;
-        }
+            var className = $"{classDecl.Name}{currentModule}Extensions";
+            var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
+            var moduleLibPath = typeDatabase.GetLibraryPath(currentModule);
 
-        // Emit methods
-        foreach (var method in methods)
-        {
-            if (method.IsAccessor)
-                continue; // Property accessors handled above
-
-            if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
-                emittedCount++;
-        }
-
-        // Emit NativeMethods if we emitted anything
-        if (emittedCount > 0)
-        {
             csWriter.WriteLine();
-            csWriter.WriteLine("private static partial class NativeMethods");
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Extension methods for {classDecl.Name} defined in {currentModule}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public static partial class {className}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            var emittedSignatures = new HashSet<string>();
+
+            // Emit properties as Get/Set methods
             foreach (var property in properties)
             {
-                EmitPropertyNativeMethods(csWriter, property, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                    emittedCount++;
             }
 
+            // Emit methods
             foreach (var method in methods)
             {
                 if (method.IsAccessor)
-                    continue;
-                EmitMethodNativeMethod(csWriter, method, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                    continue; // Property accessors handled above
+
+                if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                    emittedCount++;
+            }
+
+            // Emit NativeMethods if we emitted anything
+            if (emittedCount > 0)
+            {
+                csWriter.WriteLine();
+                csWriter.WriteLine("private static partial class NativeMethods");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+
+                foreach (var property in properties)
+                {
+                    EmitPropertyNativeMethods(csWriter, property, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                }
+
+                foreach (var method in methods)
+                {
+                    if (method.IsAccessor)
+                        continue;
+                    EmitMethodNativeMethod(csWriter, method, classDecl, moduleLibPath, wrapperLibPath, typeDatabase, logger);
+                }
+
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
             }
 
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            if (emittedCount > 0)
+            {
+                logger.LogInformation("Emitted {Count} cross-module extension members for {Type} from {Module}",
+                    emittedCount, classDecl.Name, currentModule);
+            }
         }
 
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.WriteLine();
-
-        if (emittedCount > 0)
+        // Nested type definitions added via `extension ForeignModule.ForeignType { struct Nested {} }`
+        // are physically emitted in the current module's binding assembly under a `partial class`
+        // wrapper named after the foreign receiver, so consumers reference them as
+        // `CurrentModule.ForeignType.Nested`. The wrapper itself is intentionally `partial` because
+        // multiple current-module extensions on the same foreign type can each contribute nested
+        // declarations and must combine at compile time.
+        if (nestedTypes.Count > 0 && recurseNestedTypes != null && context != null)
         {
-            logger.LogInformation("Emitted {Count} cross-module extension members for {Type} from {Module}",
-                emittedCount, classDecl.Name, currentModule);
+            csWriter.WriteLine();
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Nested types defined for {classDecl.Name} in {currentModule}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public partial class {classDecl.Name}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            var emissionCtx = context.GetEmissionContext();
+            emissionCtx?.PushTypeNesting(classDecl.Name);
+            try
+            {
+                recurseNestedTypes(nestedTypes, context);
+            }
+            finally
+            {
+                emissionCtx?.PopTypeNesting();
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            logger.LogInformation("Emitted {Count} cross-module nested types for {Type} from {Module}",
+                nestedTypes.Count, classDecl.Name, currentModule);
         }
     }
 

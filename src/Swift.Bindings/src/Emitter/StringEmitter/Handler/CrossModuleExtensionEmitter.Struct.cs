@@ -44,7 +44,9 @@ public static partial class CrossModuleExtensionEmitter
         ModuleDecl moduleDecl,
         Conductor conductor,
         IEnvironment env,
-        ILogger logger)
+        ILogger logger,
+        TypeHandlerContext? context = null,
+        Action<IEnumerable<BaseDecl>, TypeHandlerContext>? recurseNestedTypes = null)
     {
         var typeDatabase = env.TypeDatabase;
         var origModule = structDecl.SwiftTypeName.Module;
@@ -98,84 +100,128 @@ public static partial class CrossModuleExtensionEmitter
             properties.Add(property);
         }
 
-        if (methods.Count == 0 && properties.Count == 0)
+        // Nested type definitions added via `extension ForeignModule.ForeignStruct { struct Nested {} }`
+        // surface as TypeDecl children whose ModuleDecl is the current module. Same shape and
+        // rationale as the class-receiver path: emit under a partial-class wrapper named after
+        // the foreign receiver so consumers can reference them as `CurrentModule.ForeignStruct.Nested`.
+        // The wrapper is `class` rather than `struct` even when the receiver is a struct — it's a
+        // namespace-like host with no fields, and the consumer references the nested types through
+        // it without expecting value-type semantics on the wrapper itself.
+        var nestedTypes = structDecl.Types
+            .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
+            .ToList();
+
+        if (methods.Count == 0 && properties.Count == 0 && nestedTypes.Count == 0)
         {
-            logger.LogDebug("Cross-module struct extension {Type} from {Module}: no members from current module, skipping.",
+            logger.LogDebug("Cross-module struct extension {Type} from {Module}: no members or nested types from current module, skipping.",
                 structDecl.Name, currentModule);
             return;
         }
 
-        var className = $"{structDecl.Name}{currentModule}Extensions";
-        var wrapperLibPath = typeDatabase.AsyncLibraryName ?? $"{currentModule}SwiftBindings";
-
-        csWriter.WriteLine();
-        csWriter.WriteLine($"/// <summary>");
-        csWriter.WriteLine($"/// Extension methods for {structDecl.Name} defined in {currentModule}.");
-        csWriter.WriteLine($"/// </summary>");
-        csWriter.WriteLine($"public static partial class {className}");
-        csWriter.WriteLine("{");
-        csWriter.Indent++;
-
         int emittedCount = 0;
-        var emittedSignatures = new HashSet<string>();
-        var pinvokeDecls = new List<StructPInvokeInfo>();
 
-        foreach (var property in properties)
+        if (methods.Count > 0 || properties.Count > 0)
         {
-            if (TryEmitStructPropertyExtension(csWriter, swiftWriter, property, structDecl,
-                origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
-                typeDatabase, emittedSignatures, pinvokeDecls, logger))
-            {
-                emittedCount++;
-            }
-        }
+            var className = $"{structDecl.Name}{currentModule}Extensions";
+            var wrapperLibPath = typeDatabase.AsyncLibraryName ?? $"{currentModule}SwiftBindings";
 
-        foreach (var method in methods)
-        {
-            if (method.IsAccessor)
-                continue;
-
-            if (TryEmitStructMethodExtension(csWriter, swiftWriter, method, structDecl,
-                origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
-                typeDatabase, emittedSignatures, pinvokeDecls, logger))
-            {
-                emittedCount++;
-            }
-        }
-
-        if (emittedCount > 0)
-        {
             csWriter.WriteLine();
-            csWriter.WriteLine("private static partial class NativeMethods");
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Extension methods for {structDecl.Name} defined in {currentModule}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public static partial class {className}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            foreach (var info in pinvokeDecls)
+
+            var emittedSignatures = new HashSet<string>();
+            var pinvokeDecls = new List<StructPInvokeInfo>();
+
+            foreach (var property in properties)
             {
-                PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                if (TryEmitStructPropertyExtension(csWriter, swiftWriter, property, structDecl,
+                    origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
+                    typeDatabase, emittedSignatures, pinvokeDecls, logger))
                 {
-                    LibraryPath = wrapperLibPath,
-                    EntryPoint = info.EntryPoint,
-                    MethodName = info.MethodName,
-                    ReturnType = info.ReturnType,
-                    ParametersString = string.Join(", ", info.Parameters),
-                    CallingConvention = PInvokeCallingConvention.Cdecl,
-                    Visibility = PInvokeVisibility.Internal,
-                });
-                csWriter.WriteLine();
+                    emittedCount++;
+                }
             }
+
+            foreach (var method in methods)
+            {
+                if (method.IsAccessor)
+                    continue;
+
+                if (TryEmitStructMethodExtension(csWriter, swiftWriter, method, structDecl,
+                    origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
+                    typeDatabase, emittedSignatures, pinvokeDecls, logger))
+                {
+                    emittedCount++;
+                }
+            }
+
+            if (emittedCount > 0)
+            {
+                csWriter.WriteLine();
+                csWriter.WriteLine("private static partial class NativeMethods");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                foreach (var info in pinvokeDecls)
+                {
+                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+                    {
+                        LibraryPath = wrapperLibPath,
+                        EntryPoint = info.EntryPoint,
+                        MethodName = info.MethodName,
+                        ReturnType = info.ReturnType,
+                        ParametersString = string.Join(", ", info.Parameters),
+                        CallingConvention = PInvokeCallingConvention.Cdecl,
+                        Visibility = PInvokeVisibility.Internal,
+                    });
+                    csWriter.WriteLine();
+                }
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            if (emittedCount > 0)
+            {
+                logger.LogInformation(
+                    "Emitted {Count} cross-module struct extension members for {Type} from {Module}",
+                    emittedCount, structDecl.Name, currentModule);
+            }
         }
 
-        csWriter.Indent--;
-        csWriter.WriteLine("}");
-        csWriter.WriteLine();
-
-        if (emittedCount > 0)
+        if (nestedTypes.Count > 0 && recurseNestedTypes != null && context != null)
         {
-            logger.LogInformation(
-                "Emitted {Count} cross-module struct extension members for {Type} from {Module}",
-                emittedCount, structDecl.Name, currentModule);
+            csWriter.WriteLine();
+            csWriter.WriteLine($"/// <summary>");
+            csWriter.WriteLine($"/// Nested types defined for {structDecl.Name} in {currentModule}.");
+            csWriter.WriteLine($"/// </summary>");
+            csWriter.WriteLine($"public partial class {structDecl.Name}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            var emissionCtx = context.GetEmissionContext();
+            emissionCtx?.PushTypeNesting(structDecl.Name);
+            try
+            {
+                recurseNestedTypes(nestedTypes, context);
+            }
+            finally
+            {
+                emissionCtx?.PopTypeNesting();
+            }
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            logger.LogInformation("Emitted {Count} cross-module nested types for struct {Type} from {Module}",
+                nestedTypes.Count, structDecl.Name, currentModule);
         }
     }
 

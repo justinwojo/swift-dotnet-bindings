@@ -157,6 +157,16 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             () => DeriveProtocolExtensionMethods(extensionMemberCandidates, protocolNames),
             () => new Dictionary<string, List<ProtocolExtensionMethodDecl>>());
 
+        // SDK 0.11.0 R2 — derive private-interface companion path from the public path.
+        // Apple's swiftinterface layout co-locates "{arch}.swiftinterface" with
+        // "{arch}.private.swiftinterface" inside the same .swiftmodule dir, so suffix
+        // replacement is the cheap way to find it. Missing file is normal (frameworks
+        // without SPI ship no private interface) and produces an empty set.
+        var privateSwiftInterfacePath = DerivePrivateSwiftInterfacePath(swiftInterfacePath);
+        var spiOnlyConformances = TryParse("SPI-only conformances", logger, ref parseFailures,
+            () => SwiftInterfaceAccessParser.GetSpiOnlyConformances(privateSwiftInterfacePath),
+            () => new HashSet<string>());
+
         if (parseFailures > 0)
             logger.LogWarning("{Count} swiftinterface parsing pass(es) failed and were skipped (regex producer). Bindings will be generated with reduced metadata.", parseFailures);
 
@@ -189,8 +199,31 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             ProtocolNames = protocolNames,
             ProtocolExtensionMethods = protocolExtensionMethods,
             ExtensionMemberCandidates = extensionMemberCandidates,
+            SpiOnlyConformances = spiOnlyConformances,
         };
         return new ProducerResult(partial, new HashSet<InterfaceFactKind>(InterfaceFactKindHelpers.AllFactKinds));
+    }
+
+    /// <summary>
+    /// Convert a public swiftinterface path to its private companion path
+    /// (<c>foo.swiftinterface</c> → <c>foo.private.swiftinterface</c>).
+    /// Returns null when the input does not end in <c>.swiftinterface</c> so callers
+    /// can treat absence as "no private interface" rather than constructing a bogus
+    /// path and probing for it.
+    /// </summary>
+    internal static string? DerivePrivateSwiftInterfacePath(string swiftInterfacePath)
+    {
+        const string suffix = ".swiftinterface";
+        if (string.IsNullOrEmpty(swiftInterfacePath) ||
+            !swiftInterfacePath.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Idempotent: if the caller already passed the private path, return it as-is.
+        const string privateSuffix = ".private.swiftinterface";
+        if (swiftInterfacePath.EndsWith(privateSuffix, System.StringComparison.OrdinalIgnoreCase))
+            return swiftInterfacePath;
+
+        return swiftInterfacePath.Substring(0, swiftInterfacePath.Length - suffix.Length) + privateSuffix;
     }
 
     private static Dictionary<string, List<ProtocolExtensionMethodDecl>> DeriveProtocolExtensionMethods(

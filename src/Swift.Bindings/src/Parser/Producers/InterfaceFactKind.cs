@@ -7,7 +7,7 @@ namespace BindingsGeneration.Producers;
 
 /// <summary>
 /// Identifies a single fact field on <see cref="SwiftInterfaceFacts"/>. One enum member
-/// per top-level field on the record (24 total today). The aggregator selects per-fact
+/// per top-level field on the record (28 total today). The aggregator selects per-fact
 /// which producer wins, so coverage maps are <see cref="System.Collections.Generic.HashSet{T}"/>
 /// of these.
 /// <para/>
@@ -47,13 +47,16 @@ public enum InterfaceFactKind
     ProtocolNames,
     ProtocolExtensionMethods,
     ExtensionMemberCandidates,
+    // SDK 0.11.0 R2 — SPI-only conformances harvested from *.private.swiftinterface so
+    // wrapper emission can drop conformances that vanish under a plain (non-@_spi) import.
+    SpiOnlyConformances,
 }
 
 internal static class InterfaceFactKindHelpers
 {
-    /// <summary>All fact kinds (24 + 3 added in M2 S4). Used by RegexProducer to declare
-    /// full coverage and by tests asserting 1:1 alignment with
-    /// <see cref="SwiftInterfaceFacts"/>.</summary>
+    /// <summary>All fact kinds (24 + 3 added in M2 S4 + 1 SPI-only conformances in 0.11.0 R2).
+    /// Used by RegexProducer to declare full coverage and by tests asserting 1:1 alignment
+    /// with <see cref="SwiftInterfaceFacts"/>.</summary>
     internal static readonly HashSet<InterfaceFactKind> AllFactKinds = new(
         System.Enum.GetValues<InterfaceFactKind>());
 }

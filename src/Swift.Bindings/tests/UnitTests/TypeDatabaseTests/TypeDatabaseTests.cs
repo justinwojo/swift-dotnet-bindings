@@ -1033,6 +1033,67 @@ public class TypeDatabaseTests
             Assert.Contains("MatterDatabase.xml", databases);
         }
 
+        [Fact]
+        public void AddModuleDatabase_CrossModuleRecord_RoutesToOwningForeignModule()
+        {
+            // Dependency-chain scenario: package A declares ForeignType in module A. Package B
+            // declares `extension A.ForeignType { struct Nested {} }` and serializes the mirror
+            // record under moduleName="B" with <typedeclaration module="A" name="ForeignType.Nested">.
+            // When the downstream consumer loads both XMLs (A first, then B), the cross-module
+            // record must be routed into A's in-memory DB so TryGetTypeRecord (which keys by
+            // SwiftTypeName.Module) can find it.
+            var typeDatabase = new TypeDatabase();
+            var moduleA = new ModuleTypeDatabase("A", "/fake/A.dylib");
+            typeDatabase.AddModuleDatabase(moduleA);
+
+            var moduleB = new ModuleTypeDatabase("B", "/fake/B.dylib");
+            var nestedTypeName = SwiftTypeName.FromModuleQualifiedName("A.ForeignType.Nested");
+            var nestedRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "Nested"),
+                SwiftTypeName = nestedTypeName,
+                MetadataAccessor = "mangledAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            };
+            moduleB.RegisterType(nestedTypeName, nestedRecord);
+            typeDatabase.AddModuleDatabase(moduleB);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(nestedTypeName, out var resolved));
+            Assert.Same(nestedRecord, resolved);
+        }
+
+        [Fact]
+        public void AddModuleDatabase_CrossModuleRecord_QueuesUntilForeignModuleLoads()
+        {
+            // Load ordering may put the cross-module extender (B) before its foreign target (A).
+            // The record must be queued and drained into A's database when A is eventually
+            // loaded — otherwise the consumer sees A loaded but cannot find Nested.
+            var typeDatabase = new TypeDatabase();
+
+            var moduleB = new ModuleTypeDatabase("B", "/fake/B.dylib");
+            var nestedTypeName = SwiftTypeName.FromModuleQualifiedName("A.ForeignType.Nested");
+            var nestedRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("BindingsGeneration.Tests", "Nested"),
+                SwiftTypeName = nestedTypeName,
+                MetadataAccessor = "mangledAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            };
+            moduleB.RegisterType(nestedTypeName, nestedRecord);
+            typeDatabase.AddModuleDatabase(moduleB);
+
+            // A is not loaded yet — lookup must miss (no Apple-supplement fallback for "A").
+            Assert.False(typeDatabase.TryGetTypeRecord(nestedTypeName, out _));
+
+            // Now load A. The queued cross-module record drains into A's DB and the lookup hits.
+            var moduleA = new ModuleTypeDatabase("A", "/fake/A.dylib");
+            typeDatabase.AddModuleDatabase(moduleA);
+            Assert.True(typeDatabase.TryGetTypeRecord(nestedTypeName, out var resolved));
+            Assert.Same(nestedRecord, resolved);
+        }
+
         /// <summary>
         /// Points to the runtime XML databases directory via relative path from the test output.
         /// </summary>

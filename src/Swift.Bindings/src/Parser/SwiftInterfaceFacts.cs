@@ -157,6 +157,17 @@ namespace BindingsGeneration
         /// are excluded.</summary>
         public required Dictionary<string, List<ProtocolExtensionMethodDecl>> ProtocolExtensionMethods { get; init; }
 
+        /// <summary>SPI-only conformances harvested from <c>*.private.swiftinterface</c> —
+        /// each entry is <c>"QualifiedType::ProtocolName"</c>. Populated when a
+        /// <c>@_spi(...) extension Mod.Type : Proto1, Proto2</c> block is found and the
+        /// matching public swiftinterface does not declare the same conformance. The
+        /// <see cref="SwiftABIParser"/> filters these entries out of struct/class/enum
+        /// conformance lists so the generated wrapper does not reference operators or
+        /// protocol methods that are unreachable under a plain (non-@_spi) <c>import</c>.
+        /// Empty when no private interface is available or when private/public agree.
+        /// </summary>
+        public required HashSet<string> SpiOnlyConformances { get; init; }
+
         /// <summary>Flat list of every direct member from every <c>extension X { ... }</c>
         /// block, module-context-free. Foreign-type-extension partitioning is deferred to
         /// <see cref="ResolveForeignExtensions"/> because <c>moduleTypeNames</c> is only
@@ -298,6 +309,7 @@ namespace BindingsGeneration
             ProtocolNames = new HashSet<string>(),
             ProtocolExtensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
             ExtensionMemberCandidates = new List<ExtensionMemberCandidate>(),
+            SpiOnlyConformances = new HashSet<string>(),
         };
     }
 }

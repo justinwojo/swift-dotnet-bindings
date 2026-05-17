@@ -49,6 +49,13 @@ public sealed record PartialSwiftInterfaceFacts
     public Dictionary<string, List<ProtocolExtensionMethodDecl>>? ProtocolExtensionMethods { get; init; }
     public List<ExtensionMemberCandidate>? ExtensionMemberCandidates { get; init; }
 
+    /// <summary>SPI-only conformances harvested from <c>*.private.swiftinterface</c>.
+    /// Each entry is <c>"QualifiedType::ProtocolName"</c> (e.g.,
+    /// <c>"StripeCore.StripeAPI.BankAccountToken::Equatable"</c>). Drives the
+    /// <see cref="SwiftABIParser"/> conformance filter so the wrapper does not call
+    /// operators or methods that vanish under a plain <c>import</c>.</summary>
+    public HashSet<string>? SpiOnlyConformances { get; init; }
+
     /// <summary>An empty partial — every fact null. Useful as a starting point in tests.</summary>
     public static PartialSwiftInterfaceFacts Empty => new();
 }
