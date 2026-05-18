@@ -1004,12 +1004,28 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
          execution (after the parent's restore phase), so the dep's
          project.assets.json doesn't yet exist on a clean build. Restore is a
          no-op when assets are already current, so the cost is bounded.
+
+         IMPORTANT: do NOT let TargetFramework reach the sibling Restore.
+         NuGet's Restore honours a global TargetFramework by writing ONLY
+         that slice into project.assets.json, dropping the sibling's other
+         TFMs. In a multi-TFM parent build MSBuild dispatches one inner
+         build per parent TFM (each with TargetFramework set as a global
+         property), and the MSBuild task forwards the calling project's
+         global properties to the inner invocation unless we strip them
+         explicitly — omitting TargetFramework from `Properties` is not
+         enough. `RemoveProperties="TargetFramework"` is what actually
+         prevents the leak. Without it, each inner Restore would re-write
+         the sibling's assets file with a different single TFM and any
+         subsequent slice lookup would fail NETSDK1005. Build (below)
+         keeps TargetFramework set because Build does want a specific slice.
+
          The dedup gates mirror the ProjectReference injection above so we
          don't redundantly build a dep the user pinned via PackageReference
          (their pinned package wins) or already wired via ProjectReference
          (their explicit PR is what gets used). -->
     <MSBuild Projects="%(_SwiftAppleAutoDep.SiblingCsproj)"
-             Properties="Configuration=$(Configuration);TargetFramework=$(TargetFramework)"
+             Properties="Configuration=$(Configuration)"
+             RemoveProperties="TargetFramework"
              Targets="Restore"
              BuildInParallel="false"
              Condition="'%(_SwiftAppleAutoDep.PackageId)' != '' AND
