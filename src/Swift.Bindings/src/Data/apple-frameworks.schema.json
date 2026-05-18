@@ -32,6 +32,16 @@
             "default": false,
             "description": "Whether this module is unsupported (SwiftUI, Combine, etc.)"
           },
+          "concreteClassFallback": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether this module ships concrete Swift classes whose names do not always match an ObjC class prefix (e.g., RealityFoundation.Entity, RealityKit.AnchorEntity). The @_cdecl-wrapper renderer uses this to recognise Optional<Class> on cross-module unresolved class names."
+          },
+          "wrapperImportable": {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether the generator should emit `import <module>` into the wrapper Swift file when this module's types appear in the bound surface. Default false: opt in explicitly per module. Excluded by design for ambient/SPI modules that collide with bound-module type names (Network), unconditional imports (Foundation), umbrella source modules whose import is rewritten via compileImportModule (RealityFoundation -> RealityKit), and Swift system/marker modules (_Concurrency, ObjectiveC, Dispatch)."
+          },
           "namespaceRemap": {
             "type": "string",
             "description": "If set, this Swift module maps to a different .NET namespace (e.g., QuartzCore -> CoreAnimation)"

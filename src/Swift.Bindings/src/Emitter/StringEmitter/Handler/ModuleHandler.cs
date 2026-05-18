@@ -412,41 +412,13 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Known Apple frameworks that may need to be imported.
-        /// </summary>
-        private static readonly HashSet<string> AppleFrameworks = new()
-        {
-            "UIKit", "AppKit", "CoreGraphics", "CoreText", "QuartzCore",
-            "CoreFoundation", "CoreImage", "CoreAnimation", "CoreMedia",
-            "AVFoundation", "AVFAudio", "SceneKit", "SpriteKit", "Metal", "MetalKit",
-            "GameplayKit", "MapKit", "CoreLocation", "CloudKit", "StoreKit",
-            "HealthKit", "HomeKit", "WatchKit", "ARKit", "RealityKit",
-            "PDFKit", "WebKit", "SafariServices", "AuthenticationServices",
-            "LocalAuthentication", "Security", "CryptoKit", "Combine",
-            "SwiftUI", "UniformTypeIdentifiers", "CoreData", "CoreML",
-            "Vision", "NaturalLanguage", "Speech", "SoundAnalysis",
-            "Accelerate", "simd", "Compression", "OSLog", "os",
-            "Contacts", "ContactsUI", "EventKit", "EventKitUI",
-            "PhotosUI", "Photos", "PassKit", "MessageUI",
-            "UserNotifications", "NetworkExtension", "CoreBluetooth",
-            "CoreNFC", "CoreMotion", "CoreTelephony", "CarPlay",
-            "Intents", "IntentsUI", "LinkPresentation", "MediaPlayer",
-            // Newer-SDK frameworks whose types leak into wrapper signatures for
-            // libraries we bind (FamilyControls→ManagedSettings, etc.). Keep the
-            // list curated so Swift stdlib identifiers like τ_0_0 and ambient
-            // Apple modules (Network, Dispatch) that only appear in rejected
-            // signatures don't end up as spurious `import` lines.
-            "ManagedSettings", "DeviceActivity", "FamilyControls",
-            "Translation", "ProximityReader", "LiveCommunicationKit",
-            "WeatherKit", "TipKit", "WorkoutKit", "ActivityKit",
-            "BackgroundTasks", "CallKit", "MultipeerConnectivity"
-        };
-
-        /// <summary>
         /// Collects the set of Apple framework module names referenced by a module's bound
         /// surface (declared dependencies + scanned method/property/protocol/subscript signatures).
         /// Filtering of implicit / self modules (Swift, Foundation, the module being bound) is
-        /// applied here so callers receive a ready-to-emit set.
+        /// applied here so callers receive a ready-to-emit set. The wrapper-import gate is
+        /// data-driven via <see cref="AppleFrameworkRegistry.IsWrapperImportableModule"/>
+        /// (backed by the <c>wrapperImportable</c> field in apple-frameworks.json) so adding
+        /// a new Apple framework binding is a one-line JSON edit instead of a code change.
         /// </summary>
         private HashSet<string> CollectFrameworkImports(ModuleDecl moduleDecl)
         {
@@ -455,7 +427,7 @@ namespace BindingsGeneration
             // Add platform UI frameworks if present in dependencies
             foreach (var dep in moduleDecl.Dependencies)
             {
-                if (AppleFrameworks.Contains(dep))
+                if (AppleFrameworkRegistry.IsWrapperImportableModule(dep))
                 {
                     neededImports.Add(dep);
                 }
@@ -799,10 +771,10 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Checks if a type name requires a framework import. Adds the module portion of a
-        /// qualified name to <paramref name="neededImports"/> so the generated wrapper
-        /// imports every module it references (not just the curated <c>AppleFrameworks</c>
-        /// set). Filtering of implicit modules (Swift, Foundation, self) is done by the
-        /// caller after the full scan.
+        /// qualified name to <paramref name="neededImports"/> when the module is opted into
+        /// wrapper imports via apple-frameworks.json's <c>wrapperImportable</c> field.
+        /// Filtering of implicit modules (Swift, Foundation, self) is done by the caller
+        /// after the full scan.
         /// </summary>
         private void CheckTypeNameForFrameworkImport(string? typeName, HashSet<string> neededImports)
         {
@@ -825,12 +797,13 @@ namespace BindingsGeneration
                 moduleName = publicModule;
             }
 
-            // Only add known Apple frameworks. An unconditional add broke the validation
-            // corpus in two ways: (1) Swift generic placeholders like `τ_0_0` leaked in as
-            // bogus modules, (2) ambient modules like `Network` got auto-imported and
-            // collided with same-named types in the bound module (e.g. Starscream.Framer
-            // vs Network.Framer).
-            if (AppleFrameworks.Contains(moduleName))
+            // Opt-in per module via apple-frameworks.json's `wrapperImportable` field.
+            // Unconditional add broke the validation corpus in two ways: (1) Swift generic
+            // placeholders like `τ_0_0` leaked in as bogus modules, (2) ambient modules like
+            // `Network` got auto-imported and collided with same-named types in the bound
+            // module (e.g. Starscream.Framer vs Network.Framer). The data-driven predicate
+            // keeps both exclusions explicit and centralised.
+            if (AppleFrameworkRegistry.IsWrapperImportableModule(moduleName))
                 neededImports.Add(moduleName);
         }
 

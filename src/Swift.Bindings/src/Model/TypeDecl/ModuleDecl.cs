@@ -56,7 +56,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Module names from --framework-dependency that need `import` in the Swift wrapper.
-        /// Distinct from <see cref="Dependencies"/> which is ABI-derived and filtered through AppleFrameworks.
+        /// Distinct from <see cref="Dependencies"/> which is ABI-derived and filtered through
+        /// <see cref="AppleFrameworkRegistry.IsWrapperImportableModule"/>.
         /// </summary>
         public List<string> DependencyModuleNames { get; set; } = new();
 

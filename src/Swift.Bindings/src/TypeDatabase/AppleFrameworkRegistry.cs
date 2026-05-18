@@ -21,6 +21,7 @@ internal static class AppleFrameworkRegistry
     private static readonly HashSet<string> _optionalFallbackModules;
     private static readonly HashSet<string> _concreteClassFallbackModules;
     private static readonly HashSet<string> _unsupportedModules;
+    private static readonly HashSet<string> _wrapperImportableModules;
     private static readonly Dictionary<string, string> _moduleNamespaceRemaps;
     private static readonly Dictionary<string, string> _compileImportRemaps;
     // Reverse view of _compileImportRemaps: umbrella module → list of source modules.
@@ -71,6 +72,9 @@ internal static class AppleFrameworkRegistry
         [JsonProperty("unsupported")]
         public bool Unsupported { get; set; }
 
+        [JsonProperty("wrapperImportable")]
+        public bool WrapperImportable { get; set; }
+
         [JsonProperty("namespaceRemap")]
         public string? NamespaceRemap { get; set; }
 
@@ -112,6 +116,7 @@ internal static class AppleFrameworkRegistry
         _optionalFallbackModules = new HashSet<string>(StringComparer.Ordinal);
         _concreteClassFallbackModules = new HashSet<string>(StringComparer.Ordinal);
         _unsupportedModules = new HashSet<string>(StringComparer.Ordinal);
+        _wrapperImportableModules = new HashSet<string>(StringComparer.Ordinal);
         _moduleNamespaceRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _compileImportRemaps = new Dictionary<string, string>(StringComparer.Ordinal);
         _compileImportSourceModules = new Dictionary<string, List<string>>(StringComparer.Ordinal);
@@ -141,6 +146,9 @@ internal static class AppleFrameworkRegistry
 
             if (def.Unsupported)
                 _unsupportedModules.Add(def.Module);
+
+            if (def.WrapperImportable)
+                _wrapperImportableModules.Add(def.Module);
 
             if (def.NamespaceRemap != null)
                 _moduleNamespaceRemaps[def.Module] = def.NamespaceRemap;
@@ -250,6 +258,16 @@ internal static class AppleFrameworkRegistry
     public static bool IsConcreteClassFallbackModule(string moduleName) => _concreteClassFallbackModules.Contains(moduleName);
 
     public static bool IsUnsupportedModule(string moduleName) => _unsupportedModules.Contains(moduleName);
+
+    /// <summary>
+    /// Returns true when the wrapper Swift file should emit <c>import &lt;module&gt;</c> on
+    /// account of this module's types appearing in the bound module's public surface.
+    /// Opt-in per module via the <c>wrapperImportable</c> field in apple-frameworks.json so
+    /// the predicate stays the single source of truth and ambient/SPI/umbrella-source
+    /// modules (Network, _LocationEssentials, RealityFoundation) don't slip through.
+    /// </summary>
+    public static bool IsWrapperImportableModule(string moduleName) =>
+        !string.IsNullOrEmpty(moduleName) && _wrapperImportableModules.Contains(moduleName);
 
     /// <summary>
     /// Returns true if a module is known to be available on the given platform.
@@ -540,6 +558,7 @@ internal static class AppleFrameworkRegistry
         // Check all apple-frameworks.json module sets
         return _autoBridgeModules.Contains(moduleName) ||
                _optionalFallbackModules.Contains(moduleName) ||
+               _concreteClassFallbackModules.Contains(moduleName) ||
                _unsupportedModules.Contains(moduleName);
     }
 }

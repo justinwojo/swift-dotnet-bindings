@@ -5,6 +5,7 @@
       "module": "ARKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["AR"],
       "platformUnavailable": ["tvOS", "macOS"],
       "valueTypes": [
@@ -23,12 +24,14 @@
       "module": "AVFAudio",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "namespaceRemap": "AVFoundation"
     },
     {
       "module": "AVFoundation",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["AV"],
       "valueTypes": [
         "AVAudioChannelCount",
@@ -58,23 +61,42 @@
       }
     },
     {
+      "module": "Accelerate",
+      "wrapperImportable": true
+    },
+    {
+      "module": "ActivityKit",
+      "wrapperImportable": true
+    },
+    {
       "module": "AppIntents",
       "unsupported": true
     },
     {
       "module": "AppKit",
       "autoBridge": true,
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "AuthenticationServices",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["AS"]
+    },
+    {
+      "module": "BackgroundTasks",
+      "wrapperImportable": true
+    },
+    {
+      "module": "CallKit",
+      "wrapperImportable": true
     },
     {
       "module": "CarPlay",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["CP"],
       "platformUnavailable": ["tvOS", "macOS"]
     },
@@ -91,32 +113,42 @@
       "module": "CloudKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["CK"]
     },
     {
       "module": "Combine",
-      "unsupported": true
+      "unsupported": true,
+      "wrapperImportable": true
+    },
+    {
+      "module": "Compression",
+      "wrapperImportable": true
     },
     {
       "module": "Contacts",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["CN"]
     },
     {
       "module": "ContactsUI",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "platformUnavailable": ["tvOS"]
     },
     {
       "module": "CoreAnimation",
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "CoreBluetooth",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["CB"],
       "valueTypes": [
         "CBAttributePermissions",
@@ -131,20 +163,29 @@
       "module": "CoreData",
       "autoBridge": true,
       "optionalFallback": true,
-      "valueTypes": [
-        "NSFetchRequestResultType"
-      ]
+      "wrapperImportable": true,
+      "valueTypes": ["NSFetchRequestResultType"]
+    },
+    {
+      "module": "CoreFoundation",
+      "wrapperImportable": true
+    },
+    {
+      "module": "CoreGraphics",
+      "wrapperImportable": true
     },
     {
       "module": "CoreImage",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["CI"]
     },
     {
       "module": "CoreLocation",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["CL"],
       "valueTypes": [
         "CLAccuracyAuthorization",
@@ -159,29 +200,25 @@
       "module": "CoreML",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["ML"],
-      "valueTypes": [
-        "MLComputeUnits",
-        "MLFeatureType",
-        "MLMultiArrayDataType"
-      ]
+      "valueTypes": ["MLComputeUnits", "MLFeatureType", "MLMultiArrayDataType"]
     },
     {
       "module": "CoreMedia",
       "optionalFallback": true,
-      "valueTypes": [
-        "CMTime",
-        "CMTimeRange",
-        "CMTimeMapping"
-      ]
+      "wrapperImportable": true,
+      "valueTypes": ["CMTime", "CMTimeRange", "CMTimeMapping"]
     },
     {
       "module": "CoreMotion",
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "CoreNFC",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["NK"],
       "platformUnavailable": ["tvOS", "macOS"]
     },
@@ -192,7 +229,20 @@
     },
     {
       "module": "CoreTelephony",
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
+    },
+    {
+      "module": "CoreText",
+      "wrapperImportable": true
+    },
+    {
+      "module": "CryptoKit",
+      "wrapperImportable": true
+    },
+    {
+      "module": "DeviceActivity",
+      "wrapperImportable": true
     },
     {
       "module": "Dispatch",
@@ -202,13 +252,19 @@
       "module": "EventKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["EK"]
     },
     {
       "module": "EventKitUI",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "FamilyControls",
+      "wrapperImportable": true
     },
     {
       "module": "FileProvider",
@@ -219,12 +275,8 @@
       "module": "Foundation",
       "autoBridge": true,
       "optionalFallback": true,
-      "knownModuleForElements": true,
       "objcPrefixes": ["NS"],
-      "netUnavailableTypes": [
-        "LocalizedStringResource",
-        "Predicate"
-      ],
+      "knownModuleForElements": true,
       "valueTypes": [
         "Data",
         "Date",
@@ -365,7 +417,8 @@
         "UnitSpeed": "Foundation.NSUnitSpeed",
         "UnitTemperature": "Foundation.NSUnitTemperature",
         "UnitVolume": "Foundation.NSUnitVolume"
-      }
+      },
+      "netUnavailableTypes": ["LocalizedStringResource", "Predicate"]
     },
     {
       "module": "GameController",
@@ -378,9 +431,14 @@
       "objcPrefixes": ["GK"]
     },
     {
+      "module": "GameplayKit",
+      "wrapperImportable": true
+    },
+    {
       "module": "HealthKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["HK"],
       "platformUnavailable": ["macOS"],
       "valueTypes": [
@@ -393,6 +451,7 @@
       "module": "HomeKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["HM"],
       "platformUnavailable": ["macOS"]
     },
@@ -400,28 +459,41 @@
       "module": "Intents",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["IN"]
     },
     {
       "module": "IntentsUI",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "platformUnavailable": ["tvOS"]
+    },
+    {
+      "module": "LinkPresentation",
+      "wrapperImportable": true
+    },
+    {
+      "module": "LiveCommunicationKit",
+      "wrapperImportable": true
     },
     {
       "module": "LocalAuthentication",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["LA"]
     },
     {
       "module": "ManagedSettings",
       "autoBridge": true,
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "MapKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MK"],
       "valueTypes": [
         "MKCoordinateRegion",
@@ -436,7 +508,9 @@
       "module": "Matter",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MTR"],
+      "packageId": "SwiftBindings.Apple.Matter",
       "valueTypes": [
         "MTRNetworkCommissioningWiFiBand",
         "MTRNetworkCommissioningWiFiSecurity"
@@ -445,17 +519,20 @@
     {
       "module": "MediaPlayer",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MP"]
     },
     {
       "module": "MessageUI",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MF"],
       "platformUnavailable": ["tvOS"]
     },
     {
       "module": "Metal",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MT"],
       "valueTypes": [
         "MTLClearColor",
@@ -473,39 +550,40 @@
     {
       "module": "MetalKit",
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MTK"]
     },
     {
       "module": "MultipeerConnectivity",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["MC"]
     },
     {
       "module": "NaturalLanguage",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["NL"],
-      "valueTypes": [
-        "NLLanguage",
-        "NLTag",
-        "NLTagScheme",
-        "NLTokenUnit"
-      ]
+      "valueTypes": ["NLLanguage", "NLTag", "NLTagScheme", "NLTokenUnit"]
     },
     {
       "module": "Network",
       "optionalFallback": true,
       "objcPrefixes": ["NW"],
-      "valueTypes": [
-        "NWEndpoint.Port"
-      ]
+      "valueTypes": ["NWEndpoint.Port"]
     },
     {
       "module": "NetworkExtension",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["NE"]
+    },
+    {
+      "module": "OSLog",
+      "wrapperImportable": true
     },
     {
       "module": "ObjectiveC",
@@ -518,12 +596,14 @@
     {
       "module": "PDFKit",
       "autoBridge": true,
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "PassKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["PK"],
       "valueTypes": [
         "PKPaymentButtonType",
@@ -581,6 +661,7 @@
       "module": "Photos",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["PH"],
       "valueTypes": [
         "PHAccessLevel",
@@ -600,15 +681,18 @@
       "module": "PhotosUI",
       "autoBridge": true,
       "optionalFallback": true,
-      "valueTypes": [
-        "PHPickerFilter",
-        "PHPickerResult"
-      ]
+      "wrapperImportable": true,
+      "valueTypes": ["PHPickerFilter", "PHPickerResult"]
+    },
+    {
+      "module": "ProximityReader",
+      "wrapperImportable": true
     },
     {
       "module": "QuartzCore",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "namespaceRemap": "CoreAnimation",
       "objcPrefixes": ["CA"],
       "valueTypes": [
@@ -647,8 +731,8 @@
     },
     {
       "module": "RealityFoundation",
-      "compileImportModule": "RealityKit",
       "concreteClassFallback": true,
+      "compileImportModule": "RealityKit",
       "packageId": "SwiftBindings.Apple.RealityFoundation"
     },
     {
@@ -656,6 +740,7 @@
       "autoBridge": true,
       "optionalFallback": true,
       "concreteClassFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["RE"],
       "packageId": "SwiftBindings.Apple.RealityKit"
     },
@@ -663,26 +748,25 @@
       "module": "SafariServices",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["SF"],
       "platformUnavailable": ["tvOS"]
-    },
-    {
-      "module": "Security",
-      "autoBridge": true,
-      "optionalFallback": true,
-      "objcPrefixes": ["Sec"]
     },
     {
       "module": "SceneKit",
       "autoBridge": true,
       "optionalFallback": true,
       "concreteClassFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["SC"],
-      "valueTypes": [
-        "SCNMatrix4",
-        "SCNVector3",
-        "SCNVector4"
-      ]
+      "valueTypes": ["SCNMatrix4", "SCNVector3", "SCNVector4"]
+    },
+    {
+      "module": "Security",
+      "autoBridge": true,
+      "optionalFallback": true,
+      "wrapperImportable": true,
+      "objcPrefixes": ["Sec"]
     },
     {
       "module": "Social",
@@ -693,22 +777,26 @@
       "module": "SoundAnalysis",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["SN"]
     },
     {
       "module": "Speech",
       "autoBridge": true,
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "SpriteKit",
       "autoBridge": true,
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "StoreKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["SK"],
       "valueTypes": [
         "SKError.Code",
@@ -719,7 +807,8 @@
     },
     {
       "module": "SwiftUI",
-      "unsupported": true
+      "unsupported": true,
+      "wrapperImportable": true
     },
     {
       "module": "SwiftUICore",
@@ -727,18 +816,21 @@
     },
     {
       "module": "TipKit",
-      "unsupported": true
+      "unsupported": true,
+      "wrapperImportable": true
+    },
+    {
+      "module": "Translation",
+      "wrapperImportable": true
     },
     {
       "module": "UIKit",
       "autoBridge": true,
       "optionalFallback": true,
-      "knownModuleForElements": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["UI"],
       "platformUnavailable": ["macOS"],
-      "netUnavailableTypes": [
-        "UIOpenURLContext"
-      ],
+      "knownModuleForElements": true,
       "valueTypes": [
         "NSDirectionalEdgeInsets",
         "NSLayoutConstraint.Relation",
@@ -845,20 +937,25 @@
         "UIControl.Event": "UIKit.UIControlEvent",
         "UIAccessibilityCustomRotor.Direction": "UIKit.UIAccessibilityCustomRotorDirection"
       },
-      "excludeFromXml": [
-        "NSUnderlineStyle"
-      ]
+      "excludeFromXml": ["NSUnderlineStyle"],
+      "netUnavailableTypes": ["UIOpenURLContext"]
+    },
+    {
+      "module": "UniformTypeIdentifiers",
+      "wrapperImportable": true
     },
     {
       "module": "UserNotifications",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["UN"]
     },
     {
       "module": "Vision",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["VN"]
     },
     {
@@ -866,9 +963,18 @@
       "optionalFallback": true
     },
     {
+      "module": "WatchKit",
+      "wrapperImportable": true
+    },
+    {
+      "module": "WeatherKit",
+      "wrapperImportable": true
+    },
+    {
       "module": "WebKit",
       "autoBridge": true,
       "optionalFallback": true,
+      "wrapperImportable": true,
       "objcPrefixes": ["WK"],
       "valueTypes": [
         "WKWebView.FullscreenState",
@@ -883,20 +989,12 @@
       "unsupported": true
     },
     {
-      "module": "XCTest",
-      "unsupported": true
+      "module": "WorkoutKit",
+      "wrapperImportable": true
     },
     {
-      "module": "simd",
-      "autoBridge": true,
-      "valueTypes": [
-        "simd_float4x4",
-        "simd_float3x3",
-        "simd_float2",
-        "simd_float3",
-        "simd_float4",
-        "simd_quatf"
-      ]
+      "module": "XCTest",
+      "unsupported": true
     },
     {
       "module": "_Concurrency",
@@ -910,6 +1008,23 @@
         "CLLocation": "CoreLocation.CLLocation",
         "CLLocationCoordinate2D": "CoreLocation.CLLocationCoordinate2D"
       }
+    },
+    {
+      "module": "os",
+      "wrapperImportable": true
+    },
+    {
+      "module": "simd",
+      "autoBridge": true,
+      "wrapperImportable": true,
+      "valueTypes": [
+        "simd_float4x4",
+        "simd_float3x3",
+        "simd_float2",
+        "simd_float3",
+        "simd_float4",
+        "simd_quatf"
+      ]
     }
   ]
 }

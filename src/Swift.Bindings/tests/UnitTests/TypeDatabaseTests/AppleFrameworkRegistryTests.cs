@@ -1151,10 +1151,50 @@ public class AppleFrameworkRegistryTests
     [Theory]
     [InlineData("RealityKit", "SwiftBindings.Apple.RealityKit")]
     [InlineData("RealityFoundation", "SwiftBindings.Apple.RealityFoundation")]
+    [InlineData("Matter", "SwiftBindings.Apple.Matter")]
     public void TryGetPackageId_ReturnsRegisteredPackageId(string module, string expectedPackageId)
     {
         Assert.True(AppleFrameworkRegistry.TryGetPackageId(module, out var packageId));
         Assert.Equal(expectedPackageId, packageId);
+    }
+
+    // --- IsWrapperImportableModule ---
+    // Source of truth for "should the generated wrapper Swift emit `import X`?" — the
+    // predicate that ModuleHandler.CollectFrameworkImports / CheckTypeNameForFrameworkImport
+    // route through. Pinned positive cases cover representative buckets (UI framework,
+    // newer SDK framework, ObjC sibling that triggered the MatterSupport gap, system
+    // C-bridge module). Pinned negative cases cover the intentional exclusions:
+    // unconditional imports (Foundation), ambient collision (Network), umbrella-source
+    // modules whose wrapper import is rewritten via compileImportModule
+    // (RealityFoundation → RealityKit), SPI modules (_LocationEssentials), and Swift
+    // markers (_Concurrency, Dispatch, ObjectiveC).
+
+    [Theory]
+    [InlineData("UIKit")]
+    [InlineData("AppKit")]
+    [InlineData("CoreGraphics")]
+    [InlineData("Matter")]
+    [InlineData("RealityKit")]
+    [InlineData("WeatherKit")]
+    [InlineData("OSLog")]
+    public void IsWrapperImportableModule_ReturnsTrueForImportableModules(string module)
+    {
+        Assert.True(AppleFrameworkRegistry.IsWrapperImportableModule(module));
+    }
+
+    [Theory]
+    [InlineData("Foundation")]
+    [InlineData("Network")]
+    [InlineData("RealityFoundation")]
+    [InlineData("_LocationEssentials")]
+    [InlineData("_Concurrency")]
+    [InlineData("Dispatch")]
+    [InlineData("ObjectiveC")]
+    [InlineData("MyCustomLib")]
+    [InlineData("")]
+    public void IsWrapperImportableModule_ReturnsFalseForExcludedOrUnknownModules(string module)
+    {
+        Assert.False(AppleFrameworkRegistry.IsWrapperImportableModule(module));
     }
 
     [Theory]

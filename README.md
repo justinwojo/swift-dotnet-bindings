@@ -241,7 +241,7 @@ For full details, see [Known Limitations](https://github.com/justinwojo/swift-do
 
 ## Project Status
 
-Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **9,000+ unit tests** and **1,200+ runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
+Swift Bindings is under active development. The core generator, MSBuild SDK, and NuGet packaging are all functional — backed by **11,500+ unit tests** and **2,100+ runtime tests** passing on both iOS Simulator (Mono JIT) and physical device (NativeAOT).
 
 ## Contributing
 

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -291,6 +292,51 @@ public class ModuleHandlerTests
             });
 
         Assert.Contains("import ManagedSettings", swiftOutput);
+    }
+
+    [Fact]
+    public void EmitSwiftImports_ImportsMatterWhenMatterSupportSurfaceReferencesIt()
+    {
+        // Regression for the MatterSupport wrapper-import gap (src/docs/matter-support-
+        // wrapper-import-gap.md). MatterAddDeviceRequest.setupPayload has type
+        // Matter.MTRSetupPayload; the wrapper Swift must emit `import Matter` or swiftc
+        // fails with "cannot find type 'Matter' in scope". The gate is now data-driven via
+        // apple-frameworks.json's wrapperImportable field — Matter has it set.
+        var (_, swiftOutput) = EmitModuleWithDependencies(
+            "MatterSupport",
+            new List<string>(),
+            moduleDecl =>
+            {
+                var protocol = new ProtocolDecl
+                {
+                    Name = "MatterAddDeviceRequest",
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("MatterSupport.MatterAddDeviceRequest"),
+                    MangledName = "$s13MatterSupport22MatterAddDeviceRequestP",
+                    Types = new List<TypeDecl>(),
+                    Operators = new List<OperatorDecl>(),
+                    GenericSignature = null,
+                    AssociatedTypes = new List<AssociatedTypeDecl>(),
+                    InheritedProtocols = new List<NamedTypeSpec>(),
+                    IsClassBound = false,
+                    HasSelfRequirement = false,
+                    Properties = new List<PropertyDecl>
+                    {
+                        CreateProtocolProperty("setupPayload", "Matter.MTRSetupPayload", moduleDecl)
+                    },
+                    Methods = new List<MethodDecl>(),
+                    Subscripts = new List<SubscriptDecl>(),
+                    ParentDecl = moduleDecl,
+                    ModuleDecl = moduleDecl
+                };
+                moduleDecl.Protocols.Add(protocol);
+            });
+
+        // Whole-line assert: substring "import Matter" also matches the unconditional bound-
+        // module line "import MatterSupport", so the original bug would have passed an
+        // Assert.Contains check. Split on newlines and require an exact `import Matter` line.
+        var importLines = swiftOutput.Split('\n').Select(l => l.TrimEnd('\r'));
+        Assert.Contains("import Matter", importLines);
+        Assert.Contains("import MatterSupport", importLines);
     }
 
     [Fact]
