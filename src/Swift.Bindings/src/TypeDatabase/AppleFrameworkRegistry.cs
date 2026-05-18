@@ -562,21 +562,48 @@ internal static class AppleFrameworkRegistry
     }
 
     /// <summary>
-    /// Returns true if the module is a known Apple framework or Swift system module.
-    /// Used by the parser to distinguish system re-exports (allowed) from third-party
-    /// re-exports (should be skipped).
+    /// Wrapper-import suppression gate. Returns true if the wrapper Swift source should
+    /// skip re-emitting a declared sibling `import X` line because the umbrella chain
+    /// (or already-emitted surface-driven imports) covers it. Covers: Swift stdlib /
+    /// ObjC runtime modules + apple-frameworks.json's <c>autoBridge</c>,
+    /// <c>optionalFallback</c>, <c>concreteClassFallback</c>, and <c>unsupported</c>
+    /// sets. Modules whose only flag is <c>wrapperImportable</c> (CoreGraphics, CryptoKit,
+    /// SwiftUI, etc.) are NOT here — that field drives the *positive* "may emit
+    /// `import X`" whitelist via <see cref="IsWrapperImportableModule"/>, which is
+    /// a separate, opposite gate.
     /// </summary>
-    public static bool IsKnownAppleOrSystemModule(string moduleName)
+    public static bool ShouldSuppressDeclaredWrapperImport(string moduleName)
     {
-        // Swift standard library and runtime modules not in apple-frameworks.json
-        if (moduleName is "Swift" or "_Concurrency" or "_StringProcessing" or
-            "__ObjC" or "Dispatch" or "CoreFoundation" or "ObjectiveC" or "Security")
+        if (IsSwiftSystemModule(moduleName))
             return true;
 
-        // Check all apple-frameworks.json module sets
         return _autoBridgeModules.Contains(moduleName) ||
                _optionalFallbackModules.Contains(moduleName) ||
                _concreteClassFallbackModules.Contains(moduleName) ||
                _unsupportedModules.Contains(moduleName);
     }
+
+    /// <summary>
+    /// Parser re-export keep-list. Returns true if a foreign-module TypeDecl with no
+    /// current-module extension children should still be kept (with a moduleName override)
+    /// rather than skipped as a pure re-export. Deliberately narrower than
+    /// <see cref="ShouldSuppressDeclaredWrapperImport"/>: excludes
+    /// <c>concreteClassFallback</c>-only modules (RealityFoundation, etc.) so cross-module
+    /// extensions whose receiver lives in such a module route through the children-first
+    /// branch in <c>SwiftABIParser.HandleTypeDecl</c> instead of being processed as
+    /// a system re-export with the wrong namespace qualification.
+    /// </summary>
+    public static bool IsSystemReexportAllowedModule(string moduleName)
+    {
+        if (IsSwiftSystemModule(moduleName))
+            return true;
+
+        return _autoBridgeModules.Contains(moduleName) ||
+               _optionalFallbackModules.Contains(moduleName) ||
+               _unsupportedModules.Contains(moduleName);
+    }
+
+    private static bool IsSwiftSystemModule(string moduleName) =>
+        moduleName is "Swift" or "_Concurrency" or "_StringProcessing" or
+                      "__ObjC" or "Dispatch" or "CoreFoundation" or "ObjectiveC" or "Security";
 }

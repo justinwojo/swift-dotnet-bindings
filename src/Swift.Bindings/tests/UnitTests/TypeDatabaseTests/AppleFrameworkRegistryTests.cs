@@ -1039,8 +1039,6 @@ public class AppleFrameworkRegistryTests
         }
     }
 
-    // --- IsKnownAppleOrSystemModule ---
-
     // --- CoreGraphics / Apple Framework Type Edge Cases ---
 
     [Fact]
@@ -1064,7 +1062,14 @@ public class AppleFrameworkRegistryTests
         Assert.Equal(expected, AppleFrameworkRegistry.IsKnownValueType(name));
     }
 
-    // --- IsKnownAppleOrSystemModule ---
+    // --- ShouldSuppressDeclaredWrapperImport ---
+    //
+    // Broad gate. True for every Apple framework registered in apple-frameworks.json
+    // (autoBridge, optionalFallback, concreteClassFallback, unsupported, plus
+    // wrapperImportable surface-coverage entries) AND the Swift stdlib / ObjC runtime
+    // modules that never appear in the JSON. The wrapper Swift source skips re-emitting
+    // declared `import X` lines for these because the umbrella chain (or
+    // surface-driven imports) already cover them.
 
     [Theory]
     [InlineData("Swift", true)]
@@ -1075,16 +1080,52 @@ public class AppleFrameworkRegistryTests
     [InlineData("ObjectiveC", true)]
     [InlineData("Dispatch", true)]
     [InlineData("CoreFoundation", true)]
-    [InlineData("CoreGraphics", false)]     // CG is handled via XML database, not registry module set
-    [InlineData("SwiftUI", true)]          // Unsupported but still a known Apple module
-    [InlineData("SwiftUICore", true)]      // SwiftUICore is the internal split-out, also known
-    [InlineData("StripePayments", false)]  // Third-party
-    [InlineData("Alamofire", false)]       // Third-party
-    [InlineData("MyCustomLib", false)]     // Unknown
+    [InlineData("CoreGraphics", false)]              // CG is handled via XML database, not registry module set
+    [InlineData("SwiftUI", true)]                    // Unsupported but still a known Apple module
+    [InlineData("SwiftUICore", true)]                // SwiftUICore is the internal split-out
+    [InlineData("RealityFoundation", true)]          // concreteClassFallback — wrapper should still suppress
+    [InlineData("StripePayments", false)]            // Third-party
+    [InlineData("Alamofire", false)]                 // Third-party
+    [InlineData("MyCustomLib", false)]               // Unknown
     [InlineData("", false)]
-    public void IsKnownAppleOrSystemModule_ReturnsExpected(string module, bool expected)
+    public void ShouldSuppressDeclaredWrapperImport_ReturnsExpected(string module, bool expected)
     {
-        Assert.Equal(expected, AppleFrameworkRegistry.IsKnownAppleOrSystemModule(module));
+        Assert.Equal(expected, AppleFrameworkRegistry.ShouldSuppressDeclaredWrapperImport(module));
+    }
+
+    // --- IsSystemReexportAllowedModule ---
+    //
+    // Narrow gate. True for Swift stdlib / ObjC runtime modules and for the
+    // "common Apple" sets (autoBridge / optionalFallback / unsupported) — the
+    // modules whose types may appear in another module's ABI as bare references
+    // that should be kept (with a moduleName override). Deliberately FALSE for
+    // concreteClassFallback-only modules (RealityFoundation): those need to flow
+    // through the parser's children-first cross-module extension branch so their
+    // extension types (e.g. RealityKit's nested RotorType inside an
+    // `extension RealityFoundation.AccessibilityComponent`) are routed to
+    // CrossModuleExtensionEmitter and emitted under the canonical namespace.
+
+    [Theory]
+    [InlineData("Swift", true)]
+    [InlineData("Foundation", true)]
+    [InlineData("UIKit", true)]
+    [InlineData("Security", true)]
+    [InlineData("_Concurrency", true)]
+    [InlineData("ObjectiveC", true)]
+    [InlineData("Dispatch", true)]
+    [InlineData("CoreFoundation", true)]
+    [InlineData("CoreGraphics", false)]              // CG handled via XML database
+    [InlineData("SwiftUI", true)]                    // unsupported set — still kept on parser path
+    [InlineData("SwiftUICore", true)]
+    [InlineData("RealityFoundation", false)]         // concreteClassFallback ONLY — routes via children-first
+    [InlineData("SceneKit", true)]                   // concreteClassFallback BUT also autoBridge/optionalFallback
+    [InlineData("StripePayments", false)]            // Third-party
+    [InlineData("Alamofire", false)]                 // Third-party
+    [InlineData("MyCustomLib", false)]               // Unknown
+    [InlineData("", false)]
+    public void IsSystemReexportAllowedModule_ReturnsExpected(string module, bool expected)
+    {
+        Assert.Equal(expected, AppleFrameworkRegistry.IsSystemReexportAllowedModule(module));
     }
 
     // --- IsObjCBridgedTypeName ---

@@ -817,24 +817,32 @@ namespace BindingsGeneration
         /// <returns>The type declaration.</returns>
         private TypeDecl? HandleTypeDecl(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl)
         {
-            // Cross-module re-export detection: if the node's ModuleName differs from the
-            // module being parsed AND the source module is a third-party module (not Apple/system),
-            // this type is re-exported and should not be bound here.
-            // System module re-exports (Swift.Error, Foundation.URL, etc.) are kept because
-            // the generated code legitimately extends or conforms to them.
+            // Foreign-receiver handling. A node whose ModuleName differs from the module
+            // being parsed falls into one of three buckets, decided in this order:
             //
-            // Exception: when the foreign type carries extension members declared in the
-            // current module (children with ModuleName == moduleDecl.Name), the node is the
-            // ABI's representation of `extension ForeignModule.ForeignType { ... }`. The
-            // extension members are real public API of the current module and must be
-            // emitted as a static cross-module extension class.
-            // Example: StripeCryptoOnramp re-exports STPAPIClient (no extension children) — skip it.
-            //          StripePayments declares `extension StripeCore.STPAPIClient` (children are
-            //          payments-only methods) — keep it and route to CrossModuleExtensionEmitter.
+            //   1. Has current-module extension children (a child node carries
+            //      ModuleName == moduleDecl.Name) AND the receiver is a Class or Struct
+            //      → this is `extension ForeignModule.ForeignType { ... }`. Keep it and
+            //      route through CrossModuleExtensionEmitter — regardless of whether the
+            //      source module is third-party (StripePayments → StripeCore.STPAPIClient)
+            //      or Apple (RealityKit → RealityFoundation.AccessibilityComponent.RotorType).
+            //      The children-first ordering is load-bearing: prior to it, an Apple
+            //      framework registered under `concreteClassFallback` (e.g. RealityFoundation)
+            //      would short-circuit through the system-re-export path below and end up
+            //      mis-qualified as `RealityKit.AccessibilityComponent`.
+            //
+            //   2. No current-module extension children AND the source module is in the
+            //      system-re-export keep-list (Swift stdlib, ObjC runtime modules, and
+            //      common Apple feature frameworks via apple-frameworks.json's autoBridge /
+            //      optionalFallback / unsupported sets) → keep with a moduleName override
+            //      so canonical names like `Foundation.URL` flow through normally.
+            //
+            //   3. Otherwise → pure third-party re-export. Drop the node.
+            //      Example: StripeCryptoOnramp re-exports STPAPIClient with no extension
+            //      children of its own — it would mis-claim ownership of the type if kept.
             if (!string.IsNullOrEmpty(node.ModuleName) &&
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
-                node.ModuleName != moduleDecl.Name &&
-                !AppleFrameworkRegistry.IsKnownAppleOrSystemModule(node.ModuleName))
+                node.ModuleName != moduleDecl.Name)
             {
                 bool hasExtensionMembers = node.Children?.Any(child =>
                     !string.IsNullOrEmpty(child.ModuleName) && child.ModuleName == moduleDecl.Name) ?? false;
@@ -850,34 +858,39 @@ namespace BindingsGeneration
                 // and were not part of the SDK 0.11.0 surface restoration scope.
                 bool isClassReceiver = node.DeclKind == "Class";
                 bool isStructReceiver = node.DeclKind == "Struct";
-                if (!hasExtensionMembers || (!isClassReceiver && !isStructReceiver))
+
+                if (hasExtensionMembers && (isClassReceiver || isStructReceiver))
+                {
+                    // Non-frozen foreign struct receivers are not yet supported: the cross-module
+                    // struct trampoline path reads `self` via `assumingMemoryBound(to: T.self).pointee`
+                    // which is only ABI-safe for frozen value structs. Without this gate the foreign
+                    // type still gets registered in the current module's database (with a synthesized
+                    // metadata accessor) even though the emitter would later skip every member —
+                    // polluting the database with an entry that has no usable members. Look up the
+                    // foreign type in the dependency type database we already have; if it's a struct
+                    // that is NOT a frozen value, skip cleanly here. Unknown types (no record yet)
+                    // are tolerated because the emitter has its own fallback-receiver guard.
+                    if (isStructReceiver)
+                    {
+                        var probeName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName);
+                        if (_typeDatabase.TryGetTypeRecord(probeName, out var foreignRecord) &&
+                            foreignRecord.Kind == TypeRecordKind.Struct &&
+                            (!foreignRecord.Flags.HasFlag(TypeRecordFlags.Frozen) ||
+                             foreignRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
+                        {
+                            _logger.LogInformation($"Skipping cross-module extension on non-frozen or non-trivial (RequiresMemoryManagement) foreign struct '{node.Name}' (canonical module: {node.ModuleName}) — only frozen value structs without managed payload are supported by the cross-module struct trampoline path.");
+                            return null;
+                        }
+                    }
+                    _logger.LogInformation($"Foreign {(isStructReceiver ? "struct" : "class")} '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
+                }
+                else if (!AppleFrameworkRegistry.IsSystemReexportAllowedModule(node.ModuleName))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
                     return null;
                 }
-
-                // Non-frozen foreign struct receivers are not yet supported: the cross-module
-                // struct trampoline path reads `self` via `assumingMemoryBound(to: T.self).pointee`
-                // which is only ABI-safe for frozen value structs. Without this gate the foreign
-                // type still gets registered in the current module's database (with a synthesized
-                // metadata accessor) even though the emitter would later skip every member —
-                // polluting the database with an entry that has no usable members. Look up the
-                // foreign type in the dependency type database we already have; if it's a struct
-                // that is NOT a frozen value, skip cleanly here. Unknown types (no record yet)
-                // are tolerated because the emitter has its own fallback-receiver guard.
-                if (isStructReceiver)
-                {
-                    var probeName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName);
-                    if (_typeDatabase.TryGetTypeRecord(probeName, out var foreignRecord) &&
-                        foreignRecord.Kind == TypeRecordKind.Struct &&
-                        (!foreignRecord.Flags.HasFlag(TypeRecordFlags.Frozen) ||
-                         foreignRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
-                    {
-                        _logger.LogInformation($"Skipping cross-module extension on non-frozen or non-trivial (RequiresMemoryManagement) foreign struct '{node.Name}' (canonical module: {node.ModuleName}) — only frozen value structs without managed payload are supported by the cross-module struct trampoline path.");
-                        return null;
-                    }
-                }
-                _logger.LogInformation($"Foreign {(isStructReceiver ? "struct" : "class")} '{node.Name}' carries extension members from '{moduleDecl.Name}' — routing to cross-module extension emitter.");
+                // else: foreign type from a system / common-Apple module with no extension
+                // children of its own — fall through to the moduleNameOverride path below.
             }
 
             // When a system-module type appears in another module's ABI (e.g., Swift.KeyPath

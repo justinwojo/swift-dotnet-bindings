@@ -1,5 +1,5 @@
 {
-  "git_sha": "9893fbc0",
+  "git_sha": "5b3c8fdd",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -243,7 +243,7 @@
       "Alamofire": {
         "compile": "ok",
         "errors": 0,
-        "lines": 57972,
+        "lines": 57743,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -271,14 +271,14 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22674,
+        "lines": 22672,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 109894,
+        "lines": 106207,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -292,14 +292,14 @@
       "Kingfisher": {
         "compile": "ok",
         "errors": 0,
-        "lines": 62452,
+        "lines": 62451,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Lottie": {
         "compile": "ok",
         "errors": 0,
-        "lines": 35556,
+        "lines": 35555,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -320,7 +320,7 @@
       "Mixpanel": {
         "compile": "ok",
         "errors": 0,
-        "lines": 9826,
+        "lines": 9822,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -355,7 +355,7 @@
       "SkeletonView": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10126,
+        "lines": 10124,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -376,7 +376,7 @@
       "Starscream": {
         "compile": "ok",
         "errors": 0,
-        "lines": 19050,
+        "lines": 19048,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -418,7 +418,7 @@
       "StripeCore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 7287,
+        "lines": 7282,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -453,14 +453,14 @@
       "StripePayments": {
         "compile": "ok",
         "errors": 0,
-        "lines": 59236,
+        "lines": 68871,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
       "StripePaymentSheet": {
         "compile": "ok",
         "errors": 0,
-        "lines": 34826,
+        "lines": 34825,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -474,7 +474,7 @@
       "StripeUICore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 101,
+        "lines": 100,
         "dep_compile": "ok",
         "swift_compile": "ok"
       },
@@ -523,7 +523,7 @@
       "SwiftyBeaver": {
         "compile": "ok",
         "errors": 0,
-        "lines": 10623,
+        "lines": 10622,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -544,14 +544,14 @@
       "ObjectMapper": {
         "compile": "ok",
         "errors": 0,
-        "lines": 6170,
+        "lines": 6168,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "BonMot": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15157,
+        "lines": 15155,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -600,7 +600,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2229,
+        "lines": 2228,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -621,7 +621,7 @@
       "XMLCoder": {
         "compile": "ok",
         "errors": 0,
-        "lines": 15147,
+        "lines": 15130,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -754,7 +754,7 @@
       "FirebaseFirestore": {
         "compile": "ok",
         "errors": 0,
-        "lines": 68341,
+        "lines": 68340,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -887,7 +887,7 @@
       "RichTextKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 27417,
+        "lines": 27415,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,24 +908,24 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 24784,
-    "total_skipped_members": 7361,
-    "skip_rate_pct": 22.9,
+    "total_emitted_members": 25012,
+    "total_skipped_members": 7132,
+    "skip_rate_pct": 22.2,
     "skip_reasons": {
-      "UnsupportedSignature": 1262,
+      "UnsupportedSignature": 1265,
       "SynthesizedCodable": 953,
       "ModuleInternal": 917,
       "DuplicateSignature": 905,
       "AnyTypeFallback": 700,
       "GenericProtocolConstraint": 601,
-      "UnsatisfiedGenericConstraint": 364,
       "UnsupportedType": 348,
       "EveryProtocolConformanceSkipped": 292,
       "SwiftUIConstraint": 234,
-      "MissingWrapperSymbol": 230,
+      "MissingWrapperSymbol": 229,
       "UnsupportedClosure": 223,
       "Pattern2InternalTypeReach": 223,
       "UnsupportedExistential": 142,
+      "UnsatisfiedGenericConstraint": 133,
       "GenericTypeCallback": 101,
       "StaticProtocolMember": 75,
       "SuppressedProxyMethodBody": 55,
@@ -937,7 +937,7 @@
       "UnderscorePrefixInternal": 2
     },
     "post_processor_sub_causes": {
-      "InternalType": 293,
+      "InternalType": 292,
       "NSInvocation": 1,
       "Other": 0
     }

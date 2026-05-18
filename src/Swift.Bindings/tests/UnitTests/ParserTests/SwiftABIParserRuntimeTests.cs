@@ -1389,6 +1389,100 @@ public class SwiftABIParserRuntimeTests
     }
 
     [Fact]
+    public void ParseModule_AppleFrameworkReceiver_WithExtensionMembers_IsRouted()
+    {
+        // RealityKit → RealityFoundation pattern. RealityFoundation is registered in
+        // apple-frameworks.json with `concreteClassFallback: true` (and no other set
+        // membership) which makes it `ShouldSuppressDeclaredWrapperImport == true`
+        // (wrapper gate) but `IsSystemReexportAllowedModule == false` (parser gate).
+        //
+        // The parser's children-first restructure must keep this Apple-framework
+        // receiver and route it through CrossModuleExtensionEmitter when the foreign
+        // node carries current-module extension children — independent of its
+        // apple-frameworks.json taxonomy. Without this, RealityKit's extension on
+        // RealityFoundation.AccessibilityComponent ends up mis-qualified as
+        // `RealityKit.AccessibilityComponent.RotorType` and the generated C# fails
+        // to compile (the type does not exist under RealityKit).
+        var typeDatabase = new TypeDatabase();
+        var foreignSwiftName = SwiftTypeName.FromModuleQualifiedName("RealityFoundation.AccessibilityComponent");
+        var foreignModule = new ModuleTypeDatabase("RealityFoundation", "/fake/path");
+        foreignModule.RegisterType(foreignSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RealityFoundation", "AccessibilityComponent"),
+            SwiftTypeName = foreignSwiftName,
+            MetadataAccessor = "$s17RealityFoundation22AccessibilityComponentVMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
+        typeDatabase.AddModuleDatabase(foreignModule);
+
+        var importNode = CreateNode(kind: "Import", moduleName: "RealityKit", name: "RealityKit");
+
+        var nestedRotorType = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Enum",
+            name: "RotorType",
+            moduleName: "RealityKit",
+            mangledName: "$s17RealityFoundation22AccessibilityComponentV0A3KitE9RotorTypeON");
+
+        var foreignReceiver = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "AccessibilityComponent",
+            moduleName: "RealityFoundation",
+            mangledName: "$s17RealityFoundation22AccessibilityComponentVN",
+            children: new[] { nestedRotorType });
+
+        using var fixture = CreateParserWithNodes(typeDatabase, importNode, foreignReceiver);
+        var result = fixture.Parser.ParseModule();
+
+        var receiver = Assert.Single(result.ModuleDecl.Types);
+        Assert.Equal("AccessibilityComponent", receiver.Name);
+        Assert.Equal("RealityFoundation", receiver.SwiftTypeName.Module);
+        Assert.Equal("RealityFoundation.AccessibilityComponent", receiver.SwiftTypeName.ModuleQualifiedName);
+        // The nested RotorType is attached as a child TypeDecl on the foreign receiver
+        // and must carry the canonical RealityFoundation.AccessibilityComponent qualifier.
+        // Pre-fix, the receiver's module was incorrectly stamped as RealityKit, which
+        // pulled the nested type's qualified name to "RealityKit.AccessibilityComponent.RotorType"
+        // and broke the generated C# with two CS0234 references.
+        var nested = Assert.Single(receiver.Types);
+        Assert.Equal("RotorType", nested.Name);
+        Assert.Equal("RealityFoundation.AccessibilityComponent.RotorType", nested.SwiftTypeName.ModuleQualifiedName);
+    }
+
+    [Fact]
+    public void ParseModule_AppleFrameworkReceiver_WithoutExtensionMembers_IsSkipped()
+    {
+        // RealityFoundation-shaped Apple framework (concreteClassFallback only,
+        // NOT in IsSystemReexportAllowedModule) appearing as a pure re-export with
+        // no current-module children. Falls through both branches of the foreign
+        // handler: not a cross-module extension (no children) and not in the
+        // parser keep-list (not a system re-export). Should be skipped, matching
+        // pre-7c38c3e2 behavior — the dep DB still resolves any references.
+        var importNode = CreateNode(kind: "Import", moduleName: "RealityKit", name: "RealityKit");
+
+        var foreignOnlyMethod = CreateNode(
+            kind: "Function",
+            declKind: "Func",
+            name: "nativeMethod",
+            moduleName: "RealityFoundation",
+            mangledName: "$s17RealityFoundation12nativeMethodSiyF");
+
+        var foreignReceiver = CreateNode(
+            kind: "TypeDecl",
+            declKind: "Struct",
+            name: "AccessibilityComponent",
+            moduleName: "RealityFoundation",
+            mangledName: "$s17RealityFoundation22AccessibilityComponentVN",
+            children: new[] { foreignOnlyMethod });
+
+        using var fixture = CreateParserWithNodes(importNode, foreignReceiver);
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.Types);
+    }
+
+    [Fact]
     public void ParseModule_DuplicateCrossModuleReExport_SkipsGracefully()
     {
         // When the same system type appears twice in a module's ABI (e.g., two extension

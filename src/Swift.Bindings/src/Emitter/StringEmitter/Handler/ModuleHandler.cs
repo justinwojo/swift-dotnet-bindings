@@ -520,7 +520,7 @@ namespace BindingsGeneration
                 {
                     if (declared.Length > 0 && declared[0] == '_')
                         continue;
-                    if (AppleFrameworkRegistry.IsKnownAppleOrSystemModule(declared))
+                    if (AppleFrameworkRegistry.ShouldSuppressDeclaredWrapperImport(declared))
                         continue;
                     // Skip imports the bound module marked as non-public (`@_implementationOnly`,
                     // `private`, `internal`, `fileprivate`). They aren't part of the public surface
