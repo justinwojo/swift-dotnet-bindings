@@ -1193,8 +1193,12 @@ public class MethodClosureBridgeTests
         Assert.Contains("initializeMemory", swift);
         Assert.Contains("MemoryLayout<MyError>", swift);
 
-        // C# callback should marshal via MarshalBorrowedFromSwift (borrowed reference)
-        Assert.Contains("SwiftMarshal.MarshalBorrowedFromSwift<TestModule.MyError>", cs);
+        // C# callback must take ownership of the heap buffer — Swift wrapper has no defer,
+        // so MarshalFromSwift wraps the pointer in a SafeHandle whose ReleaseHandle pairs
+        // VWT.Destroy + NativeMemory.Free. MarshalBorrowedFromSwift would SuppressFinalize
+        // and leak the buffer.
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.MyError>", cs);
+        Assert.DoesNotContain("SwiftMarshal.MarshalBorrowedFromSwift<TestModule.MyError>", cs);
     }
 
     [Fact]

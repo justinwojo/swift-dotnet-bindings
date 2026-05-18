@@ -1479,6 +1479,16 @@ public static class MethodClosureBridge
             var innerCs = innerClassRec.CSharpTypeName.FullyQualifiedName;
             csWriter.WriteLine($"{csharpType} __a{index} = __p{index} == IntPtr.Zero ? null : SwiftMarshal.MarshalBorrowedFromSwift<{innerCs}>(__p{index});");
         }
+        else if (env.ClosureHandler.IsComplexEnum(argType))
+        {
+            // Complex enum: Swift adapter heap-allocates the buffer (UnsafeMutableRawPointer.allocate
+            // + initializeMemory at the heapAllocArgs branch above) and transfers ownership to the
+            // C# callback — no Swift-side defer. MarshalFromSwift<T> constructs the ISwiftObject
+            // wrapper whose SafeHandle pairs VWT.Destroy + NativeMemory.Free on disposal.
+            // MarshalBorrowedFromSwift would SuppressFinalize the SafeHandle, leaving no one to
+            // free the heap buffer — the no-dispose path would leak the payload.
+            csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
+        }
         else
         {
             // Bound generics / classes come as IntPtr — marshal via MarshalBorrowedFromSwift.

@@ -8,7 +8,8 @@ namespace RuntimeTestsApp.Lifetime;
 
 /// <summary>
 /// Runtime regression tests for the three Session 4 fixes from
-/// <c>src/docs/sdk-0.11.0-residual-gaps.md</c>:
+/// <c>src/docs/sdk-0.11.0-residual-gaps.md</c>, plus a round-2 pin for the
+/// complex-enum closure-result heap ownership contract:
 /// <list type="bullet">
 ///   <item><description><b>S-4</b> — frozen-struct-with-ref-fields closure-arg
 ///     defer-deallocate. Pre-fix every closure invocation leaked one
@@ -25,6 +26,13 @@ namespace RuntimeTestsApp.Lifetime;
 ///     <c>value?.Payload.DangerousGetHandle()</c> directly to the P/Invoke,
 ///     leaving a use-after-free window during which a GC + finalizer could
 ///     free the buffer Swift was still reading from.</description></item>
+///   <item><description><b>S-4 round-2</b> — complex-enum closure-result
+///     heap-ownership contract. The Swift adapter for a closure with a
+///     complex-enum argument intentionally OMITS a defer-deallocate; the C#
+///     side wraps the same pointer in <c>SwiftSafeHandle&lt;T&gt;</c>, and
+///     <c>ReleaseHandle</c> pairs <c>VWT.Destroy + NativeMemory.Free</c>. A
+///     regression that either drops the C# transfer or adds a Swift-side
+///     defer would be caught here.</description></item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -42,6 +50,7 @@ public class Session4LifetimeTests : TestBase
     private const int S4Iterations = 5000;
     private const int S5Iterations = 200;
     private const int A4Iterations = 500;
+    private const int S4Round2Iterations = 2000;
     private const int GcCycles = 4;
 
     private static void ForceGc()
@@ -218,5 +227,97 @@ public class Session4LifetimeTests : TestBase
         var final = holder.CurrentShape;
         AssertNotNull(final, "Final stored Shape is not null after bulk set+GC");
         final?.Dispose();
+    }
+
+    // --------------------------------------------------------------------
+    // S-4 round-2 — Complex-enum closure-result heap-ownership contract
+    // --------------------------------------------------------------------
+
+    /// <summary>
+    /// Sanity check: the closure receives a complex-enum
+    /// <see cref="CompletionProbeOutcome"/> across the boundary. The C#
+    /// wrapper owns the heap buffer via <c>SwiftSafeHandle</c>; disposing
+    /// it triggers <c>VWT.Destroy</c> which releases the ARC-bearing probe
+    /// and increments the Swift-side deinit counter.
+    /// </summary>
+    public void TestComplexEnumCompletion_DispatchesAndDeinitsOnDispose()
+    {
+        using var presenter = new CompletionProbePresenter();
+        presenter.ResetDeinitCount();
+
+        long before = presenter.DeinitCount;
+        AssertEqual(0L, before, "Counter starts at zero");
+
+        presenter.Present(label: 7, animated: true, completion: outcome =>
+        {
+            using (outcome) { /* read complete; Dispose triggers ReleaseHandle */ }
+        });
+
+        AssertEqual(1L, presenter.DeinitCount,
+            "Disposing the complex-enum wrapper releases the embedded probe exactly once");
+    }
+
+    /// <summary>
+    /// Bulk regression: hammer the StripeCardScan-shape closure invocation.
+    /// Every iteration's <c>using (outcome)</c> deterministically disposes
+    /// the wrapper, which routes through <c>SwiftSafeHandle.ReleaseHandle</c>
+    /// (VWT.Destroy + NativeMemory.Free). Final deinit count must equal the
+    /// iteration count — both leak (count too low) and double-free (crash
+    /// inside the loop) regressions surface here.
+    /// </summary>
+    public void TestComplexEnumCompletion_BulkOwnershipTransfer()
+    {
+        using var presenter = new CompletionProbePresenter();
+        presenter.ResetDeinitCount();
+
+        for (int i = 0; i < S4Round2Iterations; i++)
+        {
+            presenter.Present(label: i, animated: (i & 1) == 0, completion: outcome =>
+            {
+                using (outcome) { /* read complete */ }
+            });
+
+            if ((i & 0xFF) == 0xFF)
+                ForceGc();
+        }
+
+        ForceGc();
+
+        AssertEqual((long)S4Round2Iterations, presenter.DeinitCount,
+            $"All {S4Round2Iterations} complex-enum probes released after dispose+GC");
+    }
+
+    /// <summary>
+    /// Variant that does NOT call <c>using</c> on the outcome — relies on GC
+    /// finalizer to drive <c>ReleaseHandle</c>. Slower than the explicit
+    /// path but proves the finalizer-driven path also reaches the buffer
+    /// + ARC payload (the <c>HandleFinalizerRelease</c> branch uses the
+    /// <c>SBW_VWTDestroy</c> Cdecl trampoline, which differs from the
+    /// explicit-dispose path).
+    /// </summary>
+    public void TestComplexEnumCompletion_FinalizerOwnershipTransfer()
+    {
+        using var presenter = new CompletionProbePresenter();
+        presenter.ResetDeinitCount();
+
+        // Match the bulk-path iteration count so the finalizer branch exercises
+        // the same statistical surface and any partial finalizer-only regression
+        // (e.g. a borrowed-marshal MCB callback that SuppressFinalize's the
+        // SafeHandle) surfaces with the same sensitivity as the explicit-dispose
+        // path. Lower counts mask intermittent leak signals on slower runtimes.
+        for (int i = 0; i < S4Round2Iterations; i++)
+        {
+            // No `using` — wrapper becomes eligible for finalization as soon
+            // as the delegate returns.
+            presenter.Present(label: i, animated: true, completion: _ => { });
+
+            if ((i & 0x1F) == 0x1F)
+                ForceGc();
+        }
+
+        ForceGc();
+
+        AssertEqual((long)S4Round2Iterations, presenter.DeinitCount,
+            $"Finalizer path releases all {S4Round2Iterations} complex-enum probes");
     }
 }
