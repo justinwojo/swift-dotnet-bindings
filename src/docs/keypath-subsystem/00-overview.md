@@ -2,7 +2,83 @@
 
 Project, not a session. Owner: TBD. Target SDK: TBD (not 0.11.0).
 
-This is a research-and-design proposal for adding Swift `KeyPath` support to the bindings generator and runtime. No implementation has started. This doc exists so the work has a written framing before it becomes a roadmap commitment.
+This folder is the execution plan for adding Swift `KeyPath` support to the bindings generator and runtime. The original proposal lives below; the per-session execution plans (each a self-contained, shippable, end-to-end commit) live in the numbered files alongside this one.
+
+## Session index
+
+| # | File | Purpose | Depends on |
+|---|------|---------|------------|
+| 0 | `00-overview.md` | This doc — proposal, scope, ABI ground truth, design decision | — |
+| 1 | `01-property-drop-bug.md` | Co-deferred gap 3 — surface silent property-drop on PAT-constrained generic parents with tombstones; fix root cause | — |
+| 2 | `02-parent-only-sync-csm.md` | Co-deferred gap 1 — relax `ownParams.Count > 0` so plain sync methods on PAT-constrained generic parents emit | — |
+| 3 | `03-keypath-foundation.md` | KeyPath foundation: type records for `AnyKeyPath` / `PartialKeyPath` / `KeyPath` / `WritableKeyPath` / `ReferenceWritableKeyPath`, `KeyPathProjection`, `SwiftKeyPath` SafeHandle, end-to-end opaque pass-through fixture | — |
+| 4 | `04-typed-singleton-emission.md` | Generator emits per-`(Root, Property, Value)` Swift trampoline returning the retained KeyPath + C# `static readonly` typed singleton field for closed conformers | 03 |
+| 5 | `05-parent-only-async-csm.md` | Co-deferred gap 2 — async CSM emission inside per-conformer `*CsmExtensions`, with parent-generic return-type substitution before async callback generation | 02 |
+| 6 | `06-musiclibraryrequest-re-enablement.md` | Wire MusicKit; re-enable `MusicLibraryRequest<T>`'s 11 surface members end-to-end (composition test of sessions 1–5) | 01–05 |
+| 7 | `07-foundation-kvo-attributedstring.md` | Foundation KVO publisher/observer (`NSObject` extensions) + `AttributedString` `@dynamicMemberLookup` with `KeyPath<AttributeDynamicLookup, K>` | 03–04 |
+| 8 | `08-appintents-productionization.md` | AppIntents — biggest consumer (704 lines, 240 `WritableKeyPath`). `EntityProperty` getter/getSetter; `AppShortcutParameterPresentation` constrained generic | 03–04 |
+| 9 | `09-swiftui-productionization.md` | SwiftUI + SwiftUICore — environment modifiers, view tree, `@dynamicMemberLookup` on `Binding` / `ObservedObject` (`ReferenceWritableKeyPath` heavy) | 03–04 |
+| 10 | `10-residual-consumers-cleanup.md` | Charts + SwiftData + Combine + UIKit + Observation. Final pass; doc/wiki update; close A-1 | 03–04 |
+
+Session 1 and Session 2 are independent of KeyPath itself — they're co-deferred gaps that block `MusicLibraryRequest<T>` re-enable. They land first because they're small, low-risk, and restore diagnostic visibility/engine fidelity that downstream sessions depend on for correct emission.
+
+After Session 6, the consumer-productionization sessions (7–10) can run in any order; they only depend on the foundation + singleton emission being in place.
+
+## ABI ground truth (verified via SIL/asm probe — 2026-05-18)
+
+These facts have been verified against `swiftc -emit-sil -O` and `swiftc -emit-assembly -O` output for Swift 6.2.4 (Xcode 26.3). They override the "to be confirmed" hedging in the design space below.
+
+- **`KeyPath` at `@_cdecl` boundary: single pointer.** `@_cdecl` rejects `KeyPath<Root, Value>` directly (`"method cannot be marked '@_cdecl' because its result type cannot be represented in Objective-C"`). The cdecl-compatible spelling is `UnsafeRawPointer` (return) / `UnsafeMutableRawPointer` (param), with `Unmanaged.passRetained(...).toOpaque()` for OUT and `Unmanaged.fromOpaque(...).takeUnretainedValue()` for IN.
+- **Return is `+1` (retained), parameter is `@guaranteed`.** SIL signatures: `() -> @owned KeyPath<...>` for returning; `(@guaranteed KeyPath<...>, ...) -> ...` for consuming. The C# wrapper must mirror this: SafeHandle ctor accepts a retained pointer (no extra retain on construction); for IN parameters, `DangerousAddRef` / `DangerousRelease` around the P/Invoke to extend the borrow.
+- **`\Type.prop` literal compiles to `WritableKeyPath` when the rooted property is `var`**, then `upcast` to `KeyPath` where the static type narrows. `keypath` SIL instruction emits a TU-local descriptor (`l_keypath` in `__TEXT,__const`); the runtime materialises the KeyPath object via `swift_getKeyPath(descriptor, nullptr)` with a per-descriptor once-token.
+- **Interning is per-descriptor-pointer, not per-pattern-value.** Same `\Point.x` literal site, called N times in one TU, returns identity-equal KeyPath. The same path written in a separate TU/module returns *value-equal* but *not identity-equal* KeyPath. Cross-process identity is not meaningful. **Consequence: equality must dispatch to `AnyKeyPath.==` (value equality on path content), never to pointer comparison.**
+- **WritableKeyPath / ReferenceWritableKeyPath are subtypes** — same single-pointer ABI at the function boundary; SIL distinguishes them as `$@guaranteed WritableKeyPath<...>` vs `$@guaranteed KeyPath<...>` at the type-tag level; `upcast` is the SIL op for the narrowing direction. The difference at use sites is which runtime helper is called: `swift_getAtKeyPath` (read), `swift_setAtWritableKeyPath` (mutate value-type), `swift_setAtReferenceWritableKeyPath` (mutate reference-type property).
+- **Runtime construction surface: `swift_getKeyPath` only.** There is no exported `swift_keyPath_create` or component-wise builder in `libswiftCore.dylib`. All KeyPath construction goes through a `keypath` SIL instruction (compiler-emitted descriptor) feeding `swift_getKeyPath`. **Consequence: C# cannot originate a KeyPath at runtime; it must call a generator-emitted Swift trampoline that contains the `keypath` instruction. This is the structural reason Option 2 (typed singletons) is required.**
+- **`@_inheritsConvenienceInitializers`** on all five KeyPath classes; no public designated initializer is exposed in `Swift.swiftinterface`. Confirms construction is exclusively via key-path-expression in Swift source.
+
+Evidence probe: `/tmp/keypath-abi-probe/` (this session's research workspace; not checked in).
+
+## Design decision (post-research)
+
+**Pick Option 4 — hybrid — with these constraints:**
+
+1. **OUT path** (KeyPath returned from Swift or read from a Swift property): opaque retained pointer ↦ C# `SwiftKeyPath<TRoot, TValue>` SafeHandle.
+2. **IN path** (C# caller originates the KeyPath, passes to a Swift method): generated typed singletons. For each closed conformer of a generic-parent type that has a nested `KeyPath`-rooted bag (e.g. `Album.LibraryFilter`), the generator walks the bag's stored properties and emits one Swift `@_cdecl` trampoline per property returning a retained KeyPath. C# surfaces those as `public static readonly KeyPath<TRoot, TValue> PropertyName` initialised by a single-call P/Invoke at first access.
+3. **Three distinct C# types** — `Swift.KeyPath<TRoot, TValue>`, `Swift.WritableKeyPath<TRoot, TValue>`, `Swift.ReferenceWritableKeyPath<TRoot, TValue>` — sharing an internal `SwiftKeyPathHandle` base. Static type safety: a read-only `KeyPath` cannot satisfy a `WritableKeyPath` parameter. `WritableKeyPath` *is-a* `KeyPath` via C# inheritance (mirrors the Swift class hierarchy).
+4. **Equality and hashing** dispatch to `AnyKeyPath.==` / `AnyKeyPath.hashValue` via runtime trampolines in `Swift.Runtime`. Pointer-identity equality is forbidden (cross-module false negatives).
+5. **`PartialKeyPath<Root>` is in scope** (added late to the plan after consumer-surface grep found heavy SwiftData + UIKit use). Same machinery, type-erased `Value` slot. Lives in Session 3 alongside the typed variants.
+6. **`AnyKeyPath`** — exposed only as the base SafeHandle type for code paths that need a fully-erased reference. Not a primary user surface.
+7. **Open associated-type-rooted KeyPath parameters** (`KeyPath<MusicItemType.LibraryFilter, ...>` where `MusicItemType` is the parent's associated type) are **out of scope for v1**. They resolve only at CSM time after the conformer substitutes the associated type; emission requires the closed conformer's nested `LibraryFilter` TypeDecl. Session 4 handles the closed-conformer case (sufficient for MusicKit's 9 conformers). Open associated-type parameters that *route* a KeyPath through a generic method but where the Root is the parent's associated type are explicitly tracked as a Phase-3+ follow-up; v1 emits them suppressed with a tombstone comment.
+
+Options 1 (pure pass-through) and 3 (string/Mirror) are rejected as end-states. Option 1 alone leaves IN-path APIs unreachable from C#. Option 3 is not type-safe, cannot model `WritableKeyPath`, and ABI-incompatible with consumers that need the exact runtime KeyPath object.
+
+## Consumer surface size (verified via swiftinterface grep on iOS SDK 26.2)
+
+Sizing the work for Sessions 7–10:
+
+| Framework | `KeyPath<` lines | WritableKeyPath | ReferenceWritableKeyPath | Note |
+|---|---|---|---|---|
+| **AppIntents** | 704 | 240 | 0 | Largest surface. `EntityProperty` getter/getSetter overloads, `AppShortcutParameterPresentation` |
+| **SwiftUI + SwiftUICore** | 319 | 43 | 6 | Env modifiers, view tree id:, `@dynamicMemberLookup` on Binding/ObservedObject |
+| **Foundation** | 218 | 5 | 0 | KVO bridging, `AttributedString` `@dynamicMemberLookup` |
+| **Charts** | 49 | 0 | 0 | `VectorizedChartContent` protocol extensions; all read-only |
+| **SwiftData** | 38 | 0 | 0 | Mostly `PartialKeyPath<T>` (schema/index metadata) |
+| **MusicKit** | 26 | 0 | 0 | `MusicLibraryRequest<T>` filter/sort (immediate driver) |
+| **Combine** | 14 | 4 | 4 | `Publisher.map`, `Publisher.assign(to:on:)` |
+| **UIKit** | 12 | 2 | 2 | `UIPasteboard` `PartialKeyPath`, `@_enclosingInstance` subscripts |
+| **Observation** | 4 | 0 | 0 | `ObservationRegistrar` |
+| **StoreKit** | 0 | 0 | 0 | None (the doc's list overstates) |
+
+Three shape families across all consumers:
+- **(a) Generic method parameter on protocol extension** — AppIntents, SwiftUI, Charts, Observation
+- **(b) `@dynamicMemberLookup` subscript projecting into a bag type** — SwiftUI `EnvironmentValues`, Foundation `AttributeDynamicLookup`, UIKit `AttributeScopes`
+- **(c) Initializer parameter on generic struct/class descriptor type** — MusicKit, AppIntents `EntityProperty`, SwiftData `FetchDescriptor`
+
+`PartialKeyPath` is a distinct binding surface — Session 3 covers it as a foundation-layer type alongside `KeyPath`.
+
+---
+
+This is a research-and-design proposal for adding Swift `KeyPath` support to the bindings generator and runtime. No implementation has started. The doc below was the original framing — sections that have been superseded by the verified findings above (ABI hedging, design-space narrowing) remain for historical context, but the **ABI ground truth** and **design decision** sections above are authoritative for the implementation sessions.
 
 ## Why this is a project, not a session
 
@@ -228,4 +304,4 @@ Exit: the deferred A-1 item is closed; consumer-facing wiki documentation update
 
 ## Status
 
-Not started. This doc is the bookmark.
+Plan defined; implementation not started. Each numbered file in this folder is a self-contained execution plan for one Claude session of end-to-end work — pick the next unblocked session by depending-on column, follow the file's instructions, ship + test + commit.
