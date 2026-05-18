@@ -439,6 +439,62 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 1e: Emit [assembly: LinkWith] for ObjC AppleFramework mode      -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- ObjC Apple system frameworks (Matter, etc.) have no Swift wrapper
+       xcframework whose Mach-O can carry the framework dependency through
+       to the consuming app's native link step. Without an explicit signal,
+       mtouch/mlaunch never threads `-framework Matter` into the link line,
+       and the consumer build fails with "Undefined symbols: _MTRAttributePathKey, ...".
+       Swift mode is already covered: its wrapper xcframework's binary carries
+       LC_LINKER_OPTION load commands that the static linker honors transitively.
+
+       LinkWithAttribute is the .NET-for-iOS-documented mechanism for a binding
+       assembly to declare native link dependencies. The parameterless ctor +
+       Frameworks="<Name>" tells the linker to add `-framework <Name>` without
+       bundling a native library — exactly what an Apple system framework needs.
+       The attribute is baked into the binding DLL, so every consumer (direct
+       or transitive via ProjectReference / PackageReference) picks it up
+       automatically without per-app MtouchExtraArgs.
+
+       Defined as a Target (not a top-level ItemGroup) because the
+       SwiftAppleFrameworkTarget.Module metadata is defaulted by
+       _ResolveAppleFrameworkPaths (falls back to %(Identity)), and
+       _SwiftAppleFrameworkType is detected there too. Both must run first.
+       BeforeTargets="GetAssemblyAttributes" places this ahead of
+       GenerateAssemblyInfo's WriteCodeFragment pass that emits the attributes.
+       Mirrors Target 1d's gating pattern: depend on the resolver targets,
+       gate the inner ItemGroup on the resolved state.
+
+       Cache-invalidation sentinel: the upstream
+       CreateGeneratedAssemblyInfoInputsCacheFile hashes @(AssemblyAttribute)
+       as `%(Identity)%(_Parameter1)…%(_Parameter8)` only — named metadata
+       like our `Frameworks` is NOT in the hash. Without a companion item
+       whose hashed parameters carry the Module name, renaming Module on an
+       existing project would leave the previous Frameworks value baked into
+       the generated AssemblyInfo on incremental rebuilds. The accompanying
+       AssemblyMetadata("SwiftBindings.LinkWith.Module", "<Module>") puts the
+       Module into _Parameter2 so the cache hash changes whenever Module
+       changes, forcing AssemblyInfo regeneration. The sentinel attribute is
+       small, harmless, and doubles as useful provenance (developers can
+       reflect on it to see which framework a binding DLL links against). -->
+  <Target Name="_EmitObjCAppleFrameworkLinkWith"
+          DependsOnTargets="_DetectSwiftBindingTargetKind;_ResolveAppleFrameworkPaths"
+          BeforeTargets="GetAssemblyAttributes;BeforeCompile">
+    <ItemGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'ObjC'">
+      <AssemblyAttribute Include="ObjCRuntime.LinkWithAttribute"
+                         Condition="'%(SwiftAppleFrameworkTarget.Module)' != ''">
+        <Frameworks>%(SwiftAppleFrameworkTarget.Module)</Frameworks>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"
+                         Condition="'%(SwiftAppleFrameworkTarget.Module)' != ''">
+        <_Parameter1>SwiftBindings.LinkWith.Module</_Parameter1>
+        <_Parameter2>%(SwiftAppleFrameworkTarget.Module)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 2: Fingerprint-based incremental build                          -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_ComputeSwiftFingerprint">

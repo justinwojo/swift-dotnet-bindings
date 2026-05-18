@@ -3,7 +3,9 @@
 
 #nullable enable
 
+using System;
 using System.Diagnostics;
+using System.Linq;
 using Xunit;
 namespace BindingsGeneration.Tests
 {
@@ -1084,6 +1086,322 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SupportedPlatformVariant", plistContent);
             Assert.Contains("<string>simulator</string>", plistContent);
             Assert.Contains("<string>tvos-arm64-simulator</string>", plistContent);
+        }
+
+        // ── _EmitObjCAppleFrameworkLinkWith ──
+        // ObjC AppleFramework mode has no Swift wrapper xcframework Mach-O to carry the
+        // framework dependency through LC_LINKER_OPTION load commands. Without an explicit
+        // signal, the consumer's mtouch/mlaunch native link step never adds `-framework Foo`
+        // and the app build fails with "Undefined symbols: _MTRAttributePathKey, ...".
+        // The SDK fix emits `[assembly: ObjCRuntime.LinkWithAttribute(Frameworks="Foo")]`
+        // into the binding DLL so every consumer (direct or transitive) inherits the flag.
+        //
+        // A companion AssemblyMetadata("SwiftBindings.LinkWith.Module", "<Module>") is also
+        // emitted as a cache-invalidation sentinel. The upstream
+        // CreateGeneratedAssemblyInfoInputsCacheFile only hashes _Parameter1..8 of each
+        // AssemblyAttribute, not named metadata like Frameworks — so without the sentinel
+        // putting Module into _Parameter2, renaming Module on an existing project would
+        // leave the previous Frameworks value baked into the generated AssemblyInfo on
+        // incremental rebuilds. These tests assert both attributes are emitted, only for
+        // ObjC mode, and carrying the right Module name.
+
+        [Fact]
+        public void EmitObjCAppleFrameworkLinkWith_ObjcMode_AddsLinkWithAttribute()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            // Plant ObjC AppleFramework state directly via stubbed resolver targets
+            // (mirrors SynthesizeAppleFrameworkXcframework_ObjcMode_* tests), then run
+            // a TestDump target that depends on _EmitObjCAppleFrameworkLinkWith and
+            // echoes back @(AssemblyAttribute) items batched by Frameworks metadata.
+            // The real _ResolveAppleFrameworkPaths defaults Module to %(Identity), so
+            // the stub must do the same to model the real flow.
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="Matter" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <ItemGroup>
+                      <SwiftAppleFrameworkTarget Update="@(SwiftAppleFrameworkTarget)">
+                        <Module Condition="'%(SwiftAppleFrameworkTarget.Module)' == ''">%(Identity)</Module>
+                      </SwiftAppleFrameworkTarget>
+                    </ItemGroup>
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkType>ObjC</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="TestDump" DependsOnTargets="_EmitObjCAppleFrameworkLinkWith">
+                    <Message Importance="High" Text="LINKWITH:%(AssemblyAttribute.Identity)|Frameworks=%(AssemblyAttribute.Frameworks)" />
+                    <Message Importance="High" Text="SENTINEL:%(AssemblyAttribute.Identity)|P1=%(AssemblyAttribute._Parameter1)|P2=%(AssemblyAttribute._Parameter2)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"TestDump failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+
+            // The SDK target must add the LinkWithAttribute item with Frameworks==module name…
+            Assert.Contains("LINKWITH:ObjCRuntime.LinkWithAttribute|Frameworks=Matter", result.StdOut);
+            // …and the cache-invalidation sentinel (AssemblyMetadata) carrying Module in _Parameter2,
+            // so the upstream GenerateAssemblyInfo hash changes when Module changes.
+            Assert.Contains("SENTINEL:System.Reflection.AssemblyMetadataAttribute|P1=SwiftBindings.LinkWith.Module|P2=Matter", result.StdOut);
+        }
+
+        [Fact]
+        public void EmitObjCAppleFrameworkLinkWith_ObjcMode_HonorsCustomModuleMetadata()
+        {
+            // When the user explicitly overrides <Module> on SwiftAppleFrameworkTarget,
+            // the LinkWith attribute must use the override, not Identity. This matters
+            // for the rare case where Identity is a logical alias and Module is the actual
+            // framework name on disk.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="LogicalAlias">
+                      <Module>RealFramework</Module>
+                    </SwiftAppleFrameworkTarget>
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkType>ObjC</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="TestDump" DependsOnTargets="_EmitObjCAppleFrameworkLinkWith">
+                    <Message Importance="High" Text="LINKWITH:%(AssemblyAttribute.Identity)|Frameworks=%(AssemblyAttribute.Frameworks)" />
+                    <Message Importance="High" Text="SENTINEL:%(AssemblyAttribute.Identity)|P1=%(AssemblyAttribute._Parameter1)|P2=%(AssemblyAttribute._Parameter2)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"TestDump failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+
+            Assert.Contains("LINKWITH:ObjCRuntime.LinkWithAttribute|Frameworks=RealFramework", result.StdOut);
+            // Negative: Identity must NOT leak into Frameworks when an explicit Module is set.
+            Assert.DoesNotContain("Frameworks=LogicalAlias", result.StdOut);
+            // The cache-invalidation sentinel must also pick up the override, not Identity —
+            // otherwise the upstream hash would be wrong-but-stable for projects that use
+            // an Identity != Module pattern.
+            Assert.Contains("SENTINEL:System.Reflection.AssemblyMetadataAttribute|P1=SwiftBindings.LinkWith.Module|P2=RealFramework", result.StdOut);
+            Assert.DoesNotContain("P2=LogicalAlias", result.StdOut);
+        }
+
+        [Fact]
+        public void EmitObjCAppleFrameworkLinkWith_SwiftMode_NoOps()
+        {
+            // Swift AppleFramework mode produces a wrapper xcframework whose Mach-O carries
+            // the framework dependency via LC_LINKER_OPTION load commands. Emitting LinkWith
+            // here would double-link the framework — at best harmless, at worst a duplicate
+            // dependency warning. The target must early-out for Swift type.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="CryptoKit" />
+                  </ItemGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkType>Swift</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="TestDump" DependsOnTargets="_EmitObjCAppleFrameworkLinkWith">
+                    <Message Importance="High" Text="LINKWITH:%(AssemblyAttribute.Identity)|Frameworks=%(AssemblyAttribute.Frameworks)" />
+                    <Message Importance="High" Text="SENTINEL:%(AssemblyAttribute.Identity)|P1=%(AssemblyAttribute._Parameter1)|P2=%(AssemblyAttribute._Parameter2)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"TestDump failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+
+            // Neither the LinkWithAttribute nor its cache-invalidation sentinel may be emitted
+            // in Swift AppleFramework mode — both belong to the ObjC-only fix.
+            Assert.DoesNotContain("LinkWithAttribute", result.StdOut);
+            Assert.DoesNotContain("SwiftBindings.LinkWith.Module", result.StdOut);
+        }
+
+        [Fact]
+        public void EmitObjCAppleFrameworkLinkWith_XCFrameworkMode_NoOps()
+        {
+            // Non-AppleFramework projects (the normal xcframework binding flow) already get
+            // their native dependencies via NativeReference items pointing at the wrapper
+            // xcframework. Adding LinkWith there would be wrong — there's no system framework
+            // to link, just the user's library inside the xcframework.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="_DetectSwiftBindingTargetKind" />
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind" />
+                  <Target Name="TestDump" DependsOnTargets="_EmitObjCAppleFrameworkLinkWith">
+                    <Message Importance="High" Text="LINKWITH:%(AssemblyAttribute.Identity)|Frameworks=%(AssemblyAttribute.Frameworks)" />
+                    <Message Importance="High" Text="SENTINEL:%(AssemblyAttribute.Identity)|P1=%(AssemblyAttribute._Parameter1)|P2=%(AssemblyAttribute._Parameter2)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+            Assert.True(result.ExitCode == 0,
+                $"TestDump failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+
+            Assert.DoesNotContain("LinkWithAttribute", result.StdOut);
+            // The cache-invalidation sentinel is also ObjC-only — must not appear here.
+            Assert.DoesNotContain("SwiftBindings.LinkWith.Module", result.StdOut);
+        }
+
+        [Fact]
+        public void EmitObjCAppleFrameworkLinkWith_CacheHashVariesWithModule()
+        {
+            // Upstream CreateGeneratedAssemblyInfoInputsCacheFile hashes @(AssemblyAttribute)
+            // by `%(Identity)%(_Parameter1)…%(_Parameter8)` only — named metadata like
+            // `Frameworks` is NOT in the hash. The cache-invalidation sentinel (an
+            // AssemblyMetadata attribute with Module in _Parameter2) is what makes the
+            // hash actually change when Module changes. This test runs MSBuild's Hash task
+            // — the same task GenerateAssemblyInfo uses to build the cache key — against
+            // the @(AssemblyAttribute) set produced for two different Module values, and
+            // asserts the two hashes are not equal. If the sentinel were ever removed (or
+            // the upstream cache contract changed and we updated the SDK to match), this
+            // test would catch the silent reversion to "incremental rebuilds keep stale
+            // Frameworks after a Module rename".
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+
+            string MakeProject(string moduleName) => $$"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftAppleFrameworkTarget Include="{{moduleName}}" />
+                  </ItemGroup>
+                  <Import Project="{{sdkTargetsPath}}" />
+                  <Target Name="_DetectSwiftBindingTargetKind">
+                    <PropertyGroup>
+                      <_SwiftBindingTargetKind>AppleFramework</_SwiftBindingTargetKind>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="_ResolveAppleFrameworkPaths" DependsOnTargets="_DetectSwiftBindingTargetKind">
+                    <ItemGroup>
+                      <SwiftAppleFrameworkTarget Update="@(SwiftAppleFrameworkTarget)">
+                        <Module Condition="'%(SwiftAppleFrameworkTarget.Module)' == ''">%(Identity)</Module>
+                      </SwiftAppleFrameworkTarget>
+                    </ItemGroup>
+                    <PropertyGroup>
+                      <_SwiftAppleFrameworkType>ObjC</_SwiftAppleFrameworkType>
+                    </PropertyGroup>
+                  </Target>
+                  <Target Name="HashAttrs" DependsOnTargets="_EmitObjCAppleFrameworkLinkWith">
+                    <!-- Identical to the upstream CreateGeneratedAssemblyInfoInputsCacheFile expression. -->
+                    <Hash ItemsToHash="@(AssemblyAttribute->'%(Identity)%(_Parameter1)%(_Parameter2)%(_Parameter3)%(_Parameter4)%(_Parameter5)%(_Parameter6)%(_Parameter7)%(_Parameter8)')">
+                      <Output TaskParameter="HashResult" PropertyName="_AttrsHash" />
+                    </Hash>
+                    <Message Importance="High" Text="HASH:$(_AttrsHash)" />
+                  </Target>
+                </Project>
+                """;
+
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+
+            // Build A: Module=Matter
+            var projectA = Path.Combine(_tempDir, "TestA.csproj");
+            File.WriteAllText(projectA, MakeProject("Matter"));
+            var resultA = RunDotnet($"msbuild \"{projectA}\" -t:HashAttrs -nologo -v:n");
+            Assert.True(resultA.ExitCode == 0, $"Build A failed: {resultA.StdOut}\n{resultA.StdErr}");
+
+            // Build B: Module=MatterRenamed
+            var projectB = Path.Combine(_tempDir, "TestB.csproj");
+            File.WriteAllText(projectB, MakeProject("MatterRenamed"));
+            var resultB = RunDotnet($"msbuild \"{projectB}\" -t:HashAttrs -nologo -v:n");
+            Assert.True(resultB.ExitCode == 0, $"Build B failed: {resultB.StdOut}\n{resultB.StdErr}");
+
+            // Extract the hash lines.
+            string ExtractHash(string stdout)
+            {
+                var line = stdout.Split('\n').FirstOrDefault(l => l.Contains("HASH:"))
+                    ?? throw new Xunit.Sdk.XunitException($"No HASH: line in output:\n{stdout}");
+                return line.Substring(line.IndexOf("HASH:", StringComparison.Ordinal) + "HASH:".Length).Trim();
+            }
+            var hashA = ExtractHash(resultA.StdOut);
+            var hashB = ExtractHash(resultB.StdOut);
+
+            Assert.False(string.IsNullOrEmpty(hashA), "Empty hash for build A");
+            Assert.False(string.IsNullOrEmpty(hashB), "Empty hash for build B");
+            // The hashes must differ — proves the upstream cache key tracks Module changes.
+            Assert.NotEqual(hashA, hashB);
         }
 
         // Regression guard against re-introducing custom-metadata-in-Condition patterns
