@@ -86,6 +86,10 @@
       "objcPrefixes": ["AS"]
     },
     {
+      "module": "BackgroundAssets",
+      "wrapperImportable": true
+    },
+    {
       "module": "BackgroundTasks",
       "wrapperImportable": true
     },
@@ -454,6 +458,10 @@
       "wrapperImportable": true,
       "objcPrefixes": ["HM"],
       "platformUnavailable": ["macOS"]
+    },
+    {
+      "module": "ImageIO",
+      "wrapperImportable": true
     },
     {
       "module": "Intents",

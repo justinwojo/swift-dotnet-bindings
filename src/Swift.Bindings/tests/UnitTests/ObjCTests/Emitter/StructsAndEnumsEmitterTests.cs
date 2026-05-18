@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using BindingsGeneration;
 using BindingsGeneration.ObjC;
 using Xunit;
 using static BindingsGeneration.Tests.ObjCTests.ObjCTestHelpers;
@@ -1001,7 +1002,11 @@ public class StructsAndEnumsEmitterTests
         Assert.DoesNotContain("[Static]", output);
     }
 
-    // --- Fix: StructsAndEnums.cs must include using UIKit and CoreAnimation ---
+    // --- StructsAndEnums.cs must include using UIKit and CoreAnimation when the
+    // target platform supports them (here: explicit iOS PlatformInfo, which is the
+    // only platform that exercises UIKit availability without relying on the
+    // null-PlatformInfo legacy fallback). Platform-conditional filtering of these
+    // usings is covered separately in ObjCUsingsEmitterTests. ---
 
     [Fact]
     public void Emit_IncludesUsingUIKit()
@@ -1012,7 +1017,7 @@ public class StructsAndEnumsEmitterTests
             Enums = [new ObjCEnumDecl { Name = "TLFoo", Cases = [new ObjCEnumCaseDecl { Name = "TLFooBar" }] }]
         };
 
-        var output = EmitAndRead(module);
+        var output = EmitStructsAndEnums(module, platformInfo: PlatformInfoFactory.Create(ApplePlatform.iOS));
         Assert.Contains("using UIKit;", output);
     }
 
@@ -1025,7 +1030,7 @@ public class StructsAndEnumsEmitterTests
             Enums = [new ObjCEnumDecl { Name = "TLFoo", Cases = [new ObjCEnumCaseDecl { Name = "TLFooBar" }] }]
         };
 
-        var output = EmitAndRead(module);
+        var output = EmitStructsAndEnums(module, platformInfo: PlatformInfoFactory.Create(ApplePlatform.iOS));
         Assert.Contains("using CoreAnimation;", output);
     }
 

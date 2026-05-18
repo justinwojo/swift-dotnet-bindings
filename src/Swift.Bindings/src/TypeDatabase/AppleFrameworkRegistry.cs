@@ -46,6 +46,12 @@ internal static class AppleFrameworkRegistry
     private static readonly HashSet<string> _knownModulesForElements;
     private static readonly HashSet<string> _netUnavailableTypes;
     private static readonly Dictionary<string, string> _packageIds;
+    // Union of every module name that appears in apple-frameworks.json, regardless of
+    // which flags the entry sets. Used by callers that need to assert a module has a
+    // registry entry at all (e.g. ObjCUsingsEmitter validates that every Apple-framework
+    // using it might emit is registered, so a missing entry can't silently bypass the
+    // IsModuleAvailableOnPlatform gate).
+    private static readonly HashSet<string> _allKnownModules;
 
     // --- JSON Model ---
 
@@ -126,6 +132,7 @@ internal static class AppleFrameworkRegistry
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
         _packageIds = new Dictionary<string, string>(StringComparer.Ordinal);
         _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        _allKnownModules = new HashSet<string>(StringComparer.Ordinal);
         var objcPrefixSet = new HashSet<string>(StringComparer.Ordinal);
 
         // Platform unavailable: build per-platform sets
@@ -135,6 +142,8 @@ internal static class AppleFrameworkRegistry
         // Process definitions sorted by module name for deterministic loading
         foreach (var def in definitions.OrderBy(d => d.Module, StringComparer.Ordinal))
         {
+            _allKnownModules.Add(def.Module);
+
             if (def.AutoBridge)
                 _autoBridgeModules.Add(def.Module);
 
@@ -281,6 +290,15 @@ internal static class AppleFrameworkRegistry
             return true;
         return !excluded.Contains(moduleName);
     }
+
+    /// <summary>
+    /// Returns true if a module has any entry in <c>apple-frameworks.json</c>, regardless
+    /// of which flags it sets. Distinct from <see cref="IsModuleAvailableOnPlatform"/>'s
+    /// conservative "unknown → available" fallback: callers that need to assert a name
+    /// has been deliberately catalogued use this to fail loudly when a registry entry
+    /// is missing (otherwise a typo or omission silently passes the availability gate).
+    /// </summary>
+    public static bool IsKnownModule(string moduleName) => _allKnownModules.Contains(moduleName);
 
     public static bool IsKnownValueType(string moduleQualifiedName) => _valueTypes.Contains(moduleQualifiedName);
 

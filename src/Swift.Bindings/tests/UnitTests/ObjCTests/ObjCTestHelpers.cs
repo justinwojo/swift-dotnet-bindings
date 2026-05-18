@@ -26,12 +26,12 @@ public static class ObjCTestHelpers
     /// Emit an ObjCModule through ApiDefinitionEmitter and return the file content.
     /// Handles temp directory creation and cleanup.
     /// </summary>
-    public static string EmitApiDefinition(ObjCModule module, string ns = "TestNamespace")
+    public static string EmitApiDefinition(ObjCModule module, string ns = "TestNamespace", PlatformInfo? platformInfo = null)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"apidefinition_test_{Guid.NewGuid():N}");
         try
         {
-            var path = ApiDefinitionEmitter.Emit(module, dir, ns, Logger);
+            var path = ApiDefinitionEmitter.Emit(module, dir, ns, Logger, diagnostics: null, platformInfo: platformInfo);
             Assert.Equal(Path.Combine(dir, "ApiDefinition.cs"), path);
             return File.ReadAllText(path);
         }
@@ -46,21 +46,21 @@ public static class ObjCTestHelpers
     /// Emit an ObjCModule through StructsAndEnumsEmitter and return the main file content.
     /// Handles temp directory creation and cleanup.
     /// </summary>
-    public static string EmitStructsAndEnums(ObjCModule module, string ns = "TestLib.Binding")
+    public static string EmitStructsAndEnums(ObjCModule module, string ns = "TestLib.Binding", PlatformInfo? platformInfo = null)
     {
-        var (content, _) = EmitStructsAndEnumsBoth(module, ns);
+        var (content, _) = EmitStructsAndEnumsBoth(module, ns, platformInfo);
         return content;
     }
 
     /// <summary>
     /// Emit an ObjCModule through StructsAndEnumsEmitter and return both main and bgen delegate file content.
     /// </summary>
-    public static (string main, string? bgenDelegates) EmitStructsAndEnumsBoth(ObjCModule module, string ns = "TestLib.Binding")
+    public static (string main, string? bgenDelegates) EmitStructsAndEnumsBoth(ObjCModule module, string ns = "TestLib.Binding", PlatformInfo? platformInfo = null)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"structs_enums_test_{Guid.NewGuid():N}");
         try
         {
-            var result = StructsAndEnumsEmitter.Emit(module, tempDir, ns, Logger);
+            var result = StructsAndEnumsEmitter.Emit(module, tempDir, ns, Logger, diagnostics: null, platformInfo: platformInfo);
             Assert.NotNull(result);
             var main = File.ReadAllText(result!.FilePath);
             var bgen = result.BgenDelegatesFilePath != null

@@ -45,24 +45,7 @@ public static class ApiDefinitionEmitter
             enumNames.Add(e.Name);
 
         var sb = new StringBuilder();
-        sb.AppendLine("using System;");
-        sb.AppendLine("using AuthenticationServices;");
-        sb.AppendLine("using AVFoundation;");
-        sb.AppendLine("using BackgroundAssets;");
-        sb.AppendLine("using CoreAnimation;");
-        sb.AppendLine("using CoreFoundation;");
-        sb.AppendLine("using CoreImage;");
-        sb.AppendLine("using CoreLocation;");
-        sb.AppendLine("using CoreMedia;");
-        sb.AppendLine("using Foundation;");
-        sb.AppendLine("using ImageIO;");
-        sb.AppendLine("using MapKit;");
-        sb.AppendLine("using Metal;");
-        sb.AppendLine("using ObjCRuntime;");
-        sb.AppendLine("using CoreGraphics;");
-        sb.AppendLine("using UIKit;");
-        sb.AppendLine("using UserNotifications;");
-        sb.AppendLine("using WebKit;");
+        ObjCUsingsEmitter.EmitApiDefinitionHeader(sb, platformInfo);
         sb.AppendLine();
         sb.AppendLine($"namespace {resolvedNamespace}");
         sb.AppendLine("{");
