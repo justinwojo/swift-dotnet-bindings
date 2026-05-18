@@ -1201,6 +1201,129 @@ namespace BindingsGeneration.Tests
             Assert.Contains("_SwiftBindingFrameworkType&gt;$(_SwiftAppleFrameworkType)&lt;/_SwiftBindingFrameworkType", TargetsContent);
         }
 
+        [Fact]
+        public void Targets_AppleFrameworkEffectiveMinVersion_CascadesPerPlatform()
+        {
+            // _SwiftEffectiveMinDeploymentVersion resolves the slice-specific min:
+            // starts from the legacy MinDeploymentVersion, then per-platform overrides
+            // (MinIOSVersion / MinMacOSVersion / MinTvOSVersion / MinMacCatalystVersion)
+            // win for the matching slice. The legacy field already falls back to
+            // $(SwiftAppleFrameworkMinDeploymentVersion) via the prior ItemGroup Update.
+            Assert.Contains(
+                "<_SwiftEffectiveMinDeploymentVersion>%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftEffectiveMinDeploymentVersion>",
+                TargetsContent);
+            Assert.Contains(
+                "'$(_SwiftBindingPlatform)' == 'ios' AND '%(SwiftAppleFrameworkTarget.MinIOSVersion)' != ''",
+                TargetsContent);
+            Assert.Contains(
+                "'$(_SwiftBindingPlatform)' == 'macos' AND '%(SwiftAppleFrameworkTarget.MinMacOSVersion)' != ''",
+                TargetsContent);
+            Assert.Contains(
+                "'$(_SwiftBindingPlatform)' == 'tvos' AND '%(SwiftAppleFrameworkTarget.MinTvOSVersion)' != ''",
+                TargetsContent);
+            Assert.Contains(
+                "'$(_SwiftBindingPlatform)' == 'maccatalyst' AND '%(SwiftAppleFrameworkTarget.MinMacCatalystVersion)' != ''",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_DigesterTriple_UsesEffectiveMinVersion()
+        {
+            // The swift-api-digester target triple must read from
+            // _SwiftEffectiveMinDeploymentVersion so per-platform overrides flow
+            // through. Reading %(SwiftAppleFrameworkTarget.MinDeploymentVersion)
+            // directly was the bug shape: a single iOS-flavoured value (e.g. 16.1)
+            // produced 'arm64-apple-macos16.1' on the macOS slice, which is invalid
+            // (macOS version train is 13.x-26.x).
+            Assert.Contains(
+                "arm64-apple-macos$(_SwiftEffectiveMinDeploymentVersion)",
+                TargetsContent);
+            Assert.Contains(
+                "arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-macabi",
+                TargetsContent);
+            Assert.Contains(
+                "arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator",
+                TargetsContent);
+            Assert.Contains(
+                "arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator",
+                TargetsContent);
+            // No usage of the raw item metadata inside the triple block.
+            var tripleIdx = TargetsContent.IndexOf(
+                "Compute swift-api-digester target triple", StringComparison.Ordinal);
+            Assert.True(tripleIdx > 0);
+            var tripleEnd = TargetsContent.IndexOf("</PropertyGroup>", tripleIdx, StringComparison.Ordinal);
+            var tripleBlock = TargetsContent.Substring(tripleIdx, tripleEnd - tripleIdx);
+            Assert.DoesNotContain("%(SwiftAppleFrameworkTarget.MinDeploymentVersion)", tripleBlock);
+        }
+
+        [Fact]
+        public void Targets_BindingMetadataProps_UsesEffectiveMinVersion()
+        {
+            // The per-TFM binding-metadata.props file feeds SupportedOSPlatformVersion
+            // on the consumer project; it must record the slice-specific minimum, not
+            // the iOS-flavoured legacy field. (Otherwise a macOS consumer would inherit
+            // an invalid SupportedOSPlatformVersion that does not exist on the macOS
+            // version train.)
+            Assert.Contains(
+                "_SwiftBindingMinimumOSVersion&gt;$(_SwiftEffectiveMinDeploymentVersion)&lt;/_SwiftBindingMinimumOSVersion",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_SecondSliceMerge_UsesEffectiveMinVersion()
+        {
+            // The device/simulator second-slice compile uses its own target triple
+            // (_AFW_OtherTarget) and writes the framework's Info.plist
+            // MinimumOSVersion (_AFW_OtherMinOsVersion). Both must read from
+            // _SwiftEffectiveMinDeploymentVersion so per-platform overrides keep
+            // both slices on the same min.
+            Assert.Contains(
+                "<_AFW_OtherTarget Condition=\"'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'\">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)</_AFW_OtherTarget>",
+                TargetsContent);
+            Assert.Contains(
+                "<_AFW_OtherMinOsVersion>$(_SwiftEffectiveMinDeploymentVersion)</_AFW_OtherMinOsVersion>",
+                TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkAbiDump_FailsOnDegenerateOutput()
+        {
+            // swift-api-digester exits 0 even when the target triple is rejected,
+            // writing a placeholder abi.json whose top-level name is "NO_MODULE".
+            // _DumpAppleFrameworkAbi must catch that and surface SWIFTBIND038
+            // instead of letting Swift.Bindings.dll misdiagnose it later as a
+            // BUILD_LIBRARY_FOR_DISTRIBUTION problem. The detection must match the
+            // literal JSON field ("name": "NO_MODULE") rather than a bare substring,
+            // so a Swift symbol named NO_MODULE inside a valid dump cannot trip it.
+            var abiDumpIdx = TargetsContent.IndexOf(
+                "Name=\"_DumpAppleFrameworkAbi\"", StringComparison.Ordinal);
+            Assert.True(abiDumpIdx > 0);
+            var abiDumpEnd = TargetsContent.IndexOf("</Target>", abiDumpIdx, StringComparison.Ordinal);
+            var abiDumpBody = TargetsContent.Substring(abiDumpIdx, abiDumpEnd - abiDumpIdx);
+            Assert.Contains("&quot;name&quot;[[:space:]]*:[[:space:]]*&quot;NO_MODULE&quot;", abiDumpBody);
+            Assert.Contains("SWIFTBIND038", abiDumpBody);
+            // The error must point at per-platform overrides as the user-facing fix.
+            Assert.Contains("MinMacOSVersion", abiDumpBody);
+        }
+
+        [Fact]
+        public void Targets_EffectiveMinVersion_SeedsFromLegacyFirst()
+        {
+            // The cascade must SEED _SwiftEffectiveMinDeploymentVersion from the legacy
+            // %(MinDeploymentVersion) FIRST and apply per-platform overrides AFTER. If
+            // the order flipped, an explicit user MinDeploymentVersion would clobber a
+            // platform-specific override (because the unconditional seed would always
+            // win as the last-evaluated assignment).
+            var cascadeIdx = TargetsContent.IndexOf(
+                "<_SwiftEffectiveMinDeploymentVersion>%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftEffectiveMinDeploymentVersion>",
+                StringComparison.Ordinal);
+            Assert.True(cascadeIdx > 0, "Seed line must be present.");
+            var iosOverrideIdx = TargetsContent.IndexOf(
+                "'$(_SwiftBindingPlatform)' == 'ios' AND '%(SwiftAppleFrameworkTarget.MinIOSVersion)' != ''",
+                StringComparison.Ordinal);
+            Assert.True(iosOverrideIdx > cascadeIdx, "Per-platform overrides must come AFTER the legacy seed.");
+        }
+
         private static string FindRepoRoot()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;

@@ -192,6 +192,26 @@ done; true"
       </SwiftAppleFrameworkTarget>
     </ItemGroup>
 
+    <!-- Resolve the effective minimum deployment version for the current slice.
+         The legacy <MinDeploymentVersion> field on <SwiftAppleFrameworkTarget> is a
+         single value applied across every TFM, which produces invalid target triples
+         on slices whose version train differs from the user-supplied value. The
+         clearest case is iOS-flavored values on macOS: iOS 16.1 ≠ macOS 16.1 (the
+         macOS train is 13.x-26.x), so 'arm64-apple-macos16.1' is rejected by
+         swift-api-digester. Per-platform overrides (<MinIOSVersion>, <MinMacOSVersion>,
+         <MinTvOSVersion>, <MinMacCatalystVersion>) let consumers express the
+         framework's actual per-platform minimums; the matching one for the current
+         slice wins over the legacy field. Falls back to the legacy MinDeploymentVersion
+         (which itself falls back to $(SwiftAppleFrameworkMinDeploymentVersion), the
+         platform-keyed project default set above). -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
+      <_SwiftEffectiveMinDeploymentVersion>%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftEffectiveMinDeploymentVersion>
+      <_SwiftEffectiveMinDeploymentVersion Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '%(SwiftAppleFrameworkTarget.MinIOSVersion)' != ''">%(SwiftAppleFrameworkTarget.MinIOSVersion)</_SwiftEffectiveMinDeploymentVersion>
+      <_SwiftEffectiveMinDeploymentVersion Condition="'$(_SwiftBindingPlatform)' == 'macos' AND '%(SwiftAppleFrameworkTarget.MinMacOSVersion)' != ''">%(SwiftAppleFrameworkTarget.MinMacOSVersion)</_SwiftEffectiveMinDeploymentVersion>
+      <_SwiftEffectiveMinDeploymentVersion Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '%(SwiftAppleFrameworkTarget.MinTvOSVersion)' != ''">%(SwiftAppleFrameworkTarget.MinTvOSVersion)</_SwiftEffectiveMinDeploymentVersion>
+      <_SwiftEffectiveMinDeploymentVersion Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst' AND '%(SwiftAppleFrameworkTarget.MinMacCatalystVersion)' != ''">%(SwiftAppleFrameworkTarget.MinMacCatalystVersion)</_SwiftEffectiveMinDeploymentVersion>
+    </PropertyGroup>
+
     <!-- Compute xcrun SDK name from platform + target -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
       <_SwiftXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">iphonesimulator</_SwiftXcrunSdk>
@@ -319,14 +339,15 @@ done; true"
            Code="SWIFTBIND016"
            Text="Cannot resolve platform version for Apple-framework direct mode. Set &lt;SwiftAppleFrameworkPlatformVersion&gt; to the canonical SDK version (e.g. '26.2') or use a versioned TargetFramework (e.g. net10.0-ios26.0)." />
 
-    <!-- Compute swift-api-digester target triple -->
+    <!-- Compute swift-api-digester target triple. Uses _SwiftEffectiveMinDeploymentVersion
+         so per-platform overrides (MinMacOSVersion/MinIOSVersion/...) flow through. -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64-apple-macos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-macabi</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64-apple-macos$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-macabi</_SwiftDigesterTarget>
 
       <!-- Mac Catalyst: swift-api-digester needs -F for both iOSSupport overlay (UIKit
            etc.) and regular frameworks path (frameworks not in iOSSupport). -->
@@ -565,7 +586,7 @@ done; true"
       if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
       if [ -f &quot;$(_SwiftAppleFrameworkModulemap)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkModulemap)&quot;; fi ; \
       if [ -d &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; ]; then find -L &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; -type f -name '*.h' -exec shasum -a 256 {} \; ; fi ; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) %(SwiftAppleFrameworkTarget.MinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -620,6 +641,29 @@ done; true"
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="xcrun swift-api-digester -dump-sdk -module $(_SwiftAppleFrameworkModule) -target $(_SwiftDigesterTarget) -sdk &quot;$(_SwiftAppleFrameworkSdkPath)&quot; $(_SwiftDigesterExtraFlags) -o &quot;$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
+
+    <!-- Validate the digester actually loaded the module. swift-api-digester exits
+         with status 0 even when the target triple is rejected (e.g. invalid macOS
+         version) — it just writes a placeholder abi.json whose top-level "name" is
+         "NO_MODULE" and "children" is empty. Without this guard, the build proceeds
+         and Swift.Bindings.dll later raises "BUILD_LIBRARY_FOR_DISTRIBUTION=YES"
+         which is misdiagnostic: the .swiftinterface is fine, the digester invocation
+         is the problem. Surface a clear error pointing at the triple and the
+         per-platform metadata fix. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true'">
+      <_SwiftAbiJsonPath>$(_SwiftBindingIntermediateDir)$(_SwiftAppleFrameworkModule).abi.json</_SwiftAbiJsonPath>
+    </PropertyGroup>
+    <!-- Match the literal placeholder field swift-api-digester writes on failure
+         ("name": "NO_MODULE"), not a bare NO_MODULE substring — a Swift symbol
+         named NO_MODULE anywhere in a valid dump would otherwise false-positive. -->
+    <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true' AND Exists('$(_SwiftAbiJsonPath)')"
+          Command="grep -Eq '&quot;name&quot;[[:space:]]*:[[:space:]]*&quot;NO_MODULE&quot;' &quot;$(_SwiftAbiJsonPath)&quot; &amp;&amp; echo true || echo false"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftAbiJsonIsDegenerate" />
+    </Exec>
+    <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftAppleFrameworkType)' == 'Swift' AND '$(_SwiftBindingUpToDate)' != 'true' AND '$(_SwiftAbiJsonIsDegenerate)' == 'true'"
+           Code="SWIFTBIND038"
+           Text="swift-api-digester produced an empty module dump for '$(_SwiftAppleFrameworkModule)' at target '$(_SwiftDigesterTarget)'. The target triple is likely invalid for this platform (macOS, iOS, tvOS, and Mac Catalyst use different version trains — e.g. iOS 16.1 is not a valid macOS version; macOS is on 13.x-26.x). Add per-platform metadata to the &lt;SwiftAppleFrameworkTarget&gt; item — &lt;MinIOSVersion&gt;, &lt;MinMacOSVersion&gt;, &lt;MinTvOSVersion&gt;, &lt;MinMacCatalystVersion&gt; — or set &lt;MinDeploymentVersion&gt; to a value valid on every targeted platform. The .swiftinterface is fine; this is a digester-invocation issue, not a BUILD_LIBRARY_FOR_DISTRIBUTION problem." />
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -731,7 +775,7 @@ done; true"
       <_AFW_MetadataLines Include="&lt;Project&gt;" />
       <_AFW_MetadataLines Include="  &lt;PropertyGroup&gt;" />
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingModuleName&gt;$(_SwiftAppleFrameworkModule)&lt;/_SwiftBindingModuleName&gt;" />
-      <_AFW_MetadataLines Include="    &lt;_SwiftBindingMinimumOSVersion&gt;%(SwiftAppleFrameworkTarget.MinDeploymentVersion)&lt;/_SwiftBindingMinimumOSVersion&gt;" />
+      <_AFW_MetadataLines Include="    &lt;_SwiftBindingMinimumOSVersion&gt;$(_SwiftEffectiveMinDeploymentVersion)&lt;/_SwiftBindingMinimumOSVersion&gt;" />
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingPackageVersion&gt;$(Version)&lt;/_SwiftBindingPackageVersion&gt;" />
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingIsVersionPlaceholder&gt;False&lt;/_SwiftBindingIsVersionPlaceholder&gt;" />
       <_AFW_MetadataLines Include="    &lt;_SwiftBindingHasWrapperXCFramework&gt;$(_AFW_HasWrapper)&lt;/_SwiftBindingHasWrapperXCFramework&gt;" />
@@ -786,10 +830,10 @@ done; true"
       <_AFW_OtherSdk Condition="'$(SwiftPlatformTarget)' != 'simulator'
                                 AND '$(_SwiftBindingPlatform)' == 'tvos'">appletvsimulator</_AFW_OtherSdk>
 
-      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_AFW_OtherTarget>
-      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_AFW_OtherTarget>
-      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_AFW_OtherTarget>
-      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos%(SwiftAppleFrameworkTarget.MinDeploymentVersion)-simulator</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)</_AFW_OtherTarget>
+      <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_AFW_OtherTarget>
 
       <!-- The slice directory name in the xcframework -->
       <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' == 'simulator'">$(_SwiftBindingDeviceSliceId)</_AFW_OtherSliceId>
@@ -877,7 +921,7 @@ done; true"
       <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">iPhoneSimulator</_AFW_OtherPlatformName>
       <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">AppleTVOS</_AFW_OtherPlatformName>
       <_AFW_OtherPlatformName Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">AppleTVSimulator</_AFW_OtherPlatformName>
-      <_AFW_OtherMinOsVersion>%(SwiftAppleFrameworkTarget.MinDeploymentVersion)</_AFW_OtherMinOsVersion>
+      <_AFW_OtherMinOsVersion>$(_SwiftEffectiveMinDeploymentVersion)</_AFW_OtherMinOsVersion>
     </PropertyGroup>
 
     <ItemGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
