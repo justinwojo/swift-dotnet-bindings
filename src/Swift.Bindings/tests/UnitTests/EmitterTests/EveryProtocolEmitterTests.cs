@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Reflection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -153,6 +154,57 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocolDecl);
 
         Assert.Contains("public func doSomething()", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_AsyncMethod_PureSwiftBase_OmitsAsyncModifier()
+    {
+        // Pure-Swift protocol conformances (EveryProtocol base, not EveryObjCProtocol)
+        // satisfy async requirements with sync witnesses: in Swift, sync trivially
+        // satisfies async ("never suspends"). Emitting `async` on the witness is not
+        // just unnecessary — it breaks any sibling/child protocol whose SYNC requirement
+        // was being member-inherited from this conformance, e.g. Kingfisher's
+        // ImageDownloadRequestModifier (sync `modified(for:)`) inheriting from
+        // AsyncImageDownloadRequestModifier.
+        var protocolDecl = CreateSimpleProtocol("AsyncProvider");
+        var method = CreateMethodDecl("fetchValue", throws: true);
+        method.IsAsync = true;
+        protocolDecl.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocolDecl);
+
+        // Sync witness for an async requirement is valid Swift on the EveryProtocol base.
+        Assert.Contains("public func fetchValue() throws", output);
+        Assert.DoesNotContain("public func fetchValue() async", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_AsyncMethod_ObjCBase_EmitsAsyncModifier()
+    {
+        // Regression: @objc protocol requirements declared `async throws` bridge to ObjC
+        // `:completion:`-suffixed selectors. swiftc rejects sync candidates on
+        // EveryObjCProtocol with "candidate is not 'async', but '@objc' protocol
+        // requirement is" — so the async modifier MUST appear on the witness when the
+        // conformance is routed through the NSObject-rooted EveryObjCProtocol base.
+        var protocolDecl = CreateSimpleProtocol("AsyncThrowingObjCProvider");
+        var method = CreateMethodDecl("fetchValue", throws: true);
+        method.IsAsync = true;
+        protocolDecl.Methods.Add(method);
+
+        // Flip the per-protocol routing flag to the @objc base, as
+        // EmitProtocolConformance would for an NSObjectProtocol-only protocol.
+        var useObjCBaseField = typeof(EveryProtocolEmitter)
+            .GetField("_useObjCBase", BindingFlags.Instance | BindingFlags.NonPublic);
+        useObjCBaseField!.SetValue(_emitter, true);
+        try
+        {
+            var output = EmitProtocolExtension(protocolDecl);
+            Assert.Contains("public func fetchValue() async throws", output);
+        }
+        finally
+        {
+            useObjCBaseField.SetValue(_emitter, false);
+        }
     }
 
     #endregion

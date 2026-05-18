@@ -111,15 +111,32 @@ namespace BindingsGeneration
             }
 
             // Drain any cross-module records queued for this module from earlier sibling loads.
+            // If the foreign DB already has the type, the existing record's identity fields stay
+            // authoritative (e.g. stdlib `Swift.UInt8` registered from SwiftDatabase.xml must not
+            // be overwritten by a consumer's parser-side product for an `extension UInt8: SomeProtocol`
+            // declaration), but additive ProtocolConformances on the incoming record are merged in
+            // so cross-module extension conformances remain verifiable by the CSM filter.
             if (_pendingCrossModuleRecords.TryRemove(moduleDatabase.Name, out var pending))
             {
                 foreach (var (name, record) in pending)
                 {
-                    moduleDatabase.RegisterType(name, record);
+                    if (!moduleDatabase.IsTypeProcessed(name))
+                        moduleDatabase.RegisterType(name, record);
+                    else
+                        MergeAdditiveProtocolConformances(moduleDatabase, name, record);
                 }
             }
 
             // Route this module's cross-module mirror records to their owning foreign module.
+            // Same authoritative-existing-record discipline as above: only insert when the foreign
+            // DB lacks the type. Consumer modules emit parser-side product records for any stdlib
+            // type they extend (e.g. `extension UInt8: MyProtocol` produces a Swift.UInt8 entry in
+            // the consumer's DB with the consumer's namespace pattern). Without this guard the
+            // re-home overwrites the canonical SwiftDatabase.xml entry, causing emission to fall
+            // back to raw Swift names (`Swift.UInt8` instead of `byte`). Additive ProtocolConformances
+            // on the incoming record are merged into the canonical entry so the CSM
+            // associated-type filter can see `UInt8 : Ext.NeedsByte` for `where S.Element : NeedsByte`.
+            //
             // If the foreign module isn't loaded yet, queue for later. The record also stays in
             // this module's own DB as a benign duplicate (never reached via standard lookup,
             // which keys by SwiftTypeName.Module).
@@ -132,7 +149,10 @@ namespace BindingsGeneration
 
                 if (_modules.TryGetValue(foreignModule, out var foreignDb))
                 {
-                    foreignDb.RegisterType(record.SwiftTypeName, record);
+                    if (!foreignDb.IsTypeProcessed(record.SwiftTypeName))
+                        foreignDb.RegisterType(record.SwiftTypeName, record);
+                    else
+                        MergeAdditiveProtocolConformances(foreignDb, record.SwiftTypeName, record);
                 }
                 else
                 {
@@ -144,6 +164,55 @@ namespace BindingsGeneration
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Merges additive <see cref="TypeRecord.ProtocolConformances"/> from <paramref name="incoming"/>
+        /// into the existing canonical record for <paramref name="name"/> without overwriting any
+        /// other field. Identity fields (C# type, frozen, kind, etc.) on the canonical record stay
+        /// authoritative — the parser-side product record produced by a consumer module's
+        /// `extension StdlibType: SomeProtocol` declaration carries only the additive conformance
+        /// edge, not the canonical layout/marshalling metadata.
+        ///
+        /// Conformance list semantics: a populated canonical list is treated as authoritative by
+        /// <see cref="ConcreteProtocolSpecializationEmitter"/> (the CSM filter walks it transitively
+        /// to verify `S.Element : SomeProtocol` bounds). A null canonical list means "unverifiable"
+        /// — the filter fails closed for every protocol, so adopting just the incoming additive list
+        /// is a strict improvement (the additive edge becomes verifiable; previously-unverifiable
+        /// stdlib edges remain unverifiable, same fail-closed posture as before).
+        /// </summary>
+        internal static void MergeAdditiveProtocolConformances(
+            ModuleTypeDatabase foreignDb,
+            SwiftTypeName name,
+            TypeRecord incoming)
+        {
+            if (incoming.ProtocolConformances is not { Count: > 0 } incomingList)
+                return;
+            if (!foreignDb.TryGetTypeRecord(name, out var existing))
+                return;
+
+            var existingList = existing.ProtocolConformances;
+            if (existingList is null)
+            {
+                foreignDb.RegisterType(name, existing with { ProtocolConformances = new List<SwiftTypeName>(incomingList) });
+                return;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var n in existingList)
+                seen.Add(n.ModuleQualifiedName);
+
+            List<SwiftTypeName>? merged = null;
+            foreach (var n in incomingList)
+            {
+                if (!seen.Add(n.ModuleQualifiedName))
+                    continue;
+                merged ??= new List<SwiftTypeName>(existingList);
+                merged.Add(n);
+            }
+
+            if (merged is not null)
+                foreignDb.RegisterType(name, existing with { ProtocolConformances = merged });
         }
 
         /// <summary>
@@ -161,7 +230,10 @@ namespace BindingsGeneration
         {
             if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
             {
-                moduleDatabase.RegisterType(swiftTypeName, record);
+                if (!moduleDatabase.IsTypeProcessed(swiftTypeName))
+                    moduleDatabase.RegisterType(swiftTypeName, record);
+                else
+                    MergeAdditiveProtocolConformances(moduleDatabase, swiftTypeName, record);
             }
         }
 

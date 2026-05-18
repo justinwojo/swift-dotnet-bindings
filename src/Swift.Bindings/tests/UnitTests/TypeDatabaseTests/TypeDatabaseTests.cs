@@ -1094,6 +1094,216 @@ public class TypeDatabaseTests
             Assert.Same(nestedRecord, resolved);
         }
 
+        [Fact]
+        public void AddModuleDatabase_CrossModuleRecord_DoesNotOverwriteExistingForeignRecord()
+        {
+            // Regression: a consumer that declares `extension UInt8: SomeProtocol {}` emits a
+            // parser-side product record for Swift.UInt8 into its own database (with the consumer's
+            // namespace pattern — e.g. CSharpTypeName="Swift.UInt8"). The cross-module re-home
+            // must NOT overwrite the canonical SwiftDatabase.xml record (CSharpTypeName="System.Byte")
+            // already loaded in the foreign module's database — otherwise emission falls back to
+            // raw Swift names (`Swift.UInt8` instead of `byte`) in every downstream usage.
+            var typeDatabase = new TypeDatabase();
+            var moduleA = new ModuleTypeDatabase("A", "/fake/A.dylib");
+            var sharedTypeName = SwiftTypeName.FromModuleQualifiedName("A.SharedType");
+            var canonicalRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Canonical.Namespace", "SharedType"),
+                SwiftTypeName = sharedTypeName,
+                MetadataAccessor = "canonicalAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            };
+            moduleA.RegisterType(sharedTypeName, canonicalRecord);
+            typeDatabase.AddModuleDatabase(moduleA);
+
+            var moduleB = new ModuleTypeDatabase("B", "/fake/B.dylib");
+            var consumerBogusRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("A", "SharedType"),
+                SwiftTypeName = sharedTypeName,
+                MetadataAccessor = "consumerAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            };
+            moduleB.RegisterType(sharedTypeName, consumerBogusRecord);
+            typeDatabase.AddModuleDatabase(moduleB);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(sharedTypeName, out var resolved));
+            Assert.Same(canonicalRecord, resolved);
+        }
+
+        [Fact]
+        public void AddModuleDatabase_QueuedRecord_DoesNotOverwriteExistingForeignRecord()
+        {
+            // Reverse-order variant of the regression: consumer B (with the bogus parser-side
+            // product record) loads before foreign A. The record is queued under "A". When A
+            // is loaded next, A's own canonical record is already registered before the drain
+            // runs — the drain must skip the queued duplicate, not clobber the canonical entry.
+            var typeDatabase = new TypeDatabase();
+
+            var moduleB = new ModuleTypeDatabase("B", "/fake/B.dylib");
+            var sharedTypeName = SwiftTypeName.FromModuleQualifiedName("A.SharedType");
+            var consumerBogusRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("A", "SharedType"),
+                SwiftTypeName = sharedTypeName,
+                MetadataAccessor = "consumerAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            };
+            moduleB.RegisterType(sharedTypeName, consumerBogusRecord);
+            typeDatabase.AddModuleDatabase(moduleB);
+
+            var moduleA = new ModuleTypeDatabase("A", "/fake/A.dylib");
+            var canonicalRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Canonical.Namespace", "SharedType"),
+                SwiftTypeName = sharedTypeName,
+                MetadataAccessor = "canonicalAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            };
+            moduleA.RegisterType(sharedTypeName, canonicalRecord);
+            typeDatabase.AddModuleDatabase(moduleA);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(sharedTypeName, out var resolved));
+            Assert.Same(canonicalRecord, resolved);
+        }
+
+        [Fact]
+        public void AddModuleDatabase_CrossModuleRecord_MergesAdditiveProtocolConformances()
+        {
+            // Codex round-2 Medium regression: a third-party module `Ext` declares
+            // `extension UInt8: NeedsByte` and emits a parser-side product Swift.UInt8 record
+            // with ProtocolConformances=[Ext.NeedsByte]. The cross-module re-home must NOT
+            // discard that additive conformance — otherwise the CSM associated-type filter,
+            // which walks `TypeRecord.ProtocolConformances` to verify
+            // `where S.Element : NeedsByte`, will reject specializations Swift accepts.
+            var typeDatabase = new TypeDatabase();
+            var swiftModule = new ModuleTypeDatabase("Swift", "/fake/Swift.dylib");
+            var uint8Name = SwiftTypeName.FromModuleQualifiedName("Swift.UInt8");
+            var existingConformance = SwiftTypeName.FromModuleQualifiedName("Swift.Numeric");
+            var canonicalRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Byte"),
+                SwiftTypeName = uint8Name,
+                MetadataAccessor = "canonicalAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                ProtocolConformances = new[] { existingConformance },
+            };
+            swiftModule.RegisterType(uint8Name, canonicalRecord);
+            typeDatabase.AddModuleDatabase(swiftModule);
+
+            var extModule = new ModuleTypeDatabase("Ext", "/fake/Ext.dylib");
+            var additiveConformance = SwiftTypeName.FromModuleQualifiedName("Ext.NeedsByte");
+            var extProductRecord = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "UInt8"),
+                SwiftTypeName = uint8Name,
+                MetadataAccessor = "extAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                ProtocolConformances = new[] { additiveConformance },
+            };
+            extModule.RegisterType(uint8Name, extProductRecord);
+            typeDatabase.AddModuleDatabase(extModule);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(uint8Name, out var resolved));
+            // Identity fields stay canonical — System.Byte, not Swift.UInt8.
+            Assert.Equal("byte", resolved.CSharpTypeName.FullyQualifiedName);
+            Assert.Equal("canonicalAccessor", resolved.MetadataAccessor);
+            // Both conformances visible to the CSM filter.
+            Assert.NotNull(resolved.ProtocolConformances);
+            Assert.Contains(resolved.ProtocolConformances!, n => n.ModuleQualifiedName == "Swift.Numeric");
+            Assert.Contains(resolved.ProtocolConformances!, n => n.ModuleQualifiedName == "Ext.NeedsByte");
+        }
+
+        [Fact]
+        public void AddModuleDatabase_QueuedRecord_MergesAdditiveProtocolConformances()
+        {
+            // Reverse-load-order variant: Ext loads before Swift. The Ext product is queued.
+            // When Swift loads, the drain finds the canonical record already present and must
+            // merge the queued additive conformance instead of dropping it.
+            var typeDatabase = new TypeDatabase();
+            var uint8Name = SwiftTypeName.FromModuleQualifiedName("Swift.UInt8");
+            var additiveConformance = SwiftTypeName.FromModuleQualifiedName("Ext.NeedsByte");
+
+            var extModule = new ModuleTypeDatabase("Ext", "/fake/Ext.dylib");
+            extModule.RegisterType(uint8Name, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "UInt8"),
+                SwiftTypeName = uint8Name,
+                MetadataAccessor = "extAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                ProtocolConformances = new[] { additiveConformance },
+            });
+            typeDatabase.AddModuleDatabase(extModule);
+
+            var swiftModule = new ModuleTypeDatabase("Swift", "/fake/Swift.dylib");
+            var existingConformance = SwiftTypeName.FromModuleQualifiedName("Swift.Numeric");
+            swiftModule.RegisterType(uint8Name, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Byte"),
+                SwiftTypeName = uint8Name,
+                MetadataAccessor = "canonicalAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                ProtocolConformances = new[] { existingConformance },
+            });
+            typeDatabase.AddModuleDatabase(swiftModule);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(uint8Name, out var resolved));
+            Assert.Equal("byte", resolved.CSharpTypeName.FullyQualifiedName);
+            Assert.NotNull(resolved.ProtocolConformances);
+            Assert.Contains(resolved.ProtocolConformances!, n => n.ModuleQualifiedName == "Swift.Numeric");
+            Assert.Contains(resolved.ProtocolConformances!, n => n.ModuleQualifiedName == "Ext.NeedsByte");
+        }
+
+        [Fact]
+        public void AddModuleDatabase_CrossModuleRecord_MergesAdditive_WhenCanonicalHasNullConformances()
+        {
+            // Canonical record's ProtocolConformances is null (legacy database / field absent).
+            // The CSM filter treats null as "unverifiable / fail closed" for every protocol, so
+            // adopting the incoming list (just the additive edge) is a strict improvement:
+            // the additive conformance becomes verifiable; previously-unverifiable stdlib edges
+            // stay unverifiable (same fail-closed posture as before).
+            var typeDatabase = new TypeDatabase();
+            var uint8Name = SwiftTypeName.FromModuleQualifiedName("Swift.UInt8");
+            var swiftModule = new ModuleTypeDatabase("Swift", "/fake/Swift.dylib");
+            swiftModule.RegisterType(uint8Name, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Byte"),
+                SwiftTypeName = uint8Name,
+                MetadataAccessor = "canonicalAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                ProtocolConformances = null,
+            });
+            typeDatabase.AddModuleDatabase(swiftModule);
+
+            var additiveConformance = SwiftTypeName.FromModuleQualifiedName("Ext.NeedsByte");
+            var extModule = new ModuleTypeDatabase("Ext", "/fake/Ext.dylib");
+            extModule.RegisterType(uint8Name, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "UInt8"),
+                SwiftTypeName = uint8Name,
+                MetadataAccessor = "extAccessor",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                ProtocolConformances = new[] { additiveConformance },
+            });
+            typeDatabase.AddModuleDatabase(extModule);
+
+            Assert.True(typeDatabase.TryGetTypeRecord(uint8Name, out var resolved));
+            Assert.Equal("byte", resolved.CSharpTypeName.FullyQualifiedName);
+            Assert.NotNull(resolved.ProtocolConformances);
+            Assert.Single(resolved.ProtocolConformances!);
+            Assert.Equal("Ext.NeedsByte", resolved.ProtocolConformances![0].ModuleQualifiedName);
+        }
+
         /// <summary>
         /// Points to the runtime XML databases directory via relative path from the test output.
         /// </summary>

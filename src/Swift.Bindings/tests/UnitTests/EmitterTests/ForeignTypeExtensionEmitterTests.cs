@@ -158,6 +158,46 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Equal(1, ctx.ForeignExtEmittedCount);
     }
 
+    [Fact]
+    public void ProcessForeignTypeExtensions_FrozenStructPropertyGetter_Skipped()
+    {
+        // UIKit.UIEdgeInsets is a frozen struct from a UIKit extension on UILabel;
+        // the wrapper switch has no FrozenStruct arm so accepting it produces an empty
+        // C# body and a void-return P/Invoke. TryProcessProperty must reject FrozenStruct
+        // for parity with TryProcessMethod.
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var uikitModule = new ModuleTypeDatabase("UIKit", "/System/Library/Frameworks/UIKit.framework/UIKit");
+        uikitModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("UIKit.UIEdgeInsets"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("UIKit", "UIEdgeInsets"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIEdgeInsets"),
+                MetadataAccessor = "$sSo12UIEdgeInsetsVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(uikitModule);
+
+        var property = CreateExtMethod("skeletonPaddingInsets",
+            "public var skeletonPaddingInsets: UIKit.UIEdgeInsets { get set }");
+        property.IsProperty = true;
+        property.HasSetter = true;
+
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UILabel"] = new() { property }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+    }
+
     #endregion
 
     #region ProcessForeignTypeExtensions: method with void return

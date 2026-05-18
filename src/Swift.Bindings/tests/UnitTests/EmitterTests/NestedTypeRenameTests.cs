@@ -231,6 +231,131 @@ public class NestedTypeRenameTests
         Assert.Equal("Container.Settings", settingsRecord!.CSharpTypeName.Name);
     }
 
+    [Fact]
+    public void PrecomputeNestedTypeRenames_TargetHasOwnChildWithSameName_AppendsExtraTypeSuffix()
+    {
+        // Reproduces StripeApplePay's Card.Wallet shape:
+        //   struct Card {
+        //     var wallet: Wallet      // collides with sibling type Wallet
+        //     struct Wallet {
+        //       enum WalletType { ... } // would collide with renamed `Wallet → WalletType`
+        //     }
+        //   }
+        // The rename must skip "WalletType" (claimed by Wallet's own child) and pick
+        // "WalletTypeType" instead. Without this guard, the C# emission trips CS0542
+        // ("member names cannot be the same as their enclosing type").
+        var typeDatabase = new TypeDatabase();
+        var depModule = new ModuleTypeDatabase("DepLib", "/tmp/DepLib.dylib");
+
+        var cardSwiftName = SwiftTypeName.FromModuleQualifiedName("DepLib.Card");
+        depModule.RegisterType(cardSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DepLib", "Card"),
+            SwiftTypeName = cardSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var walletSwiftName = SwiftTypeName.FromModuleQualifiedName("DepLib.Card.Wallet");
+        depModule.RegisterType(walletSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DepLib", "Card.Wallet"),
+            SwiftTypeName = walletSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct
+        });
+
+        var walletTypeSwiftName = SwiftTypeName.FromModuleQualifiedName("DepLib.Card.Wallet.WalletType");
+        depModule.RegisterType(walletTypeSwiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("DepLib", "Card.Wallet.WalletType"),
+            SwiftTypeName = walletTypeSwiftName,
+            MetadataAccessor = "$sMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+            Kind = TypeRecordKind.Enum
+        });
+
+        typeDatabase.AddModuleDatabase(depModule);
+
+        var depModuleDecl = new ModuleDecl
+        {
+            Name = "DepLib",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var walletTypeDecl = CreateStructDecl("WalletType", walletTypeSwiftName, depModuleDecl);
+        var walletDecl = new StructDecl
+        {
+            Name = "Wallet",
+            SwiftTypeName = walletSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { walletTypeDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = depModuleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        walletTypeDecl.ParentDecl = walletDecl;
+
+        var cardDecl = new StructDecl
+        {
+            Name = "Card",
+            SwiftTypeName = cardSwiftName,
+            MangledName = "$sN",
+            Properties = new List<PropertyDecl>
+            {
+                new()
+                {
+                    Name = "wallet",
+                    SwiftTypeSpec = new NamedTypeSpec("DepLib.Card")
+                    {
+                        InnerType = new NamedTypeSpec("Wallet")
+                    },
+                    IsStatic = false,
+                    HasStorage = true,
+                    Accessors = new List<AccessorDecl>(),
+                    ParentDecl = null,
+                    ModuleDecl = depModuleDecl
+                }
+            },
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl> { walletDecl },
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = depModuleDecl,
+            ModuleDecl = depModuleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        walletDecl.ParentDecl = cardDecl;
+        depModuleDecl.Types.Add(cardDecl);
+
+        NameProvider.PrecomputeNestedTypeRenames(depModuleDecl, typeDatabase);
+
+        // Wallet must NOT be renamed to "WalletType" (Wallet has a child enum with that name).
+        Assert.True(typeDatabase.TryGetTypeRecord(walletSwiftName, out var walletRecord));
+        Assert.Equal("Card.WalletTypeType", walletRecord!.CSharpTypeName.Name);
+        // The child enum's path must cascade with the renamed parent.
+        Assert.True(typeDatabase.TryGetTypeRecord(walletTypeSwiftName, out var innerRecord));
+        Assert.Equal("Card.WalletTypeType.WalletType", innerRecord!.CSharpTypeName.Name);
+    }
+
     private static StructDecl CreateStructDecl(string name, SwiftTypeName swiftName, ModuleDecl moduleDecl)
     {
         return new StructDecl

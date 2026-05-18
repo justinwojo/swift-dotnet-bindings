@@ -2081,12 +2081,28 @@ public class EveryProtocolEmitter
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
         var returnTypeName = hasReturn ? GetSwiftTypeName(returnType!) : "Void";
         var returnTypeNameForMetatype = hasReturn ? GetSwiftTypeNameForMetatype(returnType!) : "Void";
+        // `async` must be propagated to the conformance declaration ONLY for the
+        // EveryObjCProtocol path (NSObject-rooted twin used for @objc protocols):
+        // @objc async requirements bridge to ObjC `:completion:`-suffixed selectors,
+        // and swiftc rejects sync candidates with "candidate is not 'async', but
+        // '@objc' protocol requirement is".
+        //
+        // For pure-Swift protocols (EveryProtocol base, `_useObjCBase == false`),
+        // a sync candidate trivially satisfies an async requirement (sync = "never
+        // suspends"). Emitting `async` here is not just unnecessary — it actively
+        // breaks any sibling/child protocol whose SYNC requirement was being
+        // satisfied by member-inheritance from this same conformance (e.g.
+        // Kingfisher.ImageDownloadRequestModifier has a sync `modified(for:)`
+        // satisfied by the inherited sync witness from
+        // AsyncImageDownloadRequestModifier; marking the parent witness `async`
+        // breaks the child's empty-body conformance).
+        var asyncDecl = (method.IsAsync && _useObjCBase) ? " async" : "";
         var throwsDecl = (effectiveThrows ?? method.Throws) ? " throws" : "";
         var returnDecl = hasReturn ? $" -> {returnTypeName}" : "";
 
         var fieldName = GetMethodVtableFieldName(method, index);
 
-        writer.WriteLine($"public func {method.Name}({parametersString}){throwsDecl}{returnDecl} {{");
+        writer.WriteLine($"public func {method.Name}({parametersString}){asyncDecl}{throwsDecl}{returnDecl} {{");
         writer.Indent++;
 
         // Build argument copies for passing to vtable function

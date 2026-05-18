@@ -560,6 +560,35 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void InlineSwiftStructAllowlist_FoundationData_IsISwiftObjectEligibleForIndirectReturn()
+    {
+        // Foundation.Data → Swift.Foundation.Data is an ISwiftObject inline struct, so a
+        // method whose generic return is specialized to Foundation.Data is allowed to use
+        // the indirect-result return path that allocates via `GetSwiftTypeSize<T>()`
+        // (constrained to `T : ISwiftObject`).
+        var (isInline, isISwiftObject) = ConcreteProtocolSpecializationEmitter
+            .GetInlineSwiftStructIndirectReturnEligibilityForTesting("Foundation.Data");
+        Assert.True(isInline);
+        Assert.True(isISwiftObject);
+    }
+
+    [Fact]
+    public void InlineSwiftStructAllowlist_FoundationUUID_IsNotISwiftObjectAndRejectedForIndirectReturn()
+    {
+        // Foundation.UUID → System.Guid: System.Guid is unmanaged blittable (valid as a
+        // parameter via `(IntPtr)(&guid)`) but does NOT implement ISwiftObject. Emitting
+        // `SwiftMarshal.GetSwiftTypeSize<System.Guid>()` on the indirect-result path would
+        // fail the `T : ISwiftObject` constraint at compile time. The allowlist entry must
+        // record IsISwiftObject=false so the indirect-result-is-ISwiftObject gate in
+        // `CanEmitConcreteOverloadForPairing` rejects a generic-return UUID specialization
+        // upstream rather than producing uncompilable C#.
+        var (isInline, isISwiftObject) = ConcreteProtocolSpecializationEmitter
+            .GetInlineSwiftStructIndirectReturnEligibilityForTesting("Foundation.UUID");
+        Assert.True(isInline);
+        Assert.False(isISwiftObject);
+    }
+
+    [Fact]
     public void ComputePairingCount_WeatherKitPathology_ExceedsCap()
     {
         // Reproduces the WeatherKit.WeatherService.weather<T1..T6> blow-up where every

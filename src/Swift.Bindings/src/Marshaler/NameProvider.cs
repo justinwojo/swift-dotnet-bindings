@@ -1105,8 +1105,13 @@ public static class NameProvider
                     // `offer` property) would rename to `OfferType` and clash with the existing
                     // sibling `Transaction.OfferType` struct that is itself the renamed target
                     // of the `offerType` property — yielding CS0102 / CS0542.
+                    // Also reject collision with the renamed type's OWN child names — a child
+                    // sharing the new leaf name trips CS0542 ("member names cannot be the
+                    // same as their enclosing type"), e.g. Swift `Card.Wallet` renamed to
+                    // `WalletType` while it already contains a nested enum `WalletType`.
+                    var ownChildNames = new HashSet<string>(nestedType.Types.Select(t => t.Name));
                     var newLeafName = csPropertyName + "Type";
-                    while (takenNames.Contains(newLeafName))
+                    while (takenNames.Contains(newLeafName) || ownChildNames.Contains(newLeafName))
                         newLeafName += "Type";
 
                     var oldCSharpName = nestedRecord.CSharpTypeName.Name;

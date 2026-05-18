@@ -188,7 +188,10 @@ public static class ForeignTypeExtensionEmitter
 
         // Determine return category
         var returnCategory = ClassifyReturnType(propertyTypeSpec, typeDatabase);
-        if (returnCategory == null)
+        // FrozenStruct has no arm in this emitter's wrapper or C# body switches —
+        // accepting it produces an empty C# body and a void-return P/Invoke. Mirror
+        // the explicit FrozenStruct rejection that TryProcessMethod applies.
+        if (returnCategory == null || returnCategory == ReturnKind.FrozenStruct)
         {
             logger.LogDebug("Skipping foreign extension property {Type}.{Name}: unsupported return type '{TypeStr}'",
                 foreignTypeQualifiedName, extMethod.MethodName, afterColon);

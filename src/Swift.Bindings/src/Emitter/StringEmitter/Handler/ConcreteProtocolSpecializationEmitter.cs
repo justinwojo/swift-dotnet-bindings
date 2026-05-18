@@ -1087,7 +1087,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // Foundation.Data (and future allowlisted value structs): unmanaged
                         // blittable struct, so &arg is directly usable within an unsafe block —
                         // no `fixed` required. Swift loads via pointee on the other side.
-                        var csTypeName = InlineSwiftStructAllowlist[matchedConformer.SwiftQualifiedName];
+                        var csTypeName = InlineSwiftStructAllowlist[matchedConformer.SwiftQualifiedName].CSharpType;
                         publicParams.Add($"{csTypeName} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"(IntPtr)(&{csName})");
@@ -1515,16 +1515,53 @@ public static partial class ConcreteProtocolSpecializationEmitter
         InlineSwiftStruct
     }
 
-    // Conformers whose C# binding is a hand-written ISwiftObject value struct. These
-    // bypass the ObjC/native-bridged rejection in TryEmitConcreteOverload because their
-    // NativeTypeName (e.g. Foundation.Data → NSData) is an implementation detail of how
-    // we bridge into Foundation, not a signal that the C# side lacks a pinnable layout.
-    // Maps Swift qualified name → fully-qualified C# type used for emission (public
-    // parameter type and `fixed (T* p = &v)` binding), since the generated binding file
-    // doesn't `using Swift.Foundation`.
-    private static readonly Dictionary<string, string> InlineSwiftStructAllowlist = new(StringComparer.Ordinal)
+    // Per-entry metadata for the inline-struct allowlist.
+    //
+    // CSharpType:     fully-qualified C# type emitted for parameter declarations and the
+    //                 `(IntPtr)(&v)` pin-pass. Generated binding files don't `using
+    //                 Swift.Foundation`, so the value-type identity needs to be explicit.
+    // IsISwiftObject: whether the C# type implements ISwiftObject. Controls eligibility
+    //                 for the indirect-result return path: `SwiftMarshal.GetSwiftTypeSize<T>()`
+    //                 is constrained to `T : ISwiftObject`, so non-ISwiftObject entries
+    //                 (e.g. System.Guid) MUST be rejected by the indirect-result gate
+    //                 in `CanEmitConcreteOverloadForPairing` even though they are valid
+    //                 inline-struct parameter conformers.
+    private readonly record struct InlineSwiftStructInfo(string CSharpType, bool IsISwiftObject);
+
+    /// <summary>
+    /// Test-only contract assertion: returns whether the given Swift qualified name is a
+    /// known inline-struct conformer whose C# binding implements ISwiftObject (and is
+    /// therefore eligible for the indirect-result return path that relies on
+    /// <c>SwiftMarshal.GetSwiftTypeSize&lt;T&gt;()</c>'s <c>T : ISwiftObject</c> constraint).
+    /// Returns <c>(false, false)</c> for names not in the allowlist.
+    /// </summary>
+    internal static (bool IsInlineStruct, bool IsISwiftObject) GetInlineSwiftStructIndirectReturnEligibilityForTesting(string swiftQualifiedName)
+        => InlineSwiftStructAllowlist.TryGetValue(swiftQualifiedName, out var info)
+            ? (true, info.IsISwiftObject)
+            : (false, false);
+
+    // Conformers whose C# binding is a blittable value-type (rather than a class with
+    // SafeHandle) and therefore gets pin-and-pass marshalling instead of
+    // `.Payload.DangerousGetHandle()`. Two flavors live here:
+    //   • Hand-written ISwiftObject value structs we own (e.g. Foundation.Data → the
+    //     Swift.Foundation.Data inline struct in Swift.Runtime). The NativeTypeName
+    //     (NSData) is just how we bridge into Foundation, not a signal that the C# side
+    //     lacks a pinnable layout. IsISwiftObject = true (eligible for indirect-return).
+    //   • .NET built-in value types remapped from Foundation primitives (Foundation.UUID
+    //     → System.Guid). Both Swift.Foundation.UUID (frozen 16-byte struct) and
+    //     System.Guid (16-byte unmanaged struct) share the same byte-level layout under
+    //     the convention `*(System.Guid*)uuidBytes` already used by
+    //     ConstrainedExtensionEmitter's FoundationUUID return shape. Without this entry,
+    //     the conformer falls into the FrozenStruct arm and emits
+    //     `guid.Payload.DangerousGetHandle()` — CS1061 since Guid has no Payload.
+    //     IsISwiftObject = false: indirect-result paths would emit
+    //     `GetSwiftTypeSize<System.Guid>()` which fails the `T : ISwiftObject` constraint
+    //     at compile time, so generic-return UUID specializations are rejected upstream
+    //     by the indirect-result-is-ISwiftObject gate.
+    private static readonly Dictionary<string, InlineSwiftStructInfo> InlineSwiftStructAllowlist = new(StringComparer.Ordinal)
     {
-        ["Foundation.Data"] = "global::Swift.Foundation.Data"
+        ["Foundation.Data"] = new("global::Swift.Foundation.Data", IsISwiftObject: true),
+        ["Foundation.UUID"] = new("System.Guid", IsISwiftObject: false)
     };
 
     private static ConformerCategory ClassifyConformerForSwiftParam(
@@ -1677,10 +1714,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 needsIndirectResult = true;
                 var category = ClassifyConformerForCSharp(returnConformer!, typeDatabase);
+                // Indirect result allocates with `GetSwiftTypeSize<T>()` (T : ISwiftObject).
+                // InlineSwiftStruct conformers are mixed: Foundation.Data maps to an
+                // ISwiftObject (Swift.Foundation.Data) — safe; Foundation.UUID maps to
+                // System.Guid — NOT an ISwiftObject — emission would fail the constraint.
+                // Consult the allowlist's IsISwiftObject flag rather than treating the
+                // category as a single bucket.
+                bool inlineIsSwiftObject = category == ConformerCategory.InlineSwiftStruct
+                    && InlineSwiftStructAllowlist.TryGetValue(
+                        returnConformer!.SwiftQualifiedName, out var inlineInfo)
+                    && inlineInfo.IsISwiftObject;
                 indirectReturnIsSwiftObject = category is
                     ConformerCategory.NonFrozenStruct
                     or ConformerCategory.Class
-                    or ConformerCategory.InlineSwiftStruct;
+                    || inlineIsSwiftObject;
             }
             else if (!isConstructor)
             {
