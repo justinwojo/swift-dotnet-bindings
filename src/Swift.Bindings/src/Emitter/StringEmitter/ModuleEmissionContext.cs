@@ -306,6 +306,26 @@ public sealed class ModuleEmissionContext
     /// <summary>Adds multiple Swift wrapper lines for protocol extensions.</summary>
     public void AddProtocolExtWrapperLines(IEnumerable<string> lines) => _protocolExtWrapperLines.AddRange(lines);
 
+    // ==================== KeyPath Singleton Containers ====================
+    //
+    // Session 4 — module-level dedup for typed KeyPath singleton containers. Two
+    // PAT-constrained generic parents may demand the same (conformer, bag) pair
+    // (e.g., two different consumer methods that both take
+    // KeyPath<Item.LibraryFilter, *>). Each parent's emission pass walks demand
+    // independently, so without module-level dedup we would re-emit the same
+    // top-level C# container class and the same `SBW_KP_…` Swift @_cdecl symbols,
+    // tripping CS0102 (duplicate member) on the C# side or "duplicate symbol" at
+    // link time on the Swift side. Key shape: `{conformer-qualified}|{bag-qualified}`.
+
+    private readonly HashSet<string> _emittedKeyPathSingletonContainers = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Registers a (conformer, bag) KeyPath singleton container for this module.
+    /// Returns true if newly added; false if another generic parent already emitted it.
+    /// </summary>
+    public bool TryAddKeyPathSingletonContainer(string key) =>
+        _emittedKeyPathSingletonContainers.Add(key);
+
     // ==================== Foreign Type Extension ====================
 
     private readonly List<string> _foreignExtWrapperLines = new();

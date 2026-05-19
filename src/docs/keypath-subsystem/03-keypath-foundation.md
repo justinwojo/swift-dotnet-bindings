@@ -1,5 +1,8 @@
 # Session 3 — KeyPath foundation: opaque pass-through end-to-end
 
+**Status: complete — landed in commit `26dcdcb6`.**
+Follow-up surfaced (not blocking — captured in `src/docs/roadmap.md`): C#-side `inout` write-back for blittable structs (Swift round-trips fine via SBW; generated C# call site copies struct into a stack buffer without reading back). KeyPath fixture worked around it by returning a mutated copy.
+
 The structural session of the subsystem. After it ships, the C# generator can receive a `KeyPath<Root, Value>` from a Swift API, hold it via a SafeHandle, and pass it back into another Swift API — all five flavors of the KeyPath class hierarchy round-trip through the binding boundary with correct ARC, equality, and Optional composition.
 
 No typed singleton construction yet (that's Session 4). Just the foundation: type records, projection, runtime helper, marshalling, end-to-end opaque pass-through.

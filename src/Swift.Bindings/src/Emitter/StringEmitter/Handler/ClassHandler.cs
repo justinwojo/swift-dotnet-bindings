@@ -413,6 +413,15 @@ namespace BindingsGeneration
                     ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
                         csWriter, swiftWriter, classDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+
+                    // Session 4 — typed KeyPath singleton trampolines for closed
+                    // conformers whose nested associated-type bag is referenced as a
+                    // KeyPath Root in any of this generic parent's methods. Same
+                    // emission window as CSM extensions: namespace-scope, after the
+                    // parent class body is closed.
+                    KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
+                        csWriter, swiftWriter, classDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
 
                 // Emit P/Invoke helper class(es) after the main class.

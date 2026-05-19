@@ -358,6 +358,14 @@ namespace BindingsGeneration
                     ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+
+                    // Session 4 — typed KeyPath singleton trampolines, same window as
+                    // CSM emission. The fixture's Bag<Item: Session4_Filterable> lives
+                    // on this path (non-frozen generic struct), so the hook is
+                    // mandatory here for the runtime tests to find their singletons.
+                    KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
+                        csWriter, swiftWriter, structDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
 
                 // Emit P/Invoke helper class(es) after the main class.

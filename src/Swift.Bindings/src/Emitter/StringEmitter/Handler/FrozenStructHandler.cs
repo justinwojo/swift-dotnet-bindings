@@ -440,6 +440,14 @@ namespace BindingsGeneration
                     ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+
+                    // Session 4 — typed KeyPath singleton trampolines for closed
+                    // conformers. Frozen generic structs reach this handler whenever
+                    // their generic parameters lift them out of the value-type path;
+                    // singletons emit at the same window as CSM.
+                    KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
+                        csWriter, swiftWriter, structDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
 
                 // Emit P/Invoke helper class(es) after the main struct.
