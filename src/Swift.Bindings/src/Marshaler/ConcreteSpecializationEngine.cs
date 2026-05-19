@@ -531,14 +531,35 @@ public class ConcreteSpecializationEngine
 
         foreach (var method in typeDecl.Methods)
         {
-            if (!method.IsGeneric) continue;
-
-            // Find method-own generic params (not inherited from parent type)
+            // Find method-own generic params (not inherited from parent type). Methods
+            // on a generic parent may carry parent-inherited entries in their
+            // GenericParameters list (see cross-level coupling at the bottom of the
+            // method-own block) so we filter explicitly rather than gating on
+            // method.IsGeneric — that gate would mis-classify a plain sync method on
+            // a PAT-constrained generic parent as ineligible for parent-only CSM.
             var ownParams = method.GenericParameters
                 .Where(p => !parentParamNames.Contains(p.TypeName))
                 .ToList();
 
-            if (ownParams.Count == 0) continue;
+            // Parent-only path: method has no own generics but the parent is generic
+            // and every parent generic resolved cleanly. Build a SpecializableMethod
+            // whose only specializable dimension is the parent-conformer cartesian.
+            // The emitter's methodParams.Count == 0 branch in
+            // EmitConcreteSpecializationsForGenericParent emits one overload per
+            // parent tuple; the sync-eligibility predicate already handles the
+            // ownParamCount==0 case (parity check 0 != 0 is false). Sync-only for
+            // session 2 — async/static/accessor/constructor are filtered at the
+            // emitter and predicate sites, so it's harmless to register them here.
+            if (ownParams.Count == 0)
+            {
+                if (parentSpecializableParams is null) continue;
+                result.Add(new SpecializableMethod(method,
+                    new List<SpecializableParam>(parentSpecializableParams)));
+                continue;
+            }
+
+            // Original path requires at least one method-own generic. method.IsGeneric
+            // is implied here (ownParams.Count > 0 forces GenericParameters.Count > 0).
 
             var ownParamNames = new HashSet<string>(
                 ownParams.Select(p => p.TypeName), StringComparer.Ordinal);
@@ -794,6 +815,8 @@ public class ConcreteSpecializationEngine
             var usable = conformers
                 .Where(c => c.CSharpType != null && !IsCSharpPrimitiveType(c.CSharpType))
                 .Where(c => ConformerSatisfiesAssociatedTypes(c, associatedConstraints))
+                .Where(c => !IsEnumConformer(c))
+                .Where(c => !IsBlittableStructConformer(c))
                 .ToList();
             if (usable.Count == 0) return null;
 
@@ -911,6 +934,50 @@ public class ConcreteSpecializationEngine
             "nint" or "nuint" or "decimal" or "string" => true,
             _ => false
         };
+    }
+
+    // Drop Swift enum conformers from parent-generic specialization. The CSM emitter
+    // closes the parent type over the conformer (e.g. `EquatableContainer<EnumKind>`)
+    // and the parent's C# binding carries `where T : ISwiftObject` whenever the
+    // generic param has any non-marker protocol conformance (seeded by
+    // GenericTypeEmitter). Simple/raw-value enums emit as plain C# `enum` value
+    // types with no ISwiftObject impl → CS0315. Single-case no-payload enums are
+    // skipped entirely → CS0234. This filter prevents opening a per-conformer
+    // CSM extension class for which no overload can possibly emit, which would
+    // leave a noisy empty class in the generated output AND would mislead the sync
+    // eligibility predicate. Complex enums (associated-value cases) do project to
+    // ISwiftObject classes, but ABI-discovered conformers of stdlib protocols are
+    // dominantly the simple raw-value shape — uniformly rejecting Enum kind here
+    // matches `ClassifyConformerStructurally`'s conservative behaviour. Hint-only
+    // conformers without a resolved SwiftType are conservatively kept (no record
+    // to consult); the structural classifier still gates them downstream.
+    private bool IsEnumConformer(ConcreteConformer conformer)
+    {
+        if (conformer.SwiftType is null) return false;
+        return _typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record)
+            && record.Kind == TypeRecordKind.Enum;
+    }
+
+    // Drop frozen-trivial-layout struct conformers (e.g. `@frozen struct SummableInt32
+    // { let value: Int32 }`) from parent-generic specialization. These project to
+    // C# `struct`s that DO satisfy `where T : ISwiftObject`, but the CSM emitter
+    // can only render conformer args through `.Payload.DangerousGetHandle()`
+    // (SafeHandle-backed projection) or the InlineSwiftStruct allowlist (pin-and-pass
+    // via `(IntPtr)(&v)`, currently Foundation.Data / Foundation.UUID only). A
+    // frozen + non-memory-managed struct is emitted as a C# value struct with no
+    // Payload member, so the default emitter arm would produce CS1061. Mirrors the
+    // structural reject in `ClassifyConformerStructurally.BlittableStructProjection`
+    // so the engine doesn't seed a parent tuple whose per-conformer extension class
+    // would emit zero overloads. Auto-detected pin-and-pass for this shape is a
+    // distinct, larger emitter feature.
+    private bool IsBlittableStructConformer(ConcreteConformer conformer)
+    {
+        if (conformer.SwiftType is null) return false;
+        if (!_typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record))
+            return false;
+        return record.Kind == TypeRecordKind.Struct
+            && record.Flags.HasFlag(TypeRecordFlags.Frozen)
+            && !record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
     }
 
     private static Dictionary<string, List<ConcreteConformer>> LoadHints()

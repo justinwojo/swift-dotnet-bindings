@@ -511,6 +511,55 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void FindSpecializableMethods_ParentOnlyPlainMethod_ReturnsParentSpecs()
+    {
+        // Parent-only CSM: `Bag<T: Processable>.attach(text: String)`.
+        // The method has no own generics; every CSM dimension is driven by the parent.
+        // Before the fix, FindSpecializableMethods filtered the method out at the
+        // `ownParams.Count == 0` early continue, leaving the wired-but-unreached
+        // `methodParams.Count == 0` branch in EmitConcreteSpecializationsForGenericParent
+        // un-fed. After the fix, the method registers with only parent-generic specs.
+        var db = new ResolvingTypeDatabase();
+        var conformerTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem");
+        db.Register(conformerTypeName, "TestLib", "ConcreteItem");
+
+        var engine = new ConcreteSpecializationEngine(db);
+
+        var moduleDecl = CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable");
+        engine.IndexModuleConformances(moduleDecl);
+
+        var typeDecl = CreateGenericStructWithParentOnlyPlainMethod(
+            "Bag", "attach", "TestLib.Processable");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Single(result);
+        Assert.Equal("attach", result[0].Method.Name);
+        Assert.Single(result[0].SpecializableParams);
+        Assert.True(result[0].SpecializableParams[0].IsParentGeneric,
+            "Sole specializable param should be flagged IsParentGeneric (no method-own generics).");
+        Assert.Equal("TestLib.Processable", result[0].SpecializableParams[0].ConstraintProtocol.ToString());
+    }
+
+    [Fact]
+    public void FindSpecializableMethods_ParentOnlyPlainMethod_NonResolvableParent_ReturnsEmpty()
+    {
+        // Parent-only methods require the parent's PAT generic to have hint-resolved
+        // conformers. Without any conformer in the engine, ResolveParentSpecializableParams
+        // returns null and the method is correctly NOT registered — protecting the emitter
+        // from being fed a SpecializableMethod with no usable cartesian.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+
+        // No module is indexed → no conformers for TestLib.UnknownProtocol.
+        var typeDecl = CreateGenericStructWithParentOnlyPlainMethod(
+            "Bag", "attach", "TestLib.UnknownProtocol");
+
+        var result = engine.FindSpecializableMethods(typeDecl);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public void ComputePairingCount_SingleParam_ReturnsConformerCount()
     {
         var specParams = new List<ConcreteSpecializationEngine.SpecializableParam>
@@ -1150,6 +1199,71 @@ public class ConcreteSpecializationEngineTests
         };
 
         ctor.ParentDecl = structDecl;
+        return structDecl;
+    }
+
+    /// <summary>
+    /// Builds <c>struct {typeName}&lt;T : {protocolName}&gt; { public func {methodName}(text: String) }</c>.
+    /// The parent declares one PAT-constrained generic param; the method has no own generics
+    /// and references no generic types in its signature — the canonical shape that exercises
+    /// the parent-only sync CSM path. Matches the production fixture
+    /// <c>BindingTests/.../Generics/PatParentOnlyMethods.swift</c>.
+    /// </summary>
+    private static StructDecl CreateGenericStructWithParentOnlyPlainMethod(
+        string typeName, string methodName, string protocolName)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(protocolName);
+
+        // Parent's generic param `T : protocol` lives at depth 0 on the struct.
+        var parentConformance = new GenericParameterConformance(
+            new[] { "τ_0_0" }, protocolTypeName, ConformanceKind.Protocol);
+
+        var parentGenericParam = new GenericArgumentDecl(
+            "τ_0_0", "T",
+            new List<GenericParameterConformance> { parentConformance },
+            new List<GenericParameterConformance>());
+
+        // Plain instance method with no own generics — empty GenericParameters list.
+        // Signature: `func attach(text: String)` → returns Void, single Swift.String arg.
+        var method = new MethodDecl
+        {
+            Name = methodName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s{typeName}{methodName}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { Name = "", PrivateName = "", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new TupleTypeSpec(new List<TypeSpec>()), IsGeneric = false },
+                new() { Name = "text", PrivateName = "text", IsInOut = false, ParentDecl = null, ModuleDecl = null, SwiftTypeSpec = new NamedTypeSpec("Swift.String"), IsGeneric = false }
+            },
+            AvailabilityAnnotations = null
+        };
+
+        var structDecl = new StructDecl
+        {
+            Name = typeName,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{typeName}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl> { parentGenericParam },
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { method },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null
+        };
+
+        method.ParentDecl = structDecl;
         return structDecl;
     }
 

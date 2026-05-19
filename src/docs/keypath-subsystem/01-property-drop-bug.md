@@ -1,5 +1,7 @@
 # Session 1 — Property-drop bug on PAT-constrained generic parents
 
+**Status: complete — landed in commit `fef9c065`.**
+
 Co-deferred gap 3 from `00-overview.md`. Independent of KeyPath. Smallest unit of work in the subsystem and lands first because it (a) restores diagnostic visibility for a silently-dropped class of properties and (b) is a prerequisite for any property emission on `MusicLibraryRequest<T>` (Session 6).
 
 ## Goal

@@ -1597,7 +1597,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase) =>
         ClassifyConformerForSwiftParam(conformer, typeDatabase);
 
-    internal enum StructuralEmitReject { None, NestedType, ObjCBridged }
+    internal enum StructuralEmitReject { None, NestedType, ObjCBridged, NonISwiftObjectConformer, BlittableStructProjection }
 
     // Per-conformer structural gate used by TryEmitConcreteOverload's preflight AND by
     // IsCsmSyncEligibleForGenericParent. Keeping this single source of truth means the
@@ -1620,6 +1620,45 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 || MarshallingHelpers.IsObjCRooted(record)))
             return StructuralEmitReject.ObjCBridged;
 
+        // Reject Swift enum conformers. The CSM emitter targets parent types whose
+        // C# binding carries a `where T : ISwiftObject` constraint (seeded by
+        // GenericTypeEmitter for any non-marker protocol conformance on the parent
+        // generic). Simple/raw-value Swift enums emit as plain C# `enum` value types
+        // with no ISwiftObject impl, and single-case no-payload enums are not emitted
+        // at all (TypeMetadata.Size == 0). Closing `Container<T>` over either kind
+        // either fails CS0315 at the constraint or CS0234 at the missing type. Complex
+        // enums (associated-value cases) DO project to C# classes that implement
+        // ISwiftObject, but ABI-discovered conformers of stdlib protocols like
+        // Equatable are dominantly the simple raw-value shape; rejecting Enum kind
+        // uniformly is the conservative behaviour matching the rest of the CSM
+        // preflight. Complex-enum conformer support can be added behind a narrower
+        // gate later if a real consumer needs it.
+        if (conformer.SwiftType != null &&
+            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var enumRecord) &&
+            enumRecord.Kind == TypeRecordKind.Enum)
+            return StructuralEmitReject.NonISwiftObjectConformer;
+
+        // Reject frozen-trivial-layout struct conformers (e.g. `@frozen struct
+        // SummableInt32 { let value: Int32 }`). These project to C# `struct`s that
+        // DO implement ISwiftObject (so the parent constraint is satisfied), but
+        // the CSM emitter's only struct-conformer arms today are the SafeHandle
+        // `.Payload.DangerousGetHandle()` path (class-projected frozen structs and
+        // non-frozen structs) and the InlineSwiftStruct allowlist (pin-and-pass
+        // via `(IntPtr)(&v)`, currently scoped to hand-written Foundation.Data /
+        // Foundation.UUID). A frozen + non-memory-managed struct emits as a C#
+        // value `struct` with no Payload member — emitting `item.Payload.DangerousGetHandle()`
+        // gives CS1061. Auto-detected pin-and-pass for this shape is a real
+        // emission feature; until it's wired through, reject these conformers
+        // structurally so the parent-only sync CSM path doesn't widen into a
+        // category the emitter can't render.
+        if (conformer.SwiftType != null &&
+            typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var structRecord) &&
+            structRecord.Kind == TypeRecordKind.Struct &&
+            structRecord.Flags.HasFlag(TypeRecordFlags.Frozen) &&
+            !structRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement) &&
+            !InlineSwiftStructAllowlist.ContainsKey(conformer.SwiftQualifiedName))
+            return StructuralEmitReject.BlittableStructProjection;
+
         return StructuralEmitReject.None;
     }
 
@@ -1638,7 +1677,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         out string? rejectReason)
     {
-        // Per-conformer structural gate: no nested-type or ObjC-bridged conformers.
+        // Per-conformer structural gate: no nested-type or ObjC-bridged conformers,
+        // and no Swift enum conformers (their C# binding either lacks ISwiftObject —
+        // simple/raw-value enums — or isn't emitted at all — single-case no-payload).
         foreach (var (_, conformer) in pairing)
         {
             switch (ClassifyConformerStructurally(conformer, typeDatabase))
@@ -1648,6 +1689,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     return false;
                 case StructuralEmitReject.ObjCBridged:
                     rejectReason = $"ObjC/native-bridged conformer '{conformer.SwiftQualifiedName}' lacks Payload accessor";
+                    return false;
+                case StructuralEmitReject.NonISwiftObjectConformer:
+                    rejectReason = $"Swift enum conformer '{conformer.SwiftQualifiedName}' does not satisfy `where T : ISwiftObject` constraint of generic parent";
+                    return false;
+                case StructuralEmitReject.BlittableStructProjection:
+                    rejectReason = $"frozen-trivial-layout struct conformer '{conformer.SwiftQualifiedName}' projects to C# value `struct` (no Payload member) — CSM emitter lacks pin-and-pass for this shape";
                     return false;
             }
         }
@@ -1762,6 +1809,40 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (HasNonGenericParamReferencingGeneric(method, pairing))
         {
             rejectReason = "non-generic param references generic type";
+            return false;
+        }
+
+        // `inout` params: the per-conformer @_cdecl wrapper emitter renders params as
+        // by-value (no `inout` Swift prefix, no `&` at the call site, no `ref` on the
+        // C# P/Invoke). The Swift wrapper would fail to compile (argument label/value
+        // mismatch with the underlying method that takes `inout`), leaving the
+        // CallConvCdecl symbol absent from the dylib and the generated C# P/Invoke
+        // pointing at a missing entry point. BoundGenericsHandler already handles
+        // inout-on-generic-parent via the open-generic emission path; defer to it.
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (arg.HasDefaultArg) continue;
+            if (arg.IsInOut || arg.SwiftTypeSpec.IsInOut)
+            {
+                rejectReason = "inout parameter not supported by CSM emitter";
+                return false;
+            }
+        }
+
+        // Sibling-overload C# signature collision: the CSM emitter's dedup key is
+        // {C# method name | param public-CSharp-types} — argument labels are dropped.
+        // Two Swift methods with the same base name but different labels (e.g.
+        // `index(after: Int) -> Int` and `index(before: Int) -> Int`) collapse to
+        // identical dedup keys and one is silently dropped, stripping its surface.
+        // BoundGenericsHandler emits these via the open-generic path with sibling-
+        // aware C# collision suffixes (`Index` + `Index2`); defer to it so both
+        // siblings survive. Constructors don't collide here because their CSM C#
+        // name is `From{Conformers}` (pairing-derived), not pascal-cased Swift name.
+        if (!isConstructor && HasUnresolvableCsmSiblingCollision(method, parentTypeDecl, pairing, typeDatabase))
+        {
+            rejectReason = "sibling overload would collide under CSM dedup (different argument labels collapse to identical C# signature)";
             return false;
         }
 
@@ -2075,6 +2156,43 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 return true;
             if (!string.IsNullOrEmpty(parentGeneric.SugaredTypeName) &&
                 string.Equals(parentGeneric.SugaredTypeName, name, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns true when this method shares a CSM dedup key with another method on the
+    /// same parent. The CSM emitter's <see cref="BuildCSharpSignatureKey"/> uses
+    /// {C# method name | param public-CSharp-types} — argument labels are not part of
+    /// the key, so two Swift methods that differ only by label (e.g.
+    /// <c>index(after: Int) -> Int</c> and <c>index(before: Int) -> Int</c>) hash to
+    /// the same key and one is silently dropped, deleting its surface entirely. The
+    /// caller defers these to the BoundGenericsHandler open-generic emission, which
+    /// already disambiguates label-only siblings with C# collision suffixes
+    /// (<c>Index</c> + <c>Index2</c>).
+    /// </summary>
+    internal static bool HasUnresolvableCsmSiblingCollision(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        ITypeDatabase typeDatabase)
+    {
+        var thisCsName = NameProvider.ToPascalCase(method.Name);
+        var thisKey = BuildCSharpSignatureKey(thisCsName, method, pairing, typeDatabase);
+        foreach (var other in parentTypeDecl.Methods)
+        {
+            if (ReferenceEquals(other, method)) continue;
+            if (other.IsConstructor) continue;
+            if (other.IsAccessor) continue;
+            if (other.IsSubscriptAccessor) continue;
+            // Static-vs-instance overloads don't collide in CSM (extension-on-instance
+            // vs static helper land in different surfaces) — skip the shape mismatch.
+            if (other.MethodType != method.MethodType) continue;
+            var otherCsName = NameProvider.ToPascalCase(other.Name);
+            if (!string.Equals(otherCsName, thisCsName, StringComparison.Ordinal)) continue;
+            var otherKey = BuildCSharpSignatureKey(otherCsName, other, pairing, typeDatabase);
+            if (string.Equals(otherKey, thisKey, StringComparison.Ordinal))
                 return true;
         }
         return false;

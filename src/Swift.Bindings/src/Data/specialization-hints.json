@@ -75,6 +75,13 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.Cubby",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.StringCubby", "csharpType": "StringCubby" },
+        { "swiftType": "SwiftBindingsTestLib.IntCubby", "csharpType": "IntCubby" }
+      ]
+    },
+    {
       "protocol": "RoomPlan.CapturedRoomAttribute",
       "conformers": [
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.ChairType", "csharpType": "RoomPlan.ChairType" },
