@@ -248,6 +248,9 @@ tools/SwiftInterfaceParser/.build/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 
+# Orchestrator worker liveness state (runtime only)
+.agent/
+
 # LLVM profiling data
 *.profraw
 
