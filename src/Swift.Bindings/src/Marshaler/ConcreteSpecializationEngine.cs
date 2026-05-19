@@ -815,8 +815,8 @@ public class ConcreteSpecializationEngine
             var usable = conformers
                 .Where(c => c.CSharpType != null && !IsCSharpPrimitiveType(c.CSharpType))
                 .Where(c => ConformerSatisfiesAssociatedTypes(c, associatedConstraints))
-                .Where(c => !IsEnumConformer(c))
-                .Where(c => !IsBlittableStructConformer(c))
+                .Where(c => ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(c, _typeDatabase)
+                    == ConcreteProtocolSpecializationEmitter.StructuralEmitReject.None)
                 .ToList();
             if (usable.Count == 0) return null;
 
@@ -934,50 +934,6 @@ public class ConcreteSpecializationEngine
             "nint" or "nuint" or "decimal" or "string" => true,
             _ => false
         };
-    }
-
-    // Drop Swift enum conformers from parent-generic specialization. The CSM emitter
-    // closes the parent type over the conformer (e.g. `EquatableContainer<EnumKind>`)
-    // and the parent's C# binding carries `where T : ISwiftObject` whenever the
-    // generic param has any non-marker protocol conformance (seeded by
-    // GenericTypeEmitter). Simple/raw-value enums emit as plain C# `enum` value
-    // types with no ISwiftObject impl → CS0315. Single-case no-payload enums are
-    // skipped entirely → CS0234. This filter prevents opening a per-conformer
-    // CSM extension class for which no overload can possibly emit, which would
-    // leave a noisy empty class in the generated output AND would mislead the sync
-    // eligibility predicate. Complex enums (associated-value cases) do project to
-    // ISwiftObject classes, but ABI-discovered conformers of stdlib protocols are
-    // dominantly the simple raw-value shape — uniformly rejecting Enum kind here
-    // matches `ClassifyConformerStructurally`'s conservative behaviour. Hint-only
-    // conformers without a resolved SwiftType are conservatively kept (no record
-    // to consult); the structural classifier still gates them downstream.
-    private bool IsEnumConformer(ConcreteConformer conformer)
-    {
-        if (conformer.SwiftType is null) return false;
-        return _typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record)
-            && record.Kind == TypeRecordKind.Enum;
-    }
-
-    // Drop frozen-trivial-layout struct conformers (e.g. `@frozen struct SummableInt32
-    // { let value: Int32 }`) from parent-generic specialization. These project to
-    // C# `struct`s that DO satisfy `where T : ISwiftObject`, but the CSM emitter
-    // can only render conformer args through `.Payload.DangerousGetHandle()`
-    // (SafeHandle-backed projection) or the InlineSwiftStruct allowlist (pin-and-pass
-    // via `(IntPtr)(&v)`, currently Foundation.Data / Foundation.UUID only). A
-    // frozen + non-memory-managed struct is emitted as a C# value struct with no
-    // Payload member, so the default emitter arm would produce CS1061. Mirrors the
-    // structural reject in `ClassifyConformerStructurally.BlittableStructProjection`
-    // so the engine doesn't seed a parent tuple whose per-conformer extension class
-    // would emit zero overloads. Auto-detected pin-and-pass for this shape is a
-    // distinct, larger emitter feature.
-    private bool IsBlittableStructConformer(ConcreteConformer conformer)
-    {
-        if (conformer.SwiftType is null) return false;
-        if (!_typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var record))
-            return false;
-        return record.Kind == TypeRecordKind.Struct
-            && record.Flags.HasFlag(TypeRecordFlags.Frozen)
-            && !record.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement);
     }
 
     private static Dictionary<string, List<ConcreteConformer>> LoadHints()

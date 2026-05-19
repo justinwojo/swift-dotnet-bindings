@@ -1620,22 +1620,26 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 || MarshallingHelpers.IsObjCRooted(record)))
             return StructuralEmitReject.ObjCBridged;
 
-        // Reject Swift enum conformers. The CSM emitter targets parent types whose
-        // C# binding carries a `where T : ISwiftObject` constraint (seeded by
+        // Reject simple-enum and unemittable-enum conformers. The CSM emitter targets
+        // parent types whose C# binding carries `where T : ISwiftObject` (seeded by
         // GenericTypeEmitter for any non-marker protocol conformance on the parent
-        // generic). Simple/raw-value Swift enums emit as plain C# `enum` value types
-        // with no ISwiftObject impl, and single-case no-payload enums are not emitted
-        // at all (TypeMetadata.Size == 0). Closing `Container<T>` over either kind
-        // either fails CS0315 at the constraint or CS0234 at the missing type. Complex
-        // enums (associated-value cases) DO project to C# classes that implement
-        // ISwiftObject, but ABI-discovered conformers of stdlib protocols like
-        // Equatable are dominantly the simple raw-value shape; rejecting Enum kind
-        // uniformly is the conservative behaviour matching the rest of the CSM
-        // preflight. Complex-enum conformer support can be added behind a narrower
-        // gate later if a real consumer needs it.
+        // generic). Two enum shapes fail that constraint:
+        //   • SimpleEnum (no associated values, frozen, non-generic, integral or no
+        //     raw value): emits as a plain C# `enum` value type with no ISwiftObject
+        //     impl → CS0315 at the parent constraint.
+        //   • Unemittable (e.g. single-case no-payload, TypeMetadata.Size == 0): not
+        //     emitted at all → CS0234 at the missing type reference.
+        // Complex enums (associated-value cases) DO project to C# classes that
+        // implement ISwiftObject and render correctly through the SafeHandle
+        // `.Payload.DangerousGetHandle()` path used for class-projected conformers,
+        // so they must NOT be rejected here. Without this narrowing, every PAT-
+        // constrained parent whose only conformers are complex enums would have its
+        // parent-only CSM disabled even though the emitter can render them.
         if (conformer.SwiftType != null &&
             typeDatabase.TryGetTypeRecord(conformer.SwiftType, out var enumRecord) &&
-            enumRecord.Kind == TypeRecordKind.Enum)
+            enumRecord.Kind == TypeRecordKind.Enum &&
+            (enumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum) ||
+             enumRecord.Flags.HasFlag(TypeRecordFlags.Unemittable)))
             return StructuralEmitReject.NonISwiftObjectConformer;
 
         // Reject frozen-trivial-layout struct conformers (e.g. `@frozen struct

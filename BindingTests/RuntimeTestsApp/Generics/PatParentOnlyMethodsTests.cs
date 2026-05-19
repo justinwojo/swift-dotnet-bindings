@@ -55,8 +55,11 @@ public class PatParentOnlyMethodsTests : TestBase
         // Track(amount:) takes a primitive Int32 arg, returns Int32, and
         // mutates self-state. The return value witnesses the per-call delta;
         // Read() witnesses the cumulative state. Distinct from Bump in that
-        // Track has a non-void return — exercises the indirect-result return
-        // path of the parent-only CSM emitter alongside the mutation.
+        // Track has a non-void return — exercises the direct-primitive return
+        // path of the parent-only CSM emitter alongside the mutation. (The
+        // indirect-result allocation/marshalling path is not exercised here:
+        // Int32 returns directly in a register; indirect-result coverage will
+        // come with a fixture whose return type closes over the parent generic.)
         using var bag = Functions.MakeCubbyBagStringCubby();
         var first = bag.Track(5);
         AssertEqual(5, first, "Track(5) returns 5");
