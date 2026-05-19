@@ -67,6 +67,62 @@ internal static class MethodValidationGates
     }
 
     /// <summary>
+    /// Variant of <see cref="HasUnsupportedProtocolConstraints(MethodEnvironment)"/> for use by
+    /// property accessor preflight. Treats every parent-baseline conformance as irrelevant —
+    /// supported or not — and only inspects constraints introduced by the accessor's own
+    /// generic-parameter list.
+    /// <para/>
+    /// A plain stored-property accessor on a generic parent does not introduce a new generic
+    /// context: its <c>MethodDecl.GenericParameters</c> mirrors the parent's, and its body
+    /// reads/writes a stored offset rather than dispatching through a witness table for the
+    /// PAT-constrained associated type. The parent type's emission already decides what to do
+    /// with its own where clause (drop unsupported constraints or carry supported ones), and
+    /// per-closed-conformer CSM emission resolves the witness tables when they're needed.
+    /// Blocking the property here would silently drop members like
+    /// <c>Bag&lt;Item: PatProto&gt;.limit: Int</c> whose accessor doesn't actually touch the PAT.
+    /// <para/>
+    /// Accessor-own constraints (constraints whose origin is the accessor's local generic-param
+    /// list, not the parent type's) still apply the standard "PAT/Self requirement blocks" rule
+    /// — those are accessor-level requirements the parent type's where clause cannot satisfy.
+    /// </summary>
+    public static bool HasAccessorOwnUnsupportedProtocolConstraints(MethodEnvironment methodEnv)
+        => HasAccessorOwnUnsupportedProtocolConstraints(methodEnv.MethodDecl, methodEnv.TypeDatabase);
+
+    /// <summary>
+    /// Overload that takes a <see cref="MethodDecl"/> + <see cref="ITypeDatabase"/> directly.
+    /// </summary>
+    public static bool HasAccessorOwnUnsupportedProtocolConstraints(MethodDecl methodDecl, ITypeDatabase typeDatabase)
+    {
+        if (!methodDecl.IsGeneric)
+            return false;
+
+        var parentTypeGenericParams = methodDecl.ParentDecl is TypeDecl parentType
+            ? parentType.GenericParameters
+            : null;
+
+        foreach (var param in methodDecl.GenericParameters)
+        {
+            foreach (var conformance in param.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                // Parent-baseline conformances are inherited from the parent type's generic
+                // parameter declaration — the accessor itself did not introduce them.
+                // Ignore unconditionally for property accessor preflight.
+                if (IsParentBaselineConstraint(param, conformance, parentTypeGenericParams))
+                    continue;
+
+                // Accessor-own constraint on a PAT/Self protocol: still blocks.
+                if (IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Determines whether a conformance is a "conditional extension constraint" —
     /// i.e., it appears on the method's generic parameters but NOT on the parent type's
     /// generic parameters for the same type parameter. These are constraints added by a

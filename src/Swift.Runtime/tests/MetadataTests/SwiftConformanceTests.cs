@@ -89,6 +89,23 @@ public class SwiftConformanceTests : IClassFixture<SwiftConformanceTests.TestFix
     }
 
     [Fact]
+    public static void LoadFromSymbol_FallsBackToFrameworkPath()
+    {
+        // The @rpath/{name}.framework/{name} fallback inside LoadFromSymbol exists for
+        // iOS device, where the DllImport resolver that maps library names to framework
+        // paths is registered on the binding assembly, not Swift.Runtime — so the bare
+        // name fails and the framework path succeeds. On the macOS test host the bare
+        // libswiftCore.dylib path resolves directly, so this test exercises (a) that
+        // adding the fallback didn't break the already-working bare-name path, and
+        // (b) that a completely fake library name still throws even after both attempts.
+        var descriptor = ProtocolDescriptor.LoadFromSymbol(SwiftCore, HashableMp);
+        Assert.True(descriptor.IsValid);
+
+        Assert.Throws<SwiftRuntimeException>(() =>
+            ProtocolDescriptor.LoadFromSymbol("CompletelyFakeLibrary", HashableMp));
+    }
+
+    [Fact]
     public static void ZeroIsInvalid()
     {
         Assert.False(ProtocolDescriptor.Zero.IsValid);

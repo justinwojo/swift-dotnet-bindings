@@ -92,7 +92,16 @@ public readonly struct ProtocolDescriptor : IEquatable<ProtocolDescriptor>
         {
             if (!NativeLibrary.TryLoad(libraryName, typeof(ProtocolDescriptor).Assembly, null, out libraryHandle))
             {
-                throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
+                // Fallback: try @rpath framework path. On iOS device, the DllImport resolver
+                // that maps library names to framework paths is registered on the binding
+                // assembly, not Swift.Runtime. NativeLibrary.TryLoad with the bare name
+                // won't find it, but the @rpath framework path will. Mirrors the sibling
+                // fallback in ProtocolConformanceDescriptor.LoadFromSymbol.
+                var frameworkPath = $"@rpath/{libraryName}.framework/{libraryName}";
+                if (!NativeLibrary.TryLoad(frameworkPath, out libraryHandle))
+                {
+                    throw new SwiftRuntimeException($"Unable to load library: {libraryName}");
+                }
             }
 
             if (NativeLibrary.TryGetExport(libraryHandle, symbolName, out var handle))
@@ -104,6 +113,12 @@ public readonly struct ProtocolDescriptor : IEquatable<ProtocolDescriptor>
         }
         finally
         {
+            // The library handle is only needed to resolve the symbol export above; once
+            // TryGetExport returns the symbol address, the image stays loaded via dyld's
+            // reference count, so freeing this transient handle is safe. If this method
+            // is ever refactored to retain the library handle alongside the symbol, this
+            // unconditional Free becomes a use-after-free trap — return the handle in
+            // the success path before relaxing it.
             NativeLibrary.Free(libraryHandle);
         }
     }

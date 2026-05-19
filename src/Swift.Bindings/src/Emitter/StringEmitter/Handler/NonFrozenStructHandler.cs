@@ -223,6 +223,11 @@ namespace BindingsGeneration
                     if (skipReason != null)
                     {
                         ReportCollector.RecordMemberSkipped(propertyDecl, skipReason.Value, skipDetails ?? "");
+                        // Emit a `// Unsupported:` tombstone so consumers can grep the generated file
+                        // and see *why* the property is missing. Mirrors the SkipProperty pattern in
+                        // PropertyHandler.Emit — the outer gate here pre-empts that path, so without
+                        // this the omission is silent.
+                        UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, skipReason.Value, skipDetails);
                         continue;
                     }
 

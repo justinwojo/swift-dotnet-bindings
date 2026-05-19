@@ -179,8 +179,12 @@ public class PropertyHandlerTests
     }
 
     [Fact]
-    public void Emit_WithNoAccessors_EmitsNothing()
+    public void Emit_WithNoAccessors_EmitsTombstoneOnly()
     {
+        // A property with neither getter nor setter is skipped under
+        // SkipReason.UnsupportedType; with tombstone-restoration the skip now
+        // surfaces a visible `// Unsupported:` comment in the generated C#
+        // (no property body) so consumers can see *why* the property is missing.
         var typeDatabase = CreateTypeDatabaseWithInt();
         var moduleDecl = CreateModuleDeclForEmission("TestModule");
         var classDecl = CreateClassDeclForEmission("Counter", moduleDecl);
@@ -188,8 +192,8 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
+        Assert.Contains("'count'", csOutput);
     }
 
     [Fact]
@@ -306,8 +310,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     [Fact]
@@ -329,8 +332,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     [Fact]
@@ -345,8 +347,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     [Fact]
@@ -370,8 +371,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     [Fact]
@@ -410,8 +410,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     [Fact]
@@ -437,8 +436,7 @@ public class PropertyHandlerTests
 
         var (csOutput, swiftOutput) = EmitProperty(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     [Fact]
@@ -1209,6 +1207,36 @@ public class PropertyHandlerTests
         return (csOutput.ToString(), swiftOutput.ToString());
     }
 
+    /// <summary>
+    /// Asserts that a property was skipped during emission with a visible
+    /// <c>// Unsupported:</c> tombstone in the generated C# output and no
+    /// property body. Matches the MethodHandler skip-pattern so consumers can
+    /// <c>grep</c> the generated source for omitted members.
+    /// <para/>
+    /// The "no property body" check strips every <c>// ...</c> line from the
+    /// output and asserts the remainder is whitespace — that way the workaround
+    /// description (which can mention words like "public") doesn't accidentally
+    /// trip a string-contains check on a different non-skip token.
+    /// </summary>
+    private static void AssertSkippedWithTombstone(string csOutput, string swiftOutput)
+    {
+        Assert.Contains("// Unsupported:", csOutput);
+
+        // Tombstone-only emission: every non-blank line in csOutput must be a comment.
+        var nonCommentContent = string.Join(
+            "\n",
+            csOutput
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r'))
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .Where(l => !l.TrimStart().StartsWith("//", System.StringComparison.Ordinal)));
+        Assert.True(
+            nonCommentContent.Length == 0,
+            $"Expected tombstone-only output, but found non-comment content:\n{nonCommentContent}");
+
+        Assert.Equal(string.Empty, swiftOutput);
+    }
+
     private static void RegisterProtocol(TypeDatabase typeDatabase, string protocolName)
     {
         typeDatabase.AddOutOfModuleTypes(new[]
@@ -1666,8 +1694,7 @@ public class PropertyHandlerTests
         // Emit in a generic type context
         var (csOutput, swiftOutput) = EmitPropertyInGenericContext(property, typeDatabase);
 
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
     }
 
     private static (string csOutput, string swiftOutput) EmitPropertyInGenericContext(PropertyDecl property, TypeDatabase typeDatabase)
@@ -2170,9 +2197,10 @@ public class PropertyHandlerTests
         var property = CreateAsyncPropertyDecl(classDecl, moduleDecl, "value", "Swift.Int");
         var (csOutput, swiftOutput) = EmitPropertyInGenericContext(property, typeDatabase);
 
-        // Should skip — no C# or Swift output
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        // Should skip — emit only a `// Unsupported:` tombstone in the C# output
+        // (no property body) and nothing on the Swift side. WasEmitted must stay
+        // false; the skip-path SkipProperty does not flip the flag.
+        AssertSkippedWithTombstone(csOutput, swiftOutput);
         Assert.False(property.WasEmitted);
     }
 

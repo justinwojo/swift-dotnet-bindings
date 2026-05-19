@@ -78,7 +78,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var propertyDecl = propertyEnv.PropertyDecl;
         void SkipProperty(SkipReason reason, string details)
         {
+            // Record for binding-report.json AND emit an `// Unsupported:` tombstone in the
+            // generated C# so consumers can `grep` to see *why* the property is missing.
+            // Mirrors MethodHandler's skip pattern (UnsupportedCommentEmitter.EmitMemberSkipped).
+            // Does NOT touch propertyDecl.WasEmitted — that flag is only set after successful
+            // accessor emission downstream (line ~808 sync, ~1308 async).
             ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details);
         }
 
         // Pipeline: property-level bound generic gates (bare generic, non-ISwiftObject, unsatisfied constraint)
@@ -458,8 +464,16 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // Closed-static-factory bypass: parent-PAT constraints inherited by a static
                 // accessor whose return type is a fully closed bound generic of the parent
                 // are irrelevant — see ClosedStaticFactoryGate for the rule.
+                //
+                // For the general case, use the accessor-own variant of the predicate:
+                // parent-baseline conformances (those inherited from the parent type's
+                // generic-param declaration) are ignored regardless of whether the protocol
+                // is supported. The parent type's own where clause already governs them,
+                // and per-conformer CSM emission supplies witness tables when needed.
+                // Only constraints introduced by the accessor's OWN generic parameters
+                // (the standard MethodHandler case) still block here.
                 if (!ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(propertyDecl, accessor.Method)
-                    && MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv))
+                    && MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints(accessorEnv))
                 {
                     _logger.LogWarning($"PropertyHandler: Skipping property {propertyDecl.Name} because accessor {accessor.Method.Name} has unsupported protocol constraints.");
                     SkipProperty(SkipReason.GenericProtocolConstraint, $"Accessor '{accessor.Method.Name}' has constraints on protocols with associated types or self requirements.");
@@ -1238,7 +1252,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     {
         void SkipProperty(SkipReason reason, string details)
         {
+            // Mirror of the sync-path SkipProperty: record for binding-report.json and emit
+            // a tombstone in the generated C# so the omission is visible to consumers grepping
+            // the output. Does NOT touch WasEmitted (set only on the successful-emission
+            // path at the tail of this method).
             ReportCollector.RecordMemberSkipped(propertyDecl, reason, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, propertyDecl.Name, BindingItemKind.Property, reason, details);
         }
 
         // Async methods require [UnmanagedCallersOnly] callbacks which are illegal inside

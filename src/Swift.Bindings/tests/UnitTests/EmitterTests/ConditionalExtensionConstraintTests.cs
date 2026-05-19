@@ -172,6 +172,95 @@ public class ConditionalExtensionConstraintTests
         Assert.False(MethodValidationGates.HasUnsupportedProtocolConstraints(methodEnv));
     }
 
+    [Fact]
+    public void HasAccessorOwnUnsupportedProtocolConstraints_ParentBaseline_ProtocolWithAssociatedTypes_NowAllowed()
+    {
+        // Property-accessor variant: parent-baseline PAT constraints are inherited
+        // from the parent type's generic-parameter declaration and the accessor body
+        // does not introduce a new generic context. The general gate
+        // (HasUnsupportedProtocolConstraints) still blocks this case to preserve the
+        // method-emission contract, but the accessor-only variant must let it through
+        // so plain stored properties on PAT-constrained generic parents emit per
+        // closed conformer instead of being silently dropped.
+        var typeDatabase = CreateTypeDatabase(
+            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+
+        var moduleDecl = CreateModuleDecl("GRDB");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "GRDB.Cursor");
+
+        var accessor = CreateMethodDecl("getLimit", parentType, moduleDecl,
+            genericParams: new List<GenericArgumentDecl>
+            {
+                CreateGenericParam("τ_0_0", "T",
+                    ("GRDB.Cursor", ConformanceKind.Protocol))  // parent baseline — PAT
+            });
+
+        var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
+        Assert.False(MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints(accessorEnv));
+        // Sanity check: the general gate still blocks this scenario.
+        Assert.True(MethodValidationGates.HasUnsupportedProtocolConstraints(accessorEnv));
+    }
+
+    [Fact]
+    public void HasAccessorOwnUnsupportedProtocolConstraints_ParentBaseline_SupportedProtocol_Allowed()
+    {
+        // Supported parent-baseline protocols are still allowed — same as the
+        // general gate's behaviour.
+        var typeDatabase = CreateTypeDatabase(
+            ("GRDB.FetchableRecord", TypeRecordKind.Protocol, TypeRecordFlags.None));
+
+        var moduleDecl = CreateModuleDecl("GRDB");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "GRDB.FetchableRecord");
+
+        var accessor = CreateMethodDecl("getName", parentType, moduleDecl,
+            genericParams: new List<GenericArgumentDecl>
+            {
+                CreateGenericParam("τ_0_0", "T",
+                    ("GRDB.FetchableRecord", ConformanceKind.Protocol))
+            });
+
+        var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
+        Assert.False(MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints(accessorEnv));
+    }
+
+    [Fact]
+    public void HasAccessorOwnUnsupportedProtocolConstraints_AccessorOwnParam_ProtocolWithAssociatedTypes_StillBlocked()
+    {
+        // Accessor introduces its own generic parameter constrained on a PAT
+        // protocol (not inherited from the parent). The accessor-only variant
+        // must still block this — only parent-baseline conformances are
+        // filtered out.
+        var typeDatabase = CreateTypeDatabase(
+            ("GRDB.Cursor", TypeRecordKind.Protocol, TypeRecordFlags.HasAssociatedTypes));
+
+        var moduleDecl = CreateModuleDecl("GRDB");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
+
+        var accessor = CreateMethodDecl("process", parentType, moduleDecl,
+            genericParams: new List<GenericArgumentDecl>
+            {
+                CreateGenericParam("τ_0_0", "T", ("Swift.Equatable", ConformanceKind.Protocol)),
+                CreateGenericParam("τ_1_0", "U", ("GRDB.Cursor", ConformanceKind.Protocol))
+            });
+
+        var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
+        Assert.True(MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints(accessorEnv));
+    }
+
+    [Fact]
+    public void HasAccessorOwnUnsupportedProtocolConstraints_NonGenericMethod_ReturnsFalse()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("GRDB");
+        var parentType = CreateGenericStructDecl("Table", moduleDecl, "T", "Swift.Equatable");
+
+        var accessor = CreateMethodDecl("simpleAccessor", parentType, moduleDecl,
+            genericParams: new List<GenericArgumentDecl>());
+
+        var accessorEnv = new MethodEnvironment(accessor, typeDatabase);
+        Assert.False(MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints(accessorEnv));
+    }
+
     #endregion
 
     #region BoundGenericsHandler Constraint Tests

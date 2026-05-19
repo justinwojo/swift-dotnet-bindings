@@ -214,6 +214,12 @@ public readonly struct ProtocolConformanceDescriptor : IEquatable<ProtocolConfor
         }
         finally
         {
+            // The library handle is only needed to resolve the symbol export above; once
+            // TryGetExport returns the symbol address, the image stays loaded via dyld's
+            // reference count, so freeing this transient handle is safe. If this method
+            // is ever refactored to retain the library handle alongside the symbol, this
+            // unconditional Free becomes a use-after-free trap — return the handle in
+            // the success path before relaxing it.
             NativeLibrary.Free(libraryHandle);
         }
     }

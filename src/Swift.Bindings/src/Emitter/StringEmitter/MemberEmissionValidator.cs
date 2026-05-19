@@ -401,10 +401,15 @@ public static class MemberEmissionValidator
             // This affects type conversion behavior (e.g., native remapping is skipped for accessors)
             accessorMethod.IsAccessor = true;
 
-            // Check generic protocol constraints on accessor — parent-baseline constraints
-            // on SUPPORTED protocols are skipped (handled by type-level where clause).
-            // Unsupported protocols (PAT or Self) always block, even if parent-declared.
-            // Extra constraints (conditional extension) on supported protocols pass through.
+            // Check generic protocol constraints on accessor.
+            //
+            // Parent-baseline conformances (declared on the parent type's own generic params,
+            // e.g. `Bag<Item: BagItem>`) are ALWAYS skipped here — supported OR unsupported —
+            // because the type-level where clause carries them and CSM specializes per closed
+            // conformer. Only constraints the accessor adds on top of the parent baseline
+            // (e.g. `func foo<U: SomePAT>()`) can still block. This matches the policy in
+            // MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints and the
+            // sibling preflight in PropertyHandler.
             //
             // Closed-static-factory bypass: a STATIC property whose accessor takes no value
             // params and returns a fully closed bound generic of the parent nominal does NOT
@@ -412,32 +417,11 @@ public static class MemberEmissionValidator
             // are irrelevant — the Swift compiler resolves all metadata + PWTs at the
             // hard-coded concrete instantiation. See ClosedStaticFactoryGate for the rule.
             if (accessorMethod.IsGeneric &&
-                !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(property, accessorMethod))
+                !ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(property, accessorMethod) &&
+                MethodValidationGates.HasAccessorOwnUnsupportedProtocolConstraints(accessorMethod, typeDatabase))
             {
-                var parentTypeGenericParams = accessorMethod.ParentDecl is TypeDecl accessorParentType
-                    ? accessorParentType.GenericParameters
-                    : null;
-
-                foreach (var param in accessorMethod.GenericParameters)
-                {
-                    foreach (var conformance in param.GenericConformances)
-                    {
-                        if (conformance.Kind != ConformanceKind.Protocol)
-                            continue;
-
-                        // Skip parent-baseline constraints only when the protocol is supported
-                        if (!MethodValidationGates.IsConditionalExtensionConstraint(param, conformance, parentTypeGenericParams) &&
-                            !MethodValidationGates.IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
-                            continue;
-
-                        // Block if unsupported (associated types or Self)
-                        if (MethodValidationGates.IsUnsupportedProtocolConstraint(conformance.ConformanceTarget, typeDatabase))
-                        {
-                            skipDetails = $"Accessor '{accessorMethod.Name}' has constraints on protocols with associated types or self requirements.";
-                            return SkipReason.GenericProtocolConstraint;
-                        }
-                    }
-                }
+                skipDetails = $"Accessor '{accessorMethod.Name}' has constraints on protocols with associated types or self requirements.";
+                return SkipReason.GenericProtocolConstraint;
             }
 
             // Check bound generic constraints on accessor return type
