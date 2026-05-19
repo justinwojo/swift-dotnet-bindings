@@ -123,7 +123,7 @@ double progress = animationView.CurrentProgress;
 
 All generated C# — no manual wrapper code. These packages are published from [swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages).
 
-**Pre-built Apple framework bindings** (StoreKit 2, CryptoKit, MusicKit, WeatherKit, RoomPlan, WorkoutKit, TipKit, LiveCommunicationKit, FamilyControls, Translation, ProximityReader, ActivityKit, RealityKit, RealityFoundation) ship from the same repo as `SwiftBindings.Apple.{Framework}` — see [Apple frameworks in swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages#apple-frameworks) for the full list and version cadence.
+**Pre-built Apple framework bindings** (StoreKit 2, CryptoKit, MusicKit, WeatherKit, RoomPlan, WorkoutKit, TipKit, LiveCommunicationKit, FamilyControls, Translation, ProximityReader, ActivityKit, Matter, MatterSupport, RealityKit, RealityFoundation) ship from the same repo as `SwiftBindings.Apple.{Framework}` — see [Apple frameworks in swift-dotnet-packages](https://github.com/justinwojo/swift-dotnet-packages#apple-frameworks) for the full list and version cadence.
 
 ## Getting Started
 
