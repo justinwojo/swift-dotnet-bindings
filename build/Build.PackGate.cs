@@ -87,6 +87,8 @@ partial class Build
                     "Run `nuke compile` on a macOS host with the Swift toolchain installed " +
                     "(Xcode or the Command Line Tools) before exercising the pack gate.");
             }
+            // Parity with Pack: refuse to certify a single-arch artifact through the gate.
+            AssertUniversal2(stagedBinary);
 
             using var scope = new VersionScope(PackGateVersion, RootDirectory, PackGateAppleVersion);
 

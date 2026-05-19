@@ -55,6 +55,9 @@ partial class Build
                     "Run `nuke compile` on a macOS host with the Swift toolchain installed " +
                     "(Xcode or the Command Line Tools) before packing.");
             }
+            // Independent integrity check on what we ship: a single-arch binary would fail
+            // with "Bad CPU type" on whichever developer host doesn't match.
+            AssertUniversal2(stagedBinary);
 
             using var scope = new VersionScope(Version!, RootDirectory, AppleVersion);
 
