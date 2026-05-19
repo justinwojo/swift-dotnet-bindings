@@ -556,6 +556,7 @@ public class ProjectionVisitorTests
         public string Visit(TupleProjection p) => "TupleProjection";
         public string Visit(DateProjection p) => "DateProjection";
         public string Visit(ResultProjection p) => "ResultProjection";
+        public string Visit(KeyPathProjection p) => "KeyPathProjection";
     }
 
     #endregion

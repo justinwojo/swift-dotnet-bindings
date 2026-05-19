@@ -89,6 +89,30 @@
             <typedeclaration kind="struct" name="AnyHashable" module="Swift" mangledName="$ss11AnyHashableV" frozen="false" requiresMemoryManagement="true" />
         </entity>
         <!--
+            KeyPath family (Swift standard library reference types). Single-pointer ABI at the
+            C boundary; +1 retained on return, @guaranteed on parameter. Inheritance chain is
+            mirrored in the Swift.Runtime wrappers: AnyKeyPath <- PartialKeyPath<Root>
+            <- KeyPath<Root,Value> <- WritableKeyPath<Root,Value> <- ReferenceWritableKeyPath<Root,Value>.
+            Equality dispatches to AnyKeyPath.== via @_cdecl shim in SwiftBindingsRuntime - never
+            compare raw pointers (cross-module compilation can produce different objects for the
+            same logical key path). See src/docs/keypath-subsystem/.
+        -->
+        <entity managedNameSpace="Swift" managedTypeName="AnyKeyPath">
+            <typedeclaration kind="class" name="AnyKeyPath" module="Swift" mangledName="$ss10AnyKeyPathC" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="PartialKeyPath">
+            <typedeclaration kind="class" name="PartialKeyPath" module="Swift" mangledName="$ss14PartialKeyPathC" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="KeyPath">
+            <typedeclaration kind="class" name="KeyPath" module="Swift" mangledName="$ss7KeyPathC" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="WritableKeyPath">
+            <typedeclaration kind="class" name="WritableKeyPath" module="Swift" mangledName="$ss15WritableKeyPathC" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <entity managedNameSpace="Swift" managedTypeName="ReferenceWritableKeyPath">
+            <typedeclaration kind="class" name="ReferenceWritableKeyPath" module="Swift" mangledName="$ss24ReferenceWritableKeyPathC" frozen="false" requiresMemoryManagement="true" />
+        </entity>
+        <!--
             Stdlib protocols registered so FlattenConformances can emit a runtime PWT arg
             for generic params constrained on these protocols (instead of skipping the
             type with IndeterminatePwtShape). None project as a C# interface constraint —

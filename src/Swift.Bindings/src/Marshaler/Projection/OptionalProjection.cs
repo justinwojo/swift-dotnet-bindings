@@ -61,7 +61,7 @@ public class OptionalProjection : ITypeProjection
     /// the container element is an 8-byte pointer (0 = nil), not a SwiftOptional wrapper.
     /// </summary>
     public string SwiftContainerGenericType =>
-        _innerProjection is ClassProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection
+        _innerProjection is ClassProjection or KeyPathProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection
             ? "IntPtr"
             : $"SwiftOptional<{_innerProjection.SwiftContainerGenericType}>";
 
@@ -83,6 +83,9 @@ public class OptionalProjection : ITypeProjection
 
         if (_innerProjection is ClassProjection)
             return $"({elementVar} is {{ }} {patVar} ? {patVar}.Payload.DangerousGetHandle() : IntPtr.Zero)";
+        // KeyPath wrappers ARE the SafeHandle (no .Payload hop); nil-pointer-optimized like classes.
+        if (_innerProjection is KeyPathProjection)
+            return $"({elementVar} is {{ }} {patVar} ? {patVar}.DangerousGetHandle() : IntPtr.Zero)";
         if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
             return $"({elementVar} is {{ }} {patVar} ? {patVar}.Handle : IntPtr.Zero)";
 
@@ -108,6 +111,7 @@ public class OptionalProjection : ITypeProjection
     /// </summary>
     public bool ElementRequiresDisposal =>
         _innerProjection is not (ClassProjection
+            or KeyPathProjection
             or ObjCBridgedProjection
             or ObjCBridgeableProjection
             or ObjCRootedClassProjection);
@@ -169,6 +173,21 @@ public class OptionalProjection : ITypeProjection
                 {
                     new MarshalStatement.Line(
                         $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Payload.DangerousGetHandle() : IntPtr.Zero;")
+                },
+                PInvokeExpression = $"{paramName}Buffer"
+            };
+        }
+
+        // KeyPath wrappers ARE the SafeHandle (no .Payload). Otherwise identical to the
+        // ClassProjection nullable-pointer ABI path above.
+        if (_innerProjection is KeyPathProjection)
+        {
+            return new MarshalPlan
+            {
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.DangerousGetHandle() : IntPtr.Zero;")
                 },
                 PInvokeExpression = $"{paramName}Buffer"
             };

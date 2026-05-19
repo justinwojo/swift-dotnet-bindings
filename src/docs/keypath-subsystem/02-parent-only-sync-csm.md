@@ -1,5 +1,10 @@
 # Session 2 — Parent-only sync CSM (Concrete Specialization Machinery)
 
+**Status: complete — landed in commits `48b08ec9` + `dbbb8239`.**
+Deferred follow-ups (preflight-guarded, defer until a real consumer hits them):
+- CSM emitter sibling-collision-suffix logic — currently deferred to BoundGenericsHandler via `HasUnresolvableCsmSiblingCollision` preflight reject.
+- CSM emitter `inout`-param support — currently deferred to BoundGenericsHandler via inout preflight reject.
+
 Co-deferred gap 1 from `00-overview.md`. Independent of KeyPath but on the critical path for re-enabling `MusicLibraryRequest<T>` (Session 6). Engine-level work that unblocks any future PAT-constrained generic parent with no-method-own-generics methods.
 
 ## Goal

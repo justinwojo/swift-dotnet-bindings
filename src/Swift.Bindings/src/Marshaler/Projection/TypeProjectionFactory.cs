@@ -288,6 +288,26 @@ public class TypeProjectionFactory
             return new ResultProjection(successProjection, failureProjection);
         }
 
+        // Swift KeyPath family — reference classes with single-pointer ABI at the @_cdecl
+        // boundary. Same shape as Swift.Array/Dictionary/Result (handled by name above the
+        // generic class fallback) so Optional<KeyPath<R,V>> composes correctly. Generic args
+        // are projected for the public C# type only; runtime marshalling is opaque pass-through.
+        if (KeyPathFamilyArities.TryGetValue(name, out var expectedKeyPathArity) &&
+            namedType.GenericParameters.Count == expectedKeyPathArity)
+        {
+            var genericArgPublicTypes = new List<string>(expectedKeyPathArity);
+            foreach (var gp in namedType.GenericParameters)
+            {
+                var argProjection = Project(gp, context with { IsParameter = false });
+                if (argProjection == null)
+                    return null;
+                genericArgPublicTypes.Add(argProjection.PublicType);
+            }
+            // Strip the "Swift." module prefix for the bare class short name.
+            var shortName = name.Substring("Swift.".Length);
+            return new KeyPathProjection(shortName, genericArgPublicTypes);
+        }
+
         // Well-known simple types
         if (name == "Swift.Bool")
             return new BoolProjection();
@@ -521,7 +541,22 @@ public class TypeProjectionFactory
     /// These should not be resolved via the bound-generic optional fallback.
     /// </summary>
     private static bool IsStdlibContainer(string name) =>
-        name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.Optional" or "Swift.Result";
+        name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set" or "Swift.Optional" or "Swift.Result"
+            or "Swift.AnyKeyPath" or "Swift.PartialKeyPath" or "Swift.KeyPath"
+            or "Swift.WritableKeyPath" or "Swift.ReferenceWritableKeyPath";
+
+    /// <summary>
+    /// Generic-parameter arity for each Swift KeyPath family class. Used to gate the
+    /// KeyPath projection branch in <see cref="ProjectNamedType"/>.
+    /// </summary>
+    private static readonly Dictionary<string, int> KeyPathFamilyArities = new()
+    {
+        { "Swift.AnyKeyPath", 0 },
+        { "Swift.PartialKeyPath", 1 },
+        { "Swift.KeyPath", 2 },
+        { "Swift.WritableKeyPath", 2 },
+        { "Swift.ReferenceWritableKeyPath", 2 },
+    };
 
     /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple ObjC classes.

@@ -1288,6 +1288,10 @@ public partial class ProtocolProxyEmitter
             // Class: OptionalProjection.SwiftContainerGenericType returns "IntPtr" (nil-pointer-optimized),
             // so optType=IntPtr and we pass a raw IntPtr handle.
             ClassProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.Payload.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",
+            // KeyPath: same shape as ClassProjection but the wrapper IS the SafeHandle (no
+            // .Payload indirection). OptionalProjection still uses IntPtr as the container
+            // generic type because KeyPaths are nil-pointer-optimized reference classes.
+            KeyPathProjection => $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({varName}Val.DangerousGetHandle()) : SwiftOptional<{optType}>.NewNone())",
             // NonFrozenStruct: optType IS the typed wrapper (NonFrozenStructProjection.SwiftContainerGenericType
             // returns _typeName). SwiftOptional<TWrapper>.NewSome takes the typed wrapper directly so
             // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value via VWT.

@@ -735,6 +735,45 @@ public func sbw_setStringInsert(
     return result.inserted
 }
 
+// MARK: - AnyKeyPath Equality & Hash
+//
+// Swift's `AnyKeyPath.==` static operator (mangled `$ss10AnyKeyPathC2eeoiySbAB_ABtFZ`)
+// and `hashValue` property accessor (`$ss10AnyKeyPathC9hashValueSivg`) both use
+// CallConvSwift on libswiftCore. Direct P/Invoke into stdlib statics under Mono
+// iOS Simulator contaminates JIT state in ways we keep paying for in unrelated
+// places — the routing pattern used by SBW_SwiftRelease applies cleanly here:
+// C# crosses one Cdecl boundary into our own loaded dylib, the actual Swift-side
+// call happens inside Swift.
+//
+// Reference identity is NOT a valid equality test for AnyKeyPath: cross-module
+// compilation (the Apple-binding scenario) can produce two distinct AnyKeyPath
+// instances that represent the same logical path. Swift's `==` handles this by
+// structural comparison; the C# wrapper's `Equals`/`GetHashCode` delegate here.
+
+/// Compares two `AnyKeyPath` instances using Swift's `AnyKeyPath.==`.
+/// Pointers are borrowed (caller holds the +1 retain on both). Null inputs are
+/// treated as unequal — the C# wrapper short-circuits before calling.
+@_cdecl("SBW_AnyKeyPath_Equals")
+public func sbw_anyKeyPathEquals(
+    _ a: UnsafeRawPointer,
+    _ b: UnsafeRawPointer
+) -> Bool {
+    let kpA = Unmanaged<AnyKeyPath>.fromOpaque(a).takeUnretainedValue()
+    let kpB = Unmanaged<AnyKeyPath>.fromOpaque(b).takeUnretainedValue()
+    return kpA == kpB
+}
+
+/// Returns `AnyKeyPath.hashValue` truncated to 32 bits. The C# wrapper uses this
+/// to satisfy `object.GetHashCode()`'s int contract while preserving the "equal
+/// values produce equal hashes" invariant — `truncatingIfNeeded` is value-
+/// preserving for the low 32 bits and the C# side compares full equality via
+/// SBW_AnyKeyPath_Equals before relying on hash collisions.
+@_cdecl("SBW_AnyKeyPath_HashValue")
+public func sbw_anyKeyPathHashValue(_ keyPath: UnsafeRawPointer) -> Int32 {
+    let kp = Unmanaged<AnyKeyPath>.fromOpaque(keyPath).takeUnretainedValue()
+    return Int32(truncatingIfNeeded: kp.hashValue)
+}
+
 // MARK: - SwiftUI.Text Construction Bridge
 
 // SwiftUI.Text is not available in the Mac Catalyst SDK interface (macabi swiftinterface

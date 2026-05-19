@@ -399,6 +399,7 @@ public class TypeProjectionFactoryTests
         public bool Visit(TupleProjection p) => false;
         public bool Visit(DateProjection p) => false;
         public bool Visit(ResultProjection p) => false;
+        public bool Visit(KeyPathProjection p) => false;
     }
 
     #endregion

@@ -162,11 +162,12 @@ public class TupleProjection : ITypeProjection
     /// <c>GetReturnPlan</c> wraps via MarshalFromSwiftObject, and
     /// <c>GetReturnElementConversion</c> returns null (so the tuple cannot delegate to it).
     /// Covers pure-Swift <see cref="ClassProjection"/>, ObjC-rooted
-    /// <see cref="ObjCRootedClassProjection"/>, and non-frozen struct/complex-enum
-    /// <see cref="NonFrozenStructProjection"/>.
+    /// <see cref="ObjCRootedClassProjection"/>, non-frozen struct/complex-enum
+    /// <see cref="NonFrozenStructProjection"/>, and the Swift KeyPath family
+    /// (<see cref="KeyPathProjection"/>), which all share the IntPtr-via-MarshalFromSwiftObject shape.
     /// </summary>
     private static bool IsRawPointerClassProjection(ITypeProjection p)
-        => p is ClassProjection or ObjCRootedClassProjection or NonFrozenStructProjection;
+        => p is ClassProjection or ObjCRootedClassProjection or NonFrozenStructProjection or KeyPathProjection;
 
     private static string RawPointerClassLift(ITypeProjection p, string elementVar)
         => $"({p.PublicType})SwiftMarshal.MarshalFromSwiftObject<{p.PublicType}>({elementVar})";

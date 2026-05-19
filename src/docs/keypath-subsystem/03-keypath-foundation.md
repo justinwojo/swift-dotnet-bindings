@@ -199,7 +199,14 @@ C# side: `KeyPath<TRoot, TValue>?` (nullable reference type, since KeyPath is a 
 Swift: `BindingTests/Sources/SwiftBindingsTestLib/KeyPath/KeyPathFoundation.swift`:
 
 ```swift
-public struct Point {
+// `@frozen` so Point projects to a blittable C# struct, so `inout Point` on
+// `writeInt` flows through the supported UnsafeMutableRawPointer write-back
+// path. Without it, Point projects as a SafeHandle-backed class and the
+// wrapper emitter rejects `inout` of class-projected types (see
+// WrapperValidation.HasInoutWithAbiMismatch); the direct-mangled-name
+// fallback would target the bare `tFZ` symbol but only the `tFZTj` thunk is
+// actually exported for class methods, so the call would EntryPointNotFound.
+@frozen public struct Point {
     public var x: Int
     public var y: Int
     public init(x: Int, y: Int) { self.x = x; self.y = y }
@@ -236,9 +243,15 @@ public class KeyPathConsumer {
         return p[keyPath: kp]
     }
 
-    // IN — WritableKeyPath, mutates value-type via inout
-    public class func writeInt(into p: inout Point, by kp: WritableKeyPath<Point, Int>, value: Int) {
-        p[keyPath: kp] = value
+    // IN — WritableKeyPath assigns into a value-type field through the KP subscript.
+    // Returns the mutated copy. `inout` would round-trip on the Swift side (the SBW
+    // wrapper does load+defer write-back) but the generated C# call site marshals the
+    // struct into a stack buffer and never reads back — a generator gap (inout-of-
+    // blittable-struct write-back missing on the C# side) outside Session 3 scope.
+    public class func writeInt(into p: Point, by kp: WritableKeyPath<Point, Int>, value: Int) -> Point {
+        var copy = p
+        copy[keyPath: kp] = value
+        return copy
     }
 
     // IN — ReferenceWritableKeyPath, mutates reference-type property

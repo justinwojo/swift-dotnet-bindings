@@ -61,7 +61,7 @@ internal static class CdeclMarshallingHelper
             return true;
 
         // Optional<ReferenceType> uses nullable pointer ABI — no override needed
-        if (optProj.InnerProjection is ClassProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
+        if (optProj.InnerProjection is ClassProjection or KeyPathProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
             return false;
 
         // Optional<NonFrozenStruct> direct-param: OptionalProjection already emits a complete,

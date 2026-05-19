@@ -19,6 +19,22 @@
     <type fullname="Swift.SwiftDictionary`2" preserve="all" />
     <type fullname="Swift.SwiftSet`1" preserve="all" />
     <type fullname="Swift.AnyHashable" preserve="all" />
+    <!-- KeyPath class hierarchy — preserve="all" keeps the static explicit
+         interface implementations (NewFromPayload, GetTypeMetadata,
+         MarshalToSwift, GetProtocolConformanceDescriptor) reachable via
+         reflection on closed generic instantiations. Without these, NativeAOT
+         trims the static methods on KeyPath`2 / WritableKeyPath`2 /
+         ReferenceWritableKeyPath`2, so SwiftObjectReflectionHelper.InvokeGetTypeMetadata
+         can't find them, GetTypeMetadataOrThrow<KeyPath<,>>() throws, and any
+         SwiftOptional<KeyPath<,>> / SwiftArray<KeyPath<,>> fails on device.
+         The base SwiftKeyPathHandle is kept too because the dispose finalizer
+         and the .Payload bridge resolve through it. -->
+    <type fullname="Swift.SwiftKeyPathHandle" preserve="all" />
+    <type fullname="Swift.AnyKeyPath" preserve="all" />
+    <type fullname="Swift.PartialKeyPath`1" preserve="all" />
+    <type fullname="Swift.KeyPath`2" preserve="all" />
+    <type fullname="Swift.WritableKeyPath`2" preserve="all" />
+    <type fullname="Swift.ReferenceWritableKeyPath`2" preserve="all" />
     <!-- Existential containers -->
     <type fullname="Swift.Runtime.ExistentialContainer0" preserve="methods" />
     <type fullname="Swift.Runtime.ExistentialContainer1" preserve="methods" />

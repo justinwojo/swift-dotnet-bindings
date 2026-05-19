@@ -36,6 +36,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
     public (string?, bool) Visit(TupleProjection p) => (null, false);
     public (string?, bool) Visit(ResultProjection p) => (null, false);
+    public (string?, bool) Visit(KeyPathProjection p) => (null, false);
 
     // --- Shared getter helpers ---
 
@@ -167,6 +168,11 @@ internal class OptionalAccessorGetterVisitor : IProjectionVisitor<(string? conve
     // ObjCRooted: ownsReference=true transfers +1 to wrapper without extra DangerousRetain.
     public (string?, bool) Visit(ClassProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : ({p.PublicType})SwiftMarshal.MarshalFromSwiftObject<{p.MarshalFromSwiftType}>({_resultExpr}))", false);
+    // KeyPath family: same shape as ClassProjection. Swift @_cdecl wrapper returns
+    // passRetained on the Some path; the SafeHandle-derived wrapper adopts the retain
+    // via NewFromPayload. Use the public typed wrapper (Swift.KeyPath<TRoot,TValue> etc.).
+    public (string?, bool) Visit(KeyPathProjection p) =>
+        ($"({_resultExpr} == IntPtr.Zero ? null : ({p.PublicType})SwiftMarshal.MarshalFromSwiftObject<{p.MarshalFromSwiftType}>({_resultExpr}))", false);
     public (string?, bool) Visit(ObjCRootedClassProjection p) =>
         ($"({_resultExpr} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(p.PublicType, _resultExpr, ownsReference: true)})", false);
 
@@ -229,6 +235,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(ObjCRootedClassProjection p) => (null, false);
     public (string?, bool) Visit(TupleProjection p) => (null, false);
     public (string?, bool) Visit(ResultProjection p) => (null, false);
+    public (string?, bool) Visit(KeyPathProjection p) => (null, false);
 
     // --- Shared setter helpers ---
 
@@ -253,7 +260,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         }
 
         var rawElem = arr.ElementProjection.MarshalFromSwiftType;
-        var elemConv = arr.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+        var elemConv = arr.ElementProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : arr.ElementProjection.GetParameterElementConversion("e");
         if (elemConv != null)
@@ -273,10 +280,10 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
         var rawK = dict.KeyProjection.MarshalFromSwiftType;
         var rawV = dict.ValueProjection.MarshalFromSwiftType;
-        var keyConv = dict.KeyProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+        var keyConv = dict.KeyProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : dict.KeyProjection.GetParameterElementConversion("kvp.Key");
-        var valConv = dict.ValueProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+        var valConv = dict.ValueProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : dict.ValueProjection.GetParameterElementConversion("kvp.Value");
         if (keyConv != null || valConv != null)
@@ -305,7 +312,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         }
 
         var rawElem = set.ElementProjection.MarshalFromSwiftType;
-        var elemConv = set.ElementProjection is ClassProjection or NonFrozenStructProjection or ObjCRootedClassProjection
+        var elemConv = set.ElementProjection is ClassProjection or KeyPathProjection or NonFrozenStructProjection or ObjCRootedClassProjection
             ? null
             : set.ElementProjection.GetParameterElementConversion("e");
         if (elemConv != null)
@@ -368,8 +375,10 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
 
-        // Class/NonFrozenStruct inner — pass the public type as-is
-        if (inner is ClassProjection or NonFrozenStructProjection)
+        // Class/NonFrozenStruct/KeyPath inner — pass the public type as-is. The KeyPath
+        // wrappers implement ISwiftObject.MarshalToSwift so SwiftOptional<KeyPath<R,V>>
+        // serialises the +retained pointer into the optional payload buffer correctly.
+        if (inner is ClassProjection or KeyPathProjection or NonFrozenStructProjection)
             return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({valueExpr}Val) : SwiftOptional<{optType}>.NewNone())", true);
 
         // ObjC bridged/bridgeable inner — nullable pointer ABI, no SwiftOptional wrapper needed

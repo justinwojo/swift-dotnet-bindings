@@ -31,4 +31,5 @@ public interface IProjectionVisitor<T>
     T Visit(TupleProjection p);
     T Visit(DateProjection p);
     T Visit(ResultProjection p);
+    T Visit(KeyPathProjection p);
 }
