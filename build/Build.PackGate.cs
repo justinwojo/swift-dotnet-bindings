@@ -720,14 +720,19 @@ partial class Build
 
     // Opens the just-packed Apple supplement nupkg, reads its nuspec, and asserts every
     // Apple TFM group carries exactly one SwiftBindings.Runtime dependency stamped at the
-    // bounded range built from the runtime version. The packed nuspec is the only place
-    // this is observable: unit tests can pin the csproj override target, but the actual
-    // NuGet pack pipeline is what produces the dep declaration, so we verify the output.
+    // floor-only range built from the runtime version. The supplement is always brokered
+    // by SwiftBindings.Sdk (whose own bounded Runtime PackageReference is the actual
+    // compatibility contract), so the supplement's outbound declaration only needs a floor
+    // — a single shipped supplement nupkg then rides forward across Runtime/SDK minor bumps.
+    // The packed nuspec is the only place this is observable: unit tests can pin the csproj
+    // override target, but the actual NuGet pack pipeline is what produces the dep
+    // declaration, so we verify the output.
     //
     // Both the per-group dep count AND the exact range string matter: a future regression
     // could drop the dep from three of the four TFM groups, or stamp a different range
-    // shape (e.g. `[v,)` unbounded-upper, or a wider ceiling than RuntimeVersionRange.Build
-    // produces). A loose 'starts-with-[' check would let those slip through.
+    // shape (e.g. a bounded ceiling, which would re-impose the no-op repack the floor-only
+    // form was designed to eliminate). A loose 'starts-with-[' check would let those slip
+    // through.
     static void AssertSupplementBoundsRuntimeRange(
         AbsolutePath nupkgDir, string runtimeVersion, string appleVersion)
     {
@@ -756,10 +761,10 @@ partial class Build
         var doc = System.Xml.Linq.XDocument.Parse(nuspec);
         var ns = doc.Root!.GetDefaultNamespace();
 
-        // Compare against the canonical bounded range with whitespace stripped — NuGet
+        // Compare against the canonical floor-only range with whitespace stripped — NuGet
         // sometimes inserts a space after the comma during nuspec serialization, so both
-        // "[0.9.0,0.10.0)" and "[0.9.0, 0.10.0)" are accepted; anything else is a regression.
-        var expectedRange = BindingsGeneration.RuntimeVersionRange.Build(runtimeVersion);
+        // "[0.9.0,)" and "[0.9.0, )" are accepted; anything else is a regression.
+        var expectedRange = BindingsGeneration.RuntimeVersionRange.BuildMinimumOnly(runtimeVersion);
         var expectedNormalized = StripWhitespace(expectedRange);
 
         var groups = doc.Descendants(ns + "group").ToList();

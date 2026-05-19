@@ -373,12 +373,18 @@ jobs:
           fi
 
       - name: Build and pack NuGet packages
-        # Pack always produces all 4 nupkgs; the publish step picks which ones
-        # to push. Both versions are required by `nuke pack`.
+        # combined/apple lanes pack all 4 nupkgs; sdk lane adds --skip-apple so
+        # the supplement isn't rebuilt from the current source tree against the
+        # already-published apple-v* version (which would produce a divergent
+        # nupkg labeled with a published version and ride out as a workflow
+        # artifact). --apple-version is still passed in the sdk lane so
+        # VersionScope stamps Sdk.props's SwiftAppleSupplementVersion to the
+        # latest apple-v* train and SDK consumers point at the right supplement.
         run: >
           dotnet nuke pack
           --version ${{ steps.version.outputs.sdk_version }}
           --apple-version ${{ steps.version.outputs.apple_version }}
+          ${{ steps.version.outputs.lane == 'sdk' && '--skip-apple' || '' }}
           --output-dir ${{ github.workspace }}/artifacts
 
       - name: Upload packages

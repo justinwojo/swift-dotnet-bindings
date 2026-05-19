@@ -882,6 +882,36 @@ namespace BindingsGeneration.Tests
             Assert.Equal(version, BindingProjectEmitter.BuildBoundedRuntimeVersionRange(version));
         }
 
+        [Theory]
+        [InlineData("0.8.0", "[0.8.0,)")]
+        [InlineData("0.10.0", "[0.10.0,)")]
+        [InlineData("1.2.3", "[1.2.3,)")]
+        [InlineData("0.8.0-preview.1", "[0.8.0-preview.1,)")]
+        public void BuildMinimumOnly_EmitsFloorOnlyRange(string version, string expected)
+        {
+            // Pin the floor-only shape used by the Apple supplement nuspec's outbound Runtime
+            // dep. The supplement is always brokered by the SDK (whose own bounded Runtime
+            // PackageReference is the actual contract), so the supplement only needs to
+            // declare a floor — letting one shipped supplement nupkg ride forward across
+            // Runtime/SDK minor bumps without a no-op repack.
+            Assert.Equal(expected, RuntimeVersionRange.BuildMinimumOnly(version));
+        }
+
+        [Theory]
+        [InlineData("garbage")]
+        [InlineData("1")]
+        [InlineData("not.a.semver")]
+        [InlineData("x.8.0")]
+        [InlineData(".8.0")]
+        public void BuildMinimumOnly_FallsBackOnUnparseableInput(string version)
+        {
+            // Same defensive contract as Build: if either major or minor is non-integer,
+            // return the raw input rather than emitting a malformed range. The floor-only
+            // form has no upper bound that could go wrong, but we still gate on parse to
+            // keep the helper's failure mode symmetric and predictable.
+            Assert.Equal(version, RuntimeVersionRange.BuildMinimumOnly(version));
+        }
+
         private static string EmitWithRuntimeVersion(string runtimeVersion)
         {
             var dir = CreateTempDir();

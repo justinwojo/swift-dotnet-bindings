@@ -45,5 +45,33 @@ namespace BindingsGeneration
             if (!int.TryParse(minorStr, out var minor)) return version;
             return $"[{version},{majorStr}.{minor + 1}.0)";
         }
+
+        /// <summary>
+        /// Builds a minimum-only NuGet range <c>[X.Y.Z,)</c> — a floor with no ceiling.
+        /// Used only for the <c>SwiftBindings.Apple</c> supplement's outbound
+        /// <c>SwiftBindings.Runtime</c> dependency: the supplement is always brokered
+        /// by <c>SwiftBindings.Sdk</c>, whose own bounded Runtime <c>PackageReference</c>
+        /// is the actual compatibility contract. The supplement therefore only needs to
+        /// declare a floor, which lets a single shipped supplement nupkg ride forward
+        /// across Runtime/SDK minor bumps without a no-op repack.
+        /// </summary>
+        /// <remarks>
+        /// Do NOT use this for SDK-stamped or generator-emitted Runtime references —
+        /// those are consumed directly and need the bounded form's "minor may break ABI"
+        /// guarantee. Falls back to the raw input on unparseable major/minor for the
+        /// same reason <see cref="Build"/> does.
+        /// </remarks>
+        public static string BuildMinimumOnly(string version)
+        {
+            var firstDot = version.IndexOf('.');
+            if (firstDot <= 0) return version;
+            var majorStr = version.Substring(0, firstDot);
+            if (!int.TryParse(majorStr, out _)) return version;
+            var rest = version.Substring(firstDot + 1);
+            var secondDot = rest.IndexOf('.');
+            var minorStr = secondDot < 0 ? rest : rest.Substring(0, secondDot);
+            if (!int.TryParse(minorStr, out _)) return version;
+            return $"[{version},)";
+        }
     }
 }

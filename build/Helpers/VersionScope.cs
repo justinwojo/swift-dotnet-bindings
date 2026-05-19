@@ -96,17 +96,19 @@ public sealed class VersionScope : IDisposable
 
     /// <summary>
     /// Sets the <SwiftRuntimePackageVersionRange> property in the supplement csproj
-    /// so its Runtime ProjectReference &lt;Version&gt; metadata evaluates to the bounded
-    /// range at pack time. Without this the supplement nupkg would declare Runtime as
-    /// an unbounded min-only dep (inherited from Swift.Runtime's PackageVersion), which
-    /// would let consumers float into a future incompatible Runtime minor.
+    /// so its Runtime ProjectReference &lt;Version&gt; metadata evaluates to a minimum-only
+    /// floor range (<c>[X.Y.Z,)</c>) at pack time. The supplement is always brokered by
+    /// <c>SwiftBindings.Sdk</c>, whose own bounded Runtime <c>PackageReference</c>
+    /// supplies the actual compatibility contract. Declaring the supplement's outbound
+    /// Runtime dep as a floor lets a single shipped supplement nupkg ride forward across
+    /// Runtime/SDK minor bumps without a no-op repack.
     /// </summary>
     private static void StampSupplementRuntimeRange(string file, string version)
     {
         var doc = XDocument.Load(file, LoadOptions.PreserveWhitespace);
         var element = doc.Descendants("SwiftRuntimePackageVersionRange").FirstOrDefault()
             ?? throw new InvalidOperationException($"<SwiftRuntimePackageVersionRange> not found in {file}");
-        element.Value = BindingsGeneration.RuntimeVersionRange.Build(version);
+        element.Value = BindingsGeneration.RuntimeVersionRange.BuildMinimumOnly(version);
         SaveXml(doc, file);
     }
 

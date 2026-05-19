@@ -250,6 +250,10 @@
           "type": "boolean",
           "description": "Run in iOS Simulator (Mono JIT) — default when no platform flag is set"
         },
+        "SkipApple": {
+          "type": "boolean",
+          "description": "Skip the SwiftBindings.Apple pack step (useful when shipping a Runtime/SDK/Templates-only release where the existing Apple supplement nupkg is unchanged)"
+        },
         "SkipBuild": {
           "type": "boolean",
           "description": "Skip all builds, just install + run"
