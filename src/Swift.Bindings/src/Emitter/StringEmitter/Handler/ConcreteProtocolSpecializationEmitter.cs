@@ -742,6 +742,23 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         swiftParams.Add($"_ _{label}Utf8Len: Int");
                         callArgs.Add($"{argLabel}String(bytes: UnsafeBufferPointer(start: _{label}Utf8Ptr, count: _{label}Utf8Len), encoding: .utf8)!");
                         break;
+                    case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
+                    {
+                        // Swift KeyPath family — single-pointer ABI per
+                        // keypath-subsystem/00-overview.md. Param arrives as an opaque
+                        // UnsafeRawPointer (the @_cdecl boundary rejects KeyPath<R,V>
+                        // directly per the ABI ground truth). Reconstruct via
+                        // Unmanaged<...>.fromOpaque(_).takeUnretainedValue() because the
+                        // C# side passes @guaranteed (DangerousGetHandle keeps the SafeHandle
+                        // alive across the call) — no extra retain consumed here. Matches
+                        // the OUT-path Unmanaged.passRetained(...).toOpaque() in
+                        // SwiftKeyPath.cs and the Unmanaged.fromOpaque idiom in Session 4's
+                        // typed-singleton trampolines.
+                        var swiftKpType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
+                        swiftParams.Add($"_ _{label}: UnsafeRawPointer");
+                        callArgs.Add($"{argLabel}Unmanaged<{swiftKpType}>.fromOpaque(_{label}).takeUnretainedValue()");
+                        break;
+                    }
                     default:
                         swiftParams.Add($"_ _{label}: UnsafeRawPointer");
                         callArgs.Add($"{argLabel}_{label}");
@@ -1176,6 +1193,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         callArgs.Add($"(IntPtr)__{bareName}Ptr");
                         callArgs.Add($"(nint)__{bareName}Utf8.Length");
                         needsUnsafe = true;
+                        break;
+                    }
+                    case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
+                    {
+                        // Swift KeyPath family — single-pointer @_cdecl ABI per
+                        // keypath-subsystem/00-overview.md. The C# wrapper IS a SafeHandle
+                        // (Swift.KeyPath<TRoot, TValue> derives directly from
+                        // SafeHandleZeroOrMinusOneIsInvalid; it does NOT implement
+                        // ISwiftObject), so the P/Invoke argument is DangerousGetHandle()
+                        // — NOT .Payload.DangerousGetHandle() (no Payload hop) and NOT
+                        // ((ISwiftObject)x).SwiftHandle (cast would fail). Mirrors
+                        // KeyPathProjection.GetParameterPlan. The public C# type is built
+                        // explicitly (Swift KeyPath family has no TypeRecord, so
+                        // ResolvePublicCSharpType's fallback would drop the `Swift.`
+                        // qualifier).
+                        publicParams.Add($"{BuildKeyPathPublicCSharpType((NamedTypeSpec)arg.SwiftTypeSpec, typeDatabase)} {csName}");
+                        pinvokeParams.Add($"IntPtr {csName}");
+                        callArgs.Add($"{csName}.DangerousGetHandle()");
                         break;
                     }
                     default:
@@ -2254,8 +2289,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (arg.HasDefaultArg) continue;
             if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out _)) continue;
 
-            // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable.
-            if (!MethodClosureBridge.IsAbiCategoryPassable(
+            // CSM has dedicated KeyPathFamily switch arms (see the param-render switches in
+            // both the C# bridge and the Swift @_cdecl wrapper below), so it admits a
+            // strict superset of the closure-bridge layer's IsAbiCategoryPassable. Honors
+            // the predicate↔emitter contract: KeyPathFamily is "passable" here exactly
+            // because the CSM emitter renders it.
+            if (!MethodClosureBridge.IsAbiCategoryPassableForCsm(
                     MethodClosureBridge.ClassifyParam(arg, typeDatabase)))
             {
                 return false;
@@ -2447,6 +2486,63 @@ public static partial class ConcreteProtocolSpecializationEmitter
                    ContainsAnyGenericParam(closure.Arguments);
         }
         return typeSpec.GenericParameters.Any(ContainsAnyGenericParam);
+    }
+
+    /// <summary>
+    /// Builds the public C# type spelling for a Swift KeyPath family parameter
+    /// (<c>Swift.KeyPath&lt;TRoot, TValue&gt;</c>, <c>Swift.WritableKeyPath&lt;...&gt;</c>, etc.).
+    /// The Swift KeyPath family has no <c>TypeRecord</c> in any database — the family lives
+    /// only in <see cref="TypeProjectionFactory"/>'s arity table — so
+    /// <see cref="ResolvePublicCSharpType"/>'s fallback would drop the <c>Swift.</c>
+    /// qualifier (returning a bare <c>KeyPath&lt;R,V&gt;</c> that fails to resolve). This
+    /// helper mirrors <see cref="KeyPathProjection"/>'s public-type construction so the
+    /// CSM emitter renders the same shape as the property/accessor path.
+    /// </summary>
+    private static string BuildKeyPathPublicCSharpType(NamedTypeSpec keyPathTypeSpec, ITypeDatabase typeDatabase)
+    {
+        // KeyPathFamilyArities (private to TypeProjectionFactory) gates this — we trust
+        // the caller has already classified the type as KeyPathFamily, so the prefix is
+        // always "Swift." and the short name is the last segment.
+        var shortName = keyPathTypeSpec.Name.Substring("Swift.".Length);
+        if (keyPathTypeSpec.GenericParameters.Count == 0)
+            return $"global::Swift.{shortName}";
+        var genericArgs = keyPathTypeSpec.GenericParameters
+            .Select(g => ResolveKeyPathGenericArgPublicType(g, typeDatabase));
+        return $"global::Swift.{shortName}<{string.Join(", ", genericArgs)}>";
+    }
+
+    /// <summary>
+    /// Idiomatic public-type rendering for a KeyPath family generic argument. Mirrors the OUT
+    /// path's projection-chain output (e.g. <see cref="StringProjection"/>'s <c>"string"</c>,
+    /// <see cref="BoolProjection"/>'s <c>"bool"</c>) so a <c>KeyPath&lt;R, Swift.String&gt;</c> param
+    /// renders as <c>Swift.KeyPath&lt;R, string&gt;</c> — matching what factory methods like
+    /// <c>KeyPathFactory.MakeTitlePath()</c> return. Without this, the param signature would
+    /// use <see cref="ResolvePublicCSharpType"/>'s TypeRecord-derived form (<c>Swift.SwiftString</c>)
+    /// and CS1503 would fire at the call site against a <c>KeyPath&lt;R, string&gt;</c> argument.
+    /// </summary>
+    private static string ResolveKeyPathGenericArgPublicType(TypeSpec arg, ITypeDatabase typeDatabase)
+    {
+        if (arg is NamedTypeSpec named)
+        {
+            switch (named.Name)
+            {
+                case "Swift.String": return "string";
+                case "Swift.Bool":   return "bool";
+                case "Swift.Int":    return "nint";
+                case "Swift.UInt":   return "nuint";
+                case "Swift.Int8":   return "sbyte";
+                case "Swift.Int16":  return "short";
+                case "Swift.Int32":  return "int";
+                case "Swift.Int64":  return "long";
+                case "Swift.UInt8":  return "byte";
+                case "Swift.UInt16": return "ushort";
+                case "Swift.UInt32": return "uint";
+                case "Swift.UInt64": return "ulong";
+                case "Swift.Float":  return "float";
+                case "Swift.Double": return "double";
+            }
+        }
+        return ResolvePublicCSharpType(arg, typeDatabase);
     }
 
     private static string ResolvePublicCSharpType(TypeSpec typeSpec, ITypeDatabase typeDatabase)

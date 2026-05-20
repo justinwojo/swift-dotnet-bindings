@@ -1741,6 +1741,22 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
+    /// CSM-specific passability predicate. Strict superset of <see cref="IsAbiCategoryPassable"/>:
+    /// adds <see cref="ParamAbiCategory.KeyPathFamily"/> because the CSM emitter has dedicated
+    /// arms in both the C# bridge and the Swift @_cdecl wrapper for KeyPath params, but the
+    /// closure-bridge variants (MethodClosureBridge, GenericClosureBridgeEmitter,
+    /// NestedClosureBridge, MethodGenericBridgeEmitter, ConstrainedExistentialBridge) have not
+    /// yet been extended to emit KeyPath marshalling switch arms. Keeping the predicates split
+    /// honors the predicate↔emitter contract: a category is "passable" exactly where the
+    /// downstream emission can render it.
+    /// </summary>
+    internal static bool IsAbiCategoryPassableForCsm(ParamAbiCategory category)
+    {
+        return IsAbiCategoryPassable(category)
+            || category is ParamAbiCategory.KeyPathFamily;
+    }
+
+    /// <summary>
     /// Checks if a non-closure parameter can be passed through or omitted (default).
     /// Delegates the category-level allowlist to <see cref="IsAbiCategoryPassable"/>.
     /// </summary>
@@ -2065,6 +2081,18 @@ public static class MethodClosureBridge
         PointerType,
         /// <summary>Swift.String → split into (UTF-8 byte pointer, length) pair, C# side pins via fixed.</summary>
         Utf8Slice,
+        /// <summary>
+        /// Swift KeyPath family (AnyKeyPath, PartialKeyPath&lt;Root&gt;, KeyPath&lt;Root,Value&gt;,
+        /// WritableKeyPath, ReferenceWritableKeyPath) — single-pointer @_cdecl ABI per
+        /// <c>keypath-subsystem/00-overview.md</c>. The C# wrapper IS a SafeHandle
+        /// (<see cref="Swift.KeyPath{TRoot,TValue}"/> derives directly from
+        /// SafeHandleZeroOrMinusOneIsInvalid), so the P/Invoke argument is
+        /// <c>paramName.DangerousGetHandle()</c> — NOT <c>.Payload.DangerousGetHandle()</c>
+        /// and NOT <c>((ISwiftObject)x).SwiftHandle</c> (the wrapper does not implement
+        /// ISwiftObject — see <see cref="KeyPathProjection"/>). Mirrors
+        /// <see cref="KeyPathProjection.GetParameterPlan"/>.
+        /// </summary>
+        KeyPathFamily,
         /// <summary>Unknown/unresolvable type — NOT passable.</summary>
         Unsupported,
     }
@@ -2086,6 +2114,13 @@ public static class MethodClosureBridge
 
         if (IsSwiftPointerType(named.Name))
             return ParamAbiCategory.PointerType;
+
+        // KeyPath family — Swift KeyPath/WritableKeyPath/etc. have no TypeRecord
+        // (the family lives only in TypeProjectionFactory.KeyPathFamilyArities)
+        // so the TryGetTypeRecord block below cannot route them. Classify here
+        // before falling through to Unsupported.
+        if (TypeProjectionFactory.IsKeyPathFamily(named.Name))
+            return ParamAbiCategory.KeyPathFamily;
 
         try
         {

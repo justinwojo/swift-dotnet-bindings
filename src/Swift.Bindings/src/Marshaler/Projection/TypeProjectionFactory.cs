@@ -559,6 +559,22 @@ public class TypeProjectionFactory
     };
 
     /// <summary>
+    /// True when <paramref name="moduleQualifiedName"/> names a Swift KeyPath family class
+    /// (AnyKeyPath / PartialKeyPath / KeyPath / WritableKeyPath / ReferenceWritableKeyPath).
+    /// Single source of truth for KeyPath-family identification so ABI category classification
+    /// (<see cref="MethodClosureBridge"/>) and projection (this factory) cannot drift.
+    /// </summary>
+    internal static bool IsKeyPathFamily(string moduleQualifiedName) =>
+        KeyPathFamilyArities.ContainsKey(moduleQualifiedName);
+
+    /// <summary>
+    /// Returns the generic-parameter arity for a KeyPath family class, or -1 if
+    /// <paramref name="moduleQualifiedName"/> isn't a KeyPath family member.
+    /// </summary>
+    internal static int GetKeyPathArity(string moduleQualifiedName) =>
+        KeyPathFamilyArities.TryGetValue(moduleQualifiedName, out var arity) ? arity : -1;
+
+    /// <summary>
     /// Fallback projection for collection element types that are unresolved Apple ObjC classes.
     /// Uses a broader module set than the Optional fallback (includes UIKit/Foundation)
     /// because collection elements are projected by value — no Optional ABI parity concern.
