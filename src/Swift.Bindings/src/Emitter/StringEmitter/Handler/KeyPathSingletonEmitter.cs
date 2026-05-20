@@ -112,12 +112,34 @@ internal static class KeyPathSingletonEmitter
                 var conformerKey = conformer.SwiftQualifiedName;
                 if (!typeDeclByName.TryGetValue(conformerKey, out var conformerDecl)) continue;
 
-                var bagDecl = FindNestedBag(conformerDecl, assocName, conformer);
-                if (bagDecl is null) continue;
+                var bagDecl = FindBagDecl(conformerDecl, assocName, conformer, typeDeclByName);
+                if (bagDecl is null)
+                {
+                    logger.LogDebug(
+                        "KeyPath singletons: no bag found for conformer {Conformer} assoc {Assoc} (hints: {Hints}).",
+                        conformerKey, assocName,
+                        conformer.AssociatedTypes is { } m ? string.Join(",", m.Keys) : "<null>");
+                    continue;
+                }
 
                 // Only stored, instance, public, non-static, non-actor-isolated bags
                 // we can read at static-init time without hopping queues.
-                if (!IsEmittableBag(bagDecl)) continue;
+                // Protocol bags (module-scope protocols used as associated-type
+                // targets, e.g. MusicKit's `LibraryAlbumFilter`) relax the stored-
+                // property check — protocol property requirements are abstract by
+                // construction, but `\Protocol.requirement` is a valid Swift KeyPath
+                // literal (resolved via witness-table dispatch at use time).
+                if (!IsEmittableBag(bagDecl))
+                {
+                    logger.LogDebug(
+                        "KeyPath singletons: bag {Bag} (kind={Kind}) rejected by IsEmittableBag for conformer {Conformer}. " +
+                        "IsGeneric={IsGeneric} IsSpiProtected={IsSpiProtected} IsModuleInternal={IsModuleInternal} " +
+                        "IsCustomActor={IsCustomActor} IsCustomActorIsolated={IsCustomActorIsolated} propCount={PropCount}.",
+                        bagDecl.SwiftTypeName?.ModuleQualifiedName, bagDecl is ProtocolDecl ? "ProtocolDecl" : bagDecl.GetType().Name,
+                        conformerKey, bagDecl.IsGeneric, bagDecl.IsSpiProtected, bagDecl.IsModuleInternal,
+                        bagDecl.IsCustomActor, bagDecl.IsCustomActorIsolated, bagDecl.Properties.Count());
+                    continue;
+                }
 
                 // Module-level dedup. Two generic parents in the same module that both
                 // demand KeyPath<Item.LibraryFilter, *> (or any same-shape pair) must
@@ -126,7 +148,7 @@ internal static class KeyPathSingletonEmitter
                 // `SBW_KP_…` Swift @_cdecl symbols (linker error). The
                 // ModuleEmissionContext registry is the single source of truth across
                 // every TypeDecl handled in this module.
-                var containerKey = $"{conformer.SwiftQualifiedName}|{bagDecl.SwiftTypeName.ModuleQualifiedName}";
+                var containerKey = $"{conformer.SwiftQualifiedName}|{bagDecl.SwiftTypeName!.ModuleQualifiedName}";
                 if (!emissionContext.TryAddKeyPathSingletonContainer(containerKey)) continue;
 
                 EmitContainer(csWriter, swiftWriter, typeDecl, conformer, conformerDecl, bagDecl,
@@ -277,42 +299,98 @@ internal static class KeyPathSingletonEmitter
     }
 
     /// <summary>
-    /// Find a stored-property-bearing nested type matching <paramref name="assocName"/>.
+    /// Find a property-carrying type matching <paramref name="assocName"/>. Two shapes
+    /// are supported:
+    /// <list type="number">
+    ///   <item><description><b>Nested concrete bag.</b> The associated type resolves to
+    ///   a nested struct/class with stored properties (the original Session 4 shape —
+    ///   e.g. <c>MockBookSession4.LibraryFilter</c> in BindingTests fixtures).</description></item>
+    ///   <item><description><b>Module-scope protocol bag.</b> The associated type
+    ///   resolves to a top-level protocol declared at module scope (e.g. MusicKit's
+    ///   <c>typealias LibraryFilter = MusicKit.LibraryAlbumFilter</c>, where
+    ///   <c>LibraryAlbumFilter</c> is a module-scope protocol with required get-only
+    ///   properties). Swift's <c>\Protocol.requirement</c> KeyPath literal compiles
+    ///   for these — the runtime resolves the property read through the conformer's
+    ///   witness table at use time, so the emitted singleton remains type-safe.</description></item>
+    /// </list>
     /// Preference order: (1) the conformer's <c>AssociatedTypes</c> hint dictionary
-    /// (JSON-driven, gives a fully-qualified name); (2) the first nested type whose
-    /// short name matches the associated-type name (Swift's implicit associated-type
-    /// inference from a like-named nested type — the common case for module-local
-    /// conformers).
+    /// against the conformer's NESTED types; (2) the conformer's NESTED types by
+    /// short name (Swift's implicit inference path); (3) the hint dictionary against
+    /// MODULE-SCOPE types (covers the typealias-to-protocol shape); (4) any
+    /// module-scope type whose short name matches (fallback for unhinted module-scope
+    /// resolutions — rarely used; module-scope conformer plumbing should go through
+    /// the hint).
     /// </summary>
-    private static TypeDecl? FindNestedBag(
+    private static TypeDecl? FindBagDecl(
         TypeDecl conformerDecl,
         string assocName,
-        ConcreteSpecializationEngine.ConcreteConformer conformer)
+        ConcreteSpecializationEngine.ConcreteConformer conformer,
+        IReadOnlyDictionary<string, TypeDecl> typeDeclByName)
     {
-        // (1) JSON hint resolution.
+        // (1) JSON hint resolution against nested types.
         if (conformer.AssociatedTypes is { } map && map.TryGetValue(assocName, out var target))
         {
-            // The hint may resolve to the same nested type by short name; fall through
-            // to (2) when the hint maps to an unknown type.
             foreach (var nested in conformerDecl.Types)
             {
                 if (nested.SwiftTypeName?.ModuleQualifiedName == target) return nested;
             }
+            // (3) JSON hint resolution against module-scope types. Covers the
+            // module-scope-protocol-as-typealias-target shape (MusicKit
+            // `typealias LibraryFilter = MusicKit.LibraryAlbumFilter`). Falls
+            // through to (4) when the hint target is unknown to the parser.
+            if (typeDeclByName.TryGetValue(target, out var moduleScopeBag))
+                return moduleScopeBag;
         }
         // (2) Implicit inference: nested type with matching short name.
         foreach (var nested in conformerDecl.Types)
         {
             if (nested.Name == assocName) return nested;
         }
+        // (4) Unhinted module-scope inference, narrowed to ProtocolDecl candidates.
+        // The motivating shape is "typealias to module-scope protocol bag"
+        // (the MusicKit pattern); branch 3 (hint-driven) is the canonical resolver
+        // for that. Branch 4 exists as the no-hint fallback, but Swift does not
+        // automatically infer an associated-type binding from a top-level
+        // struct/class/enum whose short name happens to match the associated-type
+        // name — only the protocol-shape resolution is structurally defensible.
+        // Restricting to ProtocolDecl narrows the false-match surface to the
+        // shape the broadening was designed for.
+        var conformerModule = conformerDecl.SwiftTypeName?.Module;
+        if (!string.IsNullOrEmpty(conformerModule))
+        {
+            foreach (var (_, candidate) in typeDeclByName)
+            {
+                if (candidate is not ProtocolDecl) continue;
+                if (candidate.ParentDecl is TypeDecl) continue; // nested handled above
+                if (candidate.Name != assocName) continue;
+                if (candidate.SwiftTypeName?.Module != conformerModule) continue;
+                return candidate;
+            }
+        }
         return null;
     }
 
     /// <summary>
-    /// Bag eligibility: must be a stored-property carrier we can read at static-init
-    /// time without dispatch surprises. Excludes generic bags (no closed Root type),
+    /// Bag eligibility: must be a property carrier we can drive from a synchronous
+    /// <c>@_cdecl</c> KeyPath trampoline. Excludes generic bags (no closed Root type),
     /// SPI-protected types, module-internal types, and types isolated to a custom
-    /// actor (their stored-property reads must hop the actor, which we can't do from
-    /// a synchronous <c>@_cdecl</c> trampoline).
+    /// actor (their property reads must hop the actor, which we can't do from
+    /// a synchronous trampoline).
+    ///
+    /// <para>
+    /// For nested concrete bags (struct/class) we require at least one STORED
+    /// property — computed properties on a value-type bag would still compile, but
+    /// without storage there's nothing the singleton meaningfully indexes.
+    /// </para>
+    ///
+    /// <para>
+    /// For module-scope protocol bags we relax the stored-property requirement —
+    /// protocol property requirements are abstract by construction (<c>HasStorage</c>
+    /// is always false for them), but <c>\Protocol.requirement</c> is a valid Swift
+    /// KeyPath literal that the runtime resolves through the conforming type's
+    /// witness table at use time. The MusicKit shape (<c>LibraryAlbumFilter</c>) is
+    /// the motivating case.
+    /// </para>
     /// </summary>
     private static bool IsEmittableBag(TypeDecl bagDecl)
     {
@@ -321,25 +399,73 @@ internal static class KeyPathSingletonEmitter
         if (bagDecl.IsModuleInternal) return false;
         if (bagDecl.IsCustomActor) return false;
         if (bagDecl.IsCustomActorIsolated) return false;
+        // Protocol-bag safety gates. The bag must be a "plain" protocol whose
+        // requirements project to closed C# signatures. Reject when the bag itself
+        // has any of:
+        //  - associated types (`Self.Element` etc. — `\P.req` where `req: Self.X`
+        //    is not a valid Swift KeyPath literal at SILGen time);
+        //  - a Self requirement (singleton would be rooted on a Self-erased
+        //    existential, but the C# trampoline uses the non-generic TypeRecord
+        //    name — types don't align with `ProtocolHandler`'s `IProtocol<TSelf>`
+        //    emission);
+        //  - class-bound (`: AnyObject` / `: class`) — ObjC-style witness dispatch
+        //    that the value-bag singleton can't honour;
+        //  - a non-empty generic signature — primary-associated-type syntax
+        //    (`protocol Container<T>`) leaves `GenericParameters` empty on
+        //    `ProtocolDecl` because the parser skips `GenericSignatureParser` for
+        //    protocols, so the bag-level `IsGeneric` check above misses it; the
+        //    string field is the canonical truth.
+        // None of these shapes apply to the MusicKit `LibraryAlbumFilter` family;
+        // the gates are forward-looking guards against the broader pattern.
+        if (bagDecl is ProtocolDecl pd)
+        {
+            if (pd.AssociatedTypes.Count > 0) return false;
+            if (pd.HasSelfRequirement) return false;
+            if (pd.IsClassBound) return false;
+            if (!string.IsNullOrEmpty(pd.GenericSignature)) return false;
+        }
         // @MainActor types are technically isolated, but stored-property *reads* via
         // a KeyPath are not @MainActor-only operations (the keypath literal itself
         // is reachable from any context). Leave them in.
-        return bagDecl.Properties.Any(IsEmittableProperty);
+        bool allowAbstract = bagDecl is ProtocolDecl;
+        return bagDecl.Properties.Any(p => IsEmittableProperty(p, allowAbstract));
     }
 
-    private static bool IsEmittableProperty(PropertyDecl propertyDecl)
+    private static string? WhyPropertyNotEmittable(PropertyDecl propertyDecl, bool allowAbstract)
     {
-        if (!propertyDecl.HasStorage) return false;
-        if (propertyDecl.IsStatic) return false;
-        if (propertyDecl.IsSpiProtected) return false;
-        if (propertyDecl.IsModuleInternal) return false;
-        // Must have a getter; the SetAccessorDecl flips the emit to WritableKeyPath.
-        if (!propertyDecl.Accessors.OfType<GetAccessorDecl>().Any()) return false;
-        // Skip property names that would collide with C# keywords once PascalCased to
-        // an identifier — let the C# rename system handle them in a future iteration.
-        if (string.IsNullOrEmpty(propertyDecl.Name)) return false;
-        return true;
+        if (!allowAbstract && !propertyDecl.HasStorage) return "!HasStorage";
+        if (propertyDecl.IsStatic) return "IsStatic";
+        if (propertyDecl.IsSpiProtected) return "IsSpiProtected";
+        // `@objc optional var foo: T` is inferred by Swift as `KeyPath<any P, T?>`
+        // (the optional witness lift), but this emitter annotates the trampoline
+        // from `prop.SwiftTypeSpec` which carries `T`, not `T?`. The generated
+        // Swift `@_cdecl` then fails to compile against the actual `\P.foo`
+        // literal. Reject and let the IsObjCOptional-rejected property surface
+        // through the existing skip pipeline.
+        if (propertyDecl.IsObjCOptional) return "IsObjCOptional";
+        // Protocol bags: the parser's negative-space `IsModuleInternal` detection
+        // misclassifies protocol property requirements as internal because the
+        // swiftinterface line never carries a `public ` keyword (members of a
+        // `public protocol` are implicitly public). The bag-level check in
+        // `IsEmittableBag` already rejects internal protocols, so when we reach
+        // here with `allowAbstract=true`, the property requirement is implicitly
+        // public — skip the misleading per-property flag. Concrete bags retain
+        // the IsModuleInternal gate.
+        if (!allowAbstract && propertyDecl.IsModuleInternal) return "IsModuleInternal";
+        if (!propertyDecl.Accessors.OfType<GetAccessorDecl>().Any()) return "!Getter";
+        if (string.IsNullOrEmpty(propertyDecl.Name)) return "EmptyName";
+        return null;
     }
+
+    /// <summary>
+    /// Single source of truth for per-property eligibility. Delegates to
+    /// <see cref="WhyPropertyNotEmittable"/> so the bag-level <c>Any()</c> probe and the
+    /// per-property projection loop share the exact same predicate. The two used to be
+    /// separate copies; they drifted once (the `allowAbstract` branch for protocol bags
+    /// was added to one but not the other), so they're consolidated here.
+    /// </summary>
+    private static bool IsEmittableProperty(PropertyDecl propertyDecl, bool allowAbstract) =>
+        WhyPropertyNotEmittable(propertyDecl, allowAbstract) is null;
 
     private static void EmitContainer(
         CSharpWriter csWriter,
@@ -375,9 +501,13 @@ internal static class KeyPathSingletonEmitter
         var emittable = new List<(PropertyDecl Prop, string PInvokeSymbol, string CSValueType,
             string SwiftValueType, bool IsWritable, IReadOnlyList<AvailabilityAnnotation>? MergedAvailability)>();
         var projector = new TypeProjectionFactory();
+        // Protocol bags expose abstract property requirements; the bag-eligibility
+        // gate above accepts them, and the per-property filter must match (otherwise
+        // protocol bags would always project as empty).
+        bool allowAbstract = bagDecl is ProtocolDecl;
         foreach (var prop in bagDecl.Properties)
         {
-            if (!IsEmittableProperty(prop)) continue;
+            if (!IsEmittableProperty(prop, allowAbstract)) continue;
 
             // Project the property's Swift value type to a C# type spelling. Async/
             // ParentTypeDecl/CurrentModuleName are not relevant for the value-type

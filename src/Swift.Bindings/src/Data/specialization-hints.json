@@ -97,6 +97,21 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.ProtocolBag_Filterable",
+      "conformers": [
+        {
+          "swiftType": "SwiftBindingsTestLib.ProtocolBag_Book",
+          "csharpType": "ProtocolBag_Book",
+          "associatedTypes": { "Filter": "SwiftBindingsTestLib.ProtocolBag_BookFilter" }
+        },
+        {
+          "swiftType": "SwiftBindingsTestLib.ProtocolBag_Movie",
+          "csharpType": "ProtocolBag_Movie",
+          "associatedTypes": { "Filter": "SwiftBindingsTestLib.ProtocolBag_MovieFilter" }
+        }
+      ]
+    },
+    {
       "protocol": "RoomPlan.CapturedRoomAttribute",
       "conformers": [
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.ChairType", "csharpType": "RoomPlan.ChairType" },

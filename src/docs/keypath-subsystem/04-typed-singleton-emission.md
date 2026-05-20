@@ -1,5 +1,22 @@
 # Session 4 — Typed singleton trampoline emission for closed-conformer KeyPath construction
 
+**Status: complete (initial landing); extended in Session 6 for protocol-typed bags (Fork A).**
+
+Session 6 Fork A extension: the original Session 4 emission path only resolved associated-type bags via the conformer's nested concrete struct (`{Conformer}.{BagName}`). MusicKit's `MusicLibraryRequestable.Filter` resolves to a module-scope **protocol** type (e.g. `MusicKit.LibraryAlbumFilter`), not a nested concrete struct. `KeyPathSingletonEmitter.FindBagDecl` was broadened with branches 3 & 4 to resolve module-scope protocol bags, and `WhyPropertyNotEmittable` exempts protocol property requirements from the parser's negative-space `IsModuleInternal` misclassification (the parser's `SwiftInterfaceAccessParser.CollectPublicMember` early-returns on swiftinterface lines lacking the `public` keyword, but members of a `public protocol` are implicitly public and never carry the keyword). The bag-level `IsModuleInternal` check in `IsEmittableBag` continues to reject internal protocols, so the relaxation stays safely bounded.
+
+Bag protocol must be "plain": `IsEmittableBag` rejects a `ProtocolDecl` bag if it has associated types, a Self requirement, is class-bound, or carries a non-empty `GenericSignature` (the primary-associated-type / where-clause shapes). These cases either don't form a valid `\Protocol.requirement` Swift literal or don't align with `ProtocolHandler`'s generic interface emission. The `@objc optional` requirement is also rejected per-property because Swift implicitly lifts the value type to `Optional<T>` while this emitter only sees the non-optional `SwiftTypeSpec`. Branch 4 (unhinted module-scope fallback) is narrowed to `ProtocolDecl` candidates — Swift never infers an associated type from a top-level struct/class/enum with a matching short name.
+
+Deferred follow-ups (incremental coverage, not blocking Session 6):
+- Negative BindingTests fixtures for the safety guards (PAT-as-bag rejection, Self-requirement rejection, class-bound rejection, `protocol Container<T>` rejection, `@objc optional` requirement rejection). Each needs a Swift bag-shape declaration plus a C# assertion that no singleton container is emitted. Today the guards are code-inspected; a fixture sweep would prove them at gate-time.
+- Two-parent demand fixture for cross-parent dedup (single-parent path covered).
+- Property `actor`-isolated rejection case + `let`-only fixture variant.
+- Extension-method scanning on the generic parent (parent body currently matches via CSM path).
+- Cosmetic `unsafe` keyword review on container.
+- Generator-side unit tests for `CollectBagDemand` / `FindNestedBag` (currently exercised E2E via BindingTests).
+- Parser-side root-cause fix for `SwiftInterfaceAccessParser.CollectPublicMember` to recognise protocol property requirements as implicitly public (current workaround is the `!allowAbstract` gate in `WhyPropertyNotEmittable`).
+- Admit `KeyPath<any P, V>` into the bound-generic-existential container allowlist (`BoundGenericsHandler.IsContainerWithSupportedDirectExistential`). Today a consumer method that declares `KeyPath<P, V>` as a parameter is skipped with `UnsupportedExistential`; the protocol-bag BindingTests fixture works around it by typing the consumer parameter as `Swift.AnyKeyPath` and casting on the Swift side, but a natural typed signature would be more discoverable and would lift the workaround.
+- Empty-container guard: when `TypeProjectionFactory.Project` drops every emittable property (e.g. a bag whose only properties have unsupported value types), `EmitContainer` still writes the class header with zero members. Add a final post-projection check that skips emission when no trampoline survives.
+
 The IN-path session of the subsystem. After it ships, the C# caller can originate a `KeyPath<TRoot, TValue>` from C# (without needing to call any Swift API) for any closed-conformer-rooted nested type — the canonical example being `Album.LibraryFilter` from MusicKit.
 
 This is the structural reason the subsystem is the size of the closure subsystem: most KeyPath-consuming APIs need the *C# caller* to originate the path, not just receive it from Swift.

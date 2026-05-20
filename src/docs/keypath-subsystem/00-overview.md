@@ -48,7 +48,7 @@ Evidence probe: `/tmp/keypath-abi-probe/` (this session's research workspace; no
 4. **Equality and hashing** dispatch to `AnyKeyPath.==` / `AnyKeyPath.hashValue` via runtime trampolines in `Swift.Runtime`. Pointer-identity equality is forbidden (cross-module false negatives).
 5. **`PartialKeyPath<Root>` is in scope** (added late to the plan after consumer-surface grep found heavy SwiftData + UIKit use). Same machinery, type-erased `Value` slot. Lives in Session 3 alongside the typed variants.
 6. **`AnyKeyPath`** — exposed only as the base SafeHandle type for code paths that need a fully-erased reference. Not a primary user surface.
-7. **Open associated-type-rooted KeyPath parameters** (`KeyPath<MusicItemType.LibraryFilter, ...>` where `MusicItemType` is the parent's associated type) are **out of scope for v1**. They resolve only at CSM time after the conformer substitutes the associated type; emission requires the closed conformer's nested `LibraryFilter` TypeDecl. Session 4 handles the closed-conformer case (sufficient for MusicKit's 9 conformers). Open associated-type parameters that *route* a KeyPath through a generic method but where the Root is the parent's associated type are explicitly tracked as a Phase-3+ follow-up; v1 emits them suppressed with a tombstone comment.
+7. **Open associated-type-rooted KeyPath parameters** (`KeyPath<MusicItemType.LibraryFilter, ...>` where `MusicItemType` is the parent's associated type) are **out of scope for v1**. They resolve only at CSM time after the conformer substitutes the associated type; emission requires the closed conformer's `LibraryFilter` TypeDecl (which for MusicKit is a module-scope protocol bag, e.g. `MusicKit.LibraryAlbumFilter`, rather than a nested concrete struct — Session 4's protocol-bag extension covers this). Session 4 handles the closed-conformer case (sufficient for MusicKit's 8 conformers — Album, Artist, Genre, MusicVideo, Playlist, Playlist.Entry, Song, Track). Open associated-type parameters that *route* a KeyPath through a generic method but where the Root is the parent's associated type are explicitly tracked as a Phase-3+ follow-up; v1 emits them suppressed with a tombstone comment.
 
 Options 1 (pure pass-through) and 3 (string/Mirror) are rejected as end-states. Option 1 alone leaves IN-path APIs unreachable from C#. Option 3 is not type-safe, cannot model `WritableKeyPath`, and ABI-incompatible with consumers that need the exact runtime KeyPath object.
 
@@ -201,7 +201,7 @@ request.Filter(matching: AlbumLibraryFilter.Title, contains: "love");
 
 Pros: type-safe at the C# call site, ergonomic for the common case (filter/sort with closed conformers), no runtime parsing.
 
-Cons: code generation surface scales with (conformer × field × value-type) — for MusicKit alone that's 9 conformers × ~10 fields × multiple Value types each. Open generic forms (`KeyPath<MusicItemType.LibraryFilter, …>` parameter on an open-generic method) still need a different story. Doesn't solve SwiftUI/SwiftData where the Root type is user-defined.
+Cons: code generation surface scales with (conformer × field × value-type) — for MusicKit alone that's 8 conformers × ~10 fields × multiple Value types each. Open generic forms (`KeyPath<MusicItemType.LibraryFilter, …>` parameter on an open-generic method) still need a different story. Doesn't solve SwiftUI/SwiftData where the Root type is user-defined.
 
 ### Option 3 — String/selector-based wrapper API
 
