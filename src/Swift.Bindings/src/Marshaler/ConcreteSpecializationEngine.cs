@@ -1171,6 +1171,35 @@ public class ConcreteSpecializationEngine
                 }
                 else // SameType: τ == ConcreteType — conformer must equal target
                 {
+                    // Cross-level coupling clauses with a SameType RHS of the canonical
+                    // single-hop dependent-member shape `τ_<d>+_<d>+.<id>` (e.g.
+                    // `τ_0_0 == τ_1_0.Element`) are not parent-tuple-only constraints —
+                    // they're registered as AddCoupling entries during method specialization
+                    // (see lines 668-695) and validated by ConformerPairingSatisfiesCoupling
+                    // under the full conformer pairing, where both sides of the equation are
+                    // bound. The parent-tuple-only filter has insufficient information to
+                    // evaluate them (the method-own side isn't bound yet); re-rejecting here
+                    // would discard valid pairings that coupling would have admitted.
+                    // Skip — coupling enforces.
+                    //
+                    // The predicate is restricted to the canonical single-hop shape AND
+                    // the RHS root being a method-own param (i.e. NOT a parent-tuple param
+                    // name). The latter mirrors the cross-level AddCoupling block at
+                    // lines 680-695, which only registers when `target.Module` is in
+                    // `ownParamNames` (line 691). Excluded shapes fall through to
+                    // literal-compare and reject (fail-closed):
+                    //   - Bare `τ_<d>+_<d>+` (no dot): coupling model has no bare-token
+                    //     equality entry (it stores `(AssocName, OtherParamName)`).
+                    //   - Multi-segment `τ_X_Y.A.B`: ConformerPairingSatisfiesCoupling looks
+                    //     up `AssociatedTypes[assocName]` (single hop); chains aren't
+                    //     enforced.
+                    //   - Parent-parent same-type (RHS root is another parent-tuple param):
+                    //     AddCoupling at 680-695 requires RHS root in ownParamNames, so
+                    //     parent-parent shapes are not registered.
+                    //   - User-defined names starting with τ_ but not matching `τ_<d>+_<d>+`:
+                    //     not a generic-parameter placeholder.
+                    if (IsCouplingDeferredSameTypeTarget(target, parentTuple)) continue;
+
                     if (string.Equals(entry.Conformer.SwiftQualifiedName, target, StringComparison.Ordinal)) continue;
                     // Also accept matches against the conformer's literal Swift expression
                     // (covers nested types and Optional/Array/Dictionary printed forms used
@@ -1184,6 +1213,43 @@ public class ConcreteSpecializationEngine
                     return false;
                 }
             }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Canonical Swift generic-parameter-placeholder same-type RHS shape that is
+    /// deferred to <c>ConformerPairingSatisfiesCoupling</c>: <c>τ_&lt;d&gt;+_&lt;d&gt;+.&lt;id&gt;</c>
+    /// (e.g. <c>τ_1_0.Element</c>). Single-hop only — multi-segment chains are not
+    /// covered by the coupling validator and must fall through to fail-closed
+    /// rejection.
+    /// </summary>
+    // Single-hop dependent-member only — matches the exact shape AddCoupling registers;
+    // bare-τ and multi-segment fall through to literal-compare and tombstone fail-closed.
+    private static readonly System.Text.RegularExpressions.Regex s_couplingDeferredSameTypePattern =
+        new(@"^τ_[0-9]+_[0-9]+\.[A-Za-z_][A-Za-z0-9_]*$",
+            System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// True when <paramref name="target"/> is a SameType RHS whose enforcement is
+    /// guaranteed by <c>ConformerPairingSatisfiesCoupling</c>: a single-hop dependent
+    /// member <c>τ_&lt;d&gt;+_&lt;d&gt;+.&lt;id&gt;</c> whose RHS root is a method-own
+    /// generic (NOT a parent-tuple param). The latter mirrors the cross-level
+    /// <c>AddCoupling</c> block's <c>ownParamNames</c> gate — parent-parent same-types
+    /// are not registered and must fail-closed.
+    /// </summary>
+    private static bool IsCouplingDeferredSameTypeTarget(
+        string target,
+        IReadOnlyList<(SpecializableParam Param, ConcreteConformer Conformer)> parentTuple)
+    {
+        if (!target.StartsWith("τ_", StringComparison.Ordinal)) return false;
+        if (!s_couplingDeferredSameTypePattern.IsMatch(target)) return false;
+        var dotIdx = target.IndexOf('.');
+        var rhsRoot = target.Substring(0, dotIdx);
+        foreach (var entry in parentTuple)
+        {
+            if (string.Equals(entry.Param.GenericParam.TypeName, rhsRoot, StringComparison.Ordinal))
+                return false;
         }
         return true;
     }
