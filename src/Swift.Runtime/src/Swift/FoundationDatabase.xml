@@ -245,6 +245,169 @@
             <typedeclaration kind="class" name="JSONDecoder" module="Foundation"
                              mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
+        <!-- PropertyListEncoder — Swift class, bridges to NSObject.
+             No managed Foundation.PropertyListEncoder type exists; without this
+             explicit remap the synthetic ObjC-bridge fallback in
+             CreateObjCBridgedTypeRecord would emit Foundation.PropertyListEncoder as a
+             type reference (CS0234). Mirrors the JSONEncoder/JSONDecoder treatment. -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="PropertyListEncoder" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- PropertyListDecoder — Swift class, bridges to NSObject -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="PropertyListDecoder" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <!-- Foundation Swift-overlay classes routed conservatively to NSObject.
+             Without this, the synthetic ObjC-bridge fallback in
+             CreateObjCBridgedTypeRecord would emit `Foundation.<SwiftName>` (CS0234,
+             since the .NET binding uses the NS-prefixed name). NSObject is correct
+             but loses type fidelity — many of these DO have typed Foundation.NS*
+             counterparts in Microsoft.iOS / Microsoft.macOS ref assemblies (e.g.
+             NSFileWrapper, NSValueTransformer, NSPropertyListSerialization, the
+             formatter family, NSTask, NSHost). Upgrade individual entries to typed
+             remaps as consumers need richer typing. Mirrors the JSONEncoder/
+             PropertyListEncoder treatment for the immediate compile-unblock.
+
+             Categories covered:
+               - Process/Pipe: NS counterpart name differs (NSTask) or unconfirmed
+               - PropertyListSerialization: sibling to JSONSerialization
+               - XMLDocument/XMLNode/XMLElement/XMLDTD/XMLDTDNode: XML object model
+               - UnitConverter/UnitConverterLinear: NSUnit converters
+               - ByteCount/DateComponents/DateInterval/ISO8601/Energy/Length/List/Mass/
+                 Measurement/PersonNameComponents/RelativeDateTime formatters
+               - FileWrapper, ValueTransformer, NotificationQueue, DistributedNotificationCenter
+               - NetService/NetServiceBrowser (deprecated), Host (deprecated, macOS-only)
+               - Port/PortMessage/SocketPort/MessagePort -->
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="ByteCountFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="DateComponentsFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="DateIntervalFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="DistributedNotificationCenter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="EnergyFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="FileWrapper" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="Host" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="ISO8601DateFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="LengthFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="ListFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="MassFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="MeasurementFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="MessagePort" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="NetService" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="NetServiceBrowser" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="NotificationQueue" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="PersonNameComponentsFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="Pipe" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="Port" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="PortMessage" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="Process" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="PropertyListSerialization" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="RelativeDateTimeFormatter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="SocketPort" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="UnitConverter" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="UnitConverterLinear" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="ValueTransformer" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="XMLDocument" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="XMLDTD" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="XMLDTDNode" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="XMLElement" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
+        <entity managedNameSpace="Foundation" managedTypeName="NSObject">
+            <typedeclaration kind="class" name="XMLNode" module="Foundation"
+                             mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
+        </entity>
         <!-- Locale — bridges to NSLocale -->
         <entity managedNameSpace="Foundation" managedTypeName="NSLocale">
             <typedeclaration kind="class" name="Locale" module="Foundation"

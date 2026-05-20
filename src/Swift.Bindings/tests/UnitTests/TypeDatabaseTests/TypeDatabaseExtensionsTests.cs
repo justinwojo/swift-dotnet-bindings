@@ -1363,6 +1363,45 @@ public class TypeDatabaseExtensionsTests
         Assert.False(result);
     }
 
+    // --- PropertyListDecoder / PropertyListEncoder → AnyType (AppleFrameworkValueTypes exclusion) ---
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_PropertyListDecoder_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.PropertyListDecoder"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void GetTypeRecordOrAnyType_PropertyListEncoder_ReturnsAnyType()
+    {
+        var typeDatabase = new TypeDatabase();
+
+        var record = typeDatabase.GetTypeRecordOrAnyType(new NamedTypeSpec("Foundation.PropertyListEncoder"));
+
+        Assert.Equal(TypeDatabaseExtensions.AnyType, record);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_PropertyListDecoder_ReturnsFalse()
+    {
+        // PropertyListDecoder is in AppleFrameworkValueTypes → not treated as ObjC class
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("Foundation.PropertyListDecoder"));
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsObjCModuleType_PropertyListEncoder_ReturnsFalse()
+    {
+        var result = TypeDatabaseExtensions.IsObjCModuleType(new NamedTypeSpec("Foundation.PropertyListEncoder"));
+
+        Assert.False(result);
+    }
+
     // --- XMLParser → AnyType (AppleFrameworkValueTypes exclusion) ---
     // NSXMLParser is not bound in .NET iOS — excluded from ObjC bridging
 
@@ -1896,6 +1935,41 @@ public class TypeDatabaseExtensionsTests
     [InlineData("Foundation.Calendar", "Foundation", "NSCalendar")]
     [InlineData("Foundation.JSONEncoder", "Foundation", "NSObject")]
     [InlineData("Foundation.JSONDecoder", "Foundation", "NSObject")]
+    [InlineData("Foundation.PropertyListEncoder", "Foundation", "NSObject")]
+    [InlineData("Foundation.PropertyListDecoder", "Foundation", "NSObject")]
+    // Foundation Swift-overlay classes routed to NSObject (categorical CS0234 fix)
+    [InlineData("Foundation.ByteCountFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.DateComponentsFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.DateIntervalFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.DistributedNotificationCenter", "Foundation", "NSObject")]
+    [InlineData("Foundation.EnergyFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.FileWrapper", "Foundation", "NSObject")]
+    [InlineData("Foundation.Host", "Foundation", "NSObject")]
+    [InlineData("Foundation.ISO8601DateFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.LengthFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.ListFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.MassFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.MeasurementFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.MessagePort", "Foundation", "NSObject")]
+    [InlineData("Foundation.NetService", "Foundation", "NSObject")]
+    [InlineData("Foundation.NetServiceBrowser", "Foundation", "NSObject")]
+    [InlineData("Foundation.NotificationQueue", "Foundation", "NSObject")]
+    [InlineData("Foundation.PersonNameComponentsFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.Pipe", "Foundation", "NSObject")]
+    [InlineData("Foundation.Port", "Foundation", "NSObject")]
+    [InlineData("Foundation.PortMessage", "Foundation", "NSObject")]
+    [InlineData("Foundation.Process", "Foundation", "NSObject")]
+    [InlineData("Foundation.PropertyListSerialization", "Foundation", "NSObject")]
+    [InlineData("Foundation.RelativeDateTimeFormatter", "Foundation", "NSObject")]
+    [InlineData("Foundation.SocketPort", "Foundation", "NSObject")]
+    [InlineData("Foundation.UnitConverter", "Foundation", "NSObject")]
+    [InlineData("Foundation.UnitConverterLinear", "Foundation", "NSObject")]
+    [InlineData("Foundation.ValueTransformer", "Foundation", "NSObject")]
+    [InlineData("Foundation.XMLDocument", "Foundation", "NSObject")]
+    [InlineData("Foundation.XMLDTD", "Foundation", "NSObject")]
+    [InlineData("Foundation.XMLDTDNode", "Foundation", "NSObject")]
+    [InlineData("Foundation.XMLElement", "Foundation", "NSObject")]
+    [InlineData("Foundation.XMLNode", "Foundation", "NSObject")]
     [InlineData("Foundation.Locale", "Foundation", "NSLocale")]
     [InlineData("Foundation.Decimal", "Foundation", "NSDecimalNumber")]
     public async Task LoadFoundationDatabase_NewEntries_ResolveViaGetTypeRecordOrAnyType(
@@ -1936,6 +2010,32 @@ public class TypeDatabaseExtensionsTests
         var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.JSONDecoder");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSObject", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Fact]
+    public async Task LoadFoundationDatabase_PropertyListEncoder_ResolvesToObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.PropertyListEncoder");
+        Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
+        Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
+        Assert.Equal("NSObject", record.CSharpTypeName.Name);
+        Assert.Equal(TypeRecordKind.Class, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
+    [Fact]
+    public async Task LoadFoundationDatabase_PropertyListDecoder_ResolvesToObjCBridgedClass()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml");
+
+        var swiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.PropertyListDecoder");
         Assert.True(typeDatabase.TryGetTypeRecord(swiftTypeName, out var record));
         Assert.Equal("Foundation", record!.CSharpTypeName.Namespace);
         Assert.Equal("NSObject", record.CSharpTypeName.Name);
