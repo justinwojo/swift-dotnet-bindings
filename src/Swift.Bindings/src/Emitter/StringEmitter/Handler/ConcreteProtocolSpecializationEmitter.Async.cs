@@ -480,9 +480,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ILogger? logger = null)
     {
         if (!method.IsAsync) return false;
+        // Session 5: generic parents are no longer blanket-rejected here. Closed-conformer
+        // async CSM (this file's path) still rejects them — that case requires method-own
+        // generics which would leak `Item.X` placeholders into the wrapper signature.
+        // Parent-only async CSM (no method-own generics) is routed separately through
+        // `IsCsmAsyncEligibleForGenericParent` and emitted via
+        // `TryEmitParentOnlyAsyncOverload` inside `EmitConcreteSpecializationsForGenericParent`.
+        // The check below stays scoped to the closed-conformer async path: a generic parent
+        // here means we'd produce open-generic spellings and is unsupported on this branch.
         if (parentTypeDecl.IsGeneric)
         {
-            logger?.LogDebug("CSM-async: Skipping {Method} — generic parent type.", method.Name);
+            logger?.LogDebug(
+                "CSM-async (closed-conformer): Skipping {Method} — generic parent routes through parent-only async path.",
+                method.Name);
             return false;
         }
         if (method.HasTypedThrows)

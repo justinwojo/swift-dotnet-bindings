@@ -1,5 +1,28 @@
 # Session 5 — Parent-only async CSM
 
+**Status: complete.** Landing scope:
+- New file `ConcreteProtocolSpecializationEmitter.AsyncGenericParent.cs` hosts the parent-only async predicate (`IsCsmAsyncEligibleForGenericParent`) and per-pairing emitter (`TryEmitParentOnlyAsyncOverload`).
+- `MemberValidationPipeline` Phase 4a routes plain async methods on generic parents through the new path.
+- `EmitConcreteSpecializationsForGenericParent` dispatches the async-with-zero-method-generics shape into the new emitter, returning fall-through behaviour for any wider shape.
+- Return-type substitution is gated to non-frozen structs only (`IsReturnSafeHandleBacked`); see code commentary for rejected shapes (class, frozen-struct-projected-as-class, complex enum, blittable).
+- Value-type parent gate (`parentTypeDecl is ClassDecl ⇒ reject`) keeps the Swift `let __self = …pointee` capture sound.
+- `[UnmanagedCallersOnly]` callbacks hardened with outer catch + `GCHandle.IsAllocated` guards so neither exception escape nor a double-callback can crash the process.
+- BindingTests fixture `PatParentAsyncMethods.swift` + 5 runtime tests covering success and throwing variants on two conformers (string and int item).
+
+Gates green: unit (564), sim (2166 ↑ from 2161), device (2187 ↑ from 2182), 0 crashes.
+
+## Known-narrow scope (deferred to Session 6+)
+
+These are deliberately narrow gates in the Session 5 emitter, not bugs. Future sessions can lift each independently:
+
+- **Return-type gate**: only non-frozen structs (`ClassWithOpaquePayload` shape) where `NewFromPayload` wraps the same pointer. Class returns, frozen-struct-projected-as-class returns, complex enums, and blittable types each need a separate emit shape (copy-vs-pointer-wrap-vs-class-pointer-read).
+- **Parent kind**: structs / enums only; class parents would need ARC-aware Task capture.
+- **Method shape**: zero method-own generic params, zero method parameters. Wider shapes still emit on the open-generic surface unchanged.
+- **Optional / existential returns**: `IsEmittableParentOnlyAsyncPairing` rejects non-Named substituted returns; standard async harness has dedicated paths for these.
+- **Predicate-emitter parity**: predicate returns true on first viable pairing (same pattern as Session 2 sync). When multiple parent tuples exist and some pass per-pairing gate while others don't, the open-generic surface is suppressed method-wide; partial tuples lose access. Matches Session 2's established design trade-off.
+
+---
+
 Co-deferred gap 2 from `00-overview.md`. Extends Session 2's sync CSM relaxation to the async path. Larger than Session 2 because the async CSM machinery hard-rejects generic parents at two emission sites and the async harness needs to be hoisted into the per-conformer `*CsmExtensions` class for correct return-type substitution.
 
 ## Goal

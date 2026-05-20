@@ -211,6 +211,29 @@ public class MemberValidationPipeline
                 "Routed to concrete CSM-async specialization.");
         }
 
+        // Phase 4a (async, generic parent — parent-only): mirrors the sync-generic-parent
+        // intercept below, but for async methods with zero method-own generic parameters
+        // whose return type substitutes through the parent's associated-type table
+        // (e.g. `func respond() async -> Item.Response` on `struct Bag<Item: AsyncBagItem>`).
+        // ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent
+        // emits per-conformer async extensions on the *CsmExtensions class; the open-generic
+        // async method on the parent class body would shadow those extensions and route
+        // callers into the broken open-generic path. Suppress the open-generic emission.
+        //
+        // Scoped tight: fires only for parent-only async on generic parents. Closed-conformer
+        // async (no parent generics) goes through Phase 4a's first slot above; async methods
+        // with method-own generics on generic parents fall through and emit their normal
+        // open-generic surface — they're out of Session 5 scope.
+        if (!methodDecl.IsConstructor &&
+            methodDecl.ParentDecl is TypeDecl parentTypeForAsyncGenericParent &&
+            context?.EmissionContext.SpecializationEngine is { } specEngineForAsyncGenericParent &&
+            ConcreteProtocolSpecializationEmitter.IsCsmAsyncEligibleForGenericParent(
+                methodDecl, parentTypeForAsyncGenericParent, _typeDatabase, specEngineForAsyncGenericParent))
+        {
+            return ValidationResult.RoutedElsewhere(
+                "Routed to concrete CSM-async specialization (parent-only generic parent extension).");
+        }
+
         // Phase 4a (sync, generic parent): CSM emits concrete overloads as extension
         // methods on a {Type}{ParentConformer}CsmExtensions class. The open-generic
         // instance method on the parent class would shadow those extensions during C#

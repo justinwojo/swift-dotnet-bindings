@@ -82,6 +82,21 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.AsyncBagItem",
+      "conformers": [
+        {
+          "swiftType": "SwiftBindingsTestLib.MockStringItem",
+          "csharpType": "MockStringItem",
+          "associatedTypes": { "Response": "SwiftBindingsTestLib.StringResponse" }
+        },
+        {
+          "swiftType": "SwiftBindingsTestLib.MockIntItem",
+          "csharpType": "MockIntItem",
+          "associatedTypes": { "Response": "SwiftBindingsTestLib.IntResponse" }
+        }
+      ]
+    },
+    {
       "protocol": "RoomPlan.CapturedRoomAttribute",
       "conformers": [
         { "swiftType": "RoomPlan.CapturedRoom.Object.Category.ChairType", "csharpType": "RoomPlan.ChairType" },

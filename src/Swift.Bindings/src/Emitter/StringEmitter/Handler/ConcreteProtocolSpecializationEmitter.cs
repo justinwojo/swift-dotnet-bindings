@@ -2613,7 +2613,27 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 var method = spec.Method;
                 if (method.IsAccessor) continue;
-                if (method.IsAsync) continue; // Async CSM path does not yet support generic parents.
+                // Session 5: async methods on generic parents are emit-eligible IFF they
+                // have zero method-own generic parameters (the "parent-only" shape). The
+                // dispatch lives in TryEmitParentOnlyAsyncOverload which writes directly
+                // into the already-open *CsmExtensions partial class. Async methods that
+                // also have method-own generics still need a wider relaxation than this
+                // session covers — they fall through to the continue below.
+                if (method.IsAsync)
+                {
+                    var asyncMethodParams = spec.SpecializableParams
+                        .Where(p => !p.IsParentGeneric)
+                        .ToList();
+                    if (asyncMethodParams.Count == 0)
+                    {
+                        TryEmitParentOnlyAsyncOverload(
+                            csWriter, swiftWriter, method, typeDecl, parentTuple,
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                            emittedSignatures, logger);
+                    }
+                    // Async with method-own generics still rejects — out of Session 5 scope.
+                    continue;
+                }
                 // See top-level CSM path: throwing constructors can reach non-public inits.
                 if (method.IsConstructor && method.Throws) continue;
 
