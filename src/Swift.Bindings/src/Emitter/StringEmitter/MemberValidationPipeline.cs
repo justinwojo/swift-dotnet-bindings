@@ -143,6 +143,17 @@ public class MemberValidationPipeline
                             var returnTypeSpec = methodDecl.CSSignature[0].SwiftTypeSpec;
                             if (TypeSpecHelpers.ContainsAnyTypeName(returnTypeSpec, parentParamNames))
                             {
+                                // CSM-async-generic-parent specialization substitutes the parent
+                                // generic with each concrete conformer, so the callback no longer
+                                // references an unbound generic param and the rejection rationale
+                                // disappears. Route to CSM before falling through to the skip.
+                                if (context?.EmissionContext.SpecializationEngine is { } csmEngineForReturnGate &&
+                                    ConcreteProtocolSpecializationEmitter.IsCsmAsyncEligibleForGenericParent(
+                                        methodDecl, parentTd, _typeDatabase, csmEngineForReturnGate))
+                                {
+                                    return ValidationResult.RoutedElsewhere(
+                                        "Routed to concrete CSM-async specialization (parent-only generic parent extension).");
+                                }
                                 return ValidationResult.Skip(SkipReason.GenericTypeCallback,
                                     "Async callback references parent generic type parameters in return type.");
                             }

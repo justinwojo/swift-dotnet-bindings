@@ -596,6 +596,10 @@
       "objcPrefixes": ["MTK"]
     },
     {
+      "module": "MusicKit",
+      "wrapperImportable": true
+    },
+    {
       "module": "MultipeerConnectivity",
       "autoBridge": true,
       "optionalFallback": true,

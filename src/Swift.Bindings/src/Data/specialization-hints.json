@@ -155,6 +155,30 @@
         { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song", "modules": ["MusicKit"] },
         { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track", "modules": ["MusicKit"] }
       ]
+    },
+    {
+      "protocol": "MusicKit.MusicLibraryRequestable",
+      "conformers": [
+        { "swiftType": "MusicKit.Album", "csharpType": "MusicKit.Album", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Artist", "csharpType": "MusicKit.Artist", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Genre", "csharpType": "MusicKit.Genre", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.MusicVideo", "csharpType": "MusicKit.MusicVideo", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Playlist", "csharpType": "MusicKit.Playlist", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Song", "csharpType": "MusicKit.Song", "modules": ["MusicKit"] },
+        { "swiftType": "MusicKit.Track", "csharpType": "MusicKit.Track", "modules": ["MusicKit"] }
+      ]
+    },
+    {
+      "protocol": "MusicKit.MusicLibraryRequestFilterValueEquatable",
+      "conformers": [
+        { "swiftType": "MusicKit.MusicItemID", "csharpType": "MusicKit.MusicItemID", "modules": ["MusicKit"] }
+      ]
+    },
+    {
+      "protocol": "MusicKit.MusicLibraryRequestFilterValueMembershipComparable",
+      "conformers": [
+        { "swiftType": "MusicKit.MusicItemID", "csharpType": "MusicKit.MusicItemID", "modules": ["MusicKit"] }
+      ]
     }
   ]
 }

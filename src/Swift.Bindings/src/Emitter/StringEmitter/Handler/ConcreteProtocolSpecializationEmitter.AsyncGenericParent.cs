@@ -128,6 +128,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         foreach (var pairing in CartesianPairings(specializable.SpecializableParams))
         {
             if (!ConformerPairingSatisfiesCoupling(pairing)) continue;
+            // Mirror the per-method where-clause filter the emitter applies before
+            // TryEmitParentOnlyAsyncOverload (see ConcreteProtocolSpecializationEmitter.cs
+            // line 2663). Without this, the predicate can return true on a pairing the
+            // emitter later rejects, and the pipeline's RoutedElsewhere has already
+            // suppressed the open-generic surface → silent method drop.
+            if (!engine.ParentTupleSatisfiesMethodConstraints(method, parentTypeDecl, pairing))
+                continue;
             if (!IsEmittableParentOnlyAsyncPairing(
                     method, parentTypeDecl, pairing, typeDatabase, moduleName,
                     out _, out _))
