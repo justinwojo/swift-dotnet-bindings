@@ -147,6 +147,24 @@ public class ArchiveBuildSettings
         return this;
     }
 
+    /// <summary>
+    /// Sets the tvOS deployment target.
+    /// </summary>
+    public ArchiveBuildSettings SetTvosDeploymentTarget(string version)
+    {
+        _buildSettings["TVOS_DEPLOYMENT_TARGET"] = version;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the macOS deployment target.
+    /// </summary>
+    public ArchiveBuildSettings SetMacosDeploymentTarget(string version)
+    {
+        _buildSettings["MACOSX_DEPLOYMENT_TARGET"] = version;
+        return this;
+    }
+
     public string BuildArguments()
     {
         if (Scheme == null)

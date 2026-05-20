@@ -96,11 +96,17 @@ public record ValidationLibrary
     // code referencing generated types. The flag here is only the eligibility gate.
     [JsonPropertyName("behaviorTier")] public bool BehaviorTier { get; init; }
 
-    // macOS deployment target used by the behavior tier when building the macOS slice
-    // for this library. Defaults to 12.0 (matches Swift.Bindings.Apple), which is
+    // macOS deployment target used when building a macOS slice for this library.
+    // Used by both the behavior tier and the multi-platform `platforms: [..."macos"]`
+    // source-mode fetch path. Defaults to 12.0 (matches Swift.Bindings.Apple), which is
     // newer than most third-party libs need but old enough to be universally
     // satisfied — Alamofire 5.10.2's `.macOS(.v10_15)` is far below this floor.
     [JsonPropertyName("minMacOS")] public string MinMacOS { get; init; } = "12.0";
+
+    // tvOS deployment target used when building tvOS slices for a multi-platform
+    // source-mode library (`platforms: [..."tvos"]`). Defaults to 15.0 to match
+    // MinIOS — tvOS and iOS deployment floors move in lockstep for most libs.
+    [JsonPropertyName("minTvOS")] public string MinTvOS { get; init; } = "15.0";
 
     // Per-product overrides applied at xcodebuild scheme/destination time. Behavior
     // tier needs a macOS scheme name (Alamofire's xcodeproj exposes "Alamofire macOS"

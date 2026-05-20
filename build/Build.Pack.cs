@@ -83,7 +83,7 @@ partial class Build
             // with "Bad CPU type" on whichever developer host doesn't match.
             AssertUniversal2(stagedBinary);
 
-            using var scope = new VersionScope(Version!, RootDirectory, AppleVersion);
+            using var scope = new VersionScope(Version!, RootDirectory, appleVersion);
 
             // 1. Runtime
             Log.Information("=== [1/4] Packing SwiftBindings.Runtime ===");

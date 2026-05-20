@@ -47,9 +47,13 @@
        path — verified against NuGet.Build.Tasks.Pack.targets — so we rewrite the resolved
        _ProjectReferencesWithVersions item after _GetProjectReferenceVersions to stamp the
        $(SwiftRuntimePackageVersionRange) value VersionScope produced (a floor-only
-       [MAJOR.MINOR.PATCH,) range). The SDK-side range in Sdk.props is bounded and supplies
-       the actual contract for consumers; the supplement only needs to declare a floor
-       because it is always brokered by SwiftBindings.Sdk in the supported flow. -->
+       [MAJOR.MINOR.PATCH,) range). NuGet then normalizes "[X.Y.Z,)" to bare "X.Y.Z" when
+       it serializes the nuspec (the two forms are semantically identical floor-only
+       ranges); the override is what keeps the floor pinned to the intended runtime
+       version rather than whatever bare $(PackageVersion) Swift.Runtime happens to carry.
+       The SDK-side range in Sdk.props is bounded and supplies the actual compatibility
+       contract for consumers; the supplement only needs to declare a floor because it is
+       always brokered by SwiftBindings.Sdk in the supported flow. -->
   <ItemGroup>
     <ProjectReference Include="../Swift.Runtime/src/Swift.Runtime.csproj" />
   </ItemGroup>

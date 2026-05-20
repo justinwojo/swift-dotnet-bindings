@@ -2199,9 +2199,24 @@ TARGETSEOF"
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 7c: Configure NuGet pack layout                                 -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    Target Condition deliberately omits any check on @(SwiftFramework) or
+    @(SwiftAppleFrameworkTarget). NuGet's inner-pack call to
+    _GetTfmSpecificContentForPackage evaluates $(TargetsForTfmSpecificContentInPackage)
+    on a restricted subgraph that does NOT include _ComputeSwiftFingerprint — the
+    only hook that fires _DiscoverSwiftFrameworks. If we gate this target on the
+    dynamically-populated @(SwiftFramework) item, MSBuild evaluates that Condition
+    to false in inner-pack (the item hasn't been discovered yet), the entire target
+    — including DependsOnTargets — is skipped, and the resulting nupkg ships with
+    only the managed DLL: no runtimes/<rid>/native/, no buildTransitive/, no
+    module database. (Issue #39: silent regression on auto-discovery bindings.)
+    Stable-property Condition keeps us in the build graph; _DiscoverSwiftFrameworks
+    explicitly in DependsOnTargets populates @(SwiftFramework) before the body's
+    per-item Conditions are evaluated.
+  -->
   <Target Name="_ConfigureSwiftBindingPack"
-          DependsOnTargets="_ImportSwiftBindingMetadata;_SetSlicePaths"
-          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != '' AND ('@(SwiftFramework)' != '' OR '@(SwiftAppleFrameworkTarget)' != '')"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata;_SetSlicePaths"
+          Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != ''"
           Returns="@(TfmSpecificPackageFile)">
 
     <!--
@@ -2282,5 +2297,17 @@ TARGETSEOF"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml')" />
     </ItemGroup>
+
+    <!--
+      Sibling of SWIFTBIND037 (managed side). Fails loudly when persisted metadata
+      says we built native artifacts but pack staged zero TfmSpecificPackageFile
+      entries — the silent-broken-nupkg shape that issue #39 hit. With the target
+      Condition correctly bounded above this guard cannot misfire on normal Apple
+      framework or auto-discover packs; it exists to fail-closed if a future
+      change re-gates the body on an item that isn't populated in inner-pack.
+    -->
+    <Error Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True' AND '@(TfmSpecificPackageFile)' == ''"
+           Code="SWIFTBIND038"
+           Text="Pack produced no native runtime content for a Swift binding that built a wrapper xcframework (module: $(_SwiftBindingWrapperModuleName)). The resulting nupkg would ship managed-only and DllNotFoundException at consumer runtime. This indicates a regression in the pack target graph — verify _DiscoverSwiftFrameworks runs in the NuGet inner-pack subgraph (_GetTfmSpecificContentForPackage) and that _ConfigureSwiftBindingPack's per-item Conditions still match populated state." />
   </Target>
 </Project>

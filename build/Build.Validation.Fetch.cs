@@ -43,7 +43,9 @@ partial class Build
         {
             var version = lib.Version ?? "manual";
 
-            if (!Force && IsCached(lib.Name, version) && !BehaviorTierArtifactMissing(lib))
+            if (!Force && IsCached(lib.Name, version)
+                && !BehaviorTierArtifactMissing(lib)
+                && !PlatformSetMissing(lib))
             {
                 Log.Debug("{Name}: cached ({Version})", lib.Name, version);
                 cached++;
@@ -131,6 +133,50 @@ partial class Build
             libDir / ".behavior-tier" / $"{p.Framework}-macos.xcframework"));
     }
 
+    // Source-mode libs that declare `platforms: [..., "tvos", "macos", ...]` need
+    // their xcframework to contain all the corresponding slices. A pre-existing
+    // cache from a prior single-platform fetch reports the version match but
+    // ships a stale iOS-only xcframework — `nuke pack-gate` would then fail on
+    // missing tvos/macos RID coverage, with no signal pointing back at the fetch
+    // cache. Treat the cache as a miss when the on-disk slice set on the primary
+    // xcframework doesn't cover every declared platform.
+    bool PlatformSetMissing(ValidationLibrary lib)
+    {
+        if (lib.Mode != "source") return false;
+        var platforms = lib.Platforms ?? ["ios"];
+        if (platforms.Count <= 1) return false;
+
+        var libDir = LibrariesDir / lib.Name;
+        foreach (var product in lib.Products)
+        {
+            var xcfw = libDir / $"{product.Framework}.xcframework";
+            if (!Directory.Exists(xcfw)) return true;
+
+            var slicePrefixes = Directory.EnumerateDirectories(xcfw)
+                .Select(d => Path.GetFileName(d) ?? "")
+                .ToList();
+
+            foreach (var platform in platforms)
+            {
+                // Match by slice id prefix — covers both the `tvos-arm64` device id
+                // and `tvos-arm64_x86_64-simulator` simulator id under one check.
+                // Catalyst slices live under `ios-` prefix with `-maccatalyst` suffix
+                // (not used in source mode today, but kept consistent).
+                bool present = platform switch
+                {
+                    "ios" => slicePrefixes.Any(s => s.StartsWith("ios-", StringComparison.Ordinal)
+                                               && !s.Contains("maccatalyst", StringComparison.Ordinal)),
+                    "tvos" => slicePrefixes.Any(s => s.StartsWith("tvos-", StringComparison.Ordinal)),
+                    "macos" => slicePrefixes.Any(s => s.StartsWith("macos-", StringComparison.Ordinal)),
+                    "maccatalyst" => slicePrefixes.Any(s => s.Contains("maccatalyst", StringComparison.Ordinal)),
+                    _ => true,
+                };
+                if (!present) return true;
+            }
+        }
+        return false;
+    }
+
     void VerifyRevision(string repository, string tag, string revision)
     {
         Log.Debug("Verifying tag {Tag}...", tag);
@@ -188,15 +234,58 @@ partial class Build
             .AssertWaitForExit()
             .AssertZeroExitCode();
 
+        // Honor `platforms: [...]` for source-mode libs. Default is iOS-only when the
+        // field is absent so single-platform fetches stay unchanged. Each platform
+        // contributes one or more framework slices into the produced xcframework —
+        // device + simulator on iOS/tvOS, single fat arm64+x86_64 slice on macOS.
+        var platforms = lib.Platforms ?? ["ios"];
+        var unsupported = platforms
+            .Where(p => p is not ("ios" or "tvos" or "macos"))
+            .ToList();
+        if (unsupported.Count > 0)
+            throw new InvalidOperationException(
+                $"Library '{lib.Name}' declares unsupported source-mode platform(s): " +
+                $"[{string.Join(", ", unsupported)}]. Source-mode fetch supports ios, tvos, macos. " +
+                "Catalyst is intentionally omitted — no source-mode lib in the manifest needs it today; " +
+                "apple-framework mode libs flow through ExpandTargets and don't hit this path.");
+
         foreach (var product in lib.Products)
         {
             if (string.IsNullOrEmpty(product.Scheme))
                 throw new InvalidOperationException(
                     $"Product {product.Framework} missing 'scheme' (required for source mode)");
 
-            BuildProductArchives(lib, product, buildDir, archivesDir, derivedData);
-            InjectSwiftModuleInterfaces(product, archivesDir, derivedData);
-            CreateProductXcframework(product, libDir, archivesDir);
+            var sliceFrameworkPaths = new List<AbsolutePath>();
+
+            if (platforms.Contains("ios"))
+            {
+                BuildProductArchives(lib, product, buildDir, archivesDir, derivedData);
+                InjectSwiftModuleInterfaces(product, archivesDir, derivedData);
+                sliceFrameworkPaths.Add(ResolveFrameworkInArchive(
+                    archivesDir / $"{product.Framework}-ios-arm64.xcarchive", product.Framework, "iOS device"));
+                sliceFrameworkPaths.Add(ResolveFrameworkInArchive(
+                    archivesDir / $"{product.Framework}-ios-simulator.xcarchive", product.Framework, "iOS simulator"));
+            }
+
+            if (platforms.Contains("tvos"))
+            {
+                BuildProductTvosArchives(lib, product, buildDir, archivesDir, derivedData);
+                InjectTvosSwiftModuleInterfaces(product, archivesDir, derivedData);
+                sliceFrameworkPaths.Add(ResolveFrameworkInArchive(
+                    archivesDir / $"{product.Framework}-tvos-arm64.xcarchive", product.Framework, "tvOS device"));
+                sliceFrameworkPaths.Add(ResolveFrameworkInArchive(
+                    archivesDir / $"{product.Framework}-tvos-simulator.xcarchive", product.Framework, "tvOS simulator"));
+            }
+
+            if (platforms.Contains("macos"))
+            {
+                BuildProductFatMacosArchive(lib, product, buildDir, archivesDir, derivedData);
+                InjectFatMacosSwiftModuleInterface(product, archivesDir, derivedData);
+                sliceFrameworkPaths.Add(ResolveFrameworkInArchive(
+                    archivesDir / $"{product.Framework}-macos.xcarchive", product.Framework, "macOS"));
+            }
+
+            CreateProductXcframework(product, libDir, sliceFrameworkPaths);
 
             // Behavior tier opt-in: build an additional single-slice macOS xcframework
             // alongside the iOS one. The host-run consumer in `nuke validate`'s
@@ -207,6 +296,11 @@ partial class Build
             // `<libDir>/.behavior-tier/` (see CreateProductMacOSXcframework) so
             // Validate's sibling-xcframework auto-discovery cannot pick it up and
             // try to resolve a macOS slice as an iOS framework dependency.
+            //
+            // Distinct from the `platforms: [..."macos"]` branch above — behavior-tier
+            // pins ARCHS=arm64 (host-runtime only on Apple Silicon CI) and writes to
+            // a sibling .behavior-tier/ tree, where the main multi-platform macOS
+            // slice is fat arm64+x86_64 and lives in the primary xcframework.
             if (lib.BehaviorTier && !string.IsNullOrEmpty(lib.BehaviorTierMacOSScheme))
             {
                 BuildProductMacOSArchive(lib, product, buildDir, archivesDir, derivedData);
@@ -217,6 +311,18 @@ partial class Build
 
         buildDir.DeleteDirectory();
         WriteCache(lib.Name, lib.Version!);
+    }
+
+    static AbsolutePath ResolveFrameworkInArchive(AbsolutePath archivePath, string framework, string label)
+    {
+        var productsDir = archivePath / "Products";
+        var fwPath = productsDir
+            .GlobDirectories($"**/{framework}.framework")
+            .FirstOrDefault();
+        if (fwPath == null)
+            throw new InvalidOperationException(
+                $"{framework}.framework not found in {label} archive at {archivePath}");
+        return fwPath;
     }
 
     void BuildProductArchives(
@@ -318,7 +424,10 @@ partial class Build
 
         var macSettings = new ArchiveBuildSettings()
             .SetScheme(scheme)
-            .SetDestination("generic/platform=macOS")
+            // `name=Any Mac` disambiguates from the Mac Catalyst variant of the same
+            // platform — without it xcodebuild emits "Using the first of multiple
+            // matching destinations" on hosts where Catalyst is installed.
+            .SetDestination("generic/platform=macOS,name=Any Mac")
             .SetArchivePath(archivesDir / $"{product.Framework}-macos-arm64")
             .SetDerivedDataPath(derivedData / "macos")
             .SetLibraryDistributionDefaults()
@@ -396,31 +505,190 @@ partial class Build
     }
 
     void CreateProductXcframework(
-        ValidationProduct product, AbsolutePath libDir, AbsolutePath archivesDir)
+        ValidationProduct product, AbsolutePath libDir,
+        IReadOnlyList<AbsolutePath> sliceFrameworkPaths)
     {
-        var deviceArchive = archivesDir / $"{product.Framework}-ios-arm64.xcarchive" / "Products";
-        var simArchive = archivesDir / $"{product.Framework}-ios-simulator.xcarchive" / "Products";
+        if (sliceFrameworkPaths.Count == 0)
+            throw new InvalidOperationException(
+                $"No framework slices collected for {product.Framework}. " +
+                "BuildFromSource produced no platform slices to combine.");
 
-        var deviceFw = deviceArchive
-            .GlobDirectories($"**/{product.Framework}.framework")
-            .FirstOrDefault()
-            ?? throw new InvalidOperationException(
-                $"{product.Framework}.framework not found in device archive");
+        Log.Information("  Creating {Framework}.xcframework ({SliceCount} slice(s))",
+            product.Framework, sliceFrameworkPaths.Count);
 
-        var simulatorFw = simArchive
-            .GlobDirectories($"**/{product.Framework}.framework")
-            .FirstOrDefault()
-            ?? throw new InvalidOperationException(
-                $"{product.Framework}.framework not found in simulator archive");
+        var settings = new CreateXcframeworkSettings()
+            .SetOutputPath(libDir / $"{product.Framework}.xcframework");
+        foreach (var path in sliceFrameworkPaths)
+            settings.AddFrameworkPath(path);
 
-        Log.Information("  Creating {Framework}.xcframework", product.Framework);
-
-        XcodeBuild.ExecuteCreateXcframework(new CreateXcframeworkSettings()
-            .AddFrameworkPath(deviceFw)
-            .AddFrameworkPath(simulatorFw)
-            .SetOutputPath(libDir / $"{product.Framework}.xcframework"));
+        XcodeBuild.ExecuteCreateXcframework(settings);
 
         Log.Information("  {Framework}.xcframework built", product.Framework);
+    }
+
+    // ============================================================
+    // Multi-platform source-mode build helpers (tvOS + fat macOS).
+    // Used when `validation-libraries.json` declares additional
+    // platforms beyond iOS. Distinct from the behavior-tier macOS
+    // path (which pins ARCHS=arm64 and writes to .behavior-tier/).
+    // ============================================================
+
+    void BuildProductTvosArchives(
+        ValidationLibrary lib, ValidationProduct product,
+        AbsolutePath buildDir, AbsolutePath archivesDir, AbsolutePath derivedData)
+    {
+        var sourceDir = buildDir / "source";
+
+        Log.Information("  Building {Framework} (scheme: {Scheme}) - tvOS device",
+            product.Framework, product.Scheme);
+
+        var deviceSettings = new ArchiveBuildSettings()
+            .SetScheme(product.Scheme!)
+            .SetDestination("generic/platform=tvOS")
+            .SetArchivePath(archivesDir / $"{product.Framework}-tvos-arm64")
+            .SetDerivedDataPath(derivedData / "tvos-device")
+            .SetLibraryDistributionDefaults()
+            .SetTvosDeploymentTarget(lib.MinTvOS)
+            .AddBuildSetting("VALID_ARCHS", "$(ARCHS_STANDARD)")
+            .SetQuiet()
+            .SetWorkingDirectory(sourceDir);
+
+        if (!string.IsNullOrEmpty(product.Project))
+            deviceSettings.SetProject(product.Project);
+
+        if (lib.BuildSettings != null)
+            foreach (var (key, value) in lib.BuildSettings)
+                deviceSettings.AddBuildSetting(key, value);
+
+        XcodeBuild.ExecuteArchiveBuild(deviceSettings);
+
+        Log.Information("  Building {Framework} (scheme: {Scheme}) - tvOS simulator",
+            product.Framework, product.Scheme);
+
+        var simSettings = new ArchiveBuildSettings()
+            .SetScheme(product.Scheme!)
+            .SetDestination("generic/platform=tvOS Simulator")
+            .SetArchivePath(archivesDir / $"{product.Framework}-tvos-simulator")
+            .SetDerivedDataPath(derivedData / "tvos-simulator")
+            .SetLibraryDistributionDefaults()
+            .SetTvosDeploymentTarget(lib.MinTvOS)
+            .AddBuildSetting("VALID_ARCHS", "$(ARCHS_STANDARD)")
+            .SetQuiet()
+            .SetWorkingDirectory(sourceDir);
+
+        if (!string.IsNullOrEmpty(product.Project))
+            simSettings.SetProject(product.Project);
+
+        if (lib.BuildSettings != null)
+            foreach (var (key, value) in lib.BuildSettings)
+                simSettings.AddBuildSetting(key, value);
+
+        XcodeBuild.ExecuteArchiveBuild(simSettings);
+    }
+
+    void InjectTvosSwiftModuleInterfaces(
+        ValidationProduct product, AbsolutePath archivesDir, AbsolutePath derivedData)
+    {
+        var variants = new[]
+        {
+            (archivePath: archivesDir / $"{product.Framework}-tvos-arm64.xcarchive",
+             ddVariant: "tvos-device"),
+            (archivePath: archivesDir / $"{product.Framework}-tvos-simulator.xcarchive",
+             ddVariant: "tvos-simulator")
+        };
+
+        foreach (var (archivePath, ddVariant) in variants)
+        {
+            var productsDir = archivePath / "Products";
+            var frameworkPaths = productsDir.GlobDirectories($"**/{product.Framework}.framework");
+            var fwPath = frameworkPaths.FirstOrDefault();
+            if (fwPath == null) continue;
+
+            var modulesDir = fwPath / "Modules" / $"{product.Framework}.swiftmodule";
+            if (Directory.Exists(modulesDir)) continue;
+
+            var ddSearch = (derivedData / ddVariant)
+                .GlobDirectories($"**/ArchiveIntermediates/**/BuildProductsPath/**/{product.Framework}.swiftmodule");
+            var swiftmod = ddSearch.FirstOrDefault();
+
+            if (swiftmod != null)
+            {
+                Log.Debug("  Injecting Swift module interfaces for {Framework} (tvOS {Variant})",
+                    product.Framework, ddVariant);
+                (fwPath / "Modules").CreateDirectory();
+                swiftmod.Copy(fwPath / "Modules" / $"{product.Framework}.swiftmodule");
+            }
+        }
+    }
+
+    void BuildProductFatMacosArchive(
+        ValidationLibrary lib, ValidationProduct product,
+        AbsolutePath buildDir, AbsolutePath archivesDir, AbsolutePath derivedData)
+    {
+        var sourceDir = buildDir / "source";
+
+        Log.Information("  Building {Framework} (scheme: {Scheme}) - macOS (fat arm64+x86_64)",
+            product.Framework, product.Scheme);
+
+        // Fat arm64+x86_64 slice — distinct from the behavior-tier path which pins
+        // arm64. NuGet expects the upstream-style `macos-arm64_x86_64` slice id so
+        // pack-time slicing can route the same archive to osx-arm64/osx-x64 RIDs.
+        //
+        // ARCHS is pinned explicitly (not via VALID_ARCHS or the project's
+        // ARCHS_STANDARD default) so the produced slice is guaranteed fat across
+        // host machines and Xcode versions — `VALID_ARCHS` is a filter applied to
+        // the project-defined `ARCHS`, and an Apple Silicon host with a project
+        // that sets `ARCHS=$(ARCHS_STANDARD_64_BIT)` or doesn't include x86_64 can
+        // still produce a single-arch slice. `ONLY_ACTIVE_ARCH=NO` defends against
+        // a future caller invoking us with Debug-like settings.
+        // The destination is disambiguated to `name=Any Mac` so xcodebuild doesn't
+        // emit the "Using the first of multiple matching destinations" warning on
+        // hosts that also have the Mac Catalyst variant installed.
+        var macSettings = new ArchiveBuildSettings()
+            .SetScheme(product.Scheme!)
+            .SetDestination("generic/platform=macOS,name=Any Mac")
+            .SetArchivePath(archivesDir / $"{product.Framework}-macos")
+            .SetDerivedDataPath(derivedData / "macos-fat")
+            .SetLibraryDistributionDefaults()
+            .SetMacosDeploymentTarget(lib.MinMacOS)
+            .AddBuildSetting("ARCHS", "arm64 x86_64")
+            .AddBuildSetting("ONLY_ACTIVE_ARCH", "NO")
+            .SetQuiet()
+            .SetWorkingDirectory(sourceDir);
+
+        if (!string.IsNullOrEmpty(product.Project))
+            macSettings.SetProject(product.Project);
+
+        if (lib.BuildSettings != null)
+            foreach (var (key, value) in lib.BuildSettings)
+                macSettings.AddBuildSetting(key, value);
+
+        XcodeBuild.ExecuteArchiveBuild(macSettings);
+    }
+
+    void InjectFatMacosSwiftModuleInterface(
+        ValidationProduct product, AbsolutePath archivesDir, AbsolutePath derivedData)
+    {
+        // Mirror of InjectSwiftModuleInterfaces but for the fat macOS slice produced
+        // by BuildProductFatMacosArchive.
+        var archivePath = archivesDir / $"{product.Framework}-macos.xcarchive";
+        var productsDir = archivePath / "Products";
+        var fwPath = productsDir.GlobDirectories($"**/{product.Framework}.framework").FirstOrDefault();
+        if (fwPath == null) return;
+
+        var modulesDir = fwPath / "Modules" / $"{product.Framework}.swiftmodule";
+        if (Directory.Exists(modulesDir)) return;
+
+        var swiftmod = (derivedData / "macos-fat")
+            .GlobDirectories($"**/ArchiveIntermediates/**/BuildProductsPath/**/{product.Framework}.swiftmodule")
+            .FirstOrDefault();
+
+        if (swiftmod != null)
+        {
+            Log.Debug("  Injecting Swift module interfaces for {Framework} (macOS fat)", product.Framework);
+            (fwPath / "Modules").CreateDirectory();
+            swiftmod.Copy(fwPath / "Modules" / $"{product.Framework}.swiftmodule");
+        }
     }
 
     void ResolveBinary(ValidationLibrary lib)

@@ -119,13 +119,15 @@ partial class Build
                     .SetVerbosity(DotNetVerbosity.quiet));
             }
 
-            // 2b. Assert the Apple supplement nuspec declares Runtime at the bounded range
-            // (e.g. [0.0.0-packgate,0.1.0)) rather than the bare min-only version. NuGet's
-            // _GetProjectReferenceVersions ignores <Version>/<VersionOverride> on
-            // ProjectReference items, so the supplement csproj has to override the resolved
-            // _ProjectReferencesWithVersions item — easy to break, silent failure mode (the
-            // packed dep just becomes unbounded). This catches it the moment the nuspec is
-            // produced.
+            // 2b. Assert the Apple supplement nuspec declares Runtime as a floor-only range
+            // (bare X.Y.Z or [X.Y.Z,) — NuGet normalizes the bracketed form to bare in the
+            // emitted nuspec). NuGet's _GetProjectReferenceVersions ignores
+            // <Version>/<VersionOverride> on ProjectReference items, so the supplement csproj
+            // has to override the resolved _ProjectReferencesWithVersions item — easy to
+            // break, silent failure mode (the packed dep ends up pinned to the wrong floor
+            // or — if a future change reintroduces a bounded ceiling — re-imposes the
+            // no-op repack the floor-only form was designed to eliminate). This catches it
+            // the moment the nuspec is produced.
             AssertSupplementBoundsRuntimeRange(nupkgDir, PackGateVersion, PackGateAppleVersion);
 
             // 2c. Assert the Runtime nupkg ships ILLink.Descriptors.xml adjacent to
@@ -365,6 +367,101 @@ partial class Build
                     .SetVerbosity(DotNetVerbosity.quiet));
 
                 Log.Information("PackGate (consumer) OK — restore + library build succeeded against sliced nupkg");
+
+                // 8b. Auto-discovery pack regression gate (issue #39). The
+                //    source-xcfw fixture above pins the framework path via an
+                //    explicit <SwiftFramework Include="..."> item — it does NOT
+                //    exercise the auto-discovery code path (_DiscoverSwiftFrameworks
+                //    scanning the project dir for *.xcframework). Issue #39 was
+                //    caused by _ConfigureSwiftBindingPack getting skipped in the
+                //    NuGet inner-pack subgraph because the target's Condition
+                //    referenced @(SwiftFramework) which was empty before discovery
+                //    could fire there. Result: managed-only nupkg, no
+                //    runtimes/<rid>/native/ content, DllNotFoundException at
+                //    consumer runtime. This fixture copies Nuke.xcframework
+                //    physically into the project dir, declares NO <SwiftFramework>
+                //    item, and asserts the per-RID native content is still
+                //    produced — the exact shape consumers get from
+                //    `dotnet new swift-binding` + a present xcframework.
+                Log.Information("=== PackGate (auto-discover): packing Nuke fixture without explicit <SwiftFramework> ===");
+                var autoFixtureDir = scratch / "autodiscover-fixture";
+                var autoFixtureOut = scratch / "autodiscover-fixture-output";
+                autoFixtureDir.CreateDirectory();
+                autoFixtureOut.CreateDirectory();
+                WritePackGateAutoDiscoverFixture(autoFixtureDir, nupkgDir, nukeSource);
+                DotNetPack(s => s
+                    .SetProject(autoFixtureDir / "PackGateAutoDiscoverFixture.csproj")
+                    .SetConfiguration("Release")
+                    .SetOutputDirectory(autoFixtureOut)
+                    .EnableNoLogo()
+                    .SetVerbosity(DotNetVerbosity.quiet));
+
+                var autoNupkgPath = Directory.GetFiles(autoFixtureOut, "*.nupkg").FirstOrDefault()
+                    ?? throw new Exception("PackGate auto-discover produced no nupkg");
+                var autoExtractDir = autoFixtureOut / "extract";
+                if (Directory.Exists(autoExtractDir)) autoExtractDir.DeleteDirectory();
+                ZipFile.ExtractToDirectory(autoNupkgPath, autoExtractDir);
+
+                var autoFailures = new List<string>();
+                var verifiedAutoSlices = 0;
+                foreach (var (rid, expectedSlices) in ExpectedSourceXcframeworkLayout)
+                {
+                    var xcfw = autoExtractDir / "runtimes" / rid / "native" / "Nuke.xcframework";
+                    if (!Directory.Exists(xcfw))
+                    {
+                        autoFailures.Add(
+                            $"missing source xcframework: runtimes/{rid}/native/Nuke.xcframework/ — " +
+                            "auto-discovery did not propagate to the pack target (issue #39 regression)");
+                        continue;
+                    }
+                    var actualSlices = Directory.EnumerateDirectories(xcfw)
+                        .Select(Path.GetFileName).Where(n => n != null).Cast<string>()
+                        .OrderBy(s => s, StringComparer.Ordinal).ToArray();
+                    var expected = expectedSlices.OrderBy(s => s, StringComparer.Ordinal).ToArray();
+                    if (!actualSlices.SequenceEqual(expected))
+                    {
+                        autoFailures.Add(
+                            $"runtimes/{rid}/native/Nuke.xcframework/ slice mismatch — " +
+                            $"expected [{string.Join(", ", expected)}], got [{string.Join(", ", actualSlices)}]");
+                        continue;
+                    }
+                    verifiedAutoSlices += actualSlices.Length;
+                }
+
+                // Wrapper xcframework presence proves the full pipeline ran
+                // (generator + wrapper compile + wrapper pack), not just discovery.
+                // Without this leg a future regression where discovery succeeds but
+                // wrapper pack silently no-ops would still ship a broken nupkg.
+                // Asserting on every RID rather than a single one keeps coverage
+                // matched to the source xcframework slice set.
+                foreach (var (rid, _) in ExpectedSourceXcframeworkLayout)
+                {
+                    var wrapperXcfw = autoExtractDir / "runtimes" / rid / "native" / "NukeSwiftBindings.xcframework";
+                    if (!Directory.Exists(wrapperXcfw))
+                        autoFailures.Add($"missing wrapper xcframework: runtimes/{rid}/native/NukeSwiftBindings.xcframework/");
+                }
+
+                // buildTransitive content: the consuming project picks up the
+                // module database via this path. Without it cross-module type
+                // resolution silently breaks on downstream bindings.
+                var buildTransitive = autoExtractDir / "buildTransitive";
+                if (!Directory.Exists(buildTransitive) ||
+                    !Directory.EnumerateFiles(buildTransitive, "NukeDatabase.xml", SearchOption.AllDirectories).Any())
+                {
+                    autoFailures.Add("missing buildTransitive/<tfm>/NukeDatabase.xml — auto-discovery did not stage the module database");
+                }
+
+                if (autoFailures.Count > 0)
+                {
+                    Log.Error("PackGate (auto-discover) FAILED — {Count} missing entr(ies) in {Nupkg}:",
+                        autoFailures.Count, Path.GetFileName(autoNupkgPath));
+                    foreach (var f in autoFailures)
+                        Log.Error("  {Detail}", f);
+                    Assert.Fail($"PackGate (auto-discover): {autoFailures.Count} missing entr(ies) in {autoNupkgPath} (issue #39 regression gate)");
+                }
+
+                Log.Information("PackGate (auto-discover) OK — verified {Slices} source slice(s) + wrapper xcframework + module database (issue #39)",
+                    verifiedAutoSlices);
             }
 
             // 9. End-to-end consumer run. Compiles a tiny custom Swift framework,
@@ -563,8 +660,10 @@ partial class Build
         // 3 TFMs — Nuke ships ios + tvos + macos slices (no maccatalyst). The
         // TipKit fixture above already exercises the maccatalyst RID; this fixture
         // is single-purpose for source-xcfw slicing assertions across the RIDs the
-        // source actually supports. SwiftFramework Include points at the on-disk
-        // Nuke.xcframework so the SDK's discover step picks it up.
+        // source actually supports. Explicit <SwiftFramework Include> pins the
+        // path at MSBuild evaluation time — auto-discovery is NOT exercised here
+        // (that path lives in WritePackGateAutoDiscoverFixture below, which is the
+        // gate for issue #39's auto-discovery-pack regression).
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
@@ -581,6 +680,69 @@ partial class Build
             </Project>
             """;
         File.WriteAllText(fixtureDir / "PackGateSourceFixture.csproj", csproj);
+
+        var nugetConfig = $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <configuration>
+              <packageSources>
+                <clear />
+                <add key="pack-gate-local" value="{nupkgDir}" />
+                <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              </packageSources>
+              <packageSourceMapping>
+                <packageSource key="pack-gate-local">
+                  <package pattern="SwiftBindings.*" />
+                </packageSource>
+                <packageSource key="nuget.org">
+                  <package pattern="*" />
+                </packageSource>
+              </packageSourceMapping>
+            </configuration>
+            """;
+        File.WriteAllText(fixtureDir / "NuGet.config", nugetConfig);
+    }
+
+    static void WritePackGateAutoDiscoverFixture(AbsolutePath fixtureDir, AbsolutePath nupkgDir, AbsolutePath sourceXcfwPath)
+    {
+        // Physically copy the source xcframework INTO the fixture directory.
+        // The csproj declares NO <SwiftFramework Include="..."> item, so the SDK
+        // must rely on _DiscoverSwiftFrameworks (which scans the project dir for
+        // *.xcframework) to populate @(SwiftFramework). This is the exact shape
+        // a consumer gets from `dotnet new swift-binding` followed by dropping
+        // a vendor-supplied xcframework next to the csproj.
+        //
+        // Issue #39: _ConfigureSwiftBindingPack had a target-level Condition on
+        // @(SwiftFramework) which evaluated empty in the NuGet inner-pack
+        // subgraph (_GetTfmSpecificContentForPackage's $(TargetsForTfmSpecificContentInPackage)
+        // chain doesn't include _ComputeSwiftFingerprint, the BeforeTargets hook
+        // for discovery). With the Condition false MSBuild skipped the entire
+        // target body AND its DependsOnTargets chain, so the nupkg shipped
+        // managed-only and consumers hit DllNotFoundException at runtime. The
+        // fix (Sdk.targets:2217) tightens the target Condition to stable
+        // properties only and lists _DiscoverSwiftFrameworks in
+        // DependsOnTargets so discovery runs before the body's per-item
+        // Conditions evaluate.
+        var copiedXcfw = fixtureDir / sourceXcfwPath.Name;
+        if (Directory.Exists(copiedXcfw)) copiedXcfw.DeleteDirectory();
+        sourceXcfwPath.Copy(copiedXcfw);
+
+        var csproj = $"""
+            <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
+              <PropertyGroup>
+                <TargetFrameworks>net10.0-ios26.2;net10.0-tvos26.2;net10.0-macos26.2</TargetFrameworks>
+                <PackageId>PackGateAutoDiscoverFixture.Nuke</PackageId>
+                <PackageVersion>{PackGateVersion}</PackageVersion>
+                <IsPackable>true</IsPackable>
+                <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+                <NoWarn>$(NoWarn);CS0649;CS0114;CA1416;CS8604</NoWarn>
+              </PropertyGroup>
+              <!-- Deliberately NO <SwiftFramework> item: this fixture exercises
+                   the auto-discovery code path. The SDK's _DiscoverSwiftFrameworks
+                   target must find the physically-copied Nuke.xcframework in the
+                   project directory and propagate it into the pack pipeline. -->
+            </Project>
+            """;
+        File.WriteAllText(fixtureDir / "PackGateAutoDiscoverFixture.csproj", csproj);
 
         var nugetConfig = $"""
             <?xml version="1.0" encoding="utf-8"?>
@@ -719,20 +881,23 @@ partial class Build
     }
 
     // Opens the just-packed Apple supplement nupkg, reads its nuspec, and asserts every
-    // Apple TFM group carries exactly one SwiftBindings.Runtime dependency stamped at the
-    // floor-only range built from the runtime version. The supplement is always brokered
-    // by SwiftBindings.Sdk (whose own bounded Runtime PackageReference is the actual
+    // Apple TFM group carries exactly one SwiftBindings.Runtime dependency declared as a
+    // floor-only range against the runtime version. The supplement is always brokered by
+    // SwiftBindings.Sdk (whose own bounded Runtime PackageReference is the actual
     // compatibility contract), so the supplement's outbound declaration only needs a floor
     // — a single shipped supplement nupkg then rides forward across Runtime/SDK minor bumps.
     // The packed nuspec is the only place this is observable: unit tests can pin the csproj
     // override target, but the actual NuGet pack pipeline is what produces the dep
     // declaration, so we verify the output.
     //
-    // Both the per-group dep count AND the exact range string matter: a future regression
-    // could drop the dep from three of the four TFM groups, or stamp a different range
-    // shape (e.g. a bounded ceiling, which would re-impose the no-op repack the floor-only
-    // form was designed to eliminate). A loose 'starts-with-[' check would let those slip
-    // through.
+    // Accepted version forms (both are semantically the same floor-only NuGet range):
+    //   - bare "X.Y.Z"      — NuGet's normalized output when the input is "[X.Y.Z,)";
+    //                          NuGet treats unbracketed nuspec dep version as MinVersion-only.
+    //   - "[X.Y.Z,)"        — the same range with the brackets retained.
+    // Anything else is a regression — a bounded upper (e.g. "[X.Y.Z,X.(Y+1).0)") would
+    // re-impose the no-op repack the floor-only form was designed to eliminate, an
+    // exclusive-floor "(X.Y.Z,)" would skip the floor itself, and a different floor would
+    // mean the override is stamping the wrong version.
     static void AssertSupplementBoundsRuntimeRange(
         AbsolutePath nupkgDir, string runtimeVersion, string appleVersion)
     {
@@ -761,11 +926,17 @@ partial class Build
         var doc = System.Xml.Linq.XDocument.Parse(nuspec);
         var ns = doc.Root!.GetDefaultNamespace();
 
-        // Compare against the canonical floor-only range with whitespace stripped — NuGet
-        // sometimes inserts a space after the comma during nuspec serialization, so both
-        // "[0.9.0,)" and "[0.9.0, )" are accepted; anything else is a regression.
-        var expectedRange = BindingsGeneration.RuntimeVersionRange.BuildMinimumOnly(runtimeVersion);
-        var expectedNormalized = StripWhitespace(expectedRange);
+        // Both accepted forms collapse to the same whitespace-stripped string when compared
+        // against either canonical: bare "X.Y.Z" or "[X.Y.Z,)". NuGet may also insert a
+        // space after the comma during serialization, so "[X.Y.Z, )" is the bracketed form
+        // too.
+        var bareFloor = runtimeVersion;
+        var bracketedFloor = BindingsGeneration.RuntimeVersionRange.BuildMinimumOnly(runtimeVersion);
+        var acceptedNormalized = new HashSet<string>(StringComparer.Ordinal)
+        {
+            StripWhitespace(bareFloor),
+            StripWhitespace(bracketedFloor),
+        };
 
         var groups = doc.Descendants(ns + "group").ToList();
         var seenPrefixes = new HashSet<string>();
@@ -794,14 +965,14 @@ partial class Build
             }
 
             var version = (string?)deps[0].Attribute("version") ?? "";
-            if (!string.Equals(StripWhitespace(version), expectedNormalized, StringComparison.Ordinal))
+            if (!acceptedNormalized.Contains(StripWhitespace(version)))
             {
                 Assert.Fail(
                     $"PackGate: supplement nuspec group '{tfm}' declares Runtime as '{version}', " +
-                    $"expected '{expectedRange}'. This is the regression where " +
-                    $"_GetProjectReferenceVersions writes the bare $(PackageVersion) of " +
-                    $"Swift.Runtime instead of the $(SwiftRuntimePackageVersionRange) override. " +
-                    $"Path: {supplementPath}");
+                    $"expected the floor-only form — either bare '{bareFloor}' or '{bracketedFloor}'. " +
+                    $"A bounded ceiling, an exclusive floor, or a different floor version means " +
+                    $"the override target is stamping the wrong range (or NuGet's normalization " +
+                    $"has changed in a way that broke the floor-only intent). Path: {supplementPath}");
             }
         }
 
@@ -813,8 +984,8 @@ partial class Build
                 $"{string.Join(", ", missing)}. Path: {supplementPath}");
         }
 
-        Log.Information("  Apple supplement nuspec: Runtime dep is '{Range}' across {Count} TFM group(s)",
-            expectedRange, groups.Count);
+        Log.Information("  Apple supplement nuspec: Runtime dep is floor-only at '{Floor}' across {Count} TFM group(s)",
+            bareFloor, groups.Count);
 
         static string StripWhitespace(string s) =>
             new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
