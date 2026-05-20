@@ -2652,6 +2652,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
             {
                 var method = spec.Method;
                 if (method.IsAccessor) continue;
+
+                // Per-method where-clause filter: some methods (notably `init()` and
+                // constrained extension methods) carry stricter parent-generic constraints
+                // than the parent type declares. Without skipping these for non-satisfying
+                // parent tuples, the generated Swift wrapper instantiates e.g.
+                // `MusicCatalogResourceRequest<Album>()` even though `Album` does not
+                // conform to `MusicCatalogTopLevelResourceRequesting`. The engine records
+                // rejections so the emission report explains the absence.
+                if (!engine.ParentTupleSatisfiesMethodConstraints(method, typeDecl, parentTuple))
+                {
+                    continue;
+                }
+
                 // Session 5: async methods on generic parents are emit-eligible IFF they
                 // have zero method-own generic parameters (the "parent-only" shape). The
                 // dispatch lives in TryEmitParentOnlyAsyncOverload which writes directly

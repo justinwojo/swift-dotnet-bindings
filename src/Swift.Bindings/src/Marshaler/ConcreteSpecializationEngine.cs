@@ -30,6 +30,16 @@ public class ConcreteSpecializationEngine
     private readonly string? _currentModuleName;
     private string? _indexedModuleName;
     private HashSet<string>? _indexedModuleDependencies;
+    private readonly HashSet<CsmRejectedPairing> _rejectedPairings = new();
+
+    /// <summary>
+    /// Conformer pairings filtered out at the pairing step because the conformer fails
+    /// a non-selected constraint on its generic parameter. Accumulates across all
+    /// <see cref="FindSpecializableMethods"/> and <see cref="ResolveParentSpecializableParams"/>
+    /// calls on this engine. Consumed by <see cref="EmissionReportEmitter.BuildReport"/>
+    /// so audits and consumers can see which conformers were excluded and why.
+    /// </summary>
+    public IReadOnlyCollection<CsmRejectedPairing> RejectedPairings => _rejectedPairings;
 
     /// <summary>
     /// A concrete type that conforms to a protocol, usable for specialization.
@@ -78,6 +88,34 @@ public class ConcreteSpecializationEngine
         List<ConcreteConformer> Conformers,
         IReadOnlyList<(string AssocName, string OtherParamName)>? CouplingConstraints = null,
         bool IsParentGeneric = false);
+
+    /// <summary>
+    /// A conformer pairing that was rejected at the pairing step because the conformer
+    /// fails to satisfy a non-selected protocol constraint on its generic parameter.
+    /// <para>
+    /// Background: <see cref="FindSpecializableProtocolConstraint"/> picks ONE protocol
+    /// per generic param (the first PAT/Self requirement, else the first protocol with
+    /// known conformers). When the param carries multiple constraints
+    /// (e.g. <c>&lt;T where T : Decodable, T : MusicRecentlyPlayedRequestable&gt;</c>)
+    /// the selected protocol's conformer set is necessarily a superset of the legal
+    /// intersection. Without an intersection filter, the engine emits CSM overloads
+    /// for conformers of the selected protocol that fail the other constraints — the
+    /// generated Swift wrapper passes them into a `where` clause they don't satisfy
+    /// (CS0311 on the C# side, "type 'X' does not conform to 'Y'" on the Swift side).
+    /// </para>
+    /// <para>
+    /// Pairing rejections feed <c>binding-emission-report.json</c> so consumers and
+    /// audits can see which conformers were filtered out and why. The collection is
+    /// scoped to the engine instance (one per module).
+    /// </para>
+    /// </summary>
+    public sealed record CsmRejectedPairing(
+        string ParentType,
+        string GenericParamName,
+        string SelectedProtocol,
+        string ConformerSwiftType,
+        string MissingConstraint,
+        string Reason);
 
     // --- JSON Model for specialization-hints.json ---
 
@@ -688,11 +726,28 @@ public class ConcreteSpecializationEngine
                 var conformers = GetConformers(protocolConstraint);
                 if (conformers.Count == 0) continue;
 
+                // Multi-constraint intersection: FindSpecializableProtocolConstraint picks
+                // ONE protocol per param. When the param carries additional constraints
+                // (e.g. `<T : Decodable, T : MusicRecentlyPlayedRequestable>`) we must
+                // intersect against the others or we leak conformers of the selected
+                // protocol that fail the rest — emitting CSM overloads the Swift wrapper
+                // cannot compile. Rejected pairings are recorded so the emission report
+                // can surface them.
+                var allConstraints = CollectAllProtocolConstraints(param);
+
                 // Filter conformers to those whose types are resolvable
-                var usableConformers = conformers
-                    .Where(c => c.CSharpType != null && !IsCSharpPrimitiveType(c.CSharpType))
-                    .Where(c => ConformerSatisfiesAssociatedTypes(c, associatedConstraints))
-                    .ToList();
+                var usableConformers = new List<ConcreteConformer>(conformers.Count);
+                foreach (var c in conformers)
+                {
+                    if (c.CSharpType == null || IsCSharpPrimitiveType(c.CSharpType)) continue;
+                    if (!ConformerSatisfiesAssociatedTypes(c, associatedConstraints)) continue;
+                    if (!ConformerSatisfiesAllConstraints(c, allConstraints, protocolConstraint, out var missingConstraint))
+                    {
+                        RecordRejection(typeDecl, param, protocolConstraint, c, missingConstraint!);
+                        continue;
+                    }
+                    usableConformers.Add(c);
+                }
 
                 if (usableConformers.Count == 0) continue;
 
@@ -812,12 +867,27 @@ public class ConcreteSpecializationEngine
                 .Select(c => (Name: c.Path[^1], Target: c.ConformanceTarget.ToString()))
                 .ToList();
 
-            var usable = conformers
-                .Where(c => c.CSharpType != null && !IsCSharpPrimitiveType(c.CSharpType))
-                .Where(c => ConformerSatisfiesAssociatedTypes(c, associatedConstraints))
-                .Where(c => ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(c, _typeDatabase)
-                    == ConcreteProtocolSpecializationEmitter.StructuralEmitReject.None)
-                .ToList();
+            // Multi-constraint intersection at the parent-generic pairing step. Same
+            // mechanism as the method-own path in FindSpecializableMethods: a parent
+            // generic param with multiple protocol constraints needs its conformer set
+            // filtered against every constraint, not just the one
+            // FindSpecializableProtocolConstraint selected.
+            var allParentConstraints = CollectAllProtocolConstraints(parentParam);
+
+            var usable = new List<ConcreteConformer>(conformers.Count);
+            foreach (var c in conformers)
+            {
+                if (c.CSharpType == null || IsCSharpPrimitiveType(c.CSharpType)) continue;
+                if (!ConformerSatisfiesAssociatedTypes(c, associatedConstraints)) continue;
+                if (!ConformerSatisfiesAllConstraints(c, allParentConstraints, protocol, out var missingConstraint))
+                {
+                    RecordRejection(typeDecl, parentParam, protocol, c, missingConstraint!);
+                    continue;
+                }
+                if (ConcreteProtocolSpecializationEmitter.ClassifyConformerStructurally(c, _typeDatabase)
+                    != ConcreteProtocolSpecializationEmitter.StructuralEmitReject.None) continue;
+                usable.Add(c);
+            }
             if (usable.Count == 0) return null;
 
             parentCouplings.TryGetValue(parentParam.TypeName, out var couplings);
@@ -934,6 +1004,247 @@ public class ConcreteSpecializationEngine
             "nint" or "nuint" or "decimal" or "string" => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    /// Collects every protocol the generic param is constrained to (the full PAT bag),
+    /// returning the qualified protocol names in declaration order.
+    /// <see cref="FindSpecializableProtocolConstraint"/> selects only one — we need the
+    /// rest here so the pairing filter can intersect the conformer set against every
+    /// constraint, not just the selected one. Same-type constraints (Kind != Protocol)
+    /// and reflexive parent-Self-reference rows produced by the parser are skipped.
+    /// </summary>
+    private static List<SwiftTypeName> CollectAllProtocolConstraints(GenericArgumentDecl param)
+    {
+        var protocols = new List<SwiftTypeName>();
+        foreach (var conformance in param.GenericConformances)
+        {
+            if (conformance.Kind != ConformanceKind.Protocol) continue;
+            // Skip same-type couplings encoded with empty target (defensive — the public
+            // ABI shape always carries Module/Name on Protocol-kind conformances, but
+            // a malformed entry must not poison the constraint list).
+            var target = conformance.ConformanceTarget;
+            if (string.IsNullOrEmpty(target.Name)) continue;
+            protocols.Add(target);
+        }
+        return protocols;
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="conformer"/> satisfies every protocol in
+    /// <paramref name="allConstraints"/> per current-module ABI knowledge. The
+    /// selected protocol — the one returned by
+    /// <see cref="FindSpecializableProtocolConstraint"/> and used to populate
+    /// <paramref name="conformer"/> — is skipped because membership in its conformer
+    /// list is the precondition for arriving here.
+    /// <para>
+    /// Each non-selected constraint is checked with <see cref="VerifyHintAgainstAbi"/>.
+    /// <see cref="AbiVerification.Disproved"/> rejects the conformer — its declared
+    /// protocols (plus their <see cref="ProtocolDecl.InheritedProtocols"/> chains) do
+    /// not include the constraint. <see cref="AbiVerification.Uncertain"/> accepts
+    /// (we lack ground truth in this module — e.g. the conformer is hint-declared
+    /// from outside the indexed module, or the chain walks into an unindexed protocol
+    /// from a plausible-refiner module). <see cref="AbiVerification.Confirmed"/>
+    /// accepts.
+    /// </para>
+    /// <para>
+    /// When the conformer is rejected, <paramref name="missingConstraint"/> receives
+    /// the qualified name of the failing constraint; otherwise it is set to <c>null</c>.
+    /// The caller is expected to record the rejection on
+    /// <see cref="_rejectedPairings"/> so the emission report can surface it.
+    /// </para>
+    /// </summary>
+    private bool ConformerSatisfiesAllConstraints(
+        ConcreteConformer conformer,
+        IReadOnlyList<SwiftTypeName> allConstraints,
+        SwiftTypeName selectedProtocol,
+        out string? missingConstraint)
+    {
+        missingConstraint = null;
+        var selectedKey = selectedProtocol.ToString();
+        foreach (var constraint in allConstraints)
+        {
+            var constraintKey = constraint.ToString();
+            if (string.Equals(constraintKey, selectedKey, StringComparison.Ordinal)) continue;
+
+            if (VerifyHintAgainstAbi(conformer.SwiftQualifiedName, constraintKey) == AbiVerification.Disproved)
+            {
+                missingConstraint = constraintKey;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void RecordRejection(
+        TypeDecl parentTypeDecl,
+        GenericArgumentDecl param,
+        SwiftTypeName selectedProtocol,
+        ConcreteConformer conformer,
+        string missingConstraint)
+    {
+        var parentKey = parentTypeDecl.SwiftTypeName?.ToString() ?? parentTypeDecl.Name;
+        _rejectedPairings.Add(new CsmRejectedPairing(
+            ParentType: parentKey,
+            GenericParamName: param.TypeName,
+            SelectedProtocol: selectedProtocol.ToString(),
+            ConformerSwiftType: conformer.SwiftQualifiedName,
+            MissingConstraint: missingConstraint,
+            Reason: "conformer does not satisfy non-selected protocol constraint per current-module ABI"));
+    }
+
+    private void RecordMethodWhereRejection(
+        TypeDecl parentTypeDecl,
+        MethodDecl method,
+        GenericArgumentDecl param,
+        SwiftTypeName selectedProtocol,
+        ConcreteConformer conformer,
+        string missingConstraint)
+    {
+        var parentKey = parentTypeDecl.SwiftTypeName?.ToString() ?? parentTypeDecl.Name;
+        _rejectedPairings.Add(new CsmRejectedPairing(
+            ParentType: parentKey,
+            GenericParamName: param.TypeName,
+            SelectedProtocol: selectedProtocol.ToString(),
+            ConformerSwiftType: conformer.SwiftQualifiedName,
+            MissingConstraint: missingConstraint,
+            Reason: $"method '{method.Name}' where-clause adds {param.TypeName}:{missingConstraint} not satisfied by parent specialization"));
+    }
+
+    /// <summary>
+    /// Returns true when every parent-generic conformer in <paramref name="parentTuple"/>
+    /// satisfies the method-level where-clause constraints declared on its corresponding
+    /// parent generic param. Returns false (and records a rejection) when any conformer
+    /// fails a per-method constraint.
+    /// <para>
+    /// Background: parent-only CSM emits one overload per parent tuple per method. Some
+    /// methods carry stricter constraints than the parent type (e.g.
+    /// <c>MusicCatalogResourceRequest.init() where MusicItemType : MusicCatalogTopLevelResourceRequesting</c>
+    /// or <c>DataResponsePublisher.init(_:queue:) where Value == Data?</c>).
+    /// The parent-tuple resolution checks parent-type-level constraints only; per-method
+    /// strictness lives in <see cref="MethodDecl.RawGenericSig"/>. Without this gate, the
+    /// generated Swift wrapper emits <c>MusicCatalogResourceRequest&lt;Album&gt;()</c> or
+    /// <c>DataResponsePublisher&lt;URLEncoding&gt;(...)</c> against constraints the chosen
+    /// conformer does not satisfy, producing a hard Swift compile error.
+    /// </para>
+    /// <para>
+    /// Both conformance (<c>:</c>) and same-type (<c>==</c>) clauses are checked.
+    /// Conformance clauses already declared at the parent-type level are skipped (the
+    /// parent-tuple resolution already enforced them). Same-type clauses always apply —
+    /// they're never expressible at the parent-type declaration on a single generic param,
+    /// so any <c>τ == SpecificType</c> in the method sig must be verified against the
+    /// conformer's Swift name.
+    /// </para>
+    /// </summary>
+    public bool ParentTupleSatisfiesMethodConstraints(
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        IReadOnlyList<(SpecializableParam Param, ConcreteConformer Conformer)> parentTuple)
+    {
+        if (string.IsNullOrEmpty(method.RawGenericSig)) return true;
+        var perParam = ParseMethodLevelConstraints(method.RawGenericSig);
+        if (perParam.Count == 0) return true;
+
+        foreach (var entry in parentTuple)
+        {
+            if (!entry.Param.IsParentGeneric) continue;
+            var paramName = entry.Param.GenericParam.TypeName;
+            if (!perParam.TryGetValue(paramName, out var methodClauses)) continue;
+
+            // Skip protocols already declared at the parent-type level — those were
+            // checked at parent-tuple resolution. Only check constraints strictly stricter
+            // than the parent type's declaration.
+            var parentLevelNames = new HashSet<string>(
+                CollectAllProtocolConstraints(entry.Param.GenericParam).Select(p => p.ToString()),
+                StringComparer.Ordinal);
+
+            foreach (var (kind, target) in methodClauses)
+            {
+                if (kind == MethodConstraintKind.Conformance)
+                {
+                    if (parentLevelNames.Contains(target)) continue;
+                    if (VerifyHintAgainstAbi(entry.Conformer.SwiftQualifiedName, target) != AbiVerification.Disproved) continue;
+                    RecordMethodWhereRejection(
+                        parentTypeDecl, method, entry.Param.GenericParam,
+                        entry.Param.ConstraintProtocol, entry.Conformer, target);
+                    return false;
+                }
+                else // SameType: τ == ConcreteType — conformer must equal target
+                {
+                    if (string.Equals(entry.Conformer.SwiftQualifiedName, target, StringComparison.Ordinal)) continue;
+                    // Also accept matches against the conformer's literal Swift expression
+                    // (covers nested types and Optional/Array/Dictionary printed forms used
+                    // by Swift's ABI sig — e.g. "Data?" vs "Swift.Optional<Foundation.Data>").
+                    if (!string.IsNullOrEmpty(entry.Conformer.SwiftLiteral) &&
+                        string.Equals(entry.Conformer.SwiftLiteral, target, StringComparison.Ordinal)) continue;
+                    RecordMethodWhereRejection(
+                        parentTypeDecl, method, entry.Param.GenericParam,
+                        entry.Param.ConstraintProtocol, entry.Conformer,
+                        $"== {target}");
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private enum MethodConstraintKind { Conformance, SameType }
+
+    /// <summary>
+    /// Parses <c>MethodDecl.RawGenericSig</c> (format
+    /// <c>&lt;τ_0_0, τ_0_1 where τ_0_0 : Module.Protocol, τ_0_1 == Module.ConcreteType&gt;</c>)
+    /// into a map of parameter-name → list of (kind, target) pairs. Both conformance
+    /// (<c>:</c>) and same-type (<c>==</c>) clauses are captured. Used by
+    /// <see cref="ParentTupleSatisfiesMethodConstraints"/> to detect when a per-method
+    /// where-clause adds requirements beyond the parent type's declaration.
+    /// </summary>
+    private static Dictionary<string, List<(MethodConstraintKind Kind, string Target)>> ParseMethodLevelConstraints(string rawGenericSig)
+    {
+        var result = new Dictionary<string, List<(MethodConstraintKind, string)>>(StringComparer.Ordinal);
+        var whereIdx = rawGenericSig.IndexOf(" where ", StringComparison.Ordinal);
+        if (whereIdx < 0) return result;
+
+        var afterWhere = rawGenericSig.Substring(whereIdx + " where ".Length).TrimEnd('>').Trim();
+        foreach (var rawClause in afterWhere.Split(','))
+        {
+            var clause = rawClause.Trim();
+            MethodConstraintKind kind;
+            int opIdx;
+            int opLen;
+            var eqIdx = clause.IndexOf("==", StringComparison.Ordinal);
+            if (eqIdx > 0)
+            {
+                kind = MethodConstraintKind.SameType;
+                opIdx = eqIdx;
+                opLen = 2;
+            }
+            else
+            {
+                var colonIdx = clause.IndexOf(':');
+                if (colonIdx <= 0) continue;
+                kind = MethodConstraintKind.Conformance;
+                opIdx = colonIdx;
+                opLen = 1;
+            }
+
+            var paramName = clause.Substring(0, opIdx).Trim();
+            var target = clause.Substring(opIdx + opLen).Trim();
+            if (paramName.Length == 0 || target.Length == 0) continue;
+
+            // Skip clauses whose LHS is a dependent-member path (e.g. `T.Element == Data?`);
+            // they constrain associated types, not the parent param itself.
+            if (paramName.Contains('.', StringComparison.Ordinal)) continue;
+
+            if (!result.TryGetValue(paramName, out var list))
+            {
+                list = new List<(MethodConstraintKind, string)>();
+                result[paramName] = list;
+            }
+            var entry = (kind, target);
+            if (!list.Contains(entry))
+                list.Add(entry);
+        }
+        return result;
     }
 
     private static Dictionary<string, List<ConcreteConformer>> LoadHints()

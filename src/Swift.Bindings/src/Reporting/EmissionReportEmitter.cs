@@ -40,6 +40,41 @@ public class EmissionReport
     /// </summary>
     [JsonProperty("silentTombstones")]
     public List<string> SilentTombstones { get; set; } = new();
+
+    /// <summary>
+    /// Conformer pairings the CSM engine rejected at the pairing step because the
+    /// conformer fails to satisfy a non-selected protocol constraint on its generic
+    /// parameter. See <see cref="ConcreteSpecializationEngine.CsmRejectedPairing"/> for
+    /// the mechanism. Populated from <see cref="ConcreteSpecializationEngine.RejectedPairings"/>.
+    /// Sorted for deterministic output.
+    /// </summary>
+    [JsonProperty("csmConformerRejections")]
+    public List<CsmConformerRejectionEntry> CsmConformerRejections { get; set; } = new();
+}
+
+/// <summary>
+/// Serializable view of <see cref="ConcreteSpecializationEngine.CsmRejectedPairing"/>.
+/// Mirrors the record fields one-for-one for stable JSON output.
+/// </summary>
+public class CsmConformerRejectionEntry
+{
+    [JsonProperty("parentType")]
+    public string ParentType { get; set; } = "";
+
+    [JsonProperty("genericParam")]
+    public string GenericParam { get; set; } = "";
+
+    [JsonProperty("selectedProtocol")]
+    public string SelectedProtocol { get; set; } = "";
+
+    [JsonProperty("conformer")]
+    public string Conformer { get; set; } = "";
+
+    [JsonProperty("missingConstraint")]
+    public string MissingConstraint { get; set; } = "";
+
+    [JsonProperty("reason")]
+    public string Reason { get; set; } = "";
 }
 
 /// <summary>
@@ -104,6 +139,13 @@ public static class EmissionReportEmitter
             logger.LogInformation("Emission: {Count} silent tombstones (types emitted with [OpaqueSwiftType] but zero usable members)",
                 report.SilentTombstones.Count);
         }
+
+        if (report.CsmConformerRejections.Count > 0)
+        {
+            logger.LogInformation(
+                "Emission: {Count} CSM conformer rejections (multi-constraint intersection filter)",
+                report.CsmConformerRejections.Count);
+        }
     }
 
     /// <summary>
@@ -163,6 +205,31 @@ public static class EmissionReportEmitter
         report.SilentTombstones = emissionContext.SilentTombstones
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToList();
+
+        // CSM conformer rejections (multi-constraint intersection filter). The engine
+        // is the source of truth — it accumulates rejections across every
+        // FindSpecializableMethods / ResolveParentSpecializableParams call within the
+        // module's run. Sorted by (parentType, genericParam, conformer, missingConstraint)
+        // for deterministic output.
+        var engine = emissionContext.SpecializationEngine;
+        if (engine is not null)
+        {
+            report.CsmConformerRejections = engine.RejectedPairings
+                .Select(r => new CsmConformerRejectionEntry
+                {
+                    ParentType = r.ParentType,
+                    GenericParam = r.GenericParamName,
+                    SelectedProtocol = r.SelectedProtocol,
+                    Conformer = r.ConformerSwiftType,
+                    MissingConstraint = r.MissingConstraint,
+                    Reason = r.Reason,
+                })
+                .OrderBy(e => e.ParentType, StringComparer.Ordinal)
+                .ThenBy(e => e.GenericParam, StringComparer.Ordinal)
+                .ThenBy(e => e.Conformer, StringComparer.Ordinal)
+                .ThenBy(e => e.MissingConstraint, StringComparer.Ordinal)
+                .ToList();
+        }
 
         return report;
     }
