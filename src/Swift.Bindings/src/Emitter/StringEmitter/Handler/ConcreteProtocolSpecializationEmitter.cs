@@ -732,6 +732,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         else
                             callArgs.Add($"{argLabel}_{label}.assumingMemoryBound(to: {swiftTypeName}.self).pointee");
                         break;
+                    case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                        // Swift.String passes as (UTF-8 byte pointer, length) pair — mirrors
+                        // MethodClosureBridge.cs ~333-338 / ~404-409. The reconstruction
+                        // expression is a single Swift literal so we inline it directly into
+                        // the call site rather than threading a prelude `let {name}Val` line
+                        // (the param is consumed exactly once in CSM wrapper bodies).
+                        swiftParams.Add($"_ _{label}Utf8Ptr: UnsafePointer<UInt8>");
+                        swiftParams.Add($"_ _{label}Utf8Len: Int");
+                        callArgs.Add($"{argLabel}String(bytes: UnsafeBufferPointer(start: _{label}Utf8Ptr, count: _{label}Utf8Len), encoding: .utf8)!");
+                        break;
                     default:
                         swiftParams.Add($"_ _{label}: UnsafeRawPointer");
                         callArgs.Add($"{argLabel}_{label}");
@@ -1022,6 +1032,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // value type — no fixed needed) but still requires an `unsafe` context.
         var fixedStatements = new List<string>();
         bool needsUnsafe = false;
+        // Prelude locals emitted BEFORE the fixed-block stack opens — currently used by
+        // Utf8Slice (Swift.String) params to allocate `var __{bareName}Utf8 = UTF8.GetBytes(...)`
+        // so the matching `fixed (byte* __{bareName}Ptr = __{bareName}Utf8)` pin has a source
+        // binding. Mirrors MethodClosureBridge.cs ~1283-1292 / ~1352-1357 verbatim.
+        var preludeLocals = new List<string>();
 
         bool needsResultPtr = false;
         // Captured so the direct-return branch can convert the raw _cdecl value (IntPtr
@@ -1141,6 +1156,26 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         // SwiftHandle is an explicit interface impl on generated ISwiftObject
                         // types, so access via an ISwiftObject cast.
                         callArgs.Add($"((global::Swift.Runtime.ISwiftObject){csName}).SwiftHandle");
+                        break;
+                    }
+                    case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                    {
+                        // Swift.String passed as (UTF-8 byte pointer, length) pair.
+                        // Mirrors MethodClosureBridge.cs ~1029-1031 (P/Invoke params),
+                        // ~1283-1292 (byte[] prelude), ~1311-1315 (call args), and
+                        // ~1352-1357 (fixed-block pin) verbatim so the ABI matches the
+                        // Swift @_cdecl wrapper's ptr+len signature emitted above.
+                        // `bareName` strips any `@` verbatim prefix so the synthesized
+                        // locals are valid C# identifiers.
+                        var bareName = NameProvider.StripVerbatimPrefix(csName);
+                        publicParams.Add($"string {csName}");
+                        pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
+                        pinvokeParams.Add($"nint {csName}Utf8Len");
+                        preludeLocals.Add($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+                        fixedStatements.Add($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
+                        callArgs.Add($"(IntPtr)__{bareName}Ptr");
+                        callArgs.Add($"(nint)__{bareName}Utf8.Length");
+                        needsUnsafe = true;
                         break;
                     }
                     default:
@@ -1362,6 +1397,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 csWriter.Indent++;
             }
         }
+
+        // Prelude locals (byte[] allocations for Utf8Slice params) must precede the
+        // fixed-block stack so the `fixed (... = local)` source binding resolves.
+        foreach (var preludeStmt in preludeLocals)
+            csWriter.WriteLine(preludeStmt);
 
         // Emit nested fixed statements (if any) wrapping the pinvoke call + marshalling.
         // Holding pins across the marshal is harmless — Data(bytesNoCopy:...) was already
@@ -2214,10 +2254,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (arg.HasDefaultArg) continue;
             if (TryMatchGenericParam(arg.SwiftTypeSpec, pairing, out _, out _)) continue;
 
-            var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
-            if (category is not (MethodClosureBridge.ParamAbiCategory.Primitive
-                or MethodClosureBridge.ParamAbiCategory.ObjCHandle
-                or MethodClosureBridge.ParamAbiCategory.PayloadHandle))
+            // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable.
+            if (!MethodClosureBridge.IsAbiCategoryPassable(
+                    MethodClosureBridge.ClassifyParam(arg, typeDatabase)))
             {
                 return false;
             }

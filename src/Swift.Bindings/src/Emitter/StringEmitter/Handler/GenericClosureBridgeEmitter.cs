@@ -133,10 +133,16 @@ public static class GenericClosureBridgeEmitter
     /// </summary>
     private static bool IsBridgePassableParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
+        // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable,
+        // but GenericClosureBridgeEmitter's body-emission switches (around lines 646/654 for
+        // the C# P/Invoke params and 908/916 for the C# call site) do not yet carry a
+        // Utf8Slice case — admitting Swift.String through the canonical predicate would land
+        // it in those switches' `default:` branches and emit a single `IntPtr {csName}` with
+        // no UTF-8 pinning/reconstruction. Reject Utf8Slice locally with reasoning until the
+        // GCB body grows the matching ptr+len pair (mirrors NestedClosureBridge.IsSupported).
         var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
-        return category is MethodClosureBridge.ParamAbiCategory.Primitive
-            or MethodClosureBridge.ParamAbiCategory.ObjCHandle
-            or MethodClosureBridge.ParamAbiCategory.PayloadHandle;
+        return MethodClosureBridge.IsAbiCategoryPassable(category)
+            && category != MethodClosureBridge.ParamAbiCategory.Utf8Slice;
     }
 
     // ─── SBW_CreateError Helper ───────────────────────────────────────

@@ -82,6 +82,13 @@
       ]
     },
     {
+      "protocol": "SwiftBindingsTestLib.Tagger",
+      "conformers": [
+        { "swiftType": "SwiftBindingsTestLib.StringTagger", "csharpType": "StringTagger", "associatedTypes": { "Marker": "Swift.String" } },
+        { "swiftType": "SwiftBindingsTestLib.IntTagger", "csharpType": "IntTagger", "associatedTypes": { "Marker": "Swift.Int32" } }
+      ]
+    },
+    {
       "protocol": "SwiftBindingsTestLib.AsyncBagItem",
       "conformers": [
         {

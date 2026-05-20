@@ -4,7 +4,7 @@
 - New file `ConcreteProtocolSpecializationEmitter.AsyncGenericParent.cs` hosts the parent-only async predicate (`IsCsmAsyncEligibleForGenericParent`) and per-pairing emitter (`TryEmitParentOnlyAsyncOverload`).
 - `MemberValidationPipeline` Phase 4a routes plain async methods on generic parents through the new path.
 - `EmitConcreteSpecializationsForGenericParent` dispatches the async-with-zero-method-generics shape into the new emitter, returning fall-through behaviour for any wider shape.
-- Return-type substitution is gated to non-frozen structs only (`IsReturnSafeHandleBacked`); see code commentary for rejected shapes (class, frozen-struct-projected-as-class, complex enum, blittable).
+- Return-type substitution gated to non-frozen structs (the original Session 5 shape, `ClassWithOpaquePayload` / `IsReturnTypeEmittable` SafeHandle branch). Session 6 widened the same gate to also admit blittable numeric primitives (`IsBlittablePrimitiveSwiftType` allowlist, owns-buffer branch); see code commentary for the residual rejected shapes (class, frozen-struct-projected-as-class, complex enum, Bool).
 - Value-type parent gate (`parentTypeDecl is ClassDecl ⇒ reject`) keeps the Swift `let __self = …pointee` capture sound.
 - `[UnmanagedCallersOnly]` callbacks hardened with outer catch + `GCHandle.IsAllocated` guards so neither exception escape nor a double-callback can crash the process.
 - BindingTests fixture `PatParentAsyncMethods.swift` + 5 runtime tests covering success and throwing variants on two conformers (string and int item).
@@ -15,9 +15,9 @@ Gates green: unit (564), sim (2166 ↑ from 2161), device (2187 ↑ from 2182), 
 
 These are deliberately narrow gates in the Session 5 emitter, not bugs. Future sessions can lift each independently:
 
-- **Return-type gate**: only non-frozen structs (`ClassWithOpaquePayload` shape) where `NewFromPayload` wraps the same pointer. Class returns, frozen-struct-projected-as-class returns, complex enums, and blittable types each need a separate emit shape (copy-vs-pointer-wrap-vs-class-pointer-read).
+- **Return-type gate**: was originally non-frozen structs (`ClassWithOpaquePayload` shape) only. Relaxed in Session 6 to also admit blittable numeric primitives (the `CdeclParamMapper.IsBlittablePrimitiveSwiftType` allowlist — Int/UInt/Float/Double family, CGFloat), branching the C# success-callback's `NativeMemory.Free` on owns-buffer: SafeHandle-backed return keeps the no-free path (SafeHandle owns), blittable return frees the carrier after `MarshalFromSwift<T>` returns its value copy. Class returns, frozen-struct-projected-as-class returns, complex enums, and Bool each still need their own emit shape (copy-vs-pointer-wrap-vs-class-pointer-read; Bool's Optional uses extra-inhabitants).
 - **Parent kind**: structs / enums only; class parents would need ARC-aware Task capture.
-- **Method shape**: zero method-own generic params, zero method parameters. Wider shapes still emit on the open-generic surface unchanged.
+- **Method shape**: zero method-own generic params. The zero-method-parameters gate was relaxed in Session 6 to a selective per-param admission walk: Swift.String params (Utf8Slice ABI category) emit through (ptr, len) marshalling, every other ABI category still falls through to the open-generic surface unchanged. Method-own generic params remain rejected.
 - **Optional / existential returns**: `IsEmittableParentOnlyAsyncPairing` rejects non-Named substituted returns; standard async harness has dedicated paths for these.
 - **Predicate-emitter parity**: predicate returns true on first viable pairing (same pattern as Session 2 sync). When multiple parent tuples exist and some pass per-pairing gate while others don't, the open-generic surface is suppressed method-wide; partial tuples lose access. Matches Session 2's established design trade-off.
 

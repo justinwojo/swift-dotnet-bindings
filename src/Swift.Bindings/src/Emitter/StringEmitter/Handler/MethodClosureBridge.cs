@@ -1727,19 +1727,29 @@ public static class MethodClosureBridge
     }
 
     /// <summary>
+    /// Source-of-truth predicate for which <see cref="ParamAbiCategory"/> values are
+    /// safe to pass directly through a @_cdecl bridge — both this closure bridge AND
+    /// the CSM engine / sync+async generic bridges share this allowlist. Add new
+    /// categories here only; never duplicate the disjunction at call sites.
+    /// </summary>
+    internal static bool IsAbiCategoryPassable(ParamAbiCategory category)
+    {
+        return category is ParamAbiCategory.Primitive
+            or ParamAbiCategory.ObjCHandle
+            or ParamAbiCategory.PayloadHandle
+            or ParamAbiCategory.Utf8Slice;
+    }
+
+    /// <summary>
     /// Checks if a non-closure parameter can be passed through or omitted (default).
-    /// Uses ParamAbiCategory to classify: Primitive, ObjCHandle, and PayloadHandle are passable.
+    /// Delegates the category-level allowlist to <see cref="IsAbiCategoryPassable"/>.
     /// </summary>
     private static bool IsNonClosureParamPassable(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
         // Params with defaults are omitted — Swift fills them
         if (arg.HasDefaultArg) return true;
 
-        var category = ClassifyParam(arg, typeDatabase);
-        return category is ParamAbiCategory.Primitive
-            or ParamAbiCategory.ObjCHandle
-            or ParamAbiCategory.PayloadHandle
-            or ParamAbiCategory.Utf8Slice;
+        return IsAbiCategoryPassable(ClassifyParam(arg, typeDatabase));
     }
 
     /// <summary>

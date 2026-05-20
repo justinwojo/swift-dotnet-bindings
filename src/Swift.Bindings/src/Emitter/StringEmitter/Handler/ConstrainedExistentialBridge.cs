@@ -169,6 +169,19 @@ public static class ConstrainedExistentialBridge
                     break;
                 }
 
+                case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                    // Explicit exclusion: Swift.String is canonically passable on
+                    // MethodClosureBridge.IsAbiCategoryPassable, but the ConstrainedExistentialBridge
+                    // body shape (BridgeParam/BridgeParamKind + Swift wrapper synthesis below) does
+                    // not yet carry a Utf8Slice kind, so admitting it here would either miss
+                    // dispatch or emit an ABI-mismatched IntPtr pair. Reject locally with reasoning
+                    // until the bridge body grows a Utf8Slice ptr+len marshalling case
+                    // (parallel to the parent-only CSM bridges' Utf8Slice support).
+                    if (arg.HasDefaultArg)
+                        continue;
+                    logger.LogDebug($"ConstrainedExistentialBridge: rejecting Utf8Slice param '{arg.Name}' — body emission not yet implemented");
+                    return false;
+
                 default:
                     // ObjC, NativeRemapped, FrozenStruct, Pointer, Unsupported — reject
                     if (arg.HasDefaultArg)

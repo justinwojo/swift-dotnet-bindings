@@ -380,15 +380,14 @@ public static class AsyncMethodGenericBridgeEmitter
             if (IsBridgeableDefaultedContainer(arg, typeDatabase))
                 continue;
 
-            var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
-            if (category is not (MethodClosureBridge.ParamAbiCategory.Primitive
-                or MethodClosureBridge.ParamAbiCategory.ObjCHandle
-                or MethodClosureBridge.ParamAbiCategory.PayloadHandle))
+            // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable.
+            // Non-defaulted args of unsupported shapes still fail the bridge. Defaulted args
+            // of unsupported shapes are tolerated only when the bridge can drop them entirely
+            // via a trim — but the FULL primary would have to materialise them, so fail
+            // eligibility here.
+            if (!MethodClosureBridge.IsAbiCategoryPassable(
+                    MethodClosureBridge.ClassifyParam(arg, typeDatabase)))
             {
-                // Non-defaulted args of unsupported shapes still fail the bridge.
-                // Defaulted args of unsupported shapes are tolerated only when the
-                // bridge can drop them entirely via a trim — but the FULL primary
-                // would have to materialise them, so fail eligibility here.
                 return false;
             }
         }
@@ -537,7 +536,12 @@ public static class AsyncMethodGenericBridgeEmitter
             }
             else
             {
-                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false);
+                // `useUtf8Strings: true` — Swift.String marshals as (UInt8 ptr, Int len)
+                // pair; reconstruction `let {label}Val = String(...)` happens BEFORE the
+                // Task is scheduled, so the byte[] pin on the C# side only has to wrap
+                // the synchronous P/Invoke call (which creates the Task) — not the await.
+                // Matches the MGBE/CPSE Utf8Slice marshalling shape.
+                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false, useUtf8Strings: true);
                 swiftParams.Add(cdeclParam);
                 callArgs.Add(callArg);
                 if (!string.IsNullOrEmpty(reconstruction))
@@ -1016,6 +1020,12 @@ public static class AsyncMethodGenericBridgeEmitter
                     else
                         pinvokeParams.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                     break;
+                case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                    // Swift.String ABI matches the @_silgen_name wrapper's
+                    // `_ {label}Utf8Ptr: UnsafePointer<UInt8>, _ {label}Utf8Len: Int`.
+                    pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
+                    pinvokeParams.Add($"nint {csName}Utf8Len");
+                    break;
                 default:
                     pinvokeParams.Add($"IntPtr {csName}");
                     break;
@@ -1098,6 +1108,9 @@ public static class AsyncMethodGenericBridgeEmitter
                 case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                 case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                     publicParams.Add($"global::Swift.Runtime.ISwiftObject {csName}");
+                    break;
+                case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                    publicParams.Add($"string {csName}");
                     break;
                 default:
                     publicParams.Add($"IntPtr {csName}");
@@ -1254,6 +1267,13 @@ public static class AsyncMethodGenericBridgeEmitter
         if (throws) callArgs.Add($"(void*){errorCallbackFieldName}");
         callArgs.Add("(long)(IntPtr)handle");
 
+        // Track Utf8Slice (Swift.String) params so we can emit the byte[] prelude +
+        // `fixed (...)` pin around ONLY the synchronous P/Invoke call below. The Swift
+        // @_silgen_name wrapper reconstructs `let {label}Val = String(bytes:…)` BEFORE
+        // scheduling the Task, so the pin lifetime does not need to extend across the
+        // C# await — it just has to cover the P/Invoke that fires the Task.
+        var utf8SliceLocals = new List<(string csName, string bareName)>();
+
         foreach (var arg in keptArgs)
         {
             var csName = NameProvider.GetCSharpParameterName(arg);
@@ -1279,6 +1299,14 @@ public static class AsyncMethodGenericBridgeEmitter
                 case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                     callArgs.Add($"{csName}.SwiftHandle");
                     break;
+                case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                {
+                    var bareName = NameProvider.StripVerbatimPrefix(csName);
+                    utf8SliceLocals.Add((csName, bareName));
+                    callArgs.Add($"(IntPtr)__{bareName}Ptr");
+                    callArgs.Add($"(nint)__{bareName}Utf8.Length");
+                    break;
+                }
                 default:
                     callArgs.Add(csName);
                     break;
@@ -1293,7 +1321,24 @@ public static class AsyncMethodGenericBridgeEmitter
             callArgs.Add(selfExpr);
         }
 
+        // Prelude byte[] allocations precede the fixed-block stack (mirrors MGBE/CPSE).
+        foreach (var (csName, bareName) in utf8SliceLocals)
+            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+
+        foreach (var (_, bareName) in utf8SliceLocals)
+        {
+            csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
         csWriter.WriteLine($"{variantPInvokeMethodName}({string.Join(", ", callArgs)});");
+
+        for (int i = 0; i < utf8SliceLocals.Count; i++)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
 
         csWriter.Indent--;
         csWriter.WriteLine("}");

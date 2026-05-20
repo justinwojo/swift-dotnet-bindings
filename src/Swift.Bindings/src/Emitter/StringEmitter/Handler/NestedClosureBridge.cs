@@ -107,10 +107,16 @@ public static class NestedClosureBridge
             if (closureArgs.Contains(arg)) continue;
             if (arg.HasDefaultArg) continue;
 
+            // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable,
+            // but NestedClosureBridge's wrapper-body emission switches (around lines 891/895 for
+            // the Swift @_cdecl shape and 1066/1069 for the C# call site) do not yet carry a
+            // Utf8Slice case — admitting Swift.String through the canonical predicate would land
+            // it in those switches' `default:` branches and emit a single `IntPtr {csName}` with
+            // no UTF-8 pinning/reconstruction. Reject Utf8Slice locally with reasoning until the
+            // NestedClosureBridge body grows the matching ptr+len pair.
             var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
-            if (category is not (MethodClosureBridge.ParamAbiCategory.Primitive
-                or MethodClosureBridge.ParamAbiCategory.ObjCHandle
-                or MethodClosureBridge.ParamAbiCategory.PayloadHandle))
+            if (!MethodClosureBridge.IsAbiCategoryPassable(category)
+                || category == MethodClosureBridge.ParamAbiCategory.Utf8Slice)
                 return false;
         }
 

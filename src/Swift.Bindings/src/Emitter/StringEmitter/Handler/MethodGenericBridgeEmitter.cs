@@ -327,10 +327,9 @@ public static class MethodGenericBridgeEmitter
             // Skip defaulted params (Swift fills them)
             if (arg.HasDefaultArg) continue;
 
-            var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
-            if (category is not (MethodClosureBridge.ParamAbiCategory.Primitive
-                or MethodClosureBridge.ParamAbiCategory.ObjCHandle
-                or MethodClosureBridge.ParamAbiCategory.PayloadHandle))
+            // ABI passability allowlist is canonical on MethodClosureBridge.IsAbiCategoryPassable.
+            if (!MethodClosureBridge.IsAbiCategoryPassable(
+                    MethodClosureBridge.ClassifyParam(arg, typeDatabase)))
             {
                 return false;
             }
@@ -406,8 +405,12 @@ public static class MethodGenericBridgeEmitter
             }
             else
             {
-                // Non-generic param — use standard CdeclParamMapper (preserve labels for method calls)
-                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false);
+                // Non-generic param — use standard CdeclParamMapper (preserve labels for method calls).
+                // `useUtf8Strings: true` emits Swift.String as a (UInt8 ptr, Int len) pair plus a
+                // reconstruction `let {label}Val = String(...)`. The matching C# side (pinvoke /
+                // public / callArgs switches below) carries a Utf8Slice case so the ABI pairs
+                // up. Mirrors the MethodClosureBridge.cs Utf8Slice marshalling shape.
+                var (cdeclParam, reconstruction, callArg) = CdeclParamMapper.Map(arg, label, env, omitLabels: false, useUtf8Strings: true);
                 swiftParams.Add(cdeclParam);
                 callArgs.Add(callArg);
                 if (!string.IsNullOrEmpty(reconstruction))
@@ -598,6 +601,12 @@ public static class MethodGenericBridgeEmitter
                         else
                             pinvokeParams.Add($"{MethodClosureBridge.GetPInvokePrimitiveType(arg.SwiftTypeSpec)} {csName}");
                         break;
+                    case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                        // Swift.String ABI: ptr+len pair matching the Swift @_silgen_name
+                        // wrapper's `_ {label}Utf8Ptr: UnsafePointer<UInt8>, _ {label}Utf8Len: Int`.
+                        pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
+                        pinvokeParams.Add($"nint {csName}Utf8Len");
+                        break;
                     default:
                         pinvokeParams.Add($"IntPtr {csName}");
                         break;
@@ -676,6 +685,9 @@ public static class MethodGenericBridgeEmitter
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                         publicParams.Add($"ISwiftObject {csName}");
                         break;
+                    case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                        publicParams.Add($"string {csName}");
+                        break;
                     default:
                         publicParams.Add($"IntPtr {csName}");
                         break;
@@ -686,14 +698,34 @@ public static class MethodGenericBridgeEmitter
         // Emit XML doc comment
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl);
 
+        // Detect Utf8Slice (Swift.String) params — they need `unsafe` for the
+        // `fixed (byte* …Ptr = …Utf8)` pin that brackets the P/Invoke call below.
+        bool hasUtf8SliceParam = false;
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg)) continue;
+            if (arg.HasDefaultArg) continue;
+            if (arg.SwiftTypeSpec is NamedTypeSpec nm && nm.Name == genericInfo.Param.TypeName) continue;
+            if (MethodClosureBridge.ClassifyParam(arg, env.TypeDatabase) == MethodClosureBridge.ParamAbiCategory.Utf8Slice)
+            {
+                hasUtf8SliceParam = true;
+                break;
+            }
+        }
+
         string staticStr = isStatic ? "static " : "";
+        string unsafeStr = hasUtf8SliceParam ? "unsafe " : "";
         string returnStr = isVoidReturn ? "void" : csReturnType;
-        csWriter.WriteLine($"public {staticStr}{returnStr} {methodName}({string.Join(", ", publicParams)})");
+        csWriter.WriteLine($"public {unsafeStr}{staticStr}{returnStr} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
         // Build P/Invoke call arguments
         var callArgs = new List<string>();
+        // Track Utf8Slice params so we can emit byte[] prelude declarations once before
+        // the fixed-block stack opens (mirrors MethodClosureBridge.cs ~1283-1292).
+        var utf8SliceLocals = new List<(string csName, string bareName)>();
 
         // Result buffer (for indirect returns)
         if (needsResultPtr)
@@ -742,6 +774,16 @@ public static class MethodGenericBridgeEmitter
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                         callArgs.Add($"{csName}.SwiftHandle");
                         break;
+                    case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
+                    {
+                        // Track the local; the byte[] prelude + fixed pin are emitted around
+                        // the P/Invoke call below.
+                        var bareName = NameProvider.StripVerbatimPrefix(csName);
+                        utf8SliceLocals.Add((csName, bareName));
+                        callArgs.Add($"(IntPtr)__{bareName}Ptr");
+                        callArgs.Add($"(nint)__{bareName}Utf8.Length");
+                        break;
+                    }
                     default:
                         callArgs.Add(csName);
                         break;
@@ -756,6 +798,21 @@ public static class MethodGenericBridgeEmitter
                 ? (parentDecl is ClassDecl cd && cd.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
                 : "_payload.DangerousGetHandle()";
             callArgs.Add(selfExpr);
+        }
+
+        // Utf8Slice prelude: allocate UTF-8 bytes for each Swift.String param BEFORE the
+        // fixed-block stack opens so the `fixed (... = __{bareName}Utf8)` source binding
+        // resolves. Mirrors MethodClosureBridge.cs ~1283-1292 verbatim.
+        foreach (var (csName, bareName) in utf8SliceLocals)
+            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+
+        // Open fixed blocks pinning each UTF-8 byte[] so the P/Invoke + Swift @_silgen_name
+        // wrapper sees a stable byte pointer for the entire call duration.
+        foreach (var (_, bareName) in utf8SliceLocals)
+        {
+            csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
         }
 
         // Emit P/Invoke call
@@ -787,6 +844,13 @@ public static class MethodGenericBridgeEmitter
         else
         {
             csWriter.WriteLine($"return {callExpr};");
+        }
+
+        // Close fixed blocks (in reverse order — innermost first)
+        for (int i = 0; i < utf8SliceLocals.Count; i++)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
         }
 
         // Close try blocks for indirect returns

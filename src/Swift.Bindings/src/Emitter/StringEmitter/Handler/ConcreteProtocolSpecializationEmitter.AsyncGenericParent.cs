@@ -84,11 +84,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         if (!WrapperValidation.IsXCFrameworkMode(typeDatabase)) return false;
 
-        // Scope to the EXACT shape Session 5 supports: zero method-own generics, zero
-        // method parameters. Methods with parameters or method-own generics need
-        // additional marshalling that the narrow emitter does not yet implement.
-        // Future sessions can relax this; until then the open-generic surface keeps
-        // emitting for any wider shape.
+        // Method-own generics stay rejected — they would require existential opening
+        // and per-generic specialization that the parent-only emitter does not yet
+        // implement. Wider shapes still emit on the open-generic surface unchanged.
         var parentParamNames = new HashSet<string>(
             parentTypeDecl.GenericParameters.Select(p => p.TypeName));
         var ownGenericCount = method.GenericParameters
@@ -96,9 +94,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (ownGenericCount != 0) return false;
 
         // CSSignature[0] is the return type. Any further entries are parameters.
-        // Empty-tuple entries (`Void` placeholders) still count, but parent-only
-        // async on the fixture shape never carries one — keep this conservative.
-        if (method.CSSignature.Count > 1) return false;
+        // Session 5 originally hard-rejected non-empty parameter signatures here
+        // (deliberately narrow scope choice, not a structural invariant — see
+        // `src/docs/keypath-subsystem/05-parent-only-async-csm.md` lines 14–20).
+        // Session 6 relaxes the gate selectively for Swift.String params only:
+        // every method parameter must classify as Utf8Slice, otherwise the emitter
+        // does not yet have a marshalling path for it and we stay rejected. Other
+        // ABI categories continue to fall back to the open-generic surface
+        // unchanged (selective-opt-out pattern, same shape as NCB/GCB allowlist).
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var arg = method.CSSignature[i];
+            if (arg.SwiftTypeSpec.IsEmptyTuple) return false;
+            if (MethodClosureBridge.ClassifyParam(arg, typeDatabase)
+                != MethodClosureBridge.ParamAbiCategory.Utf8Slice)
+                return false;
+        }
 
         var specializable = engine.FindSpecializableMethods(parentTypeDecl)
             .FirstOrDefault(sm => ReferenceEquals(sm.Method, method));
@@ -119,7 +130,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (!ConformerPairingSatisfiesCoupling(pairing)) continue;
             if (!IsEmittableParentOnlyAsyncPairing(
                     method, parentTypeDecl, pairing, typeDatabase, moduleName,
-                    out _))
+                    out _, out _))
                 continue;
             return true;
         }
@@ -160,13 +171,24 @@ public static partial class ConcreteProtocolSpecializationEmitter
         if (method.IsMutating) return false;
         if (method.IsMainActorIsolated || method.IsActorIsolated) return false;
         if (method.HasTypedThrows) return false;
-        if (method.CSSignature.Count > 1) return false;
+        // Selective per-param admission walk — mirror of the predicate. See
+        // IsCsmAsyncEligibleForGenericParent for the rationale. Only Utf8Slice
+        // (Swift.String) params are admitted; every other ABI category routes
+        // through the open-generic surface.
+        for (int i = 1; i < method.CSSignature.Count; i++)
+        {
+            var arg = method.CSSignature[i];
+            if (arg.SwiftTypeSpec.IsEmptyTuple) return false;
+            if (MethodClosureBridge.ClassifyParam(arg, typeDatabase)
+                != MethodClosureBridge.ParamAbiCategory.Utf8Slice)
+                return false;
+        }
         // Value-type parents only (see predicate for rationale).
         if (parentTypeDecl is ClassDecl) return false;
 
         if (!IsEmittableParentOnlyAsyncPairing(
                 method, parentTypeDecl, pairing, typeDatabase, moduleName,
-                out var substitutedReturnSpec))
+                out var substitutedReturnSpec, out var returnIsBlittable))
         {
             return false;
         }
@@ -266,7 +288,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         EmitParentOnlyAsyncCSharpExtension(
             csWriter, method, parentCsName, returnCsType,
             cdeclSymbol, csMethodName, wrapperLibPath, throws,
-            mergedAvailability, parentTypeDecl);
+            mergedAvailability, parentTypeDecl, typeDatabase, returnIsBlittable);
 
         method.WasEmitted = true;
 
@@ -291,9 +313,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         IReadOnlyList<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing,
         ITypeDatabase typeDatabase,
         string moduleName,
-        out TypeSpec substitutedReturnSpec)
+        out TypeSpec substitutedReturnSpec,
+        out bool returnIsBlittable)
     {
         substitutedReturnSpec = null!;
+        returnIsBlittable = false;
 
         // Hint-scope + module-allowlist + opaque/objc guards — parity with the closed-
         // conformer async path's IsEmittableAsyncPairing.
@@ -360,33 +384,31 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var resolved = ResolvePublicCSharpType(current, typeDatabase);
         if (string.IsNullOrEmpty(resolved) || resolved == "IntPtr") return false;
 
-        // Substituted return must be a known ISwiftObject-backed type. The async harness
-        // allocates a carrier via NativeMemory.Alloc, hands it to Swift's @_cdecl wrapper
-        // (which initializeMemory's the result into it), then C# MarshalFromSwift wraps the
-        // SAME pointer in a SwiftSafeHandle via NewFromPayload. The SafeHandle owns the
-        // buffer from that point — its ReleaseHandle calls NativeMemory.Free on Dispose. So
-        // the success callback must NOT free `resultPtr` (doing so double-frees and the
-        // first read of the returned object dereferences poisoned memory → SIGSEGV).
+        // Substituted return must classify as one of two well-defined emission shapes:
         //
-        // Truly-blittable returns (frozen pure-value structs, simple enums, primitives) have
-        // a different lifecycle — MarshalFromSwift returns a *copy* and the buffer must be
-        // freed — but they need a separate emit shape we have not implemented. Reject them
-        // here so the strict-vs-loose contract stays explicit; Session 6+ can lift this if
-        // a blittable return surfaces.
+        // (a) ISwiftObject-backed (non-frozen struct, "ClassWithOpaquePayload"). The async
+        //     harness allocates a carrier via NativeMemory.Alloc, hands it to Swift's @_cdecl
+        //     wrapper (which initializeMemory's the result into it), then C# MarshalFromSwift
+        //     wraps the SAME pointer in a SwiftSafeHandle via NewFromPayload. The SafeHandle
+        //     owns the buffer — its ReleaseHandle calls NativeMemory.Free on Dispose. So the
+        //     success callback must NOT free `resultPtr` (doing so double-frees and the first
+        //     read of the returned object dereferences poisoned memory → SIGSEGV).
+        //
+        // (b) Blittable primitive (Int/UInt/Float/Double family, CGFloat — see
+        //     `CdeclParamMapper.IsBlittablePrimitiveSwiftType`). The Swift wrapper
+        //     initializeMemory's the value into the carrier identically; on the C# side
+        //     MarshalFromSwift<T> returns a *value copy*, so the success callback MUST free
+        //     the carrier or the buffer leaks. (Session 6 lift — Session 5 originally
+        //     rejected blittable returns conservatively; see L18-area of
+        //     `src/docs/keypath-subsystem/05-parent-only-async-csm.md`.)
+        //
+        // Anything else (Swift class, frozen-struct-projected-as-class, complex enum) still
+        // rejects here — each needs a different copy/retain/release sequence and is deferred
+        // to a future session that exercises it.
         if (current is NamedTypeSpec namedReturn)
         {
-            try
-            {
-                var typeName = SwiftTypeName.FromModuleQualifiedName(namedReturn.Name);
-                if (!typeDatabase.TryGetTypeRecord(typeName, out var returnRecord))
-                    return false;
-                if (!IsReturnSafeHandleBacked(returnRecord))
-                    return false;
-            }
-            catch (ArgumentException)
-            {
+            if (!IsReturnTypeEmittable(namedReturn, typeDatabase, out returnIsBlittable))
                 return false;
-            }
         }
 
         substitutedReturnSpec = current;
@@ -394,52 +416,83 @@ public static partial class ConcreteProtocolSpecializationEmitter
     }
 
     /// <summary>
-    /// Returns true when the return-type's TypeRecord projects to a C# class whose
-    /// <c>NewFromPayload</c> wraps the SAME <c>NativeMemory.Alloc</c>'d pointer in a
-    /// <c>SwiftSafeHandle</c> directly (no <c>InitializeWithCopy</c> into a fresh
-    /// buffer, no class-pointer re-read). That ownership contract is the one the
-    /// success-callback elides <c>NativeMemory.Free</c> on — anything else would either
-    /// leak the carrier or dereference freed memory.
-    /// <para>
-    /// In practice this matches ONE shape: non-frozen struct (
-    /// "ClassWithOpaquePayload" — its <c>NewFromPayload</c> is the simple
-    /// <c>new T(new SwiftHandle(handle))</c> wrap that <c>SwiftSafeHandle.ReleaseHandle</c>
-    /// later frees via <c>NativeMemory.Free</c>).
-    /// </para>
+    /// Returns true when the substituted return type matches one of the two well-defined
+    /// emission shapes the parent-only async path supports, and sets
+    /// <paramref name="isBlittablePrimitive"/> to indicate which one:
+    /// <list type="bullet">
+    /// <item><term><c>false</c> (SafeHandle-backed)</term>
+    /// <description>Non-frozen struct ("ClassWithOpaquePayload"). Its <c>NewFromPayload</c>
+    /// wraps the SAME <c>NativeMemory.Alloc</c>'d pointer in a <c>SwiftSafeHandle</c>
+    /// directly (no <c>InitializeWithCopy</c>, no class-pointer re-read). The
+    /// SafeHandle's <c>ReleaseHandle</c> later frees via <c>NativeMemory.Free</c>, so
+    /// the success-callback MUST elide its own free or the buffer is double-freed and
+    /// the first read of the returned object dereferences poisoned memory.</description></item>
+    /// <item><term><c>true</c> (blittable primitive, owns-buffer)</term>
+    /// <description>Numeric primitive admitted by
+    /// <see cref="CdeclParamMapper.IsBlittablePrimitiveSwiftType"/> (Int/UInt/Float/Double
+    /// family, CGFloat). <c>MarshalFromSwift&lt;T&gt;</c> returns a *value copy*, so the
+    /// success-callback OWNS the carrier and MUST <c>NativeMemory.Free</c> it after
+    /// reading. Session 6 lift — Session 5 originally rejected blittable returns
+    /// conservatively.</description></item>
+    /// </list>
     /// <para>
     /// Deliberately rejected (each would need its own emit shape, deferred to a future
-    /// session that actually exercises them):
+    /// session that actually exercises it):
     /// <list type="bullet">
     /// <item><term><see cref="TypeRecordKind.Class"/></term><description>Swift class. The wire
     /// carrier holds an inline class pointer (with +1 retain) but <c>NewFromPayload</c>
     /// wraps THAT pointer in a <c>SwiftClassHandle</c> — the carrier itself is
-    /// transient. Skipping the free here would leak the carrier; including it would
-    /// race the ARC retain extraction. Needs read-then-free emit.</description></item>
+    /// transient. Skipping the free leaks the carrier; including it races the ARC
+    /// retain extraction. Needs read-then-free emit.</description></item>
     /// <item><term>Frozen struct projected as class (<c>IsFrozenStructProjectedAsClass</c>,
     /// "ClassWithBufferStruct")</term><description>Its <c>NewFromPayload</c> does an
     /// <c>InitializeWithCopy</c> from the wire carrier into a fresh
-    /// <c>NativeMemory.Alloc</c> buffer owned by the SafeHandle (per the
-    /// <c>BufferCopiedNeedsVwtDestroy</c> cascade). The wire carrier holds +1 retains
-    /// that must be VWT-destroyed and then <c>NativeMemory.Free</c>'d separately.
-    /// Skipping the free here leaks the carrier and its retains.</description></item>
+    /// <c>NativeMemory.Alloc</c> buffer owned by the SafeHandle. The wire carrier
+    /// holds +1 retains that must be VWT-destroyed then <c>NativeMemory.Free</c>'d
+    /// separately.</description></item>
     /// <item><term>Complex enum (<see cref="TypeRecordKind.Enum"/> + non-simple)</term>
     /// <description>Unverified whether its <c>NewFromPayload</c> is the simple
     /// pointer-wrap or the copy-into-fresh-buffer shape. Reject conservatively until
-    /// a fixture proves out the contract.</description></item>
-    /// <item><term>Frozen pure-value struct / simple enum / primitive</term>
-    /// <description>Project as blittable C# struct/enum — <c>MarshalFromSwift</c> returns a
-    /// value copy and the buffer must be freed in the callback. Needs the copy-and-free
-    /// emit shape.</description></item>
+    /// a fixture proves the contract.</description></item>
+    /// <item><term>Bool</term><description>Excluded from <c>IsBlittablePrimitiveSwiftType</c>
+    /// because its Optional uses extra-inhabitants; not needed for the current parent-only
+    /// async surface and would deserve its own fixture before lifting.</description></item>
     /// </list>
     /// </para>
     /// </summary>
-    private static bool IsReturnSafeHandleBacked(TypeRecord record)
+    private static bool IsReturnTypeEmittable(
+        NamedTypeSpec namedReturn,
+        ITypeDatabase typeDatabase,
+        out bool isBlittablePrimitive)
     {
-        // Only non-frozen structs have NewFromPayload that simply wraps the incoming
-        // pointer — every other ISwiftObject projection either copies (frozen-as-class,
-        // possibly complex enum) or re-reads (class-pointer through carrier).
-        return record.Kind == TypeRecordKind.Struct
-               && !MarshallingHelpers.IsTypeFrozen(record);
+        isBlittablePrimitive = false;
+
+        // Blittable-primitive admission first — `IsBlittablePrimitiveSwiftType` is the
+        // canonical allowlist used by every other emitter (CdeclParamMapper, ClosureEmitter,
+        // OptionalMarshalStrategy, ClosureHandler), so widening the parent-only async
+        // surface through it keeps the strict-vs-loose contract aligned with the rest of
+        // the generator. Bool is intentionally excluded from that allowlist (see comment
+        // in `CdeclParamMapper.IsBlittablePrimitiveSwiftType`).
+        if (CdeclParamMapper.IsBlittablePrimitiveSwiftType(namedReturn.Name))
+        {
+            isBlittablePrimitive = true;
+            return true;
+        }
+
+        // Otherwise require a TypeRecord and the non-frozen-struct ("ClassWithOpaquePayload")
+        // shape, whose NewFromPayload wraps the incoming pointer directly.
+        try
+        {
+            var typeName = SwiftTypeName.FromModuleQualifiedName(namedReturn.Name);
+            if (!typeDatabase.TryGetTypeRecord(typeName, out var returnRecord))
+                return false;
+            return returnRecord.Kind == TypeRecordKind.Struct
+                   && !MarshallingHelpers.IsTypeFrozen(returnRecord);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     // ─── Swift @_cdecl wrapper emission ─────────────────────────────────
@@ -462,17 +515,47 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
     {
-        // No mutating + no params: self is a borrowed const pointer.
-        // resultPtr: UnsafeMutableRawPointer (indirect return)
-        // completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
-        // errorCallback (throws only): same signature
-        // context: UnsafeMutableRawPointer (GCHandle for TCS)
+        // Param layout (must match the C# pinvokeParams below in the same order):
+        //   resultPtr: UnsafeMutableRawPointer (indirect return)
+        //   <Utf8Slice user params...> (each → Utf8Ptr + Utf8Len pair)
+        //   self_: UnsafeRawPointer (non-mutating borrowed const pointer)
+        //   completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void
+        //   errorCallback (throws only): same signature
+        //   context: UnsafeMutableRawPointer (GCHandle for TCS)
         var swiftParams = new List<string>
         {
             "_ resultPtr: UnsafeMutableRawPointer",
-            "_ self_: UnsafeRawPointer",
-            "_ completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void",
         };
+
+        // Per-param Utf8Slice marshalling. The selective-opt-out gate above has
+        // already filtered to Utf8Slice only — every arg here is Swift.String.
+        // Inline the mapping rather than threading CdeclParamMapper through this
+        // scope (no MethodEnvironment available here, and the Utf8Slice case is a
+        // single literal that matches the MGBE/AMGBE/CPSE shape verbatim).
+        //
+        // Reconstructions emit BEFORE the `Task {` block so the Swift String
+        // captures into the Task body; the raw Utf8 pointer's lifetime is bound
+        // to the synchronous wrapper return only.
+        var callArgs = new List<string>();
+        var reconstructions = new List<string>();
+        foreach (var arg in method.CSSignature.Skip(1))
+        {
+            if (arg.SwiftTypeSpec.IsEmptyTuple) continue;
+            var label = !string.IsNullOrEmpty(arg.PrivateName) ? arg.PrivateName : arg.Name;
+            label = SwiftBuilder.SanitizeIdentifier(label);
+            if (NameProvider.IsSwiftKeyword(label))
+                label = $"{label}Param";
+            var argLabel = ClosureEmitter.GetSwiftArgLabelForCdecl(arg);
+            swiftParams.Add($"_ _{label}Utf8Ptr: UnsafePointer<UInt8>");
+            swiftParams.Add($"_ _{label}Utf8Len: Int");
+            reconstructions.Add(
+                $"let _{label}Val = String(bytes: UnsafeBufferPointer(start: _{label}Utf8Ptr, count: _{label}Utf8Len), encoding: .utf8)!");
+            callArgs.Add($"{argLabel}_{label}Val");
+        }
+
+        swiftParams.Add("_ self_: UnsafeRawPointer");
+        swiftParams.Add(
+            "_ completion: @convention(c) (UnsafeMutableRawPointer, UnsafeMutableRawPointer) -> Void");
         if (throws)
         {
             swiftParams.Add(
@@ -484,6 +567,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             method.ParentDecl, method.IsMainActorIsolated, method.IsNonisolated);
 
         var methodCallSwift = NameProvider.ParserNameToSwift(method);
+        var callArgsSwift = string.Join(", ", callArgs);
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine(
@@ -503,6 +587,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
         swiftWriter.WriteLine(
             $"    let __self = self_.assumingMemoryBound(to: {parentSwiftName}.self).pointee");
 
+        // Reconstruct Utf8Slice params BEFORE launching the Task. Each reconstruction is
+        // `let _{label}Val = String(bytes: UnsafeBufferPointer(start: …, count: …), encoding: .utf8)!`.
+        // The Task body captures the Swift String values, NOT the raw Utf8 pointers — the
+        // pointer lifetime is bound to the synchronous wrapper return (same lifetime rule
+        // as `__self` above). Mirrors AMGBE's reconstruction-before-Task pattern.
+        foreach (var reconstruction in reconstructions)
+            swiftWriter.WriteLine($"    {reconstruction}");
+
         // Launch the Task. `@_cdecl` callees return synchronously to C#; the async work
         // proceeds in the background and signals C# via the completion callback.
         swiftWriter.WriteLine("    Task {");
@@ -511,7 +603,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             swiftWriter.WriteLine("        do {");
             swiftWriter.WriteLine(
-                $"            let _result = try await __self.{methodCallSwift}()");
+                $"            let _result = try await __self.{methodCallSwift}({callArgsSwift})");
             swiftWriter.WriteLine(
                 $"            resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
             swiftWriter.WriteLine("            completion(resultPtr, context)");
@@ -524,7 +616,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         else
         {
             swiftWriter.WriteLine(
-                $"        let _result = await __self.{methodCallSwift}()");
+                $"        let _result = await __self.{methodCallSwift}({callArgsSwift})");
             swiftWriter.WriteLine(
                 $"        resultPtr.initializeMemory(as: ({returnSwiftType}).self, repeating: _result, count: 1)");
             swiftWriter.WriteLine("        completion(resultPtr, context)");
@@ -556,8 +648,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         string wrapperLibPath,
         bool throws,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
-        TypeDecl parentTypeDecl)
+        TypeDecl parentTypeDecl,
+        ITypeDatabase typeDatabase,
+        bool returnIsBlittable)
     {
+        // Pre-compute the Utf8Slice user-param list. The selective-opt-out gate has
+        // already filtered method.CSSignature.Skip(1) down to Utf8Slice only — every
+        // entry that survives here projects to a `string` public param + (IntPtr ptr,
+        // nint len) pair across the @_cdecl boundary. Pin lifetime wraps ONLY the
+        // synchronous P/Invoke (which schedules the Swift Task); the Swift wrapper
+        // reconstructs `let _{label}Val = String(...)` BEFORE its `Task {` block so
+        // the C# pin does not need to survive the await. Mirrors AMGBE.
+        var utf8Args = method.CSSignature.Skip(1)
+            .Where(a => !a.SwiftTypeSpec.IsEmptyTuple
+                        && MethodClosureBridge.ClassifyParam(a, typeDatabase)
+                           == MethodClosureBridge.ParamAbiCategory.Utf8Slice)
+            .ToList();
         // Build unique per-overload identifier suffix so multiple parent-only-async
         // overloads in the same extension class never collide on field/method names.
         // The cdecl-symbol hash already participates in `cdeclSymbol`; reusing it
@@ -580,14 +686,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // class body directly — no CS7042 hoisting needed because the enclosing
         // *CsmExtensions class is itself non-generic.
         //
-        // Ownership transfer: MarshalFromSwift<T>(resultPtr) for ISwiftObject T calls
-        // T.NewFromPayload(resultPtr), which wraps the SAME pointer in a
-        // SwiftSafeHandle<T>. The SafeHandle then owns the buffer — its ReleaseHandle
-        // calls NativeMemory.Free on Dispose. So the success path MUST NOT free
-        // resultPtr here (doing so double-frees and the first read of the returned
-        // object dereferences poisoned memory). Only the GCHandle is freed in finally;
-        // the error path (when present) still frees its uninitialized buffer because
-        // Swift never handed it to NewFromPayload.
+        // Ownership transfer (depends on returnIsBlittable, decided by IsReturnTypeEmittable):
+        //   returnIsBlittable=false (SafeHandle-backed, non-frozen struct):
+        //     MarshalFromSwift<T>(resultPtr) for ISwiftObject T calls T.NewFromPayload(resultPtr),
+        //     which wraps the SAME pointer in a SwiftSafeHandle<T>. The SafeHandle then owns
+        //     the buffer — its ReleaseHandle calls NativeMemory.Free on Dispose. So the
+        //     success path MUST NOT free resultPtr here (doing so double-frees and the first
+        //     read of the returned object dereferences poisoned memory).
+        //   returnIsBlittable=true (numeric primitive, owns-buffer):
+        //     MarshalFromSwift<T>(resultPtr) returns a *value copy* and the carrier is NOT
+        //     handed to any SafeHandle. The success path OWNS the buffer and MUST
+        //     NativeMemory.Free it after reading, or it leaks.
+        // Either way the GCHandle is freed in finally; the error path (when present) still
+        // frees its uninitialized buffer because Swift never handed it to NewFromPayload.
         //
         // The holder still carries resultPtr so the error callback (throws only) can
         // free its uninitialized buffer — Swift never wrote to it on the error branch
@@ -640,7 +751,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        // Do NOT free resultPtr — the returned SwiftSafeHandle now owns it.
+        if (returnIsBlittable)
+        {
+            // Blittable return: MarshalFromSwift<T> returned a value copy; we own the
+            // carrier and must free it (or it leaks). Free in finally so we still
+            // recover on the catch path above — the carrier was never handed to any
+            // SafeHandle, so freeing it is unconditionally safe once MarshalFromSwift
+            // has either read it or thrown.
+            csWriter.WriteLine("global::System.Runtime.InteropServices.NativeMemory.Free((void*)resultPtr);");
+        }
+        // Else (SafeHandle-backed return): MUST NOT free resultPtr — the returned
+        // SwiftSafeHandle now owns it. Freeing here would double-free and the first
+        // read of the returned object would dereference poisoned memory.
+        //
         // IsAllocated guard prevents a double-Free crash if a malformed Swift caller
         // were to invoke both success and error callbacks for the same context (Swift's
         // contract is exactly-one-callback, but defense-in-depth costs nothing here).
@@ -710,13 +833,22 @@ public static partial class ConcreteProtocolSpecializationEmitter
         }
 
         // ── P/Invoke ───────────────────────────────────────────────────
+        // Param order must match the Swift @_cdecl wrapper exactly:
+        //   resultPtr → <Utf8Slice user params: ptr+len pairs> → self_ → completion
+        //     → errorCallback (if throws) → context
         csWriter.WriteLine();
         var pinvokeParams = new List<string>
         {
             "IntPtr resultPtr",
-            "IntPtr self_",
-            "delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> completion",
         };
+        foreach (var utf8Arg in utf8Args)
+        {
+            var csName = NameProvider.GetCSharpParameterName(utf8Arg);
+            pinvokeParams.Add($"IntPtr {csName}Utf8Ptr");
+            pinvokeParams.Add($"nint {csName}Utf8Len");
+        }
+        pinvokeParams.Add("IntPtr self_");
+        pinvokeParams.Add("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> completion");
         if (throws)
             pinvokeParams.Add("delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void> errorCallback");
         pinvokeParams.Add("IntPtr context");
@@ -731,19 +863,49 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"internal static unsafe partial void {cdeclSymbol}({string.Join(", ", pinvokeParams)});");
 
         // ── Public extension method ────────────────────────────────────
+        // Build public-method param list. Receiver first (`this Parent self`), then one
+        // `string {csName}` per Utf8Slice arg in declaration order. The signature stays
+        // ergonomic — callers see plain `string` params; the (ptr, len) pair is an
+        // internal P/Invoke detail.
+        var publicParams = new List<string> { $"this {parentCsName} self" };
+        foreach (var utf8Arg in utf8Args)
+        {
+            var csName = NameProvider.GetCSharpParameterName(utf8Arg);
+            publicParams.Add($"string {csName}");
+        }
+
         csWriter.WriteLine();
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
         csWriter.WriteLine(
             $"/// <summary>Parent-only async specialization: {parentCsName}.{method.Name}.</summary>");
         csWriter.WriteLine(
-            $"public static unsafe global::System.Threading.Tasks.Task<{returnCsType}> {csMethodName}(this {parentCsName} self)");
+            $"public static unsafe global::System.Threading.Tasks.Task<{returnCsType}> {csMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
         csWriter.WriteLine(
             $"var tcs = new global::System.Threading.Tasks.TaskCompletionSource<{returnCsType}>();");
-        csWriter.WriteLine(
-            $"var resultPtr = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
+        // Size source diverges by return shape:
+        //   SafeHandle-backed (non-frozen struct):
+        //     `SwiftMarshal.GetSwiftTypeSize<T>()` queries Swift TypeMetadata.Size — required
+        //     because the Swift size can differ from the C# `sizeof` of the wrapper (the
+        //     wrapper holds a SafeHandle, not the value layout). The generic is constrained
+        //     to ISwiftObject, which the SafeHandle wrapper class satisfies.
+        //   Blittable primitive:
+        //     The C# projection IS the value layout (`int` for `Int32`, `double` for `Double`,
+        //     etc.), so `sizeof({returnCsType})` is the exact right size. Cannot use
+        //     `GetSwiftTypeSize<T>` here — its `where T : ISwiftObject` constraint excludes
+        //     `int`/`double`/`float`/etc., which is the CS0315 the predicate widen tripped on.
+        if (returnIsBlittable)
+        {
+            csWriter.WriteLine(
+                $"var resultPtr = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)sizeof({returnCsType}));");
+        }
+        else
+        {
+            csWriter.WriteLine(
+                $"var resultPtr = (IntPtr)global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::Swift.Runtime.InteropServices.SwiftMarshal.GetSwiftTypeSize<{returnCsType}>());");
+        }
         // Holder carries both the TCS and the resultPtr to whichever callback fires so
         // C# can free the buffer in both paths. Boxing IntPtr (nint) into object[] is
         // safe because the runtime preserves the pointer value verbatim.
@@ -753,15 +915,52 @@ public static partial class ConcreteProtocolSpecializationEmitter
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        var callArgs = new List<string>
+
+        // Build P/Invoke call argument list in the SAME order as pinvokeParams above:
+        //   resultPtr → <Utf8Slice ptr+len pairs> → self_ → completion → errorCallback
+        //   (throws) → context. Each Utf8Slice arg also contributes a (csName, bareName)
+        //   entry to utf8SliceLocals which drives the byte[] prelude + nested `fixed`
+        //   block stack.
+        var callArgs = new List<string> { "resultPtr" };
+        var utf8SliceLocals = new List<(string csName, string bareName)>();
+        foreach (var utf8Arg in utf8Args)
         {
-            "resultPtr",
-            "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle",
-            successCallbackField,
-        };
+            var csName = NameProvider.GetCSharpParameterName(utf8Arg);
+            var bareName = NameProvider.StripVerbatimPrefix(csName);
+            utf8SliceLocals.Add((csName, bareName));
+            callArgs.Add($"(IntPtr)__{bareName}Ptr");
+            callArgs.Add($"(nint)__{bareName}Utf8.Length");
+        }
+        callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+        callArgs.Add(successCallbackField);
         if (throws) callArgs.Add(errorCallbackField);
         callArgs.Add("global::System.Runtime.InteropServices.GCHandle.ToIntPtr(handle)");
+
+        // byte[] prelude (inside the try-block — UTF8.GetBytes can throw on null input,
+        // and the catch below correctly cleans up handle + resultPtr in that case).
+        foreach (var (csName, bareName) in utf8SliceLocals)
+            csWriter.WriteLine($"var __{bareName}Utf8 = System.Text.Encoding.UTF8.GetBytes({csName});");
+
+        // Open nested `fixed` blocks for each Utf8Slice byte[]. The pin only needs to
+        // cover the synchronous P/Invoke (which schedules the Swift Task); the Swift
+        // wrapper reconstructs `let _{label}Val = String(...)` BEFORE its `Task {`
+        // block so the pin doesn't survive the await.
+        foreach (var (_, bareName) in utf8SliceLocals)
+        {
+            csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
+
         csWriter.WriteLine($"{cdeclSymbol}({string.Join(", ", callArgs)});");
+
+        // Close `fixed` blocks in reverse order.
+        for (int i = 0; i < utf8SliceLocals.Count; i++)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
         csWriter.Indent--;
         csWriter.WriteLine("}");
         csWriter.WriteLine("catch");
