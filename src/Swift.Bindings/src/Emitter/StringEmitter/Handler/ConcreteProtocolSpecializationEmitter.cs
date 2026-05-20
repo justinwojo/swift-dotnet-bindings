@@ -744,16 +744,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         break;
                     case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
                     {
-                        // Swift KeyPath family — single-pointer ABI per
-                        // keypath-subsystem/00-overview.md. Param arrives as an opaque
-                        // UnsafeRawPointer (the @_cdecl boundary rejects KeyPath<R,V>
-                        // directly per the ABI ground truth). Reconstruct via
-                        // Unmanaged<...>.fromOpaque(_).takeUnretainedValue() because the
-                        // C# side passes @guaranteed (DangerousGetHandle keeps the SafeHandle
-                        // alive across the call) — no extra retain consumed here. Matches
-                        // the OUT-path Unmanaged.passRetained(...).toOpaque() in
-                        // SwiftKeyPath.cs and the Unmanaged.fromOpaque idiom in Session 4's
-                        // typed-singleton trampolines.
+                        // Swift KeyPath family — param crosses @_cdecl as UnsafeRawPointer
+                        // because @_cdecl rejects KeyPath<R,V> directly. Reconstruct via
+                        // takeUnretainedValue (no retain consumed): C# passes @guaranteed
+                        // with the SafeHandle kept alive by DangerousGetHandle across the call.
                         var swiftKpType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
                         swiftParams.Add($"_ _{label}: UnsafeRawPointer");
                         callArgs.Add($"{argLabel}Unmanaged<{swiftKpType}>.fromOpaque(_{label}).takeUnretainedValue()");
@@ -1197,17 +1191,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     }
                     case MethodClosureBridge.ParamAbiCategory.KeyPathFamily:
                     {
-                        // Swift KeyPath family — single-pointer @_cdecl ABI per
-                        // keypath-subsystem/00-overview.md. The C# wrapper IS a SafeHandle
-                        // (Swift.KeyPath<TRoot, TValue> derives directly from
-                        // SafeHandleZeroOrMinusOneIsInvalid; it does NOT implement
-                        // ISwiftObject), so the P/Invoke argument is DangerousGetHandle()
-                        // — NOT .Payload.DangerousGetHandle() (no Payload hop) and NOT
-                        // ((ISwiftObject)x).SwiftHandle (cast would fail). Mirrors
-                        // KeyPathProjection.GetParameterPlan. The public C# type is built
-                        // explicitly (Swift KeyPath family has no TypeRecord, so
-                        // ResolvePublicCSharpType's fallback would drop the `Swift.`
-                        // qualifier).
+                        // Swift KeyPath family — the C# wrapper IS the SafeHandle, so the
+                        // P/Invoke argument is DangerousGetHandle() with no .Payload hop
+                        // (Payload returns `this`). Mirrors KeyPathProjection.GetParameterPlan.
+                        // The public C# type is built explicitly because the KeyPath family
+                        // has no TypeRecord — ResolvePublicCSharpType's fallback would drop
+                        // the `Swift.` qualifier.
                         publicParams.Add($"{BuildKeyPathPublicCSharpType((NamedTypeSpec)arg.SwiftTypeSpec, typeDatabase)} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.DangerousGetHandle()");

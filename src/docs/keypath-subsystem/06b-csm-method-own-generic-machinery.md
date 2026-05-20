@@ -43,7 +43,12 @@ If `KeyPath` did classify as `PayloadHandle` (the closest existing arm), `Concre
 ```cs
 callArgs.Add($"((global::Swift.Runtime.ISwiftObject){csName}).SwiftHandle");
 ```
-But `SwiftKeyPathHandle` (the SafeHandle base in `src/Swift.Runtime/src/Swift/SwiftKeyPath.cs:50`) extends `SafeHandleZeroOrMinusOneIsInvalid` and does **not** implement `ISwiftObject`. The cast is a compile-time CS0030 (or runtime `InvalidCastException`). The `Payload => this` shim at line 83 of `SwiftKeyPath.cs` exists for emitter paths that emit `param.Payload.DangerousGetHandle()`, but the CSM PayloadHandle arm at CPSE.cs:1158 emits `((ISwiftObject)x).SwiftHandle` — wrong arm.
+The cast would compile and run: `AnyKeyPath` and its subclasses (`PartialKeyPath<TRoot>`, `KeyPath<TRoot, TValue>`, `WritableKeyPath`, `ReferenceWritableKeyPath` in `src/Swift.Runtime/src/Swift/SwiftKeyPath.cs`) implement `ISwiftObject` via an explicit interface impl that returns `DangerousGetHandle()`. The abstract base `SwiftKeyPathHandle` (line 50) extends `SafeHandleZeroOrMinusOneIsInvalid` and does NOT implement `ISwiftObject` itself — but the emitter sees the concrete subclass, so the cast succeeds.
+
+A dedicated `KeyPathFamily` arm is still required because:
+1. **Public C# type rendering**: the KeyPath family has no TypeRecord (it's recognized structurally via `TypeProjectionFactory.KeyPathFamilyArities`). `ResolvePublicCSharpType`'s fallback would drop the `Swift.` qualifier from the rendered type.
+2. **Swift `@_cdecl` wrapper shape**: the boundary rejects `KeyPath<R,V>` directly, so the wrapper must accept `UnsafeRawPointer` and reconstruct via `Unmanaged.fromOpaque(_).takeUnretainedValue()` — distinct from the `PayloadHandle` arm's shape.
+3. **Idiomatic consistency**: `KeyPathProjection.GetParameterPlan` already emits `param.DangerousGetHandle()` (the wrapper IS the SafeHandle, so `.Payload` is identity). The CSM emitter mirrors that.
 
 **Fix:** add a new `KeyPathFamily` member to `ParamAbiCategory`. In `ClassifyParam`, before the `TryGetTypeRecord` block, branch on `TypeProjectionFactory.KeyPathFamilyArities.ContainsKey(named.Name)` and return `KeyPathFamily`. Add `KeyPathFamily` to `IsAbiCategoryPassable`. In the CSM C# bridge builder (CPSE.cs around line 1151, the non-generic-param arm), add a `KeyPathFamily` case that emits:
 ```cs
