@@ -2587,6 +2587,22 @@ namespace BindingsGeneration
             };
             signature.AddRange(indexParameters);
 
+            // Mirror CreateGetAccessor: subscript accessors on a generic parent type
+            // must inherit the parent's generic parameters so HandleGenericMetadata /
+            // HandleProtocolConformance emit the metadata + PWT params in the Metadata
+            // phase. Without this the C# P/Invoke decl drops them, and the call site
+            // appends metadata in the wrong phase (after Self), producing both a
+            // decl/call arity mismatch and an ABI-mismatched call when it does line up.
+            var genericParameters = new List<GenericArgumentDecl>();
+            if (!string.IsNullOrEmpty(accessor.GenericSig))
+            {
+                genericParameters = GenericSignatureParser.ParseGenericSignature(accessor.GenericSig, accessor.sugared_genericSig);
+            }
+            else if (parentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
+            {
+                genericParameters = new List<GenericArgumentDecl>(typeDecl.GenericParameters);
+            }
+
             var methodDecl = new MethodDecl
             {
                 Name = "subscript_Get",
@@ -2594,7 +2610,7 @@ namespace BindingsGeneration
                 MethodType = accessor.@static ?? false ? MethodType.Static : MethodType.Instance,
                 IsConstructor = false,
                 CSSignature = signature,
-                GenericParameters = new List<GenericArgumentDecl>(),
+                GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = false,
@@ -2645,6 +2661,17 @@ namespace BindingsGeneration
             };
             signature.AddRange(indexParameters);
 
+            // Mirror CreateSetAccessor: see CreateSubscriptGetAccessor for rationale.
+            var genericParameters = new List<GenericArgumentDecl>();
+            if (!string.IsNullOrEmpty(accessor.GenericSig))
+            {
+                genericParameters = GenericSignatureParser.ParseGenericSignature(accessor.GenericSig, accessor.sugared_genericSig);
+            }
+            else if (parentDecl is TypeDecl typeDecl && typeDecl.IsGeneric)
+            {
+                genericParameters = new List<GenericArgumentDecl>(typeDecl.GenericParameters);
+            }
+
             var methodDecl = new MethodDecl
             {
                 Name = "subscript_Set",
@@ -2652,7 +2679,7 @@ namespace BindingsGeneration
                 MethodType = accessor.@static ?? false ? MethodType.Static : MethodType.Instance,
                 IsConstructor = false,
                 CSSignature = signature,
-                GenericParameters = new List<GenericArgumentDecl>(),
+                GenericParameters = genericParameters,
                 ParentDecl = parentDecl,
                 ModuleDecl = moduleDecl,
                 Throws = false,

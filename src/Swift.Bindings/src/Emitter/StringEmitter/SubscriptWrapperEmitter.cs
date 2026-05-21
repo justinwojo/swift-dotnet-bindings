@@ -300,6 +300,15 @@ public static class SubscriptWrapperEmitter
                         {
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
                         }
+                        // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
+                        // protocol constraints on the parent's generic parameters. The wrapper
+                        // must absorb them here even when the body doesn't use them, otherwise the
+                        // PWT pointer slides into the self_ slot.
+                        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+                        for (int i = 0; i < pwtCount; i++)
+                        {
+                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+                        }
                     }
                     break;
 
@@ -494,6 +503,14 @@ public static class SubscriptWrapperEmitter
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                        // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
+                        // protocol constraints on the parent's generic parameters. Mirror the
+                        // getter so self_ stays aligned with the C# P/Invoke layout.
+                        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+                        for (int i = 0; i < pwtCount; i++)
+                        {
+                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
                         }
                     }
                     break;

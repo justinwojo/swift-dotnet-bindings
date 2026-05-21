@@ -1112,6 +1112,67 @@ public class PropertyWrapperEmitterTests
     }
 
     [Fact]
+    public void EmitSwiftGetterWrapper_ConstrainedGenericClassParent_ConcreteProperty_EmitsPwtAfterMetadata()
+    {
+        // Regression for the property-getter SIGSEGV on constrained-generic classes:
+        // when the parent class carries a resolvable protocol conformance (e.g.,
+        // `class Box<T: Marker>`), the C# P/Invoke side passes both _metadata0 AND
+        // _pwt0 in the Metadata phase. The Swift wrapper signature must absorb both,
+        // otherwise the PWT pointer slides into the self_ slot and the wrapper's
+        // `Unmanaged.fromOpaque(self_)` cast walks garbage.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "ConstrainedBox",
+            ("TestModule.Marker", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ConstrainedBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Marker"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var getterMethod = CreateAccessorMethod("getter:label", isGetter: true, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(getterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Get_TestModule_ConstrainedBox_label";
+
+        PropertyWrapperEmitter.EmitSwiftGetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        Assert.Contains("_ _pwt0: UnsafeRawPointer", output);
+        // PWT must come AFTER metadata and BEFORE self in @_cdecl signature
+        var cdeclLine = output.Split('\n').First(l => l.Contains("@_cdecl") || l.Contains("public func _sbw_"));
+        // Pick the func signature line specifically — the @_cdecl attribute is on the line above.
+        cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_get_label_"));
+        var metaIdx = cdeclLine.IndexOf("_metadata0");
+        var pwtIdx = cdeclLine.IndexOf("_pwt0");
+        var selfIdx = cdeclLine.IndexOf("self_");
+        Assert.True(metaIdx >= 0 && pwtIdx >= 0 && selfIdx >= 0, $"Expected all three params on the wrapper signature; got: {cdeclLine}");
+        Assert.True(metaIdx < pwtIdx, "Metadata must come before PWT");
+        Assert.True(pwtIdx < selfIdx, "PWT must come before self_");
+    }
+
+    [Fact]
     public void EmitSwiftGetterWrapper_GenericClassParent_TTypedProperty_UsesMetadataAccessorAndCorrectParamOrder()
     {
         // Property type references generic param T — triggers generic static dispatch path.
@@ -1435,6 +1496,61 @@ public class PropertyWrapperEmitterTests
         Assert.Contains("obj.count = newValue", output);
         // Should NOT use concrete type for self
         Assert.DoesNotContain("Unmanaged<TestModule.GenericBox>", output);
+    }
+
+    [Fact]
+    public void EmitSwiftSetterWrapper_ConstrainedGenericClassParent_ConcreteProperty_EmitsPwtAfterMetadata()
+    {
+        // Setter counterpart of the constrained-generic getter regression — the
+        // wrapper must absorb both _metadata0 and _pwt0 in the Metadata phase so
+        // the PWT pointer does not slide into the self_ slot.
+        var (moduleDecl, typeDb) = CreateTestEnvironmentWithExtraTypes(
+            "ConstrainedBox",
+            ("TestModule.Marker", TypeRecordFlags.None, TypeRecordKind.Protocol));
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("ConstrainedBox", moduleDecl);
+        parentDecl.GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "T",
+                new List<GenericParameterConformance>
+                {
+                    new(new[] { "τ_0_0" },
+                        SwiftTypeName.FromModuleQualifiedName("TestModule.Marker"),
+                        ConformanceKind.Protocol)
+                },
+                new List<GenericParameterConformance>())
+        };
+        var setterMethod = CreateAccessorMethod("setter:label", isGetter: false, parentDecl, moduleDecl);
+        var propertyDecl = new PropertyDecl
+        {
+            Name = "label",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new SetAccessorDecl { Method = setterMethod } },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var env = new MethodEnvironment(setterMethod, typeDb);
+        var ctx = new ModuleEmissionContext();
+        var sw = new StringWriter();
+        var swiftWriter = new SwiftWriter(sw);
+        var symbol = "SBW_Set_TestModule_ConstrainedBox_label";
+
+        PropertyWrapperEmitter.EmitSwiftSetterWrapper(swiftWriter, propertyDecl, symbol, env, ctx);
+
+        var output = sw.ToString();
+        Assert.Contains("_ _metadata0: UnsafeRawPointer", output);
+        Assert.Contains("_ _pwt0: UnsafeRawPointer", output);
+        var cdeclLine = output.Split('\n').First(l => l.Contains("public func _sbw_set_label_"));
+        var metaIdx = cdeclLine.IndexOf("_metadata0");
+        var pwtIdx = cdeclLine.IndexOf("_pwt0");
+        var selfIdx = cdeclLine.IndexOf("self_");
+        Assert.True(metaIdx >= 0 && pwtIdx >= 0 && selfIdx >= 0, $"Expected all three params on the wrapper signature; got: {cdeclLine}");
+        Assert.True(metaIdx < pwtIdx, "Metadata must come before PWT");
+        Assert.True(pwtIdx < selfIdx, "PWT must come before self_");
     }
 
     [Fact]

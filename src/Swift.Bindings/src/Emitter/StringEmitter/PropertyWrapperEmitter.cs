@@ -311,6 +311,16 @@ public static class PropertyWrapperEmitter
                         {
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
                         }
+                        // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
+                        // protocol constraints on the parent's generic parameters. The wrapper
+                        // must absorb them here even when the body doesn't use them, otherwise the
+                        // PWT pointer slides into the self_ slot and the as!-cast crashes
+                        // walking garbage in the Swift runtime's conformance hash table.
+                        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+                        for (int i = 0; i < pwtCount; i++)
+                        {
+                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
+                        }
                     }
                     break;
             }
@@ -632,6 +642,16 @@ public static class PropertyWrapperEmitter
                         for (int i = 0; i < parentTypeDecl.GenericParameters.Count; i++)
                         {
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
+                        }
+                        // C# side (HandleProtocolConformance) emits PWT pointers for resolvable
+                        // protocol constraints on the parent's generic parameters. The wrapper
+                        // must absorb them here even when the body doesn't use them, otherwise the
+                        // PWT pointer slides into the self_ slot and the wrapper writes through
+                        // a garbage pointer.
+                        int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+                        for (int i = 0; i < pwtCount; i++)
+                        {
+                            swiftParams.Add($"_ _pwt{i}: UnsafeRawPointer");
                         }
                     }
                     break;
