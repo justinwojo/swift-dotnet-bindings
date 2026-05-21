@@ -269,6 +269,23 @@ public class MemberValidationPipeline
                 "Routed to concrete CSM-sync specialization (generic parent extension).");
         }
 
+        // Session 6c Route C — per-V keypath-sort suppression. A method with a
+        // method-own unconstrained V that appears only in a KeyPath Value slot
+        // rooted at the parent's PAT associated-type bag would otherwise fall
+        // into the GenericProtocolConstraint rejection below. Route C handles
+        // this shape by emitting one closed-V Sort overload per
+        // (conformer x distinct projectable V) onto a sibling extension class
+        // (see KeyPathBagValueSpecializationEmitter). Suppress the open-V
+        // parent-body emission so the C# surface holds only the closed
+        // overloads.
+        if (!methodDecl.IsConstructor &&
+            methodDecl.ParentDecl is TypeDecl parentTypeForRouteC &&
+            RouteCSortShapeEligibility.IsRouteCSortShapeEligible(methodDecl, parentTypeForRouteC, out _))
+        {
+            return ValidationResult.RoutedElsewhere(
+                "Routed to Route C per-V KeyPath sort specialization.");
+        }
+
         if (!methodDecl.IsConstructor &&
             MethodValidationGates.HasUnsupportedProtocolConstraints(methodDecl, _typeDatabase))
         {

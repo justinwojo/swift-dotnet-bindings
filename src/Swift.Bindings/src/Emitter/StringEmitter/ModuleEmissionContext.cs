@@ -326,6 +326,20 @@ public sealed class ModuleEmissionContext
     public bool TryAddKeyPathSingletonContainer(string key) =>
         _emittedKeyPathSingletonContainers.Add(key);
 
+    // Session 6c Route C: per-(parent × conformer × method × V) sort overload dedup.
+    // Two generic parents in the same module that emit the same (conformer × V) sort
+    // shape would otherwise collide on both the C# partial-class member set and the
+    // Swift @_cdecl symbol. Key shape:
+    // `{parent-qualified}|{conformer-qualified}|{method-name}|{V-CSharp-Type}`.
+    private readonly HashSet<string> _emittedRouteCSortOverloads = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Registers a (parent, conformer, method, V) Route C sort overload for this module.
+    /// Returns true if newly added; false if a previous emission pass already registered it.
+    /// </summary>
+    public bool TryAddKeyPathBagValueSpecialization(string key) =>
+        _emittedRouteCSortOverloads.Add(key);
+
     // ==================== Foreign Type Extension ====================
 
     private readonly List<string> _foreignExtWrapperLines = new();

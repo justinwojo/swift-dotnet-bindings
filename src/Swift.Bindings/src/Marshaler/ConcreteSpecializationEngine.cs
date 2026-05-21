@@ -255,10 +255,19 @@ public class ConcreteSpecializationEngine
             var csName = ResolveCSharpName(conformance.ConformingType);
             if (csName != null)
             {
+                // Surface this conformer's `typealias` decls as the associated-type
+                // resolution map. Route C's bag walker uses this to find the per-
+                // conformer protocol/struct that satisfies a parent generic's PAT
+                // (e.g. `Album.LibrarySortProperties → MusicKit.LibraryAlbumSortProperties`).
+                // Empty dict is treated the same as null by downstream consumers.
+                IReadOnlyDictionary<string, string>? assocTypes = typeDecl.Typealiases.Count > 0
+                    ? new Dictionary<string, string>(typeDecl.Typealiases, StringComparer.Ordinal)
+                    : null;
                 _abiConformers[protocolKey].Add(new ConcreteConformer(
                     conformance.ConformingType.ToString(),
                     csName,
                     conformance.ConformingType,
+                    AssociatedTypes: assocTypes,
                     AvailabilityAnnotations: CollectAvailability(typeDecl)));
             }
         }
@@ -391,7 +400,9 @@ public class ConcreteSpecializationEngine
             // 26" errors at wrapper compile time.
             for (int i = 0; i < result.Count; i++)
             {
-                if (result[i].AvailabilityAnnotations is { Count: > 0 }) continue;
+                bool needAvail = result[i].AvailabilityAnnotations is not { Count: > 0 };
+                bool needAssoc = result[i].AssociatedTypes is null || result[i].AssociatedTypes!.Count == 0;
+                if (!needAvail && !needAssoc) continue;
                 ConcreteConformer? match = null;
                 foreach (var a in abiList)
                 {
@@ -401,9 +412,20 @@ public class ConcreteSpecializationEngine
                         break;
                     }
                 }
-                if (match?.AvailabilityAnnotations is { Count: > 0 } matchAvail)
+                if (match is null) continue;
+                if (needAvail && match.AvailabilityAnnotations is { Count: > 0 } matchAvail)
                 {
                     result[i] = result[i] with { AvailabilityAnnotations = matchAvail };
+                }
+                // Hint conformers in specialization-hints.json don't carry typealias
+                // resolutions, but Route C's bag walker needs them to map an associated-
+                // type name (e.g. `LibrarySortProperties`) onto the conformer's chosen
+                // bag protocol/struct. When the same conformer is indexed in the
+                // current module's ABI, fold its `Typealiases` onto the hint result —
+                // same pattern as the availability augmentation above.
+                if (needAssoc && match.AssociatedTypes is { Count: > 0 } matchAssoc)
+                {
+                    result[i] = result[i] with { AssociatedTypes = matchAssoc };
                 }
             }
 

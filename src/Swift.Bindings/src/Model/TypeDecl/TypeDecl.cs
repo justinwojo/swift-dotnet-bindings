@@ -51,6 +51,19 @@ namespace BindingsGeneration
         public List<GenericArgumentDecl> GenericParameters { get; set; } = new();
 
         /// <summary>
+        /// Module-qualified targets of <c>typealias</c> declarations on this type
+        /// (including those introduced by <c>extension</c>). Keyed by the alias's
+        /// short name (e.g. <c>"LibrarySortProperties"</c>), valued by the resolved
+        /// nominal type's <c>printedName</c> (e.g. <c>"MusicKit.LibraryAlbumSortProperties"</c>).
+        /// Populated by the ABI parser from <c>declKind == "TypeAlias"</c> children;
+        /// consumed by <see cref="ConcreteSpecializationEngine"/> so conformer-extension
+        /// typealiases (the way Apple frameworks bind PAT associated types to a
+        /// per-conformer protocol like <c>Album.LibrarySortProperties = LibraryAlbumSortProperties</c>)
+        /// flow into Route C's bag-walker fallback.
+        /// </summary>
+        public Dictionary<string, string> Typealiases { get; set; } = new();
+
+        /// <summary>
         /// Whether this type is generic (has type parameters).
         /// </summary>
         public bool IsGeneric => GenericParameters.Count > 0;

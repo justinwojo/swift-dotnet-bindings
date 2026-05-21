@@ -2891,4 +2891,252 @@ public class BoundGenericsHandlerTests
     }
 
     #endregion
+
+    #region IsContainerWithSupportedDirectExistential — KeyPath family (Session 6c Blocker D)
+
+    // Build a TypeDatabase populated for KeyPath<any P, V> admission tests.
+    // Includes Swift.String / Swift.Int / Swift.Bool / Swift.Double for V projection,
+    // every KeyPath family class as a Class kind (so projection's KeyPath branch
+    // hits), and a registered protocol P with a TypeRecord so IsExistential gates pass.
+    private static TypeDatabase BuildKeyPathAdmissionTypeDatabase()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftString"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int64"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+                MetadataAccessor = "$sSbMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Double"),
+                MetadataAccessor = "$sSdMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+
+        var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.P"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "IP"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.P"),
+                MetadataAccessor = "$s10TestModule1PMp",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Unprojectable"),
+            new TypeRecord
+            {
+                // Intentionally projection-hostile: no Apple-supplement, generic-args present,
+                // no module path. Project() returns null because the TypeRecord exists but
+                // the factory's bound-generic fallback path produces no projection for an
+                // arbitrary user struct used as a KeyPath Value slot.
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Unprojectable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Unprojectable"),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        return typeDatabase;
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_KeyPath_AnyP_String_Admitted()
+    {
+        // Swift: KeyPath<any P, String> — Root existential, Value projectable.
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.KeyPath");
+        kp.GenericParameters.Add(root);
+        kp.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_PartialKeyPath_AnyP_Admitted()
+    {
+        // Swift: PartialKeyPath<any P> — arity 1, Root existential.
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.PartialKeyPath");
+        kp.GenericParameters.Add(root);
+
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_WritableKeyPath_AnyP_Int_Admitted()
+    {
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.WritableKeyPath");
+        kp.GenericParameters.Add(root);
+        kp.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_ReferenceWritableKeyPath_AnyP_Bool_Admitted()
+    {
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.ReferenceWritableKeyPath");
+        kp.GenericParameters.Add(root);
+        kp.GenericParameters.Add(new NamedTypeSpec("Swift.Bool"));
+
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_AnyKeyPath_Rejected()
+    {
+        // Swift: AnyKeyPath — arity 0, no Root slot. Cannot be admitted via this gate
+        // (it isn't a container-with-existential — it's a class with no generic params).
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var kp = new NamedTypeSpec("Swift.AnyKeyPath");
+
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_KeyPath_AnyP_AnyQ_Rejected()
+    {
+        // Swift: KeyPath<any P, any Q> — Value-existential rejected. A KeyPath whose
+        // Value slot is itself existential cannot project to a public C# KeyPath<Root, V>
+        // without dragging in another existential bridge (out of scope for this gate).
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var valueExistential = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.KeyPath");
+        kp.GenericParameters.Add(root);
+        kp.GenericParameters.Add(valueExistential);
+
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_KeyPath_ConcreteRoot_Rejected()
+    {
+        // Swift: KeyPath<ConcreteRoot, String> — Root is NOT existential. This admission
+        // gate is for the *existential-rooted* shape; concrete-rooted KeyPaths route
+        // through the normal bound-generic path.
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var kp = new NamedTypeSpec("Swift.KeyPath");
+        kp.GenericParameters.Add(new NamedTypeSpec("TestModule.SomeConcreteRoot"));
+        kp.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_KeyPath_MalformedArity_Rejected()
+    {
+        // Swift.KeyPath declares arity 2; a NamedTypeSpec with only 1 generic param is
+        // malformed input. The arity gate rejects rather than silently admitting a
+        // partial shape.
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.KeyPath");
+        kp.GenericParameters.Add(root);
+        // Intentionally missing Value slot.
+
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_KeyPath_AnyP_UnprojectableValue_Rejected()
+    {
+        // Swift: KeyPath<any P, TestModule.Unprojectable>. Value passes the
+        // !IsExistential check but Project() returns null because the factory's
+        // bound-generic fallback can't resolve a public C# spelling for an arbitrary
+        // user struct sitting in the KeyPath Value slot. The reviewer-required
+        // projectability gate (Codex F4/F6, Grok F6) catches this and rejects so the
+        // emitted KeyPath<Root, TValue> public signature can't reference an unspellable
+        // TValue.
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.KeyPath");
+        kp.GenericParameters.Add(root);
+        var unprojectable = new NamedTypeSpec("TestModule.Unprojectable");
+        // Add a generic parameter to force the factory's user-defined-generic null-fallback.
+        unprojectable.GenericParameters.Add(new NamedTypeSpec("Swift.Int"));
+        kp.GenericParameters.Add(unprojectable);
+
+        Assert.False(handler.IsContainerWithSupportedDirectExistential(kp));
+    }
+
+    [Fact]
+    public void IsContainerWithSupportedDirectExistential_OptionalKeyPath_AnyP_String_Admitted()
+    {
+        // Swift: Optional<KeyPath<any P, String>> — Optional wraps the existing
+        // recursion at line 252-262; once the inner KeyPath shape is admitted, the
+        // Optional layer composes for free.
+        var db = BuildKeyPathAdmissionTypeDatabase();
+        var handler = new BoundGenericsHandler(db);
+
+        var root = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.P") });
+        var kp = new NamedTypeSpec("Swift.KeyPath");
+        kp.GenericParameters.Add(root);
+        kp.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(kp);
+
+        Assert.True(handler.IsContainerWithSupportedDirectExistential(optional));
+    }
+
+    #endregion
 }

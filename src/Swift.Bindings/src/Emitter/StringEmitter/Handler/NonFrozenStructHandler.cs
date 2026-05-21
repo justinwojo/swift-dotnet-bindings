@@ -366,6 +366,15 @@ namespace BindingsGeneration
                     KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+
+                    // Session 6c Route C — sibling per-V Sort overload emission. Same
+                    // call-site contract as Session 4. The emitter branches on the
+                    // receiver kind: class uses unsafeBitCast, struct binds through
+                    // assumingMemoryBound + (var __self + pointee write-back when the
+                    // method is mutating). MusicLibraryRequest lands here.
+                    KeyPathBagValueSpecializationEmitter.EmitRouteCSpecializationsForGenericParent(
+                        csWriter, swiftWriter, structDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
 
                 // Emit P/Invoke helper class(es) after the main class.

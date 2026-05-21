@@ -239,10 +239,13 @@ public class BoundGenericsHandler
 
     /// <summary>
     /// Returns true when the type is a supported container with existential elements that can
-    /// be marshalled. Handles direct containers (Array, Dictionary) and Optional-wrapped containers
-    /// (Optional&lt;Array&lt;any P&gt;&gt;, Optional&lt;Dictionary&lt;K, any P&gt;&gt;). Also handles
-    /// direct Optional&lt;any P&gt; as a supported pattern. All existential elements are validated
-    /// for TypeRecord availability, non-object public type, and ObjC filter parity.
+    /// be marshalled. Handles direct containers (Array, Dictionary, KeyPath family) and
+    /// Optional-wrapped containers (Optional&lt;Array&lt;any P&gt;&gt;,
+    /// Optional&lt;Dictionary&lt;K, any P&gt;&gt;, Optional&lt;KeyPath&lt;any P, V&gt;&gt;). Also
+    /// handles direct Optional&lt;any P&gt; as a supported pattern. All existential elements are
+    /// validated for TypeRecord availability, non-object public type, and ObjC filter parity.
+    /// For KeyPath family containers, the Root (slot 0) must be a supported existential and the
+    /// Value (slot 1, where present) must be non-existential and projectable.
     /// </summary>
     public bool IsContainerWithSupportedDirectExistential(TypeSpec typeSpec)
     {
@@ -278,6 +281,44 @@ public class BoundGenericsHandler
             !_existentialHandler.IsExistential(outerNamedType.GenericParameters[0]))
         {
             return IsValidExistentialForContainer(outerNamedType.GenericParameters[1]);
+        }
+
+        // KeyPath family (KeyPath, PartialKeyPath, WritableKeyPath, ReferenceWritableKeyPath) —
+        // Root (slot 0) may be an existential. AnyKeyPath has arity 0 and is rejected here
+        // because it has no Root slot to be existential. PartialKeyPath<Root> has arity 1.
+        // KeyPath / WritableKeyPath / ReferenceWritableKeyPath have arity 2 (Root + Value).
+        // Slot 1 (Value, where present) must not itself be existential, and must project to
+        // a real C# type — otherwise the emitted KeyPath<Root, TValue> public signature
+        // would not compile.
+        if (TypeProjectionFactory.IsKeyPathFamily(outerNamedType.Name))
+        {
+            var arity = TypeProjectionFactory.GetKeyPathArity(outerNamedType.Name);
+            if (arity != outerNamedType.GenericParameters.Count || arity < 1)
+                return false;
+            var rootSpec = outerNamedType.GenericParameters[0];
+            if (!_existentialHandler.IsExistential(rootSpec))
+                return false;
+            if (!IsValidExistentialForContainer(rootSpec))
+                return false;
+            if (arity >= 2)
+            {
+                var valueSpec = outerNamedType.GenericParameters[1];
+                if (_existentialHandler.IsExistential(valueSpec))
+                    return false;
+                // Minimal ProjectionContext is sufficient: Value is non-existential per the
+                // gate above, and CurrentModuleName / GenericContext only affect existential
+                // qualification (see ProjectExistential). This admission check has no parent
+                // or method context to thread.
+                var projector = new TypeProjectionFactory();
+                var projection = projector.Project(valueSpec, new ProjectionContext
+                {
+                    TypeDatabase = _typeDatabase,
+                    IsParameter = false,
+                });
+                if (projection is null)
+                    return false;
+            }
+            return true;
         }
 
         return false;

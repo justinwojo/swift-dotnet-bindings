@@ -448,6 +448,14 @@ namespace BindingsGeneration
                     KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
                         csWriter, swiftWriter, structDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+
+                    // Session 6c Route C — per-V Sort overloads for unconstrained-V
+                    // keypath-sort methods on a frozen struct generic parent. The
+                    // emitter branches receiver-kind internally; mutating methods get
+                    // the `var __self` + pointee write-back pattern.
+                    KeyPathBagValueSpecializationEmitter.EmitRouteCSpecializationsForGenericParent(
+                        csWriter, swiftWriter, structDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
 
                 // Emit P/Invoke helper class(es) after the main struct.

@@ -133,51 +133,44 @@ public struct ProtocolBag_MovieFilterImpl: ProtocolBag_MovieFilter {
 
 // MARK: Concrete consumers — round-trip a singleton back through Swift
 //
-// The natural shape — `KeyPath<ProtocolBag_BookFilter, V>` as the parameter
-// type — is rejected by the bound-generic-existential gate
-// (`KeyPath<any P, V>` is not in the container allowlist). Lifting that gate
-// requires its own pass; until then, consumers take the singleton typed as
-// `Swift.AnyKeyPath` (a concrete class, no nested existential) and cast back
-// to the typed `KeyPath<P, V>` inside the body. The cast is total — the C#
-// caller always passes a singleton whose ABI matches the static spelling.
+// Session 6c Blocker D lifted the bound-generic-existential gate to admit
+// `KeyPath<any P, V>` directly, so the consumer parameter type is now the
+// natural typed-existential shape (`KeyPath<ProtocolBag_BookFilter, V>`)
+// instead of the previous `Swift.AnyKeyPath + as!` workaround.
 //
-// The `filter` parameter takes the CONCRETE impl type to sidestep the
-// independent existential-direct-parameter gate; reading through a
-// protocol-rooted KeyPath requires the receiver to be the existential, so we
-// upcast `filter as ProtocolBag_BookFilter` at the call site. The witness-
-// table dispatch is the same as `(filter as ProtocolBag_BookFilter)[keyPath: kp]`.
+// The `filter` parameter still takes the CONCRETE impl type — this sidesteps
+// the *independent* existential-direct-parameter gate (lifting `any P` as a
+// direct parameter is unrelated to KeyPath admission and remains future work).
+// Reading through a protocol-rooted KeyPath requires the receiver to be the
+// existential, so `filter as ProtocolBag_BookFilter` upcasts at the call site.
 
 public class ProtocolBag_BookConsumer {
     public class func readTitle(
         from filter: ProtocolBag_BookFilterImpl,
-        by kp: Swift.AnyKeyPath
+        by kp: KeyPath<ProtocolBag_BookFilter, Swift.String>
     ) -> Swift.String {
-        let typed = kp as! KeyPath<ProtocolBag_BookFilter, Swift.String>
-        return (filter as ProtocolBag_BookFilter)[keyPath: typed]
+        return (filter as ProtocolBag_BookFilter)[keyPath: kp]
     }
 
     public class func readYear(
         from filter: ProtocolBag_BookFilterImpl,
-        by kp: Swift.AnyKeyPath
+        by kp: KeyPath<ProtocolBag_BookFilter, Swift.Int>
     ) -> Swift.Int {
-        let typed = kp as! KeyPath<ProtocolBag_BookFilter, Swift.Int>
-        return (filter as ProtocolBag_BookFilter)[keyPath: typed]
+        return (filter as ProtocolBag_BookFilter)[keyPath: kp]
     }
 
     public class func readIsFiction(
         from filter: ProtocolBag_BookFilterImpl,
-        by kp: Swift.AnyKeyPath
+        by kp: KeyPath<ProtocolBag_BookFilter, Swift.Bool>
     ) -> Swift.Bool {
-        let typed = kp as! KeyPath<ProtocolBag_BookFilter, Swift.Bool>
-        return (filter as ProtocolBag_BookFilter)[keyPath: typed]
+        return (filter as ProtocolBag_BookFilter)[keyPath: kp]
     }
 
     public class func readRating(
         from filter: ProtocolBag_BookFilterImpl,
-        by kp: Swift.AnyKeyPath
+        by kp: KeyPath<ProtocolBag_BookFilter, Swift.Int?>
     ) -> Swift.Int? {
-        let typed = kp as! KeyPath<ProtocolBag_BookFilter, Swift.Int?>
-        return (filter as ProtocolBag_BookFilter)[keyPath: typed]
+        return (filter as ProtocolBag_BookFilter)[keyPath: kp]
     }
 
     // Value-equality across two reads of the same singleton — exercises
@@ -195,17 +188,15 @@ public class ProtocolBag_BookConsumer {
 public class ProtocolBag_MovieConsumer {
     public class func readTitle(
         from filter: ProtocolBag_MovieFilterImpl,
-        by kp: Swift.AnyKeyPath
+        by kp: KeyPath<ProtocolBag_MovieFilter, Swift.String>
     ) -> Swift.String {
-        let typed = kp as! KeyPath<ProtocolBag_MovieFilter, Swift.String>
-        return (filter as ProtocolBag_MovieFilter)[keyPath: typed]
+        return (filter as ProtocolBag_MovieFilter)[keyPath: kp]
     }
 
     public class func readRuntimeMinutes(
         from filter: ProtocolBag_MovieFilterImpl,
-        by kp: Swift.AnyKeyPath
+        by kp: KeyPath<ProtocolBag_MovieFilter, Swift.Int>
     ) -> Swift.Int {
-        let typed = kp as! KeyPath<ProtocolBag_MovieFilter, Swift.Int>
-        return (filter as ProtocolBag_MovieFilter)[keyPath: typed]
+        return (filter as ProtocolBag_MovieFilter)[keyPath: kp]
     }
 }

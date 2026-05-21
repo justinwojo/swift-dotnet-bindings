@@ -972,6 +972,25 @@ namespace BindingsGeneration
                 decl.Subscripts.AddRange(childDecls.OfType<SubscriptDecl>());
                 decl.GenericParameters = genericParameters;
 
+                // TypeAlias children (incl. those introduced by `extension`) carry the
+                // resolved nominal type as their first child's printedName. Conformer-
+                // extension typealiases like `extension Album: MusicLibraryRequestable {
+                // typealias LibrarySortProperties = LibraryAlbumSortProperties }` are the
+                // signal Route C's bag walker needs to map a parent's associated-type
+                // name to a per-conformer protocol/struct/class. CollectDeclarations
+                // doesn't surface TypeAlias kinds (they have no MethodDecl/PropertyDecl
+                // equivalent), so we walk the raw children directly here.
+                foreach (var child in node.Children ?? Array.Empty<Node>())
+                {
+                    if (child.Kind != "TypeAlias") continue;
+                    if (string.IsNullOrEmpty(child.Name)) continue;
+                    var targetNode = child.Children?.FirstOrDefault();
+                    if (targetNode is null) continue;
+                    var targetName = targetNode.PrintedName;
+                    if (string.IsNullOrEmpty(targetName)) continue;
+                    decl.Typealiases[child.Name] = targetName;
+                }
+
                 // NOTE: We intentionally do NOT dedup PropertyDecls collected from
                 // constrained extensions here. The ABI JSON emits one Var node per
                 // specialization (e.g., StoreKit's three `extension VerificationResult

@@ -174,11 +174,14 @@ public class KeyPathProtocolBagTests : TestBase
     // ---------------------------------------------------------------------------------------
     // Round-trip through a Swift consumer (the IN-path proof for protocol-bag shape)
     //
-    // The singleton ABI is opaque IntPtr through Swift.AnyKeyPath; the Swift body
-    // casts it back to KeyPath<P, V> and reads through the witness-table dispatch
-    // of `(filter as P)[keyPath: kp]`. If the cast fails or the descriptor is
-    // wrong, the Swift body would trap; passing the assert proves the descriptor
-    // is well-formed and runtime-resolvable.
+    // After Session 6c Blocker D, the C# singleton is passed as typed
+    // `Swift.KeyPath<IProtocolBag_*Filter, TValue>` directly — no `Swift.AnyKeyPath` boxing
+    // and no Swift-side `as!` cast. The Swift body upcasts only the receiver
+    // (`filter as ProtocolBag_*Filter`), which is required by Swift's typed-KeyPath
+    // subscript rules when the KeyPath Root is existential; that upcast is a language
+    // invariant, not a workaround. If the descriptor were malformed the witness-table
+    // dispatch would trap inside the Swift body — passing the assert proves the
+    // singleton is well-formed and runtime-resolvable through the conformer's witness.
     // ---------------------------------------------------------------------------------------
 
     public void TestSingleton_ReadTitle_RoundTripsThroughSwiftConsumer()

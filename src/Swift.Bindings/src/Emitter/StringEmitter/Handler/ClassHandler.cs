@@ -422,6 +422,15 @@ namespace BindingsGeneration
                     KeyPathSingletonEmitter.EmitKeyPathSingletonsForGenericParent(
                         csWriter, swiftWriter, classDecl,
                         env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
+
+                    // Session 6c Route C — per-(conformer × distinct projectable V)
+                    // Sort overloads for unconstrained-V keypath-sort methods on this
+                    // PAT-constrained generic parent. Sibling to CSM, not a CSM
+                    // extension: Route C suppresses the original method's open-V
+                    // emission and replaces it with a closed set of typed overloads.
+                    KeyPathBagValueSpecializationEmitter.EmitRouteCSpecializationsForGenericParent(
+                        csWriter, swiftWriter, classDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), specEngine, _logger);
                 }
 
                 // Emit P/Invoke helper class(es) after the main class.
