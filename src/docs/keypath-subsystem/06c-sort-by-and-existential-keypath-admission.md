@@ -1,6 +1,6 @@
 # Session 6c — `sort(by:)` per-Value-type specialization + `KeyPath<any P, V>` existential admission
 
-**Status:** design, awaiting team-lead approval.
+**Status:** code shipped (commit `62ec673e`). Phases 1, 2, 3 all landed; review-finding fixes (frozen-struct gate, variant-loss in distinct-V collection, NRT-erasure overload normaliser, param-signature dedup, bag/property availability merge) folded in. Doc-sync + verification items still outstanding — see "Outstanding after code ship" below.
 **Parent session:** 6 (closed via 6a/6b at `af26a62d`).
 **Branch:** `keypath-subsystem`.
 **Driving deferrals:**
@@ -387,6 +387,18 @@ PAUSE + SendMessage team-lead BEFORE proceeding if any of:
 - New architectural surprise (e.g., distinct-V collection collides on overload keys despite the F4 analysis; or the predicate shape doesn't compose with an existing CSM gate).
 
 In those cases the spillover lands as a 6d follow-up (with the trip-criterion that triggered it documented).
+
+## Outstanding after code ship
+
+Tracked here so a follow-up session can close them without re-deriving from git history. None of these are code-blocking; they are doc/verification housekeeping that the 6c code commit (`62ec673e`) did not cover.
+
+- **`MusicLibrarySectionedRequest<T>` not verified.** The 06.md exit criteria call out parity with `MusicLibraryRequest<T>`. Route C's predicate is structural, so it should emit the same shape — but no one has hand-inspected the regenerated output or counted overloads.
+- **Device gate not run for Route C.** Only `nuke binding-tests --skip-regen` (sim, Mono JIT) was run after the Route C fixes. NativeAOT device run (`--device`) is required by CLAUDE.md for changes that touch calling conventions / @_cdecl wrapper shape.
+- **Status of `00-overview.md` not refreshed.** The overview's status section still pre-dates 6b/6c shipping.
+- **`06.md` exit-criteria checklist not ticked off** (see that doc's own "Outstanding after code ship" mirror).
+- **Active release doc A-1 deferral** (likely `src/docs/sdk-0.11.0-remaining.md` or successor) not closed.
+- **Public wiki update** not posted (`Known Limitations` for `MusicLibraryRequest`-style PAT generics should now retract the "no sort" caveat).
+- **Two Future docs left untracked** in `src/docs/Future/` from prior work (`foundation-nsobject-typed-upgrade.md`, `property-getter-constrained-generic.md`) — unrelated to 6c but visible in `git status`; either commit standalone or rebase out.
 
 ## References
 

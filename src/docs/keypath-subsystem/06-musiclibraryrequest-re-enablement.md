@@ -1,5 +1,7 @@
 # Session 6 — MusicKit `MusicLibraryRequest<T>` full re-enablement
 
+**Status:** code-side complete; doc-sync + verification items outstanding. The original 11-surface re-enablement was split across three sub-sessions — 6 (initial wiring), 6b (CSM filter machinery), 6c (sort + existential admission) — all of which have shipped on `keypath-subsystem`. See "Outstanding after code ship" below for the specific exit-criteria items still unchecked.
+
 The composition session. After it ships, all 11 surface members of `MusicLibraryRequest<T>` (and `MusicLibrarySectionedRequest<T>`) emit and pass end-to-end tests. This is the user-visible deliverable that closes the A-1 deferral from `sdk-0.11.0-remaining.md`.
 
 ## Goal
@@ -132,12 +134,17 @@ Per `feedback_no_redundant_validate_rerun.md`: one validate run, accept the base
 
 ## Exit criteria
 
-- MusicKit in validation libraries, validate baseline ratcheted.
-- All 11 surface members of `MusicLibraryRequest<T>` emit and pass test.
-- `MusicLibrarySectionedRequest<T>` similarly (same shape).
-- Mock fixture passes on sim + device.
-- A-1 closed in the active release doc.
-- Public wiki updated (or wiki PR opened).
+Current state after 6c code ship (`62ec673e`). `[x]` = verified; `[ ]` = still outstanding.
+
+- `[x]` MusicKit in `build/validation-libraries.json`; `nuke validate --filter MusicKit` ok across ios/macos/maccatalyst/tvos.
+- `[x]` All 11 surface members of `MusicLibraryRequest<T>` emit (filter ×7, sort ×N per bag, response, filter(text:), limit/offset/includeOnlyDownloadedContent). Spot-checked: 22 Route C Sort overloads across 7 conformer extensions in regenerated `MusicKit.cs`.
+- `[ ]` `MusicLibrarySectionedRequest<T>` parity — not hand-inspected; needs regen + overload count check.
+- `[x]` Mock/MusicKit fixture passes on sim (`nuke binding-tests --skip-regen`: 2202 pass vs 2201 baseline).
+- `[ ]` Device gate (`nuke binding-tests --device`) not run for the Route C code; required per CLAUDE.md for changes touching @_cdecl wrapper shape.
+- `[ ]` A-1 deferral not closed in the active release doc (likely `src/docs/sdk-0.11.0-remaining.md` or successor).
+- `[ ]` Public wiki not updated (the `Known Limitations` "no sort for `MusicLibraryRequest`-style PAT generics" caveat should be retracted).
+- `[ ]` `00-overview.md` status section not refreshed.
+- `[ ]` Validate baseline (`.validation-baseline.json`) not re-ratcheted via a full `nuke validate` since the Route C changes. Per `feedback_validate_is_opt_in.md` this is opt-in; weigh against pre-release-sweep utility before running.
 
 ## Risks specific to Session 6
 

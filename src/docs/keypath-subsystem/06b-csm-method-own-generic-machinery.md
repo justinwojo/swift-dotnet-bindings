@@ -1,9 +1,9 @@
 # Session 6b — CSM method-own generic machinery for KeyPath param substitution
 
-**Status:** design, awaiting team-lead approval.
+**Status:** shipped. Phases 1–3 landed across `c8cf1226` (KeyPathFamily ABI category), `f7819e43` (where-clause filter + AppendAll re-enable), `af26a62d` (CSM ISwiftObject comment cleanup), plus earlier `345dd701` / `5e46c711` for the MusicKit wiring and CSM defensive filter. `sort(by:)` was split out by the a-priori boundary and shipped as `06c` (`62ec673e`).
 **Parent session:** 6 (closed at `345dd701`).
 **Branch:** `keypath-subsystem`.
-**Driving deferral:** 8 tombstoned `MusicLibraryRequest<T>` surfaces — 7× `filter(matching:…)` (KeyPath-shaped) + 1× `sort(by:)` (Value-erasure).
+**Driving deferral:** 8 tombstoned `MusicLibraryRequest<T>` surfaces — 7× `filter(matching:…)` (KeyPath-shaped) + 1× `sort(by:)` (Value-erasure). 7× filter handled here; sort handled in 6c.
 
 This doc designs the CSM widening needed to emit those surfaces. It also defines the **6b ↔ 6c boundary**: `sort(by:)` is split out a priori (it trips the wrapper/runtime guardrail), and an internal trip-criterion is set for further splitting if the filter machinery itself overshoots LOC tripwires.
 
