@@ -319,9 +319,9 @@ Sessions 1–8 shipped on the `keypath-subsystem` branch. Session 8 v1 was delib
 | 6 — MusicLibraryRequest re-enablement | shipped | `345dd701` (parent wiring) |
 | 6b — CSM method-own generic machinery (filter KeyPath) | shipped | `c8cf1226` + `f7819e43` + `af26a62d` |
 | 6c — Route C per-V sort specialization + `KeyPath<any P, V>` admission | shipped | `62ec673e` |
-| 6c-followup — CSM `FromX()` / generic-param-return cleanup discriminated by NewFromPayload contract (direct-wrap / copy-out / pure value) | shipped, see `06-musiclibraryrequest-re-enablement.md` exit criteria | (uncommitted, awaiting review) |
-| 7 — Foundation KVO + `AttributedString` (narrower than v1 plan — see *Implementation outcomes* in `07-…`) | shipped | (uncommitted) |
-| 8 — AppIntents productionization v1 (framework visible/importable; MockBook fixture; CA1416 + Swift-`@available` categorical audit fix at 5 emitter surfaces; MarshallingHelpers single-source-of-truth refactor — see *Implementation outcomes* in `08-…`) | shipped | (uncommitted) |
+| 6c-followup — CSM `FromX()` / generic-param-return cleanup discriminated by NewFromPayload contract (direct-wrap / copy-out / pure value) | shipped, see `06-musiclibraryrequest-re-enablement.md` exit criteria | `92461a07` |
+| 7 — Foundation KVO + `AttributedString` (narrower than v1 plan — see *Implementation outcomes* in `07-…`) | shipped | `80470fd8` |
+| 8 — AppIntents productionization v1 (framework visible/importable; MockBook fixture; CA1416 + Swift-`@available` categorical audit fix at 5 emitter surfaces; MarshallingHelpers single-source-of-truth refactor — see *Implementation outcomes* in `08-…`) | shipped | `c742e3e0` |
 | 8b — `EntityProperty.init<Entity>(…)` KeyPath-keyed convenience-init family | not started | — |
 | 8c — `AppShortcutParameterPresentation` higher-kinded `ParameterKeyPath` | not started | — |
 | 8d — `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter | not started | — |

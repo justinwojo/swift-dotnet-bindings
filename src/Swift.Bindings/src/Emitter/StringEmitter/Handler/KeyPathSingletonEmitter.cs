@@ -54,21 +54,6 @@ namespace BindingsGeneration;
 /// </summary>
 internal static class KeyPathSingletonEmitter
 {
-
-    /// <summary>
-    /// The Swift-side names of the five KeyPath family members. Mirrors
-    /// <c>TypeProjectionFactory.KeyPathFamilyArities</c> — the name-based gate for
-    /// recognising a KeyPath TypeSpec.
-    /// </summary>
-    private static readonly HashSet<string> KeyPathFamilyNames = new(StringComparer.Ordinal)
-    {
-        "Swift.AnyKeyPath",
-        "Swift.PartialKeyPath",
-        "Swift.KeyPath",
-        "Swift.WritableKeyPath",
-        "Swift.ReferenceWritableKeyPath",
-    };
-
     /// <summary>
     /// Entry point. Mirrors the call-site contract of
     /// <see cref="ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent"/>
@@ -112,34 +97,24 @@ internal static class KeyPathSingletonEmitter
                 var conformerKey = conformer.SwiftQualifiedName;
                 if (!typeDeclByName.TryGetValue(conformerKey, out var conformerDecl)) continue;
 
-                var bagDecl = KeyPathBagWalker.FindBagDecl(conformerDecl, assocName, conformer, typeDeclByName);
-                if (bagDecl is null)
+                // Single source of truth for bag resolution + per-property emittability
+                // + value-type projection. Returns null if the bag can't be resolved,
+                // fails IsEmittableBag (generic / SPI / internal / custom-actor /
+                // class-bound protocol / Self-requirement protocol), or projects zero
+                // properties. Walker logs the per-property unprojectable case; the
+                // singleton emitter shares the same data path Route C consumes.
+                var walk = KeyPathBagWalker.TryResolveProjectableBagProps(
+                    conformer, conformerDecl, assocName, typeDecl,
+                    typeDatabase, typeDeclByName, logger);
+                if (walk is null)
                 {
                     logger.LogDebug(
-                        "KeyPath singletons: no bag found for conformer {Conformer} assoc {Assoc} (hints: {Hints}).",
+                        "KeyPath singletons: no projectable bag for conformer {Conformer} assoc {Assoc} (hints: {Hints}).",
                         conformerKey, assocName,
                         conformer.AssociatedTypes is { } m ? string.Join(",", m.Keys) : "<null>");
                     continue;
                 }
-
-                // Only stored, instance, public, non-static, non-actor-isolated bags
-                // we can read at static-init time without hopping queues.
-                // Protocol bags (module-scope protocols used as associated-type
-                // targets, e.g. MusicKit's `LibraryAlbumFilter`) relax the stored-
-                // property check — protocol property requirements are abstract by
-                // construction, but `\Protocol.requirement` is a valid Swift KeyPath
-                // literal (resolved via witness-table dispatch at use time).
-                if (!KeyPathBagWalker.IsEmittableBag(bagDecl))
-                {
-                    logger.LogDebug(
-                        "KeyPath singletons: bag {Bag} (kind={Kind}) rejected by IsEmittableBag for conformer {Conformer}. " +
-                        "IsGeneric={IsGeneric} IsSpiProtected={IsSpiProtected} IsModuleInternal={IsModuleInternal} " +
-                        "IsCustomActor={IsCustomActor} IsCustomActorIsolated={IsCustomActorIsolated} propCount={PropCount}.",
-                        bagDecl.SwiftTypeName?.ModuleQualifiedName, bagDecl is ProtocolDecl ? "ProtocolDecl" : bagDecl.GetType().Name,
-                        conformerKey, bagDecl.IsGeneric, bagDecl.IsSpiProtected, bagDecl.IsModuleInternal,
-                        bagDecl.IsCustomActor, bagDecl.IsCustomActorIsolated, bagDecl.Properties.Count());
-                    continue;
-                }
+                var bagDecl = walk.Value.BagDecl;
 
                 // Module-level dedup. Two generic parents in the same module that both
                 // demand KeyPath<Item.LibraryFilter, *> (or any same-shape pair) must
@@ -151,8 +126,8 @@ internal static class KeyPathSingletonEmitter
                 var containerKey = $"{conformer.SwiftQualifiedName}|{bagDecl.SwiftTypeName!.ModuleQualifiedName}";
                 if (!emissionContext.TryAddKeyPathSingletonContainer(containerKey)) continue;
 
-                EmitContainer(csWriter, swiftWriter, typeDecl, conformer, conformerDecl, bagDecl,
-                    typeDatabase, emissionContext, logger);
+                EmitContainer(csWriter, swiftWriter, typeDecl, conformer, conformerDecl,
+                    walk.Value, typeDatabase, emissionContext, logger);
             }
         }
     }
@@ -227,7 +202,7 @@ internal static class KeyPathSingletonEmitter
 
         if (spec is NamedTypeSpec named)
         {
-            if (KeyPathFamilyNames.Contains(named.Name) && named.GenericParameters.Count >= 1)
+            if (TypeProjectionFactory.IsKeyPathFamily(named.Name) && named.GenericParameters.Count >= 1)
             {
                 // Inspect the Root generic argument for a τ_X_Y.AssocName shape. The
                 // ABI parser produces two equivalent encodings of this pattern:
@@ -290,11 +265,12 @@ internal static class KeyPathSingletonEmitter
         TypeDecl parentTypeDecl,
         ConcreteSpecializationEngine.ConcreteConformer conformer,
         TypeDecl conformerDecl,
-        TypeDecl bagDecl,
+        KeyPathBagWalker.BagWalkResult walk,
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         ILogger logger)
     {
+        var bagDecl = walk.BagDecl;
         var moduleName = parentTypeDecl.SwiftTypeName.Module;
         var wrapperLibPath = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
         var bagSwiftFullName = bagDecl.SwiftTypeName.ModuleQualifiedName;
@@ -312,37 +288,13 @@ internal static class KeyPathSingletonEmitter
             return;
         }
 
-        // Project each property up-front so we can decide whether to emit the
-        // container at all (an entirely unprojectable bag means an empty class,
-        // which is harmless but noise).
+        // Each ProjectedBagProperty already carries the value-type projection +
+        // writability — both ran inside the walker. Layer per-property symbol
+        // generation and merged availability on top.
         var emittable = new List<(PropertyDecl Prop, string PInvokeSymbol, string CSValueType,
             string SwiftValueType, bool IsWritable, IReadOnlyList<AvailabilityAnnotation>? MergedAvailability)>();
-        var projector = new TypeProjectionFactory();
-        // Protocol bags expose abstract property requirements; the bag-eligibility
-        // gate above accepts them, and the per-property filter must match (otherwise
-        // protocol bags would always project as empty).
-        bool allowAbstract = bagDecl is ProtocolDecl;
-        foreach (var prop in bagDecl.Properties)
+        foreach (var (prop, projection, isWritable) in walk.ProjectableProps)
         {
-            if (!KeyPathBagWalker.IsEmittableProperty(prop, allowAbstract)) continue;
-
-            // Project the property's Swift value type to a C# type spelling. Async/
-            // ParentTypeDecl/CurrentModuleName are not relevant for the value-type
-            // slot — KeyPath value types are pass-through.
-            var projection = projector.Project(prop.SwiftTypeSpec, new ProjectionContext
-            {
-                TypeDatabase = typeDatabase,
-                IsParameter = false,
-                CurrentModuleName = parentTypeDecl.SwiftTypeName.Module,
-            });
-            if (projection is null)
-            {
-                logger.LogDebug(
-                    "KeyPath singletons: property {Prop} of {Bag} has unprojectable type {Type} — skipping.",
-                    prop.Name, bagSwiftFullName, prop.SwiftTypeSpec);
-                continue;
-            }
-
             var csValueType = projection.PublicType;
             var swiftValueType = prop.SwiftTypeSpec.ToString();
             // Same wrapper-source collision concern as the bag's Root spelling: a
@@ -352,7 +304,6 @@ internal static class KeyPathSingletonEmitter
             // Keep the raw spelling in the hash input so the symbol stays stable
             // across compilations (qualification is purely a source-text concern).
             var swiftValueTypeForWrapper = emissionContext.QualifyForWrapperSource(swiftValueType);
-            var isWritable = prop.Accessors.OfType<SetAccessorDecl>().Any();
 
             var hashInput = $"{moduleName}|{conformer.SwiftQualifiedName}|{bagSwiftFullName}|{prop.Name}|{swiftValueType}";
             var hash = EmitterUtility.DeterministicHash8(hashInput);

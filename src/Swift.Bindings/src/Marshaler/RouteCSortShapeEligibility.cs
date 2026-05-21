@@ -5,19 +5,28 @@ namespace BindingsGeneration;
 
 /// <summary>
 /// Session 6c Route C — single source of truth for "is this method a per-Value-type
-/// keypath-sort shape?". Used by three call sites that must agree exactly (the
-/// "D's lesson" three-way contract from the design doc):
+/// keypath-sort shape?". Used by two call sites that must agree exactly:
 /// <list type="bullet">
-///   <item><description>The Route C sibling emitter (decides whether to emit
-///   per-V overloads at all).</description></item>
-///   <item><description>The CSM open-generic-suppression path (decides whether to
-///   mark the original method <c>WasEmitted</c> so MethodHandler skips the
-///   parent-body emission).</description></item>
-///   <item><description>The CSM eligibility predicate
-///   (<see cref="ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent"/>
-///   and its async sibling) — these need to know that "this method has a
-///   method-own generic V" is OK <i>iff</i> Route C will pick it up.</description></item>
+///   <item><description>The Route C sibling emitter
+///   (<see cref="KeyPathBagValueSpecializationEmitter"/>) — decides whether to
+///   emit per-V overloads at all.</description></item>
+///   <item><description><see cref="MemberValidationPipeline"/> — when the predicate
+///   accepts the method, the pipeline returns <c>RoutedElsewhere</c> so the open-V
+///   parent-body emission is suppressed and the C# surface holds only the closed
+///   overloads.</description></item>
 /// </list>
+///
+/// <para>
+/// CSM's eligibility predicates
+/// (<see cref="ConcreteProtocolSpecializationEmitter.IsCsmSyncEligibleForGenericParent"/>
+/// and its async sibling) do NOT consult this predicate: Route C and CSM are
+/// mutually exclusive by construction. CSM requires every method-own generic param
+/// to be specializable (i.e. conformer-pairable, which requires at least one
+/// protocol conformance), while Route C requires its method-own V to be
+/// unconstrained (condition 3 below). A method matching one shape cannot match
+/// the other, so the pipeline's CSM-suppression and Route-C-suppression checks
+/// stand alone — there is no third "CSM consults Route C" hand-off.
+/// </para>
 ///
 /// <para>
 /// A method qualifies for per-V specialization iff <b>all</b> of:
