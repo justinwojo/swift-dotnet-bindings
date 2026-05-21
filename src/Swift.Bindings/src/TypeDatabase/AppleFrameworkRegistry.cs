@@ -269,6 +269,20 @@ internal static class AppleFrameworkRegistry
     public static bool IsUnsupportedModule(string moduleName) => _unsupportedModules.Contains(moduleName);
 
     /// <summary>
+    /// Centralizes the SkipReason classifier for unsupported-generic-constraint skips
+    /// (callers pass the <c>Module</c> already surfaced by
+    /// <see cref="GenericTypeEmitter.TryGetUnsupportedConstraint"/>). SwiftUI / SwiftUICore
+    /// and Combine have dedicated <see cref="SkipReason"/> buckets that drive
+    /// telemetry workaround recommendations; every other unsupported-constraint module
+    /// falls into <see cref="SkipReason.UnsupportedType"/>. Single source of truth for
+    /// the five emitters that previously inlined the same ternary classifier.
+    /// </summary>
+    public static SkipReason GetUnsupportedConstraintSkipReason(string moduleName) =>
+        moduleName is "SwiftUI" or "SwiftUICore" ? SkipReason.SwiftUIConstraint
+        : moduleName == "Combine" ? SkipReason.CombineFramework
+        : SkipReason.UnsupportedType;
+
+    /// <summary>
     /// Returns true when the wrapper Swift file should emit <c>import &lt;module&gt;</c> on
     /// account of this module's types appearing in the bound module's public surface.
     /// Opt-in per module via the <c>wrapperImportable</c> field in apple-frameworks.json so

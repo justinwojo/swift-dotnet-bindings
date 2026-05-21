@@ -127,6 +127,11 @@ internal static class KvoExtensionEmitter
         var invalidateEntryPoint = $"SBW_KVO_{moduleName}_{className}_invalidate";
         var libName = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
 
+        // Class-level [SupportedOSPlatform] from the observed type's @available.
+        // Members of this extension class call into the gated class; without the
+        // class-level attribute, every Observe* call site would trip CA1416.
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+            csWriter, classDecl.AvailabilityAnnotations);
         csWriter.WriteLine($"public static partial class {className}KvoExtensions");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -184,6 +189,11 @@ internal static class KvoExtensionEmitter
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+            // Per-property [SupportedOSPlatform] for properties stricter than the
+            // class (the helper dedups against the class-level set, so unchanged
+            // properties emit nothing extra).
+            AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+                csWriter, prop.AvailabilityAnnotations, classDecl.AvailabilityAnnotations);
             // The extension method itself.
             csWriter.WriteLine($"public static global::Swift.Runtime.KvoToken Observe{propPascal}(");
             csWriter.Indent++;
@@ -249,6 +259,12 @@ internal static class KvoExtensionEmitter
             var observeSym = $"SBW_KVO_{moduleName}_{className}_observe{propPascal}";
             var (swiftAbi, _) = s_supportedTypes[((NamedTypeSpec)prop.SwiftTypeSpec).Name];
 
+            // Top-level @_cdecl wrapper functions do NOT inherit enclosing-type
+            // availability — merge class + property annotations so the shim
+            // compiles for SDK deployment targets below the gated API's introduced OS.
+            WrapperEmitterHelpers.EmitSwiftAvailability(
+                swiftWriter,
+                WrapperEmitterHelpers.MergeAvailability(prop.AvailabilityAnnotations, classDecl));
             swiftWriter.WriteLine($"@_cdecl(\"{observeSym}\")");
             swiftWriter.WriteLine($"public func {observeSym}(_ selfPtr: UnsafeRawPointer, _ options: UInt, _ fnPtr: UnsafeRawPointer, _ ctx: UnsafeRawPointer) -> UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
@@ -269,6 +285,7 @@ internal static class KvoExtensionEmitter
             swiftWriter.WriteLine();
         }
 
+        WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, classDecl.AvailabilityAnnotations);
         swiftWriter.WriteLine($"@_cdecl(\"{invalidateSym}\")");
         swiftWriter.WriteLine($"public func {invalidateSym}(_ tokenPtr: UnsafeRawPointer) {{");
         swiftWriter.Indent++;

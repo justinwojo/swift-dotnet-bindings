@@ -74,11 +74,7 @@ namespace BindingsGeneration
 
             if (GenericTypeEmitter.TryGetUnsupportedConstraint(structDecl, out var unsupportedConstraint))
             {
-                var reason = unsupportedConstraint.Module is "SwiftUI" or "SwiftUICore"
-                    ? SkipReason.SwiftUIConstraint
-                    : unsupportedConstraint.Module == "Combine"
-                        ? SkipReason.CombineFramework
-                        : SkipReason.UnsupportedType;
+                var reason = AppleFrameworkRegistry.GetUnsupportedConstraintSkipReason(unsupportedConstraint.Module);
                 ReportCollector.RecordTypeSkipped(structDecl, reason, $"Unsupported generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
                 UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, structDecl.Name, reason, $"generic constraint: {unsupportedConstraint.ModuleQualifiedName}");
                 _logger.LogWarning(

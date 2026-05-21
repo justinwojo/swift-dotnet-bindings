@@ -557,12 +557,13 @@ namespace BindingsGeneration
 
             // If the superclass is from an unsupported Apple module (XCTest, SwiftUI, etc.),
             // fall back to Foundation.NSObject — all ObjC-rooted types ultimately derive from it.
+            // Source of truth is apple-frameworks.json's "unsupported" flag via
+            // AppleFrameworkRegistry; do not duplicate the list here.
             var dotIdx = classDecl.DirectSuperclassName.IndexOf('.');
             if (dotIdx > 0)
             {
                 var module = classDecl.DirectSuperclassName.Substring(0, dotIdx);
-                if (module is "SwiftUI" or "SwiftUICore" or "XCTest" or "Combine" or "_Concurrency"
-                    or "Observation" or "WidgetKit" or "AppIntents" or "Charts" or "TipKit")
+                if (AppleFrameworkRegistry.IsUnsupportedModule(module))
                     return "Foundation.NSObject";
             }
 

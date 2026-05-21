@@ -139,6 +139,12 @@ internal static class ThrowingClosureSimplificationEmitter
             effectiveReturnType = returnType;
         }
 
+        // Inherit availability attributes from the primary throwing method — without
+        // these, CA1416 flags the simplified Action/Func forwarder as reachable on
+        // OS versions lower than the gated target it delegates to.
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+            csWriter, methodEnv.MethodDecl, methodEnv.MethodDecl.ParentDecl, emitObsolete: false);
+
         // Emit the overload
         csWriter.WriteLine($"public {staticModifier}{effectiveReturnType} {methodName}({paramStr})");
         csWriter.WriteLine("{");

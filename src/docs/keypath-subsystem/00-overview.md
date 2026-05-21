@@ -16,7 +16,10 @@ This folder is the execution plan for adding Swift `KeyPath` support to the bind
 | 5 | `05-parent-only-async-csm.md` | Co-deferred gap 2 — async CSM emission inside per-conformer `*CsmExtensions`, with parent-generic return-type substitution before async callback generation | 02 |
 | 6 | `06-musiclibraryrequest-re-enablement.md` | Wire MusicKit; re-enable `MusicLibraryRequest<T>`'s 11 surface members end-to-end (composition test of sessions 1–5) | 01–05 |
 | 7 | `07-foundation-kvo-attributedstring.md` | Foundation KVO publisher/observer (`NSObject` extensions) + `AttributedString` `@dynamicMemberLookup` with `KeyPath<AttributeDynamicLookup, K>` | 03–04 |
-| 8 | `08-appintents-productionization.md` | AppIntents — biggest consumer (704 lines, 240 `WritableKeyPath`). `EntityProperty` getter/getSetter; `AppShortcutParameterPresentation` constrained generic | 03–04 |
+| 8 | `08-appintents-productionization.md` | AppIntents v1 — framework visibility, MockBook fixture, CA1416 / availability-propagation categorical audit fix. KeyPath-keyed surface deferred to 8b/8c/8d. | 03–04 |
+| 8b | `08b-entityproperty-init-keypath.md` | `EntityProperty<Value>.init<Entity>(…getter:|getSetter:|asyncGetter:)` family — method-own free generic constrained to `AppEntity`. One C# overload per `(Entity, Value, init-shape, KeyPath flavor)`; same-Value-type properties on a conformer share that overload and select via `{Conformer}AppEntityKeyPaths` singletons. | 03–04, 08 |
+| 8c | `08c-appshortcut-parameter-presentation.md` | `AppShortcutParameterPresentation<Intent, Value, Parameter, ParameterKeyPath>` — higher-kinded generic-param-is-a-KeyPath-type constraint shape | 03–04, 08 |
+| 8d | `08d-partialkeypath-cssearchableitem.md` | `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter — fixed-Root single-type typed-singleton container | 03–04, 08 |
 | 9 | `09-swiftui-productionization.md` | SwiftUI + SwiftUICore — environment modifiers, view tree, `@dynamicMemberLookup` on `Binding` / `ObservedObject` (`ReferenceWritableKeyPath` heavy) | 03–04 |
 | 10 | `10-residual-consumers-cleanup.md` | Charts + SwiftData + Combine + UIKit + Observation. Final pass; doc/wiki update; close A-1 | 03–04 |
 
@@ -304,7 +307,7 @@ Exit: the deferred A-1 item is closed; consumer-facing wiki documentation update
 
 ## Status
 
-Sessions 1–7 shipped on the `keypath-subsystem` branch. Sessions 8–10 (consumer productionization — AppIntents, SwiftUI, residual consumers) are next.
+Sessions 1–8 shipped on the `keypath-subsystem` branch. Session 8 v1 was deliberately scoped down once the real `AppIntents.swiftinterface` was inspected — the original plan described API shapes (`EntityProperty<Entity, Value>.property(getter:)`, `AppShortcutParameterPresentation<Entity>.keywordTitle(_:)`) that don't exist in the SDK. The real KeyPath-keyed surface lives in three follow-ups (8b/8c/8d), each Session 4-scale machinery on its own. Sessions 9–10 (SwiftUI, residual consumers) and the three AppIntents follow-ups can ship independently.
 
 | # | Status | Landed at |
 |---|---|---|
@@ -318,6 +321,10 @@ Sessions 1–7 shipped on the `keypath-subsystem` branch. Sessions 8–10 (consu
 | 6c — Route C per-V sort specialization + `KeyPath<any P, V>` admission | shipped | `62ec673e` |
 | 6c-followup — CSM `FromX()` / generic-param-return cleanup discriminated by NewFromPayload contract (direct-wrap / copy-out / pure value) | shipped, see `06-musiclibraryrequest-re-enablement.md` exit criteria | (uncommitted, awaiting review) |
 | 7 — Foundation KVO + `AttributedString` (narrower than v1 plan — see *Implementation outcomes* in `07-…`) | shipped | (uncommitted) |
+| 8 — AppIntents productionization v1 (framework visible/importable; MockBook fixture; CA1416 + Swift-`@available` categorical audit fix at 5 emitter surfaces; MarshallingHelpers single-source-of-truth refactor — see *Implementation outcomes* in `08-…`) | shipped | (uncommitted) |
+| 8b — `EntityProperty.init<Entity>(…)` KeyPath-keyed convenience-init family | not started | — |
+| 8c — `AppShortcutParameterPresentation` higher-kinded `ParameterKeyPath` | not started | — |
+| 8d — `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter | not started | — |
 
 Notes on 6's exit criteria:
 - `MusicLibraryRequest<T>` 11-surface emission: verified on the regen — filter ×7 + filter(text:) + response() + limit/offset/includeOnlyDownloadedContent + sort (22 Route C overloads across 7 conformer extensions).

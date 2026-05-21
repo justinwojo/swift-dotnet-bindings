@@ -92,7 +92,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("_Concurrency", true)]
     [InlineData("Observation", true)]
     [InlineData("WidgetKit", true)]
-    [InlineData("AppIntents", true)]
+    [InlineData("AppIntents", false)]
     [InlineData("Charts", true)]
     [InlineData("TipKit", true)]
     [InlineData("Foundation", false)]
@@ -602,7 +602,7 @@ public class AppleFrameworkRegistryTests
         var expectedModules = new[]
         {
             "SwiftUI", "SwiftUICore", "XCTest", "Combine", "_Concurrency",
-            "Observation", "WidgetKit", "AppIntents", "Charts", "TipKit",
+            "Observation", "WidgetKit", "Charts", "TipKit",
         };
 
         foreach (var module in expectedModules)
@@ -1237,6 +1237,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("RealityKit")]
     [InlineData("WeatherKit")]
     [InlineData("OSLog")]
+    [InlineData("AppIntents")]
     public void IsWrapperImportableModule_ReturnsTrueForImportableModules(string module)
     {
         Assert.True(AppleFrameworkRegistry.IsWrapperImportableModule(module));

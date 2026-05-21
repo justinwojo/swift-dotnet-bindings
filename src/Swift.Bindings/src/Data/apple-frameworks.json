@@ -70,7 +70,7 @@
     },
     {
       "module": "AppIntents",
-      "unsupported": true
+      "wrapperImportable": true
     },
     {
       "module": "AppKit",

@@ -173,6 +173,8 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
 
                 // --- Emit C# overload ---
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+                    csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
                 csWriter.WriteLine($"/// <summary>Convenience overload accepting <c>{csType}</c> for marker protocol parameter.</summary>");
                 csWriter.WriteLine($"public {staticModifier}{csReturnType} {csMethodName}({csType} {paramName})");
                 csWriter.WriteLine("{");
@@ -258,6 +260,12 @@ namespace BindingsGeneration
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
                 parentTypeDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
+            // Top-level @_silgen_name wrapper functions do NOT inherit enclosing type
+            // availability — both method-level and parent-type availability must be
+            // applied explicitly. MergeAvailability collapses by strictest version.
+            var mergedAvailability = WrapperEmitterHelpers.MergeAvailability(
+                methodDecl.AvailabilityAnnotations, parentTypeDecl);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
             if (needsMainActor)
                 swiftWriter.WriteLine("@MainActor");
             swiftWriter.WriteLine($"@_silgen_name(\"{wrapperMangledName}\")");

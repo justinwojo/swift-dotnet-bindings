@@ -1634,6 +1634,12 @@ namespace BindingsGeneration
             // Propagate SB0001/SB0002 safety attributes from the underlying method
             var safetyAttr = GetSafetyObsoleteAttribute(methodEnv);
 
+            // Inherit [SupportedOSPlatform] / [ObsoletedOSPlatform] from the primary method.
+            // Without these, CA1416 flags the Task-returning forwarder as reachable on lower
+            // OS versions than the platform-gated completion-handler API it delegates to.
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+                csWriter, methodEnv.MethodDecl, methodEnv.MethodDecl.ParentDecl, emitObsolete: false);
+
             // Emit the overload
             csWriter.WriteLines($$"""
                 /// <summary>

@@ -127,6 +127,13 @@ internal static class NativeIntOverloadEmitter
         var isStatic = methodDecl.MethodType == MethodType.Static;
         var staticModifier = isStatic ? "static " : "";
 
+        // Inherit [SupportedOSPlatform] / [ObsoletedOSPlatform] from the primary method.
+        // Without these, CA1416 flags the forwarder as reachable on lower OS versions than
+        // the platform-gated target it delegates to (e.g. MakeMockBook(int) reachable on
+        // iOS 15.0 but forwarding to MakeMockBook(nint) restricted to iOS 16.0+).
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+            csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
+
         // Emit the overload
         if (hasReturn)
         {
@@ -198,6 +205,11 @@ internal static class NativeIntOverloadEmitter
 
         var hasGetter = subscriptDecl.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = subscriptDecl.Accessors.OfType<SetAccessorDecl>().Any();
+
+        // Inherit availability attributes from the primary subscript — same CA1416
+        // concern as the method overload path above.
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
+            csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: false);
 
         if (hasGetter && hasSetter)
         {
