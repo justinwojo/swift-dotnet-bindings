@@ -304,4 +304,20 @@ Exit: the deferred A-1 item is closed; consumer-facing wiki documentation update
 
 ## Status
 
-Plan defined; implementation not started. Each numbered file in this folder is a self-contained execution plan for one Claude session of end-to-end work — pick the next unblocked session by depending-on column, follow the file's instructions, ship + test + commit.
+Sessions 1–6 shipped on the `keypath-subsystem` branch. Sessions 7–10 (consumer productionization — Foundation/KVO, AppIntents, SwiftUI, residual consumers) are next.
+
+| # | Status | Landed at |
+|---|---|---|
+| 1 — Property-drop bug | shipped | `fef9c065` |
+| 2 — Parent-only sync CSM | shipped | `48b08ec9` |
+| 3 — KeyPath foundation | shipped | `26dcdcb6` |
+| 4 — Typed singleton emission | shipped | `1e72be9c` (+ `53f8b5bd` protocol-bag broadening) |
+| 5 — Parent-only async CSM | shipped | `504e482a` |
+| 6 — MusicLibraryRequest re-enablement | shipped | `345dd701` (parent wiring) |
+| 6b — CSM method-own generic machinery (filter KeyPath) | shipped | `c8cf1226` + `f7819e43` + `af26a62d` |
+| 6c — Route C per-V sort specialization + `KeyPath<any P, V>` admission | shipped | `62ec673e` |
+| 6c-followup — CSM `FromX()` / generic-param-return cleanup discriminated by NewFromPayload contract (direct-wrap / copy-out / pure value) | shipped, see `06-musiclibraryrequest-re-enablement.md` exit criteria | (uncommitted, awaiting review) |
+
+Notes on 6's exit criteria:
+- `MusicLibraryRequest<T>` 11-surface emission: verified on the regen — filter ×7 + filter(text:) + response() + limit/offset/includeOnlyDownloadedContent + sort (22 Route C overloads across 7 conformer extensions).
+- `MusicLibrarySectionedRequest<SectionType, MusicItemType>`: 0/17 surface members emit. Empirical regen shows 64 cartesian `*CsmExtensions` classes are emitted but empty; all 17 surface methods (`filterItems` ×8, `sortItems` ×1, `filterSections` ×7, `sortSections` ×1, `response` ×1) tombstone with "protocol with associated types used as constraint". Cause: per-method `where SectionType : MusicLibraryRequestable` clauses on a two-PAT-generic-parent type aren't handled by current CSM filter machinery or Route C (`RouteCSortShapeEligibility.cs:72` gates on single-generic-parent). A follow-up session would design multi-generic-parent CSM + Route C extensions. Tracked here, not in roadmap.md, until a consumer asks.

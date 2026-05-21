@@ -1385,13 +1385,72 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         string pinvokeCall = $"{cdeclSymbol}({string.Join(", ", pinvokeCallArgs)})";
 
-        // Transfer ownership of resultPtr's buffer to the returned SwiftSafeHandle when the
-        // return is a non-frozen-struct/ClassWithOpaquePayload ISwiftObject: NewFromPayload
-        // wraps the pointer without copying, and SwiftSafeHandle.ReleaseHandle calls
-        // NativeMemory.Free — so the caller must NOT free resultPtr (doing so races the
-        // returned object's first read and also double-frees when it disposes). String and
-        // struct-constructor returns don't take ownership and keep the old alloc+free shape.
-        bool needsResultPtrOwnershipTransfer = needsResultPtr && !isConstructor;
+        // Cleanup discrimination for resultPtr by return-type shape (see
+        // WriteNewFromPayloadFrozenStruct / WriteNewFromPayloadNonFrozenStruct):
+        //   1. Direct-wrap (non-frozen struct, complex enum): NewFromPayload stores the
+        //      wire handle into a SwiftSafeHandle. Ownership transfers — caller MUST NOT
+        //      free resultPtr (the SafeHandle's ReleaseHandle calls NativeMemory.Free).
+        //      Match the allocator: NativeMemory.Alloc.
+        //   2. Copy-out (frozen + RequiresMemoryManagement, IsFrozenStructProjectedAsClass):
+        //      NewFromPayload allocates a fresh buffer and InitializeWithCopy's into it.
+        //      The wire buffer is independent and still holds +1 retains on internal refs.
+        //      Caller MUST run VWT Destroy on the wire then Free it.
+        //   3. Pure value (frozen, no RequiresMemoryManagement): NewFromPayload does
+        //      `*(T*)handle` — a byte copy with no retain semantics. Caller frees the wire.
+        //   4. Class conformer (returnsGenericParam only — class parents take no resultPtr):
+        //      Swift writes the class pointer into resultPtr via `initializeMemory`, and
+        //      MarshalFromSwift<Class>(resultPtr) currently wraps the carrier address as
+        //      the class pointer (latent bug — should be `*(IntPtr*)resultPtr`). This case
+        //      keeps the legacy alloc-then-free shape pre-existing across all conformers,
+        //      tracked as a follow-up with the MethodGenericBridge fix. Not regressed by
+        //      this commit.
+        // Class constructors take no resultPtr (direct UnsafeMutableRawPointer return) and
+        // are excluded. String returns copy out via ReadUtf8Slice.
+        //
+        // Soundness: when a conformer/parent's TypeRecord can't be resolved, fall back to
+        // the `ClassifyConformerForCSharp` category — same source preflight uses to admit
+        // the pairing. Returning to a "silently default to direct-wrap" path would leak
+        // frozen-with-memory conformers via the wire's +1 retains.
+        bool returnTypeIsDirectWrap = false;
+        bool returnTypeNeedsWireDestroy = false;
+        if (needsResultPtr)
+        {
+            TypeRecord? returnRecord = null;
+            if (isConstructor && parentTypeDecl.SwiftTypeName != null)
+            {
+                typeDatabase.TryGetTypeRecord(parentTypeDecl.SwiftTypeName, out returnRecord);
+            }
+            else if (returnsGenericParam)
+            {
+                if (returnConformer?.SwiftType != null)
+                    typeDatabase.TryGetTypeRecord(returnConformer.SwiftType, out returnRecord);
+                if (returnRecord == null && returnConformer != null)
+                {
+                    // Unresolved record: defer to the structural classifier (same logic
+                    // that admitted the pairing at preflight). NonFrozenStruct/complex-enum
+                    // categories take ownership-transfer; Class takes the legacy alloc+free
+                    // shape (see contract #4 above); everything else stays pure-value.
+                    var category = ClassifyConformerForCSharp(returnConformer, typeDatabase);
+                    returnTypeIsDirectWrap = category == ConformerCategory.NonFrozenStruct;
+                }
+            }
+            else
+            {
+                var lookupSpec = SubstitutePairingGenericsInTypeSpec(method.CSSignature.First().SwiftTypeSpec, pairing);
+                typeDatabase.TryGetTypeRecord(lookupSpec, out returnRecord);
+            }
+            if (returnRecord != null)
+            {
+                bool isNonFrozenStruct = returnRecord.Kind == TypeRecordKind.Struct
+                    && !MarshallingHelpers.IsTypeFrozen(returnRecord);
+                bool isComplexEnum = returnRecord.Kind == TypeRecordKind.Enum
+                    && !returnRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                returnTypeIsDirectWrap = isNonFrozenStruct || isComplexEnum;
+                returnTypeNeedsWireDestroy = MarshallingHelpers.IsFrozenStructProjectedAsClass(returnRecord);
+            }
+        }
+        bool needsResultPtrOwnershipTransfer = needsResultPtr && returnTypeIsDirectWrap;
+        bool needsResultPtrDestroyWireRetains = needsResultPtr && !needsResultPtrOwnershipTransfer && returnTypeNeedsWireDestroy;
         if (needsResultPtr || isStringReturn)
         {
             if (isStringReturn)
@@ -1482,7 +1541,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // Struct constructor: call writes into resultPtr, then marshal back
                 csWriter.WriteLine($"{pinvokeCall};");
                 if (throws) csWriter.WriteLine(errorCheck);
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+                if (needsResultPtrDestroyWireRetains)
+                {
+                    // Frozen-with-memory parent: NewFromPayload copies into its own buffer
+                    // (InitializeWithCopy bumps internal refs). Release the wire's +1 on
+                    // internal refs before the finally Free reclaims the wire buffer —
+                    // otherwise the retained inner allocations leak per call.
+                    csWriter.WriteLine($"var _result = SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+                    csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>(resultPtr);");
+                    csWriter.WriteLine("return _result;");
+                }
+                else
+                {
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+                }
             }
         }
         else if (isVoidReturn)
@@ -1500,7 +1572,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             csWriter.WriteLine($"{pinvokeCall};");
             if (throws) csWriter.WriteLine(errorCheck);
-            csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+            if (needsResultPtrDestroyWireRetains)
+            {
+                // Frozen-with-memory return type: see struct-constructor branch above.
+                csWriter.WriteLine($"var _result = SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>(resultPtr);");
+                csWriter.WriteLine("return _result;");
+            }
+            else
+            {
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>(resultPtr);");
+            }
         }
         else if (returnsGenericParam)
         {
