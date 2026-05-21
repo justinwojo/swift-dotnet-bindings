@@ -87,6 +87,14 @@ namespace BindingsGeneration
         public bool IsObjCOptional { get; set; } = false;
 
         /// <summary>
+        /// Whether this property is `@objc dynamic` — i.e. ABI JSON declAttributes
+        /// contain both "ObjC" and "Dynamic". These are the properties that participate
+        /// in Foundation's KVO machinery on NSObject subclasses, and the only ones the
+        /// generator can wire `observe(_:options:changeHandler:)` extension methods to.
+        /// </summary>
+        public bool IsObjCDynamic { get; set; } = false;
+
+        /// <summary>
         /// Whether this property is a protocol requirement (protocolReq=true in ABI JSON).
         /// Mirrors <see cref="MethodDecl.IsProtocolRequirement"/>. Required protocol properties
         /// must have a witness in EveryProtocol's conformance — if a required property is

@@ -22,7 +22,7 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 partial class Build
 {
     Target Pack => _ => _
-        .DependsOn(Compile)
+        .DependsOn(Compile, BuildAppleSupplementXcframework)
         .After(BindingTests, PackGate)
         .Requires(() => Version)
         .Executes(() =>

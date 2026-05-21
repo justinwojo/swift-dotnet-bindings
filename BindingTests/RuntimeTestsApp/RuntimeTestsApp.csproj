@@ -109,6 +109,21 @@
     </NativeReference>
   </ItemGroup>
 
+  <!-- Include the dev-built SwiftBindingsAppleSupplement xcframework. In a shipped
+       NuGet flow this NativeReference is injected for consumers via
+       src/Swift.Bindings.Apple/build/SwiftBindings.Apple.targets (packed into
+       buildTransitive/); here we point at the in-repo artifact produced by
+       `nuke build-apple-supplement-xcframework` so the runtime tests exercise the
+       same Swift-side @_cdecl shims (KVO observe wrappers, AttributedString
+       attribute getters, …) that the Apple supplement nupkg will ship. The
+       Condition gate makes this opt-in to "the xcframework has been built", so a
+       fresh clone that has never run the supplement build still compiles. -->
+  <ItemGroup Condition="Exists('../../src/Swift.Bindings.Apple/native/SwiftBindingsAppleSupplement.xcframework')">
+    <NativeReference Include="../../src/Swift.Bindings.Apple/native/SwiftBindingsAppleSupplement.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
   <!-- Include dependency xcframework (cross-module testing) -->
   <ItemGroup Condition="Exists('../.build/SwiftBindingsTestLibDependency.xcframework')">
     <NativeReference Include="../.build/SwiftBindingsTestLibDependency.xcframework">

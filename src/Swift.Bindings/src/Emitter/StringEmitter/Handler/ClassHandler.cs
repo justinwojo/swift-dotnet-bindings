@@ -405,6 +405,14 @@ namespace BindingsGeneration
                     csWriter, swiftWriter, classDecl,
                     env.TypeDatabase, context.GetEmissionContext(), _logger);
 
+                // Session 7 — Foundation KVO observe extensions for NSObject-rooted
+                // classes with `@objc dynamic` stored properties. Lives at
+                // namespace scope (separate static extension class) and does not
+                // depend on the specialization engine.
+                KvoExtensionEmitter.EmitKvoExtensionsForClass(
+                    csWriter, swiftWriter, classDecl,
+                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+
                 // Generic-parent CSM: per-parent-conformer static extension classes
                 // (e.g. HMAC<SHA256>.Update overloads). Must live outside the parent's
                 // body so the receiver can close over the generic.

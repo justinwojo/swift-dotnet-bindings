@@ -2301,6 +2301,9 @@ namespace BindingsGeneration
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsModuleInternal = IsNodeModuleInternal(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
+                IsObjCDynamic = node.DeclAttributes is not null
+                    && Array.IndexOf(node.DeclAttributes, "ObjC") != -1
+                    && Array.IndexOf(node.DeclAttributes, "Dynamic") != -1,
                 IsProtocolRequirement = node.protocolReq == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };

@@ -27,6 +27,7 @@
         "AnalyzerTests",
         "BehaviorTier",
         "BindingTests",
+        "BuildAppleSupplementXcframework",
         "BuildAsyncWrapper",
         "BuildBridge",
         "BuildXcframework",

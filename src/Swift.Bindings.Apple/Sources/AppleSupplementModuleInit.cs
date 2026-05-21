@@ -9,12 +9,13 @@ namespace Swift;
 
 /// <summary>
 /// Registers NewFromPayload factories for non-generic hand-rolled Apple-package ISwiftObject types
-/// (Foundation.Data, Foundation.URL, Foundation.URLRequest, SwiftUI.Text). On NativeAOT the
-/// trimmer may strip explicit interface implementations; registering here keeps them alive and
-/// populates the factory cache before any marshalling call. Runtime cannot perform this
-/// registration (would require a circular package dependency). Generic types (Measurement&lt;T&gt;,
-/// ManagedSettings.Token&lt;T&gt;) self-register per closed instantiation via a static readonly
-/// field. Foundation.AnyError uses its own static-constructor metadata registration.
+/// (Foundation.Data, Foundation.URL, Foundation.URLRequest, Foundation.AttributedString,
+/// SwiftUI.Text). On NativeAOT the trimmer may strip explicit interface implementations;
+/// registering here keeps them alive and populates the factory cache before any marshalling
+/// call. Runtime cannot perform this registration (would require a circular package
+/// dependency). Generic types (Measurement&lt;T&gt;, ManagedSettings.Token&lt;T&gt;) self-register
+/// per closed instantiation via a static readonly field. Foundation.AnyError uses its own
+/// static-constructor metadata registration.
 /// </summary>
 internal static class AppleSupplementFactoryRegistration
 {
@@ -26,6 +27,7 @@ internal static class AppleSupplementFactoryRegistration
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.Data>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.URL>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.URLRequest>();
+        SwiftMarshal.RegisterSwiftObjectFactory<Swift.Foundation.AttributedString>();
         SwiftMarshal.RegisterSwiftObjectFactory<Swift.SwiftUI.Text>();
     }
 }

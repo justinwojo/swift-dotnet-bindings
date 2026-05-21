@@ -56,7 +56,7 @@ Specific in-flight workstreams with dedicated docs. Roadmap-categorical items be
 | **Multi-protocol generic compositions** | Blocked. Needs full existential composition in `@_cdecl` wrapper. |
 | **Value-type generic conformers** | Blocked. Requires non-AnyObject transport through `@_cdecl` boundary. |
 | **SwiftUI beyond current level** | Wait for consumer feedback before investing further. |
-| **Property wrappers / KeyPaths** | Low frequency in public API surfaces. |
+| **Property wrappers / KeyPaths beyond Foundation KVO + AttributedString** | Foundation KVO `observe(_:options:changeHandler:)` ships via the per-class `KvoExtensionEmitter` (Session 7); `AttributedString` ships a hand-rolled partial with public ctor + `LanguageIdentifier` via the Apple Supplement xcframework (Session 7). Property wrappers + broader KeyPath surfaces (e.g. `@FocusState`, `@Environment`, SwiftUI-side keypath subscripts) remain low-frequency in public API surfaces and stay unscoped. |
 | **Static protocol constructors** | Init witness dispatch needs allocation infrastructure. |
 | **Weak/unowned references** | 4 test skips. Requires ownership tracking infrastructure. |
 | **`inout` round-trip for blittable structs on the C# side** | The Swift SBW wrapper for `inout PointKP` correctly does `pointee` load + `defer { pointee = pVal }` write-back. The generated C# call site marshals the struct into a stack buffer (`SwiftMarshal.MarshalToSwift(p, ref pSpan)`) and never reads back — so the Swift-side mutation is lost when the buffer falls out of scope. Fix: either emit `ref T` on the C# signature and pin the caller's variable, or add a `MarshalFromSwift(ref pSpan, out p)` after the call. Surfaced by Session 3 KeyPath foundation (`KeyPathConsumer.writeInt`); worked around there by returning the mutated copy instead. |
@@ -142,6 +142,6 @@ and found patterns BindingTests had no coverage for.
 | Full Swift type graph infrastructure | Over-engineered for current needs |
 | Deep generic signature / associated type constraint emission | C# generics can't express Swift's full type system |
 | Result builder (`@resultBuilder`) projection | Compile-time Swift feature, no ABI JSON representation |
-| `@dynamicMemberLookup` / KeyPath projection | Affects <5 types across 53 validation libraries |
+| Broad `@dynamicMemberLookup` reification (beyond targeted Apple Supplement shims) | Affects <5 types across 53 validation libraries. `AttributedString` is covered narrowly via a hand-rolled partial layered on the Apple Supplement xcframework (Session 7 — `LanguageIdentifier` shipped; `link`/`foregroundColor`/etc. follow the same shape on demand). The general "walk every `@dynamicMemberLookup` host and reify per-key C# properties" pass is still out of scope. |
 | Composing SwiftUI view trees from C# | Result builders are a compiler feature |
 | Structs projected as C# value types | Only safe for frozen+blittable subset; marginal benefit |

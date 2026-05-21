@@ -304,7 +304,7 @@ Exit: the deferred A-1 item is closed; consumer-facing wiki documentation update
 
 ## Status
 
-Sessions 1–6 shipped on the `keypath-subsystem` branch. Sessions 7–10 (consumer productionization — Foundation/KVO, AppIntents, SwiftUI, residual consumers) are next.
+Sessions 1–7 shipped on the `keypath-subsystem` branch. Sessions 8–10 (consumer productionization — AppIntents, SwiftUI, residual consumers) are next.
 
 | # | Status | Landed at |
 |---|---|---|
@@ -317,6 +317,7 @@ Sessions 1–6 shipped on the `keypath-subsystem` branch. Sessions 7–10 (consu
 | 6b — CSM method-own generic machinery (filter KeyPath) | shipped | `c8cf1226` + `f7819e43` + `af26a62d` |
 | 6c — Route C per-V sort specialization + `KeyPath<any P, V>` admission | shipped | `62ec673e` |
 | 6c-followup — CSM `FromX()` / generic-param-return cleanup discriminated by NewFromPayload contract (direct-wrap / copy-out / pure value) | shipped, see `06-musiclibraryrequest-re-enablement.md` exit criteria | (uncommitted, awaiting review) |
+| 7 — Foundation KVO + `AttributedString` (narrower than v1 plan — see *Implementation outcomes* in `07-…`) | shipped | (uncommitted) |
 
 Notes on 6's exit criteria:
 - `MusicLibraryRequest<T>` 11-surface emission: verified on the regen — filter ×7 + filter(text:) + response() + limit/offset/includeOnlyDownloadedContent + sort (22 Route C overloads across 7 conformer extensions).
