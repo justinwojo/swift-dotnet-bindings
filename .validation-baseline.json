@@ -1,5 +1,5 @@
 {
-  "git_sha": "5b3c8fdd",
+  "git_sha": "d9c90c9b",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -278,7 +278,7 @@
       "GRDB": {
         "compile": "ok",
         "errors": 0,
-        "lines": 106207,
+        "lines": 106555,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,18 +908,18 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 25012,
-    "total_skipped_members": 7132,
+    "total_emitted_members": 25011,
+    "total_skipped_members": 7128,
     "skip_rate_pct": 22.2,
     "skip_reasons": {
       "UnsupportedSignature": 1265,
       "SynthesizedCodable": 953,
       "ModuleInternal": 917,
       "DuplicateSignature": 905,
-      "AnyTypeFallback": 700,
+      "AnyTypeFallback": 697,
       "GenericProtocolConstraint": 601,
       "UnsupportedType": 348,
-      "EveryProtocolConformanceSkipped": 292,
+      "EveryProtocolConformanceSkipped": 291,
       "SwiftUIConstraint": 234,
       "MissingWrapperSymbol": 229,
       "UnsupportedClosure": 223,
@@ -944,13 +944,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2116,
+      "pass": 2120,
       "fail": 0,
       "skip": 59,
       "crash": 0
     },
     "device": {
-      "pass": 2131,
+      "pass": 2141,
       "fail": 0,
       "skip": 38,
       "crash": 0

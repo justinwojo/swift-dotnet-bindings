@@ -210,10 +210,6 @@ jobs:
           --tier 2 --timeout 90 --skip-regen
           --step-timeout 1140
 
-      - name: Validate blast radius
-        timeout-minutes: 10
-        run: dotnet nuke validate-blast-radius
-
       - name: Upload simulator diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -223,18 +219,26 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # --- Release ---
+  # --- Pack release packages (parallel to validation gates) ---
+  # Moved out of the publish job so packing runs alongside bindingtests
+  # instead of after it. Publishing still gates on bindingtests passing,
+  # but the 6+ minute pack no longer sits on the critical path tail.
 
-  release:
-    name: Release
+  release-pack:
+    name: Pack release packages
+    needs: [validate-branch]
     runs-on: macos-26
-    needs: [validate-branch, build-and-test, bindingtests]
-    environment: nuget-publish
+    outputs:
+      lane: ${{ steps.version.outputs.lane }}
+      sdk_version: ${{ steps.version.outputs.sdk_version }}
+      apple_version: ${{ steps.version.outputs.apple_version }}
+      is_dryrun: ${{ steps.version.outputs.is_dryrun }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Resolve versions falls back to latest sdk-v*/apple-v* tag
 
       - name: Select Xcode 26.3
         run: sudo xcode-select -s /Applications/Xcode_26.3.app
@@ -249,6 +253,13 @@ jobs:
 
       - name: Restore Nuke tool
         run: dotnet tool restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
 
       - name: Resolve versions
         id: version
@@ -394,13 +405,81 @@ jobs:
           path: artifacts/*.nupkg
           retention-days: 30
 
+  # --- Blast-radius gate (parallel to bindingtests) ---
+  # The script reads otool/nm/strings against locally-built Swift.Runtime +
+  # Swift.Bindings.Apple, with no data dependency on the BindingTests
+  # generator pipeline. Moved out of bindingtests so its ~3m no longer
+  # extends the longest-running job.
+
+  blast-radius:
+    name: Validate blast radius
+    needs: [validate-branch]
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.3
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install workloads
+        run: dotnet workload restore
+
+      - name: Restore Nuke tool
+        run: dotnet tool restore
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-
+
+      - name: Validate blast radius
+        timeout-minutes: 10
+        run: dotnet nuke validate-blast-radius
+
+  # --- Publish (gated by all validation jobs + pack) ---
+
+  publish-release:
+    name: Publish release
+    runs-on: macos-26
+    needs:
+      - validate-branch
+      - build-and-test
+      - bindingtests
+      - blast-radius
+      - release-pack
+    environment: nuget-publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Download release packages
+        uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: artifacts
+
       - name: Publish to NuGet
-        if: steps.version.outputs.is_dryrun == 'false'
+        if: needs.release-pack.outputs.is_dryrun == 'false'
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
-          LANE: ${{ steps.version.outputs.lane }}
-          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
-          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
+          LANE: ${{ needs.release-pack.outputs.lane }}
+          SDK_VERSION: ${{ needs.release-pack.outputs.sdk_version }}
+          APPLE_VERSION: ${{ needs.release-pack.outputs.apple_version }}
         run: |
           PKGS=()
           case "$LANE" in
@@ -426,11 +505,11 @@ jobs:
       - name: Create git tags
         # Each lane gets its own tag stream. Combined releases push both;
         # lane-only releases push only the advancing lane's tag.
-        if: steps.version.outputs.is_dryrun == 'false'
+        if: needs.release-pack.outputs.is_dryrun == 'false'
         env:
-          LANE: ${{ steps.version.outputs.lane }}
-          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
-          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
+          LANE: ${{ needs.release-pack.outputs.lane }}
+          SDK_VERSION: ${{ needs.release-pack.outputs.sdk_version }}
+          APPLE_VERSION: ${{ needs.release-pack.outputs.apple_version }}
         run: |
           push_tag() {
             local tag="$1"
@@ -450,7 +529,7 @@ jobs:
           esac
 
       - name: Generate release notes
-        if: steps.version.outputs.is_dryrun == 'false'
+        if: needs.release-pack.outputs.is_dryrun == 'false'
         env:
           # Grok 4-1 was retired upstream. The prompt + Python below is kept
           # intact for a future provider swap (Grok 4.3 non-reasoning, GPT,
@@ -461,9 +540,9 @@ jobs:
           # GitHub auto-generated notes.
           ENABLE_LLM_RELEASE_NOTES: 'false'
           XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          LANE: ${{ steps.version.outputs.lane }}
-          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
-          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
+          LANE: ${{ needs.release-pack.outputs.lane }}
+          SDK_VERSION: ${{ needs.release-pack.outputs.sdk_version }}
+          APPLE_VERSION: ${{ needs.release-pack.outputs.apple_version }}
         run: |
           if [ "$ENABLE_LLM_RELEASE_NOTES" != "true" ]; then
             echo "LLM release-notes generation disabled."
@@ -678,12 +757,12 @@ jobs:
           PYEOF
 
       - name: Create GitHub Release
-        if: steps.version.outputs.is_dryrun == 'false'
+        if: needs.release-pack.outputs.is_dryrun == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          LANE: ${{ steps.version.outputs.lane }}
-          SDK_VERSION: ${{ steps.version.outputs.sdk_version }}
-          APPLE_VERSION: ${{ steps.version.outputs.apple_version }}
+          LANE: ${{ needs.release-pack.outputs.lane }}
+          SDK_VERSION: ${{ needs.release-pack.outputs.sdk_version }}
+          APPLE_VERSION: ${{ needs.release-pack.outputs.apple_version }}
         run: |
           # The release attaches to the lane tag that's actually advancing.
           # Combined releases anchor on the SDK tag; the apple-v tag sits on
@@ -712,7 +791,7 @@ jobs:
             notes_args=(--notes-file RELEASE-NOTES.md)
           fi
           prerelease_args=()
-          if [ "${{ steps.version.outputs.is_prerelease }}" = "true" ]; then
+          if [ "${{ needs.release-pack.outputs.is_prerelease }}" = "true" ]; then
             prerelease_args=(--prerelease)
           fi
 
