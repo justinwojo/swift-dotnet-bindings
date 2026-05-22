@@ -80,6 +80,7 @@ public sealed class InterfaceFactsAggregator
             AvailabilityAnnotations = Pick(results, InterfaceFactKind.AvailabilityAnnotations, p => p.AvailabilityAnnotations, empty.AvailabilityAnnotations),
             DefaultParameterValues = Pick(results, InterfaceFactKind.DefaultParameterValues, p => p.DefaultParameterValues, empty.DefaultParameterValues),
             AutoclosureParameters = Pick(results, InterfaceFactKind.AutoclosureParameters, p => p.AutoclosureParameters, empty.AutoclosureParameters),
+            ConstLiteralParameters = Pick(results, InterfaceFactKind.ConstLiteralParameters, p => p.ConstLiteralParameters, empty.ConstLiteralParameters),
             SubscriptLabels = Pick(results, InterfaceFactKind.SubscriptLabels, p => p.SubscriptLabels, empty.SubscriptLabels),
             VariadicMembers = Pick(results, InterfaceFactKind.VariadicMembers, p => p.VariadicMembers, empty.VariadicMembers),
             ConventionCProtocols = Pick(results, InterfaceFactKind.ConventionCProtocols, p => p.ConventionCProtocols, empty.ConventionCProtocols),

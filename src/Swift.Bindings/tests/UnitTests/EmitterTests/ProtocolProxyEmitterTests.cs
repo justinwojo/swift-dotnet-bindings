@@ -1101,7 +1101,12 @@ public class ProtocolProxyEmitterTests
     {
         // Protocol compositions produce a combined interface name (IP1AndP2) via
         // ExistentialHandler.GetCompositionInterfaceName. The factory routes through
-        // ExistentialProjection which uses GetPublicExistentialType.
+        // ExistentialProjection which uses GetPublicExistentialType. Both protocols
+        // must be registered in the TypeDatabase — the multi-protocol path's
+        // AllProtocolsHaveTypeRecords gate collapses to `object` otherwise so we
+        // don't emit unresolvable interface references for marker/suppressed protocols.
+        RegisterProtocol("P1");
+        RegisterProtocol("P2");
         var protocolDecl = CreateSimpleProtocol("ExistentialProtocol");
         protocolDecl.Properties.Add(new PropertyDecl
         {

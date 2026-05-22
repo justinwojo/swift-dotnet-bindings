@@ -1024,6 +1024,7 @@ internal static class ProtocolConformanceHelper
                             var resolvedSelfModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
                             var baseName = NameProvider.GetInterfaceName(conformance.Protocol.Name,
                                 typeNameWithGenerics, resolvedSelfModule, moduleName);
+                            baseName = QualifyNestedProtocolInterface(baseName, conformance.Protocol);
                             var genericIface = $"{baseName}<{typeNameWithGenerics}>";
                             if (emitted.Add(genericIface))
                             {
@@ -1037,6 +1038,7 @@ internal static class ProtocolConformanceHelper
 
                 var resolvedModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
                 var iface = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeNameWithGenerics, resolvedModule, moduleName);
+                iface = QualifyNestedProtocolInterface(iface, conformance.Protocol);
                 if (emitted.Add(iface))
                 {
                     interfaces.Add(iface);
@@ -1099,6 +1101,7 @@ internal static class ProtocolConformanceHelper
                 var resolvedModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
                 var baseName = NameProvider.GetInterfaceName(
                     conformance.Protocol.Name, typeNameWithGenerics, resolvedModule, moduleName);
+                baseName = QualifyNestedProtocolInterface(baseName, conformance.Protocol);
                 var closedIface = $"{baseName}<{string.Join(", ", bindings)}>";
                 if (emitted.Add(closedIface))
                 {
@@ -1185,6 +1188,7 @@ internal static class ProtocolConformanceHelper
                         // so we only filter the parent's exact instantiation.
                         var resolvedProtocolModule = ResolveProtocolEmissionModule(protocolName, typeDatabase);
                         var iface = NameProvider.GetInterfaceName(protocolName.Name, parentName, resolvedProtocolModule, currentModuleName);
+                        iface = QualifyNestedProtocolInterface(iface, protocolName);
                         result.Add(iface);
                     }
                 }
@@ -1243,6 +1247,7 @@ internal static class ProtocolConformanceHelper
 
             var resolvedProtocolModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
             var protocol = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, resolvedProtocolModule, moduleName);
+            protocol = QualifyNestedProtocolInterface(protocol, conformance.Protocol);
             var protocolConformanceSymbol = conformance.ProtocolConformanceDescriptor;
 
             // Skip empty conformance symbols — an empty string would crash at runtime
@@ -1313,19 +1318,7 @@ internal static class ProtocolConformanceHelper
                 continue;
             var resolvedConformanceModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
             var ifaceName = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, resolvedConformanceModule, moduleName);
-
-            // Qualify nested protocol interfaces for module-level registration.
-            // A nested protocol has 3+ parts in its ModuleQualifiedName (Module.Parent.Protocol).
-            // The middle parts are parent type names that must prefix the C# interface name.
-            var mqn = conformance.Protocol.ModuleQualifiedName;
-            var parts = mqn.Split('.');
-            if (parts.Length >= 3)
-            {
-                // Extract parent type names (everything between module and protocol name)
-                var parentPrefix = string.Join(".", parts.Skip(1).Take(parts.Length - 2));
-                ifaceName = $"{parentPrefix}.{ifaceName}";
-            }
-
+            ifaceName = QualifyNestedProtocolInterface(ifaceName, conformance.Protocol);
             names.Add(ifaceName);
         }
 
@@ -1390,6 +1383,35 @@ internal static class ProtocolConformanceHelper
                 return ns;
         }
         return protocolTypeName.Module;
+    }
+
+    /// <summary>
+    /// Prepends the nested-parent type path (e.g. "AssistantSchemas.") onto an
+    /// already-I-prefixed interface name when the protocol is nested inside one
+    /// or more parent types under its declaring module. Nested protocols emit
+    /// inside their parent's C# namespace facade or nested class scope, so a
+    /// bare <c>IFoo</c> reference from a sibling type scope (e.g. a singular
+    /// umbrella struct that mirrors the plural namespace facade in AppIntents
+    /// 0.12 <c>AssistantSchemas</c>) is unresolvable. Returns the original
+    /// name unchanged for non-nested protocols.
+    /// </summary>
+    internal static string QualifyNestedProtocolInterface(string ifaceName, SwiftTypeName protocolTypeName)
+    {
+        // ModuleQualifiedName parts: Module . [Parent...] . ProtocolLeaf
+        // A nested protocol has 3+ parts; the middle ones are the parent type names.
+        var parts = protocolTypeName.ModuleQualifiedName.Split('.');
+        if (parts.Length < 3)
+            return ifaceName;
+        var parentPrefix = string.Join(".", parts.Skip(1).Take(parts.Length - 2));
+        // `ifaceName` may already be cross-module qualified by NameProvider
+        // (e.g. "OtherModule.IFoo"). The parent type prefix must sit BETWEEN
+        // the module namespace and the leaf interface name — prepending the
+        // whole string would produce "Parent.OtherModule.IFoo" which is
+        // unresolvable. Bare names (no dot) take the prefix at the front.
+        var lastDot = ifaceName.LastIndexOf('.');
+        if (lastDot < 0)
+            return $"{parentPrefix}.{ifaceName}";
+        return $"{ifaceName.Substring(0, lastDot)}.{parentPrefix}.{ifaceName.Substring(lastDot + 1)}";
     }
 
     internal static bool ShouldEmitConformance(TypeConformance conformance, string moduleName, ITypeDatabase typeDatabase)

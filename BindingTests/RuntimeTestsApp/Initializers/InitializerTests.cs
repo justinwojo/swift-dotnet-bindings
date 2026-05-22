@@ -169,4 +169,20 @@ public class InitializerTests : TestBase
     }
 
     #endregion
+
+    #region ConstLiteralBox (_const-parameter init filter)
+
+    // The wrapper-emit filter must drop @_cdecl wrappers for `_const` inits
+    // (the wrapper passes a runtime variable through and Swift rejects it).
+    // The regular (Int32, Int32) init must still get a wrapper and round-trip.
+    // Type compilation is the primary gate — without the filter, the Wrapper.swift
+    // file would fail to compile with "expect a compile-time constant literal".
+    public void TestConstLiteralBoxRegularInitReachable()
+    {
+        var box = new ConstLiteralBox(3, 11);
+        AssertEqual(3, (int)box.Lo, "Regular init sets Lo");
+        AssertEqual(11, (int)box.Hi, "Regular init sets Hi");
+    }
+
+    #endregion
 }

@@ -104,6 +104,16 @@ namespace BindingsGeneration
         public bool IsProtocolRequirement { get; set; } = false;
 
         /// <summary>
+        /// Whether this property is defined in a Swift extension (isFromExtension in ABI JSON).
+        /// Mirrors <see cref="MethodDecl.IsExtensionMethod"/>. When a property is both
+        /// <c>IsFromExtension</c> and not <c>IsProtocolRequirement</c>, it is a protocol-extension
+        /// default (often <c>@_alwaysEmitIntoClient</c>) that is inlined at the Swift call site
+        /// and is NOT part of the protocol's abstract contract — conforming types must not be
+        /// required to implement it.
+        /// </summary>
+        public bool IsFromExtension { get; set; } = false;
+
+        /// <summary>
         /// Setter-specific availability annotations when the setter is restricted to a
         /// newer platform than the property getter. Read from the ABI JSON's
         /// <c>intro_iOS</c>/<c>intro_Macosx</c>/etc. fields on the set accessor node and

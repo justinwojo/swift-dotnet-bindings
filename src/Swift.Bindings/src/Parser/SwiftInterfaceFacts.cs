@@ -103,6 +103,17 @@ namespace BindingsGeneration
         /// Key: "QualifiedType.printedName". Value: index-aligned list of booleans.</summary>
         public required Dictionary<string, List<bool>> AutoclosureParameters { get; init; }
 
+        /// <summary>Per-method <c>_const</c> (compile-time-constant) parameter flags.
+        /// Key: "QualifiedType.printedName" or bare printedName for free functions.
+        /// Value: index-aligned list of booleans — <c>true</c> for parameters declared with
+        /// the <c>_const</c> modifier in the swiftinterface (e.g.,
+        /// <c>init(min: _const Swift.Int, max: _const Swift.Int)</c>). The ABI JSON strips
+        /// the annotation; the swiftinterface is the only source. Wrapper emitters reject
+        /// any member with a <c>_const</c> parameter because the @_cdecl boundary passes
+        /// runtime values and Swift would reject the call with
+        /// "expect a compile-time constant literal".</summary>
+        public required Dictionary<string, List<bool>> ConstLiteralParameters { get; init; }
+
         /// <summary>Subscript external labels. Key: "TypeName.subscript(label1:label2:)"
         /// (e.g., "AES.subscript(bitAt:)"). Value: list of external labels (e.g.,
         /// <c>["bitAt"]</c>).</summary>
@@ -299,6 +310,7 @@ namespace BindingsGeneration
             AvailabilityAnnotations = new Dictionary<string, List<AvailabilityAnnotation>>(),
             DefaultParameterValues = new Dictionary<string, List<string?>>(),
             AutoclosureParameters = new Dictionary<string, List<bool>>(),
+            ConstLiteralParameters = new Dictionary<string, List<bool>>(),
             SubscriptLabels = new Dictionary<string, List<string>>(),
             VariadicMembers = new HashSet<string>(),
             ConventionCProtocols = new HashSet<string>(),

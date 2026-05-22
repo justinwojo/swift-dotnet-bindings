@@ -1786,6 +1786,85 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    // ===== ExtractConstLiteralFlags / GetConstLiteralParameters Tests =====
+
+    [Fact]
+    public void ExtractConstLiteralFlags_TwoConstInts()
+    {
+        // The AppIntents 0.12.0 IntentCollectionSize shape.
+        var line = "public init(min: _const Swift.Int, max: _const Swift.Int)";
+        var flags = SwiftInterfaceAccessParser.ExtractConstLiteralFlags(line);
+        Assert.NotNull(flags);
+        Assert.Equal(2, flags!.Count);
+        Assert.True(flags[0]);
+        Assert.True(flags[1]);
+    }
+
+    [Fact]
+    public void ExtractConstLiteralFlags_SingleConstInt()
+    {
+        var line = "public init(exactly: _const Swift.Int)";
+        var flags = SwiftInterfaceAccessParser.ExtractConstLiteralFlags(line);
+        Assert.NotNull(flags);
+        Assert.Single(flags!);
+        Assert.True(flags[0]);
+    }
+
+    [Fact]
+    public void ExtractConstLiteralFlags_MixedRequiredAndDefaulted()
+    {
+        // _const can sit on defaulted params too; the modifier still requires literal.
+        var line = "public func go(id: _const Swift.String, mode: _const AppIntents.Mode = .default, count: Swift.Int)";
+        var flags = SwiftInterfaceAccessParser.ExtractConstLiteralFlags(line);
+        Assert.NotNull(flags);
+        Assert.Equal(3, flags!.Count);
+        Assert.True(flags[0]);
+        Assert.True(flags[1]);
+        Assert.False(flags[2]);
+    }
+
+    [Fact]
+    public void ExtractConstLiteralFlags_NoConst_ReturnsNull()
+    {
+        var line = "public init(min: Swift.Int, max: Swift.Int)";
+        var flags = SwiftInterfaceAccessParser.ExtractConstLiteralFlags(line);
+        Assert.Null(flags);
+    }
+
+    [Fact]
+    public void ExtractConstLiteralFlags_PrefixGuardRejectsIdentifierStartingWith_const()
+    {
+        // Hypothetical: a parameter with type "_constant" must NOT be treated as _const.
+        // The modifier is recognised only when followed by a space; an identifier
+        // starting with "_const" (no space) is a different type name.
+        var line = "public func go(x: _constant)";
+        var flags = SwiftInterfaceAccessParser.ExtractConstLiteralFlags(line);
+        Assert.Null(flags);
+    }
+
+    [Fact]
+    public void GetConstLiteralParameters_ExtractsFromSwiftInterface()
+    {
+        var swiftInterface = """
+            public struct IntentCollectionSize : Swift.ExpressibleByIntegerLiteral, Swift.Equatable {
+              public init(min: _const Swift.Int, max: _const Swift.Int)
+              public init(exactly: _const Swift.Int)
+              public init(integerLiteral value: Swift.Int)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetConstLiteralParameters(path);
+            Assert.True(result.ContainsKey("IntentCollectionSize.init(min:max:)"));
+            Assert.True(result.ContainsKey("IntentCollectionSize.init(exactly:)"));
+            Assert.False(result.ContainsKey("IntentCollectionSize.init(integerLiteral:)"));
+            Assert.Equal(new List<bool> { true, true }, result["IntentCollectionSize.init(min:max:)"]);
+            Assert.Equal(new List<bool> { true }, result["IntentCollectionSize.init(exactly:)"]);
+        }
+        finally { File.Delete(path); }
+    }
+
     // ===== GetActorIsolatedMembers with Custom Actors Tests =====
 
     [Fact]

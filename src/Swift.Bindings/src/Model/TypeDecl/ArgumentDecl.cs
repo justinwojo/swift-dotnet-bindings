@@ -49,6 +49,18 @@ namespace BindingsGeneration
         public string? CSharpName { get; set; }
 
         /// <summary>
+        /// Indicates the parameter is declared with Swift's <c>_const</c> modifier, requiring
+        /// the caller to pass a compile-time-constant literal (e.g.
+        /// <c>init(min: _const Swift.Int, max: _const Swift.Int)</c>). ABI JSON strips this;
+        /// the swiftinterface is the only source. Set via
+        /// <c>SwiftABIParser.ApplyMemberConstLiteralFlags</c> from
+        /// <see cref="SwiftInterfaceFacts.ConstLiteralParameters"/>. Wrapper emitters reject
+        /// any member with a <c>_const</c> parameter because the @_cdecl boundary passes a
+        /// runtime value and Swift rejects the call.
+        /// </summary>
+        public bool IsConstLiteral { get; set; } = false;
+
+        /// <summary>
         /// Subscript-only: true when the Swift source had no external argument label at this
         /// position (i.e. the declaration used <c>subscript(name: T)</c> or <c>subscript(_ name: T)</c>).
         /// Set by the ABI parser at the synthetic <c>index{i}</c> injection points. Emitters use

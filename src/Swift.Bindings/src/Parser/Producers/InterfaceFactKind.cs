@@ -50,13 +50,19 @@ public enum InterfaceFactKind
     // SDK 0.11.0 R2 — SPI-only conformances harvested from *.private.swiftinterface so
     // wrapper emission can drop conformances that vanish under a plain (non-@_spi) import.
     SpiOnlyConformances,
+    // Per-parameter `_const` annotation. Swift's `@_const` / `_const` parameter modifier
+    // requires the caller to pass a compile-time-constant literal. The runtime @_cdecl
+    // wrapper cannot satisfy that — it receives a runtime value — so wrapper emission
+    // must skip any member with a `_const` parameter. ABI JSON strips this annotation;
+    // the swiftinterface is the only source.
+    ConstLiteralParameters,
 }
 
 internal static class InterfaceFactKindHelpers
 {
-    /// <summary>All fact kinds (24 + 3 added in M2 S4 + 1 SPI-only conformances in 0.11.0 R2).
-    /// Used by RegexProducer to declare full coverage and by tests asserting 1:1 alignment
-    /// with <see cref="SwiftInterfaceFacts"/>.</summary>
+    /// <summary>All fact kinds (24 + 3 added in M2 S4 + 1 SPI-only conformances in 0.11.0 R2 +
+    /// 1 const-literal parameters in 0.12.0). Used by RegexProducer to declare full coverage
+    /// and by tests asserting 1:1 alignment with <see cref="SwiftInterfaceFacts"/>.</summary>
     internal static readonly HashSet<InterfaceFactKind> AllFactKinds = new(
         System.Enum.GetValues<InterfaceFactKind>());
 }

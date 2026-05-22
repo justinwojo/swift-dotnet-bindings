@@ -639,6 +639,72 @@ public class TypeHandlerHelpersTests
 
     #endregion
 
+    #region QualifyNestedProtocolInterface Tests
+
+    [Fact]
+    public void QualifyNestedProtocolInterface_TopLevelProtocol_ReturnsUnchanged()
+    {
+        // Same-module top-level: NameProvider already returned "IFoo", no parent
+        // path to insert. Module-qualified name has only 2 parts (Module.Leaf).
+        var protoName = SwiftTypeName.FromModuleQualifiedName("MyModule.Foo");
+        var result = ProtocolConformanceHelper.QualifyNestedProtocolInterface("IFoo", protoName);
+        Assert.Equal("IFoo", result);
+    }
+
+    [Fact]
+    public void QualifyNestedProtocolInterface_SameModuleNested_PrependsParentPath()
+    {
+        // AssistantSchemas.BooksEnum case — protocol nested inside a parent type
+        // in the current module. NameProvider returned bare "IBooksEnum"; the
+        // helper inserts the parent type's name so callers in sibling scopes
+        // (e.g. the singular umbrella struct) can resolve it.
+        var protoName = SwiftTypeName.FromModuleQualifiedName("AppIntents.AssistantSchemas.BooksEnum");
+        var result = ProtocolConformanceHelper.QualifyNestedProtocolInterface("IBooksEnum", protoName);
+        Assert.Equal("AssistantSchemas.IBooksEnum", result);
+    }
+
+    [Fact]
+    public void QualifyNestedProtocolInterface_SameModuleDeeplyNested_PrependsFullParentPath()
+    {
+        // A.B.C.P: the middle two parts (B and C) are the parent chain.
+        var protoName = SwiftTypeName.FromModuleQualifiedName("Mod.A.B.C.P");
+        var result = ProtocolConformanceHelper.QualifyNestedProtocolInterface("IP", protoName);
+        Assert.Equal("A.B.C.IP", result);
+    }
+
+    [Fact]
+    public void QualifyNestedProtocolInterface_CrossModuleTopLevel_ReturnsUnchanged()
+    {
+        // Cross-module top-level: NameProvider already returned "OtherModule.IFoo".
+        // The helper sees only 2 parts in the MQN (Module.Leaf) and returns the
+        // namespaced name as-is.
+        var protoName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Foo");
+        var result = ProtocolConformanceHelper.QualifyNestedProtocolInterface("OtherModule.IFoo", protoName);
+        Assert.Equal("OtherModule.IFoo", result);
+    }
+
+    [Fact]
+    public void QualifyNestedProtocolInterface_CrossModuleNested_InsertsParentBetweenNamespaceAndLeaf()
+    {
+        // The regression Codex flagged: a cross-module nested protocol must put
+        // the parent type path BETWEEN the C# namespace prefix and the leaf
+        // interface name, not in front of the whole string. Prepending naively
+        // would produce "Parent.OtherModule.IFoo" which is unresolvable.
+        var protoName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Parent.Foo");
+        var result = ProtocolConformanceHelper.QualifyNestedProtocolInterface("OtherModule.IFoo", protoName);
+        Assert.Equal("OtherModule.Parent.IFoo", result);
+    }
+
+    [Fact]
+    public void QualifyNestedProtocolInterface_CrossModuleDeeplyNested_InsertsFullParentChain()
+    {
+        var protoName = SwiftTypeName.FromModuleQualifiedName("OtherModule.A.B.P");
+        var result = ProtocolConformanceHelper.QualifyNestedProtocolInterface("OtherModule.IP", protoName);
+        Assert.Equal("OtherModule.A.B.IP", result);
+    }
+
+    #endregion
+
     #region IExistentialBoxable Interface Tests
 
     [Fact]

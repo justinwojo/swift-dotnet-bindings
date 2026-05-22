@@ -1199,6 +1199,26 @@ public class ExistentialHandlerTests
     }
 
     [Fact]
+    public void EffectiveProtocolsHaveTypeRecords_ObjCBridgedAndKnownProtocol_ReturnsTrue()
+    {
+        // ObjC-bridged participants are filtered out of the emitted composition
+        // (GetCompositionInterfaceName uses GetEffectiveProtocols), so the gate
+        // used by GetPublicExistentialType must mirror that. Without this, a
+        // bare `NSCoding & STPAnalyticsClientProtocol` composition would
+        // collapse to `object` instead of emitting as `ISTPAnalyticsClientProtocol`.
+        var db = new MockTypeDatabaseWithProtocol("StripeCore", "STPAnalyticsClientProtocol");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("Foundation.NSCoding"),
+            new NamedTypeSpec("StripeCore.STPAnalyticsClientProtocol")
+        });
+
+        Assert.True(handler.EffectiveProtocolsHaveTypeRecords(protocolList));
+        Assert.Equal("ISTPAnalyticsClientProtocol", handler.GetPublicExistentialType(protocolList));
+    }
+
+    [Fact]
     public void TryGetFilteredProxyClassName_SendableAndCodable_ReturnsCodableProxy()
     {
         var protocolList = new ProtocolListTypeSpec(new[]

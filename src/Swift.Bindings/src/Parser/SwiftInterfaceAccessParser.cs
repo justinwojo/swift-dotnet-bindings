@@ -4655,6 +4655,143 @@ public static class SwiftInterfaceAccessParser
     }
 
     /// <summary>
+    /// Parses <c>_const</c> parameter annotations from a .swiftinterface file.
+    /// Swift's <c>_const</c> modifier (e.g., <c>init(min: _const Swift.Int, max: _const Swift.Int)</c>)
+    /// requires the caller to pass a compile-time-constant literal. The runtime
+    /// <c>@_cdecl</c> wrapper passes runtime values, so any wrapper for such a member
+    /// fails compilation with "expect a compile-time constant literal".
+    /// <para/>
+    /// Returns a dictionary mapping qualified member keys (e.g.,
+    /// <c>"AppIntents.IntentCollectionSize.init(min:max:)"</c>) to index-aligned lists
+    /// of booleans — <c>true</c> for parameters with <c>_const</c>. The dictionary only
+    /// contains members where at least one parameter is <c>_const</c>; callers should
+    /// treat a missing key as "no const-literal params."
+    /// </summary>
+    public static Dictionary<string, List<bool>> GetConstLiteralParameters(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<bool>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+        var tracker = new SwiftInterfaceContextTracker();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var kind = tracker.ProcessLine(trimmed, line);
+
+            bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.FreeFunctionLine ||
+                              (kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                               tracker.TypeDepth == 0 &&
+                               SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null);
+
+            if (isMember || isFreeFunc)
+            {
+                var memberText = tracker.CompletedMultiLine ?? trimmed;
+                var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText);
+                if (printedName != null)
+                {
+                    var flags = ExtractConstLiteralFlags(memberText);
+                    if (flags != null && flags.Any(f => f))
+                    {
+                        var key = tracker.BuildMemberKey(printedName);
+                        result[key] = flags;
+                    }
+                }
+                tracker.ConsumePendingAnnotations();
+            }
+            else if (kind == SwiftInterfaceContextTracker.LineKind.TypeDeclaration ||
+                     kind == SwiftInterfaceContextTracker.LineKind.ExtensionDeclaration)
+            {
+                tracker.ConsumePendingAnnotations();
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts <c>_const</c> parameter flags from a function/init declaration line.
+    /// Returns a list index-aligned with parameters — <c>true</c> for params declared
+    /// with the <c>_const</c> modifier (the type portion after the colon starts with
+    /// <c>_const </c>). Returns <c>null</c> if the line has no parameter list.
+    /// </summary>
+    internal static List<bool>? ExtractConstLiteralFlags(string memberLine)
+    {
+        // Mirrors ExtractAutoclosureFlags shape — locate the func/init's parameter list,
+        // split parameters at top level, and inspect the type portion after each colon.
+        string? funcName = null;
+        var funcMatch = AnyFuncRegex.Match(memberLine);
+        if (funcMatch.Success)
+            funcName = funcMatch.Groups[1].Value;
+        else if (AnyInitRegex.IsMatch(memberLine))
+            funcName = "init";
+        else
+            return null;
+
+        var funcNameIdx = memberLine.IndexOf($" {funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($"{funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName}<", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            return null;
+
+        var parenStart = memberLine.IndexOf('(', funcNameIdx);
+        if (parenStart < 0)
+            return null;
+
+        int depth = 0, parenEnd = parenStart;
+        for (int i = parenStart; i < memberLine.Length; i++)
+        {
+            if (memberLine[i] == '(') depth++;
+            if (memberLine[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { parenEnd = i; break; }
+            }
+        }
+
+        if (parenEnd == parenStart)
+            return null;
+
+        var paramStr = memberLine.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return null;
+
+        var parts = SplitParameters(paramStr);
+        var flags = new List<bool>();
+        bool hasAny = false;
+
+        foreach (var part in parts)
+        {
+            var trimmedPart = part.Trim();
+            var colonIdx = FindTopLevelColon(trimmedPart);
+            if (colonIdx >= 0)
+            {
+                var typeStr = trimmedPart.Substring(colonIdx + 1).TrimStart();
+                // The `_const` modifier sits immediately before the type name in
+                // .swiftinterface output, e.g. ": _const Swift.Int = 0". Use a prefix
+                // check to avoid matching identifiers like `_constant`.
+                bool isConst = typeStr.StartsWith("_const ", StringComparison.Ordinal);
+                flags.Add(isConst);
+                if (isConst) hasAny = true;
+            }
+            else
+            {
+                flags.Add(false);
+            }
+        }
+
+        return hasAny ? flags : null;
+    }
+
+    /// <summary>
     /// Parses a .swiftinterface file and returns a set of "TypeName.printedName" keys
     /// for members that have variadic parameters (e.g., `_ prefixes: String...`).
     /// The ABI JSON represents variadic params as Array&lt;T&gt;, making them indistinguishable

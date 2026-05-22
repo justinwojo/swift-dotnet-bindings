@@ -613,7 +613,22 @@ public class ExistentialHandler
             return interfaceName;
         }
 
-        // Multi-protocol: generate combined interface name
+        // Multi-protocol: require every effective protocol to have an emitted C# interface.
+        // Marker / underscore-prefixed protocols sometimes lack a TypeRecord (the ABI digester
+        // omits them, or the emitter suppresses them), so a bare composition like
+        // `I_FooMarkerAnd_BarMarker` would reference interfaces that don't exist. Collapse to
+        // `object` rather than emitting unresolvable CS0246 references — matches the single-
+        // protocol path's TypeRecord gate above.
+        //
+        // Mirror GetCompositionInterfaceName's `GetEffectiveProtocols` set so a mixed
+        // `ObjCProtocol & SwiftProtocol` composition (where the ObjC participant is filtered
+        // and only the Swift one is emitted) is not over-broadly collapsed to `object` just
+        // because the ObjC participant has no TypeRecord. We do this inline rather than
+        // changing AllProtocolsHaveTypeRecords semantics: that predicate is also used by
+        // many marshalling-decision callsites that depend on the non-marker semantics.
+        if (!EffectiveProtocolsHaveTypeRecords(protocolList))
+            return "object";
+
         return GetCompositionInterfaceName(protocolList);
     }
 
@@ -853,6 +868,39 @@ public class ExistentialHandler
     /// Checks whether ALL protocols in a composition have TypeRecords with Kind == Protocol.
     /// Returns false if any protocol is unknown/unregistered or not a Protocol kind.
     /// </summary>
+    /// <summary>
+    /// Like <see cref="AllProtocolsHaveTypeRecords"/> but operates on the same
+    /// <see cref="GetEffectiveProtocols"/> set that <see cref="GetCompositionInterfaceName"/> uses —
+    /// ObjC-bridged protocols are dropped before the TypeRecord check. Used by
+    /// <see cref="GetPublicExistentialType"/> so a mixed `ObjCProtocol &amp; SwiftProtocol`
+    /// composition is not over-broadly collapsed to `object`.
+    /// </summary>
+    public bool EffectiveProtocolsHaveTypeRecords(ProtocolListTypeSpec protocolList)
+    {
+        if (protocolList.Protocols.Count == 0)
+            return false;
+
+        var effective = GetEffectiveProtocols(protocolList);
+        if (effective.Count == 0)
+            return true; // Pure-marker / pure-ObjC composition — handled downstream
+
+        foreach (var protocol in effective)
+        {
+            try
+            {
+                var swiftTypeName = SwiftTypeName.FromTypeSpec(protocol);
+                if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var typeRecord) ||
+                    typeRecord.Kind != TypeRecordKind.Protocol)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public bool AllProtocolsHaveTypeRecords(ProtocolListTypeSpec protocolList)
     {
         if (protocolList.Protocols.Count == 0)

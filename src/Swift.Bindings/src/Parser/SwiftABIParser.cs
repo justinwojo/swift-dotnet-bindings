@@ -529,6 +529,40 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Applies <c>_const</c> parameter flags from swiftinterface data to method parameters.
+        /// The runtime @_cdecl wrapper passes runtime values; Swift rejects const-literal
+        /// parameter calls with "expect a compile-time constant literal", so downstream
+        /// emitters consult <see cref="ArgumentDecl.IsConstLiteral"/> to skip wrapper
+        /// emission for the affected member. The annotation lives in the swiftinterface
+        /// only — ABI JSON strips it.
+        /// </summary>
+        private void ApplyMemberConstLiteralFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        {
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            if (!_facts.ConstLiteralParameters.TryGetValue(key, out var flags))
+                return;
+            ApplyConstLiteralFlagsToSignature(methodDecl, flags);
+        }
+
+        private void ApplyFreeFunctionConstLiteralFlags(MethodDecl methodDecl, string printedName)
+        {
+            if (!_facts.ConstLiteralParameters.TryGetValue(printedName, out var flags))
+                return;
+            ApplyConstLiteralFlagsToSignature(methodDecl, flags);
+        }
+
+        private static void ApplyConstLiteralFlagsToSignature(MethodDecl methodDecl, List<bool> flags)
+        {
+            // CSSignature[0] is the return type, [1..] are parameters.
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var argIdx = i - 1;
+                if (argIdx < flags.Count && flags[argIdx])
+                    methodDecl.CSSignature[i].IsConstLiteral = true;
+            }
+        }
+
+        /// <summary>
         /// Checks if a member is unconditionally unavailable from swiftinterface availability annotations.
         /// Only returns true for truly unconditional `@available(*, unavailable)` annotations. A
         /// per-platform form like `@available(watchOS, unavailable)` parses into an annotation with
@@ -965,8 +999,32 @@ namespace BindingsGeneration
                 _moduleTypes.TryAdd(new NamedTypeSpec(decl.SwiftTypeName.ModuleQualifiedName), decl);
 
                 var childDecls = CollectDeclarations(node.Children ?? Array.Empty<Node>(), decl, moduleDecl);
-                decl.Properties.AddRange(childDecls.OfType<PropertyDecl>());
-                decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
+
+                // Protocol-extension defaults (isFromExtension=true, protocolReq=false) are NOT
+                // part of the protocol's abstract contract — they're @_alwaysEmitIntoClient or
+                // similar Swift extension bodies that are inlined at call sites. The ABI
+                // digester flattens them into the protocol node's children (e.g., AppIntents'
+                // @_marker protocol BooksEnum has 10 such children, all properties from
+                // `extension BooksEnum { @_alwaysEmitIntoClient public var ... }`). Emitting
+                // them as abstract C# interface requirements causes CS0535 cascades on every
+                // conforming umbrella type (EnumSchema etc.) that doesn't redeclare them.
+                // Filter at the population site so every downstream consumer (interface
+                // emission, EveryProtocol, ProtocolProxy, ConformanceValidator, vtables,
+                // composition wrappers) sees only the real protocol contract. Real extension
+                // defaults that ARE genuine requirements (rare) still flow through because the
+                // filter requires BOTH isFromExtension AND !IsProtocolRequirement.
+                if (decl is ProtocolDecl)
+                {
+                    decl.Properties.AddRange(childDecls.OfType<PropertyDecl>()
+                        .Where(p => !(p.IsFromExtension && !p.IsProtocolRequirement)));
+                    decl.Methods.AddRange(childDecls.OfType<MethodDecl>()
+                        .Where(m => !(m.IsExtensionMethod && !m.IsProtocolRequirement)));
+                }
+                else
+                {
+                    decl.Properties.AddRange(childDecls.OfType<PropertyDecl>());
+                    decl.Methods.AddRange(childDecls.OfType<MethodDecl>());
+                }
                 decl.Types.AddRange(childDecls.OfType<TypeDecl>());
                 decl.Operators.AddRange(childDecls.OfType<OperatorDecl>());
                 decl.Subscripts.AddRange(childDecls.OfType<SubscriptDecl>());
@@ -2024,11 +2082,13 @@ namespace BindingsGeneration
             {
                 ApplyMemberDefaultValues(methodDecl, parentTypeForDefaults, node.PrintedName);
                 ApplyMemberAutoclosureFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
+                ApplyMemberConstLiteralFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
             }
             else
             {
                 ApplyFreeFunctionDefaultValues(methodDecl, node.PrintedName);
                 ApplyFreeFunctionAutoclosureFlags(methodDecl, node.PrintedName);
+                ApplyFreeFunctionConstLiteralFlags(methodDecl, node.PrintedName);
             }
 
             return methodDecl;
@@ -2305,6 +2365,7 @@ namespace BindingsGeneration
                     && Array.IndexOf(node.DeclAttributes, "ObjC") != -1
                     && Array.IndexOf(node.DeclAttributes, "Dynamic") != -1,
                 IsProtocolRequirement = node.protocolReq == true,
+                IsFromExtension = node.isFromExtension == true,
                 Accessors = HandleAccessors(node.Accessors, sanitizedName, parentDecl, moduleDecl)
             };
             // Propagate extension flag to accessor MethodDecls. Extension methods use static

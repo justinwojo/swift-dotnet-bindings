@@ -31,13 +31,13 @@ public class SwiftInterfaceFactsTests
         // either compilation fails (required init property) or this count check trips.
         // 21 fact maps + 3 best-effort source-position maps + 3 M2 S4 non-fact migrations
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
-        // SPI-only conformances harvested from *.private.swiftinterface = 28.
+        // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters = 29.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(28, properties.Count);
+        Assert.Equal(29, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)

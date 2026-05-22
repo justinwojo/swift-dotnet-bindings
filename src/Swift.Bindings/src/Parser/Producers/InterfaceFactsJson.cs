@@ -152,6 +152,14 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("autoclosureParameters")]
     public Dictionary<string, List<bool>>? AutoclosureParameters { get; set; }
 
+    // 0.12.0 — per-parameter `_const` annotation (compile-time constant requirement).
+    // Additive field; the SwiftSyntax host does not yet emit this key — the regex
+    // producer is the source of truth. See InterfaceFactsJson schema-versioning policy:
+    // adding optional fields stays at the current version as long as both ends move
+    // together. Host can pick this up later without a schema bump.
+    [JsonPropertyName("constLiteralParameters")]
+    public Dictionary<string, List<bool>>? ConstLiteralParameters { get; set; }
+
     [JsonPropertyName("subscriptLabels")]
     public Dictionary<string, List<string>>? SubscriptLabels { get; set; }
 

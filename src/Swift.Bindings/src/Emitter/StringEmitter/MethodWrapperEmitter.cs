@@ -105,6 +105,13 @@ public static class MethodWrapperEmitter
         if (env.MethodDecl.HasVariadicParameter)
             return false;
 
+        // 11d. Parameters with Swift's `_const` modifier require a compile-time-constant
+        // literal at the call site. The @_cdecl wrapper would forward a runtime value;
+        // Swift rejects the call with "expect a compile-time constant literal". ABI JSON
+        // strips this annotation — the flag is sourced from the swiftinterface.
+        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsConstLiteral))
+            return false;
+
         // 12. No nested frozen struct parameters
         if (HasNestedFrozenStructParameter(env))
             return false;
