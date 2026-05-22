@@ -94,6 +94,15 @@ public class MemberValidationPipeline
         // to CallConvSwift P/Invoke with the original mangled symbol.
         // No gate needed — variadic Array<T> is handled by existing ArrayProjection.
 
+        // 4b. Variadic generic parameter packs (`each R` / `repeat each R`) — distinct from
+        // (4) which is value-level variadics. Method-level pack parameters appear in
+        // genericSig as type-parameter names like `each R`, which the C# generic-parameter
+        // renderer would otherwise turn into invalid identifiers like `Teach R`. C# has no
+        // parameter-pack equivalent, so the method is unbindable at signature level.
+        if (methodDecl.GenericParameters.Any(GenericTypeEmitter.IsVariadicGenericParameter))
+            return ValidationResult.Skip(SkipReason.UnsupportedSignature,
+                "Method declares a variadic generic parameter pack (`each ...` / `repeat each ...`) which has no C# equivalent.");
+
         // ── Phase 2: Closure + module gates (via ShouldSkipMethodEmission) ──
         // Catches: synthesized Codable, unsupported closures (B20), SwiftUI/Combine refs (B19),
         // C6 async tuple with non-simple enum
@@ -441,6 +450,20 @@ public class MemberValidationPipeline
             {
                 return ValidationResult.Skip(SkipReason.UnsupportedType,
                     $"Multiple constrained-extension specializations of '{propertyDecl.Name}' on generic type '{constrainedExtensionParent.Name}' cannot be dispatched via C# generics.");
+            }
+
+            // Dependent-member same-type constraint mirror of MemberEmissionValidator.CanEmitProperty:
+            // a property declared on `extension Parent where T.Assoc == Concrete` is only
+            // satisfiable for one specific parent instantiation, but the constraint targets
+            // an associated type rather than the parent generic argument itself. The
+            // closed-extension path cannot re-surface it (no single concrete parent type arg
+            // satisfies the constraint), and emitting at the open-generic level produces an
+            // unsatisfiable `_SBW_PG_*` conformance extension that fails the Swift wrapper
+            // build. Drop it from emission entirely.
+            if (ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(propertyDecl))
+            {
+                return ValidationResult.Skip(SkipReason.UnsupportedType,
+                    $"Constrained-extension property '{propertyDecl.Name}' on generic type '{constrainedExtensionParent.Name}' requires a dependent-member same-type constraint on a parent associated type (e.g. `where Value.ValueType == Concrete`); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.");
             }
         }
 

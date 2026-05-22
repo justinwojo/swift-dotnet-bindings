@@ -118,6 +118,108 @@ public class ConstrainedExtensionEmitterTests
         Assert.Null(result);
     }
 
+    // ==================== Dependent-member same-type constraint detection ====================
+    //
+    // Bug A from AppIntents 0.12.0: `extension IntentParameter where Value.ValueType == X`
+    // properties land in `GenericArgumentDecl.AssosiatedTypeConformances` (note typo) rather
+    // than `GenericConformances`. `ExtractSameTypeConstraint` intentionally only inspects
+    // the direct-constraint list (it needs a concrete parent generic arg to re-emit a
+    // closed extension), so a separate predicate is needed to gate the open-generic
+    // emission. Without it, the open-generic protocol-group emission produces unsatisfiable
+    // `_SBW_PG_*` conformances like
+    //   extension AppIntents.IntentParameter: _SBW_PG_82163CB5 {}
+    // for properties only available when `Value.ValueType == Bool`.
+
+    [Fact]
+    public void HasParentExtensionSameTypeConstraint_DirectSameTypeConstraint_ReturnsTrue()
+    {
+        // `where T == Concrete` shape — already handled by ExtractSameTypeConstraint
+        // for the closed-extension re-emit path; the predicate must also return true
+        // so the suppression-at-open-generic path stays consistent (this property is
+        // not in the protocol-group-conformance surface).
+        var property = CreatePropertyWithConstraint("prop", "TestModule.ConcreteA");
+        Assert.True(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property));
+    }
+
+    [Fact]
+    public void HasParentExtensionSameTypeConstraint_DependentMemberSameTypeConstraint_ReturnsTrue()
+    {
+        // `where Value.ValueType == Concrete` shape — the property is unsatisfiable
+        // at the open-generic level. The closed-extension emitter cannot re-surface
+        // this (no single concrete parent generic argument to bind to), so it's
+        // dropped from emission entirely; the predicate must still return true so
+        // the open-generic path knows to skip it.
+        var property = CreatePropertyWithAssociatedTypeConstraint(
+            "currencyCodes", "TestModule.IntentCurrencyAmount");
+        Assert.True(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property));
+    }
+
+    [Fact]
+    public void HasParentExtensionSameTypeConstraint_ProtocolConstraint_ReturnsFalse()
+    {
+        // `where T: Hashable` — protocol constraints are filtered/lifted by separate
+        // emitter machinery; they don't make the property unsatisfiable in the way
+        // same-type constraints do.
+        var property = CreatePropertyWithProtocolConstraint("prop", "TestModule.SomeProtocol");
+        Assert.False(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property));
+    }
+
+    [Fact]
+    public void HasParentExtensionSameTypeConstraint_UnconstrainedProperty_ReturnsFalse()
+    {
+        var property = CreateUnconstrainedProperty("prop");
+        Assert.False(ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property));
+    }
+
+    /// <summary>
+    /// Builds a property whose getter's generic parameter carries a dependent-member
+    /// same-type constraint (e.g. <c>where Value.ValueType == X</c>) — the constraint
+    /// lands in <see cref="GenericArgumentDecl.AssosiatedTypeConformances"/> with a
+    /// multi-segment <c>Path</c>.
+    /// </summary>
+    private static PropertyDecl CreatePropertyWithAssociatedTypeConstraint(string name, string concreteType)
+    {
+        // Path length > 1 marks this as a dependent-member constraint
+        // (`Value.ValueType` rather than just `Value`).
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0", "ValueType" },
+            SwiftTypeName.FromModuleQualifiedName(concreteType),
+            ConformanceKind.ConcreteType);
+
+        var getterMethod = new MethodDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule7WrapperV{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "Value",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance> { conformance })
+            },
+            CSSignature = new List<ArgumentDecl>(),
+            AvailabilityAnnotations = null
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            AvailabilityAnnotations = null
+        };
+    }
+
     // ==================== Helpers ====================
 
     private static StructDecl CreateStructDecl(string name, bool isGeneric)

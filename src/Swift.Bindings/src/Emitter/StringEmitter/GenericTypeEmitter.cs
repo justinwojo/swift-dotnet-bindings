@@ -339,6 +339,51 @@ public static class GenericTypeEmitter
         ValidationRuleSet.IsUnsupportedConstraintModule(moduleName);
 
     /// <summary>
+    /// Detects Swift variadic generic parameter packs (<c>each R</c> / <c>repeat each R</c>).
+    /// These appear in the ABI JSON's <c>genericSig</c> as type-parameter names prefixed
+    /// with <c>each </c> (e.g. <c>&lt;Output, each R&gt;</c>). C# has no parameter-pack
+    /// equivalent, so any type whose own generic parameters include a variadic pack is
+    /// unbindable and must be skipped at the type level rather than producing malformed
+    /// identifiers like <c>Teach R</c>.
+    /// Inherited variadic packs from outer generic ancestors are ignored — the gate fires
+    /// on the type's *own* parameters via <see cref="GetTypeDeclOwnGenericParams"/>.
+    /// </summary>
+    public static bool TryGetVariadicGenericParameter(TypeDecl typeDecl, [NotNullWhen(true)] out string? variadicParameter)
+    {
+        variadicParameter = null;
+        if (!typeDecl.IsGeneric)
+            return false;
+
+        foreach (var param in GetTypeDeclOwnGenericParams(typeDecl))
+        {
+            if (IsVariadicGenericParameter(param))
+            {
+                variadicParameter = string.IsNullOrEmpty(param.SugaredTypeName)
+                    ? param.TypeName
+                    : param.SugaredTypeName;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="param"/> represents a Swift variadic parameter pack
+    /// (a name like <c>each R</c>). The <c>each </c> prefix is what the ABI digester emits
+    /// inside <c>genericSig</c> for pack parameters; the generic-signature parser preserves
+    /// it verbatim in <see cref="GenericArgumentDecl.TypeName"/> and
+    /// <see cref="GenericArgumentDecl.SugaredTypeName"/>.
+    /// </summary>
+    internal static bool IsVariadicGenericParameter(GenericArgumentDecl param)
+    {
+        return HasEachPrefix(param.TypeName) || HasEachPrefix(param.SugaredTypeName);
+
+        static bool HasEachPrefix(string? name) =>
+            !string.IsNullOrEmpty(name) && name.StartsWith("each ", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Returns true when the generic param declares at least one non-marker Swift
     /// protocol conformance. Stdlib marker protocols (<c>Swift.Sendable</c>,
     /// <c>Swift.Copyable</c>, <c>Swift.Escapable</c>, <c>Swift.SendableMetatype</c>,

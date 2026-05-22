@@ -91,6 +91,17 @@ namespace BindingsGeneration
                 return;
             }
 
+            if (GenericTypeEmitter.TryGetVariadicGenericParameter(enumDecl, out var variadicParam))
+            {
+                ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.UnsupportedSignature, $"Variadic generic parameter pack '{variadicParam}' has no C# equivalent.");
+                UnsupportedCommentEmitter.EmitTypeSkipped(csWriter, enumDecl.Name, SkipReason.UnsupportedSignature, $"variadic generic parameter pack '{variadicParam}' (Swift `{variadicParam}` / `repeat {variadicParam}`) has no C# equivalent.");
+                _logger.LogWarning(
+                    "Skipping type '{TypeName}' - variadic generic parameter pack '{Variadic}' has no C# equivalent.",
+                    enumDecl.Name,
+                    variadicParam);
+                return;
+            }
+
             // Create P/Invoke helper context for generic enums (to avoid CS7042).
             // Pre-flatten conformances against the type database so the metadata-accessor
             // emitter can render the correct PWT plumbing.

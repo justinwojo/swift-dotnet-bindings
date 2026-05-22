@@ -172,6 +172,15 @@ public static class ConstrainedExtensionEmitter
     /// <summary>
     /// Extracts the concrete type from a same-type equality constraint on a property's
     /// getter accessor. Returns null if the property is not from a constrained extension.
+    ///
+    /// Only direct same-type constraints on the parent's generic parameter
+    /// (e.g. <c>where T == Concrete</c>) are returned, because the closed-extension
+    /// emission below needs a concrete <c>T</c> to instantiate the parent against.
+    /// Dependent-member same-type constraints (e.g. <c>where Value.ValueType == X</c>)
+    /// land in <see cref="GenericArgumentDecl.AssosiatedTypeConformances"/> and are
+    /// handled by <see cref="HasParentExtensionSameTypeConstraint(PropertyDecl)"/>:
+    /// they suppress the open-generic emission but cannot be re-emitted as closed
+    /// extensions because no single concrete parent generic argument satisfies them.
     /// </summary>
     internal static SwiftTypeName? ExtractSameTypeConstraint(PropertyDecl property)
     {
@@ -188,6 +197,43 @@ public static class ConstrainedExtensionEmitter
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// True when a property only exists by virtue of a parent-extension same-type
+    /// constraint — either a direct constraint on the parent generic parameter
+    /// (<c>where T == Concrete</c>) or a dependent-member constraint on one of its
+    /// associated types (<c>where Value.ValueType == Concrete</c>). The former is the
+    /// closed-extension shape <see cref="ExtractSameTypeConstraint"/> already returns;
+    /// the latter only surfaces via <see cref="GenericArgumentDecl.AssosiatedTypeConformances"/>.
+    ///
+    /// Either shape makes the property unsatisfiable in an unconstrained protocol-group
+    /// conformance extension <c>extension Wrapper&lt;Value&gt;: _SBW_PG_X {}</c>, because
+    /// the property is only callable for specific <c>Value</c> instantiations. The
+    /// open-generic emission must skip these properties unconditionally; the direct-case
+    /// is re-emitted by <see cref="ConstrainedExtensionEmitter"/>, while the
+    /// dependent-member case is dropped (no concrete parent generic argument to bind to).
+    /// </summary>
+    internal static bool HasParentExtensionSameTypeConstraint(PropertyDecl property)
+    {
+        var getter = property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+        if (getter == null) return false;
+
+        foreach (var genericParam in getter.Method.GenericParameters)
+        {
+            foreach (var conformance in genericParam.GenericConformances)
+            {
+                if (conformance.Kind == ConformanceKind.ConcreteType)
+                    return true;
+            }
+            foreach (var conformance in genericParam.AssosiatedTypeConformances)
+            {
+                if (conformance.Kind == ConformanceKind.ConcreteType)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static void EmitSpecializationClass(

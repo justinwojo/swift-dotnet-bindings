@@ -849,4 +849,253 @@ public class GenericTypeEmitterTests
             GenericParameters = genericParams
         };
     }
+
+    // ==================== Variadic generic parameter pack detection ====================
+    //
+    // Swift 5.9+ allows variadic generic parameter packs (`<Output, each R>` /
+    // `repeat each R : Resolver`). The ABI digester surfaces the pack member with an
+    // `each ` prefix in both `TypeName` and `SugaredTypeName`, which `NameProvider`
+    // would otherwise sugar into `Teach R` — invalid C# (`Bug B` from AppIntents 0.12.0,
+    // line 22754: `public partial class Specification<TOutput, Teach R>`). The
+    // gating helpers below let type handlers skip the whole declaration cleanly.
+
+    [Fact]
+    public void IsVariadicGenericParameter_TrueForEachPrefixedTypeName()
+    {
+        var param = new GenericArgumentDecl(
+            TypeName: "each R",
+            SugaredTypeName: "each R",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+        Assert.True(GenericTypeEmitter.IsVariadicGenericParameter(param));
+    }
+
+    [Fact]
+    public void IsVariadicGenericParameter_TrueWhenOnlySugaredNameHasEachPrefix()
+    {
+        // Defensive: in some interface shapes the digester may emit the canonical
+        // name without the prefix but keep the sugared name as `each R`. Either is
+        // sufficient to gate.
+        var param = new GenericArgumentDecl(
+            TypeName: "τ_0_1",
+            SugaredTypeName: "each R",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+        Assert.True(GenericTypeEmitter.IsVariadicGenericParameter(param));
+    }
+
+    [Fact]
+    public void IsVariadicGenericParameter_FalseForOrdinaryGenericParameter()
+    {
+        var param = new GenericArgumentDecl(
+            TypeName: "τ_0_0",
+            SugaredTypeName: "T",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+        Assert.False(GenericTypeEmitter.IsVariadicGenericParameter(param));
+    }
+
+    [Fact]
+    public void IsVariadicGenericParameter_FalseForNameContainingEachAsSubstring()
+    {
+        // The gate requires the exact `each ` prefix (with trailing space). A param
+        // whose name happens to contain the letters `each` somewhere is not variadic.
+        var param = new GenericArgumentDecl(
+            TypeName: "Teacher",
+            SugaredTypeName: "Teacher",
+            GenericConformances: new List<GenericParameterConformance>(),
+            AssosiatedTypeConformances: new List<GenericParameterConformance>());
+
+        Assert.False(GenericTypeEmitter.IsVariadicGenericParameter(param));
+    }
+
+    [Fact]
+    public void TryGetVariadicGenericParameter_NonGenericType_ReturnsFalse()
+    {
+        var typeDecl = CreateNonGenericStruct();
+        var found = GenericTypeEmitter.TryGetVariadicGenericParameter(typeDecl, out var variadic);
+
+        Assert.False(found);
+        Assert.Null(variadic);
+    }
+
+    [Fact]
+    public void TryGetVariadicGenericParameter_GenericTypeWithoutVariadicPack_ReturnsFalse()
+    {
+        var typeDecl = CreateGenericStruct("Box", 1);
+        var found = GenericTypeEmitter.TryGetVariadicGenericParameter(typeDecl, out var variadic);
+
+        Assert.False(found);
+        Assert.Null(variadic);
+    }
+
+    [Fact]
+    public void TryGetVariadicGenericParameter_VariadicPackParam_ReturnsSugaredName()
+    {
+        // Mirrors the AppIntents Specification<Output, each R> shape: first param is
+        // ordinary, second is the variadic pack. The returned name should be the
+        // sugared form so the diagnostic comment references Swift source syntax
+        // (`each R`) rather than the canonical `τ_0_1`.
+        var typeDecl = CreateVariadicGenericStruct("Specification");
+        var found = GenericTypeEmitter.TryGetVariadicGenericParameter(typeDecl, out var variadic);
+
+        Assert.True(found);
+        Assert.Equal("each R", variadic);
+    }
+
+    [Fact]
+    public void TryGetVariadicGenericParameter_ClassDecl_DetectsPack()
+    {
+        // The variadic gate is wired into all four type handlers
+        // (Class/FrozenStruct/NonFrozenStruct/Enum). Ensure the shared
+        // detection helper recognizes the pack uniformly across declaration
+        // kinds — a regression in any one handler's wiring would surface as
+        // emitted output containing the `Teach R` token, but the detector
+        // itself MUST remain kind-agnostic.
+        var typeDecl = CreateVariadicGenericClass("VariadicHost");
+        var found = GenericTypeEmitter.TryGetVariadicGenericParameter(typeDecl, out var variadic);
+
+        Assert.True(found);
+        Assert.Equal("each R", variadic);
+    }
+
+    [Fact]
+    public void TryGetVariadicGenericParameter_NonFrozenStructDecl_DetectsPack()
+    {
+        var typeDecl = CreateVariadicGenericStruct("VariadicHost", isFrozen: false);
+        var found = GenericTypeEmitter.TryGetVariadicGenericParameter(typeDecl, out var variadic);
+
+        Assert.True(found);
+        Assert.Equal("each R", variadic);
+    }
+
+    [Fact]
+    public void TryGetVariadicGenericParameter_EnumDecl_DetectsPack()
+    {
+        var typeDecl = CreateVariadicGenericEnum("VariadicHost");
+        var found = GenericTypeEmitter.TryGetVariadicGenericParameter(typeDecl, out var variadic);
+
+        Assert.True(found);
+        Assert.Equal("each R", variadic);
+    }
+
+    /// <summary>
+    /// Variadic-pack generic parameters shared by every kind-specific helper:
+    /// <c>τ_0_0</c> (ordinary <c>Output</c>) followed by <c>each R</c>.
+    /// </summary>
+    private static List<GenericArgumentDecl> CreateVariadicGenericParameters()
+    {
+        return new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "τ_0_0",
+                SugaredTypeName: "Output",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()),
+            new GenericArgumentDecl(
+                TypeName: "each R",
+                SugaredTypeName: "each R",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()),
+        };
+    }
+
+    private static ClassDecl CreateVariadicGenericClass(string name)
+    {
+        return new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}C",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            GenericParameters = CreateVariadicGenericParameters(),
+        };
+    }
+
+    private static StructDecl CreateVariadicGenericStruct(string name, bool isFrozen)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = isFrozen,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = CreateVariadicGenericParameters(),
+        };
+    }
+
+    private static EnumDecl CreateVariadicGenericEnum(string name)
+    {
+        return new EnumDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}O",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}OMa",
+            GenericParameters = CreateVariadicGenericParameters(),
+        };
+    }
+
+    /// <summary>
+    /// Builds a generic struct shaped like AppIntents' <c>Specification&lt;Output, each R&gt;</c>:
+    /// one ordinary param followed by one variadic parameter pack.
+    /// </summary>
+    private static StructDecl CreateVariadicGenericStruct(string name)
+    {
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl(
+                TypeName: "τ_0_0",
+                SugaredTypeName: "Output",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()),
+            new GenericArgumentDecl(
+                TypeName: "each R",
+                SugaredTypeName: "each R",
+                GenericConformances: new List<GenericParameterConformance>(),
+                AssosiatedTypeConformances: new List<GenericParameterConformance>()),
+        };
+
+        return new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}V",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            IsFrozen = true,
+            MetadataAccessor = $"$s10TestModule{name.Length}{name}VMa",
+            GenericParameters = genericParams,
+        };
+    }
 }

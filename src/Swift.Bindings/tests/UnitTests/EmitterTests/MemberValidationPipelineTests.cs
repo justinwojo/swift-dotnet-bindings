@@ -674,6 +674,106 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
+    public void ValidatePropertyEmission_DependentMemberSameTypeConstraint_ReturnsSkip()
+    {
+        // AppIntents 0.12.0 _SBW_PG_* regression: a property declared on
+        // `extension IntentParameter where Value.ValueType == Bool` lands its constraint
+        // in `GenericArgumentDecl.AssosiatedTypeConformances` (dependent-member rather
+        // than direct). The closed-extension path cannot re-surface it (no single concrete
+        // parent generic argument satisfies `Value.ValueType == Bool`), and the
+        // open-generic emission would synthesize an unsatisfiable
+        // `extension IntentParameter: _SBW_PG_… {}` that fails the Swift wrapper build.
+        //
+        // PropertyHandler.Emit routes through ValidatePropertyEmission rather than
+        // CanEmitProperty, so the gate must exist on both paths for the suppression to
+        // be reachable from every entry point.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildBareStructDecl("IntentParameter", isGeneric: true);
+        var property = BuildDependentMemberConstrainedProperty(
+            "displayName", parent, concreteType: "TestModule.Bool");
+        parent.Properties.Add(property);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedType, result.Reason);
+        Assert.Contains("dependent-member same-type constraint", result.Details!);
+        Assert.Contains("displayName", result.Details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_DependentMemberSameTypeConstraint_NonGenericParent_NotGated()
+    {
+        // Sanity: the dependent-member gate sits inside the generic-parent branch.
+        // A property whose getter happens to carry the same shape on a non-generic
+        // parent must not hit this branch.
+        var typeDatabase = CreateTypeDatabase();
+        var pipeline = new MemberValidationPipeline(typeDatabase);
+
+        var parent = BuildBareStructDecl("Plain", isGeneric: false);
+        var property = BuildDependentMemberConstrainedProperty(
+            "displayName", parent, concreteType: "TestModule.Bool");
+        parent.Properties.Add(property);
+
+        var result = pipeline.ValidatePropertyEmission(property, null!);
+
+        if (result.Details != null)
+            Assert.DoesNotContain("dependent-member same-type constraint", result.Details);
+    }
+
+    /// <summary>
+    /// Builds a property whose getter carries a dependent-member same-type constraint
+    /// (<c>where Value.ValueType == Concrete</c>) — mirrors the AppIntents
+    /// <c>IntentParameter</c> shape that triggered Bug A.
+    /// </summary>
+    private static PropertyDecl BuildDependentMemberConstrainedProperty(
+        string name, TypeDecl parent, string concreteType)
+    {
+        // Path length > 1 marks the constraint as dependent-member
+        // (`Value.ValueType`, not just `Value`).
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0", "ValueType" },
+            SwiftTypeName.FromModuleQualifiedName(concreteType),
+            ConformanceKind.ConcreteType);
+
+        var getterMethod = new MethodDecl
+        {
+            Name = name,
+            ParentDecl = parent,
+            ModuleDecl = null,
+            MangledName = $"$s10TestModule15IntentParameterV{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "Value",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance> { conformance })
+            },
+            CSSignature = new List<ArgumentDecl>(),
+            AvailabilityAnnotations = null
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            ParentDecl = parent,
+            ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional",
+                new NamedTypeSpec("TestModule.IntentDisplayName")),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            AvailabilityAnnotations = null
+        };
+    }
+
+    [Fact]
     public void ValidatePropertyEmission_OptionalExistentialUnknownProtocol_ReturnsSkip()
     {
         // P8 (concrete-side): pipeline-level mirror of the gate in

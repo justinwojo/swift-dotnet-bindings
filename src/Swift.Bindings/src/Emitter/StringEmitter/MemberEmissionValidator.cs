@@ -160,6 +160,20 @@ public static class MemberEmissionValidator
                 skipDetails = $"Single-specialization constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.";
                 return SkipReason.UnsupportedType;
             }
+            // Dependent-member same-type constraint (e.g. `where Value.ValueType == X`):
+            // the property only exists for a specific instantiation of the parent
+            // generic, but the constraint targets an associated type rather than the
+            // generic parameter itself. ConstrainedExtensionEmitter cannot re-surface
+            // these as closed extensions (no single concrete `Value` argument satisfies
+            // `Value.ValueType == X`), and emitting a PG conformance extension at the
+            // open-generic class level produces an unsatisfiable
+            // `extension Wrapper<Value>: _SBW_PG_X {}` (Swift compile error
+            // "type does not conform"). Drop the property at the open-generic level.
+            if (ConstrainedExtensionEmitter.HasParentExtensionSameTypeConstraint(property))
+            {
+                skipDetails = $"Constrained-extension property '{property.Name}' on generic type '{constrainedExtensionParent.Name}' requires a dependent-member same-type constraint on a parent associated type (e.g. `where Value.ValueType == Concrete`); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.";
+                return SkipReason.UnsupportedType;
+            }
         }
 
         // B19: Skip properties referencing SwiftUI/Combine types (unless registered in type database)

@@ -727,6 +727,103 @@ public class MemberEmissionValidatorTests
         return parent;
     }
 
+    [Fact]
+    public void CanEmitProperty_DependentMemberSameTypeConstraint_SuppressedAtOpenGenericLevel()
+    {
+        // Bug A from AppIntents 0.12.0: `extension IntentParameter where Value.ValueType == Bool`
+        // declared a `displayName` property the generator surfaced at the open-generic
+        // `IntentParameter<Value>` class. The protocol-group emitter then synthesized
+        // `extension IntentParameter: _SBW_PG_82163CB5 {}` to project the open-generic
+        // member, which fails to compile because the property only exists when
+        // `Value.ValueType == Bool`. Suppress at the open-generic level.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildBareStruct("IntentParameter", moduleDecl, isGeneric: true);
+        var property = BuildDependentMemberConstrainedProperty(
+            "displayName", parent, moduleDecl, concreteType: "TestModule.Bool");
+        parent.Properties.Add(property);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out _);
+
+        Assert.Equal(SkipReason.UnsupportedType, skipReason);
+        Assert.NotNull(skipDetails);
+        Assert.Contains("dependent-member same-type constraint", skipDetails!);
+        Assert.Contains("displayName", skipDetails!);
+    }
+
+    [Fact]
+    public void CanEmitProperty_DependentMemberSameTypeConstraint_NonGenericParent_NotGated()
+    {
+        // Sanity: the dependent-member gate is only reached when the parent is generic
+        // (`extension Parent where T.Assoc == X` only makes sense on a generic parent).
+        // A property with the same shape on a non-generic parent must not hit this branch.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var parent = BuildBareStruct("Plain", moduleDecl, isGeneric: false);
+        var property = BuildDependentMemberConstrainedProperty(
+            "displayName", parent, moduleDecl, concreteType: "TestModule.Bool");
+        parent.Properties.Add(property);
+
+        var skipReason = MemberEmissionValidator.CanEmitProperty(
+            property, typeDatabase, out var skipDetails, out _);
+
+        if (skipDetails != null)
+            Assert.DoesNotContain("dependent-member same-type constraint", skipDetails);
+    }
+
+    /// <summary>
+    /// Builds a property whose getter carries a dependent-member same-type constraint
+    /// (<c>where Value.ValueType == Concrete</c>) — mirrors the AppIntents
+    /// <c>IntentParameter</c> shape that triggered Bug A.
+    /// </summary>
+    private static PropertyDecl BuildDependentMemberConstrainedProperty(
+        string name, TypeDecl parent, ModuleDecl moduleDecl, string concreteType)
+    {
+        // Path length > 1 marks the constraint as dependent-member (e.g. `Value.ValueType`
+        // rather than the bare generic parameter `Value`).
+        var conformance = new GenericParameterConformance(
+            new[] { "τ_0_0", "ValueType" },
+            SwiftTypeName.FromModuleQualifiedName(concreteType),
+            ConformanceKind.ConcreteType);
+
+        var getterMethod = new MethodDecl
+        {
+            Name = name,
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            MangledName = $"$s10TestModule15IntentParameterV{name}",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "Value",
+                    new List<GenericParameterConformance>(),
+                    new List<GenericParameterConformance> { conformance })
+            },
+            CSSignature = new List<ArgumentDecl>(),
+            AvailabilityAnnotations = null
+        };
+
+        return new PropertyDecl
+        {
+            Name = name,
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Optional",
+                new NamedTypeSpec("TestModule.IntentDisplayName")),
+            HasStorage = false,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getterMethod } },
+            AvailabilityAnnotations = null
+        };
+    }
+
     #endregion
 
     #region Helper Methods
