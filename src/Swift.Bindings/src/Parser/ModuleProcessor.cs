@@ -1326,7 +1326,14 @@ namespace BindingsGeneration
             // + C# interface inheritance). Protocols with only inherited members get valid
             // proxies that implement the inherited interface members.
 
-            if (protocolDecl.IsClassBound)
+            // ClassBound semantically means "this protocol's existential is class-bound
+            // (2-word `[classRef][witnessTable]` layout)". Class-boundedness inherits:
+            // `protocol Child: Parent` where Parent is `: AnyObject` makes Child class-bound
+            // even though `Child.IsClassBound` (parser's direct-AnyObject flag) is false.
+            // Walk the inheritance chain so every consumer of the flag — proxy layout,
+            // Swift→C# wrap factory, generic-bridge open-existential gate, cross-module XML —
+            // sees the transitive answer.
+            if (ProtocolIsClassBoundTransitive(protocolDecl))
                 flags |= TypeRecordFlags.ClassBound;
 
             // Check if this protocol inherits from Codable (Decodable/Encodable), either
@@ -1379,6 +1386,67 @@ namespace BindingsGeneration
         /// by name, transitively through intra-module ProtocolDecls, or via cross-module
         /// TypeRecord flags.
         /// </summary>
+        private bool ProtocolIsClassBoundTransitive(ProtocolDecl protocolDecl)
+        {
+            return ProtocolIsClassBoundTransitiveRecursive(protocolDecl, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        private bool ProtocolIsClassBoundTransitiveRecursive(ProtocolDecl protocolDecl, HashSet<string> visited)
+        {
+            var qualifiedName = protocolDecl.SwiftTypeName?.ToString() ?? protocolDecl.Name;
+            if (!visited.Add(qualifiedName))
+                return false;
+
+            if (protocolDecl.IsClassBound)
+                return true;
+
+            foreach (var inherited in protocolDecl.InheritedProtocols)
+            {
+                var name = inherited.Name;
+                var dotIndex = name.LastIndexOf('.');
+                var simpleName = dotIndex >= 0 ? name.Substring(dotIndex + 1) : name;
+                var hasModuleQualifier = dotIndex >= 0;
+
+                if (simpleName == "AnyObject")
+                    return true;
+
+                // Intra-module transitive check via _typeDecls (fully populated before
+                // registration starts, so declaration order doesn't matter).
+                // When the inherited reference is module-qualified, require an exact
+                // qualified match — a bare-simple-name match could shadow the intended
+                // cross-module parent if a local protocol happens to share the simple name.
+                ProtocolDecl? intraModuleDecl = hasModuleQualifier
+                    ? _typeDecls.Values
+                        .OfType<ProtocolDecl>()
+                        .FirstOrDefault(p =>
+                            p.Name == name || p.SwiftTypeName?.ToString() == name)
+                    : _typeDecls.Values
+                        .OfType<ProtocolDecl>()
+                        .FirstOrDefault(p => p.Name == simpleName);
+                if (intraModuleDecl != null)
+                {
+                    if (ProtocolIsClassBoundTransitiveRecursive(intraModuleDecl, visited))
+                        return true;
+                    continue;
+                }
+
+                // Cross-module transitive check via type database. Dependencies are processed
+                // first, so a cross-module parent's ClassBound flag is already set when the
+                // main module is being parsed. Skip bare (non-module-qualified) names —
+                // SwiftTypeName.FromModuleQualifiedName rejects them, and a bare name that
+                // wasn't matched intra-module isn't reachable through the type database either.
+                if (hasModuleQualifier)
+                {
+                    var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(name);
+                    if (_typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
+                        record.Kind == TypeRecordKind.Protocol &&
+                        record.Flags.HasFlag(TypeRecordFlags.ClassBound))
+                        return true;
+                }
+            }
+            return false;
+        }
+
         private bool ProtocolInheritsCodable(ProtocolDecl protocolDecl)
         {
             return ProtocolInheritsCodableRecursive(protocolDecl, new HashSet<string>(StringComparer.Ordinal));
@@ -1395,6 +1463,7 @@ namespace BindingsGeneration
                 var name = inherited.Name;
                 var dotIndex = name.LastIndexOf('.');
                 var simpleName = dotIndex >= 0 ? name.Substring(dotIndex + 1) : name;
+                var hasModuleQualifier = dotIndex >= 0;
 
                 // Direct Codable-family name match
                 if (simpleName is "Decodable" or "Encodable" or "Codable")
@@ -1402,12 +1471,17 @@ namespace BindingsGeneration
 
                 // Intra-module transitive check: look up the inherited protocol in
                 // _typeDecls (fully populated before registration starts) so declaration
-                // order doesn't matter.
-                var intraModuleDecl = _typeDecls.Values
-                    .OfType<ProtocolDecl>()
-                    .FirstOrDefault(p =>
-                        p.Name == simpleName || p.Name == name ||
-                        p.SwiftTypeName?.ToString() == name);
+                // order doesn't matter. When the inherited reference is module-qualified,
+                // require an exact qualified match — a bare-simple-name match could shadow
+                // the intended cross-module parent if a local protocol shares the simple name.
+                ProtocolDecl? intraModuleDecl = hasModuleQualifier
+                    ? _typeDecls.Values
+                        .OfType<ProtocolDecl>()
+                        .FirstOrDefault(p =>
+                            p.Name == name || p.SwiftTypeName?.ToString() == name)
+                    : _typeDecls.Values
+                        .OfType<ProtocolDecl>()
+                        .FirstOrDefault(p => p.Name == simpleName);
                 if (intraModuleDecl != null)
                 {
                     if (ProtocolInheritsCodableRecursive(intraModuleDecl, visited))
@@ -1417,12 +1491,18 @@ namespace BindingsGeneration
 
                 // Cross-module transitive check: look up inherited protocol's TypeRecord
                 // in the type database. Dependencies are processed first, so their flags
-                // are already set by the time the main module is processed.
-                var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(name);
-                if (_typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
-                    record.Kind == TypeRecordKind.Protocol &&
-                    record.Flags.HasFlag(TypeRecordFlags.InheritsCodable))
-                    return true;
+                // are already set by the time the main module is processed. Skip bare
+                // (non-module-qualified) names — SwiftTypeName.FromModuleQualifiedName
+                // rejects them, and a bare name that wasn't matched intra-module isn't
+                // reachable through the type database either.
+                if (hasModuleQualifier)
+                {
+                    var inheritedSwiftName = SwiftTypeName.FromModuleQualifiedName(name);
+                    if (_typeDatabase.TryGetTypeRecord(inheritedSwiftName, out var record) &&
+                        record.Kind == TypeRecordKind.Protocol &&
+                        record.Flags.HasFlag(TypeRecordFlags.InheritsCodable))
+                        return true;
+                }
             }
             return false;
         }

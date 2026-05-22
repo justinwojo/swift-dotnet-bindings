@@ -185,7 +185,7 @@ public partial class ProtocolProxyEmitter
         // class uses emitObsolete:false to avoid duplicating the SB0004 obsolete tag.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(writer, protocolDecl, emitObsolete: false);
         writer.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
-        writer.WriteLine($"public unsafe partial class {proxyClassNameWithGenerics} : {interfaceNameWithGenerics}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>{constraints}");
+        writer.WriteLine($"public unsafe partial class {proxyClassNameWithGenerics} : {interfaceNameWithGenerics}, ISwiftObject, IDisposable, Swift.Runtime.ISwiftExistentialConvertible<ExistentialContainer1>, Swift.Runtime.IProtocolProxyImpl<{interfaceNameWithGenerics}>{constraints}");
         writer.WriteLine("{");
         writer.Indent++;
 
@@ -209,6 +209,17 @@ public partial class ProtocolProxyEmitter
 
         // Emit receiver methods (UnmanagedCallersOnly callbacks)
         EmitReceiverMethods(writer, protocolDecl, interfaceNameWithGenerics);
+
+        // Cross-module parent scaffolding (justinwojo/swift-dotnet-bindings#40 cross-module
+        // variant). For each parent the child inherits across a module boundary, emit
+        // a per-parent vtable struct + local vtable + receivers + SetParent_vtable
+        // P/Invoke inside the child proxy class. The child's InitializeVtable populates
+        // these in addition to the child's own vtable so Swift's witness dispatch
+        // for the inherited requirement reaches the C# impl through the local module's
+        // parent _p_vtable (populated here) and the covariant proxy registry lookup.
+        // Empty list when the child has no cross-module parents — no emission.
+        var crossModuleParents = CollectCrossModuleParents(protocolDecl);
+        EmitCrossModuleParentScaffolding(writer, protocolDecl, crossModuleParents);
 
         // Emit constructors
         EmitConstructors(writer, protocolDecl, interfaceNameWithGenerics);

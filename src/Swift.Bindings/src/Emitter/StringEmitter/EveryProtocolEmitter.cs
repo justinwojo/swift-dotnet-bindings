@@ -1310,7 +1310,20 @@ public class EveryProtocolEmitter
             writer.WriteLine("}");
             writer.WriteLine();
         }
-        EmitWitnessTableGetter(writer, protocolDecl);
+        // The witness-table getter is symbol-named via `@_silgen_name`
+        // (`Get_EveryProtocol_{Name}_WitnessTable`) without the
+        // source-module prefix the vtable setter carries. For cross-module
+        // parents the dependency module's wrapper already emits this symbol
+        // for the same protocol; re-emitting it here would create a
+        // duplicate `@_silgen_name` and the consumer's P/Invoke would
+        // resolve to whichever dylib dyld saw first. The consumer-side .cs
+        // for cross-module parents reaches the impl through the covariant
+        // `IProtocolProxyImpl<TInterface>` lookup, never through the local
+        // wrapper's getter — so suppressing it here drops dead emission and
+        // closes the symbol collision.
+        var sourceModule = protocolDecl.ModuleDecl?.Name;
+        if (string.IsNullOrEmpty(sourceModule) || sourceModule == _moduleName)
+            EmitWitnessTableGetter(writer, protocolDecl);
         _emissionContext?.RecordConformanceDecision(protocolDecl.Name, true, null);
     }
 
@@ -2581,7 +2594,7 @@ public class EveryProtocolEmitter
     /// because closures aren't representable as UnsafeRawPointer in @convention(c) callbacks.
     /// These methods get fatalError() stubs to satisfy the protocol conformance.
     /// </summary>
-    private static bool HasClosureInMethodSignature(MethodDecl method)
+    internal static bool HasClosureInMethodSignature(MethodDecl method)
     {
         // Check return type (CSSignature[0])
         if (method.CSSignature.Count > 0 && ContainsClosureType(method.CSSignature[0].SwiftTypeSpec))
@@ -2627,7 +2640,7 @@ public class EveryProtocolEmitter
     /// <summary>
     /// Checks if a property has closure types in its type spec.
     /// </summary>
-    private static bool HasClosureInPropertyType(PropertyDecl property)
+    internal static bool HasClosureInPropertyType(PropertyDecl property)
     {
         return ContainsClosureType(property.SwiftTypeSpec);
     }
@@ -3250,7 +3263,7 @@ public class EveryProtocolEmitter
     /// Checks if a method has protocol-level (Self/depth-0) generic type params in its signature.
     /// Returns false for method-level generics (τ_1_0+) which are independent of the conforming type.
     /// </summary>
-    private static bool HasSelfTypeParamInSignature(MethodDecl method)
+    internal static bool HasSelfTypeParamInSignature(MethodDecl method)
     {
         if (method.CSSignature.Count > 0 && ContainsSelfTypeParam(method.CSSignature[0].SwiftTypeSpec))
             return true;
@@ -3265,7 +3278,7 @@ public class EveryProtocolEmitter
     /// <summary>
     /// Recursively checks if a TypeSpec contains a protocol-level (Self/depth-0) generic type param.
     /// </summary>
-    private static bool ContainsSelfTypeParam(TypeSpec? typeSpec)
+    internal static bool ContainsSelfTypeParam(TypeSpec? typeSpec)
     {
         if (typeSpec == null)
             return false;
@@ -3574,27 +3587,50 @@ public class EveryProtocolEmitter
         return refs.Count > 0 ? ", " + string.Join(", ", refs) : "";
     }
 
-    private static string GetVtableStructName(ProtocolDecl protocolDecl)
+    /// <summary>
+    /// Returns the source-module prefix when <paramref name="protocolDecl"/> is being
+    /// emitted in a wrapper that isn't its native module — i.e., the cross-module
+    /// parent companion path driven from <see cref="Handler.ModuleHandler"/>. The prefix
+    /// disambiguates wrapper symbols when two dependency modules export protocols with
+    /// the same simple name; same-module emission yields an empty prefix so the existing
+    /// symbol shape is preserved.
+    /// </summary>
+    private string GetCrossModulePrefix(ProtocolDecl protocolDecl)
     {
-        return $"{protocolDecl.Name}_vtable";
+        var sourceModule = protocolDecl.ModuleDecl?.Name;
+        if (string.IsNullOrEmpty(sourceModule) || sourceModule == _moduleName)
+            return string.Empty;
+        return sourceModule + "_";
     }
 
-    private static string GetVtableInstanceName(ProtocolDecl protocolDecl)
+    private string GetVtableStructName(ProtocolDecl protocolDecl)
+    {
+        return $"{GetCrossModulePrefix(protocolDecl)}{protocolDecl.Name}_vtable";
+    }
+
+    private string GetVtableInstanceName(ProtocolDecl protocolDecl)
     {
         var name = protocolDecl.Name;
-        // Convert first char to lowercase for instance name
-        return $"_{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable";
+        var prefix = GetCrossModulePrefix(protocolDecl);
+        if (prefix.Length == 0)
+        {
+            // Same-module convention: lowercase first letter, drop a leading underscore is unneeded.
+            return $"_{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable";
+        }
+        // Cross-module: keep the module prefix uppercase so it reads as "_Module_protocolName_vtable".
+        return $"_{prefix}{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable";
     }
 
-    private static string GetSetVtableFunctionName(ProtocolDecl protocolDecl)
+    private string GetSetVtableFunctionName(ProtocolDecl protocolDecl)
     {
-        return $"set{protocolDecl.Name}_vtable";
+        return $"set{GetCrossModulePrefix(protocolDecl)}{protocolDecl.Name}_vtable";
     }
 
-    private static string GetSetVtableMangledName(ProtocolDecl protocolDecl)
+    private string GetSetVtableMangledName(ProtocolDecl protocolDecl)
     {
-        // Use @_silgen_name to control the symbol name that C# will call
-        return $"Set{protocolDecl.Name}_vtable";
+        // Use @_silgen_name to control the symbol name that C# will call.
+        // ProtocolProxyEmitter.GetSetVtablePInvokeName must produce the matching entry point.
+        return $"Set{GetCrossModulePrefix(protocolDecl)}{protocolDecl.Name}_vtable";
     }
 
     private static string GetWitnessTableGetterFunctionName(ProtocolDecl protocolDecl)

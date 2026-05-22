@@ -5,13 +5,22 @@ namespace BindingsGeneration;
 
 public partial class ProtocolProxyEmitter
 {
-    private void EmitReceiverMethods(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
+    /// <param name="applyVtableMembershipFilter">When true, gate every member through
+    /// <see cref="ProtocolVtableMembers"/> so receivers are emitted ONLY for members
+    /// that have a corresponding Swift vtable slot. Used for cross-module parent
+    /// scaffolding where the per-protocol skip sets (<c>_skippedPropertyNames</c> et al.)
+    /// are not populated for the parent — without this filter, the receiver loop would
+    /// emit, for example, a property-setter receiver for a non-dispatchable closure
+    /// property that has no Swift vtable slot to feed it AND a C# interface type that
+    /// doesn't accept the receiver's raw function-pointer value (CS0029).</param>
+    private void EmitReceiverMethods(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName, bool applyVtableMembershipFilter = false)
     {
         writer.WriteLine("#region Swift Callback Receivers");
         writer.WriteLine();
 
         // Track emitted receivers to avoid duplicates
         var emittedReceivers = new HashSet<string>();
+        var closureHandler = applyVtableMembershipFilter ? new ClosureHandler(_typeDatabase) : null;
 
         // Property receivers (skip static properties - they're not part of the interface)
         foreach (var property in protocolDecl.Properties)
@@ -20,6 +29,8 @@ public partial class ProtocolProxyEmitter
                 continue;
             // Skip receivers for properties that the interface skipped due to AnyType generic args
             if (_skippedPropertyNames.Contains(property.Name))
+                continue;
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesProperty(property, protocolDecl, closureHandler!))
                 continue;
             EmitPropertyReceivers(writer, property, protocolDecl, interfaceName, emittedReceivers);
         }
@@ -32,6 +43,11 @@ public partial class ProtocolProxyEmitter
                 continue;
             // Skip receivers for subscripts that the interface skipped due to AnyType generic args
             if (_skippedSubscriptIndices.Contains(subscriptIndex))
+            {
+                subscriptIndex++;
+                continue;
+            }
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl))
             {
                 subscriptIndex++;
                 continue;
@@ -63,6 +79,8 @@ public partial class ProtocolProxyEmitter
                     // so skip the receiver entirely.
                     continue;
                 }
+                if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler!))
+                    continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
@@ -87,7 +105,7 @@ public partial class ProtocolProxyEmitter
         var closureHandlerForProp = new ClosureHandler(_typeDatabase);
         if (EveryProtocolEmitter.IsDispatchableClosureProperty(property, closureHandlerForProp))
         {
-            EmitDispatchableClosurePropertyReceivers(writer, property, protocolDecl, proxyClassName, closureHandlerForProp, emittedReceivers);
+            EmitDispatchableClosurePropertyReceivers(writer, property, protocolDecl, proxyClassName, interfaceName, closureHandlerForProp, emittedReceivers);
             return;
         }
 
@@ -148,11 +166,11 @@ public partial class ProtocolProxyEmitter
                 var nullReturnStr = isStringReturn
                     ? "MarshalStringToUtf8Slice(string.Empty)"
                     : $"(IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{carrierTypeName}>())";
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
                 writer.Indent++;
                 writer.WriteLine($"return {nullReturnStr};");
                 writer.Indent--;
-                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("var impl = proxy.UserImpl;");
                 writer.WriteLine("if (impl is null)");
                 writer.Indent++;
                 writer.WriteLine($"return {nullReturnStr};");
@@ -207,9 +225,9 @@ public partial class ProtocolProxyEmitter
                         // Dead-impl safe: silently drop the write if the proxy is unregistered
                         // or the managed impl has already been GC'd. A throw here would propagate
                         // across the [UnmanagedCallersOnly] boundary and terminate the process.
-                        if (!SwiftObjectRegistry.TryGetProxy<{{proxyClassName}}>(handle, out var proxy) || proxy is null)
+                        if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>>(handle, out var proxy) || proxy is null)
                             return;
-                        var impl = proxy._csharpImpl;
+                        var impl = proxy.UserImpl;
                         if (impl is null)
                             return;
                         var value = {{marshalExpr}};
@@ -231,7 +249,7 @@ public partial class ProtocolProxyEmitter
     /// (enforced by <see cref="EveryProtocolEmitter.IsDispatchableClosureProperty"/>).
     /// </summary>
     private void EmitDispatchableClosurePropertyReceivers(CSharpWriter writer, PropertyDecl property,
-        ProtocolDecl protocolDecl, string proxyClassName, ClosureHandler closureHandler,
+        ProtocolDecl protocolDecl, string proxyClassName, string interfaceName, ClosureHandler closureHandler,
         HashSet<string> emittedReceivers)
     {
         if (!EveryProtocolEmitter.TryGetDispatchableClosureParam(property.SwiftTypeSpec, closureHandler, out var closure, out var isOptional) || closure is null)
@@ -263,11 +281,11 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("{");
                 writer.Indent++;
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
                 writer.Indent++;
                 writer.WriteLine("return;");
                 writer.Indent--;
-                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("var impl = proxy.UserImpl;");
                 writer.WriteLine("if (impl is null)");
                 writer.Indent++;
                 writer.WriteLine("return;");
@@ -304,11 +322,11 @@ public partial class ProtocolProxyEmitter
                 // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
                 // path returns the same shape.
                 writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
                 writer.Indent++;
                 writer.WriteLine("return buf;");
                 writer.Indent--;
-                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("var impl = proxy.UserImpl;");
                 writer.WriteLine("if (impl is null)");
                 writer.Indent++;
                 writer.WriteLine("return buf;");
@@ -361,7 +379,7 @@ public partial class ProtocolProxyEmitter
     /// returns (enforced by <see cref="EveryProtocolEmitter.IsDispatchableClosureReturningMethod"/>).
     /// </summary>
     private void EmitDispatchableClosureReturningMethodReceiver(CSharpWriter writer, MethodDecl method,
-        ProtocolDecl protocolDecl, string proxyClassName, int index, ClosureHandler closureHandler)
+        ProtocolDecl protocolDecl, string proxyClassName, string interfaceName, int index, ClosureHandler closureHandler)
     {
         if (method.CSSignature.FirstOrDefault()?.SwiftTypeSpec is not ClosureTypeSpec retClosure)
             throw new InvalidOperationException(
@@ -380,11 +398,11 @@ public partial class ProtocolProxyEmitter
         // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
         // path returns the same shape (mirrors Shape 3's getter).
         writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
-        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
         writer.Indent++;
         writer.WriteLine("return buf;");
         writer.Indent--;
-        writer.WriteLine("var impl = proxy._csharpImpl;");
+        writer.WriteLine("var impl = proxy.UserImpl;");
         writer.WriteLine("if (impl is null)");
         writer.Indent++;
         writer.WriteLine("return buf;");
@@ -432,7 +450,7 @@ public partial class ProtocolProxyEmitter
     /// <see cref="EveryProtocolEmitter.IsDispatchableAsyncClosureMethod"/>).
     /// </summary>
     private void EmitDispatchableAsyncClosureMethodReceiver(CSharpWriter writer, MethodDecl method,
-        ProtocolDecl protocolDecl, string proxyClassName, int index, ClosureHandler closureHandler)
+        ProtocolDecl protocolDecl, string proxyClassName, string interfaceName, int index, ClosureHandler closureHandler)
     {
         // Locate the single async-closure param (gate guarantees exactly one).
         ArgumentDecl? asyncParam = null;
@@ -474,11 +492,11 @@ public partial class ProtocolProxyEmitter
         writer.WriteLine("{");
         writer.Indent++;
         writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
         writer.Indent++;
         writer.WriteLine("return;");
         writer.Indent--;
-        writer.WriteLine("var impl = proxy._csharpImpl;");
+        writer.WriteLine("var impl = proxy.UserImpl;");
         writer.WriteLine("if (impl is null)");
         writer.Indent++;
         writer.WriteLine("return;");
@@ -541,11 +559,11 @@ public partial class ProtocolProxyEmitter
                 var subscriptNullReturnStr = subscriptIsString
                     ? "MarshalStringToUtf8Slice(string.Empty)"
                     : $"(IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{subscriptCarrierTypeName}>())";
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
                 writer.Indent++;
                 writer.WriteLine($"return {subscriptNullReturnStr};");
                 writer.Indent--;
-                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("var impl = proxy.UserImpl;");
                 writer.WriteLine("if (impl is null)");
                 writer.Indent++;
                 writer.WriteLine($"return {subscriptNullReturnStr};");
@@ -599,11 +617,11 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
                 // Dead-impl safe: silently drop the write if the proxy is unregistered
                 // or the impl has been GC'd.
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
                 writer.Indent++;
                 writer.WriteLine("return;");
                 writer.Indent--;
-                writer.WriteLine("var impl = proxy._csharpImpl;");
+                writer.WriteLine("var impl = proxy.UserImpl;");
                 writer.WriteLine("if (impl is null)");
                 writer.Indent++;
                 writer.WriteLine("return;");
@@ -661,7 +679,7 @@ public partial class ProtocolProxyEmitter
         var closureHandlerForReturn = new ClosureHandler(_typeDatabase);
         if (EveryProtocolEmitter.IsDispatchableClosureReturningMethod(method, closureHandlerForReturn))
         {
-            EmitDispatchableClosureReturningMethodReceiver(writer, method, protocolDecl, proxyClassName, index, closureHandlerForReturn);
+            EmitDispatchableClosureReturningMethodReceiver(writer, method, protocolDecl, proxyClassName, interfaceName, index, closureHandlerForReturn);
             return;
         }
 
@@ -672,7 +690,7 @@ public partial class ProtocolProxyEmitter
         // completion callback resumes the TCS from a static UnmanagedCallersOnly thunk.
         if (EveryProtocolEmitter.IsDispatchableAsyncClosureMethod(method, closureHandlerForReturn))
         {
-            EmitDispatchableAsyncClosureMethodReceiver(writer, method, protocolDecl, proxyClassName, index, closureHandlerForReturn);
+            EmitDispatchableAsyncClosureMethodReceiver(writer, method, protocolDecl, proxyClassName, interfaceName, index, closureHandlerForReturn);
             return;
         }
 
@@ -769,11 +787,11 @@ public partial class ProtocolProxyEmitter
         {
             methodNullReturnExpr = $"return (IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{methodCarrierTypeName}>());";
         }
-        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<{proxyClassName}>(handle, out var proxy) || proxy is null)");
+        writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
         writer.Indent++;
         writer.WriteLine(methodNullReturnExpr);
         writer.Indent--;
-        writer.WriteLine("var impl = proxy._csharpImpl;");
+        writer.WriteLine("var impl = proxy.UserImpl;");
         writer.WriteLine("if (impl is null)");
         writer.Indent++;
         writer.WriteLine(methodNullReturnExpr);
@@ -1373,6 +1391,29 @@ public partial class ProtocolProxyEmitter
         return typeSpec is NamedTypeSpec nts && nts.Name == "Swift.String";
     }
 
+    /// <summary>
+    /// Returns true if the protocol's existential is class-bound (2-word
+    /// <c>[classRef][witnessTable]</c> layout). Reads <see cref="TypeRecordFlags.ClassBound"/>
+    /// off the protocol's own TypeRecord; ModuleProcessor walks the inheritance chain
+    /// when setting the flag so a child protocol inheriting class-boundedness from any
+    /// ancestor (Kidoz issue #40) is correctly classified here without a second walk.
+    /// Also used by ProtocolProxyEmitter.SwiftObject.cs for the Swift→C# wrap factory.
+    /// </summary>
+    private bool IsProtocolClassBound(ProtocolDecl protocolDecl)
+    {
+        if (protocolDecl.SwiftTypeName != null
+            && _typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var record)
+            && record.Kind == TypeRecordKind.Protocol)
+        {
+            return (record.Flags & TypeRecordFlags.ClassBound) != 0;
+        }
+        // Defensive fallback for emit paths that run before the TypeRecord is
+        // registered (direct-emitter test fixtures and external callers). Only
+        // the directly-declared bit is available here; transitive class-boundedness
+        // requires the parse-time walk's TypeRecord flag.
+        return protocolDecl.IsClassBound;
+    }
+
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
     {
         var proxyClassName = GetProxyClassName(protocolDecl);
@@ -1390,7 +1431,13 @@ public partial class ProtocolProxyEmitter
         // : class constraint — it does not transitively detect NSObjectProtocol
         // inheritance). Swift loads `any P` for these as a 2-word ObjC protocol
         // existential, so the witness table must land at Payload1, not _witnessTable0.
-        var useClassBoundContainerLayout = protocolDecl.IsClassBound || _useObjCBase;
+        //
+        // Class-boundedness inherits transitively: `protocol Child: Parent` where Parent
+        // is `: AnyObject` makes Child class-bound too. ModuleProcessor walks the chain
+        // when setting TypeRecordFlags.ClassBound, so reading the flag here is sufficient.
+        // Without the 2-word layout, Swift reads WT from Payload1 (which C# leaves zero)
+        // → SIGSEGV on the first witness dispatch (Kidoz issue #40 repro).
+        var useClassBoundContainerLayout = IsProtocolClassBound(protocolDecl) || _useObjCBase;
         var containerInitLines = useClassBoundContainerLayout
             ? "_swiftContainer.Payload1 = (IntPtr)ProtocolWitnessTableHandle;"
             : "_swiftContainer.ObjectMetadata = EveryProtocol.GetTypeMetadata();\n                _swiftContainer[0] = ProtocolWitnessTableHandle;";

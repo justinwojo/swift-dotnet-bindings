@@ -634,14 +634,15 @@ namespace BindingsGeneration
                 if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
                     continue;
 
-                // Skip cross-module protocols — they may require namespace qualification and
-                // dependency DLL references that aren't always available. Same-module only.
-                var inheritedModule = inherited.Module;
-                if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(currentModule) &&
-                    inheritedModule != currentModule)
-                    continue;
-
-                // Look up the inherited protocol in the type database
+                // Look up the inherited protocol in the type database.
+                // Cross-module inherited protocols are included when the type database has
+                // the parent's TypeRecord (loaded via the dependency module's emitted XML);
+                // GetInterfaceName qualifies the reference with the parent's namespace.
+                // Without this, IProtocolProxyImpl<IChild> can't resolve covariantly to
+                // IProtocolProxyImpl<IParent> for cross-module inherited-delegate dispatch
+                // (justinwojo/swift-dotnet-bindings#40 cross-module variant). A missing
+                // TypeRecord still skips, so dependencies not loaded into the DB fall back
+                // safely to the original "skip cross-module" behavior.
                 var swiftTypeName = SwiftTypeName.FromTypeSpec(inherited);
                 if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var inheritedRecord))
                     continue;
@@ -664,7 +665,8 @@ namespace BindingsGeneration
 
                 var interfaceName = NameProvider.GetInterfaceName(
                     inherited.NameWithoutModule,
-                    moduleName: inherited.Module);
+                    moduleName: inherited.Module,
+                    currentModuleName: currentModule ?? string.Empty);
                 if (seen.Add(interfaceName))
                     result.Add(interfaceName);
             }

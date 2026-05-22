@@ -79,5 +79,16 @@ namespace BindingsGeneration
         /// Populated by SwiftABIParser during HandleConformance.
         /// </summary>
         public ConformanceGraph ConformanceGraph { get; set; } = new();
+
+        /// <summary>
+        /// ProtocolDecls parsed from <c>--framework-dependency</c> modules, keyed by the
+        /// dependency module's name. Lets the bound module's EveryProtocol emission reach
+        /// the full member list of cross-module parent protocols when the bound module's
+        /// own protocols inherit across the module boundary
+        /// (justinwojo/swift-dotnet-bindings#40 cross-module variant). Empty when the
+        /// generator was invoked without dependency parsing or when dependency parses
+        /// produced no protocols.
+        /// </summary>
+        public Dictionary<string, List<ProtocolDecl>> DependencyProtocols { get; set; } = new();
     }
 }

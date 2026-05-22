@@ -133,19 +133,37 @@ public partial class ProtocolProxyEmitter
         return string.Join("", constraints);
     }
 
-    private static string GetSwiftVtableStructName(ProtocolDecl protocolDecl)
+    /// <summary>
+    /// Returns the per-decl scaffolding prefix used to disambiguate cross-module
+    /// parent emissions inside the child proxy's class body. Same-module decls
+    /// get an empty prefix so the existing struct/symbol names stay unchanged.
+    /// Cross-module decls get a <c>{Module}_</c> prefix so two parents with the
+    /// same simple name from different dependency modules emit distinct C#
+    /// struct names (otherwise CS0102 — type already contains a definition for —
+    /// fires when both <c>private struct ParentDelegateSwiftVTable</c> appear in
+    /// the same child proxy class).
+    /// </summary>
+    private string GetVtableNameModulePrefix(ProtocolDecl protocolDecl)
     {
-        return $"{protocolDecl.Name}SwiftVTable";
+        var sourceModule = protocolDecl.ModuleDecl?.Name;
+        if (string.IsNullOrEmpty(sourceModule) || sourceModule == _moduleName)
+            return string.Empty;
+        return sourceModule + "_";
     }
 
-    private static string GetLocalVtableStructName(ProtocolDecl protocolDecl)
+    private string GetSwiftVtableStructName(ProtocolDecl protocolDecl)
     {
-        return $"{protocolDecl.Name}LocalVTable";
+        return $"{GetVtableNameModulePrefix(protocolDecl)}{protocolDecl.Name}SwiftVTable";
     }
 
-    private static string GetSetVtablePInvokeName(ProtocolDecl protocolDecl)
+    private string GetLocalVtableStructName(ProtocolDecl protocolDecl)
     {
-        return $"Set{protocolDecl.Name}_vtable";
+        return $"{GetVtableNameModulePrefix(protocolDecl)}{protocolDecl.Name}LocalVTable";
+    }
+
+    private string GetSetVtablePInvokeName(ProtocolDecl protocolDecl)
+    {
+        return $"Set{GetVtableNameModulePrefix(protocolDecl)}{protocolDecl.Name}_vtable";
     }
 
     private static string GetWitnessTableSymbol(ProtocolDecl protocolDecl)

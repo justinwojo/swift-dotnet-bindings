@@ -504,8 +504,12 @@ public class ProtocolProxyEmitterTests
         // boundary (Codex P0 / P1 #3 regression guard). Reading the full
         // ExistentialContainer1 (5 words) over-reads stack memory when Swift passes
         // a class-bound (2-word) existential for EveryObjCProtocol-rooted proxies.
+        //
+        // Lookup is typed by IProtocolProxyImpl<IInterface> (covariant) so an
+        // inherited-protocol child callback can find a sibling-typed parent proxy
+        // registered under the same EveryProtocol handle (justinwojo/swift-dotnet-bindings#40).
         Assert.Contains("var handle = *(IntPtr*)selfContainer;", output);
-        Assert.Contains("SwiftObjectRegistry.TryGetProxy<TestProtocolProxy>(handle", output);
+        Assert.Contains("SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<ITestProtocol>>(handle", output);
     }
 
     [Fact]
@@ -519,7 +523,9 @@ public class ProtocolProxyEmitterTests
 
         // Getter: null impl must produce an AllocZeroed buffer of the ABI type size
         // (cannot throw from [UnmanagedCallersOnly] — process-terminating).
-        Assert.Contains("var impl = proxy._csharpImpl;", output);
+        // The proxy exposes its weak impl via the IProtocolProxyImpl<TInterface>.UserImpl
+        // accessor so the receiver can read it through the covariantly-typed lookup result.
+        Assert.Contains("var impl = proxy.UserImpl;", output);
         Assert.Contains("if (impl is null)", output);
         Assert.Contains("AllocZeroed", output);
         // After the guard, dispatch uses the local `impl` — NOT `proxy._csharpImpl!`
@@ -5783,6 +5789,116 @@ public class ProtocolProxyEmitterTests
         Assert.False(_emitter.IsSwiftClassAssignableTo(
             TupleTypeSpec.Empty,
             new NamedTypeSpec("TestModule.SomeClass")));
+    }
+
+    #endregion
+
+    #region Cross-Module Parent Scaffolding (M: same-simple-name disambiguation)
+
+    /// <summary>
+    /// When a child protocol inherits two cross-module parents with the same
+    /// simple name from different dependency modules, the C# scaffolding
+    /// (struct names, fields, P/Invoke wrapper class, cdecl entry point) MUST
+    /// disambiguate by source module. Pre-M the struct name was
+    /// <c>{Name}SwiftVTable</c> with no module qualifier, so two parents named
+    /// "ParentDelegate" in DepA and DepB collided on
+    /// <c>ParentDelegateSwiftVTable</c> → CS0102 inside the child proxy class.
+    /// </summary>
+    [Fact]
+    public void EmitProxyClass_CrossModuleParents_SameSimpleName_QualifiesScaffolding()
+    {
+        RegisterSwiftInt32();
+
+        var depAModule = CreateCrossModuleDep("DepA");
+        var depBModule = CreateCrossModuleDep("DepB");
+        var parentA = CreateCrossModuleParent("ParentDelegate", "notifyA", depAModule);
+        var parentB = CreateCrossModuleParent("ParentDelegate", "notifyB", depBModule);
+
+        // The child lives in TestModule (matches _emitter._moduleName from the
+        // fixture's constructor) and inherits both same-simple-name parents
+        // from two different dependency modules.
+        var childModule = new ModuleDecl
+        {
+            Name = "TestModule",
+            ParentDecl = null, ModuleDecl = null,
+            Properties = new(), Methods = new(), Types = new(),
+            Dependencies = new(), Protocols = new(),
+            DependencyProtocols = new()
+            {
+                ["DepA"] = new List<ProtocolDecl> { parentA },
+                ["DepB"] = new List<ProtocolDecl> { parentB },
+            },
+        };
+        var child = CreateSimpleProtocol("InheritsBothDelegate");
+        child.ModuleDecl = childModule;
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepA.ParentDelegate"));
+        child.InheritedProtocols.Add(new NamedTypeSpec("DepB.ParentDelegate"));
+
+        var output = EmitProxyClass(child);
+
+        // Each parent's vtable struct gets a {Module}_ prefix to avoid CS0102
+        // when both parents share a simple name.
+        Assert.Contains("DepA_ParentDelegateSwiftVTable", output);
+        Assert.Contains("DepB_ParentDelegateSwiftVTable", output);
+        Assert.Contains("DepA_ParentDelegateLocalVTable", output);
+        Assert.Contains("DepB_ParentDelegateLocalVTable", output);
+
+        // Scaffolding fields use the xm_{Module}_{Name} suffix shape.
+        Assert.Contains("_swiftVTable_xm_DepA_ParentDelegate", output);
+        Assert.Contains("_swiftVTable_xm_DepB_ParentDelegate", output);
+        Assert.Contains("_localVTable_xm_DepA_ParentDelegate", output);
+        Assert.Contains("_localVTable_xm_DepB_ParentDelegate", output);
+
+        // Each parent's P/Invoke wrapper sits in its own per-parent nested
+        // NativeMethods class so the C# method names don't collide; the cdecl
+        // entry point ALSO carries the module qualifier so the wrapper-lib
+        // symbol table can host both Set_vtable trampolines side-by-side.
+        Assert.Contains("NativeMethods_xm_DepA_ParentDelegate", output);
+        Assert.Contains("NativeMethods_xm_DepB_ParentDelegate", output);
+        Assert.Contains("EntryPoint = \"SetDepA_ParentDelegate_vtable\"", output);
+        Assert.Contains("EntryPoint = \"SetDepB_ParentDelegate_vtable\"", output);
+
+        // The UNQUALIFIED forms must not appear at the cross-module emission
+        // sites — both would be ambiguous.
+        Assert.DoesNotContain("private struct ParentDelegateSwiftVTable", output);
+        Assert.DoesNotContain("private struct ParentDelegateLocalVTable", output);
+    }
+
+    /// <summary>
+    /// Same-module emission (the common case — child and parent live in the
+    /// same module) must NOT pick up a module prefix on its own vtable
+    /// struct names. The M fix is opt-in for cross-module sites only;
+    /// regressing this would rename every protocol's vtable struct.
+    /// </summary>
+    [Fact]
+    public void EmitProxyClass_SameModule_DoesNotPrefixVtableStructNames()
+    {
+        var protocolDecl = CreateProtocolWithMethod("LocalProtocol", "doSomething");
+
+        var output = EmitProxyClass(protocolDecl);
+
+        Assert.Contains("private struct LocalProtocolSwiftVTable", output);
+        Assert.Contains("private struct LocalProtocolLocalVTable", output);
+        // No xm_ scaffolding for a protocol with no cross-module ancestors.
+        Assert.DoesNotContain("_xm_", output);
+    }
+
+    private static ModuleDecl CreateCrossModuleDep(string moduleName) => new()
+    {
+        Name = moduleName,
+        ParentDecl = null, ModuleDecl = null,
+        Properties = new(), Methods = new(), Types = new(),
+        Dependencies = new(), Protocols = new(),
+    };
+
+    private static ProtocolDecl CreateCrossModuleParent(string name, string methodName, ModuleDecl owningModule)
+    {
+        var parent = CreateSimpleProtocol(name);
+        parent.ModuleDecl = owningModule;
+        parent.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{owningModule.Name}.{name}");
+        parent.Methods.Add(CreateMethodDecl(methodName));
+        owningModule.Protocols.Add(parent);
+        return parent;
     }
 
     #endregion

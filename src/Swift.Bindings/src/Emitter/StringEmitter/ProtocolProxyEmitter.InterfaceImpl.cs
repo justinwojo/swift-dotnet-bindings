@@ -309,13 +309,6 @@ public partial class ProtocolProxyEmitter
             if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
                 continue;
 
-            // Skip cross-module protocols — must match ProtocolHandler.GetInheritedInterfaceList
-            var inheritedModule = inherited.Module;
-            var currentModule = protocolDecl.ModuleDecl?.Name;
-            if (!string.IsNullOrEmpty(inheritedModule) && !string.IsNullOrEmpty(currentModule) &&
-                inheritedModule != currentModule)
-                continue;
-
             var swiftTypeName = SwiftTypeName.FromTypeSpec(inherited);
             if (!_typeDatabase.TryGetTypeRecord(swiftTypeName, out var inheritedRecord))
                 continue;
@@ -329,9 +322,13 @@ public partial class ProtocolProxyEmitter
             if (swiftTypeName != null && _emissionContext.IsUnderscoreSuppressed(swiftTypeName.ToString()))
                 continue;
 
-            // Look up the ProtocolDecl in the same module
-            var parentProtoDecl = moduleDecl.Protocols.FirstOrDefault(
-                p => p.Name == inherited.NameWithoutModule);
+            // Resolve the ProtocolDecl: same-module from moduleDecl.Protocols, cross-module
+            // from moduleDecl.DependencyProtocols (populated when --framework-dependency
+            // ABI was parsed). Cross-module parents are emitted as interface parents by
+            // ProtocolHandler.GetInheritedInterfaceList — without their stubs the proxy
+            // fails CS0535 on the inherited interface contract. Required for
+            // justinwojo/swift-dotnet-bindings#40 cross-module variant.
+            ProtocolDecl? parentProtoDecl = ResolveInheritedProtocolDecl(inherited, moduleDecl);
             if (parentProtoDecl != null)
                 inheritedProtocolDecls.Add(parentProtoDecl);
         }
@@ -370,13 +367,6 @@ public partial class ProtocolProxyEmitter
                 if (grandparent.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
                     continue;
 
-                // Skip cross-module protocols — must match ProtocolHandler.GetInheritedInterfaceList
-                var gpModule = grandparent.Module;
-                var gpCurrentModule = current.ModuleDecl?.Name ?? protocolDecl.ModuleDecl?.Name;
-                if (!string.IsNullOrEmpty(gpModule) && !string.IsNullOrEmpty(gpCurrentModule) &&
-                    gpModule != gpCurrentModule)
-                    continue;
-
                 // Skip PAT/Self protocols — their interfaces aren't inherited
                 var gpSwiftName = SwiftTypeName.FromTypeSpec(grandparent);
                 if (_typeDatabase.TryGetTypeRecord(gpSwiftName, out var gpRecord))
@@ -390,8 +380,9 @@ public partial class ProtocolProxyEmitter
                 if (gpSwiftName != null && _emissionContext.IsUnderscoreSuppressed(gpSwiftName.ToString()))
                     continue;
 
-                var gpDecl = moduleDecl.Protocols.FirstOrDefault(
-                    p => p.Name == grandparent.NameWithoutModule);
+                // Same lookup policy as the direct-parent collection above: resolve from
+                // local or dependency module, so cross-module ancestor chains are walked.
+                var gpDecl = ResolveInheritedProtocolDecl(grandparent, moduleDecl);
                 if (gpDecl != null)
                     queue.Enqueue(gpDecl);
             }
@@ -443,6 +434,27 @@ public partial class ProtocolProxyEmitter
                 EmitInheritedMethodStub(writer, method, emittedCSharpPropertyNames);
             }
         }
+    }
+
+    /// <summary>
+    /// Resolves an inherited <see cref="NamedTypeSpec"/> reference to its <see cref="ProtocolDecl"/>,
+    /// checking the local module first and falling back to dependency modules
+    /// (populated when <c>--framework-dependency</c> was supplied at parse time).
+    /// Returns <c>null</c> when no matching protocol is found in either source.
+    /// </summary>
+    private static ProtocolDecl? ResolveInheritedProtocolDecl(NamedTypeSpec inherited, ModuleDecl moduleDecl)
+    {
+        var inheritedModule = inherited.Module;
+        var currentModule = moduleDecl.Name;
+        if (string.IsNullOrEmpty(inheritedModule) || inheritedModule == currentModule)
+        {
+            return moduleDecl.Protocols.FirstOrDefault(p => p.Name == inherited.NameWithoutModule);
+        }
+        if (moduleDecl.DependencyProtocols.TryGetValue(inheritedModule, out var depProtos))
+        {
+            return depProtos.FirstOrDefault(p => p.Name == inherited.NameWithoutModule);
+        }
+        return null;
     }
 
     /// <summary>

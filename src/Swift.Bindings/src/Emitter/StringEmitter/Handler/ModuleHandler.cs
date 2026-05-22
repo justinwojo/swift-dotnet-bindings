@@ -920,6 +920,80 @@ namespace BindingsGeneration
                     .ToList();
             }
 
+            // Accessor-set conflict: two protocols share the same property name and type,
+            // but one requires `get` only and another requires `get set`. The first protocol
+            // emitted wins the global dedup and contributes the property body; that body
+            // can only call its own vtable's accessors. If the get-only protocol emits first,
+            // the set-required protocol's empty extension fails ("does not conform"); if the
+            // set-required protocol emits first, the body would crash at runtime for
+            // get-only-implementing C# classes (their proxy populates the wrong vtable).
+            // Drop the set-required protocols so the get-only conformances compile cleanly.
+            // Matches the strip-salvage behavior that previously masked this on main.
+            var propertiesWithSetterRequirement = new HashSet<string>(StringComparer.Ordinal);
+            var propertiesWithGetOnlyRequirement = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in suitableProtocols)
+            {
+                foreach (var prop in p.Properties)
+                {
+                    if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
+                        continue;
+                    if (prop.Accessors.OfType<SetAccessorDecl>().Any())
+                        propertiesWithSetterRequirement.Add(prop.Name);
+                    else
+                        propertiesWithGetOnlyRequirement.Add(prop.Name);
+                }
+            }
+            var accessorConflictPropertyNames = propertiesWithSetterRequirement
+                .Intersect(propertiesWithGetOnlyRequirement, StringComparer.Ordinal)
+                .ToHashSet(StringComparer.Ordinal);
+            if (accessorConflictPropertyNames.Count > 0)
+            {
+                suitableProtocols = suitableProtocols
+                    .Where(p => !p.Properties.Any(prop =>
+                        !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement &&
+                        accessorConflictPropertyNames.Contains(prop.Name) &&
+                        prop.Accessors.OfType<SetAccessorDecl>().Any()))
+                    .ToList();
+            }
+
+            // Member-kind conflict: protocol A requires `var label: T { get }` while protocol B
+            // requires `func label() -> T`. Swift rejects `var label` and `func label()` on the
+            // same class as "invalid redeclaration of 'label()'". Drop the function-side
+            // protocols (property-side keeps the more common shape).
+            var propertyNamesAsRequirements = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in suitableProtocols)
+            {
+                foreach (var prop in p.Properties)
+                {
+                    if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
+                        continue;
+                    propertyNamesAsRequirements.Add(prop.Name);
+                }
+            }
+            var methodNamesCollidingWithProperties = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in suitableProtocols)
+            {
+                foreach (var m in p.Methods)
+                {
+                    if (m.IsConstructor || m.MethodType == MethodType.Static || m.IsObjCOptional)
+                        continue;
+                    // Only zero-parameter methods can collide with a property base name.
+                    if (m.CSSignature.Count > 1)
+                        continue;
+                    if (propertyNamesAsRequirements.Contains(m.Name))
+                        methodNamesCollidingWithProperties.Add(m.Name);
+                }
+            }
+            if (methodNamesCollidingWithProperties.Count > 0)
+            {
+                suitableProtocols = suitableProtocols
+                    .Where(p => !p.Methods.Any(m =>
+                        !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsObjCOptional &&
+                        m.CSSignature.Count == 1 &&
+                        methodNamesCollidingWithProperties.Contains(m.Name)))
+                    .ToList();
+            }
+
             if (!suitableProtocols.Any())
                 return;
 
@@ -959,6 +1033,96 @@ namespace BindingsGeneration
                 // are in scope (e.g., RxTime→Double instead of Date).
                 if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
                     dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
+            }
+
+            // Cross-module inherited-delegate parents
+            // (justinwojo/swift-dotnet-bindings#40 cross-module variant):
+            // When a local protocol inherits from a parent in a --framework-dependency
+            // module, Swift's witness dispatch for the inherited requirement routes
+            // through the LOCAL module's EveryProtocol — which must therefore conform
+            // to the parent and supply the inherited witness body. The parent's full
+            // EveryProtocol scaffolding (vtable struct + setter + extension) is emitted
+            // here once per unique cross-module parent; vtable population is wired by
+            // each local child proxy's static cctor in ProtocolProxyEmitter
+            // (`EmitCrossModuleParentVtableInit`).
+            //
+            // No witness-dispatch wrappers — those are the C# → Swift direction and
+            // already live in the dependency module's bindings. We only need Swift → C#
+            // (callback) for the inherited requirement.
+            var crossModuleParents = CollectCrossModuleParentDecls(suitableProtocols, moduleDecl);
+            foreach (var parentDecl in crossModuleParents)
+            {
+                _logger.LogDebug($"Emitting cross-module parent EveryProtocol conformance for {parentDecl.ModuleDecl?.Name}.{parentDecl.Name}");
+                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides);
+            }
+        }
+
+        /// <summary>
+        /// Collects unique parent <see cref="ProtocolDecl"/>s from <c>--framework-dependency</c>
+        /// modules that any local child protocol inherits across the module boundary.
+        /// Walks transitively: a local child inheriting <c>B.Parent</c> which itself inherits
+        /// <c>C.Grandparent</c> yields BOTH parent and grandparent so the local wrapper emits
+        /// per-ancestor companion conformance + setter trampoline, and the child proxy's cctor
+        /// can populate every ancestor's vtable storage in the local wrapper.
+        ///
+        /// Returned decls have <c>ModuleDecl.Name</c> pointing to the dependency module;
+        /// callers drive <see cref="EveryProtocolEmitter.EmitProtocolConformance"/> with them
+        /// so the LOCAL module's EveryProtocol conforms to each ancestor in the chain.
+        /// Dedup keyed by <c>{module}.{name}</c> so multiple children sharing an ancestor
+        /// emit one set of vtable+setter+extension in the local wrapper. Resolution stops
+        /// gracefully at ancestors whose module isn't loaded as a dependency (the parser
+        /// invocation didn't pass <c>--framework-dependency</c> for that module).
+        /// </summary>
+        private static List<ProtocolDecl> CollectCrossModuleParentDecls(
+            IReadOnlyList<ProtocolDecl> localProtocols, ModuleDecl moduleDecl)
+        {
+            if (moduleDecl.DependencyProtocols.Count == 0)
+                return new List<ProtocolDecl>();
+
+            var currentModule = moduleDecl.Name;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var collected = new List<ProtocolDecl>();
+            var pending = new Queue<ProtocolDecl>();
+
+            // Seed the queue with direct cross-module parents of the local protocols.
+            foreach (var local in localProtocols)
+            {
+                EnqueueCrossModuleAncestors(local.InheritedProtocols, moduleDecl, currentModule, seen, pending);
+            }
+
+            // Drain transitively — each parent's own InheritedProtocols may reach
+            // a different dependency module's grandparent.
+            while (pending.Count > 0)
+            {
+                var ancestor = pending.Dequeue();
+                collected.Add(ancestor);
+                EnqueueCrossModuleAncestors(ancestor.InheritedProtocols, moduleDecl, currentModule, seen, pending);
+            }
+            return collected;
+        }
+
+        private static void EnqueueCrossModuleAncestors(
+            IEnumerable<NamedTypeSpec> inheritedProtocols,
+            ModuleDecl moduleDecl,
+            string currentModule,
+            HashSet<string> seen,
+            Queue<ProtocolDecl> pending)
+        {
+            foreach (var inherited in inheritedProtocols)
+            {
+                var inhModule = inherited.Module;
+                if (string.IsNullOrEmpty(inhModule) || inhModule == currentModule)
+                    continue;
+                if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype" or "AnyObject")
+                    continue;
+                if (!moduleDecl.DependencyProtocols.TryGetValue(inhModule, out var depProtos))
+                    continue;
+                var ancestorDecl = depProtos.FirstOrDefault(dp => dp.Name == inherited.NameWithoutModule);
+                if (ancestorDecl == null)
+                    continue;
+                var key = $"{inhModule}.{ancestorDecl.Name}";
+                if (seen.Add(key))
+                    pending.Enqueue(ancestorDecl);
             }
         }
 

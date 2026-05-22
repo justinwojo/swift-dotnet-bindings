@@ -90,6 +90,45 @@ public static class SwiftSourceStripper
         // closure and exercises the full multi-arg vtable dispatch end-to-end.
         "EphemeralKeyProvider",
         "RetryingKeyProvider",
+        // Inherited-delegate dispatch regression (justinwojo/swift-dotnet-bindings#40,
+        // KidozSDK). Child protocol with no new requirements inherits a callback from
+        // a parent protocol; Swift routes the call through the parent's vtable. Both
+        // EveryProtocol conformances and both witness-table getters must survive so
+        // InheritedDelegateDispatchTests can exercise the cross-proxy delivery path.
+        "InheritedParentDelegate",
+        "InheritedChildDelegate",
+        // 3-level chain and non-empty-child variants of the same dispatch shape.
+        // The grandchild walks the cctor cascade two ancestors deep; the non-empty
+        // child verifies a real-world layout (parent inherited + child own method).
+        "InheritedGrandchildDelegate",
+        "InheritedNonEmptyChildDelegate",
+        // Cross-module inherited-delegate variant — parent lives in
+        // SwiftBindingsTestLibDependency, child here. Both conformances must
+        // survive so CrossModuleInheritedDelegateTests can exercise the
+        // cross-module witness-table forwarding path.
+        "CrossModuleParentDelegate",
+        "CrossModuleInheritedChildDelegate",
+        // Transitive cross-module ancestor chain (H1): local child inherits
+        // a dep-module parent which itself inherits a dep-module grandparent.
+        // All three conformances on EveryProtocol must survive so the child
+        // proxy cctor can populate both ancestor vtables in the local wrapper.
+        "CrossModuleTransitiveChildDelegate",
+        "CrossModuleTransitiveParentDelegate",
+        "CrossModuleTransitiveGrandparentDelegate",
+        // Cross-module parent with non-dispatchable closure property (H2):
+        // the C# cross-module-parent vtable struct + receivers + Swift wrapper
+        // vtable struct must ALL skip the closure-property slot in lock-step
+        // so the layouts match. Witness-table getters must survive so the
+        // CrossModuleClosurePropertyDelegateTests can drive the round trip.
+        "CrossModuleClosurePropertyChildDelegate",
+        "CrossModuleClosurePropertyParentDelegate",
+        // Cross-module parent with a skipped (non-dispatchable two-closure)
+        // method declared BEFORE a dispatchable method. Exercises the cctor
+        // index-ordering parity: the struct emitters increment-then-skip, so
+        // the cctor must do the same. Witness-table getters must survive so
+        // the CrossModuleSkippedMethodDelegateTests can drive the round trip.
+        "CrossModuleSkippedMethodChildDelegate",
+        "CrossModuleSkippedMethodParentDelegate",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(

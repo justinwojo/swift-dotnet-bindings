@@ -155,6 +155,12 @@ namespace BindingsGeneration
                 }
             }
 
+            // Accumulator for dependency-module ProtocolDecls. Threaded onto the bound
+            // module's ModuleDecl after parse so EveryProtocol emission can flatten
+            // cross-module parent witnesses into the child's vtable
+            // (justinwojo/swift-dotnet-bindings#40 cross-module variant).
+            var dependencyProtocols = new Dictionary<string, List<ProtocolDecl>>(StringComparer.Ordinal);
+
             // Load dependency type databases from framework dependency ABI JSON files.
             // This enables cross-module type resolution: dependency types resolve to concrete
             // projections instead of falling back to AnyType.
@@ -204,6 +210,11 @@ namespace BindingsGeneration
                         // managedTypeName is already in the XML; the ABI re-parse branch is the
                         // gap (BindingTests path uses --framework-dependency without --module-database).
                         NameProvider.PrecomputeNestedTypeRenames(depParseResult.ModuleDecl, typeDatabase);
+
+                        // Stash dep ProtocolDecls so the bound module's EveryProtocol emission
+                        // can resolve cross-module parents to their full member list.
+                        if (depParseResult.ModuleDecl.Protocols is { Count: > 0 } depProtos)
+                            dependencyProtocols[depModuleName] = depProtos;
 
                         logger.LogInformation("Loaded dependency types from ABI JSON: {Module}", depModuleName);
                     }
@@ -282,6 +293,7 @@ namespace BindingsGeneration
                 decl.ExportedSymbols = demangledTbdFile.AllSymbols;
                 if (dependencyModuleNames != null)
                     decl.DependencyModuleNames = dependencyModuleNames;
+                decl.DependencyProtocols = dependencyProtocols;
                 // Thread the bound module's swiftinterface path so EmitSwiftImports can
                 // intersect DependencyModuleNames with the real textual imports — without
                 // this, the wrapper emits `import absl/grpc/...` for every sibling passed

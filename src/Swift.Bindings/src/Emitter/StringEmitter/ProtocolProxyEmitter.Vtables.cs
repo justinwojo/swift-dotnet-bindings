@@ -9,9 +9,17 @@ public partial class ProtocolProxyEmitter
     /// Emits the struct that matches the Swift vtable layout.
     /// This is passed to Swift's SetVtable function.
     /// </summary>
-    private void EmitSwiftVtableStruct(CSharpWriter writer, ProtocolDecl protocolDecl)
+    /// <param name="applyVtableMembershipFilter">When true, gate every member through
+    /// <see cref="ProtocolVtableMembers"/> so the C# layout exactly matches the Swift
+    /// wrapper's vtable struct. Used for cross-module parent scaffolding where the
+    /// same-module skip sets (<c>_closureSkippedMethodKeys</c> et al.) are not populated
+    /// for the parent — without this filter, the C# struct would include slots for
+    /// Self-typed / mixed-generic / non-dispatchable-closure / @objc-optional members
+    /// that the Swift wrapper omits, shifting every following pointer slot.</param>
+    private void EmitSwiftVtableStruct(CSharpWriter writer, ProtocolDecl protocolDecl, bool applyVtableMembershipFilter = false)
     {
         var structName = GetSwiftVtableStructName(protocolDecl);
+        var closureHandler = applyVtableMembershipFilter ? new ClosureHandler(_typeDatabase) : null;
 
         writer.WriteLine($"/// <summary>Matches Swift {protocolDecl.Name}_vtable layout</summary>");
         writer.WriteLine("[StructLayout(LayoutKind.Sequential)]");
@@ -29,6 +37,8 @@ public partial class ProtocolProxyEmitter
         {
             if (property.IsStatic)
                 continue;
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesProperty(property, protocolDecl, closureHandler!))
+                continue;
             EmitPropertyVtableSwiftFields(writer, property, emittedFields);
         }
 
@@ -38,6 +48,11 @@ public partial class ProtocolProxyEmitter
         {
             if (subscript.IsStatic)
                 continue;
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl))
+            {
+                subscriptIndex++;
+                continue;
+            }
             EmitSubscriptVtableSwiftFields(writer, subscript, subscriptIndex, emittedFields);
             subscriptIndex++;
         }
@@ -64,6 +79,8 @@ public partial class ProtocolProxyEmitter
                 // function pointer.
                 if (_closureSkippedMethodKeys.Contains(methodKey))
                     continue;
+                if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler!))
+                    continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys.Add(projectedKey))
                     continue;
@@ -80,9 +97,13 @@ public partial class ProtocolProxyEmitter
     /// <summary>
     /// Emits the local vtable struct that holds managed delegates.
     /// </summary>
-    private void EmitLocalVtableStruct(CSharpWriter writer, ProtocolDecl protocolDecl)
+    /// <param name="applyVtableMembershipFilter">When true, gate every member through
+    /// <see cref="ProtocolVtableMembers"/> so the local struct stays in lock-step with
+    /// the matching Swift wrapper struct. See <see cref="EmitSwiftVtableStruct"/> notes.</param>
+    private void EmitLocalVtableStruct(CSharpWriter writer, ProtocolDecl protocolDecl, bool applyVtableMembershipFilter = false)
     {
         var structName = GetLocalVtableStructName(protocolDecl);
+        var closureHandler = applyVtableMembershipFilter ? new ClosureHandler(_typeDatabase) : null;
 
         writer.WriteLine($"/// <summary>Local vtable holding managed delegates</summary>");
         writer.WriteLine($"private struct {structName}");
@@ -95,6 +116,8 @@ public partial class ProtocolProxyEmitter
         {
             if (property.IsStatic)
                 continue;
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesProperty(property, protocolDecl, closureHandler!))
+                continue;
             EmitPropertyLocalVtableFields(writer, property, protocolDecl, emittedFields);
         }
 
@@ -104,6 +127,11 @@ public partial class ProtocolProxyEmitter
         {
             if (subscript.IsStatic)
                 continue;
+            if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesSubscript(subscript, protocolDecl))
+            {
+                subscriptIndex++;
+                continue;
+            }
             EmitSubscriptLocalVtableFields(writer, subscript, protocolDecl, subscriptIndex, emittedFields);
             subscriptIndex++;
         }
@@ -127,6 +155,8 @@ public partial class ProtocolProxyEmitter
                 // field would have no consumer. Drop it for symmetry with the
                 // Swift-facing struct and to keep tests/grep clean.
                 if (_closureSkippedMethodKeys.Contains(methodKey))
+                    continue;
+                if (applyVtableMembershipFilter && !ProtocolVtableMembers.IncludesMethod(method, protocolDecl, closureHandler!))
                     continue;
                 var projectedKey = ProtocolSignatureHelper.GetProjectedCSharpMethodKey(method, _typeDatabase, protocolDecl);
                 if (!emittedCSharpKeys2.Add(projectedKey))

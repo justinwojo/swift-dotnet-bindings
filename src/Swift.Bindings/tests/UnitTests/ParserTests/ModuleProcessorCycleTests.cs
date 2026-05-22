@@ -122,6 +122,74 @@ public class ModuleProcessorCycleTests
     }
 
     [Fact]
+    public void FinalizeTypeProcessing_QualifiedInheritedShadowsLocalSimpleName_PrefersCrossModule()
+    {
+        // Shadowing regression: `protocol Child: External.Parent` plus a local
+        // `TestModule.Parent`. The intra-module walk used to match by simple name,
+        // recurse into the (non-class-bound) local Parent, and `continue` — never
+        // consulting the cross-module External.Parent's ClassBound flag.
+        //
+        // After the fix, a module-qualified inherited reference is matched only
+        // against the exact qualified intra-module entry; if absent, the cross-module
+        // TypeDatabase is consulted. Child must inherit class-boundedness from
+        // External.Parent rather than be shadowed by the same-simple-named local.
+        var typeDatabase = new TypeDatabase();
+
+        var externalParentSpec = new NamedTypeSpec("External.Parent");
+        var externalParent = CreateProtocolDecl("Parent", externalParentSpec,
+            classBound: true, moduleName: "External");
+        var externalDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            { externalParentSpec, externalParent },
+        };
+        var externalProcessor = new ModuleProcessor(
+            "External",
+            "/tmp/External.dylib",
+            "External",
+            externalDecls,
+            typeDatabase,
+            NullLogger.Instance);
+        var externalResult = externalProcessor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(externalResult.ModuleDatabase);
+
+        // Sanity: External.Parent picked up ClassBound at parse time.
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("External.Parent"), out var externalRecord));
+        Assert.True(externalRecord!.Flags.HasFlag(TypeRecordFlags.ClassBound));
+
+        var localParentSpec = new NamedTypeSpec("TestModule.Parent");
+        var childSpec = new NamedTypeSpec("TestModule.Child");
+        var localParent = CreateProtocolDecl("Parent", localParentSpec);
+        var child = CreateProtocolDecl("Child", childSpec,
+            inherited: new[] { externalParentSpec });
+        var testDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            { localParentSpec, localParent },
+            { childSpec, child },
+        };
+        var processor = new ModuleProcessor(
+            "TestModule",
+            "/tmp/TestModule.dylib",
+            "TestModule",
+            testDecls,
+            typeDatabase,
+            NullLogger.Instance);
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+        typeDatabase.AddModuleDatabase(result.ModuleDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Child"), out var childRecord));
+        Assert.True(childRecord!.Flags.HasFlag(TypeRecordFlags.ClassBound),
+            "Child should inherit ClassBound from cross-module External.Parent, " +
+            "not be shadowed by the non-class-bound local TestModule.Parent.");
+
+        // Local Parent stays non-class-bound (unchanged behavior).
+        Assert.True(typeDatabase.TryGetTypeRecord(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Parent"), out var localParentRecord));
+        Assert.False(localParentRecord!.Flags.HasFlag(TypeRecordFlags.ClassBound));
+    }
+
+    [Fact]
     public void FinalizeTypeProcessing_FrozenGenericStructWithGenericParamField_DoesNotThrow()
     {
         // Regression: a frozen generic struct whose stored property is typed as its own
@@ -165,13 +233,13 @@ public class ModuleProcessorCycleTests
     }
 
     private static ProtocolDecl CreateProtocolDecl(string name, NamedTypeSpec typeSpec,
-        NamedTypeSpec[]? inherited = null)
+        NamedTypeSpec[]? inherited = null, bool classBound = false, string moduleName = "TestModule")
     {
         return new ProtocolDecl
         {
             Name = name,
             SwiftTypeName = SwiftTypeName.FromTypeSpec(typeSpec),
-            MangledName = $"$s10TestModule{name.Length}{name}P",
+            MangledName = $"$s{moduleName.Length}{moduleName}{name.Length}{name}P",
             Properties = new List<PropertyDecl>(),
             Methods = new List<MethodDecl>(),
             Types = new List<TypeDecl>(),
@@ -180,7 +248,7 @@ public class ModuleProcessorCycleTests
             AssociatedTypes = new List<AssociatedTypeDecl>(),
             InheritedProtocols = inherited?.ToList() ?? new List<NamedTypeSpec>(),
             HasSelfRequirement = false,
-            IsClassBound = false,
+            IsClassBound = classBound,
             ParentDecl = null,
             ModuleDecl = null
         };
