@@ -1238,6 +1238,7 @@ public class AppleFrameworkRegistryTests
     [InlineData("WeatherKit")]
     [InlineData("OSLog")]
     [InlineData("AppIntents")]
+    [InlineData("CoreSpotlight")]
     public void IsWrapperImportableModule_ReturnsTrueForImportableModules(string module)
     {
         Assert.True(AppleFrameworkRegistry.IsWrapperImportableModule(module));

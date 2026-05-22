@@ -34,6 +34,19 @@ Two structural facts that drive the emitter design:
 1. **`Entity` is a method-own free generic** with `where Entity : AppEntity`. It is NOT a generic param of `EntityProperty`. Session 4's existing `KeyPathSingletonEmitter` walks "Root = parent's associated type" — that's a different shape.
 2. **`Value.ValueType` discriminates which extension block holds the init.** A C# overload that takes `KeyPath<MockBook, nint>` (the C# projection of Swift `KeyPath<MockBook, Int>`) must call into the `extension EntityProperty where Value.ValueType == Swift.Int` block, not the `Foundation.AttributedString` block. The mapping from "C# value type passed by the consumer" to "which Swift extension provides the init" is part of the dispatch.
 
+## Phase 0 spike result (2026-05-21) — cross-referenced from 8c
+
+**Verdict: blocked at the same layer as 8c. `EntityProperty<Value>` is not currently emitted to C#.**
+
+The apple-framework regen of AppIntents records:
+> `// Unsupported: type 'EntityProperty' — IndeterminatePwtShape (TValue: AppIntents._IntentValue (protocol not projected in the type database))`
+
+`AppIntents._IntentValue` is an underscored SPI protocol filtered by the parser's underscore-suppression rules. Until it is projected as a PAT-shaped protocol the type database can store, `EntityProperty<Value>` does not appear in `AppIntents.cs`, and there is nothing for an `IMethodPostProcessor` to attach convenience-init overloads to.
+
+Full spike findings and the proposed unblock path (parser keep-list entry + closed-conformer enumeration via existing CSM machinery) live in `08c-appshortcut-parameter-presentation.md` under **Phase 0 spike result**. Treat that section as authoritative for the shared prerequisite. 8b cannot ship until **Session 8a-prereq** (`_IntentValue` projection) lands.
+
+---
+
 ## Generator pieces required
 
 ### Closed `AppEntity` conformer enumeration
@@ -133,6 +146,18 @@ The Swift trampoline this calls into is `init<Entity>(…)` directly — no sepa
 - **`asyncGetter:` variants** introduce a closure parameter shape that needs the existing closure-marshalling machinery; verify it composes (likely just routes through existing `ClosureEmitter` paths; flag if it doesn't).
 - **iOS 26 / macOS 26 / etc.** — all the KeyPath-keyed inits are gated to the iOS 26 family of OSes. The C# overloads must carry `[SupportedOSPlatform("ios26.0")]` etc. The CA1416 / availability propagation fix from Session 8 v1 is a prerequisite for this to work end-to-end. Wrapper-lib `@available` for the per-conformer trampolines also needs this floor.
 - **Open-conformer case** — C#-user-defined `AppEntity` subclasses remain unsupported; explicit user-facing limitation, tracked in the wiki.
+
+## v1 limitations (cross-module conformer enumeration)
+
+`ConcreteSpecializationEngine.GetConformers("AppIntents.AppEntity")` only sees conformers that the binding generator has direct ABI access to:
+
+- **Visible**: `AppEntity` conformers declared in the bound module (the consumer's own library) or in dependent modules that are bound in the same generator invocation. Sufficient for the BindingTests `MockBook` fixture and for "consumer ships their AppEntity types in the same Swift library they bind to C#."
+- **Not visible**: Apple-shipped `AppEntity` conformers in sibling frameworks (e.g. `AppIntentsFinanceKit.FinanceAccount`) unless added via `specialization-hints.json` `AllowedModules` scoping. These do not surface in the closed-overload emission.
+- **Not visible**: `AppEntity` conformers declared by an app developer in *their* assembly when consuming a pre-built AppIntents binding NuGet. Trampoline emission requires the conformer type to live in the same Swift TU as the trampoline, which forecloses the "bind AppIntents once, then add conformers per app" workflow at the generator level.
+
+This is acceptable for v1. The product story is: "your AppEntity types live in the same library as your generated AppIntents bindings, and the binding regenerates whenever you add or remove an AppEntity type." Documented in the wiki Known Limitations.
+
+Roadmap item (see `roadmap.md`): cross-module / cross-assembly conformer enumeration is its own architectural session (changes to `ConcreteSpecializationEngine`, TypeDatabase dependency-closure aggregation, and `Program.cs` engine construction). Open when a real consumer asks.
 
 ## References
 

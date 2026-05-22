@@ -48,6 +48,66 @@ The C# overloads from Session 8b that have an `indexingKey:` parameter accept `P
 
 Pick at design time. The simpler choice — emit the singletons typed as `PartialKeyPath<CSSearchableItemAttributeSet>` — is what the API actually consumes; the loss of typed-`Value` is acceptable since the `indexingKey:` parameter doesn't use it.
 
+## Phase 8d.1 preflight result (2026-05-21)
+
+Three preflight items from `08-followups-execution-plan.md:88-95` executed; mixed result.
+
+### Item 1 — `wrapperImportable` flip: GREEN
+
+`apple-frameworks.json:229-234` flipped from `autoBridge + optionalFallback` to add `wrapperImportable: true`. `AppleFrameworkRegistryTests.cs:1240` adds `[InlineData("CoreSpotlight")]` to the wrapper-importable positive cases.
+
+### Item 2 — Swift literal compile: GREEN
+
+Standalone Swift compile of:
+```swift
+import CoreSpotlight
+public func _kp_check() {
+  let kp:  PartialKeyPath<CSSearchableItemAttributeSet>           = \CSSearchableItemAttributeSet.title
+  let kp2: KeyPath<CSSearchableItemAttributeSet, String?>         = \CSSearchableItemAttributeSet.title
+  let kp3: ReferenceWritableKeyPath<CSSearchableItemAttributeSet, String?> = \CSSearchableItemAttributeSet.title
+}
+```
+emits SIL `keypath $ReferenceWritableKeyPath<CSSearchableItemAttributeSet, Optional<String>>, (objc "title"; root $CSSearchableItemAttributeSet; settable_property $Optional<String>, …)`. The `objc` keypath component variant emits at all three statically-declared keypath types — PartialKeyPath upcast works.
+
+### Item 3 — `CSSearchableItemAttributeSet` binds cleanly as a usable C# type: **RED — STRUCTURAL BLOCKER**
+
+Filtered apple-framework regen (`nuke validate --filter CoreSpotlight`) succeeded but the generated `CoreSpotlight.cs` is **38 lines and contains zero references to `CSSearchableItemAttributeSet`** (or any other `CS*` class). The abi.json contains 24 `CSSearchableItem*` declarations but every one is `"declKind": "Import"` — Swift re-exports of underlying Objective-C class declarations:
+
+```json
+{
+  "name": "CoreSpotlight.CSSearchableItemAttributeSet",
+  "printedName": "CoreSpotlight.CSSearchableItemAttributeSet",
+  "declKind": "Import",
+  "moduleName": "CoreSpotlight",
+  "declAttributes": [ "Exported" ]
+}
+```
+
+The Swift binding generator emits Swift-defined types only. ObjC-defined types (which is essentially all of CoreSpotlight — `CSSearchableItem`, `CSSearchableItemAttributeSet`, `CSPerson`, `CSIndexExtensionRequestHandler`, `CSSearchableIndex`, `CSUserQuery`, …) are intentionally out of scope for the apple-framework binding flow. There is no `CSSearchableItemAttributeSet` C# class for typed `PartialKeyPath<CSSearchableItemAttributeSet>` singletons to attach to.
+
+The 8d plan's prerequisite #2 ("`CSSearchableItemAttributeSet` must bind as a usable C# type. It's an ObjC class with many `@NSManaged` storage properties; the binding generator already handles this category") is **wrong as written** — the Swift binding generator does NOT handle ObjC-rooted classes from a Swift module. The `@NSManaged` category that IS handled refers to *Swift-defined* `@objc` classes with `@NSManaged` storage (e.g. CoreData entities a consumer declares in Swift), not Apple-shipped ObjC classes re-exported via Swift module headers.
+
+### Branching decision per plan line 99-100
+
+> "Preflight surfaces framework-wide issues (…@NSManaged binding gap…) → park 8d, jump to Step 5 (8b first). AppIntents is already wrapperImportable, so 8b's substrate is the lower-risk path."
+
+8b is also blocked at an upstream layer (`_IntentValue` projection — see `08b-entityproperty-init-keypath.md` Phase 0 result, cross-referenced from `08c-appshortcut-parameter-presentation.md`). **Both 8d and 8b cannot ship without prerequisite work.** Step 4 and Step 5 are both deferred pending a scope decision by the project owner.
+
+Two viable shapes for unblocking 8d specifically (not chosen here — surface for decision):
+
+1. **ObjC-source projection** — extend the binding pipeline (or add a sibling) to enumerate ObjC class declarations from `CSSearchableItemAttributeSet.h` (or via clang module metadata) and emit a minimal C# shape that hosts the typed-singleton container. The runtime call still has to land in ObjC, so the trampolines would need ObjC-aware emission as well. Significant scope.
+2. **Manual XML supplement** — write a hand-curated `CoreSpotlightSupplement.xml` in the same shape `apple-frameworks.json` extension entries take, listing each public `CSSearchableItemAttributeSet` storage property as a synthetic property declaration. The generator's existing manual-DB mechanism could then drive typed-singleton emission as if the type were Swift-declared. Lower scope but still significant; the supplement file becomes maintenance-coupled to Apple SDK changes.
+
+Neither is the right v1 path. The pragmatic exit is to land the framework flip + unit-test row that did succeed (preflight items 1 and 2), document the structural blocker (this section), and treat 8d as a v2 item.
+
+What CAN ship now from 8d's scope:
+- `wrapperImportable: true` flip — already in apple-frameworks.json with the unit-test row update.
+- The flip is harmless in isolation: it lets a consumer's Swift wrapper write `import CoreSpotlight` if they ever bind a Swift-declared type that depends on CoreSpotlight Swift-defined symbols (there are none today, but the flip removes a future stumbling block).
+
+What CANNOT ship: the actual `CSSearchableItemAttributeSetKeyPaths` typed-singleton container. Marked v1 limitation. See **Step 7 v1 limitations** in `08-followups-execution-plan.md`.
+
+---
+
 ## Phase 8d.1 — Pre-flight: `CoreSpotlight` framework state
 
 - Check `apple-frameworks.json` for `CoreSpotlight`. Current state: unsupported / wrapperImportable / fully-supported (verify before designing).

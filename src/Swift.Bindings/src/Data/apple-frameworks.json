@@ -229,7 +229,8 @@
     {
       "module": "CoreSpotlight",
       "autoBridge": true,
-      "optionalFallback": true
+      "optionalFallback": true,
+      "wrapperImportable": true
     },
     {
       "module": "CoreTelephony",
