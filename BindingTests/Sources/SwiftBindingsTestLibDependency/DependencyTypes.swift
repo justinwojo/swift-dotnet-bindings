@@ -306,6 +306,56 @@ public protocol CrossModuleClosurePropertyParentDelegate: AnyObject {
 // Layouts only stay in lock-step if the cctor uses the same
 // increment-then-filter ordering as the struct emitters.
 
+// MARK: - Cross-Module Property Name + Type Collision Gate
+//
+// A protocol in the dependency module declares a property whose name collides
+// with a property on an unrelated LOCAL protocol in the main module, but with
+// a different type. The main module's EveryProtocol must conform to BOTH (this
+// parent comes in via a local protocol that inherits it; the unrelated local
+// is suitable on its own). Without the union-aware property-type-count gate in
+// ModuleHandler.EmitEveryProtocolConformances, both would emit bodies on
+// EveryProtocol and swiftc would reject with "invalid redeclaration of
+// 'crossModuleConflictedId'". The gate drops the conflicting local; this
+// cross-module parent stays so its own conformance still emits.
+public protocol CrossModuleConflictingPropertyParent: AnyObject {
+    var crossModuleConflictedId: Int32 { get }
+    func crossModuleConflictingParentNotify(value: Int32)
+}
+
+// MARK: - Cross-Module Member-Kind (var-vs-func) Collision Gate
+//
+// Same shape as bug 3 (var label / func label() rejected by swiftc on the
+// same nominal type) but with the property living in the dependency module
+// and a `func` of the same base name living on an unrelated local protocol.
+// Without the union-aware member-kind gate in
+// ModuleHandler.EmitEveryProtocolConformances, the local's `func crossModuleLabel()`
+// and this parent's `var crossModuleLabel` would both emit on EveryProtocol
+// and swiftc would reject. The gate drops the function-side protocol from
+// whichever list (local or parent) carries it.
+public protocol CrossModuleMemberKindPropertyParent: AnyObject {
+    var crossModuleLabel: Int32 { get }
+    func crossModuleMemberKindParentNotify(value: Int32)
+}
+
+// MARK: - Cross-Module Inverse Member-Kind (dep func vs local var) + Same-Module-Hop Cascade
+//
+// Inverse direction of the gate above: the cross-module parent contributes the
+// METHOD side (`func crossModuleInverseLabel() -> Int32`) and an unrelated local
+// protocol contributes the PROPERTY side (`var crossModuleInverseLabel: Int32`).
+// The member-kind gate drops the parent (function side); the cascade-drop step
+// must then walk same-module-hop chains so a local grandchild whose only path
+// to the dropped parent goes through a same-module intermediate is also
+// removed from `suitableProtocols`. Without the same-module-hop walk in
+// `TransitivelyInheritsCrossModuleParent`, only direct local children would
+// be caught, and a `LocalGrandchild : LocalChild : DepInverseParent` chain
+// would emit an `extension EveryProtocol: LocalGrandchild` whose inherited
+// witness body has been removed — same C#/Swift-surface mismatch the property
+// cascade prevents.
+public protocol CrossModuleInverseMemberKindParent: AnyObject {
+    func crossModuleInverseLabel() -> Int32
+    func crossModuleInverseParentNotify(value: Int32)
+}
+
 public protocol CrossModuleSkippedMethodParentDelegate: AnyObject {
     /// Two-closure method — `ProtocolVtableMembers.IncludesMethod` filters
     /// it out via `IsDispatchableClosureMethod`'s "exactly one dispatchable

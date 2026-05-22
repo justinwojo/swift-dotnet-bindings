@@ -99,33 +99,18 @@ referencing this doc, or check the working-tree state on
 ## Pre-existing wrapper-emission bugs blocking in-module gates too
 
 Attempting to add 3-level (`Grandchild → Child → Parent → AnyObject`) and
-non-empty-child runtime fixtures to `BindingTests/Sources/SwiftBindingsTestLib/Protocols/InheritedDelegateDispatch.swift`
-exposed **three pre-existing wrapper-emission failures** that are
-**unrelated to the categorical fix** but get triggered when the
-EveryProtocol conformance set grows. Symptom: wrapper Swift compile
-produces no binary; `EntryPointNotFoundException: Get_EveryProtocol_<X>_WitnessTable`
-at runtime even for the new same-module protocols.
+non-empty-child runtime fixtures exposes three pre-existing
+EveryProtocol wrapper-emission failures that are unrelated to the
+categorical fix but get triggered when the EveryProtocol conformance set
+grows. They block any further BindingTests expansion on this axis.
 
-The three pre-existing wrapper bugs:
+Full table, repro shapes, fix sketch, and links: see
+[wrapper-emission-bugs.md](wrapper-emission-bugs.md).
 
-| Bug | File / where | Shape |
-|---|---|---|
-| `EveryProtocol does not conform to MutableNamed` | `BindingTests/Sources/SwiftBindingsTestLib/Protocols/NonBlittableProtocols.swift:34` declares the protocol; emitter generates an empty `extension EveryProtocol: MutableNamed {}` without supplying the required `var name: String { get set }` witnesses. | EveryProtocol-conformance emitter misses the protocol's property requirements |
-| `EveryProtocol does not conform to MutablePrioritized` | `BindingTests/Sources/SwiftBindingsTestLib/Protocols/NonBlittableProtocols.swift:46`, same shape. | Same emitter gap as above |
-| `invalid redeclaration of 'label()'` | `BindingTests/Sources/SwiftBindingsTestLib/Generics/GenericConstrainedExtensionOverload.swift:40` declares `var label: String { get }`; `BindingTests/Sources/SwiftBindingsTestLib/Protocols/OptionalExistentialProperties.swift:60` declares `func label() -> String`. EveryProtocol conforms to both, so Swift sees `label` declared twice on the same class. | Protocol-emission needs to detect name collisions across EveryProtocol-conformed protocols and skip one (or rename via shim) |
-
-These don't appear at compile time in the current `main` baseline because
-the existing protocol order + emission paths happen to mask them (the
-build script silently strips functions that fail compilation past a
-certain count). Adding new EveryProtocol-conformed protocols shifts the
-emission and brings the underlying conflict above whatever the masking
-threshold is.
-
-**Implication for the categorical gates**: even the in-module 3-level and
-non-empty-child fixtures cannot be wired up as runtime tests until at
-least the `label`/`label()` collision is fixed (it blocks the wrapper
-binary from building). The parse-time transitive walk is correct (proven
-by the unit test below); landing runtime coverage requires this
+At minimum the `label`/`label()` collision must be fixed before the
+in-module 3-level and non-empty-child fixtures can be wired up as
+runtime tests. The parse-time transitive walk is correct (proven by
+the unit test below); landing runtime coverage requires this
 prerequisite emitter work.
 
 ## Runtime gates already in place from the same session

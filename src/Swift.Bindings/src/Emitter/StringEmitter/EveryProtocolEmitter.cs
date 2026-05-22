@@ -464,13 +464,73 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Builds a property-emission-ownership map used by <see cref="EmitProtocolExtension"/>
+    /// to resolve accessor-set conflicts across protocols that share a property name and
+    /// type. Two get-only declarations of the same `var name: String` are fine — the first
+    /// emits the body, the second emits an empty extension and Swift's cross-extension
+    /// witness resolution satisfies the conformance via the first body. But a get-only
+    /// and a get+set declaration cannot both be satisfied by the same body: if the get+set
+    /// extension emits empty, Swift rejects it ("does not conform — missing set witness").
+    ///
+    /// Ownership resolution: the protocol with the fattest accessor set (has-setter wins
+    /// over get-only) emits the body; siblings emit empty extensions and rely on the
+    /// owner's declaration. Tie-break is lexicographic on protocol name for determinism.
+    ///
+    /// Key format: <c>$"{property.Name}|{property.SwiftTypeSpec}"</c> — properties sharing
+    /// the same name but different types are already dropped upstream by the type-count
+    /// gate in <c>ModuleHandler.EmitEveryProtocolConformances</c>, so this key only
+    /// collides for true same-name+same-type+different-accessor-set groups.
+    ///
+    /// Returns a map keyed by <c>$"{name}|{typeKey}"</c>. Properties with only one
+    /// declaring protocol are still recorded (owner = that protocol) so callers can
+    /// uniformly query ownership.
+    /// </summary>
+    public static IReadOnlyDictionary<string, ProtocolDecl> ComputePropertyEmissionOwners(
+        IEnumerable<ProtocolDecl> protocols)
+    {
+        var groups = new Dictionary<string, List<(ProtocolDecl Proto, PropertyDecl Prop, bool HasSetter)>>(StringComparer.Ordinal);
+        foreach (var p in protocols)
+        {
+            foreach (var prop in p.Properties)
+            {
+                if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
+                    continue;
+                var key = $"{prop.Name}|{prop.SwiftTypeSpec}";
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<(ProtocolDecl, PropertyDecl, bool)>();
+                    groups[key] = list;
+                }
+                list.Add((p, prop, prop.Accessors.OfType<SetAccessorDecl>().Any()));
+            }
+        }
+
+        var owners = new Dictionary<string, ProtocolDecl>(StringComparer.Ordinal);
+        foreach (var (key, entries) in groups)
+        {
+            var owner = entries
+                .OrderByDescending(e => e.HasSetter)
+                .ThenBy(e => e.Proto.Name, StringComparer.Ordinal)
+                .First()
+                .Proto;
+            owners[key] = owner;
+        }
+        return owners;
+    }
+
+    /// <summary>
     /// Emits the protocol extension that makes EveryProtocol conform to the protocol.
     /// Each method/property implementation calls back to C# via the vtable.
     /// </summary>
     /// <param name="globalEmittedSignatures">Optional set to track signatures globally across protocols.</param>
     /// <param name="nonThrowingOverrides">Signatures where throws must be suppressed (see EmitProtocolConformance).</param>
+    /// <param name="propertyOwners">Optional ownership map from <see cref="ComputePropertyEmissionOwners"/>.
+    /// When non-null, a property is emitted only by its owner; sibling protocols emit empty
+    /// extensions and rely on Swift's cross-extension witness resolution. When null, falls
+    /// back to the legacy first-seen-wins dedup via <paramref name="globalEmittedSignatures"/>.</param>
     private void EmitProtocolExtension(SwiftWriter writer, ProtocolDecl protocolDecl,
-        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides = null)
+        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides = null,
+        IReadOnlyDictionary<string, ProtocolDecl>? propertyOwners = null)
     {
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
@@ -509,12 +569,31 @@ public class EveryProtocolEmitter
         {
             if (property.IsStatic || property.IsObjCOptional)
                 continue;
-            var swiftSignature = $"var_{property.Name}";
-            // Check for global conflicts
-            if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(swiftSignature))
+            // Ownership-aware dedup: when a property name+type is shared across multiple
+            // protocols (e.g., Nameable's get-only `var name: String` and MutableNamed's
+            // get+set `var name: String`), exactly one protocol — chosen by accessor-set
+            // fatness with lexicographic tie-break — emits the body. Other protocols emit
+            // empty extensions and conform via Swift's cross-extension witness resolution.
+            // Without this, the first-seen-wins legacy dedup let a get-only declaration
+            // win, leaving the get+set extension empty and rejected by swiftc as
+            // "does not conform — missing set witness".
+            var ownerKey = $"{property.Name}|{property.SwiftTypeSpec}";
+            if (propertyOwners != null && propertyOwners.TryGetValue(ownerKey, out var owner))
             {
-                _logger.LogDebug($"Skipping property '{property.Name}' in {protocolDecl.Name}: conflicts with already-emitted property");
-                continue;
+                if (owner != protocolDecl)
+                {
+                    _logger.LogDebug($"Skipping property '{property.Name}' in {protocolDecl.Name}: owned by {owner.Name}");
+                    continue;
+                }
+            }
+            else if (globalEmittedSignatures != null)
+            {
+                var swiftSignature = $"var_{property.Name}";
+                if (!globalEmittedSignatures.Add(swiftSignature))
+                {
+                    _logger.LogDebug($"Skipping property '{property.Name}' in {protocolDecl.Name}: conflicts with already-emitted property");
+                    continue;
+                }
             }
             if (emittedMembers.Add($"property:{property.Name}"))
             {
@@ -993,7 +1072,16 @@ public class EveryProtocolEmitter
     /// When provided, methods that would conflict with already-emitted signatures are skipped.</param>
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl, HashSet<string>? globalEmittedSignatures)
     {
-        EmitProtocolConformance(writer, protocolDecl, globalEmittedSignatures, null);
+        EmitProtocolConformance(writer, protocolDecl, globalEmittedSignatures, null, null);
+    }
+
+    /// <summary>
+    /// Emits all Swift code needed for a protocol's EveryProtocol conformance.
+    /// </summary>
+    public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
+        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides)
+    {
+        EmitProtocolConformance(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, null);
     }
 
     /// <summary>
@@ -1003,8 +1091,12 @@ public class EveryProtocolEmitter
     /// <param name="nonThrowingOverrides">Signatures where non-throwing MUST be emitted because at least one
     /// protocol requires the method non-throwing. A non-throwing method satisfies both throwing and non-throwing
     /// protocol requirements, but a throwing method does NOT satisfy a non-throwing requirement.</param>
+    /// <param name="propertyOwners">Optional map from <see cref="ComputePropertyEmissionOwners"/>. When non-null,
+    /// each property is emitted only by its owning protocol; siblings emit empty extensions and conform via
+    /// Swift's cross-extension witness resolution against the owner's declaration.</param>
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
-        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides)
+        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides,
+        IReadOnlyDictionary<string, ProtocolDecl>? propertyOwners)
     {
         // Reset per-protocol routing state — the NSObjectProtocol-only gate below sets
         // _useObjCBase=true only for the protocols that need EveryObjCProtocol.
@@ -1259,7 +1351,7 @@ public class EveryProtocolEmitter
                     ClosureContextHelperEmitter.EmitIfNeeded(writer, _emissionContext);
             }
             EmitProtocolVtableStruct(writer, protocolDecl);
-            EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
+            EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyOwners);
             EmitSetVtableFunction(writer, protocolDecl);
             // Per-shape @_cdecl invoke thunks for dispatchable closure params. C# proxy
             // receivers wrap the (fnPtr, ctx) pair into a managed Action whose

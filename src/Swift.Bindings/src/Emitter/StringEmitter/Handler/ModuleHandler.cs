@@ -877,6 +877,14 @@ namespace BindingsGeneration
                 .Where(p => !HasMembersReferencingInternalTypes(p, typeDatabase, moduleDecl.Name))
                 .ToList();
 
+            // Cross-module parents are collected here (rather than just before the
+            // conformance loop) so the property-type-count conflict gate below can
+            // see them. Without this, a same-name+different-type property collision
+            // between a local protocol and a cross-module parent slips past the gate
+            // and reaches swiftc as a redeclaration error on EveryProtocol — the
+            // ownership map keys (name + typeKey) treat the two types as separate
+            // entries, both emit bodies, and Swift rejects the redeclared var.
+            var crossModuleParents = CollectCrossModuleParentDecls(suitableProtocols, moduleDecl);
 
             // Global dedup of EveryProtocol stubs is keyed by property name, so two protocols
             // that each require a property with the SAME name but DIFFERENT types produce one
@@ -892,8 +900,12 @@ namespace BindingsGeneration
             // `name: String?` extension default) into false positives that dropped the canonical
             // BlendTreeNode/AnimationDefinition/MaterialFunction protocols whose `name: String`
             // is genuinely required.
+            //
+            // Scans the union of local protocols + cross-module parents — both contribute
+            // EveryProtocol conformances and must agree on the property type or both get
+            // dropped from their respective lists.
             var propertyTypeCounts = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-            foreach (var p in suitableProtocols)
+            foreach (var p in suitableProtocols.Concat(crossModuleParents))
             {
                 foreach (var prop in p.Properties)
                 {
@@ -913,55 +925,84 @@ namespace BindingsGeneration
                 .ToHashSet(StringComparer.Ordinal);
             if (conflictingPropertyNames.Count > 0)
             {
-                suitableProtocols = suitableProtocols
-                    .Where(p => !p.Properties.Any(prop =>
-                        !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement &&
-                        conflictingPropertyNames.Contains(prop.Name)))
-                    .ToList();
-            }
-
-            // Accessor-set conflict: two protocols share the same property name and type,
-            // but one requires `get` only and another requires `get set`. The first protocol
-            // emitted wins the global dedup and contributes the property body; that body
-            // can only call its own vtable's accessors. If the get-only protocol emits first,
-            // the set-required protocol's empty extension fails ("does not conform"); if the
-            // set-required protocol emits first, the body would crash at runtime for
-            // get-only-implementing C# classes (their proxy populates the wrong vtable).
-            // Drop the set-required protocols so the get-only conformances compile cleanly.
-            // Matches the strip-salvage behavior that previously masked this on main.
-            var propertiesWithSetterRequirement = new HashSet<string>(StringComparer.Ordinal);
-            var propertiesWithGetOnlyRequirement = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var p in suitableProtocols)
-            {
-                foreach (var prop in p.Properties)
+                bool ContributesConflict(ProtocolDecl p) => p.Properties.Any(prop =>
+                    !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement &&
+                    conflictingPropertyNames.Contains(prop.Name));
+                // Drop conflicting locals first. This typically resolves the union conflict
+                // (one side gone), so cross-module parents stay intact — any other local
+                // protocol that inherits from a parent keeps its inherited witness body.
+                suitableProtocols = suitableProtocols.Where(p => !ContributesConflict(p)).ToList();
+                // Residual conflicts after the local-drop pass mean two or more cross-module
+                // parents collide with each other (different dependency modules contributing
+                // the same property name with different types). Drop those parents too — any
+                // local protocol that inherited from them will fail conformance at swiftc
+                // time and be removed by the strip-salvage path, same as before this gate
+                // existed for the local case.
+                var postLocalTypes = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+                foreach (var p in suitableProtocols.Concat(crossModuleParents))
                 {
-                    if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
-                        continue;
-                    if (prop.Accessors.OfType<SetAccessorDecl>().Any())
-                        propertiesWithSetterRequirement.Add(prop.Name);
-                    else
-                        propertiesWithGetOnlyRequirement.Add(prop.Name);
+                    foreach (var prop in p.Properties)
+                    {
+                        if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
+                            continue;
+                        if (!postLocalTypes.TryGetValue(prop.Name, out var types))
+                        {
+                            types = new HashSet<string>(StringComparer.Ordinal);
+                            postLocalTypes[prop.Name] = types;
+                        }
+                        types.Add(prop.SwiftTypeSpec.ToString());
+                    }
+                }
+                var residualConflictNames = postLocalTypes
+                    .Where(kvp => kvp.Value.Count > 1)
+                    .Select(kvp => kvp.Key)
+                    .ToHashSet(StringComparer.Ordinal);
+                if (residualConflictNames.Count > 0)
+                {
+                    bool ContributesResidual(ProtocolDecl p) => p.Properties.Any(prop =>
+                        !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement &&
+                        residualConflictNames.Contains(prop.Name));
+                    var droppedParents = crossModuleParents.Where(ContributesResidual).ToList();
+                    crossModuleParents = crossModuleParents.Where(p => !ContributesResidual(p)).ToList();
+                    if (droppedParents.Count > 0)
+                    {
+                        // Cascade-drop any local whose inheritance chain reaches a dropped parent.
+                        // Without this, the local's `extension EveryProtocol: L` would emit but the
+                        // parent body it depends on for the inherited witness would not — leaving
+                        // strip-salvage to clean up the wrapper, which can leave the C# proxy and
+                        // P/Invoke surface out of sync with the stripped Swift.
+                        var droppedParentKeys = droppedParents
+                            .Select(p => $"{p.ModuleDecl?.Name}.{p.Name}")
+                            .ToHashSet(StringComparer.Ordinal);
+                        suitableProtocols = suitableProtocols
+                            .Where(local => !TransitivelyInheritsCrossModuleParent(local, moduleDecl, droppedParentKeys))
+                            .ToList();
+                    }
                 }
             }
-            var accessorConflictPropertyNames = propertiesWithSetterRequirement
-                .Intersect(propertiesWithGetOnlyRequirement, StringComparer.Ordinal)
-                .ToHashSet(StringComparer.Ordinal);
-            if (accessorConflictPropertyNames.Count > 0)
-            {
-                suitableProtocols = suitableProtocols
-                    .Where(p => !p.Properties.Any(prop =>
-                        !prop.IsStatic && !prop.IsObjCOptional && prop.IsProtocolRequirement &&
-                        accessorConflictPropertyNames.Contains(prop.Name) &&
-                        prop.Accessors.OfType<SetAccessorDecl>().Any()))
-                    .ToList();
-            }
+
+            // Accessor-set conflict is no longer resolved by dropping protocols. Instead the
+            // emitter computes a property-emission-ownership map below (over the union of
+            // local + cross-module-parent protocols) — the protocol with the fattest accessor
+            // set owns the body, siblings emit empty extensions, and Swift's cross-extension
+            // witness resolution stitches them together.
+            //
+            // See EveryProtocolEmitter.ComputePropertyEmissionOwners and the matching property
+            // dedup branch in EmitProtocolExtension.
 
             // Member-kind conflict: protocol A requires `var label: T { get }` while protocol B
             // requires `func label() -> T`. Swift rejects `var label` and `func label()` on the
             // same class as "invalid redeclaration of 'label()'". Drop the function-side
             // protocols (property-side keeps the more common shape).
+            //
+            // Scans the union of local protocols + cross-module parents. Property names
+            // contributed by EITHER side preempt method names on EITHER side — a parent
+            // declaring `var label` plus a local declaring `func label() -> T` (or the
+            // inverse) would otherwise emit both shapes on EveryProtocol and trigger the
+            // same swiftc redeclaration. Drop the method-side protocol from whichever
+            // list (`suitableProtocols` or `crossModuleParents`) it lives in.
             var propertyNamesAsRequirements = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var p in suitableProtocols)
+            foreach (var p in suitableProtocols.Concat(crossModuleParents))
             {
                 foreach (var prop in p.Properties)
                 {
@@ -971,7 +1012,7 @@ namespace BindingsGeneration
                 }
             }
             var methodNamesCollidingWithProperties = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var p in suitableProtocols)
+            foreach (var p in suitableProtocols.Concat(crossModuleParents))
             {
                 foreach (var m in p.Methods)
                 {
@@ -986,12 +1027,29 @@ namespace BindingsGeneration
             }
             if (methodNamesCollidingWithProperties.Count > 0)
             {
-                suitableProtocols = suitableProtocols
-                    .Where(p => !p.Methods.Any(m =>
-                        !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsObjCOptional &&
-                        m.CSSignature.Count == 1 &&
-                        methodNamesCollidingWithProperties.Contains(m.Name)))
-                    .ToList();
+                bool ContributesMemberKindConflict(ProtocolDecl p) => p.Methods.Any(m =>
+                    !m.IsConstructor && m.MethodType != MethodType.Static && !m.IsObjCOptional &&
+                    m.CSSignature.Count == 1 &&
+                    methodNamesCollidingWithProperties.Contains(m.Name));
+                var droppedMemberKindParents = crossModuleParents.Where(ContributesMemberKindConflict).ToList();
+                suitableProtocols = suitableProtocols.Where(p => !ContributesMemberKindConflict(p)).ToList();
+                crossModuleParents = crossModuleParents.Where(p => !ContributesMemberKindConflict(p)).ToList();
+                if (droppedMemberKindParents.Count > 0)
+                {
+                    // Cascade-drop locals that inherit a method-side cross-module parent we just
+                    // dropped. Mirrors the property-type-count residual cascade above — without
+                    // it, the local's `extension EveryProtocol: L` would emit, swiftc would
+                    // accept it (the parent body is no longer there to redeclare), but the
+                    // inherited witness body the local depends on for dispatch is gone, leaving
+                    // strip-salvage to clean up the wrapper while the C# proxy/P/Invoke surface
+                    // remains out of sync.
+                    var droppedMemberKindParentKeys = droppedMemberKindParents
+                        .Select(p => $"{p.ModuleDecl?.Name}.{p.Name}")
+                        .ToHashSet(StringComparer.Ordinal);
+                    suitableProtocols = suitableProtocols
+                        .Where(local => !TransitivelyInheritsCrossModuleParent(local, moduleDecl, droppedMemberKindParentKeys))
+                        .ToList();
+                }
             }
 
             if (!suitableProtocols.Any())
@@ -1016,25 +1074,6 @@ namespace BindingsGeneration
             // Key is the Swift method signature (e.g., "removeAll()")
             var globalEmittedSignatures = new HashSet<string>();
 
-            // Pre-pass: determine which method signatures must be emitted non-throwing.
-            // In Swift, a non-throwing method satisfies both throwing and non-throwing protocol
-            // requirements, but a throwing method does NOT satisfy a non-throwing requirement.
-            // If two protocols share the same method signature but differ in throws-ness,
-            // we must emit the non-throwing variant to satisfy both conformances.
-            var nonThrowingOverrides = ComputeNonThrowingOverrides(suitableProtocols, emitter);
-
-            // Emit conformances and witness dispatch accessors for each suitable protocol
-            foreach (var protocolDecl in suitableProtocols)
-            {
-                _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides);
-                // Skip witness dispatch for mixed-generic protocols — the type projection
-                // pipeline generates incorrect types when method-level generic parameters
-                // are in scope (e.g., RxTime→Double instead of Date).
-                if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
-                    dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
-            }
-
             // Cross-module inherited-delegate parents
             // (justinwojo/swift-dotnet-bindings#40 cross-module variant):
             // When a local protocol inherits from a parent in a --framework-dependency
@@ -1049,11 +1088,44 @@ namespace BindingsGeneration
             // No witness-dispatch wrappers — those are the C# → Swift direction and
             // already live in the dependency module's bindings. We only need Swift → C#
             // (callback) for the inherited requirement.
-            var crossModuleParents = CollectCrossModuleParentDecls(suitableProtocols, moduleDecl);
+            //
+            // `crossModuleParents` is collected earlier (above the property-type-count
+            // gate) so the gate operates on the union of local + parent protocols.
+
+            // Pre-pass: determine which method signatures must be emitted non-throwing.
+            // In Swift, a non-throwing method satisfies both throwing and non-throwing protocol
+            // requirements, but a throwing method does NOT satisfy a non-throwing requirement.
+            // If two protocols share the same method signature but differ in throws-ness,
+            // we must emit the non-throwing variant to satisfy both conformances. Computed
+            // over the union so a throwing local + non-throwing parent (or vice-versa) still
+            // resolves to the non-throwing form.
+            var nonThrowingOverrides = ComputeNonThrowingOverrides(
+                suitableProtocols.Concat(crossModuleParents), emitter);
+
+            // Pre-pass: compute property emission ownership across the union of local + parent
+            // protocols. The owner of a shared (propertyName, propertyType) emits the body
+            // calling its own vtable; siblings emit empty extensions and rely on Swift's
+            // cross-extension witness resolution. Has-setter wins over get-only;
+            // lex tie-break for determinism. See EveryProtocolEmitter.ComputePropertyEmissionOwners.
+            var propertyOwners = EveryProtocolEmitter.ComputePropertyEmissionOwners(
+                suitableProtocols.Concat(crossModuleParents));
+
+            // Emit conformances and witness dispatch accessors for each suitable protocol
+            foreach (var protocolDecl in suitableProtocols)
+            {
+                _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
+                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyOwners);
+                // Skip witness dispatch for mixed-generic protocols — the type projection
+                // pipeline generates incorrect types when method-level generic parameters
+                // are in scope (e.g., RxTime→Double instead of Date).
+                if (!EveryProtocolEmitter.IsMixedGenericProtocol(protocolDecl))
+                    dispatchEmitter.EmitWitnessDispatchFunctions(swiftWriter, protocolDecl);
+            }
+
             foreach (var parentDecl in crossModuleParents)
             {
                 _logger.LogDebug($"Emitting cross-module parent EveryProtocol conformance for {parentDecl.ModuleDecl?.Name}.{parentDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides);
+                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides, propertyOwners);
             }
         }
 
@@ -1099,6 +1171,63 @@ namespace BindingsGeneration
                 EnqueueCrossModuleAncestors(ancestor.InheritedProtocols, moduleDecl, currentModule, seen, pending);
             }
             return collected;
+        }
+
+        /// <summary>
+        /// Returns true if <paramref name="local"/>'s inheritance chain reaches a cross-module
+        /// protocol whose `{module}.{name}` key is in <paramref name="droppedParentKeys"/>. Used
+        /// to cascade-drop locals whose inherited witness body would no longer be emitted.
+        /// Walks BOTH same-module intermediate protocols (resolved via <c>moduleDecl.Protocols</c>)
+        /// AND cross-module ancestors (resolved via <c>moduleDecl.DependencyProtocols</c>) so a
+        /// chain like <c>LocalGrandchild : LocalChild : DroppedDepParent</c> still detects the
+        /// dropped ancestor.
+        /// </summary>
+        private static bool TransitivelyInheritsCrossModuleParent(
+            ProtocolDecl local, ModuleDecl moduleDecl, HashSet<string> droppedParentKeys)
+        {
+            var currentModule = moduleDecl.Name;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Queue<NamedTypeSpec>(local.InheritedProtocols);
+            while (pending.Count > 0)
+            {
+                var inherited = pending.Dequeue();
+                if (inherited.NameWithoutModule is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype" or "AnyObject")
+                    continue;
+                var inhModule = inherited.Module;
+                if (string.IsNullOrEmpty(inhModule) || inhModule == currentModule)
+                {
+                    // Same-module intermediate. Resolve to its ProtocolDecl and walk its own
+                    // InheritedProtocols — the dropped ancestor may sit two levels up via a
+                    // local hop (`LocalGrandchild : LocalChild : DroppedDepParent`).
+                    var localKey = $"{currentModule}.{inherited.NameWithoutModule}";
+                    if (!seen.Add(localKey))
+                        continue;
+                    var localDecl = moduleDecl.Protocols.FirstOrDefault(p => p.Name == inherited.NameWithoutModule);
+                    if (localDecl != null)
+                    {
+                        foreach (var parent in localDecl.InheritedProtocols)
+                            pending.Enqueue(parent);
+                    }
+                    continue;
+                }
+                var key = $"{inhModule}.{inherited.NameWithoutModule}";
+                if (!seen.Add(key))
+                    continue;
+                if (droppedParentKeys.Contains(key))
+                    return true;
+                // Walk transitively — a dropped grandparent two levels up still breaks the
+                // child's inherited witness dispatch.
+                if (moduleDecl.DependencyProtocols.TryGetValue(inhModule, out var depProtos))
+                {
+                    var parentDecl = depProtos.FirstOrDefault(dp => dp.Name == inherited.NameWithoutModule);
+                    if (parentDecl != null)
+                    {
+                        foreach (var grandparent in parentDecl.InheritedProtocols)
+                            pending.Enqueue(grandparent);
+                    }
+                }
+            }
+            return false;
         }
 
         private static void EnqueueCrossModuleAncestors(
