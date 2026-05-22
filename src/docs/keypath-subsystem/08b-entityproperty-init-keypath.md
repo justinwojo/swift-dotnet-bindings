@@ -41,9 +41,21 @@ Two structural facts that drive the emitter design:
 The apple-framework regen of AppIntents records:
 > `// Unsupported: type 'EntityProperty' — IndeterminatePwtShape (TValue: AppIntents._IntentValue (protocol not projected in the type database))`
 
-`AppIntents._IntentValue` is an underscored SPI protocol filtered by the parser's underscore-suppression rules. Until it is projected as a PAT-shaped protocol the type database can store, `EntityProperty<Value>` does not appear in `AppIntents.cs`, and there is nothing for an `IMethodPostProcessor` to attach convenience-init overloads to.
+`AppIntents._IntentValue` is an underscored SPI protocol that `swift-api-digester` strips from ABI JSON (the dropped emission is upstream of any parser-side suppression). Until it is projected as a PAT-shaped protocol the type database can store, `EntityProperty<Value>` does not appear in `AppIntents.cs`, and there is nothing for an `IMethodPostProcessor` to attach convenience-init overloads to.
 
-Full spike findings and the proposed unblock path (parser keep-list entry + closed-conformer enumeration via existing CSM machinery) live in `08c-appshortcut-parameter-presentation.md` under **Phase 0 spike result**. Treat that section as authoritative for the shared prerequisite. 8b cannot ship until **Session 8a-prereq** (`_IntentValue` projection) lands.
+The shared prerequisite has shipped as `UnderscoreProtocolSynthesizer` (`src/Swift.Bindings/src/Parser/UnderscoreProtocolSynthesizer.cs`) — see the "Prerequisite shipped" section in `08c-appshortcut-parameter-presentation.md` for the full mechanism (swiftinterface-side synthesis, allowlisted module/name pairs, descriptor-symbol derivation through `ModuleProcessor.ConvertProtocolTypeToDescriptorSymbol`). 8b can proceed against the now-projected `EntityProperty<Value>` via the existing CSM machinery.
+
+### Predicted downstream emitter surface (not yet observed)
+
+Once the synthesizer fires against real AppIntents, the previously-tombstoned types reach emitter for the first time and may surface bugs in code paths that have never been exercised. Categories that are plausible from SDK reading (each would be its own session with a BindingTests fixture):
+
+- Missing `@available` on constructor-routing private protocols (`_SBW_CI_*` referencing iOS 16+ types like `AppDependencyManager`).
+- Missing `@available` on foreign-type extension method wrappers (`SBSW_CoreLocation_CLPlacemark_get_displayRepresentation` referencing iOS 16 `DisplayRepresentation`).
+- Result-builder return-type modeling collapsing `[AppShortcut]` to `AppShortcut` in `AppShortcutsBuilder.buildExpression`.
+- Value-generic integer constant-literal init filtering — `IntentCollectionSize.init(min:max:)` requires compile-time constants the runtime wrapper cannot supply.
+- Async-throws `@_silgen_name` dispatch wrappers emitted without `async throws` on the wrapper signature (e.g., `EmptySnippetIntent.perform()`).
+
+These are predictions, not observations. The honest gate is "pack this SDK, consume it from `swift-dotnet-packages` against AppIntents, run regen, see what actually surfaces." See also `roadmap.md` → "AppIntents downstream emitter bugs (gate to enabling AppIntents in `validation-libraries.json`)".
 
 ---
 

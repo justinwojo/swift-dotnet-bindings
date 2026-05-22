@@ -121,6 +121,14 @@ class P<TIntent, TValue, TParameter, TParameterKeyPath>
 
 Until the prerequisite is decided, the rest of this document describes the *intended* 8c emission shape post-unblock — not actionable code-wise today.
 
+### Prerequisite shipped: `UnderscoreProtocolSynthesizer`
+
+The spike root-cause description above (lines 99, 109) attributed the omission to the parser's underscore-suppression at `SwiftABIParser.cs:1811`/`:2318`. That was incomplete. Verified mechanism: `swift-api-digester` (`-dump-sdk -abi`) emits **zero** `declKind=Protocol` nodes for underscore-prefixed protocols regardless of `public` access, while leaving references (conformance lists, mangled-name fragments, conformance records) intact. The protocol declaration never reaches our parser, so any parser-side keep-list / suppression-lift is a no-op for this case.
+
+Resolution: the C#-side `UnderscoreProtocolSynthesizer` (`src/Swift.Bindings/src/Parser/UnderscoreProtocolSynthesizer.cs`) reads the swiftinterface directly for an allowlisted set of (module, name) pairs (currently `AppIntents._IntentValue` and `AppIntents._ParameterSummarySwitchCase`) and injects a synthetic `ProtocolDecl` with the correct mangled name (`$s10AppIntents12_IntentValueP`), associated-type list, Self-requirement flag, and inheritance, into `moduleDecl.Protocols` + `_moduleTypes` before `ModuleProcessor.RegisterProtocolType` runs. The synthesized decl is `IsModuleInternal=true` so no public `I_IntentValue` C# interface is emitted from the empty body — only the TypeRecord is needed for the PAT branch in `PInvokeHelperEmitter.cs:370-388` to resolve the descriptor symbol. Unit coverage: `tests/UnitTests/ParserTests/UnderscoreProtocolSynthesizerTests.cs` (12 tests). 8b/8c can proceed against the projected `IntentParameter<Value>` / `EntityProperty<Value>` types via the existing CSM machinery.
+
+Downstream gate: once the synthesizer is consumed against real AppIntents (via `swift-dotnet-packages`), the previously-tombstoned types will reach emitter for the first time and may surface new emitter bugs. See `08b-entityproperty-init-keypath.md` "Predicted downstream emitter surface" for the catalogue of predicted categories, and `roadmap.md` → "AppIntents downstream emitter bugs" for the validation-libraries.json gate.
+
 ---
 
 ## Phase 8c.1 — `AppIntent` conformer enumeration
