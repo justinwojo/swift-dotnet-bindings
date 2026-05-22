@@ -938,7 +938,19 @@ public static class ConstructorWrapperEmitter
                 // In the extension body, reconstruct T from UnsafeRawPointer
                 // Use sugared source names (T, Element) instead of ABI names (τ_0_0)
                 var swiftType = WrapperValidation.RenderSwiftTypeSpecWithSugaredNames(arg.SwiftTypeSpec, abiToSugaredName);
-                extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                if (GenericDispatchEmitter.IsKeyPathFamilyOfParentGeneric(arg.SwiftTypeSpec, genericParamNames))
+                {
+                    // KeyPath family is always a Swift class — the C# marshalling site
+                    // passes the class reference itself (DangerousGetHandle / SafeHandlePin.Handle),
+                    // not a pointer-to-class-ref. assumingMemoryBound(to:).pointee would
+                    // re-load through the address (returning the class metadata pointer);
+                    // Unmanaged.fromOpaque interprets the value as the class reference directly.
+                    extensionBodyLines.Add($"let {label}Val = Unmanaged<{swiftType}>.fromOpaque({label}).takeUnretainedValue()");
+                }
+                else
+                {
+                    extensionBodyLines.Add($"let {label}Val = {label}.assumingMemoryBound(to: {swiftType}.self).pointee");
+                }
                 initCallArgs.Add($"{(argLabel == "_" ? "" : argLabel + ": ")}{label}Val");
             }
             else

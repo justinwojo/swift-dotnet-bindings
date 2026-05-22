@@ -57,6 +57,19 @@ public class KeyPathProjection : ITypeProjection
     /// </summary>
     public string MarshalFromSwiftType => _publicType;
 
+    /// <summary>
+    /// The C# KeyPath wrapper IS the SafeHandle (no separate container struct), so the
+    /// "container" type for bound-generic-class-return marshalling is the public wrapper
+    /// itself. This matches the convention of other container projections (ArrayProjection,
+    /// DictionaryProjection, OptionalProjection, SetProjection, ResultProjection) which
+    /// all set <c>ContainerTypeName == MarshalFromSwiftType</c>. Without this override,
+    /// the default <c>ContainerTypeName => PInvokeType</c> would return "IntPtr",
+    /// causing the bound-generic class-return branch in WrapperEmitter to emit
+    /// <c>SwiftMarshal.MarshalFromSwift&lt;IntPtr&gt;(...)</c> — a C# compile error when
+    /// the declared return type is the typed wrapper (e.g. <c>PartialKeyPath&lt;TEntity&gt;</c>).
+    /// </summary>
+    public string ContainerTypeName => _publicType;
+
     public MarshalPlan GetParameterPlan(string paramName)
     {
         // The C# KeyPath wrapper IS a SafeHandle (no Payload indirection). The Swift side

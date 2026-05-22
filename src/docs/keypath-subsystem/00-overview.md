@@ -22,6 +22,10 @@ This folder is the execution plan for adding Swift `KeyPath` support to the bind
 | 8d | `08d-partialkeypath-cssearchableitem.md` | `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter — fixed-Root single-type typed-singleton container | 03–04, 08 |
 | 9 | `09-swiftui-productionization.md` | SwiftUI + SwiftUICore — environment modifiers, view tree, `@dynamicMemberLookup` on `Binding` / `ObservedObject` (`ReferenceWritableKeyPath` heavy) | 03–04 |
 | 10 | `10-residual-consumers-cleanup.md` | Charts + SwiftData + Combine + UIKit + Observation. Final pass; doc/wiki update; close A-1 | 03–04 |
+| 11 | `11-csm-conformer-constraint-filter.md` | CSM defensive multi-constraint conformer filter + rejection tombstones (MusicKit×4 engine-pollution reds) | 02, 05 |
+| 12 | `12-appintents-0.12-platform-parity.md` | AppIntents 0.12 four-platform parity — iOS `_const` init filter, macOS schema/availability cascade, KeyPath singleton emitter consolidation, `EntityQuerySort.By` residual close | 04, 08 |
+| 13 | `13-sb0001-generic-host-wrapper-gap.md` | Close the direct-`CallConvSwift` runtime-risk fallback (SB0001) for parent-generic constructors / instance generics; closed 5/9 AppIntents sites + KeyPath crasher | 03–04, 12 |
+| 14 | `14-sb0001-remaining-surface.md` | Close the remaining 4 AppIntents SB0001 sites that fall outside doc 13's parent-generic scope: cross-host nested-of-parent, method-own-generic constructors, variadic-pack result-builder splat. Single-session, no further deferrals. | 13 |
 
 Session 1 and Session 2 are independent of KeyPath itself — they're co-deferred gaps that block `MusicLibraryRequest<T>` re-enable. They land first because they're small, low-risk, and restore diagnostic visibility/engine fidelity that downstream sessions depend on for correct emission.
 
@@ -307,7 +311,7 @@ Exit: the deferred A-1 item is closed; consumer-facing wiki documentation update
 
 ## Status
 
-Sessions 1–8 shipped on the `keypath-subsystem` branch. Session 8 v1 was deliberately scoped down once the real `AppIntents.swiftinterface` was inspected — the original plan described API shapes (`EntityProperty<Entity, Value>.property(getter:)`, `AppShortcutParameterPresentation<Entity>.keywordTitle(_:)`) that don't exist in the SDK. The real KeyPath-keyed surface lives in three follow-ups (8b/8c/8d), each Session 4-scale machinery on its own. Sessions 9–10 (SwiftUI, residual consumers) and the three AppIntents follow-ups can ship independently.
+Sessions 1–8, 11, and 12 have shipped on `keypath-subsystem` / `keypath-worktree`. Session 8 v1 was deliberately scoped down once the real `AppIntents.swiftinterface` was inspected — the original plan described API shapes (`EntityProperty<Entity, Value>.property(getter:)`, `AppShortcutParameterPresentation<Entity>.keywordTitle(_:)`) that don't exist in the SDK. The real KeyPath-keyed surface lives in three follow-ups (8b/8c/8d), each Session 4-scale machinery on its own. Session 12 closed AppIntents four-platform parity against the 0.12.0 SDK; its residual (the `EntityQuerySort.By` accessor on a generic host) is fixed in the `keypath-worktree` branch but not yet committed. Sessions 13 (SB0001 generic-host wrapper gap), 8b/8c/8d (AppIntents KeyPath follow-ups), 9 (SwiftUI), and 10 (residual consumers) remain. They can ship in the order 13 → 8b → 8c → 8d → 9 → 10, though 9 has no hard dependency on the 8x sub-sequence and could be parallelised.
 
 | # | Status | Landed at |
 |---|---|---|
@@ -324,7 +328,13 @@ Sessions 1–8 shipped on the `keypath-subsystem` branch. Session 8 v1 was delib
 | 8 — AppIntents productionization v1 (framework visible/importable; MockBook fixture; CA1416 + Swift-`@available` categorical audit fix at 5 emitter surfaces; MarshallingHelpers single-source-of-truth refactor — see *Implementation outcomes* in `08-…`) | shipped | `c742e3e0` |
 | 8b — `EntityProperty.init<Entity>(…)` KeyPath-keyed convenience-init family | not started | — |
 | 8c — `AppShortcutParameterPresentation` higher-kinded `ParameterKeyPath` | not started | — |
-| 8d — `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter | not started | — |
+| 8d — `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter | not started — prereq (ObjC-rooted `CSSearchableItemAttributeSet` binding) larger than original scope | — |
+| 9 — SwiftUI + SwiftUICore productionization | not started | — |
+| 10 — Residual consumers cleanup (Charts + SwiftData + Combine + UIKit + Observation; A-1 closure) | not started — gates on 1–9 | — |
+| 11 — CSM defensive conformer-constraint filter + rejection tombstones | shipped | `5e46c711` |
+| 12 — AppIntents 0.12 platform parity (iOS `_const` init filter; macOS schema/availability cascade; KeyPath singleton emitter consolidation; `EntityQuerySort.By` residual) | shipped, residual closed in `keypath-worktree` (uncommitted) | `d408df92` + `510d8717` + `77f19a80` + `874936a8` + `1a623f26` (+ branch-local `KeyPathProjection.ContainerTypeName` override) |
+| 13 — SB0001 generic-host wrapper gap (parent-generic constructors / instance generics) | shipped — KeyPath-family + Array<T> + nested-of-parent (outer==parent) admitted via GSF; closes 5/9 AppIntents sites + KeyPath constructor crasher. The remaining 4 AppIntents sites span 3 *different* emission mechanisms outside doc 13's parent-generic scope and are continued in doc 14. | branch-local in `keypath-worktree` (uncommitted) |
+| 14 — Remaining SB0001 surface after doc 13 (cross-host nested-of-parent + method-own-generic + variadic-pack splat) | specced in `14-sb0001-remaining-surface.md`; one session, no further deferrals | — |
 
 Notes on 6's exit criteria:
 - `MusicLibraryRequest<T>` 11-surface emission: verified on the regen — filter ×7 + filter(text:) + response() + limit/offset/includeOnlyDownloadedContent + sort (22 Route C overloads across 7 conformer extensions).

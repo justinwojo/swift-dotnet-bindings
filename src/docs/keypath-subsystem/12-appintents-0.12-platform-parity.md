@@ -343,22 +343,45 @@ flattening case that reproduces it.
 After all three fixes, AppIntents macOS C# compile errors collapsed from
 454 → 1.
 
-### Residual — out of Item B scope
+### Residual — closed
 
-The remaining error is:
+The previously-tracked residual error:
 
 ```text
 AppIntents.cs(9365): error CS0029: Cannot implicitly convert type 'nint' to 'Swift.PartialKeyPath<TEntity>'
 ```
 
-on `EntityQuerySort<TEntity>.By_Get()`. The generated body emits
-`return SwiftMarshal.MarshalFromSwift<IntPtr>(result);` while the declared
-return type is `Swift.PartialKeyPath<TEntity>`. The identical broken pattern
-exists in the iOS regen at line 9388-9390 (visible because the umbrella
-cascade no longer hides it on macOS, and on iOS the Swift wrapper compile
-still fails earlier so the C# build never reaches this point). It is a
-pre-existing KeyPath subsystem emission bug — the projection's
-`GetReturnPlan` (`KeyPathProjection.cs:73`) returns the correctly-cast
-`MarshalFromSwiftObject<T>` form, but the property emitter is going through
-the `WrapperEmitter.Return` raw-IntPtr path instead. Tracked as a follow-on,
-not folded into Item B.
+on `EntityQuerySort<TEntity>.By_Get()` is **fixed**. Root cause:
+`KeyPathProjection.ContainerTypeName` inherited the default
+`PInvokeType` (`"IntPtr"`), while every other container projection
+(`ArrayProjection`, `DictionaryProjection`, `OptionalProjection`,
+`SetProjection`, `ResultProjection`) overrides it to the public wrapper
+type. The `WrapperEmitter.Return` BoundGenericClassReturn branch emits
+`SwiftMarshal.MarshalFromSwift<{ContainerTypeName}>(result)` — so KeyPath
+properties on a generic host received `MarshalFromSwift<IntPtr>` instead
+of `MarshalFromSwift<Swift.PartialKeyPath<TEntity>>`.
+
+Fix: one-line override in
+`src/Swift.Bindings/src/Marshaler/Projection/KeyPathProjection.cs` —
+`public string ContainerTypeName => _publicType;`. BindingTests fixture
+in `KeyPath/KeyPathGenericReturn.swift` exercises both a struct host
+(`KeyPathGenericSort<TElement>`) and a class host
+(`KeyPathGenericContainer<TElement>`) with `PartialKeyPath<TElement>`-
+typed instance accessors; the compile-only gate now passes. Runtime
+smoke at `RuntimeTestsApp/KeyPath/KeyPathGenericReturnTests.cs`.
+
+### Residual carry-out — generic-host constructor wrapper gap
+
+The same fixture surfaced a **separate** runtime bug on the
+*construction* path: `KeyPathGenericSort<T>(by:)` and
+`KeyPathGenericContainer<T>(by:)` are emitted as direct-`CallConvSwift`
+P/Invokes with the `[Obsolete(SB0001)]` "no @_cdecl wrapper available"
+warning, and exercising them produces a SIGSEGV on a subsequent
+`@_cdecl`-wrapped factory call (cache/heap corruption from the SB0001
+init's disposal phase). The session-12 close-out trimmed the runtime
+tests to the one passing shape; the broken shapes are tracked as
+**Session 13** at
+`src/docs/keypath-subsystem/13-sb0001-generic-host-wrapper-gap.md`,
+which also covers the 9 AppIntents 0.12 production sites with the same
+SB0001 emission pattern (`EntityURLRepresentation<TEntity>`,
+`IntentURLRepresentation<TIntent>`, `IntentParameterSummary`, etc.).

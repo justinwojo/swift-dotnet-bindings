@@ -337,15 +337,28 @@ internal static class GenericDispatchEmitter
                     //  - Array<T> whose element is itself a bare parent generic. The factory
                     //    emits this as UnsafeRawPointer + `assumingMemoryBound(to: Array<T>.self).pointee`,
                     //    mirroring what the method static-dispatch path does today.
+                    //  - KeyPath family of parent generic (PartialKeyPath<T>, KeyPath<T,V>,
+                    //    WritableKeyPath<T,V>, ReferenceWritableKeyPath<T,V>). KeyPaths are
+                    //    Swift classes; the factory reconstructs via Unmanaged.fromOpaque
+                    //    rather than `.assumingMemoryBound(to:).pointee` (load of a class ref
+                    //    through its own address would re-load metadata, not the ref itself).
+                    //  - Nested-of-parent (`Outer<T>.Inner`) where Inner is a non-generic
+                    //    struct. Covers the AppIntents 0.12 StringInterpolation pattern.
+                    //    Renderer emits `Outer<T>.Inner` via InnerType; `T` is in scope
+                    //    inside the static-factory extension.
                     //
                     // Dictionary<K,T>/Set<T> render the same way, but end-to-end runtime
                     // round-trip for them hasn't been validated — keep the gate narrowed to
-                    // the Array-only shape proven by BindingTests (CollectibleBag + IndexedSeries).
+                    // the shapes proven by BindingTests.
                     if (WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames))
                     {
                         if (arg.SwiftTypeSpec is NamedTypeSpec named && genericParamNames.Contains(named.Name))
                             continue;
                         if (IsArrayOfParentGeneric(arg.SwiftTypeSpec, genericParamNames))
+                            continue;
+                        if (IsKeyPathFamilyOfParentGeneric(arg.SwiftTypeSpec, genericParamNames))
+                            continue;
+                        if (IsNestedTypeOfParentGeneric(arg.SwiftTypeSpec, genericParamNames, parentTypeDecl))
                             continue;
                         return false;
                     }
@@ -445,6 +458,100 @@ internal static class GenericDispatchEmitter
             return false;
         var gp = named.GenericParameters[0];
         return gp is NamedTypeSpec gpNamed && genericParamNames.Contains(gpNamed.Name);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="spec"/> is a Swift KeyPath family class
+    /// (<c>PartialKeyPath&lt;T&gt;</c>, <c>KeyPath&lt;T,V&gt;</c>, <c>WritableKeyPath&lt;T,V&gt;</c>,
+    /// <c>ReferenceWritableKeyPath&lt;T,V&gt;</c>) whose Root generic argument is a bare parent
+    /// generic param. The Value argument (when present) may be any concrete type — the
+    /// KeyPath erases it at the @_cdecl boundary, so the factory wrapper only needs the
+    /// Root to be reconstructable from the type's own generic context.
+    ///
+    /// KeyPath is always a Swift class, so the wrapper body uses
+    /// <c>Unmanaged&lt;PartialKeyPath&lt;T&gt;&gt;.fromOpaque(by).takeUnretainedValue()</c>
+    /// to round-trip the class reference, rather than the
+    /// <c>.assumingMemoryBound(to:).pointee</c> pattern used for value-type T params.
+    /// </summary>
+    internal static bool IsKeyPathFamilyOfParentGeneric(TypeSpec spec, HashSet<string> genericParamNames)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+        var expectedArity = TypeProjectionFactory.GetKeyPathArity(named.Name);
+        if (expectedArity <= 0)
+            return false;
+        if (named.GenericParameters.Count != expectedArity)
+            return false;
+        var root = named.GenericParameters[0];
+        return root is NamedTypeSpec rootNamed && genericParamNames.Contains(rootNamed.Name);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="spec"/> is a single-level nested type whose outer
+    /// segment names the parent host itself, parameterised purely on parent generic params,
+    /// e.g. <c>NestedHostStruct&lt;TElement&gt;.Caption</c> as a param to
+    /// <c>NestedHostStruct&lt;TElement&gt;.init</c>. Covers AppIntents 0.12 sites where the
+    /// init's declarative param is a <c>StringInterpolation</c>-style nested struct on the
+    /// SAME generic host (e.g. <c>EnumURLRepresentation&lt;TEnum&gt;.StringInterpolation</c>
+    /// as a param to <c>EnumURLRepresentation&lt;TEnum&gt;.init</c>).
+    ///
+    /// The "outer name == parent name" identity check is load-bearing. Cross-host shapes
+    /// where the param's outer segment is a foreign generic type (still parameterised on
+    /// parent generics, e.g. <c>ForeignOuter&lt;T&gt;.Inner</c> as a param to
+    /// <c>UnrelatedHost&lt;T&gt;.init</c>) compile via the same renderer + extension scope,
+    /// but the Swift value witness for the cross-host inner type does not survive the
+    /// existential-erased dispatch: construction looks correct (the value reads back),
+    /// but the destroy witness faults on Dispose. Exercised + observed crashing by the
+    /// <c>NestedOfParentTests.TestCrossHostStruct_*</c> + <c>TestCrossHostClass_*</c>
+    /// fixtures (marked <c>[Skip]</c> and tied to a follow-on session).
+    ///
+    /// Inner is assumed to be a value-type struct (the AppIntents <c>StringInterpolation</c>
+    /// shape); the default <c>assumingMemoryBound(to: ...).pointee</c> reconstruction in
+    /// <see cref="ConstructorWrapperEmitter.EmitGenericStaticFactoryConstructor"/> handles it.
+    /// Deeper nesting (<c>Outer&lt;T&gt;.Inner.DeepInner</c>) or inner-with-own-generics is
+    /// rejected to keep the gate to shapes proven by BindingTests.
+    /// </summary>
+    internal static bool IsNestedTypeOfParentGeneric(TypeSpec spec, HashSet<string> genericParamNames, TypeDecl parentTypeDecl)
+    {
+        if (spec is not NamedTypeSpec named)
+            return false;
+        if (named.InnerType is null)
+            return false;
+        if (named.GenericParameters.Count == 0)
+            return false;
+        foreach (var gp in named.GenericParameters)
+        {
+            if (gp is not NamedTypeSpec gpNamed || !genericParamNames.Contains(gpNamed.Name))
+                return false;
+        }
+        if (named.InnerType.InnerType is not null)
+            return false;
+        if (named.InnerType.GenericParameters.Count > 0)
+            return false;
+        // Outer must be the parent host itself. Cross-host nested-of-parent shapes
+        // (param outer != parent) compile but the destroy witness faults at runtime —
+        // see the docstring above and the [Skip]ed BindingTests fixtures.
+        if (!OuterMatchesParent(named, parentTypeDecl))
+            return false;
+        return true;
+    }
+
+    private static bool OuterMatchesParent(NamedTypeSpec named, TypeDecl parentTypeDecl)
+    {
+        // ABI parser may emit the outer with a module-qualified name
+        // ("SwiftBindingsTestLib.NestedHostStruct") or unqualified ("NestedHostStruct").
+        // Use module-qualified comparison when the outer is qualified — short-name
+        // matching alone admits cross-module collisions
+        // ("OtherModule.NestedHostStruct" vs parent "ThisModule.NestedHostStruct"),
+        // which is still a cross-host shape and triggers the destroy-witness fault.
+        var parentShort = parentTypeDecl.Name;
+        var lastDot = named.Name.LastIndexOf('.');
+        if (lastDot < 0)
+            return named.Name == parentShort;
+        var parentModule = parentTypeDecl.ModuleDecl?.Name;
+        if (parentModule is null)
+            return false;
+        return named.Name == $"{parentModule}.{parentShort}";
     }
 
     /// <summary>
