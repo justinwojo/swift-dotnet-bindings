@@ -98,11 +98,15 @@ public static class MethodWrapperEmitter
         if (WrapperValidation.HasInoutWithAbiMismatch(env))
             return false;
 
-        // 11c. No variadic parameters for @_cdecl wrappers — Swift variadic params (T...) appear
-        // as Array<T> in ABI JSON. The @_cdecl wrapper would pass [T] where T... is expected,
-        // causing compilation error: "cannot pass array of type '[T]' as variadic arguments of type 'T'"
-        // These methods are still emitted — they fall back to CallConvSwift P/Invoke.
-        if (env.MethodDecl.HasVariadicParameter)
+        // 11c. Variadic parameters are supported via the unsafeBitCast bridge when the shape is
+        // simple (static on non-generic parent, no throws, no closures, no inout, no method-own
+        // generics). The wrapper assigns the variadic Swift method to a function reference of
+        // type `(T...) -> R`, then bitCasts to `([T]) -> R` and calls with the runtime array.
+        // Variadic-pack and traditional variadic share ABI (both lower to Array<T>); the type
+        // system tracks the variadic-ness but the call lowering is the same. Covers the
+        // AppShortcutsBuilder.buildBlock sites. Unsupported variadic shapes still fall back
+        // to CallConvSwift P/Invoke.
+        if (env.MethodDecl.HasVariadicParameter && !IsSupportedVariadicShape(env))
             return false;
 
         // 11d. Parameters with Swift's `_const` modifier require a compile-time-constant
@@ -503,12 +507,43 @@ public static class MethodWrapperEmitter
                 ? $"{silgenTarget}({callArgString})"
                 : $"{selfRef}.{silgenTarget}({callArgString})";
         }
+        else if (methodDecl.HasVariadicParameter)
+        {
+            // Variadic call site: Swift has no runtime splat operator, so we can't write
+            // `foo(myArray)` where foo takes `T...`. The (T...) -> R and ([T]) -> R function
+            // types share ABI (variadic lowers to Array<T> at SIL), so we can unsafeBitCast
+            // the function reference. The variadic-form `as` cast disambiguates overloads.
+            // Strip argument labels — function values are called positionally, and Swift
+            // rejects `(f as (Int) -> Int)(x: 1)` with "extraneous argument label".
+            var swiftMethodName = NameProvider.ParserNameToSwift(methodDecl);
+            var prefix = string.IsNullOrEmpty(selfRef) ? "" : $"{selfRef}.";
+            var variadicSig = BuildVariadicCastSignature(methodDecl, useArrayForm: false);
+            var arraySig = BuildVariadicCastSignature(methodDecl, useArrayForm: true);
+            var positionalCallArgs = string.Join(", ", callArgs.Select(StripArgLabel));
+            callExpr = $"unsafeBitCast({prefix}{swiftMethodName} as {variadicSig}, to: ({arraySig}).self)({positionalCallArgs})";
+        }
         else
         {
             var swiftMethodName = NameProvider.ParserNameToSwift(methodDecl);
-            callExpr = string.IsNullOrEmpty(selfRef)
-                ? $"{swiftMethodName}({callArgString})"
-                : $"{selfRef}.{swiftMethodName}({callArgString})";
+            // When the parent type has a same-name same-param sibling with a different
+            // return type (e.g. AppShortcutsBuilder.buildExpression returning AppShortcut
+            // vs [AppShortcut]), Swift's overload resolution at the call site is
+            // ambiguous. Force selection of this specific overload via a
+            // function-reference `as` cast pinned to this method's signature.
+            if (HasReturnTypeOnlyOverloadSibling(methodDecl, parentTypeDecl))
+            {
+                // Strip argument labels — function values are called positionally.
+                var castSig = BuildOverloadDisambiguationSignature(methodDecl);
+                var prefix = string.IsNullOrEmpty(selfRef) ? "" : $"{selfRef}.";
+                var positionalCallArgs = string.Join(", ", callArgs.Select(StripArgLabel));
+                callExpr = $"({prefix}{swiftMethodName} as {castSig})({positionalCallArgs})";
+            }
+            else
+            {
+                callExpr = string.IsNullOrEmpty(selfRef)
+                    ? $"{swiftMethodName}({callArgString})"
+                    : $"{selfRef}.{swiftMethodName}({callArgString})";
+            }
         }
 
         // For generic parent class types, emit protocol + conformance for type erasure
@@ -1667,4 +1702,220 @@ public static class MethodWrapperEmitter
     /// </summary>
     internal static bool IsGenericClassParent(BaseDecl? parentDecl)
         => WrapperValidation.IsGenericClassParent(parentDecl);
+
+    /// <summary>
+    /// Returns true when a method with Swift variadic parameters has a shape supported
+    /// by the unsafeBitCast variadic bridge. Restricts the relaxed gate to static methods
+    /// on non-generic parents with no closures, no inout, no throws, no method-own
+    /// generics. These restrictions match what BindingTests covers; broader shapes can
+    /// be unlocked incrementally with additional fixtures.
+    /// </summary>
+    internal static bool IsSupportedVariadicShape(MethodEnvironment env)
+    {
+        var methodDecl = env.MethodDecl;
+
+        if (methodDecl.MethodType != MethodType.Static)
+            return false;
+
+        if (env.ParentDecl is TypeDecl td && td.IsGeneric)
+            return false;
+
+        if (methodDecl.GenericParameters.Count > 0)
+            return false;
+
+        if (methodDecl.Throws || methodDecl.IsAsync)
+            return false;
+
+        int variadicCandidates = 0;
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            if (arg.IsInOut)
+                return false;
+            if (env.ClosureHandler != null && env.ClosureHandler.IsClosure(arg))
+                return false;
+
+            if (arg.SwiftTypeSpec is NamedTypeSpec ns
+                && (ns.Name == "Swift.Array" || ns.Name == "Array")
+                && ns.GenericParameters.Count == 1)
+            {
+                variadicCandidates++;
+            }
+        }
+
+        // Swift permits at most one variadic param per function. If a method has
+        // HasVariadicParameter=true and the demangler didn't propagate IsVariadic on the
+        // inner element (concrete-element case), IsVariadicArrayParam falls back to "the
+        // single Array<T> param is the variadic". For mixed-Array methods (e.g. `(_ a: [Int],
+        // _ b: Int...)`) that fallback is ambiguous — reject and fall through to the
+        // [Obsolete(SB0001)] direct-CallConvSwift path so we don't generate a wrong wrapper.
+        if (variadicCandidates != 1)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Builds the function-type signature for the variadic bitCast trick. With
+    /// <paramref name="useArrayForm"/>=false, variadic Array params render as
+    /// <c>Element...</c> (their source-level type, which picks the variadic overload
+    /// via Swift's `as` cast). With <paramref name="useArrayForm"/>=true, they render
+    /// as <c>[Element]</c> (the ABI-equivalent type the wrapper's local Array variable
+    /// satisfies). Non-variadic params render to their Swift type in both forms.
+    /// </summary>
+    internal static string BuildVariadicCastSignature(MethodDecl methodDecl, bool useArrayForm)
+    {
+        var parts = new List<string>();
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+
+            if (IsVariadicArrayParam(methodDecl, arg))
+            {
+                var elementSpec = ((NamedTypeSpec)arg.SwiftTypeSpec).GenericParameters[0];
+                var elementType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(elementSpec);
+                parts.Add(useArrayForm ? $"[{elementType}]" : $"{elementType}...");
+            }
+            else
+            {
+                var typeStr = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec);
+                parts.Add(typeStr);
+            }
+        }
+        var paramList = string.Join(", ", parts);
+        var returnType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(
+            methodDecl.CSSignature.First().SwiftTypeSpec);
+        return $"({paramList}) -> {returnType}";
+    }
+
+    /// <summary>
+    /// True when <paramref name="arg"/> is the variadic parameter of <paramref name="methodDecl"/>.
+    /// The demangler propagates <c>IsVariadic</c> on the inner element spec for generic-element
+    /// variadics (<c>T...</c>), but NOT for concrete-element variadics (<c>VariadicSection...</c>) —
+    /// see <c>SwiftABIParser</c> lines ~2828–2846. For the concrete-element case the only signal
+    /// is method-level <c>HasVariadicParameter</c> (set from the swiftinterface). Swift permits at
+    /// most one variadic param per function (and the result-builder shapes doc 14 targets always
+    /// have exactly one <c>Array&lt;T&gt;</c>-shaped param), so when method-level variadic is set
+    /// and the method has a single <c>Array&lt;T&gt;</c>-shaped param, that param IS the variadic.
+    /// Ambiguous multi-<c>Array</c> methods are rejected in <c>IsSupportedVariadicShape</c>.
+    /// </summary>
+    /// <summary>
+    /// True when <paramref name="methodDecl"/> has a sibling on the same parent type
+    /// with the same <c>Name</c>, the same parameter type signature, and a different
+    /// return type. This is the result-builder shape (<c>AppShortcutsBuilder.buildExpression</c>:
+    /// <c>(AppShortcut) -&gt; AppShortcut</c> vs <c>(AppShortcut) -&gt; [AppShortcut]</c>)
+    /// where Swift's overload resolution at the wrapper call site can pick the wrong
+    /// overload. The caller forces selection via a function-reference <c>as</c> cast.
+    /// </summary>
+    internal static bool HasReturnTypeOnlyOverloadSibling(MethodDecl methodDecl, TypeDecl? parentTypeDecl)
+    {
+        if (parentTypeDecl == null) return false;
+        // The disambiguation cast lives only in the direct (non-static-dispatch) branch
+        // of EmitSwiftMethodWrapper. Generic-host methods route through
+        // EmitGenericStaticDispatchMethod, which has no cast-call path — if this
+        // predicate fires there, the wrapper would emit ambiguous bare call syntax
+        // and fail to compile. Symmetric to IsSupportedVariadicShape's generic-parent
+        // guard. Drop into ambiguity-tolerant emission rather than guess.
+        if (parentTypeDecl.IsGeneric) return false;
+        // BuildOverloadDisambiguationSignature emits `(P) -> R` with no `throws` /
+        // `async`. Casting a throwing or async function to a non-effectful function
+        // type is a Swift compile error, and the throwing-wrapper path still wraps
+        // the call in `try`, which would then operate on a non-throwing cast result.
+        // Drop into ambiguity-tolerant emission for effectful methods.
+        if (methodDecl.Throws || methodDecl.IsAsync) return false;
+        var myParams = methodDecl.CSSignature.Skip(1).ToList();
+        var myReturn = methodDecl.CSSignature.First().SwiftTypeSpec;
+        foreach (var other in parentTypeDecl.Methods)
+        {
+            if (ReferenceEquals(other, methodDecl)) continue;
+            if (other.Name != methodDecl.Name) continue;
+            if (other.IsConstructor != methodDecl.IsConstructor) continue;
+            if (other.IsAccessor != methodDecl.IsAccessor) continue;
+            if (other.MethodType != methodDecl.MethodType) continue;
+            var otherParams = other.CSSignature.Skip(1).ToList();
+            if (otherParams.Count != myParams.Count) continue;
+            bool paramsMatch = true;
+            for (int i = 0; i < myParams.Count; i++)
+            {
+                if (!Equals(myParams[i].SwiftTypeSpec, otherParams[i].SwiftTypeSpec))
+                {
+                    paramsMatch = false;
+                    break;
+                }
+            }
+            if (!paramsMatch) continue;
+            var otherReturn = other.CSSignature.First().SwiftTypeSpec;
+            if (!Equals(myReturn, otherReturn)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Builds a Swift function-type signature for <paramref name="methodDecl"/> in the
+    /// form <c>(P1, P2, ...) -&gt; R</c>, used as the right-hand side of an <c>as</c>
+    /// cast to disambiguate overloads at the call site.
+    /// </summary>
+    internal static string BuildOverloadDisambiguationSignature(MethodDecl methodDecl)
+    {
+        var parts = new List<string>();
+        foreach (var arg in methodDecl.CSSignature.Skip(1))
+        {
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg))
+                continue;
+            if (arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            parts.Add(ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(arg.SwiftTypeSpec));
+        }
+        var paramList = string.Join(", ", parts);
+        var returnType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(
+            methodDecl.CSSignature.First().SwiftTypeSpec);
+        return $"({paramList}) -> {returnType}";
+    }
+
+    // Strips a leading `label: ` from a CdeclParamMapper-generated call arg. Swift
+    // function values (variadic bitcast, overload disambiguation `as` cast) are
+    // called positionally and reject `(f as (Int) -> Int)(x: 1)`.
+    internal static string StripArgLabel(string callArg)
+    {
+        if (string.IsNullOrEmpty(callArg)) return callArg;
+        int colon = callArg.IndexOf(':');
+        if (colon <= 0) return callArg;
+        for (int i = 0; i < colon; i++)
+        {
+            char c = callArg[i];
+            bool ok = char.IsLetterOrDigit(c) || c == '_';
+            if (i == 0) ok = char.IsLetter(c) || c == '_';
+            if (!ok) return callArg;
+        }
+        int valStart = colon + 1;
+        while (valStart < callArg.Length && callArg[valStart] == ' ') valStart++;
+        return callArg.Substring(valStart);
+    }
+
+    internal static bool IsVariadicArrayParam(MethodDecl methodDecl, ArgumentDecl arg)
+    {
+        if (arg.SwiftTypeSpec is not NamedTypeSpec ns) return false;
+        if (ns.Name != "Swift.Array" && ns.Name != "Array") return false;
+        if (ns.GenericParameters.Count != 1) return false;
+        if (ns.GenericParameters[0].IsVariadic) return true;
+        if (!methodDecl.HasVariadicParameter) return false;
+        int arrayParamCount = 0;
+        foreach (var other in methodDecl.CSSignature.Skip(1))
+        {
+            if (other.SwiftTypeSpec is NamedTypeSpec on
+                && (on.Name == "Swift.Array" || on.Name == "Array")
+                && on.GenericParameters.Count == 1)
+            {
+                arrayParamCount++;
+            }
+        }
+        return arrayParamCount == 1;
+    }
 }

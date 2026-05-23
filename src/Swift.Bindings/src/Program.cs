@@ -445,7 +445,8 @@ namespace BindingsGeneration
                     if (foreignExtensions.Count > 0)
                     {
                         ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
-                            decl, foreignExtensions, typeDatabase, logger, emissionContext);
+                            decl, foreignExtensions, typeDatabase, logger, emissionContext,
+                            facts.AvailabilityAnnotations);
                     }
                 }
 

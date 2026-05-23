@@ -471,9 +471,12 @@ public static class ConstructorWrapperEmitter
                             swiftParams.Add($"_ _metadata{i}: UnsafeRawPointer");
                         }
                         // Add PWT parameters for constrained generic types.
-                        // Only include PWT for resolvable conformances (no associated types
-                        // or Self requirements) to match what C# P/Invoke passes.
-                        int ctorPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+                        // Includes resolvable conformances AND PAT/Self-requirement conformances
+                        // with captured descriptor symbols (threaded by the C# call site via
+                        // {HelperClass}.Get{Proto}PWT(metadata).Handle). Both classes of slot
+                        // are declared as UnsafeRawPointer here; the difference is only in how
+                        // the C# call site materializes the IntPtr.
+                        int ctorPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
                         for (int pi = 0; pi < ctorPwtCount; pi++)
                         {
                             swiftParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
@@ -563,11 +566,13 @@ public static class ConstructorWrapperEmitter
             callExpr = $"{moduleQualifiedSwiftName}({callArgString})";
         }
 
-        // For generic parent types: emit metadata accessor helper at module scope (before @_cdecl)
+        // For generic parent types: emit metadata accessor helper at module scope (before @_cdecl).
+        // Uses the GSF variant (total PWT count) so the helper signature matches the
+        // @_cdecl wrapper's _pwtN declarations and the C# call site's dynamic-PWT extraction.
         string? metaHelperName = null;
         if (isGenericClassParent && protocolName != null)
         {
-            metaHelperName = EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl!, ctx, env.TypeDatabase);
+            metaHelperName = EmitMetadataAccessorHelperIfNeededForGsf(swiftWriter, parentTypeDecl!, ctx, env.TypeDatabase);
         }
 
         // Emit the @_cdecl function
@@ -605,8 +610,8 @@ public static class ConstructorWrapperEmitter
         if (isGenericClassParent && protocolName != null && metaHelperName != null)
         {
             var metaArgsList = Enumerable.Range(0, parentTypeDecl!.GenericParameters.Count).Select(i => $"_metadata{i}");
-            // Include PWT arguments for constrained generic types (resolvable conformances only)
-            var pwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase)).Select(i => $"_pwt{i}");
+            // Include PWT arguments for constrained generic types (resolvable + descriptor-based dynamic)
+            var pwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase)).Select(i => $"_pwt{i}");
             var metaArgs = string.Join(", ", metaArgsList.Concat(pwtArgsList));
             swiftWriter.WriteLine($"let parentMeta = {metaHelperName}({metaArgs})");
             swiftWriter.WriteLine($"let initType = unsafeBitCast(parentMeta, to: Any.Type.self) as! any {protocolName}.Type");
@@ -674,7 +679,10 @@ public static class ConstructorWrapperEmitter
     /// <summary>
     /// Emits a private Swift helper function that calls the metadata accessor for a generic parent
     /// type via dlsym. Delegates to <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>.
-    /// Uses resolvable PWT count to match what the C# P/Invoke side passes.
+    /// Uses resolvable PWT count to match what the C# P/Invoke side passes for the non-GSF
+    /// constructor path (concrete-params on generic class parents). The GSF path uses
+    /// <see cref="EmitMetadataAccessorHelperIfNeededForGsf"/> which threads PAT/Self-requirement
+    /// conformances via the dynamic-PWT runtime path.
     /// </summary>
     internal static string EmitMetadataAccessorHelperIfNeeded(
         SwiftWriter swiftWriter,
@@ -683,6 +691,25 @@ public static class ConstructorWrapperEmitter
         ITypeDatabase typeDatabase)
     {
         int pwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, typeDatabase);
+        return MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx, pwtCount);
+    }
+
+    /// <summary>
+    /// GSF cdecl-constructor variant: emits a helper sized for resolvable + dynamic-PWT
+    /// conformances. Matches the slot count threaded by the C# call site via
+    /// <c>PInvokeHelperContext.PwtEntries</c> (resolvable) plus
+    /// <c>{HelperClass}.Get{Proto}PWT(metadata).Handle</c> for PAT/Self-requirement
+    /// conformances with a captured protocol-descriptor symbol. The dedup key in the
+    /// shared helper differentiates the GSF (total) variant from the non-GSF (resolvable)
+    /// variant by PWT count.
+    /// </summary>
+    internal static string EmitMetadataAccessorHelperIfNeededForGsf(
+        SwiftWriter swiftWriter,
+        TypeDecl parentTypeDecl,
+        ModuleEmissionContext ctx,
+        ITypeDatabase typeDatabase)
+    {
+        int pwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, typeDatabase);
         return MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx, pwtCount);
     }
 
@@ -986,9 +1013,12 @@ public static class ConstructorWrapperEmitter
         }
 
         // Add PWT parameter(s) for constrained generic types.
-        // Only include PWT for resolvable conformances (no associated types or Self
-        // requirements) to match what the C# P/Invoke side passes.
-        int gsfPwtCount = MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase);
+        // Includes BOTH resolvable conformances (C# emits via ProtocolWitnessTable.GetOrThrowAuto)
+        // AND PAT/Self-requirement conformances with a captured descriptor symbol (C# emits via
+        // {HelperClass}.Get{Proto}PWT(metadata).Handle through the dynamic-PWT runtime path).
+        // Both classes of slot are declared identically on the Swift side; the difference is
+        // only in how the C# call site materializes the IntPtr.
+        int gsfPwtCount = MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase);
         for (int pi = 0; pi < gsfPwtCount; pi++)
         {
             cdeclParams.Add($"_ _pwt{pi}: UnsafeRawPointer");
@@ -1054,7 +1084,18 @@ public static class ConstructorWrapperEmitter
             // Swift requires `required init` for `Self(...)` in protocol extensions,
             // but we can't add `required` to the original type. Using the concrete
             // module-qualified name avoids this requirement.
+            //
+            // For generic parents, append the sugared generic param list explicitly
+            // (`Foo<T>`). Swift can't always infer the parameters from init args —
+            // notably no-arg inits on non-final generic classes — and the extension's
+            // generic context puts the sugared param names in scope.
             var ctorType = moduleQualifiedSwiftName;
+            if (parentTypeDecl.GenericParameters.Count > 0)
+            {
+                var sugared = string.Join(", ", parentTypeDecl.GenericParameters.Select(p =>
+                    string.IsNullOrEmpty(p.SugaredTypeName) ? p.TypeName : p.SugaredTypeName));
+                ctorType = $"{moduleQualifiedSwiftName}<{sugared}>";
+            }
             if (throws && isFailable)
             {
                 extensionLines.Add($"guard let result = try {ctorType}({initCallArgString}) else {{ return nil }}");
@@ -1078,7 +1119,12 @@ public static class ConstructorWrapperEmitter
         }
         else
         {
-            // Struct: write to resultPtr
+            // Struct: write to resultPtr via initializeMemory(as:repeating:count:).
+            // Per constraints.md ("BitwiseCopyable in Swift 6+"): for non-bitwise-copyable
+            // structs (those with class fields), initializeMemory properly handles ARC
+            // retain/release on unbound NativeMemory.Alloc'd buffers. The cross-host fault
+            // (doc 14 hypothesis 3) is in metadata-resolution, not reconstruction shape, so
+            // we keep this ARC-safe form here.
             if (throws && isFailable)
             {
                 extensionLines.Add($"let result: Self? = try Self({initCallArgString})");
@@ -1120,8 +1166,11 @@ public static class ConstructorWrapperEmitter
             }
             """);
 
-        // Emit metadata accessor helper at module scope (before @_cdecl wrapper)
-        var gsfHelperName = EmitMetadataAccessorHelperIfNeeded(swiftWriter, parentTypeDecl, ctx, env.TypeDatabase);
+        // Emit metadata accessor helper at module scope (before @_cdecl wrapper).
+        // GSF path uses the total-count variant so PAT/Self-requirement conformances
+        // with descriptor symbols get an explicit PWT slot in the helper signature
+        // (matching the @_cdecl wrapper's _pwtN declarations above).
+        var gsfHelperName = EmitMetadataAccessorHelperIfNeededForGsf(swiftWriter, parentTypeDecl, ctx, env.TypeDatabase);
 
         // Emit @_cdecl wrapper
         var cdeclParamString = string.Join(", ", cdeclParams);
@@ -1170,10 +1219,11 @@ public static class ConstructorWrapperEmitter
                 swiftWriter.WriteLine(reconstruction);
         }
 
-        // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor
+        // Metatype dispatch — convert T.self → ParentType<T>.self via metadata accessor.
+        // Pass ALL declared PWT slots (resolvable + descriptor-based dynamic) so the call
+        // site matches the @_cdecl wrapper's _pwtN signature exactly.
         var gsfMetaArgsList = Enumerable.Range(0, parentTypeDecl.GenericParameters.Count).Select(i => $"_metadata{i}");
-        // Include PWT arguments for constrained generic types (resolvable conformances only)
-        var gsfPwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetResolvablePwtParameterCount(parentTypeDecl, env.TypeDatabase)).Select(i => $"_pwt{i}");
+        var gsfPwtArgsList = Enumerable.Range(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(parentTypeDecl, env.TypeDatabase)).Select(i => $"_pwt{i}");
         var gsfMetaArgs = string.Join(", ", gsfMetaArgsList.Concat(gsfPwtArgsList));
         swiftWriter.WriteLine($"let parentMeta = {gsfHelperName}({gsfMetaArgs})");
         swiftWriter.WriteLine("let metatype = unsafeBitCast(parentMeta, to: Any.Type.self) as! any _SBW_GSF_" +

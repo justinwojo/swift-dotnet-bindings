@@ -145,28 +145,121 @@ internal class MethodMarshalPlanBuilder
         if (IsClosedStaticFactoryAccessorCall())
             return lines;
 
+        // GSF cdecl-constructor on a generic parent type also materializes PAT /
+        // Self-requirement conformances with captured descriptor symbols via the
+        // dynamic-PWT helper on the parent's PInvokeHelperContext. The match must stay
+        // in sync with the PInvokeSignatureBuilder.HandleProtocolConformance gate so the
+        // P/Invoke parameter list and the variable declarations agree on slot count.
+        bool admitDynamicPwt =
+            _env.MethodDecl.UsesCdeclWrapper &&
+            _env.MethodDecl.IsConstructor &&
+            _env.ParentDecl is TypeDecl { IsGeneric: true } &&
+            _env.PInvokeHelperContext is not null;
+
         foreach (var genericParameter in _env.MethodDecl.GenericParameters)
         {
             var csTypeParamName = _env.GenericTypeMapping[genericParameter.TypeName].TypeParameter;
             var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
             foreach (var conformance in conformances)
             {
-                if (!_isProtocolAvailable(conformance.ConformanceTarget))
+                bool resolvable = _isProtocolAvailable(conformance.ConformanceTarget);
+                if (resolvable)
+                {
+                    var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
+                    // Use the resolved emission namespace (umbrella fallback) so the PWT
+                    // generic argument matches the actual emitted interface namespace.
+                    var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(
+                        conformance.ConformanceTarget, _env.TypeDatabase);
+                    var protocolName = NameProvider.GetInterfaceName(
+                        conformance.ConformanceTarget.Name,
+                        moduleName: emissionModule,
+                        currentModuleName: _env.MethodDecl.ModuleDecl?.Name ?? "");
+                    lines.Add($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
+                    continue;
+                }
+
+                if (!admitDynamicPwt)
                     continue;
 
-                var pwtName = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
-                // Use the resolved emission namespace (umbrella fallback) so the PWT
-                // generic argument matches the actual emitted interface namespace.
-                var emissionModule = ProtocolConformanceHelper.ResolveProtocolEmissionModule(
-                    conformance.ConformanceTarget, _env.TypeDatabase);
-                var protocolName = NameProvider.GetInterfaceName(
-                    conformance.ConformanceTarget.Name,
-                    moduleName: emissionModule,
-                    currentModuleName: _env.MethodDecl.ModuleDecl?.Name ?? "");
-                lines.Add($"var {pwtName} = ProtocolWitnessTable.GetOrThrow<{csTypeParamName}, {protocolName}>();");
+                // Dynamic PWT path: PAT / Self-requirement protocol with descriptor symbol.
+                // Look up the matching HelperPwtEntry on the parent's PInvokeHelperContext
+                // to obtain the disambiguated helper-method name (which already accounts
+                // for same-simple-name collisions) and to trigger the lazy emission of the
+                // descriptor + cache + helper-method block via GetTypeMetadataAccessorArgumentList.
+                var helperContext = _env.PInvokeHelperContext!;
+                if (!TryGetDynamicPwtCallExpression(
+                        helperContext, csTypeParamName, conformance.ConformanceTarget,
+                        out var pwtExpression))
+                {
+                    continue;
+                }
+
+                var pwtNameDyn = NameProvider.GetProtocolWitnessTableName(csTypeParamName, conformance.ConformanceTarget.Name);
+                lines.Add($"var {pwtNameDyn} = {pwtExpression};");
             }
         }
         return lines;
+    }
+
+    /// <summary>
+    /// Constructs the dynamic-PWT call expression for a PAT/Self-requirement conformance
+    /// on a parent-generic param. Returns false when the conformance is not present in
+    /// the helper context's pre-flattened <see cref="PInvokeHelperContext.PwtEntries"/>
+    /// — that indicates the parent's helper context already routed the conformance to
+    /// <see cref="PInvokeHelperContext.UnresolvedPwtConstraints"/> and the type itself
+    /// is skip-gated, so emitting a PWT extraction here would be unreachable code.
+    /// Triggers <c>EmitDynamicPwtHelperIfNeeded</c> via
+    /// <see cref="PInvokeHelperContext.GetTypeMetadataAccessorArgumentList"/> so the
+    /// descriptor field, witness-table cache, and helper method are emitted into the
+    /// helper P/Invoke class.
+    /// </summary>
+    private static bool TryGetDynamicPwtCallExpression(
+        PInvokeHelperContext helperContext,
+        string csTypeParamName,
+        SwiftTypeName protocolTarget,
+        out string pwtExpression)
+    {
+        pwtExpression = string.Empty;
+
+        HelperPwtEntry? matching = null;
+        foreach (var entry in helperContext.PwtEntries)
+        {
+            if (entry.IsResolvable)
+                continue;
+            if (entry.GenericParamCsName != csTypeParamName)
+                continue;
+            if (entry.ProtocolModuleQualifiedName != protocolTarget.ModuleQualifiedName)
+                continue;
+            matching = entry;
+            break;
+        }
+
+        if (matching is null)
+            return false;
+
+        // Walk GetTypeMetadataAccessorArgumentList to trigger EmitDynamicPwtHelperIfNeeded
+        // as a side effect (it's the only public surface that drives helper-method
+        // emission, and the list is built lazily on call).
+        _ = helperContext.GetTypeMetadataAccessorArgumentList();
+
+        var camelProtocol = char.ToLowerInvariant(matching.ProtocolName[0]) + matching.ProtocolName.Substring(1);
+        // Replicate PInvokeHelperContext.GetProtocolNameDiscriminator: empty unless
+        // multiple entries share the simple name.
+        int sameNameCount = 0;
+        foreach (var other in helperContext.PwtEntries)
+        {
+            if (other.ProtocolName == matching.ProtocolName)
+                sameNameCount++;
+            if (sameNameCount > 1) break;
+        }
+        var discriminator = sameNameCount > 1
+            ? "_" + EmitterUtility.DeterministicHash8(matching.ProtocolModuleQualifiedName)
+            : string.Empty;
+        var helperMethodName = $"Get{matching.ProtocolName}{discriminator}PWT";
+
+        pwtExpression =
+            $"{helperContext.HelperClassName}.{helperMethodName}(TypeMetadata.GetTypeMetadataOrThrow<{csTypeParamName}>())";
+        return true;
     }
 
     /// <summary>

@@ -998,9 +998,10 @@ public static class WrapperValidation
             (!env.MethodDecl.IsNonisolated ||
              SignatureContainsParameterizedProtocol(env.MethodDecl, env.TypeDatabase)))
             return false;
-        // Guard 10: No variadic parameters — Swift variadic (T...) appears as Array<T> in ABI JSON.
-        // Wrapper would pass [T] where T... is expected, causing "cannot pass array" compile error.
-        if (env.MethodDecl.HasVariadicParameter)
+        // Guard 10: Variadic parameters — supported via the unsafeBitCast bridge when the
+        // shape is simple (see MethodWrapperEmitter.IsSupportedVariadicShape). Otherwise the
+        // wrapper would pass [T] where T... is expected, causing a Swift compile error.
+        if (env.MethodDecl.HasVariadicParameter && !MethodWrapperEmitter.IsSupportedVariadicShape(env))
             return false;
         // Guard 11: (removed — noncopyable struct parents now use borrowing pointer semantics)
         // Guards 15-15d: Return type checks
@@ -1287,8 +1288,9 @@ public static class WrapperValidation
 
         // 11b. (removed — inout parameters now use UnsafeMutableRawPointer with write-back semantics)
 
-        // 11c. No variadic parameters
-        if (env.MethodDecl.HasVariadicParameter)
+        // 11c. Variadic parameters: supported via unsafeBitCast bridge when the shape is
+        // simple (static on non-generic parent, no throws, no closures). Otherwise reject.
+        if (env.MethodDecl.HasVariadicParameter && !MethodWrapperEmitter.IsSupportedVariadicShape(env))
             return "variadic_params";
 
         // 12. No nested frozen struct parameters

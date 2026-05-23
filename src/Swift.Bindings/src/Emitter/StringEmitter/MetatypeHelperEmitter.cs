@@ -129,6 +129,75 @@ public static class MetatypeHelperEmitter
     }
 
     /// <summary>
+    /// Returns the number of PWT parameters that the GSF cdecl-constructor path threads —
+    /// resolvable conformances (no associated types, no Self requirements, projectable as
+    /// a C# interface) PLUS PAT/Self-requirement conformances whose protocol descriptor
+    /// symbol the parser captured (the dynamic-PWT path, resolved at runtime via
+    /// <c>SwiftConformance.GetWitnessTableOrThrow</c>).
+    ///
+    /// Mirrors the conformance-counting rules in
+    /// <see cref="PInvokeHelperContext.CreateIfGeneric(TypeDecl, ITypeDatabase)"/> so the
+    /// Swift @_cdecl wrapper signature, the <c>_sbw_meta_X</c> helper signature, and the
+    /// C# call site all agree on the slot count. Without that agreement, the dlsym'd
+    /// <c>...Ma</c> symbol's caller-saved registers shift and PAC-trap on arm64e.
+    /// Class-bound generic constraints contribute no PWT slot.
+    /// </summary>
+    public static int GetTotalPwtParameterCount(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        int count = 0;
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in gp.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+                if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
+                    continue;
+                if (record.Kind == TypeRecordKind.Class)
+                    continue;
+                if (record.Kind != TypeRecordKind.Protocol)
+                    continue;
+
+                bool isResolvable =
+                    !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
+                    !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
+
+                if (isResolvable)
+                {
+                    // Mirror PInvokeEmitter.HandleProtocolConformance: every well-known
+                    // runtime protocol (Sendable / Copyable / Escapable / SendableMetatype /
+                    // _Concurrency.Actor / Swift.Error) is rejected by
+                    // IsProtocolAvailableForConstraint, so the C# @_cdecl P/Invoke
+                    // declaration does NOT add a slot for it. Counting them on the Swift
+                    // side would over-declare _pwtN and shift the caller-saved registers
+                    // on arm64e — PAC-trap on the first dlsym'd Ma call. Parents that
+                    // actually carry a Swift.Error constraint are gate-blocked upstream
+                    // via HasWrapperHelperGateBlocker so they never reach this counter
+                    // with a constraint the C# call site can't satisfy.
+                    //
+                    // The marker check also catches Swift.BitwiseCopyable, which is a
+                    // stdlib marker (no witness table, no descriptor) but is NOT in
+                    // IsWellKnownRuntimeProtocol's set. Without this extra skip, a
+                    // T: BitwiseCopyable constraint would increment _pwtN with no
+                    // matching Ma slot.
+                    if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
+                        continue;
+                    if (TypeDatabaseExtensions.IsStdlibMarkerProtocol(record))
+                        continue;
+                    count++;
+                }
+                else if (!string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
+                {
+                    // PAT / Self-requirement with descriptor → dynamic-PWT slot threaded
+                    // through {HelperClass}.Get{Protocol}PWT(metadata).Handle.
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    /// <summary>
     /// Returns the number of PWT parameters that the wrapper-side metadata-accessor
     /// helper currently passes — restricted to conformances on protocols that can be
     /// projected as a static C# interface (no associated types, no Self requirements).
@@ -156,6 +225,21 @@ public static class MetatypeHelperEmitter
                         !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
                         !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
                     {
+                        // Same lockstep rule as GetTotalPwtParameterCount: every well-known
+                        // runtime protocol (Sendable / Copyable / Escapable / SendableMetatype
+                        // / _Concurrency.Actor / Swift.Error) is rejected by the C# side
+                        // (IsProtocolAvailableForConstraint), so counting them here would
+                        // over-declare _pwtN on the Swift wrapper and shift caller-saved
+                        // registers on arm64e — PAC-trap on the first dlsym'd Ma call.
+                        // Property and Subscript wrappers use this counter directly without
+                        // going through HasWrapperHelperGateBlocker; the skip is what keeps
+                        // their Swift _pwtN signature consistent with the C# P/Invoke decl.
+                        // The marker check also catches BitwiseCopyable (in
+                        // IsStdlibMarkerProtocol but not in IsWellKnownRuntimeProtocol).
+                        if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
+                            continue;
+                        if (TypeDatabaseExtensions.IsStdlibMarkerProtocol(record))
+                            continue;
                         count++;
                     }
                 }
@@ -213,6 +297,96 @@ public static class MetatypeHelperEmitter
     }
 
     /// <summary>
+    /// Returns <c>true</c> when the parent type has any well-known runtime protocol
+    /// conformance whose witness table the wrapper-helper path cannot materialize —
+    /// i.e. <c>_Concurrency.Actor</c> or <c>Swift.Error</c>. Both are rejected on the
+    /// C# side by <see cref="Handler.MethodValidationGates.IsProtocolAvailableForConstraint"/>
+    /// (so the P/Invoke declaration omits the slot), but the dlsym'd <c>...Ma</c>
+    /// symbol DOES expect a PWT for them in its ABI signature — there is no way to
+    /// call it correctly without one. Gating these types out at the wrapper-helper
+    /// boundary keeps the Swift <c>_pwtN</c> signature, the C# P/Invoke decl, and
+    /// the helper's <c>...Ma</c> invocation all in lockstep.
+    ///
+    /// Pure marker protocols (<c>Swift.Sendable</c> / <c>Swift.Copyable</c> /
+    /// <c>Swift.Escapable</c> / <c>Swift.SendableMetatype</c> / <c>Swift.BitwiseCopyable</c>)
+    /// are intentionally NOT flagged here: they carry no witness table, no protocol
+    /// descriptor, and never appear in <c>...Ma</c> signatures. Both
+    /// <see cref="GetTotalPwtParameterCount"/> and <see cref="GetResolvablePwtParameterCount"/>
+    /// already skip them, so a parent constrained only by markers can route through
+    /// the GSF / static-dispatch path with all three signatures naturally matching at
+    /// zero slots.
+    /// </summary>
+    public static bool HasWellKnownRuntimeProtocolConformance(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in gp.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+                if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
+                    continue;
+                if (record.Kind != TypeRecordKind.Protocol)
+                    continue;
+                if (!TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record))
+                    continue;
+                if (TypeDatabaseExtensions.IsStdlibMarkerProtocol(record))
+                    continue;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Stricter variant of <see cref="HasUnresolvableTypeConformances"/> used by the GSF
+    /// cdecl-constructor path: returns <c>true</c> only when the parent has a PAT /
+    /// Self-requirement conformance that ALSO lacks a captured protocol-descriptor symbol.
+    /// Conformances whose descriptor symbol IS known are handed off to the dynamic-PWT
+    /// runtime path (<c>{HelperClass}.Get{Proto}PWT(metadata)</c> →
+    /// <c>SwiftConformance.GetWitnessTableOrThrow</c>) and contribute a real slot to both
+    /// the @_cdecl signature and the <c>_sbw_meta_X</c> helper — so they do NOT undercount
+    /// against the Ma symbol. Only constructors are admitted to the dynamic-PWT path today;
+    /// the property, method, and subscript paths still gate on the strict predicate above
+    /// because their C# side does not yet thread dynamic PWTs to the @_cdecl wrapper.
+    /// </summary>
+    public static bool HasUnresolvableTypeConformancesWithoutDescriptor(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        foreach (var gp in parentTypeDecl.GenericParameters)
+        {
+            foreach (var conformance in gp.GenericConformances)
+            {
+                if (conformance.Kind != ConformanceKind.Protocol)
+                    continue;
+
+                if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var record))
+                    continue;
+                if (record.Kind != TypeRecordKind.Protocol)
+                    continue;
+
+                bool unresolvable =
+                    record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                    record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
+
+                if (!unresolvable)
+                    continue;
+
+                if (string.IsNullOrEmpty(record.ProtocolDescriptorSymbol))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Returns <c>true</c> when the wrapper-helper's dlsym'd <c>...Ma</c> call would cross the
     /// (num_metadata + num_pwts) &gt; 3 register threshold and thus require Swift's indirect-buffer
     /// metadata-accessor ABI. <see cref="EmitMetadataAccessorHelperIfNeeded"/> always declares the
@@ -237,6 +411,22 @@ public static class MetatypeHelperEmitter
 
         int totalArgs = parentTypeDecl.GenericParameters.Count
             + GetResolvablePwtParameterCount(parentTypeDecl, typeDatabase);
+        return totalArgs > 3;
+    }
+
+    /// <summary>
+    /// Variant of <see cref="WouldExceedRegisterArgumentThreshold"/> that counts PAT/
+    /// Self-requirement conformances threaded through the dynamic-PWT path. Used by the
+    /// GSF cdecl-constructor path where the @_cdecl signature now carries an
+    /// <c>UnsafeRawPointer</c> slot for each such conformance.
+    /// </summary>
+    public static bool WouldExceedRegisterArgumentThresholdTotal(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    {
+        if (!parentTypeDecl.IsGeneric)
+            return false;
+
+        int totalArgs = parentTypeDecl.GenericParameters.Count
+            + GetTotalPwtParameterCount(parentTypeDecl, typeDatabase);
         return totalArgs > 3;
     }
 }

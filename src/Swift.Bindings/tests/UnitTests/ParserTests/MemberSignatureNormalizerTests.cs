@@ -57,9 +57,38 @@ public class MemberSignatureNormalizerTests
     [InlineData("inout some Foundation.URL", "URL")]
     [InlineData("", "")]
     [InlineData("   ", "")]
+    // Variadic ellipsis is stripped because the swiftinterface producer's
+    // param.type doesn't include `...` (the ellipsis is a separate token on
+    // FunctionParameterSyntax). Without this strip, ABI-side param `printedName`
+    // (which DOES include `...`) computes a different disamb suffix and the
+    // producer-side annotation lookup misses — masking method-level @available
+    // floors like AppShortcutsBuilder.buildBlock(_:)'s iOS 17.4 overload.
+    [InlineData("AppShortcut...", "AppShortcut")]
+    [InlineData("[AppShortcut]...", "Array<AppShortcut>")]
+    [InlineData("AppIntents.AppShortcut...", "AppShortcut")]
     public void NormalizeParamType_CollapsesEquivalentForms(string input, string expected)
     {
         Assert.Equal(expected, MemberSignatureNormalizer.NormalizeParamType(input));
+    }
+
+    /// <summary>
+    /// Regression: variadic ellipsis in ABI JSON printedNames must produce the
+    /// SAME disamb key as the swiftinterface producer (which sees param.type
+    /// without `...`). Before this strip, overloads like
+    /// <c>buildBlock(AppShortcut...)</c> vs <c>buildBlock([AppShortcut]...)</c>
+    /// composed mismatching keys across producer/consumer, the consumer-side
+    /// disamb lookup missed, and the producer-side bare key was vacated —
+    /// leaving the method with no @available annotations and inheriting only
+    /// the parent type's looser floor.
+    /// </summary>
+    [Fact]
+    public void NormalizeParamType_VariadicAndArrayVariadicStayDistinct()
+    {
+        var a = MemberSignatureNormalizer.NormalizeParamType("AppShortcut...");
+        var b = MemberSignatureNormalizer.NormalizeParamType("[AppShortcut]...");
+        Assert.NotEqual(a, b);
+        Assert.Equal("AppShortcut", a);
+        Assert.Equal("Array<AppShortcut>", b);
     }
 
     /// <summary>

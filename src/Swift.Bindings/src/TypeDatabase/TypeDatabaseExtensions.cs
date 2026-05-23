@@ -345,6 +345,29 @@ public static class TypeDatabaseExtensions
     }
 
     /// <summary>
+    /// The marker subset of <see cref="IsWellKnownRuntimeProtocol"/>: stdlib protocols
+    /// that the compiler erases at runtime and that have no witness table, no protocol
+    /// descriptor symbol, and no slot in any <c>...Ma</c> metadata accessor signature
+    /// (<c>Swift.Sendable</c> / <c>Swift.Copyable</c> / <c>Swift.Escapable</c> /
+    /// <c>Swift.SendableMetatype</c> / <c>Swift.BitwiseCopyable</c>). Distinct from
+    /// <c>Swift.Error</c> and <c>_Concurrency.Actor</c>, which ARE well-known runtime
+    /// protocols but DO carry a witness table and therefore appear in <c>...Ma</c>
+    /// signatures — those must continue to gate-block wrapper emission because the C#
+    /// side cannot materialize their PWT. Mirrors the local
+    /// <c>PInvokeHelperEmitter.IsStdlibMarkerProtocol</c> set; promoted to the shared
+    /// extension so emitter gates can ask the question without duplicating the list.
+    /// </summary>
+    public static bool IsStdlibMarkerProtocol(TypeRecord record)
+    {
+        var name = record.SwiftTypeName.ModuleQualifiedName;
+        return name is "Swift.Sendable"
+            or "Swift.Copyable"
+            or "Swift.Escapable"
+            or "Swift.SendableMetatype"
+            or "Swift.BitwiseCopyable";
+    }
+
+    /// <summary>
     /// Gets the type record for an existential type (protocol or protocol composition).
     /// </summary>
     /// <param name="protocolList">The protocol list type specification.</param>

@@ -171,12 +171,21 @@ internal static class MethodValidationGates
     ///   <item><description>the record isn't a protocol kind,</description></item>
     ///   <item><description>the protocol has associated types or a <c>Self</c> requirement
     ///   (<see cref="IsUnsupportedProtocolConstraint"/> would already have blocked the method),</description></item>
-    ///   <item><description>or the protocol is a well-known runtime-only marker
-    ///   (<c>Sendable</c> / <c>Copyable</c> / <c>Escapable</c> / <c>SendableMetatype</c> /
-    ///   <c>_Concurrency.Actor</c>) — these have TypeRecords purely so actor / Sendable-conforming
-    ///   types can resolve their conformance arrays, but they have no projected C# interface.
-    ///   Emitting <c>ISendableMetatype</c> as a constraint would produce CS0246, and emitting a
-    ///   PWT extraction for them would produce a missing P/Invoke parameter.</description></item>
+    ///   <item><description>or the protocol is a well-known runtime protocol
+    ///   (<c>_Concurrency.Actor</c> / <c>Swift.Error</c>) — these have TypeRecords purely so
+    ///   actor / Error-conforming types can resolve their conformance arrays, but they have
+    ///   no projected C# interface from this gate's perspective. Emitting <c>IActor</c> as a
+    ///   constraint would produce CS0246, and emitting a PWT extraction for them would
+    ///   produce a missing P/Invoke parameter.</description></item>
+    ///   <item><description>or the protocol is a pure stdlib marker (<c>Swift.Sendable</c> /
+    ///   <c>Swift.Copyable</c> / <c>Swift.Escapable</c> / <c>Swift.SendableMetatype</c> /
+    ///   <c>Swift.BitwiseCopyable</c>) — markers carry no witness table and no projected C#
+    ///   interface. <c>BitwiseCopyable</c> in particular is not in
+    ///   <see cref="TypeDatabaseExtensions.IsWellKnownRuntimeProtocol"/> but IS in
+    ///   <see cref="TypeDatabaseExtensions.IsStdlibMarkerProtocol"/>, so the dual-skip is
+    ///   required to keep this gate in lockstep with the PWT counters in
+    ///   <see cref="MetatypeHelperEmitter.GetTotalPwtParameterCount"/> /
+    ///   <see cref="MetatypeHelperEmitter.GetResolvablePwtParameterCount"/>.</description></item>
     /// </list>
     ///
     /// This is the single source of truth for the "drop constraint, keep method" half of the
@@ -190,7 +199,8 @@ internal static class MethodValidationGates
             return record.Kind == TypeRecordKind.Protocol &&
                    !record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) &&
                    !record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) &&
-                   !TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record);
+                   !TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(record) &&
+                   !TypeDatabaseExtensions.IsStdlibMarkerProtocol(record);
         }
 
         return false;

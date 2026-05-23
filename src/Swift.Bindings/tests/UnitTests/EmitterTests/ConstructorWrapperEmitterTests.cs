@@ -110,13 +110,18 @@ public class ConstructorWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_NonFinalGenericClassParent_ConcreteSignature_ReturnsFalse()
+    public void ShouldEmitWrapper_NonFinalGenericClassParent_ConcreteSignature_ReturnsTrue()
     {
         // Non-final generic class constructors with concrete signatures can't use
-        // the _SBW_CI_ protocol pattern (Swift requires `required init` for non-final
-        // protocol conformance). CanEmitGenericDispatch rejects this shape, so
-        // ShouldEmitWrapper must return false — otherwise the constructor would route
-        // through the _SBW_CI_ metatype dispatch path and produce invalid Swift.
+        // Path 1 (_SBW_CI_ protocol with `init()` requirement) — Swift requires
+        // `required init` for non-final classes to satisfy that. However, Path 2
+        // (GSF static factory) works fine for them: the protocol carries a
+        // `static func _sbw_create_*` requirement, and the extension body invokes
+        // the concrete-type init directly (`SwiftBindingsTestLib.Foo<T>()`) with
+        // no `required` constraint. Doc 14 follow-on: this gate previously rejected
+        // these and shoved them onto direct CallConvSwift (SB0001), which crashed
+        // on construction because the C# call site couldn't pre-populate x20 for
+        // `__allocating_init`.
         var (moduleDecl, typeDb) = CreateTestEnvironment("EnumTransform");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -148,8 +153,8 @@ public class ConstructorWrapperEmitterTests
         parentDecl.Methods.Add(method);
 
         var env = new MethodEnvironment(method, typeDb);
-        Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
-            "Non-final generic class with concrete constructor must NOT emit wrapper — _SBW_CI_ protocol requires `required init`");
+        Assert.True(ConstructorWrapperEmitter.ShouldEmitWrapper(env),
+            "Non-final generic class with concrete constructor must emit wrapper via Path 2 (GSF) — Path 1 (_SBW_CI_) is unavailable but GSF works without `required init`");
     }
 
     [Fact]

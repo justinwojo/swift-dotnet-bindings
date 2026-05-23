@@ -72,7 +72,7 @@ internal static class GenericDispatchEmitter
                 // Path 2: Static protocol dispatch routes through EmitGenericStaticDispatchMethod,
                 // which calls EmitMetadataAccessorHelperIfNeeded. Apply the wrapper-helper gates
                 // before delegating to CanEmitStaticDispatch.
-                if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase))
+                if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase, GenericDispatchKind.Method))
                     return false;
                 return CanEmitStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Method);
             }
@@ -83,12 +83,16 @@ internal static class GenericDispatchEmitter
                 //  • Path 1 (concrete params, final class) — ConstructorWrapperEmitter.cs:532
                 //  • Path 2 (static factory)               — ConstructorWrapperEmitter.cs:1050
                 // The wrapper-helper gates apply to both, so check them up front.
-                if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase))
+                if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase, GenericDispatchKind.Constructor))
                     return false;
 
                 // Path 1: Generic class with concrete (non-T-referencing) params — metatype dispatch
                 // via _SBW_CI_ protocol with init() requirement. Only works for final classes
                 // because non-final classes can't satisfy protocol init() without `required`.
+                // Non-final classes (whether or not they have T-typed params) fall through to
+                // Path 2 (GSF static factory), which uses `static func _sbw_create_*` on a
+                // protocol extension that calls the concrete-type init directly — no `init()`
+                // protocol requirement, so no `required init` needed on the class itself.
                 if (parentTypeDecl is ClassDecl classDecl)
                 {
                     var genericParamNames = parentTypeDecl.GenericParameters
@@ -96,8 +100,10 @@ internal static class GenericDispatchEmitter
                         .ToHashSet();
                     bool hasGenericParams = env.MethodDecl.CSSignature.Skip(1)
                         .Any(arg => WrapperValidation.TypeSpecReferencesGenericParam(arg.SwiftTypeSpec, genericParamNames));
-                    if (!hasGenericParams)
-                        return classDecl.IsFinal; // Non-final can't use _SBW_CI_ protocol
+                    if (!hasGenericParams && classDecl.IsFinal)
+                        return true; // Final class with no T params: Path 1 (_SBW_CI_)
+                    // Non-final classes (any param shape) and final classes with T params
+                    // fall through to Path 2 (CanEmitStaticDispatch) below.
                 }
                 // Path 2: Static factory dispatch
                 return CanEmitStaticDispatch(env, parentTypeDecl, GenericDispatchKind.Constructor);
@@ -133,12 +139,65 @@ internal static class GenericDispatchEmitter
     /// <see cref="MetatypeHelperEmitter.EmitMetadataAccessorHelperIfNeeded"/>. Dynamic
     /// PWT resolution and buffer-mode ABI are tracked in <c>src/docs/roadmap.md</c>.
     /// </summary>
-    internal static bool HasWrapperHelperGateBlocker(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase)
+    internal static bool HasWrapperHelperGateBlocker(TypeDecl parentTypeDecl, ITypeDatabase typeDatabase, GenericDispatchKind kind = GenericDispatchKind.Method)
     {
+        // The GSF cdecl-constructor path threads PAT / Self-requirement conformances
+        // through the dynamic-PWT runtime path (Get{Proto}PWT(metadata) →
+        // SwiftConformance.GetWitnessTableOrThrow) and emits an explicit UnsafeRawPointer
+        // slot for each. So it only needs to refuse a parent type when the unresolvable
+        // conformance lacks a descriptor symbol (no way to look the witness table up).
+        // Property/Method/Subscript paths still use the strict predicate because their C#
+        // call site does not yet thread dynamic PWTs to the @_cdecl wrapper — relaxing
+        // them would create a Swift/C# slot-count mismatch that PAC-traps on arm64e.
+        // The matching slot counts on the Constructor path use
+        // <see cref="MetatypeHelperEmitter.GetTotalPwtParameterCount"/> and
+        // <see cref="MetatypeHelperEmitter.WouldExceedRegisterArgumentThresholdTotal"/>.
+        // Real well-known PWT-carrying protocols (_Concurrency.Actor / Swift.Error) are
+        // rejected by IsProtocolAvailableForConstraint on the C# @_cdecl path, but the
+        // dlsym'd ...Ma symbol still expects PWT slots for them. The three signatures
+        // (Swift _pwtN, C# P/Invoke, Ma symbol) can only stay in lockstep by refusing to
+        // emit a wrapper for types that carry such a conformance. Pure stdlib markers
+        // (Sendable / Copyable / Escapable / SendableMetatype / BitwiseCopyable) carry no
+        // witness table, never appear in ...Ma signatures, and are skipped by both the
+        // gate predicate and the PWT counters; they do NOT trigger this refusal.
+        if (MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(parentTypeDecl, typeDatabase))
+            return true;
+
+        // Nested-in-generic-outer parents: the GSF render emits
+        // `Module.Outer.Inner<T, U>(...)`, but Swift wants `Module.Outer<T>.Inner<U>(...)`.
+        // Until the renderer can place generic args on the correct path segment, refuse
+        // these parents from both Constructor and Method/Property/Subscript dispatch.
+        if (HasGenericOuterAncestor(parentTypeDecl))
+            return true;
+
+        if (kind == GenericDispatchKind.Constructor)
+        {
+            if (MetatypeHelperEmitter.HasUnresolvableTypeConformancesWithoutDescriptor(parentTypeDecl, typeDatabase))
+                return true;
+            if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThresholdTotal(parentTypeDecl, typeDatabase))
+                return true;
+            return false;
+        }
+
         if (MetatypeHelperEmitter.HasUnresolvableTypeConformances(parentTypeDecl, typeDatabase))
             return true;
         if (MetatypeHelperEmitter.WouldExceedRegisterArgumentThreshold(parentTypeDecl, typeDatabase))
             return true;
+        return false;
+    }
+
+    // True when any ancestor type in the ParentDecl chain is generic. Used to refuse the
+    // GSF render path for nested types whose outer is generic — the dotted construction
+    // expression places generic args on the wrong segment.
+    internal static bool HasGenericOuterAncestor(TypeDecl parentTypeDecl)
+    {
+        var ancestor = parentTypeDecl.ParentDecl;
+        while (ancestor is TypeDecl outerType)
+        {
+            if (outerType.IsGeneric)
+                return true;
+            ancestor = outerType.ParentDecl;
+        }
         return false;
     }
 
@@ -346,6 +405,12 @@ internal static class GenericDispatchEmitter
                     //    struct. Covers the AppIntents 0.12 StringInterpolation pattern.
                     //    Renderer emits `Outer<T>.Inner` via InnerType; `T` is in scope
                     //    inside the static-factory extension.
+                    //  - Bound-generic-of-parent (`Box<T>` where T is parent generic). The
+                    //    static-factory extension renders the type via
+                    //    `RenderSwiftTypeSpecWithSugaredNames` + the same
+                    //    `assumingMemoryBound(to: <Box<T>>.self).pointee` reconstruction
+                    //    that bare T uses. Covers the AppIntents 0.12 site #4 shape
+                    //    `IntentParameterSummary<Intent>.init(_: ParameterSummaryString<Intent>, …)`.
                     //
                     // Dictionary<K,T>/Set<T> render the same way, but end-to-end runtime
                     // round-trip for them hasn't been validated — keep the gate narrowed to
@@ -359,6 +424,8 @@ internal static class GenericDispatchEmitter
                         if (IsKeyPathFamilyOfParentGeneric(arg.SwiftTypeSpec, genericParamNames))
                             continue;
                         if (IsNestedTypeOfParentGeneric(arg.SwiftTypeSpec, genericParamNames, parentTypeDecl))
+                            continue;
+                        if (IsBareOrSimplyParameterizedNamedTypeSpec(arg.SwiftTypeSpec, genericParamNames))
                             continue;
                         return false;
                     }
@@ -488,22 +555,15 @@ internal static class GenericDispatchEmitter
 
     /// <summary>
     /// Returns true when <paramref name="spec"/> is a single-level nested type whose outer
-    /// segment names the parent host itself, parameterised purely on parent generic params,
-    /// e.g. <c>NestedHostStruct&lt;TElement&gt;.Caption</c> as a param to
-    /// <c>NestedHostStruct&lt;TElement&gt;.init</c>. Covers AppIntents 0.12 sites where the
-    /// init's declarative param is a <c>StringInterpolation</c>-style nested struct on the
-    /// SAME generic host (e.g. <c>EnumURLRepresentation&lt;TEnum&gt;.StringInterpolation</c>
-    /// as a param to <c>EnumURLRepresentation&lt;TEnum&gt;.init</c>).
-    ///
-    /// The "outer name == parent name" identity check is load-bearing. Cross-host shapes
-    /// where the param's outer segment is a foreign generic type (still parameterised on
-    /// parent generics, e.g. <c>ForeignOuter&lt;T&gt;.Inner</c> as a param to
-    /// <c>UnrelatedHost&lt;T&gt;.init</c>) compile via the same renderer + extension scope,
-    /// but the Swift value witness for the cross-host inner type does not survive the
-    /// existential-erased dispatch: construction looks correct (the value reads back),
-    /// but the destroy witness faults on Dispose. Exercised + observed crashing by the
-    /// <c>NestedOfParentTests.TestCrossHostStruct_*</c> + <c>TestCrossHostClass_*</c>
-    /// fixtures (marked <c>[Skip]</c> and tied to a follow-on session).
+    /// segment is a NamedTypeSpec parameterised purely on parent generic params, e.g.
+    /// <c>NestedHostStruct&lt;TElement&gt;.Caption</c> (same-host) or
+    /// <c>CrossHostOuter&lt;T&gt;.Body</c> (cross-host) — both as a param to
+    /// <c>SomeHost&lt;T&gt;.init</c>. Covers AppIntents 0.12 sites where the init's
+    /// declarative param is a <c>StringInterpolation</c>-style nested struct on either
+    /// the SAME generic host (<c>EnumURLRepresentation&lt;TEnum&gt;.StringInterpolation</c>
+    /// as a param to <c>EnumURLRepresentation&lt;TEnum&gt;.init</c>) OR a FOREIGN generic
+    /// host with shared parent generic params (<c>EnumSingleURLRepresentation.init(
+    /// stringInterpolation: EnumURLRepresentation&lt;TEnum&gt;.StringInterpolation)</c>).
     ///
     /// Inner is assumed to be a value-type struct (the AppIntents <c>StringInterpolation</c>
     /// shape); the default <c>assumingMemoryBound(to: ...).pointee</c> reconstruction in
@@ -528,30 +588,36 @@ internal static class GenericDispatchEmitter
             return false;
         if (named.InnerType.GenericParameters.Count > 0)
             return false;
-        // Outer must be the parent host itself. Cross-host nested-of-parent shapes
-        // (param outer != parent) compile but the destroy witness faults at runtime —
-        // see the docstring above and the [Skip]ed BindingTests fixtures.
+        // Cross-host shape (outer != parent) faults at host VWT.destroy on Dispose: the
+        // foreign outer's value-witness table does not flow through `any _SBW_GSF_X.Type`
+        // existential dispatch, so the destroy walks a layout that does not match the
+        // initialized storage. Same-host resolves the nested-type's metadata through
+        // Self's metadata directly (member-of-Self path) and works correctly. Doc 14
+        // hypothesis 1 (Option B reconstruction) did not change runtime behavior;
+        // hypothesis 3 keeps cross-host on direct CallConvSwift (SB0001) until the
+        // GSF existential dispatch can carry the foreign outer's witness table.
         if (!OuterMatchesParent(named, parentTypeDecl))
             return false;
         return true;
     }
 
-    private static bool OuterMatchesParent(NamedTypeSpec named, TypeDecl parentTypeDecl)
+    /// <summary>
+    /// True when <paramref name="named"/>'s outer name matches
+    /// <paramref name="parentTypeDecl"/>. Distinguishes same-host nested-of-parent
+    /// (outer == host, admitted) from cross-host (outer != host, rejected — see
+    /// IsNestedTypeOfParentGeneric for the runtime-fault reasoning).
+    /// </summary>
+    internal static bool OuterMatchesParent(NamedTypeSpec named, TypeDecl parentTypeDecl)
     {
-        // ABI parser may emit the outer with a module-qualified name
-        // ("SwiftBindingsTestLib.NestedHostStruct") or unqualified ("NestedHostStruct").
-        // Use module-qualified comparison when the outer is qualified — short-name
-        // matching alone admits cross-module collisions
-        // ("OtherModule.NestedHostStruct" vs parent "ThisModule.NestedHostStruct"),
-        // which is still a cross-host shape and triggers the destroy-witness fault.
-        var parentShort = parentTypeDecl.Name;
-        var lastDot = named.Name.LastIndexOf('.');
-        if (lastDot < 0)
-            return named.Name == parentShort;
-        var parentModule = parentTypeDecl.ModuleDecl?.Name;
-        if (parentModule is null)
-            return false;
-        return named.Name == $"{parentModule}.{parentShort}";
+        var parentSimpleName = parentTypeDecl.SwiftTypeName.Name;
+        var parentQualifiedName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
+        // When the outer spec carries a module prefix, only the exact module-qualified
+        // name matches. Falling back to simple-name equality here would admit a cross-
+        // module sibling whose short name happens to collide with the parent — exactly
+        // the cross-host shape this gate is meant to reject.
+        if (named.Name.Contains('.'))
+            return named.Name == parentQualifiedName;
+        return named.NameWithoutModule == parentSimpleName;
     }
 
     /// <summary>

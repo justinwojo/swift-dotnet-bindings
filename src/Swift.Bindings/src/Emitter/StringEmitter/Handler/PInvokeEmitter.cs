@@ -807,6 +807,15 @@ namespace BindingsGeneration
                 ClosedStaticFactoryGate.IsClosedStaticFactoryAccessor(_env.MethodDecl))
                 return;
 
+            // GSF cdecl-constructor admits PAT/Self-requirement conformances with a captured
+            // descriptor symbol; their PWT slot is materialized at the call site via
+            // {HelperClass}.Get{Proto}PWT(metadata). The corresponding @_cdecl wrapper
+            // declares one UnsafeRawPointer _pwtN slot per such conformance (see
+            // MetatypeHelperEmitter.GetTotalPwtParameterCount). Other paths (method,
+            // property, subscript) still use the strict gate because their C# call site
+            // does not yet thread dynamic PWTs.
+            bool admitDynamicPwt = UsesCdeclConstructorOnGenericParent(_env);
+
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
                 var conformances = genericParameter.GenericConformances.OrderBy(c => c.ConformanceTarget.ModuleQualifiedName);
@@ -816,7 +825,10 @@ namespace BindingsGeneration
                     // (protocols with associated types generate generic interfaces which can't be used here)
                     // This must match the check in EmitProtocolWitnessTables to avoid generating
                     // PInvoke signatures with parameters that have no corresponding variables.
-                    if (!IsProtocolAvailableForConstraint(conformance.ConformanceTarget, _env.TypeDatabase))
+                    bool admit = IsProtocolAvailableForConstraint(conformance.ConformanceTarget, _env.TypeDatabase);
+                    if (!admit && admitDynamicPwt && HasResolvableDynamicDescriptor(conformance.ConformanceTarget, _env.TypeDatabase))
+                        admit = true;
+                    if (!admit)
                         continue;
 
                     var pwtName = NameProvider.GetProtocolWitnessTableName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter, conformance.ConformanceTarget.Name);
@@ -826,6 +838,39 @@ namespace BindingsGeneration
                     AddParameter("IntPtr", pwtName);
                 }
             }
+        }
+
+        /// <summary>
+        /// True when the surrounding method is a @_cdecl-wrapped constructor on a generic
+        /// parent type — the GSF cdecl-ctor path that threads dynamic PWTs through the
+        /// {HelperClass}.Get{Proto}PWT(metadata) runtime helper.
+        /// </summary>
+        internal static bool UsesCdeclConstructorOnGenericParent(MethodEnvironment env) =>
+            env.MethodDecl.UsesCdeclWrapper &&
+            env.MethodDecl.IsConstructor &&
+            env.ParentDecl is TypeDecl { IsGeneric: true };
+
+        /// <summary>
+        /// True when the protocol is a PAT / Self-requirement protocol whose
+        /// protocol-descriptor symbol the parser captured. Such conformances are
+        /// resolvable at runtime via the dynamic-PWT path
+        /// (<c>SwiftConformance.GetWitnessTableOrThrow</c>) — the C# call site materializes
+        /// the witness table by calling <c>{HelperClass}.Get{Proto}PWT(metadata)</c> and
+        /// passing <c>.Handle</c> to the @_cdecl wrapper. Mirrors the descriptor-only
+        /// branch of <see cref="PInvokeHelperContext.CreateIfGeneric"/>.
+        /// </summary>
+        internal static bool HasResolvableDynamicDescriptor(SwiftTypeName protocolTypeName, ITypeDatabase typeDatabase)
+        {
+            if (!typeDatabase.TryGetTypeRecord(protocolTypeName, out var record))
+                return false;
+            if (record.Kind != TypeRecordKind.Protocol)
+                return false;
+            bool unresolvable =
+                record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes) ||
+                record.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement);
+            if (!unresolvable)
+                return false;
+            return !string.IsNullOrEmpty(record.ProtocolDescriptorSymbol);
         }
 
         /// <summary>

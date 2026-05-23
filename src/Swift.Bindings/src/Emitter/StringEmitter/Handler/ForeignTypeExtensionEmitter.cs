@@ -23,12 +23,25 @@ public static class ForeignTypeExtensionEmitter
     /// Processes foreign type extensions: applies gates, generates Swift wrappers,
     /// and collects C# extension class info for later emission.
     /// </summary>
+    /// <param name="availabilityAnnotations">
+    /// Optional swiftinterface-derived map of fully-qualified member keys to
+    /// availability annotations. The walker keys extension members as
+    /// <c>{strippedExtendedType}.{printedName}</c> where the leading module
+    /// dot-component of the extended type is dropped (e.g.,
+    /// <c>extension CoreLocation.CLPlacemark</c> → key prefix <c>CLPlacemark</c>).
+    /// We mirror that exactly so the emitted <c>@_silgen_name</c> wrapper
+    /// carries the same <c>@available</c> floor the source declared (and the
+    /// extension scope inherited). Without this, wrappers referencing iOS-N
+    /// foreign-extension members fail to compile on device SDKs with
+    /// stricter availability checking.
+    /// </param>
     public static void ProcessForeignTypeExtensions(
         ModuleDecl moduleDecl,
         Dictionary<string, List<ProtocolExtensionMethodDecl>> foreignExtensions,
         ITypeDatabase typeDatabase,
         ILogger logger,
-        ModuleEmissionContext? ctx = null)
+        ModuleEmissionContext? ctx = null,
+        IReadOnlyDictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations = null)
     {
         ctx ??= ModuleEmissionContext.Default;
         if (foreignExtensions.Count == 0)
@@ -50,9 +63,17 @@ public static class ForeignTypeExtensionEmitter
                 ctx.AddForeignExtNeededImport(foreignTypeQualifiedName.Substring(0, dotIdx));
             }
 
+            // Strip the leading module dot to match the AvailabilityWalker scope key.
+            var availabilityTypeKey = dotIdx > 0
+                ? foreignTypeQualifiedName.Substring(dotIdx + 1)
+                : foreignTypeQualifiedName;
+
             foreach (var extMethod in members)
             {
-                TryProcessMember(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx);
+                var memberAvailability = LookupMemberAvailability(
+                    availabilityAnnotations, availabilityTypeKey, extMethod);
+                TryProcessMember(moduleDecl, foreignTypeQualifiedName, extMethod,
+                    typeDatabase, logger, ctx, memberAvailability);
             }
         }
 
@@ -112,7 +133,8 @@ public static class ForeignTypeExtensionEmitter
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
         ILogger logger,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         // Gate: skip constrained extensions
         if (extMethod.WhereConstraints.Count > 0)
@@ -136,11 +158,98 @@ public static class ForeignTypeExtensionEmitter
 
         if (extMethod.IsProperty)
         {
-            TryProcessProperty(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx);
+            TryProcessProperty(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx, availabilityAnnotations);
         }
         else
         {
-            TryProcessMethod(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx);
+            TryProcessMethod(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx, availabilityAnnotations);
+        }
+    }
+
+    /// <summary>
+    /// Looks up the availability annotations the swiftinterface walker stored for
+    /// this extension member. The walker keys members under
+    /// <c>{strippedExtendedType}.{printedName}</c> (with the leading module dot
+    /// dropped on the extended type) and includes any enclosing extension-scope
+    /// <c>@available</c> floor. For overloaded methods the walker also stores a
+    /// disambiguated <c>{bareKey}|{paramSig}</c> entry; we try that first when a
+    /// method signature is available so each overload sees its own floor.
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation>? LookupMemberAvailability(
+        IReadOnlyDictionary<string, List<AvailabilityAnnotation>>? availabilityAnnotations,
+        string strippedExtendedType,
+        ProtocolExtensionMethodDecl extMethod)
+    {
+        if (availabilityAnnotations is null || availabilityAnnotations.Count == 0)
+            return null;
+
+        var bareKey = $"{strippedExtendedType}.{extMethod.PrintedName}";
+        if (!extMethod.IsProperty)
+        {
+            var paramSig = TryComputeMethodParamSig(extMethod);
+            if (!string.IsNullOrEmpty(paramSig))
+            {
+                var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, paramSig);
+                if (availabilityAnnotations.TryGetValue(disambKey, out var disambAnnotations))
+                    return disambAnnotations;
+            }
+        }
+        return availabilityAnnotations.TryGetValue(bareKey, out var annotations) ? annotations : null;
+    }
+
+    /// <summary>
+    /// Computes the normalized parameter signature for an extension method by
+    /// scraping the source-text parameter list out of the raw signature. Mirrors
+    /// the swiftinterface walker's <c>buildParamSignature</c> (which feeds the
+    /// same key the consumer composes). Returns the empty string for zero-param
+    /// methods so the caller falls back to the bare-key lookup unchanged.
+    /// </summary>
+    private static string TryComputeMethodParamSig(ProtocolExtensionMethodDecl extMethod)
+    {
+        var sig = extMethod.RawSignature;
+        var openIdx = sig.IndexOf('(');
+        if (openIdx < 0) return string.Empty;
+        var closeIdx = FindMatchingParen(sig, openIdx);
+        if (closeIdx < 0) return string.Empty;
+        var inside = sig.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+        if (string.IsNullOrEmpty(inside)) return string.Empty;
+        return MemberSignatureNormalizer.BuildSignature(
+            MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(inside));
+    }
+
+    private static int FindMatchingParen(string s, int openIdx)
+    {
+        int depth = 0;
+        for (int i = openIdx; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (c == '(') depth++;
+            else if (c == ')')
+            {
+                depth--;
+                if (depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Appends per-platform <c>@available(Platform Version, *)</c> lines to the
+    /// foreign-extension Swift wrapper buffer. Uses the same per-platform-max
+    /// collapse <see cref="WrapperEmitterHelpers.CollectStrictestAvailabilityKeys"/>
+    /// applies elsewhere, so stacked extension-scope + decl-local floors emit one
+    /// line per platform with the tightest version. No-op when there are no
+    /// annotations.
+    /// </summary>
+    private static void EmitForeignExtAvailabilityLines(
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations is null || annotations.Count == 0)
+            return;
+        foreach (var key in WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(annotations))
+        {
+            ctx.AddForeignExtWrapperLine($"@available({key}, *)");
         }
     }
 
@@ -153,7 +262,8 @@ public static class ForeignTypeExtensionEmitter
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
         ILogger logger,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         // Parse property type from raw signature: "public var name: Type { get [set] }"
         var colonIdx = extMethod.RawSignature.IndexOf($"{extMethod.MethodName}:", StringComparison.Ordinal);
@@ -213,7 +323,7 @@ public static class ForeignTypeExtensionEmitter
             return;
 
         // Emit Swift getter wrapper
-        EmitSwiftPropertyGetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, getterSymbol, returnCategory.Value, ctx);
+        EmitSwiftPropertyGetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, getterSymbol, returnCategory.Value, ctx, availabilityAnnotations);
 
         // Collect C# getter info
         var csharpMethodName = $"Get{ToPascalCase(extMethod.MethodName)}";
@@ -245,7 +355,7 @@ public static class ForeignTypeExtensionEmitter
                 if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, setterSourceKey, setterSymbol))
                     return;
 
-                EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx);
+                EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, ctx, availabilityAnnotations);
 
                 classInfo.Members.Add(new ForeignExtensionMemberInfo
                 {
@@ -272,7 +382,8 @@ public static class ForeignTypeExtensionEmitter
         ProtocolExtensionMethodDecl extMethod,
         ITypeDatabase typeDatabase,
         ILogger logger,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         // Gate: skip generic methods
         if (extMethod.RawSignature.Contains($"func {extMethod.MethodName}<"))
@@ -347,7 +458,7 @@ public static class ForeignTypeExtensionEmitter
 
         // Emit Swift wrapper
         EmitSwiftMethodWrapper(foreignTypeQualifiedName, extMethod, allParameters, compatibleParams,
-            returnTypeSpec, symbolName, returnCategory, ctx);
+            returnTypeSpec, symbolName, returnCategory, ctx, availabilityAnnotations);
 
         // Collect C# info
         var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name, ctx);
@@ -375,7 +486,8 @@ public static class ForeignTypeExtensionEmitter
         TypeSpec propertyTypeSpec,
         string symbolName,
         ReturnKind returnCategory,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         string swiftReturnType;
         bool wrapAsOpaque;
@@ -407,6 +519,7 @@ public static class ForeignTypeExtensionEmitter
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
         ctx.AddForeignExtWrapperLine("");
+        EmitForeignExtAvailabilityLines(ctx, availabilityAnnotations);
         ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated)
         {
@@ -444,11 +557,13 @@ public static class ForeignTypeExtensionEmitter
         TypeSpec propertyTypeSpec,
         string symbolName,
         string swiftTypeName,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(propertyTypeSpec);
 
         ctx.AddForeignExtWrapperLine("");
+        EmitForeignExtAvailabilityLines(ctx, availabilityAnnotations);
         ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated)
         {
@@ -472,7 +587,8 @@ public static class ForeignTypeExtensionEmitter
         TypeSpec? returnTypeSpec,
         string symbolName,
         ReturnKind returnCategory,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null)
     {
         // Build Swift parameter list for wrapper
         var swiftParams = new List<string>();
@@ -520,6 +636,7 @@ public static class ForeignTypeExtensionEmitter
         var returnArrow = string.IsNullOrEmpty(swiftReturnType) ? "" : $" -> {swiftReturnType}";
 
         ctx.AddForeignExtWrapperLine("");
+        EmitForeignExtAvailabilityLines(ctx, availabilityAnnotations);
         ctx.AddForeignExtWrapperLine($"@_silgen_name(\"{symbolName}\")");
         if (extMethod.IsMainActorIsolated)
         {

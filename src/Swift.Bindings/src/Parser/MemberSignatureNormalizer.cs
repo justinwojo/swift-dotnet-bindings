@@ -86,6 +86,17 @@ internal static class MemberSignatureNormalizer
         if (equalsIdx > 0)
             s = s.Substring(0, equalsIdx).TrimEnd();
 
+        // Strip trailing variadic ellipsis (`Foo...`, `[Foo]...`). ABI JSON's param
+        // `printedName` includes the trailing `...` for variadic parameters, but the
+        // swiftinterface producer's `param.type.trimmedDescription` excludes it (the
+        // ellipsis is a separate token on FunctionParameterSyntax, not part of the
+        // TypeSyntax). Stripping here brings both sides into parity so overloads
+        // differing only in variadic-vs-array-of-variadic (e.g. AppShortcutsBuilder
+        // `buildBlock(AppShortcut...)` vs `buildBlock([AppShortcut]...)`) compose
+        // the same disamb key on producer and consumer.
+        if (s.EndsWith("...", StringComparison.Ordinal))
+            s = s.Substring(0, s.Length - 3).TrimEnd();
+
         // Strip trailing optionality markers (`Int?`, `Int!`). Done before the
         // generic split so `Array<Int>?` reduces to `Array<Int>` and recurses.
         while (s.Length > 0 && (s[s.Length - 1] == '?' || s[s.Length - 1] == '!'))

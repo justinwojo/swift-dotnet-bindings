@@ -987,12 +987,14 @@ public class MethodWrapperEmitterTests
     }
 
     [Fact]
-    public void ShouldEmitWrapper_VariadicParameter_ReturnsFalse()
+    public void ShouldEmitWrapper_VariadicSupportedShape_ReturnsTrue()
     {
-        // Swift variadic params (T...) appear as Array<T> in ABI JSON. The @_cdecl wrapper
-        // would pass [T] where T... is expected, causing compilation error:
-        // "cannot pass array of type '[String]' as variadic arguments of type 'String'"
-        // E.g., SwiftyBeaver.FunctionFilterFactory.startsWith(_ prefixes: String..., ...)
+        // Variadic params (T...) appear as Array<T> in ABI JSON. The supported shape
+        // (static, non-generic parent, no method generics, no throws/async, no closures,
+        // exactly one Array<T>-shaped param) routes through the unsafeBitCast bridge in
+        // MethodWrapperEmitter so the wrapper assigns the variadic Swift method to a
+        // function reference of type `(T...) -> R`, then bitCasts to `([T]) -> R`.
+        // Covers AppShortcutsBuilder.buildBlock and friends.
         var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
         typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
 
@@ -1048,7 +1050,116 @@ public class MethodWrapperEmitterTests
         };
 
         var env = new MethodEnvironment(method, typeDb);
+        Assert.True(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.True(MethodWrapperEmitter.IsSupportedVariadicShape(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_VariadicInstanceMethod_ReturnsFalse()
+    {
+        // Variadic on an instance (non-static) method falls outside the supported shape —
+        // the bitCast bridge only covers static methods on non-generic parents. Instance
+        // variadics still emit the [Obsolete(SB0001)] direct-CallConvSwift fallback so the
+        // wrapper isn't generated.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "appendAll",
+            MangledName = "$s10TestModule_appendAll",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.String") } },
+                    Name = "items",
+                    PrivateName = "items",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            HasVariadicParameter = true
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
         Assert.False(MethodWrapperEmitter.ShouldEmitWrapper(env));
+        Assert.False(MethodWrapperEmitter.IsSupportedVariadicShape(env));
+    }
+
+    [Fact]
+    public void ShouldEmitWrapper_VariadicThrowingMethod_ReturnsFalse()
+    {
+        // Throwing variadic falls outside the supported shape — the bitCast bridge can't
+        // round-trip the throws-aware function type cleanly. The fallback path still emits
+        // the [Obsolete(SB0001)] direct-CallConvSwift declaration.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+
+        var method = new MethodDecl
+        {
+            Name = "tryAll",
+            MangledName = "$s10TestModule_tryAll",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = TupleTypeSpec.Empty,
+                    Name = "",
+                    PrivateName = "",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                },
+                new ArgumentDecl
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array") { GenericParameters = { new NamedTypeSpec("Swift.String") } },
+                    Name = "items",
+                    PrivateName = "items",
+                    IsInOut = false,
+                    IsGeneric = false,
+                    ParentDecl = null,
+                    ModuleDecl = moduleDecl
+                }
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = true,
+            IsAsync = false,
+            Visibility = Visibility.Public,
+            HasVariadicParameter = true
+        };
+
+        var env = new MethodEnvironment(method, typeDb);
+        Assert.False(MethodWrapperEmitter.IsSupportedVariadicShape(env));
     }
 
     [Fact]
@@ -4360,6 +4471,258 @@ public class MethodWrapperEmitterTests
 
         Assert.Contains("let result: Optional<Array<N>>", output);
         Assert.Contains("initializeMemory(as: Optional<Array<N>>.self", output);
+    }
+
+    #endregion
+
+    #region StripArgLabel helper
+
+    [Theory]
+    [InlineData("value", "value")]
+    [InlineData("x: value", "value")]
+    [InlineData("from: source", "source")]
+    [InlineData("a: &local", "&local")]
+    [InlineData("name: adapter()", "adapter()")]
+    [InlineData("Label1: ptr", "ptr")]
+    [InlineData("_underscore: v", "v")]
+    [InlineData("", "")]
+    [InlineData(": missingLabel", ": missingLabel")]
+    [InlineData("1bad: leadingDigit", "1bad: leadingDigit")]
+    [InlineData("has-dash: v", "has-dash: v")]
+    [InlineData("x:   trimmed", "trimmed")]
+    public void StripArgLabel_RemovesLeadingIdentifierColonSpace(string input, string expected)
+    {
+        Assert.Equal(expected, MethodWrapperEmitter.StripArgLabel(input));
+    }
+
+    #endregion
+
+    #region HasReturnTypeOnlyOverloadSibling — generic parent gate
+
+    [Fact]
+    public void HasReturnTypeOnlyOverloadSibling_GenericParent_ReturnsFalse()
+    {
+        // The disambiguation `as` cast path only exists in the direct (non-static-dispatch)
+        // EmitSwiftMethodWrapper branch. Generic-host methods route through
+        // EmitGenericStaticDispatchMethod, which has no cast-call path. The predicate
+        // must refuse generic parents even when a same-name return-only sibling exists.
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var parent = new StructDecl
+        {
+            Name = "Builder",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Builder"),
+            MangledName = "$s10TestModule7BuilderVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+            },
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+
+        var paramTypeSpec = new NamedTypeSpec("Swift.Int");
+        ArgumentDecl MakeParam(string name) => new ArgumentDecl
+        {
+            Name = name, PrivateName = name, SwiftTypeSpec = paramTypeSpec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        ArgumentDecl MakeReturn(TypeSpec spec) => new ArgumentDecl
+        {
+            Name = "", PrivateName = "", SwiftTypeSpec = spec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+
+        var siblingA = new MethodDecl
+        {
+            Name = "buildExpression",
+            MangledName = "siblingA",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("TestModule.Item")), MakeParam("e") },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        };
+        var siblingB = new MethodDecl
+        {
+            Name = "buildExpression",
+            MangledName = "siblingB",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("Swift.Array")), MakeParam("e") },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        };
+        parent.Methods.Add(siblingA);
+        parent.Methods.Add(siblingB);
+
+        Assert.False(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingA, parent));
+        Assert.False(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingB, parent));
+    }
+
+    [Fact]
+    public void HasReturnTypeOnlyOverloadSibling_NonGenericParent_ReturnsTrue()
+    {
+        // Non-generic parent with two same-name same-param siblings whose only
+        // difference is the return type — the path the cast disambiguation was
+        // introduced for. Predicate should still fire.
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var parent = new StructDecl
+        {
+            Name = "Builder",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Builder"),
+            MangledName = "$s10TestModule7BuilderVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        var paramTypeSpec = new NamedTypeSpec("Swift.Int");
+        ArgumentDecl MakeParam(string name) => new ArgumentDecl
+        {
+            Name = name, PrivateName = name, SwiftTypeSpec = paramTypeSpec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        ArgumentDecl MakeReturn(TypeSpec spec) => new ArgumentDecl
+        {
+            Name = "", PrivateName = "", SwiftTypeSpec = spec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        var siblingA = new MethodDecl
+        {
+            Name = "buildExpression",
+            MangledName = "siblingA",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("TestModule.Item")), MakeParam("e") },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        };
+        var siblingB = new MethodDecl
+        {
+            Name = "buildExpression",
+            MangledName = "siblingB",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("Swift.Array")), MakeParam("e") },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        };
+        parent.Methods.Add(siblingA);
+        parent.Methods.Add(siblingB);
+
+        Assert.True(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingA, parent));
+    }
+
+    [Theory]
+    [InlineData(true, false)]   // throws-only
+    [InlineData(false, true)]   // async-only
+    [InlineData(true, true)]    // throws + async
+    public void HasReturnTypeOnlyOverloadSibling_EffectfulMethod_ReturnsFalse(bool throws, bool isAsync)
+    {
+        // BuildOverloadDisambiguationSignature emits `(P) -> R` — no `throws`, no `async`.
+        // Casting an effectful function to a non-effectful function type is a Swift
+        // compile error, and the throwing wrapper still wraps the call in `try`.
+        // The predicate must refuse effectful methods so the wrapper falls into the
+        // ambiguity-tolerant emission path.
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var parent = new StructDecl
+        {
+            Name = "Builder",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Builder"),
+            MangledName = "$s10TestModule7BuilderVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$sMa"
+        };
+        var paramTypeSpec = new NamedTypeSpec("Swift.Int");
+        ArgumentDecl MakeParam(string name) => new ArgumentDecl
+        {
+            Name = name, PrivateName = name, SwiftTypeSpec = paramTypeSpec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        ArgumentDecl MakeReturn(TypeSpec spec) => new ArgumentDecl
+        {
+            Name = "", PrivateName = "", SwiftTypeSpec = spec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        var siblingA = new MethodDecl
+        {
+            Name = "buildExpression",
+            MangledName = "siblingA",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("TestModule.Item")), MakeParam("e") },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = throws, IsAsync = isAsync, Visibility = Visibility.Public
+        };
+        var siblingB = new MethodDecl
+        {
+            Name = "buildExpression",
+            MangledName = "siblingB",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl> { MakeReturn(new NamedTypeSpec("Swift.Array")), MakeParam("e") },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = throws, IsAsync = isAsync, Visibility = Visibility.Public
+        };
+        parent.Methods.Add(siblingA);
+        parent.Methods.Add(siblingB);
+
+        Assert.False(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingA, parent));
+        Assert.False(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingB, parent));
     }
 
     #endregion

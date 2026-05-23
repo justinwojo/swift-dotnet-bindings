@@ -45,16 +45,20 @@ public class NestedOfParentTests : TestBase
         AssertEqual("label-A", label, "Tag label round-trips through GSF nested ctor");
     }
 
-    // Cross-host nested-of-parent (outer != host): the predicate now rejects this shape
-    // because the Swift value witness for the cross-host inner type faults on destroy
-    // when the static factory copies it through `initializeMemory(as: Self.self, …)`.
-    // Construction looks correct (the getter reads back the right string), but Dispose
-    // crashes in the destroy witness. Tracked in doc 13 as deferred site #1
-    // (`EnumSingleURLRepresentation(EnumURLRepresentation<TEnum>.StringInterpolation)`).
-    // Fixtures stay in-tree as durable regression markers: when site #1's runtime fix
-    // lands, drop the `[Skip]`, widen the predicate, and rebaseline.
+    // Cross-host nested-of-parent (outer != host): the GSF gate REJECTS this shape
+    // (predicate `OuterMatchesParent` in `GenericDispatchEmitter.IsNestedTypeOfParentGeneric`).
+    // Reason: the foreign outer's value-witness table does not flow through the
+    // `any _SBW_GSF_X.Type` existential dispatch, so the host's VWT.destroy walks a
+    // layout that does not match the initialized storage and SIGSEGVs in
+    // `RefCounts::doDecrementSlow` at SafeHandle.Dispose. Doc 14 hypothesis 1 (Option B
+    // reconstruction) was tried and did not change runtime behaviour; SIL emission for
+    // same-host vs cross-host is structurally identical, so the divergence is in
+    // runtime metadata resolution, not the emitted code. Doc 14 hypothesis 3 keeps
+    // cross-host on direct CallConvSwift (SB0001) — the fixtures remain in-tree as
+    // durable regression markers; when GSF can carry the foreign outer's witness
+    // table the `[Skip]` drops and these tests turn green.
 
-    [Skip("Cross-host nested-of-parent destroy-witness fault — deferred site #1 in doc 13")]
+    [Skip("Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer's VWT does not thread through `any _SBW_GSF_X.Type` existential dispatch.")]
     public void TestCrossHostStruct_AcceptsForeignOuterNested()
     {
         var payload = new CrossHostOuter<BoxKP>.Body("crosshost-struct");
@@ -63,7 +67,7 @@ public class NestedOfParentTests : TestBase
         AssertEqual("crosshost-struct", text, "Cross-host nested-of-parent (struct host) round-trips through GSF");
     }
 
-    [Skip("Cross-host nested-of-parent destroy-witness fault — deferred site #1 in doc 13")]
+    [Skip("Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer's VWT does not thread through `any _SBW_GSF_X.Type` existential dispatch.")]
     public void TestCrossHostClass_AcceptsForeignOuterNested()
     {
         var payload = new CrossHostOuter<BoxKP>.Body("crosshost-class");

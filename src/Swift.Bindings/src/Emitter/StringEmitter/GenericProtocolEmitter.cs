@@ -57,7 +57,7 @@ internal static class GenericProtocolEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLines($$"""
-            private protocol {{protocolName}}{{constraintClause}} {
+            {{extensionAvailPrefix}}private protocol {{protocolName}}{{constraintClause}} {
                 {{memberDeclaration}}
             }
             {{extensionAvailPrefix}}extension {{moduleQualifiedName}}: {{protocolName}} {}

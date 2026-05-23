@@ -534,12 +534,15 @@ public class ConditionalExtensionConstraintTests
     [InlineData("Swift.Copyable")]
     [InlineData("Swift.Escapable")]
     [InlineData("Swift.SendableMetatype")]
+    [InlineData("Swift.BitwiseCopyable")]
     [InlineData("_Concurrency.Actor")]
     public void IsProtocolAvailableForConstraint_WellKnownRuntimeProtocol_ReturnsFalse(string protocolName)
     {
         // The constraint must be silently dropped from where clauses and PWT extraction —
         // these protocols have no projected C# interface (ISendable etc. don't exist in
-        // generated bindings).
+        // generated bindings). Swift.BitwiseCopyable is a pure stdlib marker; it lives in
+        // IsStdlibMarkerProtocol but not IsWellKnownRuntimeProtocol, so the gate must
+        // dual-skip both lists to avoid emitting IBitwiseCopyable as a constraint.
         var typeDatabase = CreateTypeDatabase(
             (protocolName, TypeRecordKind.Protocol, TypeRecordFlags.None));
 
@@ -555,6 +558,7 @@ public class ConditionalExtensionConstraintTests
     [InlineData("Swift.Copyable")]
     [InlineData("Swift.Escapable")]
     [InlineData("Swift.SendableMetatype")]
+    [InlineData("Swift.BitwiseCopyable")]
     [InlineData("_Concurrency.Actor")]
     public void IsUnsupportedProtocolConstraint_WellKnownRuntimeProtocol_ReturnsFalse(string protocolName)
     {

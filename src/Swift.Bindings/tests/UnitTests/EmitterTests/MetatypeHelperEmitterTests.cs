@@ -433,6 +433,9 @@ public class MetatypeHelperEmitterTests
         public string? AsyncLibraryName => null;
 
         public SimpleProtocolDatabase WithProtocol(string moduleName, string protocolName, TypeRecordFlags flags)
+            => WithProtocol(moduleName, protocolName, flags, descriptorSymbol: null);
+
+        public SimpleProtocolDatabase WithProtocol(string moduleName, string protocolName, TypeRecordFlags flags, string? descriptorSymbol)
         {
             var swiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.{protocolName}");
             _types[swiftTypeName.ModuleQualifiedName] = new TypeRecord
@@ -442,7 +445,7 @@ public class MetatypeHelperEmitterTests
                 MetadataAccessor = "",
                 Flags = flags,
                 Kind = TypeRecordKind.Protocol,
-                ProtocolDescriptorSymbol = null
+                ProtocolDescriptorSymbol = descriptorSymbol
             };
             return this;
         }
@@ -479,5 +482,358 @@ public class MetatypeHelperEmitterTests
 
         Assert.Equal(name1, name2);
         Assert.Equal(output1.ToString(), output2.ToString());
+    }
+
+    // --- HasWellKnownRuntimeProtocolConformance: well-known PWT-carrying vs marker vs unknown ---
+
+    [Fact]
+    public void HasWellKnownRuntimeProtocolConformance_NonGenericParent_ReturnsFalse()
+    {
+        var typeDecl = CreateGenericTypeDecl("NonGeneric", "TestModule", "$s10TestModule10NonGenericCN", 0);
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", "Error", TypeRecordFlags.None);
+
+        Assert.False(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasWellKnownRuntimeProtocolConformance_ErrorConformance_ReturnsTrue()
+    {
+        // Swift.Error IS a well-known runtime protocol that carries a witness table —
+        // its slot appears in the …Ma metadata accessor signature, so the wrapper-helper
+        // path must gate-block constructors on parents that conform to it.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "ErrCarrier",
+            "TestModule",
+            "$s10TestModule10ErrCarrierCN",
+            new[] { ("Swift", "Error", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", "Error", TypeRecordFlags.None);
+
+        Assert.True(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasWellKnownRuntimeProtocolConformance_ActorConformance_ReturnsTrue()
+    {
+        // _Concurrency.Actor is the other well-known PWT-carrying protocol in the set.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "ActorHost",
+            "TestModule",
+            "$s10TestModule9ActorHostCN",
+            new[] { ("_Concurrency", "Actor", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("_Concurrency", "Actor", TypeRecordFlags.None);
+
+        Assert.True(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    [Theory]
+    [InlineData("Sendable")]
+    [InlineData("Copyable")]
+    [InlineData("Escapable")]
+    [InlineData("SendableMetatype")]
+    public void HasWellKnownRuntimeProtocolConformance_MarkerOnly_ReturnsFalse(string marker)
+    {
+        // Pure marker protocols carry no witness table and never appear in …Ma signatures,
+        // so a parent constrained only by markers must NOT gate-block constructor emission.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "MarkerOnly",
+            "TestModule",
+            "$s10TestModule10MarkerOnlyCN",
+            new[] { ("Swift", marker, TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", marker, TypeRecordFlags.None);
+
+        Assert.False(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasWellKnownRuntimeProtocolConformance_BitwiseCopyableMarker_ReturnsFalse()
+    {
+        // BitwiseCopyable is in the marker subset (IsStdlibMarkerProtocol) but NOT in
+        // IsWellKnownRuntimeProtocol — defensive coverage that the gate stays clean
+        // either way (the marker exclusion short-circuits before the well-known check).
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "BitwiseHost",
+            "TestModule",
+            "$s10TestModule11BitwiseHostCN",
+            new[] { ("Swift", "BitwiseCopyable", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", "BitwiseCopyable", TypeRecordFlags.None);
+
+        Assert.False(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasWellKnownRuntimeProtocolConformance_NormalProtocol_ReturnsFalse()
+    {
+        // A normal user-defined protocol is not well-known. The gate must not fire.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Holder",
+            "TestModule",
+            "$s10TestModule6HolderCN",
+            new[] { ("TestModule", "MyProto", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "MyProto", TypeRecordFlags.None);
+
+        Assert.False(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    [Fact]
+    public void HasWellKnownRuntimeProtocolConformance_MarkerAndError_StillReturnsTrue()
+    {
+        // Mixed conformance: the marker is skipped, but Swift.Error still trips the gate.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Mixed",
+            "TestModule",
+            "$s10TestModule5MixedCN",
+            new[]
+            {
+                ("Swift", "Sendable", TypeRecordFlags.None),
+                ("Swift", "Error",    TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", "Sendable", TypeRecordFlags.None)
+            .WithProtocol("Swift", "Error",    TypeRecordFlags.None);
+
+        Assert.True(MetatypeHelperEmitter.HasWellKnownRuntimeProtocolConformance(typeDecl, db));
+    }
+
+    // --- GetResolvablePwtParameterCount: well-known protocols are not counted ---
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_WellKnownProtocols_NotCounted()
+    {
+        // Sendable + Copyable + Error are all well-known runtime protocols. None of them
+        // contributes a resolvable PWT slot from the wrapper-helper path; the counter
+        // must return 0 even though three protocol conformances are present.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "AllWellKnown",
+            "TestModule",
+            "$s10TestModule12AllWellKnownCN",
+            new[]
+            {
+                ("Swift", "Sendable", TypeRecordFlags.None),
+                ("Swift", "Copyable", TypeRecordFlags.None),
+                ("Swift", "Error",    TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", "Sendable", TypeRecordFlags.None)
+            .WithProtocol("Swift", "Copyable", TypeRecordFlags.None)
+            .WithProtocol("Swift", "Error",    TypeRecordFlags.None);
+
+        Assert.Equal(0, MetatypeHelperEmitter.GetResolvablePwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_NormalProtocol_Counted()
+    {
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "OneProto",
+            "TestModule",
+            "$s10TestModule8OneProtoCN",
+            new[] { ("TestModule", "MyProto", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "MyProto", TypeRecordFlags.None);
+
+        Assert.Equal(1, MetatypeHelperEmitter.GetResolvablePwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_MixedWellKnownAndNormal_OnlyNormalCounted()
+    {
+        // Sendable (marker) and Error (PWT-carrying) are both well-known; only the
+        // user-defined protocol contributes to the resolvable PWT slot count.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Mixed",
+            "TestModule",
+            "$s10TestModule5MixedCN",
+            new[]
+            {
+                ("Swift",      "Sendable", TypeRecordFlags.None),
+                ("Swift",      "Error",    TypeRecordFlags.None),
+                ("TestModule", "MyProto",  TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift",      "Sendable", TypeRecordFlags.None)
+            .WithProtocol("Swift",      "Error",    TypeRecordFlags.None)
+            .WithProtocol("TestModule", "MyProto",  TypeRecordFlags.None);
+
+        Assert.Equal(1, MetatypeHelperEmitter.GetResolvablePwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetResolvablePwtParameterCount_PatOrSelfRequirement_NotCounted()
+    {
+        // PAT (HasAssociatedTypes) and Self-requirement protocols route through the
+        // dynamic-PWT path, not the resolvable static path. They must NOT be counted here.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "PatHost",
+            "TestModule",
+            "$s10TestModule7PatHostCN",
+            new[]
+            {
+                ("TestModule", "PatProto",  TypeRecordFlags.HasAssociatedTypes),
+                ("TestModule", "SelfProto", TypeRecordFlags.HasSelfRequirement),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "PatProto",  TypeRecordFlags.HasAssociatedTypes)
+            .WithProtocol("TestModule", "SelfProto", TypeRecordFlags.HasSelfRequirement);
+
+        Assert.Equal(0, MetatypeHelperEmitter.GetResolvablePwtParameterCount(typeDecl, db));
+    }
+
+    // --- GetTotalPwtParameterCount: ctor GSF path counter ---
+    //
+    // The total counter is used by the GSF cdecl-constructor path (ConstructorWrapperEmitter)
+    // and admits PAT / Self-requirement conformances that carry a ProtocolDescriptorSymbol
+    // (dynamic-PWT routing). It still skips well-known runtime protocols (Error / Actor)
+    // and pure stdlib markers, including BitwiseCopyable.
+
+    [Fact]
+    public void GetTotalPwtParameterCount_WellKnownProtocols_NotCounted()
+    {
+        // Error is gate-blocked on the C# side and contributes no slot to the @_cdecl
+        // signature; Sendable / Copyable are markers with no PWT. Total must be 0.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "AllWellKnown",
+            "TestModule",
+            "$s10TestModule12AllWellKnownCN",
+            new[]
+            {
+                ("Swift",         "Sendable", TypeRecordFlags.None),
+                ("Swift",         "Copyable", TypeRecordFlags.None),
+                ("Swift",         "Error",    TypeRecordFlags.None),
+                ("_Concurrency",  "Actor",    TypeRecordFlags.None),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift",         "Sendable", TypeRecordFlags.None)
+            .WithProtocol("Swift",         "Copyable", TypeRecordFlags.None)
+            .WithProtocol("Swift",         "Error",    TypeRecordFlags.None)
+            .WithProtocol("_Concurrency",  "Actor",    TypeRecordFlags.None);
+
+        Assert.Equal(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(typeDecl, db));
+    }
+
+    [Theory]
+    [InlineData("Sendable")]
+    [InlineData("Copyable")]
+    [InlineData("Escapable")]
+    [InlineData("SendableMetatype")]
+    [InlineData("BitwiseCopyable")]
+    public void GetTotalPwtParameterCount_StdlibMarkers_NotCounted(string markerName)
+    {
+        // Pure marker protocols carry no witness table and never appear in @_cdecl
+        // wrapper signatures. They must be skipped — including BitwiseCopyable, which
+        // is NOT in IsWellKnownRuntimeProtocol but IS in IsStdlibMarkerProtocol.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "MarkerOnly",
+            "TestModule",
+            "$s10TestModule10MarkerOnlyCN",
+            new[] { ("Swift", markerName, TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift", markerName, TypeRecordFlags.None);
+
+        Assert.Equal(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetTotalPwtParameterCount_NormalProtocol_Counted()
+    {
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "OneProto",
+            "TestModule",
+            "$s10TestModule8OneProtoCN",
+            new[] { ("TestModule", "MyProto", TypeRecordFlags.None) });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "MyProto", TypeRecordFlags.None);
+
+        Assert.Equal(1, MetatypeHelperEmitter.GetTotalPwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetTotalPwtParameterCount_PatOrSelfRequirementWithDescriptor_Counted()
+    {
+        // Unlike GetResolvablePwtParameterCount, the total counter ADMITS PAT/Self
+        // conformances when a ProtocolDescriptorSymbol was captured — they route through
+        // the dynamic-PWT path on the GSF ctor and contribute a real slot to the @_cdecl
+        // signature and the _sbw_meta_X helper.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "PatHost",
+            "TestModule",
+            "$s10TestModule7PatHostCN",
+            new[]
+            {
+                ("TestModule", "PatProto",  TypeRecordFlags.HasAssociatedTypes),
+                ("TestModule", "SelfProto", TypeRecordFlags.HasSelfRequirement),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "PatProto",  TypeRecordFlags.HasAssociatedTypes, "$s10TestModule8PatProtoMp")
+            .WithProtocol("TestModule", "SelfProto", TypeRecordFlags.HasSelfRequirement, "$s10TestModule9SelfProtoMp");
+
+        Assert.Equal(2, MetatypeHelperEmitter.GetTotalPwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetTotalPwtParameterCount_PatOrSelfRequirementWithoutDescriptor_NotCounted()
+    {
+        // Without a captured ProtocolDescriptorSymbol, the dynamic-PWT path has no way
+        // to materialize the witness table at runtime. These conformances do NOT
+        // contribute a slot to the @_cdecl wrapper, so the counter must skip them.
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "PatHost",
+            "TestModule",
+            "$s10TestModule7PatHostCN",
+            new[]
+            {
+                ("TestModule", "PatProto",  TypeRecordFlags.HasAssociatedTypes),
+                ("TestModule", "SelfProto", TypeRecordFlags.HasSelfRequirement),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("TestModule", "PatProto",  TypeRecordFlags.HasAssociatedTypes)
+            .WithProtocol("TestModule", "SelfProto", TypeRecordFlags.HasSelfRequirement);
+
+        Assert.Equal(0, MetatypeHelperEmitter.GetTotalPwtParameterCount(typeDecl, db));
+    }
+
+    [Fact]
+    public void GetTotalPwtParameterCount_MixedWellKnownMarkersAndNormal_OnlyNonSkippedCounted()
+    {
+        // Mix of every kind: a real normal protocol, a PAT conformance WITH a captured
+        // descriptor symbol (counted on total via dynamic-PWT routing), every pure marker
+        // including BitwiseCopyable (skipped — no PWT, never in Ma signatures), and the
+        // PWT-carrying well-known protocols Error/Actor (skipped because the C# side
+        // gate-blocks them via IsProtocolAvailableForConstraint, so counting them on the
+        // Swift wrapper would over-declare _pwtN against the C# P/Invoke decl).
+        var typeDecl = CreateGenericTypeDeclWithConformances(
+            "Mixed",
+            "TestModule",
+            "$s10TestModule5MixedCN",
+            new[]
+            {
+                ("Swift",         "Sendable",        TypeRecordFlags.None),
+                ("Swift",         "Copyable",        TypeRecordFlags.None),
+                ("Swift",         "Escapable",       TypeRecordFlags.None),
+                ("Swift",         "SendableMetatype",TypeRecordFlags.None),
+                ("Swift",         "BitwiseCopyable", TypeRecordFlags.None),
+                ("Swift",         "Error",           TypeRecordFlags.None),
+                ("_Concurrency",  "Actor",           TypeRecordFlags.None),
+                ("TestModule",    "MyProto",         TypeRecordFlags.None),
+                ("TestModule",    "PatProto",        TypeRecordFlags.HasAssociatedTypes),
+            });
+        var db = new SimpleProtocolDatabase()
+            .WithProtocol("Swift",         "Sendable",        TypeRecordFlags.None)
+            .WithProtocol("Swift",         "Copyable",        TypeRecordFlags.None)
+            .WithProtocol("Swift",         "Escapable",       TypeRecordFlags.None)
+            .WithProtocol("Swift",         "SendableMetatype",TypeRecordFlags.None)
+            .WithProtocol("Swift",         "BitwiseCopyable", TypeRecordFlags.None)
+            .WithProtocol("Swift",         "Error",           TypeRecordFlags.None)
+            .WithProtocol("_Concurrency",  "Actor",           TypeRecordFlags.None)
+            .WithProtocol("TestModule",    "MyProto",         TypeRecordFlags.None)
+            .WithProtocol("TestModule",    "PatProto",        TypeRecordFlags.HasAssociatedTypes, "$s10TestModule8PatProtoMp");
+
+        // MyProto (normal) + PatProto (dynamic-PWT, has descriptor) = 2.
+        Assert.Equal(2, MetatypeHelperEmitter.GetTotalPwtParameterCount(typeDecl, db));
     }
 }
