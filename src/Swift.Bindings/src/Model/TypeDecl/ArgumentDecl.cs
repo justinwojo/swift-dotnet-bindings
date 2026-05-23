@@ -1,4 +1,5 @@
 // Copyright (c) Microsoft Corporation.
+// Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
 namespace BindingsGeneration
@@ -46,5 +47,16 @@ namespace BindingsGeneration
         /// When set, NameProvider.GetCSharpParameterName() returns this value.
         /// </summary>
         public string? CSharpName { get; set; }
+
+        /// <summary>
+        /// Subscript-only: true when the Swift source had no external argument label at this
+        /// position (i.e. the declaration used <c>subscript(name: T)</c> or <c>subscript(_ name: T)</c>).
+        /// Set by the ABI parser at the synthetic <c>index{i}</c> injection points. Emitters use
+        /// this flag — not a pattern match on <see cref="BaseDecl.Name"/> — to decide whether to
+        /// emit <c>_</c> vs the real label, since a real external label could literally be
+        /// <c>index0</c>/<c>index1</c>/... and would otherwise collide with the synthetic sentinel.
+        /// Always false for non-subscript parameters.
+        /// </summary>
+        public bool IsUnlabeledSubscriptIndex { get; set; } = false;
     }
 }

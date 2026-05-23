@@ -6,6 +6,16 @@ This doc covers longer-term themes, blocked items, and lower-priority ideas. Liv
 
 ---
 
+## Active / In-Flight Work
+
+Specific in-flight workstreams with dedicated docs. Roadmap-categorical items below are *patterns*, not active plans; the docs linked here are the actual plans.
+
+| Workstream | Doc |
+|---|---|
+| KeyPath subsystem | [`keypath-subsystem/`](keypath-subsystem/) |
+
+---
+
 ## Medium Priority
 
 | Item | Notes |

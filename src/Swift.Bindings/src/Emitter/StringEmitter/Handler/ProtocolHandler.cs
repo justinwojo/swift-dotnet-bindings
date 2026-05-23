@@ -815,8 +815,44 @@ namespace BindingsGeneration
             }
             else
             {
-                csWriter.WriteLine($"{csharpTypeName} {propertyName} {accessors}");
+                // When a child protocol refines an inherited get-only requirement into
+                // get+set (or otherwise redeclares an inherited member with the same C#
+                // name), C# requires the `new` keyword to suppress CS0108 "hides
+                // inherited member". The sibling-property dispatch fan-out already routes
+                // through the child's body via Swift cross-extension witness resolution;
+                // this just gates the C# interface declaration so it compiles.
+                var newModifier = ChildRefinesInheritedProperty(propertyDecl, protocolContext) ? "new " : "";
+                csWriter.WriteLine($"{newModifier}{csharpTypeName} {propertyName} {accessors}");
             }
+        }
+
+        /// <summary>
+        /// True when this property name shadows a same-named property declared on any
+        /// inherited (parent) protocol. Used to add the C# <c>new</c> modifier so
+        /// <c>CS0108: hides inherited member</c> doesn't fail compilation. Walks one
+        /// level of <see cref="ProtocolDecl.InheritedProtocols"/> by name — the
+        /// inherited protocol's full transitive set is irrelevant for shadowing.
+        /// </summary>
+        private static bool ChildRefinesInheritedProperty(PropertyDecl propertyDecl, ProtocolDecl? protocolContext)
+        {
+            if (protocolContext is null || protocolContext.InheritedProtocols.Count == 0)
+                return false;
+            var moduleDecl = protocolContext.ModuleDecl;
+            if (moduleDecl is null)
+                return false;
+            // Inherited protocol names are module-qualified; compare against unqualified short names.
+            var candidateNames = protocolContext.InheritedProtocols
+                .Select(t => t.NameWithoutModule)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToHashSet(StringComparer.Ordinal);
+            foreach (var parent in moduleDecl.Protocols)
+            {
+                if (!candidateNames.Contains(parent.Name))
+                    continue;
+                if (parent.Properties.Any(p => string.Equals(p.Name, propertyDecl.Name, StringComparison.Ordinal)))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

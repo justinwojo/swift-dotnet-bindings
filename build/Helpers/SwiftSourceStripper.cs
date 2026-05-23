@@ -129,6 +129,68 @@ public static class SwiftSourceStripper
         // the CrossModuleSkippedMethodDelegateTests can drive the round trip.
         "CrossModuleSkippedMethodChildDelegate",
         "CrossModuleSkippedMethodParentDelegate",
+        // Sibling-protocol property dispatch regression. A "sibling" group is
+        // two or more class-bound protocols declaring the same property
+        // name+type with different accessor sets; the EveryProtocolEmitter
+        // picks the fattest as the owner and emits the body on its extension,
+        // while siblings get empty extensions and Swift cross-extension
+        // witness resolution routes the dispatch back to the owner body.
+        // The owner body fans out across all sibling vtables; the runtime
+        // tests in SiblingPropertyDispatchTests exercise C# proxies for each
+        // sibling individually, so every sibling's witness-table getter must
+        // survive stripping.
+        "SiblingNamed",
+        "SiblingMutableNamed",
+        "SiblingTagged",
+        "SiblingMutableTagged",
+        "SiblingMutableTaggedAlt",
+        // Inheritance-shape sibling group: Child refines Parent's get-only
+        // requirement into get+set. Probes whether the parser duplicates
+        // inherited PropertyDecls into the child protocol's .Properties so
+        // ComputeSiblingPropertyFallbacks treats them as a real sibling group.
+        "SiblingInheritedParent",
+        "SiblingInheritedChild",
+        // Closure-property sibling group: same shape as the value-typed
+        // siblings but the property type is Optional<() -> Void>. Exercises
+        // the EmitDispatchableClosurePropertyImplementation fan-out.
+        "SiblingClosureProperty",
+        "SiblingMutableClosureProperty",
+        // Subscript sibling group: subscript(siblingIndexKey:) declared with
+        // different accessor sets across two protocols. Exercises the
+        // EmitSubscriptImplementation fan-out path.
+        "SiblingIndexed",
+        "SiblingMutableIndexed",
+        // Divergent-argument-label subscript pair: identical index type / return
+        // type but different external labels (at: vs by:). Exercises the
+        // GetSubscriptSiblingKey label-aware grouping and the subscript-witness
+        // explicit `<external> <internal>:` form in EmitSubscriptImplementation.
+        "SiblingLabelAt",
+        "SiblingLabelBy",
+        // External-label edge cases: keyword (`default`) and collision-with-
+        // synthetic (`index0`). The former forces NameProvider.EscapeSwiftKeyword
+        // on the emitted label; the latter forces the flag-driven unlabeled
+        // check instead of a brittle name-pattern match.
+        "SiblingLabelKeyword",
+        "SiblingLabelLooksLikeSynthetic",
+        // r6 phantom-owner regression: mixed-generic protocol vs plain sibling.
+        // PhantomOwnerMixedGeneric emits fatalError stubs for properties (mixed-
+        // generic gate); PhantomOwnerRegular declares the same property name+type
+        // get-only. ModuleHandler.IsEmittable must keep the mixed-generic OUT of
+        // the sibling-plan input so the regular sibling owns its body standalone
+        // instead of routing through the stub. Both witness-table accessors must
+        // survive stripping so the runtime dispatch path exercises the fix.
+        "PhantomOwnerMixedGeneric",
+        "PhantomOwnerRegular",
+        // Mixed-generic under-detection (Grok H1): the original
+        // HasOnlyMethodLevelGenerics predicate short-circuited on Self, so a
+        // method carrying BOTH method-level generic (τ_1_*) AND Self (τ_0_*)
+        // was not counted toward the "has polluting generic method" leg. A
+        // protocol whose only generic method has that shape slipped past the
+        // IsEmittable filter and could win the sibling-group lex tie-break.
+        // The CombinedMixedSelfGeneric / CombinedRegularSibling pair locks in
+        // the broader HasMethodLevelGenericInSignature classification.
+        "CombinedMixedSelfGeneric",
+        "CombinedRegularSibling",
     };
 
     private static readonly Regex PreservedProtocolPattern = new(
@@ -511,6 +573,20 @@ public static class SwiftSourceStripper
     /// `func_subscript_<index>_get/_set`, so the parsed (name, suffix) is
     /// (<c>subscript_&lt;index&gt;</c>, <c>get|set</c>) — both name and kind are normalized to
     /// the literal "subscript" so they collate with the declared `public subscript` side.
+    ///
+    /// <para>Design note — subscript single-key collation: the vtable side carries a
+    /// per-protocol index in the field name; the declared side (`public subscript(...)`) has
+    /// no index. So both are normalized to <c>("subscript", "subscript")</c>. The result is
+    /// that ALL declared subscripts in a non-preserved extension count as cross-extension
+    /// witnesses for ANY required subscript in a preserved sibling. This deliberately favors
+    /// OVER-preservation (a non-preserved extension declaring an unrelated subscript is kept)
+    /// over a signature-based match. Doing signature matching would require parsing Swift
+    /// type tuples out of the vtable field's function-type tail and the declared subscript's
+    /// parameter list, with all their corner cases (closure params, generic substitutions,
+    /// label-vs-internal-name distinctions). A regex-layer attempt at that risks the opposite
+    /// failure mode — UNDER-preservation, where the stripper drops an extension that does
+    /// witness a required subscript, breaking compile. The safe single-key shape is preferred
+    /// while the stripper remains text-based.</para>
     /// </summary>
     private static WitnessKey MakeVtableWitnessKey(string name, string suffix)
     {

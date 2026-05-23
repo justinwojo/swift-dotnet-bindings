@@ -568,17 +568,17 @@ public static class OptionalPointerWrapperEmitter
     }
 
     /// <summary>
-    /// Gets the Swift subscript label for an index parameter.
-    /// Unlabeled subscript params are named "indexN" by the parser — these become unlabeled.
-    /// Labeled subscript params (e.g., "string", "data") keep their label.
+    /// Gets the Swift bracket-call label for a subscript index parameter.
+    /// Returns "" for unlabeled positions (parser-set <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/>),
+    /// otherwise the keyword-safe Swift label followed by ": ". Routes through
+    /// <see cref="NameProvider.GetSubscriptExternalLabel"/> so keyword labels (<c>default</c>,
+    /// <c>in</c>, ...) are backtick-escaped and user labels spelling <c>indexN</c> are preserved
+    /// instead of being mis-classified as the synthetic placeholder.
     /// </summary>
     private static string GetSubscriptArgLabel(ArgumentDecl arg)
     {
-        var name = arg.Name;
-        // Parser generates "index0", "index1" etc. for unlabeled subscript params
-        if (name.StartsWith("index") && name.Length > 5 && char.IsDigit(name[5]))
-            return "";
-        return $"{name}: ";
+        var label = NameProvider.GetSubscriptExternalLabel(arg);
+        return label == "_" ? "" : $"{label}: ";
     }
 
     /// <summary>

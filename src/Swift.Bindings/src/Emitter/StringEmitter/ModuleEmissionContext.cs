@@ -36,6 +36,17 @@ public sealed class ModuleEmissionContext
     public string? ResolvedNamespace { get; set; }
 
     /// <summary>
+    /// The active <see cref="NamespacePatternResolver"/> for the current generation pass.
+    /// Threaded through so emitters that need to qualify cross-module references (e.g. the
+    /// sibling-property fallback receivers, which emit <c>global::&lt;ns&gt;.IFoo</c> for
+    /// each protocol in a sibling group) can resolve each module's actual C# namespace
+    /// rather than assuming the Swift module name. Null in legacy/default contexts; the
+    /// receivers fall back to the Swift module name in that case to preserve historical
+    /// byte-stable output.
+    /// </summary>
+    public NamespacePatternResolver? NamespaceResolver { get; set; }
+
+    /// <summary>
     /// When the current module has a public type with the same name as the module itself
     /// (e.g. module "Reachability" containing class "Reachability"), Swift name lookup inside
     /// the wrapper file resolves the bare module name as the type, not the module. Any
@@ -158,6 +169,109 @@ public sealed class ModuleEmissionContext
         if (string.IsNullOrEmpty(protoQualifiedName))
             return null;
         return _interfaceEmittedPropertyNames.TryGetValue(protoQualifiedName, out var set) ? set : null;
+    }
+
+    // ==================== Sibling Property Fallback Map ====================
+
+    /// <summary>
+    /// A sibling fallback entry for a property in a sibling group. <see cref="Proto"/>
+    /// is one of the OTHER protocols that declares the same property name+type with
+    /// a setter or get-only accessor; <see cref="HasSetter"/> records that accessor
+    /// shape so setter receivers can skip get-only siblings.
+    /// </summary>
+    public readonly record struct SiblingPropertyFallback(ProtocolDecl Proto, bool HasSetter);
+
+    private readonly Dictionary<(string ProtoQName, string PropertyName), IReadOnlyList<SiblingPropertyFallback>>
+        _siblingPropertyFallbacks = new();
+
+    /// <summary>
+    /// Records the sibling-protocol fallback list for each (protocol, property) participating
+    /// in a sibling-property group. A "sibling group" is two or more class-bound protocols
+    /// that declare the same property name+type with differing accessor sets — see
+    /// <see cref="EveryProtocolEmitter.ComputePropertyEmissionPlans"/> for the resolution rules.
+    ///
+    /// <para>Consumed by <c>ProtocolProxyEmitter.EmitPropertyReceivers</c>: when a property is
+    /// in a sibling group, each receiver tries its own interface first, then falls back to
+    /// the recorded sibling interfaces. This makes per-instance dispatch correct regardless
+    /// of which sibling vtable the Swift fan-out picks — without this fallback, the owner
+    /// receiver cannot locate a smaller-sibling proxy and silently returns empty (getter) or
+    /// no-ops (setter) once any larger-sibling proxy has registered its global vtable.</para>
+    /// </summary>
+    public void SetSiblingPropertyFallbacks(
+        IReadOnlyDictionary<(string ProtoQName, string PropertyName), IReadOnlyList<SiblingPropertyFallback>> map)
+    {
+        _siblingPropertyFallbacks.Clear();
+        foreach (var kvp in map)
+            _siblingPropertyFallbacks[kvp.Key] = kvp.Value;
+    }
+
+    /// <summary>
+    /// Returns the sibling-protocol fallback list for <paramref name="protoQualifiedName"/>'s
+    /// property <paramref name="propertyName"/>, or <c>null</c> when the property is not in
+    /// a sibling group.
+    /// </summary>
+    public IReadOnlyList<SiblingPropertyFallback>? GetSiblingPropertyFallbacks(
+        string protoQualifiedName, string propertyName)
+    {
+        if (string.IsNullOrEmpty(protoQualifiedName) || string.IsNullOrEmpty(propertyName))
+            return null;
+        return _siblingPropertyFallbacks.TryGetValue((protoQualifiedName, propertyName), out var list)
+            ? list : null;
+    }
+
+    // ==================== Sibling Subscript Fallback Map ====================
+
+    /// <summary>
+    /// A sibling fallback entry for a subscript in a sibling group. <see cref="Proto"/> is
+    /// one of the OTHER protocols that declares the same subscript signature with a setter
+    /// or get-only accessor; <see cref="Index"/> is the subscript's position within that
+    /// protocol's own non-static subscript list (the index that names its vtable fields
+    /// <c>func_subscript_{Index}_get/set</c>); <see cref="HasSetter"/> records the
+    /// accessor shape so setter receivers can skip get-only siblings.
+    /// </summary>
+    public readonly record struct SiblingSubscriptFallback(ProtocolDecl Proto, int Index, bool HasSetter);
+
+    private readonly Dictionary<(string ProtoQName, string SubscriptKey), IReadOnlyList<SiblingSubscriptFallback>>
+        _siblingSubscriptFallbacks = new();
+
+    /// <summary>
+    /// Records the sibling-protocol fallback list for each (protocol, subscript) participating
+    /// in a sibling-subscript group. A "sibling group" is two or more class-bound protocols that
+    /// declare the same subscript signature (index parameter types + return type) with differing
+    /// accessor sets — see <see cref="EveryProtocolEmitter.ComputeSubscriptEmissionPlans"/>
+    /// for the resolution rules.
+    ///
+    /// <para>Consumed by <c>ProtocolProxyEmitter.EmitSubscriptReceivers</c>: when a subscript is
+    /// in a sibling group, each receiver tries its own interface first, then falls back to the
+    /// recorded sibling interfaces. Without this fallback the owner receiver cannot locate a
+    /// smaller-sibling proxy and silently returns empty/no-ops once any larger-sibling proxy has
+    /// registered its global vtable.</para>
+    ///
+    /// <para>Key shape: <c>(ProtoQName, SubscriptKey)</c> where SubscriptKey is the per-protocol
+    /// <c>subscript_{Index}({paramTypes})</c> string produced by <c>GetSubscriptKey</c>. Lookup
+    /// in the receiver uses the same key shape so the index is consistent with the vtable field
+    /// names emitted for the owning protocol.</para>
+    /// </summary>
+    public void SetSiblingSubscriptFallbacks(
+        IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), IReadOnlyList<SiblingSubscriptFallback>> map)
+    {
+        _siblingSubscriptFallbacks.Clear();
+        foreach (var kvp in map)
+            _siblingSubscriptFallbacks[kvp.Key] = kvp.Value;
+    }
+
+    /// <summary>
+    /// Returns the sibling-protocol fallback list for <paramref name="protoQualifiedName"/>'s
+    /// subscript identified by <paramref name="subscriptKey"/>, or <c>null</c> when the
+    /// subscript is not in a sibling group.
+    /// </summary>
+    public IReadOnlyList<SiblingSubscriptFallback>? GetSiblingSubscriptFallbacks(
+        string protoQualifiedName, string subscriptKey)
+    {
+        if (string.IsNullOrEmpty(protoQualifiedName) || string.IsNullOrEmpty(subscriptKey))
+            return null;
+        return _siblingSubscriptFallbacks.TryGetValue((protoQualifiedName, subscriptKey), out var list)
+            ? list : null;
     }
 
     // ==================== Protocol Extension Defaults Index ====================

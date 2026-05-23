@@ -88,6 +88,7 @@ namespace BindingsGeneration
 
             var generatedNamespace = _namespacePatternResolver.ResolveNamespace(moduleDecl.Name);
             context.GetEmissionContext().ResolvedNamespace = generatedNamespace;
+            context.GetEmissionContext().NamespaceResolver = _namespacePatternResolver;
 
             csWriter.WriteLine("#nullable enable");
             csWriter.WriteLine();
@@ -987,8 +988,8 @@ namespace BindingsGeneration
             // set owns the body, siblings emit empty extensions, and Swift's cross-extension
             // witness resolution stitches them together.
             //
-            // See EveryProtocolEmitter.ComputePropertyEmissionOwners and the matching property
-            // dedup branch in EmitProtocolExtension.
+            // See EveryProtocolEmitter.ComputePropertyEmissionPlans and the matching property
+            // dedup + fan-out branches in EmitProtocolExtension / EmitPropertyImplementation.
 
             // Member-kind conflict: protocol A requires `var label: T { get }` while protocol B
             // requires `func label() -> T`. Swift rejects `var label` and `func label()` on the
@@ -1102,19 +1103,81 @@ namespace BindingsGeneration
             var nonThrowingOverrides = ComputeNonThrowingOverrides(
                 suitableProtocols.Concat(crossModuleParents), emitter);
 
-            // Pre-pass: compute property emission ownership across the union of local + parent
-            // protocols. The owner of a shared (propertyName, propertyType) emits the body
-            // calling its own vtable; siblings emit empty extensions and rely on Swift's
-            // cross-extension witness resolution. Has-setter wins over get-only;
-            // lex tie-break for determinism. See EveryProtocolEmitter.ComputePropertyEmissionOwners.
-            var propertyOwners = EveryProtocolEmitter.ComputePropertyEmissionOwners(
-                suitableProtocols.Concat(crossModuleParents));
+            // Plan input must exclude protocols whose EveryProtocol conformance will be
+            // skipped at emission time, or that will emit fatalError() stubs instead of
+            // real vtable dispatch bodies, but which are NOT yet filtered out of
+            // suitableProtocols / crossModuleParents. Without this guard the owner-resolution
+            // can pick a never-emitted (or stub-only) protocol because HasSetter wins
+            // ownership, the owner's real body never lands in the Swift wrapper, and the
+            // other siblings skip their own bodies in deference to a phantom owner.
+            //
+            // Three filters compose:
+            //   1. HasNoncopyableMember — the wrapper's inout trampoline rejects ~Copyable;
+            //      conformance is dropped entirely.
+            //   2. IsConformanceSkipped — already classified un-emittable by PreScanProtocols
+            //      (Self / missing requirements / convention-c closures / suppressed members /
+            //      hidden requirements / missing TBD descriptors / subscript-bound generics
+            //      / transitive genericSig propagation). Cross-module parents aren't
+            //      pre-scanned, so they pass through this filter — sibling-plan failures
+            //      for cross-module-parent owners are tracked separately.
+            //   3. IsMixedGenericProtocol — protocols with both method-level generic and
+            //      non-generic instance members emit fatalError() stubs for ALL properties
+            //      and subscripts (the type projection pipeline can't render the non-generic
+            //      members correctly when method-level generics are in scope), so they can
+            //      never serve as a real dispatch owner. Member-level stub shapes
+            //      (self-typed properties, non-dispatchable closure properties) are NOT
+            //      filtered here because they're per-property — owner selection would need
+            //      a member-level predicate, which the current plan-compute interface
+            //      doesn't accept. If a real-world fixture surfaces, lift the per-property
+            //      check into ComputePropertyEmissionPlans rather than overconstraining
+            //      the per-protocol filter here.
+            bool IsEmittable(ProtocolDecl p)
+                => !EveryProtocolEmitter.HasNoncopyableMember(p, typeDatabase)
+                   && !emitter.IsConformanceSkipped(p)
+                   && !EveryProtocolEmitter.IsMixedGenericProtocol(p);
+            var allCandidateProtocols = suitableProtocols.Concat(crossModuleParents).ToList();
+            var planInputProtocols = allCandidateProtocols.Where(IsEmittable).ToList();
+            // Protocols dropped by IsEmittable but which still participate in the same
+            // (propertyName, propertyType) / subscript-signature group with an emittable owner.
+            // Swift cross-extension witness resolution can still route a filtered protocol's
+            // existential dispatch through the emittable owner's body, so the plans must know
+            // the group "had filtered peers" to switch the owner body into the nil-check
+            // fan-out shape and avoid a force-unwrap SIGSEGV when only the filtered side has
+            // been registered. See HasFilteredPeers on PropertyEmissionPlan/SubscriptEmissionPlan.
+            var filteredPeers = allCandidateProtocols.Where(p => !IsEmittable(p)).ToList();
+
+            // Pre-pass: compute the per-property emission plan across the union of local +
+            // parent protocols. The owner of a shared (propertyName, propertyType) emits the
+            // body; siblings emit empty extensions and rely on Swift's cross-extension
+            // witness resolution. The owner's body fans out across every sibling vtable so
+            // dispatch through any sibling existential finds the populated vtable. Has-setter
+            // wins over get-only; lex tie-break for determinism.
+            // See EveryProtocolEmitter.ComputePropertyEmissionPlans.
+            var propertyPlans = EveryProtocolEmitter.ComputePropertyEmissionPlans(planInputProtocols, filteredPeers);
+
+            // Sibling fallback map: when ProtocolProxyEmitter emits a property receiver for
+            // a property in a sibling group, the receiver tries its own interface first and
+            // then falls back to the sibling interfaces recorded here. The Swift fan-out can
+            // pick any populated sibling vtable; whichever receiver runs locates the proxy
+            // via per-instance SwiftObjectRegistry lookups across all sibling interfaces.
+            // Without this fallback the receiver in the chosen vtable's proxy class cannot
+            // see a handle registered as a different sibling's proxy and returns empty /
+            // no-ops, producing order-dependent dispatch bugs.
+            emissionCtx?.SetSiblingPropertyFallbacks(
+                EveryProtocolEmitter.ComputeSiblingPropertyFallbacks(planInputProtocols));
+
+            // Sibling-subscript plan + fallback map: mirror of the property sibling pipeline.
+            // The owner of a shared subscript signature emits the body with fan-out across
+            // every sibling's per-protocol vtable index; siblings emit empty extensions.
+            var subscriptPlans = EveryProtocolEmitter.ComputeSubscriptEmissionPlans(planInputProtocols, filteredPeers);
+            emissionCtx?.SetSiblingSubscriptFallbacks(
+                EveryProtocolEmitter.ComputeSiblingSubscriptFallbacks(planInputProtocols));
 
             // Emit conformances and witness dispatch accessors for each suitable protocol
             foreach (var protocolDecl in suitableProtocols)
             {
                 _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyOwners);
+                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans);
                 // Skip witness dispatch for mixed-generic protocols — the type projection
                 // pipeline generates incorrect types when method-level generic parameters
                 // are in scope (e.g., RxTime→Double instead of Date).
@@ -1125,7 +1188,7 @@ namespace BindingsGeneration
             foreach (var parentDecl in crossModuleParents)
             {
                 _logger.LogDebug($"Emitting cross-module parent EveryProtocol conformance for {parentDecl.ModuleDecl?.Name}.{parentDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides, propertyOwners);
+                emitter.EmitProtocolConformance(swiftWriter, parentDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans);
             }
         }
 

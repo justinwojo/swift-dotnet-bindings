@@ -99,6 +99,56 @@ public static class WrapperEmitterHelpers
     }
 
     /// <summary>
+    /// Builds the inline <c>#available(...)</c> guard expression a sibling-fan-out branch
+    /// needs when the branch's strictest-per-platform floor is greater than the enclosing
+    /// extension's floor on any platform. Returns the empty string when no guard is needed
+    /// (branch floor is at or below the extension floor on every platform).
+    ///
+    /// <para>The returned expression is suitable for chaining inside an <c>if</c> /
+    /// <c>else if</c> condition list, e.g. <c>else if #available(iOS 15.4, *), let fn = ...</c>.
+    /// Without it, the fan-out body — emitted inside <c>extension EveryProtocol: Owner</c>
+    /// at the owner's <c>@available</c> floor — would reference a sibling protocol type
+    /// with a stricter floor and fail to compile on SDKs where the sibling is unavailable
+    /// (regression first observed on MusicKit's AlbumFilter / CuratorFilter / LibraryArtistFilter
+    /// sibling group, where AlbumFilter sits at iOS 15.0 but CuratorFilter is iOS 15.4+ and
+    /// LibraryArtistFilter is iOS 16.0+).</para>
+    /// </summary>
+    public static string BuildBranchAvailabilityGuard(
+        IReadOnlyList<AvailabilityAnnotation>? branchAnnotations,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAnnotations)
+    {
+        var branchKeys = CollectStrictestAvailabilityKeys(branchAnnotations);
+        if (branchKeys.Count == 0)
+            return string.Empty;
+
+        var extensionByPlatform = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var key in CollectStrictestAvailabilityKeys(extensionAnnotations))
+        {
+            var parts = key.Split(' ', 2);
+            if (parts.Length == 2)
+                extensionByPlatform[parts[0]] = parts[1];
+        }
+
+        var guardEntries = new List<string>();
+        foreach (var branchKey in branchKeys)
+        {
+            var parts = branchKey.Split(' ', 2);
+            if (parts.Length != 2) continue;
+            var platform = parts[0];
+            var branchVersion = parts[1];
+            if (!extensionByPlatform.TryGetValue(platform, out var extVersion)
+                || CompareOsVersions(branchVersion, extVersion) > 0)
+            {
+                guardEntries.Add(branchKey);
+            }
+        }
+
+        if (guardEntries.Count == 0)
+            return string.Empty;
+        return "#available(" + string.Join(", ", guardEntries) + ", *)";
+    }
+
+    /// <summary>
     /// Compares two dot-separated OS version strings numerically (e.g., "13.0" &lt; "26.0").
     /// Returns 1 when <paramref name="left"/> &gt; <paramref name="right"/>, -1 when smaller,
     /// 0 when equal. Missing components are treated as 0 so "13" == "13.0".

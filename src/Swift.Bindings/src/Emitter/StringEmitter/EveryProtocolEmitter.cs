@@ -464,29 +464,73 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
-    /// Builds a property-emission-ownership map used by <see cref="EmitProtocolExtension"/>
-    /// to resolve accessor-set conflicts across protocols that share a property name and
-    /// type. Two get-only declarations of the same `var name: String` are fine — the first
-    /// emits the body, the second emits an empty extension and Swift's cross-extension
-    /// witness resolution satisfies the conformance via the first body. But a get-only
-    /// and a get+set declaration cannot both be satisfied by the same body: if the get+set
-    /// extension emits empty, Swift rejects it ("does not conform — missing set witness").
+    /// Per-property plan describing how the EveryProtocol extension for a sibling-protocol
+    /// group should emit the property body. A "sibling group" is two or more class-bound
+    /// protocols that declare the same property name and type with differing accessor sets
+    /// (e.g. Nameable's get-only <c>var name: String</c> and MutableNamed's get+set
+    /// <c>var name: String</c>); see <see cref="ComputePropertyEmissionPlans"/> for the
+    /// resolution rules.
     ///
-    /// Ownership resolution: the protocol with the fattest accessor set (has-setter wins
-    /// over get-only) emits the body; siblings emit empty extensions and rely on the
-    /// owner's declaration. Tie-break is lexicographic on protocol name for determinism.
-    ///
-    /// Key format: <c>$"{property.Name}|{property.SwiftTypeSpec}"</c> — properties sharing
-    /// the same name but different types are already dropped upstream by the type-count
-    /// gate in <c>ModuleHandler.EmitEveryProtocolConformances</c>, so this key only
-    /// collides for true same-name+same-type+different-accessor-set groups.
-    ///
-    /// Returns a map keyed by <c>$"{name}|{typeKey}"</c>. Properties with only one
-    /// declaring protocol are still recorded (owner = that protocol) so callers can
-    /// uniformly query ownership.
+    /// <para><see cref="Owner"/> emits the property body on its extension; other siblings
+    /// emit empty extensions. Swift's cross-extension witness resolution routes
+    /// inherited-through-sibling dispatch back into the owner's body. The owner's body fans
+    /// out across <see cref="GetterSiblings"/> / <see cref="SetterSiblings"/>, checking
+    /// each sibling's vtable for a non-nil function pointer and dispatching through
+    /// whichever the registered C# proxy populated. Without this fan-out a C# class that
+    /// implemented only a smaller sibling would leave the owner's vtable nil and the
+    /// force-unwrapped pointer would SIGSEGV.</para>
     /// </summary>
-    public static IReadOnlyDictionary<string, ProtocolDecl> ComputePropertyEmissionOwners(
-        IEnumerable<ProtocolDecl> protocols)
+    /// <param name="Owner">Protocol whose extension emits the property body.</param>
+    /// <param name="GetterSiblings">All sibling protocols (including <paramref name="Owner"/>),
+    /// ordered owner-first then lexicographically. Every sibling is included because the
+    /// shared property always has a getter — that is the minimum-shape accessor set.</param>
+    /// <param name="SetterSiblings">Subset of <paramref name="GetterSiblings"/> that declare
+    /// a setter, ordered owner-first then lexicographically. Empty when the group has no
+    /// setter. A single-entry list (just the owner) means no fan-out is needed for the
+    /// setter — the owner's vtable is the only one that can be populated.</param>
+    /// <param name="HasFilteredPeers">True when the sibling group contained one or more
+    /// protocols that ModuleHandler.IsEmittable filtered out (e.g. mixed-generic protocols
+    /// whose properties/subscripts are stubbed with fatalError). Those filtered peers do not
+    /// appear in <paramref name="GetterSiblings"/> or <paramref name="SetterSiblings"/>, but
+    /// Swift's cross-extension witness resolution can still route a filtered-protocol
+    /// existential's dispatch through the owner body. When this flag is true the owner must
+    /// emit the nil-check + fatalError fan-out shape even for single-participant plans so a
+    /// filtered-only C# implementation surfaces a diagnosable error instead of a force-unwrap
+    /// SIGSEGV on the nil owner vtable.</param>
+    public sealed record PropertyEmissionPlan(
+        ProtocolDecl Owner,
+        IReadOnlyList<ProtocolDecl> GetterSiblings,
+        IReadOnlyList<ProtocolDecl> SetterSiblings,
+        bool HasFilteredPeers = false);
+
+    /// <summary>
+    /// Builds the per-property emission plan used by <see cref="EmitProtocolExtension"/>
+    /// to resolve accessor-set conflicts across protocols that share a property name and
+    /// type. Two get-only declarations of the same <c>var name: String</c> are fine — the
+    /// first emits the body, the second emits an empty extension and Swift's
+    /// cross-extension witness resolution satisfies the conformance via the first body.
+    /// But a get-only and a get+set declaration cannot both be satisfied by the same
+    /// body: if the get+set extension emits empty, Swift rejects it ("does not conform —
+    /// missing set witness").
+    ///
+    /// <para>Ownership resolution: the protocol with the fattest accessor set (has-setter
+    /// wins over get-only) emits the body; siblings emit empty extensions and rely on the
+    /// owner's declaration. Tie-break is lexicographic on protocol name for determinism.
+    /// All siblings in the group are recorded on the returned <see cref="PropertyEmissionPlan"/>
+    /// so the owner body can fan out across each sibling's vtable.</para>
+    ///
+    /// <para>Key format: <c>$"{property.Name}|{property.SwiftTypeSpec}"</c> — properties
+    /// sharing the same name but different types are already dropped upstream by the
+    /// type-count gate in <c>ModuleHandler.EmitEveryProtocolConformances</c>, so this key
+    /// only collides for true same-name+same-type+different-accessor-set groups.</para>
+    ///
+    /// <para>Returns a map keyed by <c>$"{name}|{typeKey}"</c>. Properties with only one
+    /// declaring protocol are still recorded (owner = that protocol, sibling lists contain
+    /// only the owner) so callers can uniformly query the plan.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, PropertyEmissionPlan> ComputePropertyEmissionPlans(
+        IEnumerable<ProtocolDecl> protocols,
+        IEnumerable<ProtocolDecl>? filteredPeers = null)
     {
         var groups = new Dictionary<string, List<(ProtocolDecl Proto, PropertyDecl Prop, bool HasSetter)>>(StringComparer.Ordinal);
         foreach (var p in protocols)
@@ -505,17 +549,326 @@ public class EveryProtocolEmitter
             }
         }
 
-        var owners = new Dictionary<string, ProtocolDecl>(StringComparer.Ordinal);
+        // Collect group keys that filtered peers also declare. A filtered protocol with the
+        // same (propertyName, propertyType) as an emitted owner means Swift CEWR can still
+        // route a filtered-existential dispatch through the owner's body — see the
+        // HasFilteredPeers parameter on PropertyEmissionPlan for the rationale.
+        var filteredKeys = new HashSet<string>(StringComparer.Ordinal);
+        if (filteredPeers is not null)
+        {
+            foreach (var p in filteredPeers)
+            {
+                foreach (var prop in p.Properties)
+                {
+                    if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
+                        continue;
+                    filteredKeys.Add($"{prop.Name}|{prop.SwiftTypeSpec}");
+                }
+            }
+        }
+
+        var plans = new Dictionary<string, PropertyEmissionPlan>(StringComparer.Ordinal);
         foreach (var (key, entries) in groups)
         {
+            // Tie-break and ordering use GetProtocolFallbackKey (module-qualified plus
+            // nested-type chain) rather than unqualified Proto.Name. Cross-module groups
+            // and nested protocols can collide on leaf name; sorting on the unqualified
+            // name leaves the winner determined by encounter order (suitableProtocols
+            // ⋃ crossModuleParents), which is not stable across builds. The qualified
+            // key matches the form used elsewhere as the fallback-map key, so ownership,
+            // branch order, and fallback order all sort consistently.
             var owner = entries
                 .OrderByDescending(e => e.HasSetter)
-                .ThenBy(e => e.Proto.Name, StringComparer.Ordinal)
+                .ThenBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
                 .First()
                 .Proto;
-            owners[key] = owner;
+            // Owner-first, then siblings in qualified-key order. Owner-first makes the
+            // common case (proxy implements the largest interface) hit the first branch
+            // of the fan-out; the qualified-key order is just for determinism.
+            var ordered = entries
+                .Select(e => e.Proto)
+                .Where(p => p != owner)
+                .OrderBy(p => GetProtocolFallbackKey(p), StringComparer.Ordinal)
+                .Prepend(owner)
+                .ToList();
+            // Owner is selected by OrderByDescending(HasSetter), so if ANY entry has a
+            // setter the owner does too — meaning the owner leads the setter list and
+            // additional has-setter siblings follow it. An empty list means no entry has
+            // a setter (pure get-only group; no setter to dispatch).
+            IReadOnlyList<ProtocolDecl> settersOrdered = entries.Any(e => e.HasSetter)
+                ? entries
+                    .Where(e => e.HasSetter && e.Proto != owner)
+                    .Select(e => e.Proto)
+                    .OrderBy(p => GetProtocolFallbackKey(p), StringComparer.Ordinal)
+                    .Prepend(owner)
+                    .ToList()
+                : Array.Empty<ProtocolDecl>();
+            plans[key] = new PropertyEmissionPlan(owner, ordered, settersOrdered,
+                HasFilteredPeers: filteredKeys.Contains(key));
         }
-        return owners;
+        return plans;
+    }
+
+    /// <summary>
+    /// Builds the per-(protocol, property) sibling-fallback map consumed by
+    /// <c>ProtocolProxyEmitter.EmitPropertyReceivers</c>. Each map entry lists the OTHER
+    /// protocols in the same sibling group, ordered lexicographically. Properties not in
+    /// a sibling group (only one declaring protocol) are omitted.
+    ///
+    /// <para>Required because the Swift fan-out picks ANY populated sibling vtable, which
+    /// may not be the vtable matching the proxy actually registered for this EveryProtocol
+    /// instance. The receiver in the chosen vtable's proxy class is hard-coded to look up
+    /// <c>IProtocolProxyImpl&lt;TItsOwnInterface&gt;</c>; without the fallback list it would
+    /// return empty/no-op for any handle registered as a different sibling's proxy. With the
+    /// fallback list, each receiver tries its own interface first, then walks siblings —
+    /// so any populated branch correctly locates the proxy regardless of registration order.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<(string ProtoQName, string PropertyName), IReadOnlyList<ModuleEmissionContext.SiblingPropertyFallback>>
+        ComputeSiblingPropertyFallbacks(IEnumerable<ProtocolDecl> protocols)
+    {
+        var groups = new Dictionary<string, List<(ProtocolDecl Proto, PropertyDecl Prop, bool HasSetter)>>(StringComparer.Ordinal);
+        foreach (var p in protocols)
+        {
+            foreach (var prop in p.Properties)
+            {
+                if (prop.IsStatic || prop.IsObjCOptional || !prop.IsProtocolRequirement)
+                    continue;
+                var key = $"{prop.Name}|{prop.SwiftTypeSpec}";
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<(ProtocolDecl, PropertyDecl, bool)>();
+                    groups[key] = list;
+                }
+                list.Add((p, prop, prop.Accessors.OfType<SetAccessorDecl>().Any()));
+            }
+        }
+
+        var fallback = new Dictionary<(string, string), IReadOnlyList<ModuleEmissionContext.SiblingPropertyFallback>>();
+        foreach (var entries in groups.Values)
+        {
+            if (entries.Count < 2)
+                continue;
+            foreach (var (proto, prop, _) in entries)
+            {
+                var siblings = entries
+                    .Where(e => e.Proto != proto)
+                    .Select(e => new ModuleEmissionContext.SiblingPropertyFallback(e.Proto, e.HasSetter))
+                    .OrderBy(s => GetProtocolFallbackKey(s.Proto), StringComparer.Ordinal)
+                    .ToList();
+                fallback[(GetProtocolFallbackKey(proto), prop.Name)] = siblings;
+            }
+        }
+        return fallback;
+    }
+
+    /// <summary>
+    /// Per-subscript plan describing how the EveryProtocol extension for a sibling-subscript
+    /// group should emit the subscript body. Mirrors <see cref="PropertyEmissionPlan"/>: a
+    /// "sibling group" is two or more class-bound protocols declaring the same subscript
+    /// signature (index parameter types + return type) with differing accessor sets. The
+    /// owner emits the body; siblings emit empty extensions and rely on Swift's
+    /// cross-extension witness resolution.
+    /// </summary>
+    /// <param name="Owner">Protocol whose extension emits the subscript body.</param>
+    /// <param name="OwnerIndex">Subscript index within <paramref name="Owner"/>'s own
+    /// subscript list — the index that names the owner's vtable fields.</param>
+    /// <param name="GetterSiblings">All sibling subscripts (including the owner's), each
+    /// recording the sibling protocol and the subscript's index within THAT protocol's
+    /// subscript list. Owner-first then lex order on protocol name. Every entry is included
+    /// because the shared subscript always has a getter.</param>
+    /// <param name="SetterSiblings">Subset of <paramref name="GetterSiblings"/> whose
+    /// subscript declares a setter. Empty for get-only groups.</param>
+    /// <param name="HasFilteredPeers">Mirrors <see cref="PropertyEmissionPlan.HasFilteredPeers"/>:
+    /// true when the sibling group contained one or more protocols that
+    /// ModuleHandler.IsEmittable filtered out. Forces the owner body into the nil-check
+    /// fan-out shape even for single-participant plans so that filtered-only implementations
+    /// fatalError() instead of SIGSEGVing on a nil owner vtable.</param>
+    public sealed record SubscriptEmissionPlan(
+        ProtocolDecl Owner,
+        int OwnerIndex,
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> GetterSiblings,
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> SetterSiblings,
+        bool HasFilteredPeers = false);
+
+    /// <summary>
+    /// Walks <paramref name="protocol"/>'s subscript list and yields (subscript, index) pairs
+    /// using the same indexing rule as <see cref="EmitProtocolExtension"/> and
+    /// <c>EmitProtocolVtableStruct</c>: skip static subscripts entirely; for all other
+    /// subscripts (including Self-typed and mixed-generic which only stub out the body),
+    /// increment the counter. This keeps the index aligned with the vtable field names
+    /// <c>func_subscript_{index}_get/set</c>.
+    /// </summary>
+    private static IEnumerable<(SubscriptDecl Sub, int Index)> EnumerateIndexedSubscripts(ProtocolDecl protocol)
+    {
+        int idx = 0;
+        foreach (var sub in protocol.Subscripts)
+        {
+            if (sub.IsStatic)
+                continue;
+            yield return (sub, idx);
+            idx++;
+        }
+    }
+
+    /// <summary>
+    /// Returns the signature key for a subscript used to group siblings: the index parameter
+    /// argument labels and type tuple plus the return type. Argument labels are part of the
+    /// Swift witness signature: <c>subscript(at index: Int) -&gt; X</c> and
+    /// <c>subscript(by index: Int) -&gt; X</c> are distinct witnesses and must NOT share a
+    /// sibling group, even though their type tuples match.
+    /// </summary>
+    private static string GetSubscriptSiblingKey(SubscriptDecl subscript)
+    {
+        var paramSig = string.Join(",", subscript.IndexParameters.Select(p =>
+            $"{NameProvider.GetSubscriptExternalLabel(p)}:{p.SwiftTypeSpec?.ToString() ?? ""}"));
+        var returnType = subscript.ReturnTypeSpec?.ToString() ?? "";
+        return $"subscript|({paramSig})|{returnType}";
+    }
+
+    /// <summary>
+    /// Builds the per-subscript emission plan used by <see cref="EmitProtocolExtension"/>
+    /// to resolve accessor-set conflicts across protocols sharing a subscript signature.
+    /// Mirrors <see cref="ComputePropertyEmissionPlans"/>: the protocol with the fattest
+    /// accessor set (has-setter wins) owns the body; ties broken lexicographically on
+    /// protocol name.
+    ///
+    /// <para>Returns a map keyed by <c>(GetProtocolFallbackKey(proto), subscriptKey)</c>
+    /// where subscriptKey is the per-protocol <c>subscript_{index}({paramTypes})</c>. Both
+    /// owner and non-owner siblings are recorded so the dispatch loop in
+    /// <c>EmitProtocolExtension</c> can look up the plan from either side.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>
+        ComputeSubscriptEmissionPlans(IEnumerable<ProtocolDecl> protocols,
+            IEnumerable<ProtocolDecl>? filteredPeers = null)
+    {
+        var groups = new Dictionary<string, List<(ProtocolDecl Proto, SubscriptDecl Sub, int Index, bool HasSetter)>>(StringComparer.Ordinal);
+        foreach (var p in protocols)
+        {
+            foreach (var (sub, idx) in EnumerateIndexedSubscripts(p))
+            {
+                var key = GetSubscriptSiblingKey(sub);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<(ProtocolDecl, SubscriptDecl, int, bool)>();
+                    groups[key] = list;
+                }
+                list.Add((p, sub, idx, sub.HasSetter));
+            }
+        }
+
+        // Mirror of ComputePropertyEmissionPlans: collect signature keys that filtered peers
+        // also declare so HasFilteredPeers can flip on the multi-branch nil-check fan-out.
+        var filteredKeys = new HashSet<string>(StringComparer.Ordinal);
+        if (filteredPeers is not null)
+        {
+            foreach (var p in filteredPeers)
+            {
+                foreach (var (sub, _) in EnumerateIndexedSubscripts(p))
+                {
+                    filteredKeys.Add(GetSubscriptSiblingKey(sub));
+                }
+            }
+        }
+
+        var plans = new Dictionary<(string, string), SubscriptEmissionPlan>();
+        foreach (var (groupKey, entries) in groups.Select(kv => (kv.Key, kv.Value)))
+        {
+            // Tie-break and ordering use GetProtocolFallbackKey (module-qualified plus
+            // nested-type chain) — see ComputePropertyEmissionPlans for rationale.
+            var ownerEntry = entries
+                .OrderByDescending(e => e.HasSetter)
+                .ThenBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
+                .First();
+            var owner = ownerEntry.Proto;
+            var ownerIndex = ownerEntry.Index;
+            var getterSiblings = entries
+                .Where(e => e.Proto != owner)
+                .OrderBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
+                .Select(e => (e.Proto, e.Index))
+                .Prepend((owner, ownerIndex))
+                .ToList();
+            IReadOnlyList<(ProtocolDecl, int)> setterSiblings = entries.Any(e => e.HasSetter)
+                ? entries
+                    .Where(e => e.HasSetter && e.Proto != owner)
+                    .OrderBy(e => GetProtocolFallbackKey(e.Proto), StringComparer.Ordinal)
+                    .Select(e => (e.Proto, e.Index))
+                    .Prepend((owner, ownerIndex))
+                    .ToList()
+                : Array.Empty<(ProtocolDecl, int)>();
+            var plan = new SubscriptEmissionPlan(owner, ownerIndex, getterSiblings, setterSiblings,
+                HasFilteredPeers: filteredKeys.Contains(groupKey));
+            foreach (var entry in entries)
+            {
+                var subscriptKey = GetSubscriptKey(entry.Sub, entry.Index);
+                plans[(GetProtocolFallbackKey(entry.Proto), subscriptKey)] = plan;
+            }
+        }
+        return plans;
+    }
+
+    /// <summary>
+    /// Builds the per-(protocol, subscript) sibling-fallback map consumed by
+    /// <c>ProtocolProxyEmitter.EmitSubscriptReceivers</c>. Mirrors
+    /// <see cref="ComputeSiblingPropertyFallbacks"/>: each map entry lists the OTHER
+    /// protocols in the same sibling group with their per-protocol subscript indices,
+    /// ordered lexicographically. Subscripts not in a sibling group are omitted.
+    /// </summary>
+    public static IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), IReadOnlyList<ModuleEmissionContext.SiblingSubscriptFallback>>
+        ComputeSiblingSubscriptFallbacks(IEnumerable<ProtocolDecl> protocols)
+    {
+        var groups = new Dictionary<string, List<(ProtocolDecl Proto, SubscriptDecl Sub, int Index, bool HasSetter)>>(StringComparer.Ordinal);
+        foreach (var p in protocols)
+        {
+            foreach (var (sub, idx) in EnumerateIndexedSubscripts(p))
+            {
+                var key = GetSubscriptSiblingKey(sub);
+                if (!groups.TryGetValue(key, out var list))
+                {
+                    list = new List<(ProtocolDecl, SubscriptDecl, int, bool)>();
+                    groups[key] = list;
+                }
+                list.Add((p, sub, idx, sub.HasSetter));
+            }
+        }
+
+        var fallback = new Dictionary<(string, string), IReadOnlyList<ModuleEmissionContext.SiblingSubscriptFallback>>();
+        foreach (var entries in groups.Values)
+        {
+            if (entries.Count < 2)
+                continue;
+            foreach (var (proto, sub, index, _) in entries)
+            {
+                var siblings = entries
+                    .Where(e => e.Proto != proto)
+                    .Select(e => new ModuleEmissionContext.SiblingSubscriptFallback(e.Proto, e.Index, e.HasSetter))
+                    .OrderBy(s => GetProtocolFallbackKey(s.Proto), StringComparer.Ordinal)
+                    .ToList();
+                fallback[(GetProtocolFallbackKey(proto), GetSubscriptKey(sub, index))] = siblings;
+            }
+        }
+        return fallback;
+    }
+
+    /// <summary>
+    /// Builds the dictionary key used by <see cref="ModuleEmissionContext.GetSiblingPropertyFallbacks"/>:
+    /// the module name plus the full nested-type chain of the protocol's qualified name (e.g.
+    /// <c>"FooModule.Outer.Inner.MyProto"</c>). Including the parent chain is required because
+    /// nested protocols with the same simple name are legal in Swift; a key of just
+    /// <c>{module}.{leaf}</c> would last-writer-wins-collide them in the dictionary and return
+    /// the wrong sibling list (or null) at lookup time.
+    /// </summary>
+    public static string GetProtocolFallbackKey(ProtocolDecl protocolDecl)
+    {
+        var nameChain = new List<string> { protocolDecl.Name };
+        BaseDecl? cursor = protocolDecl.ParentDecl;
+        while (cursor is TypeDecl td)
+        {
+            nameChain.Insert(0, td.Name);
+            cursor = td.ParentDecl;
+        }
+        var qualified = string.Join(".", nameChain);
+        var moduleName = protocolDecl.ModuleDecl?.Name;
+        return string.IsNullOrEmpty(moduleName) ? qualified : $"{moduleName}.{qualified}";
     }
 
     /// <summary>
@@ -524,13 +877,19 @@ public class EveryProtocolEmitter
     /// </summary>
     /// <param name="globalEmittedSignatures">Optional set to track signatures globally across protocols.</param>
     /// <param name="nonThrowingOverrides">Signatures where throws must be suppressed (see EmitProtocolConformance).</param>
-    /// <param name="propertyOwners">Optional ownership map from <see cref="ComputePropertyEmissionOwners"/>.
+    /// <param name="propertyPlans">Optional per-property plan from <see cref="ComputePropertyEmissionPlans"/>.
     /// When non-null, a property is emitted only by its owner; sibling protocols emit empty
-    /// extensions and rely on Swift's cross-extension witness resolution. When null, falls
-    /// back to the legacy first-seen-wins dedup via <paramref name="globalEmittedSignatures"/>.</param>
+    /// extensions and rely on Swift's cross-extension witness resolution. The owner's body
+    /// fans out across all sibling vtables so dispatch through a smaller-sibling existential
+    /// still finds the populated vtable. When null, falls back to the legacy first-seen-wins
+    /// dedup via <paramref name="globalEmittedSignatures"/>.</param>
+    /// <param name="subscriptPlans">Optional per-subscript plan from <see cref="ComputeSubscriptEmissionPlans"/>.
+    /// Sibling-subscript counterpart of <paramref name="propertyPlans"/>; same ownership / empty-extension
+    /// pattern, fan-out across sibling vtables in the owner's body.</param>
     private void EmitProtocolExtension(SwiftWriter writer, ProtocolDecl protocolDecl,
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides = null,
-        IReadOnlyDictionary<string, ProtocolDecl>? propertyOwners = null)
+        IReadOnlyDictionary<string, PropertyEmissionPlan>? propertyPlans = null,
+        IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>? subscriptPlans = null)
     {
         var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
         var vtableInstanceName = GetVtableInstanceName(protocolDecl);
@@ -577,12 +936,13 @@ public class EveryProtocolEmitter
             // Without this, the first-seen-wins legacy dedup let a get-only declaration
             // win, leaving the get+set extension empty and rejected by swiftc as
             // "does not conform — missing set witness".
-            var ownerKey = $"{property.Name}|{property.SwiftTypeSpec}";
-            if (propertyOwners != null && propertyOwners.TryGetValue(ownerKey, out var owner))
+            PropertyEmissionPlan? plan = null;
+            var planKey = $"{property.Name}|{property.SwiftTypeSpec}";
+            if (propertyPlans != null && propertyPlans.TryGetValue(planKey, out plan))
             {
-                if (owner != protocolDecl)
+                if (plan.Owner != protocolDecl)
                 {
-                    _logger.LogDebug($"Skipping property '{property.Name}' in {protocolDecl.Name}: owned by {owner.Name}");
+                    _logger.LogDebug($"Skipping property '{property.Name}' in {protocolDecl.Name}: owned by {plan.Owner.Name}");
                     continue;
                 }
             }
@@ -602,7 +962,7 @@ public class EveryProtocolEmitter
                 if (HasClosureInPropertyType(property))
                 {
                     if (!isMixedGenericProtocol && IsDispatchableClosureProperty(property, closureHandler))
-                        EmitDispatchableClosurePropertyImplementation(writer, property, protocolDecl, vtableInstanceName, closureHandler);
+                        EmitDispatchableClosurePropertyImplementation(writer, property, protocolDecl, vtableInstanceName, closureHandler, plan, availAnnotations);
                     else
                         EmitClosurePropertyStub(writer, property);
                 }
@@ -614,20 +974,38 @@ public class EveryProtocolEmitter
                 else if (isMixedGenericProtocol)
                     EmitClosurePropertyStub(writer, property);
                 else
-                    EmitPropertyImplementation(writer, property, protocolDecl, vtableInstanceName);
+                    EmitPropertyImplementation(writer, property, protocolDecl, vtableInstanceName, plan, availAnnotations);
             }
         }
 
         // Emit subscript implementations (skip static subscripts - not part of witness table)
         int subscriptIndex = 0;
+        var protoQNameForSubscripts = GetProtocolFallbackKey(protocolDecl);
         foreach (var subscript in protocolDecl.Subscripts)
         {
             if (subscript.IsStatic)
                 continue;
             var subscriptKey = GetSubscriptKey(subscript, subscriptIndex);
             var swiftSignature = $"subscript_{subscriptKey}";
-            // Check for global conflicts
-            if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(swiftSignature))
+            // Ownership-aware dedup: when a subscript signature is shared across multiple
+            // protocols with differing accessor sets (e.g. SiblingIndexed's get-only and
+            // SiblingMutableIndexed's get+set), the owner (fattest accessor set wins, lex
+            // tie-break) emits the body. Siblings emit empty extensions and conform via
+            // Swift's cross-extension witness resolution against the owner's declaration.
+            // Without this, the first-seen-wins global dedup let a get-only declaration win,
+            // leaving the get+set extension empty and rejected by swiftc as "does not conform —
+            // missing set/get witness".
+            SubscriptEmissionPlan? subscriptPlan = null;
+            if (subscriptPlans != null && subscriptPlans.TryGetValue((protoQNameForSubscripts, subscriptKey), out subscriptPlan))
+            {
+                if (subscriptPlan.Owner != protocolDecl)
+                {
+                    _logger.LogDebug($"Skipping subscript '{subscriptKey}' in {protocolDecl.Name}: owned by {subscriptPlan.Owner.Name}");
+                    subscriptIndex++;
+                    continue;
+                }
+            }
+            else if (globalEmittedSignatures != null && !globalEmittedSignatures.Add(swiftSignature))
             {
                 _logger.LogDebug($"Skipping subscript in {protocolDecl.Name}: conflicts with already-emitted subscript");
                 subscriptIndex++;
@@ -643,7 +1021,7 @@ public class EveryProtocolEmitter
                 else if (isMixedGenericProtocol)
                     EmitSelfTypedSubscriptStub(writer, subscript, subscriptIndex);
                 else
-                    EmitSubscriptImplementation(writer, subscript, protocolDecl, vtableInstanceName, subscriptIndex);
+                    EmitSubscriptImplementation(writer, subscript, protocolDecl, vtableInstanceName, subscriptIndex, subscriptPlan, availAnnotations);
             }
             subscriptIndex++;
         }
@@ -709,16 +1087,24 @@ public class EveryProtocolEmitter
                     else
                         EmitClosureMethodStub(writer, method);
                 }
-                // Methods with only method-level generics (τ_1_0+, no Self τ_0_*) get stub
-                // implementations. EveryProtocol satisfies the protocol requirement, but can't
-                // dispatch through the vtable (C# can't handle method-level generic dispatch).
-                else if (HasOnlyMethodLevelGenerics(method))
+                // Methods with method-level generics (τ_1_0+) get stub implementations.
+                // EveryProtocol satisfies the protocol requirement, but can't dispatch through
+                // the vtable (C# can't handle method-level generic dispatch). This branch must
+                // also catch the combined "method-level + Self" shape (a method that uses both
+                // <T> and Self in its signature): EmitMethodLevelGenericStub's RenderTypeSpec
+                // already handles τ_0_* → EveryProtocol substitution, so it can render the
+                // combined signature correctly. Routing only the "pure method-level" case here
+                // and letting the combined case fall through to EmitSelfTypedMethodStub would
+                // silently drop the generic clause and emit a witness signature that doesn't
+                // satisfy the protocol requirement (Any vs T mismatch → Swift compile error).
+                else if (HasMethodLevelGenericInSignature(method))
                 {
                     EmitMethodLevelGenericStub(writer, method);
                 }
-                // Methods with Self-typed (τ_0_*) params/return get fatalError() stubs.
-                // Renders τ_0_0 as EveryProtocol (the conforming type) to satisfy Swift's
-                // type system — Self IS EveryProtocol in the conformance context.
+                // Methods with Self-typed (τ_0_*) params/return but no method-level generics
+                // get fatalError() stubs. Renders τ_0_0 as EveryProtocol (the conforming type)
+                // to satisfy Swift's type system — Self IS EveryProtocol in the conformance
+                // context.
                 else if (HasSelfTypeParamInSignature(method))
                 {
                     EmitSelfTypedMethodStub(writer, method);
@@ -1087,16 +1473,32 @@ public class EveryProtocolEmitter
     /// <summary>
     /// Emits all Swift code needed for a protocol's EveryProtocol conformance.
     /// </summary>
+    public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
+        HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides,
+        IReadOnlyDictionary<string, PropertyEmissionPlan>? propertyPlans)
+    {
+        EmitProtocolConformance(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, null);
+    }
+
+    /// <summary>
+    /// Emits all Swift code needed for a protocol's EveryProtocol conformance.
+    /// </summary>
     /// <param name="globalEmittedSignatures">Optional set to track method signatures globally across protocols.</param>
     /// <param name="nonThrowingOverrides">Signatures where non-throwing MUST be emitted because at least one
     /// protocol requires the method non-throwing. A non-throwing method satisfies both throwing and non-throwing
     /// protocol requirements, but a throwing method does NOT satisfy a non-throwing requirement.</param>
-    /// <param name="propertyOwners">Optional map from <see cref="ComputePropertyEmissionOwners"/>. When non-null,
-    /// each property is emitted only by its owning protocol; siblings emit empty extensions and conform via
-    /// Swift's cross-extension witness resolution against the owner's declaration.</param>
+    /// <param name="propertyPlans">Optional per-property plan from <see cref="ComputePropertyEmissionPlans"/>.
+    /// When non-null, each property is emitted only by its owning protocol; siblings emit empty extensions
+    /// and conform via Swift's cross-extension witness resolution against the owner's declaration. The owner's
+    /// body fans out across every sibling vtable so dispatch through any sibling existential finds the
+    /// populated vtable.</param>
+    /// <param name="subscriptPlans">Optional per-subscript plan from <see cref="ComputeSubscriptEmissionPlans"/>.
+    /// Sibling-subscript counterpart of <paramref name="propertyPlans"/>: the owner of a shared subscript
+    /// signature emits the body with fan-out across sibling vtables; siblings emit empty subscripts.</param>
     public void EmitProtocolConformance(SwiftWriter writer, ProtocolDecl protocolDecl,
         HashSet<string>? globalEmittedSignatures, HashSet<string>? nonThrowingOverrides,
-        IReadOnlyDictionary<string, ProtocolDecl>? propertyOwners)
+        IReadOnlyDictionary<string, PropertyEmissionPlan>? propertyPlans,
+        IReadOnlyDictionary<(string ProtoQName, string SubscriptKey), SubscriptEmissionPlan>? subscriptPlans)
     {
         // Reset per-protocol routing state — the NSObjectProtocol-only gate below sets
         // _useObjCBase=true only for the protocols that need EveryObjCProtocol.
@@ -1351,7 +1753,7 @@ public class EveryProtocolEmitter
                     ClosureContextHelperEmitter.EmitIfNeeded(writer, _emissionContext);
             }
             EmitProtocolVtableStruct(writer, protocolDecl);
-            EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyOwners);
+            EmitProtocolExtension(writer, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans);
             EmitSetVtableFunction(writer, protocolDecl);
             // Per-shape @_cdecl invoke thunks for dispatchable closure params. C# proxy
             // receivers wrap the (fnPtr, ctx) pair into a managed Action whose
@@ -1570,7 +1972,19 @@ public class EveryProtocolEmitter
         writer.WriteLine();
     }
 
-    private void EmitPropertyImplementation(SwiftWriter writer, PropertyDecl property, ProtocolDecl protocolDecl, string vtableInstanceName)
+    /// <summary>
+    /// Emits the dispatch body for a protocol property requirement on the EveryProtocol
+    /// extension. When <paramref name="plan"/> describes a sibling group with more than
+    /// one member, the body fans out across each sibling's vtable — checking each
+    /// function-pointer field for non-nil and dispatching through whichever sibling the
+    /// registered C# proxy populated. This is required because Swift's cross-extension
+    /// witness resolution routes dispatch through a smaller-sibling existential into the
+    /// owner's body; without fan-out the owner would force-unwrap its own nil pointer
+    /// and SIGSEGV. See <see cref="PropertyEmissionPlan"/> for the resolution rules.
+    /// </summary>
+    private void EmitPropertyImplementation(SwiftWriter writer, PropertyDecl property,
+        ProtocolDecl protocolDecl, string vtableInstanceName, PropertyEmissionPlan? plan = null,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
@@ -1578,90 +1992,33 @@ public class EveryProtocolEmitter
         var swiftTypeName = GetSwiftTypeName(property.SwiftTypeSpec);
         var swiftTypeNameForMetatype = GetSwiftTypeNameForMetatype(property.SwiftTypeSpec);
 
+        // Resolve the dispatch branches. A solo group (no siblings) keeps the original
+        // single-branch shape via a one-entry list; a real sibling group fans out across
+        // every sibling for the getter, and across the has-setter subset for the setter.
+        IReadOnlyList<ProtocolDecl> getterBranches = plan?.GetterSiblings.Count > 1
+            ? plan.GetterSiblings
+            : new[] { protocolDecl };
+        IReadOnlyList<ProtocolDecl> setterBranches = plan?.SetterSiblings.Count > 1
+            ? plan.SetterSiblings
+            : new[] { protocolDecl };
+        // Safety net: when the sibling group contained ModuleHandler-filtered peers (e.g.
+        // mixed-generic siblings) the owner body must use the nil-check fan-out shape even
+        // for a single emittable branch. CEWR can still route the filtered protocol's
+        // dispatch through the owner; without the nil-check the force-unwrap would SIGSEGV
+        // when only the filtered side has been implemented C#-side.
+        bool forceSafeFanOut = plan?.HasFilteredPeers == true;
+
         writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
         writer.Indent++;
 
         if (hasGetter)
         {
-            // String returns use Utf8Slice encoding from C# to avoid ARC issues.
-            // The C# receiver returns a pointer to SBW_Utf8Slice (ptr + len),
-            // and Swift decodes it into a proper String with correct ARC management.
-            bool isStringGetter = property.SwiftTypeSpec is NamedTypeSpec getterNts && getterNts.Name == "Swift.String";
-            if (isStringGetter)
-            {
-                writer.WriteLines($$"""
-                    get {
-                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                        let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
-                            {{vtableInstanceName}}.csVTHandle, &selfProto)
-                        let slice = resultPtr.load(as: SBW_Utf8Slice.self)
-                        var str: Swift.String = ""
-                        if slice.len > 0 {
-                            let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
-                            str = String(decoding: buffer, as: UTF8.self)
-                        }
-                        slice.ptr.deallocate()
-                        resultPtr.deallocate()
-                        return str
-                    }
-                    """);
-            }
-            else
-            {
-                bool isObjCBridgeableGetter = IsObjCBridgeableParam(property.SwiftTypeSpec);
-                if (isObjCBridgeableGetter)
-                {
-                    writer.WriteLines($$"""
-                        get {
-                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                            let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
-                                {{vtableInstanceName}}.csVTHandle, &selfProto)
-                            let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
-                            resultPtr.deallocate()
-                            return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{swiftTypeNameForMetatype}}
-                        }
-                        """);
-                }
-                else
-                {
-                    writer.WriteLines($$"""
-                        get {
-                            var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                            let resultPtr = {{vtableInstanceName}}.func_{{property.Name}}_get!(
-                                {{vtableInstanceName}}.csVTHandle, &selfProto)
-                            return resultPtr.assumingMemoryBound(to: {{swiftTypeNameForMetatype}}.self).pointee
-                        }
-                        """);
-                }
-            }
+            EmitPropertyGetterBody(writer, property, swiftTypeNameForMetatype, getterBranches, extensionAvailability, forceSafeFanOut);
         }
 
         if (hasSetter)
         {
-            bool isObjCBridgeableSetter = IsObjCBridgeableParam(property.SwiftTypeSpec);
-            if (isObjCBridgeableSetter)
-            {
-                writer.WriteLines($$"""
-                    set {
-                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                        let newValueNS = newValue as AnyObject
-                        var newValueRef = Unmanaged.passUnretained(newValueNS).toOpaque()
-                        {{vtableInstanceName}}.func_{{property.Name}}_set!(
-                            {{vtableInstanceName}}.csVTHandle, &selfProto, &newValueRef)
-                    }
-                    """);
-            }
-            else
-            {
-                writer.WriteLines($$"""
-                    set {
-                        var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                        var newValueCopy = newValue
-                        {{vtableInstanceName}}.func_{{property.Name}}_set!(
-                            {{vtableInstanceName}}.csVTHandle, &selfProto, &newValueCopy)
-                    }
-                    """);
-            }
+            EmitPropertySetterBody(writer, property, setterBranches, extensionAvailability, forceSafeFanOut);
         }
 
         writer.Indent--;
@@ -1669,55 +2026,408 @@ public class EveryProtocolEmitter
         writer.WriteLine();
     }
 
-    private void EmitSubscriptImplementation(SwiftWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, string vtableInstanceName, int index)
+    /// <summary>
+    /// Emits the getter body. When <paramref name="branches"/> has a single entry the body
+    /// is the historic single-branch shape; for two or more entries the body fans out
+    /// across every sibling vtable, picking the first one whose function pointer is
+    /// non-nil. See <see cref="EmitPropertyImplementation"/> for the rationale.
+    /// </summary>
+    private void EmitPropertyGetterBody(SwiftWriter writer, PropertyDecl property,
+        string swiftTypeNameForMetatype, IReadOnlyList<ProtocolDecl> branches,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null,
+        bool forceSafeFanOut = false)
     {
-        // Build parameter list
-        var parameters = new List<string>();
-        foreach (var param in subscript.IndexParameters)
+        bool isStringGetter = property.SwiftTypeSpec is NamedTypeSpec getterNts && getterNts.Name == "Swift.String";
+        bool isObjCBridgeableGetter = !isStringGetter && IsObjCBridgeableParam(property.SwiftTypeSpec);
+
+        writer.WriteLine("get {");
+        writer.Indent++;
+
+        // Single-branch fast path — keep the original shape so generated output stays
+        // byte-identical for the (overwhelming) non-sibling case. forceSafeFanOut overrides
+        // the fast path when the plan recorded filtered peers (see HasFilteredPeers).
+        if (branches.Count == 1 && !forceSafeFanOut)
         {
+            var soloVtable = GetVtableInstanceName(branches[0]);
+            var soloProtoName = branches[0].SwiftTypeName.ModuleQualifiedName;
+            writer.WriteLine($"var selfProto: {soloProtoName} = self");
+            writer.WriteLine($"let resultPtr = {soloVtable}.func_{property.Name}_get!(");
+            writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto)");
+        }
+        else
+        {
+            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var branch = branches[i];
+                var branchVtable = GetVtableInstanceName(branch);
+                var branchProtoName = branch.SwiftTypeName.ModuleQualifiedName;
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branch, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_{property.Name}_get {{");
+                writer.Indent++;
+                writer.WriteLine($"var selfProto: {branchProtoName} = self");
+                writer.WriteLine($"resultPtr = fn({branchVtable}.csVTHandle, &selfProto)");
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for getter of '{property.Name}'\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        if (isStringGetter)
+        {
+            writer.WriteLines("""
+                let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+                var str: Swift.String = ""
+                if slice.len > 0 {
+                    let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                    str = String(decoding: buffer, as: UTF8.self)
+                }
+                slice.ptr.deallocate()
+                resultPtr.deallocate()
+                return str
+                """);
+        }
+        else if (isObjCBridgeableGetter)
+        {
+            writer.WriteLines($$"""
+                let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                resultPtr.deallocate()
+                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{swiftTypeNameForMetatype}}
+                """);
+        }
+        else
+        {
+            writer.WriteLine($"return resultPtr.assumingMemoryBound(to: {swiftTypeNameForMetatype}.self).pointee");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits the setter body. Setter fan-out only applies when more than one sibling
+    /// carries a setter; the get-only-plus-get+set sibling case keeps the single-branch
+    /// shape because only the owner could ever have its setter vtable populated.
+    /// </summary>
+    private void EmitPropertySetterBody(SwiftWriter writer, PropertyDecl property,
+        IReadOnlyList<ProtocolDecl> branches,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null,
+        bool forceSafeFanOut = false)
+    {
+        bool isObjCBridgeableSetter = IsObjCBridgeableParam(property.SwiftTypeSpec);
+
+        writer.WriteLine("set {");
+        writer.Indent++;
+
+        if (branches.Count == 1 && !forceSafeFanOut)
+        {
+            // Single-branch shape: keep the historical `vtable.func_X_set!(...)` force-unwrap
+            // path so generated output stays byte-identical for the non-sibling case.
+            var branch = branches[0];
+            var branchVtable = GetVtableInstanceName(branch);
+            EmitSetterCallSite(writer, property, branch,
+                fnExpr: $"{branchVtable}.func_{property.Name}_set!",
+                branchVtableExpr: $"{branchVtable}.csVTHandle",
+                isObjCBridgeableSetter);
+        }
+        else
+        {
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var branch = branches[i];
+                var branchVtable = GetVtableInstanceName(branch);
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branch, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_{property.Name}_set {{");
+                writer.Indent++;
+                EmitSetterCallSite(writer, property, branch,
+                    fnExpr: "fn",
+                    branchVtableExpr: $"{branchVtable}.csVTHandle",
+                    isObjCBridgeableSetter);
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for setter of '{property.Name}'\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    private static void EmitSetterCallSite(SwiftWriter writer, PropertyDecl property,
+        ProtocolDecl branch, string fnExpr, string branchVtableExpr, bool isObjCBridgeableSetter)
+    {
+        var protoName = branch.SwiftTypeName.ModuleQualifiedName;
+        if (isObjCBridgeableSetter)
+        {
+            writer.WriteLines($$"""
+                var selfProto: {{protoName}} = self
+                let newValueNS = newValue as AnyObject
+                var newValueRef = Unmanaged.passUnretained(newValueNS).toOpaque()
+                {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
+                """);
+        }
+        else
+        {
+            writer.WriteLines($$"""
+                var selfProto: {{protoName}} = self
+                var newValueCopy = newValue
+                {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueCopy)
+                """);
+        }
+    }
+
+    /// <summary>
+    /// Emits the dispatch body for a protocol subscript requirement on the EveryProtocol
+    /// extension. When <paramref name="plan"/> describes a sibling group with more than
+    /// one member, the body fans out across each sibling's vtable — checking each
+    /// function-pointer field for non-nil and dispatching through whichever sibling the
+    /// registered C# proxy populated. Mirrors <see cref="EmitPropertyImplementation"/>;
+    /// see <see cref="SubscriptEmissionPlan"/> for the resolution rules.
+    /// </summary>
+    private void EmitSubscriptImplementation(SwiftWriter writer, SubscriptDecl subscript, ProtocolDecl protocolDecl, string vtableInstanceName, int index, SubscriptEmissionPlan? plan = null, IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
+    {
+        // Build parameter list. Swift subscripts default to NO external label when only one
+        // name is written (`subscript(at: Int)` parses as external=_, internal=at — opposite of
+        // `func foo(at: Int)`). Always emit the explicit `<external> <internal>:` form so an
+        // external label declared on the protocol (`subscript(by index: Int)`) survives into
+        // the EveryProtocol witness.
+        var parameters = new List<string>();
+        for (int i = 0; i < subscript.IndexParameters.Count; i++)
+        {
+            var param = subscript.IndexParameters[i];
             var paramTypeName = GetSwiftTypeName(param.SwiftTypeSpec);
-            var paramName = string.IsNullOrEmpty(param.Name) ? "index" : param.Name;
-            parameters.Add($"{paramName}: {paramTypeName}");
+            var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
+            var internalName = $"arg{i}";
+            parameters.Add($"{externalLabel} {internalName}: {paramTypeName}");
         }
         var parametersString = string.Join(", ", parameters);
 
         var returnTypeName = GetSwiftTypeName(subscript.ReturnTypeSpec);
         var returnTypeNameForMetatype = GetSwiftTypeNameForMetatype(subscript.ReturnTypeSpec);
 
+        // Resolve the dispatch branches. A solo group (no siblings) keeps the original
+        // single-branch shape via a one-entry list; a real sibling group fans out across
+        // every sibling for the getter, and across the has-setter subset for the setter.
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> getterBranches = plan?.GetterSiblings.Count > 1
+            ? plan.GetterSiblings
+            : new[] { (protocolDecl, index) };
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> setterBranches = plan?.SetterSiblings.Count > 1
+            ? plan.SetterSiblings
+            : new[] { (protocolDecl, index) };
+        // Mirror of property safety net — see EmitPropertyImplementation.
+        bool forceSafeFanOut = plan?.HasFilteredPeers == true;
+
         writer.WriteLine($"public subscript({parametersString}) -> {returnTypeName} {{");
         writer.Indent++;
 
         if (subscript.HasGetter)
         {
-            var argPassList = BuildArgumentPassList(subscript.IndexParameters);
-            writer.WriteLines($$"""
-                get {
-                    var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                    {{argPassList}}
-                    let resultPtr = {{vtableInstanceName}}.func_subscript_{{index}}_get!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto{{BuildArgRefs(subscript.IndexParameters)}})
-                    return resultPtr.assumingMemoryBound(to: {{returnTypeNameForMetatype}}.self).pointee
-                }
-                """);
+            EmitSubscriptGetterBody(writer, subscript, returnTypeNameForMetatype, getterBranches, extensionAvailability, forceSafeFanOut);
         }
 
         if (subscript.HasSetter)
         {
-            var argPassList = BuildArgumentPassList(subscript.IndexParameters);
-            writer.WriteLines($$"""
-                set {
-                    var selfProto: {{protocolDecl.SwiftTypeName.ModuleQualifiedName}} = self
-                    var newValueCopy = newValue
-                    {{argPassList}}
-                    {{vtableInstanceName}}.func_subscript_{{index}}_set!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto, &newValueCopy{{BuildArgRefs(subscript.IndexParameters)}})
-                }
-                """);
+            EmitSubscriptSetterBody(writer, subscript, setterBranches, extensionAvailability, forceSafeFanOut);
         }
 
         writer.Indent--;
         writer.WriteLine("}");
         writer.WriteLine();
+    }
+
+    /// <summary>
+    /// Emits the subscript getter body. When <paramref name="branches"/> has a single entry
+    /// the body is the historic single-branch shape; for two or more entries the body fans
+    /// out across every sibling vtable, picking the first one whose function pointer is
+    /// non-nil. Each branch uses its own per-protocol subscript index so the
+    /// <c>func_subscript_{Index}_get</c> field name matches the vtable struct emitted for
+    /// that sibling protocol. See <see cref="EmitSubscriptImplementation"/> for the rationale.
+    /// </summary>
+    private void EmitSubscriptGetterBody(SwiftWriter writer, SubscriptDecl subscript,
+        string returnTypeNameForMetatype, IReadOnlyList<(ProtocolDecl Proto, int Index)> branches,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null,
+        bool forceSafeFanOut = false)
+    {
+        var argRefs = BuildArgRefs(subscript.IndexParameters);
+        // String/ObjC-bridge returns must mirror the property fan-out wrapper's decode shape
+        // (see EmitPropertyImplementation around `isStringGetter`). The C# subscript receiver
+        // returns a pointer to SBW_Utf8Slice for strings, not a Swift.String buffer, so the
+        // wrapper must decode the slice rather than reinterpret-casting.
+        bool isStringGetter = subscript.ReturnTypeSpec is NamedTypeSpec returnNts && returnNts.Name == "Swift.String";
+        bool isObjCBridgeableGetter = !isStringGetter && IsObjCBridgeableParam(subscript.ReturnTypeSpec);
+
+        writer.WriteLine("get {");
+        writer.Indent++;
+
+        if (branches.Count == 1 && !forceSafeFanOut)
+        {
+            var (soloProto, soloIndex) = branches[0];
+            var soloVtable = GetVtableInstanceName(soloProto);
+            var soloProtoName = soloProto.SwiftTypeName.ModuleQualifiedName;
+            writer.WriteLine($"var selfProto: {soloProtoName} = self");
+            EmitSubscriptArgCopies(writer, subscript.IndexParameters);
+            writer.WriteLine($"let resultPtr = {soloVtable}.func_subscript_{soloIndex}_get!(");
+            writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto{argRefs})");
+        }
+        else
+        {
+            EmitSubscriptArgCopies(writer, subscript.IndexParameters);
+            writer.WriteLine("let resultPtr: UnsafeRawPointer");
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var (branchProto, branchIndex) = branches[i];
+                var branchVtable = GetVtableInstanceName(branchProto);
+                var branchProtoName = branchProto.SwiftTypeName.ModuleQualifiedName;
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branchProto, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_subscript_{branchIndex}_get {{");
+                writer.Indent++;
+                writer.WriteLine($"var selfProto: {branchProtoName} = self");
+                writer.WriteLine($"resultPtr = fn({branchVtable}.csVTHandle, &selfProto{argRefs})");
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for getter of subscript\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        if (isStringGetter)
+        {
+            writer.WriteLines("""
+                let slice = resultPtr.load(as: SBW_Utf8Slice.self)
+                var str: Swift.String = ""
+                if slice.len > 0 {
+                    let buffer = UnsafeBufferPointer(start: slice.ptr, count: slice.len)
+                    str = String(decoding: buffer, as: UTF8.self)
+                }
+                slice.ptr.deallocate()
+                resultPtr.deallocate()
+                return str
+                """);
+        }
+        else if (isObjCBridgeableGetter)
+        {
+            writer.WriteLines($$"""
+                let resultObjPtr = resultPtr.load(as: UnsafeRawPointer.self)
+                resultPtr.deallocate()
+                return Unmanaged<AnyObject>.fromOpaque(resultObjPtr).takeUnretainedValue() as! {{returnTypeNameForMetatype}}
+                """);
+        }
+        else
+        {
+            writer.WriteLine($"return resultPtr.assumingMemoryBound(to: {returnTypeNameForMetatype}.self).pointee");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits the subscript setter body. Setter fan-out only applies when more than one
+    /// sibling carries a setter. Each branch uses its own per-protocol subscript index so
+    /// the <c>func_subscript_{Index}_set</c> field name matches the vtable struct emitted
+    /// for that sibling protocol.
+    /// </summary>
+    private void EmitSubscriptSetterBody(SwiftWriter writer, SubscriptDecl subscript,
+        IReadOnlyList<(ProtocolDecl Proto, int Index)> branches,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null,
+        bool forceSafeFanOut = false)
+    {
+        var argRefs = BuildArgRefs(subscript.IndexParameters);
+
+        writer.WriteLine("set {");
+        writer.Indent++;
+
+        if (branches.Count == 1 && !forceSafeFanOut)
+        {
+            var (soloProto, soloIndex) = branches[0];
+            var soloVtable = GetVtableInstanceName(soloProto);
+            var soloProtoName = soloProto.SwiftTypeName.ModuleQualifiedName;
+            writer.WriteLine($"var selfProto: {soloProtoName} = self");
+            writer.WriteLine("var newValueCopy = newValue");
+            EmitSubscriptArgCopies(writer, subscript.IndexParameters);
+            writer.WriteLine($"{soloVtable}.func_subscript_{soloIndex}_set!(");
+            writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto, &newValueCopy{argRefs})");
+        }
+        else
+        {
+            writer.WriteLine("var newValueCopy = newValue");
+            EmitSubscriptArgCopies(writer, subscript.IndexParameters);
+            for (int i = 0; i < branches.Count; i++)
+            {
+                var (branchProto, branchIndex) = branches[i];
+                var branchVtable = GetVtableInstanceName(branchProto);
+                var branchProtoName = branchProto.SwiftTypeName.ModuleQualifiedName;
+                var clause = i == 0 ? "if" : "else if";
+                var guard = BuildBranchGuardPrefix(branchProto, extensionAvailability);
+                writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_subscript_{branchIndex}_set {{");
+                writer.Indent++;
+                writer.WriteLine($"var selfProto: {branchProtoName} = self");
+                writer.WriteLine($"fn({branchVtable}.csVTHandle, &selfProto, &newValueCopy{argRefs})");
+                writer.Indent--;
+                writer.Write("} ");
+            }
+            writer.WriteLine("else {");
+            writer.Indent++;
+            writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for setter of subscript\")");
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Writes one <c>var argNCopy = arg</c> line per subscript index parameter at the
+    /// current writer indent. Distinct from <see cref="BuildArgumentPassList"/> which
+    /// returns a single string with hard-coded inter-line indentation tailored to the
+    /// historic heredoc emission path.
+    /// </summary>
+    private static void EmitSubscriptArgCopies(SwiftWriter writer, IReadOnlyList<ArgumentDecl> parameters)
+    {
+        // Internal names are always `arg{i}` (see EmitSubscriptImplementation for why subscripts
+        // get synthetic internal names rather than re-using the external label).
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            var internalName = $"arg{i}";
+            writer.WriteLine($"var {internalName}Copy = {internalName}");
+        }
+    }
+
+    // Subscript external-label resolution is centralized in NameProvider.GetSubscriptExternalLabel.
+
+    /// <summary>
+    /// Builds the per-branch <c>#available(...)</c> guard prefix for an <c>if</c>/<c>else if</c>
+    /// condition in a sibling fan-out. Returns the guard expression with a trailing comma+space
+    /// suitable for prepending before <c>let fn = ...</c>, or an empty string if the branch's
+    /// availability is already satisfied by the enclosing extension's availability.
+    ///
+    /// Required when a sibling protocol carries stricter availability than the owner's enclosing
+    /// extension — referencing the sibling's vtable type from the owner's body would otherwise
+    /// fail Swift's availability check (e.g., MusicKit.AlbumFilter@iOS15.0 fan-out body referencing
+    /// MusicKit.CuratorFilter_witness@iOS15.4 must guard the branch with <c>#available(iOS 15.4, *)</c>).
+    /// </summary>
+    private static string BuildBranchGuardPrefix(ProtocolDecl branch,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability)
+    {
+        var branchAvail = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
+            branch.AvailabilityAnnotations, branch.ParentDecl);
+        var guard = WrapperEmitterHelpers.BuildBranchAvailabilityGuard(branchAvail, extensionAvailability);
+        return string.IsNullOrEmpty(guard) ? string.Empty : guard + ", ";
     }
 
     /// <summary>
@@ -2117,12 +2827,16 @@ public class EveryProtocolEmitter
     /// </summary>
     private void EmitSelfTypedSubscriptStub(SwiftWriter writer, SubscriptDecl subscript, int index)
     {
+        // Same external-label hazard as EmitSubscriptImplementation: subscripts require the
+        // explicit `<external> <internal>:` form to preserve the protocol's argument label.
         var parameters = new List<string>();
-        foreach (var param in subscript.IndexParameters)
+        for (int i = 0; i < subscript.IndexParameters.Count; i++)
         {
+            var param = subscript.IndexParameters[i];
             var typeName = RenderTypeSpecWithSelfSubstitution(param.SwiftTypeSpec);
-            var paramName = string.IsNullOrEmpty(param.Name) ? "index" : param.Name;
-            parameters.Add($"{paramName}: {typeName}");
+            var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
+            var internalName = $"arg{i}";
+            parameters.Add($"{externalLabel} {internalName}: {typeName}");
         }
 
         var returnTypeName = RenderTypeSpecWithSelfSubstitution(subscript.ReturnTypeSpec);
@@ -2540,7 +3254,9 @@ public class EveryProtocolEmitter
     /// box.
     /// </summary>
     private void EmitDispatchableClosurePropertyImplementation(SwiftWriter writer, PropertyDecl property,
-        ProtocolDecl protocolDecl, string vtableInstanceName, ClosureHandler closureHandler)
+        ProtocolDecl protocolDecl, string vtableInstanceName, ClosureHandler closureHandler,
+        PropertyEmissionPlan? plan = null,
+        IReadOnlyList<AvailabilityAnnotation>? extensionAvailability = null)
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
@@ -2550,40 +3266,72 @@ public class EveryProtocolEmitter
             throw new InvalidOperationException(
                 $"EmitDispatchableClosurePropertyImplementation called on non-dispatchable property '{property.Name}'.");
 
+        // Same sibling fan-out shape as the value-typed property path (see
+        // EmitPropertyImplementation / EmitPropertyGetterBody): when the
+        // property belongs to a sibling group, the owner body walks each
+        // sibling's vtable and dispatches through whichever function pointer
+        // the registered proxy populated. Without this the owner force-unwraps
+        // its own nil pointer when a smaller-sibling proxy is in play.
+        IReadOnlyList<ProtocolDecl> getterBranches = plan?.GetterSiblings.Count > 1
+            ? plan.GetterSiblings
+            : new[] { protocolDecl };
+        IReadOnlyList<ProtocolDecl> setterBranches = plan?.SetterSiblings.Count > 1
+            ? plan.SetterSiblings
+            : new[] { protocolDecl };
+        // Mirror of EmitPropertyImplementation safety net — when peers were filtered out
+        // of the plan (e.g. mixed-generic siblings) the owner must use the nil-check
+        // fan-out shape even for a single emittable branch.
+        bool forceSafeFanOut = plan?.HasFilteredPeers == true;
+
         writer.WriteLine($"public var {property.Name}: {swiftTypeName} {{");
         writer.Indent++;
 
         if (hasGetter)
         {
-            // Allocate two pointer-width slots on the C# side, read (fnPtr, ctxPtr) back,
-            // and materialise a Swift closure value via _sbWrapClosureContext + unsafeBitCast.
-            // Optional<Closure>: nil fnPtr → return nil. Non-Optional: nil from C# is a contract
-            // violation; we still defensively fall through to fatalError so misuse is loud.
             var conventionCType = ClosureEmitter.GetSwiftConventionCType(closure, closureHandler);
-            var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
-            var fieldGetter = $"{vtableInstanceName}.func_{property.Name}_get";
 
-            writer.WriteLines($$"""
-                get {
-                    var selfProto: {{protocolName}} = self
-                    let resultPtr = {{fieldGetter}}!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto)
-                    let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
-                    let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
-                    resultPtr.deallocate()
-                """);
+            writer.WriteLine("get {");
             writer.Indent++;
-            if (isOptional)
+            if (getterBranches.Count == 1 && !forceSafeFanOut)
             {
-                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { return nil }");
+                var soloProto = getterBranches[0].SwiftTypeName.ModuleQualifiedName;
+                var soloVtable = GetVtableInstanceName(getterBranches[0]);
+                writer.WriteLine($"var selfProto: {soloProto} = self");
+                writer.WriteLine($"let resultPtr = {soloVtable}.func_{property.Name}_get!(");
+                writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto)");
             }
             else
             {
-                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
+                writer.WriteLine("let resultPtr: UnsafeRawPointer");
+                for (int i = 0; i < getterBranches.Count; i++)
+                {
+                    var branch = getterBranches[i];
+                    var branchVtable = GetVtableInstanceName(branch);
+                    var branchProto = branch.SwiftTypeName.ModuleQualifiedName;
+                    var clause = i == 0 ? "if" : "else if";
+                    var guard = BuildBranchGuardPrefix(branch, extensionAvailability);
+                    writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_{property.Name}_get {{");
+                    writer.Indent++;
+                    writer.WriteLine($"var selfProto: {branchProto} = self");
+                    writer.WriteLine($"resultPtr = fn({branchVtable}.csVTHandle, &selfProto)");
+                    writer.Indent--;
+                    writer.Write("} ");
+                }
+                writer.WriteLine("else {");
+                writer.Indent++;
+                writer.WriteLine($"fatalError(\"EveryProtocol: no sibling vtable populated for closure property '{property.Name}' getter\")");
+                writer.Indent--;
+                writer.WriteLine("}");
             }
-            // Wrap the GCHandle context in a Swift-ARC owner-token box: when the returned
-            // closure (and thus the captured box) is released, the box's deinit fires the
-            // C# free callback registered by SwiftClosureContext.EnsureRegistered.
+            writer.WriteLines("""
+                let fnPtrSlot = resultPtr.load(as: UnsafeRawPointer?.self)
+                let ctxPtrSlot = resultPtr.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeMutableRawPointer?.self)
+                resultPtr.deallocate()
+                """);
+            if (isOptional)
+                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { return nil }");
+            else
+                writer.WriteLine("guard let _fnPtr = fnPtrSlot else { fatalError(\"EveryProtocol: closure property '" + property.Name + "' getter returned nil function pointer\") }");
             writer.WriteLine($"let _ctxPtr: UnsafeMutableRawPointer? = ctxPtrSlot");
             writer.WriteLine($"let _box: AnyObject? = ctxPtrSlot.map {{ {ClosureContextHelperEmitter.WrapFunctionName}($0) }}");
             writer.WriteLine($"let _cdecl = unsafeBitCast(_fnPtr, to: ({conventionCType}).self)");
@@ -2594,22 +3342,45 @@ public class EveryProtocolEmitter
 
         if (hasSetter)
         {
-            var setterField = $"{vtableInstanceName}.func_{property.Name}_set";
-            var protocolName = protocolDecl.SwiftTypeName.ModuleQualifiedName;
-            writer.WriteLines($$"""
-                set {
-                    var selfProto: {{protocolName}} = self
-                    var newValueLocal = newValue
-                    let (_fnPtr, _ctxPtr): (UnsafeRawPointer?, UnsafeRawPointer?) = withUnsafeBytes(of: &newValueLocal) { _bytes in
-                        return (
-                            _bytes.load(as: UnsafeRawPointer?.self),
-                            _bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer?.self)
-                        )
-                    }
-                    {{setterField}}!(
-                        {{vtableInstanceName}}.csVTHandle, &selfProto, _fnPtr, _ctxPtr)
+            writer.WriteLine("set {");
+            writer.Indent++;
+            writer.WriteLines("""
+                var newValueLocal = newValue
+                let (_fnPtr, _ctxPtr): (UnsafeRawPointer?, UnsafeRawPointer?) = withUnsafeBytes(of: &newValueLocal) { _bytes in
+                    return (
+                        _bytes.load(as: UnsafeRawPointer?.self),
+                        _bytes.load(fromByteOffset: MemoryLayout<UnsafeRawPointer>.size, as: UnsafeRawPointer?.self)
+                    )
                 }
                 """);
+            if (setterBranches.Count == 1 && !forceSafeFanOut)
+            {
+                var soloProto = setterBranches[0].SwiftTypeName.ModuleQualifiedName;
+                var soloVtable = GetVtableInstanceName(setterBranches[0]);
+                writer.WriteLine($"var selfProto: {soloProto} = self");
+                writer.WriteLine($"{soloVtable}.func_{property.Name}_set!(");
+                writer.WriteLine($"    {soloVtable}.csVTHandle, &selfProto, _fnPtr, _ctxPtr)");
+            }
+            else
+            {
+                for (int i = 0; i < setterBranches.Count; i++)
+                {
+                    var branch = setterBranches[i];
+                    var branchVtable = GetVtableInstanceName(branch);
+                    var branchProto = branch.SwiftTypeName.ModuleQualifiedName;
+                    var clause = i == 0 ? "if" : "else if";
+                    var guard = BuildBranchGuardPrefix(branch, extensionAvailability);
+                    writer.WriteLine($"{clause} {guard}let fn = {branchVtable}.func_{property.Name}_set {{");
+                    writer.Indent++;
+                    writer.WriteLine($"var selfProto: {branchProto} = self");
+                    writer.WriteLine($"fn({branchVtable}.csVTHandle, &selfProto, _fnPtr, _ctxPtr)");
+                    writer.Indent--;
+                    writer.Write("} ");
+                }
+                writer.WriteLine();
+            }
+            writer.Indent--;
+            writer.WriteLine("}");
         }
 
         writer.Indent--;
@@ -3338,17 +4109,42 @@ public class EveryProtocolEmitter
     /// Detects protocols with both method-level generic and non-generic instance members.
     /// These need ALL members emitted as stubs because the type projection pipeline generates
     /// incorrect types for non-generic members when method-level generic parameters are in scope.
+    ///
+    /// <para>The "has method-level generic" leg uses <see cref="HasMethodLevelGenericInSignature"/>
+    /// instead of <see cref="HasOnlyMethodLevelGenerics"/>: a method carrying BOTH a method-level
+    /// generic AND a Self-type param taints type projection just as much as a pure method-level
+    /// generic one, but HasOnlyMethodLevelGenerics filters it out (HasSelfTypeParamInSignature
+    /// short-circuits). Using the broader predicate keeps such protocols out of the sibling
+    /// plan input so they cannot win owner selection via lex tie-break and poison the group.</para>
     /// </summary>
     internal static bool IsMixedGenericProtocol(ProtocolDecl protocolDecl)
     {
         return protocolDecl.Methods
             .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
-            .Any(m => HasOnlyMethodLevelGenerics(m)) &&
+            .Any(HasMethodLevelGenericInSignature) &&
             (protocolDecl.Properties.Any(p => !p.IsStatic) ||
              protocolDecl.Subscripts.Any(s => !s.IsStatic) ||
              protocolDecl.Methods
                 .Where(m => !m.IsConstructor && m.MethodType != MethodType.Static)
-                .Any(m => !HasOnlyMethodLevelGenerics(m)));
+                .Any(m => !HasMethodLevelGenericInSignature(m)));
+    }
+
+    /// <summary>
+    /// Returns true when the method's signature contains a method-level (non-Self) generic
+    /// type parameter — a τ_1_+-depth name or a non-Self associated-type reference. Used by
+    /// <see cref="IsMixedGenericProtocol"/> to broaden the "has polluting generic method"
+    /// leg so methods carrying BOTH a method-level generic AND a Self param still count
+    /// toward the mixed-generic classification. <see cref="HasOnlyMethodLevelGenerics"/>
+    /// excludes that shape because it short-circuits on Self.
+    /// </summary>
+    internal static bool HasMethodLevelGenericInSignature(MethodDecl method)
+    {
+        for (int i = 0; i < method.CSSignature.Count; i++)
+        {
+            if (ContainsSubscriptLevelGenericDependent(method.CSSignature[i].SwiftTypeSpec))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -3669,12 +4465,13 @@ public class EveryProtocolEmitter
 
     private string BuildArgRefs(IReadOnlyList<ArgumentDecl> parameters)
     {
+        // Internal names are always synthetic `arg{i}` to stay aligned with the
+        // EmitSubscriptImplementation parameter list, which uses `<external> arg{i}: Type`
+        // form to preserve the protocol's external argument label.
         var refs = new List<string>();
         for (int i = 0; i < parameters.Count; i++)
         {
-            var param = parameters[i];
-            var paramName = string.IsNullOrEmpty(param.Name) || param.Name == "_" ? $"arg{i}" : param.Name;
-            refs.Add($"&{paramName}Copy");
+            refs.Add($"&arg{i}Copy");
         }
         return refs.Count > 0 ? ", " + string.Join(", ", refs) : "";
     }
@@ -4144,17 +4941,53 @@ public class EveryProtocolEmitter
     }
 
     /// <summary>
+    /// Returns true if the named protocol's EveryProtocol conformance has already been
+    /// classified as un-emittable by <see cref="PreScanProtocols"/> (HasSelfRequirement,
+    /// HasMissingRequirements, HasConventionCClosureParameters, HasSuppressedRequiredMember,
+    /// HasUnsatisfiedHiddenRequirements, HasMissingTbdMethodDescriptors,
+    /// HasSubscriptLevelGenericDependentMember, or transitive genericSig propagation).
+    /// Sibling-plan input must filter these out: if such a protocol won ownership, the owner
+    /// body would never land in the wrapper and the (otherwise emittable) siblings would skip
+    /// their own bodies, leaving the entire group with no usable witness.
+    /// </summary>
+    public bool IsConformanceSkipped(ProtocolDecl protocolDecl)
+    {
+        if (_skippedProtocols.Contains(protocolDecl.Name))
+            return true;
+        if (protocolDecl.SwiftTypeName != null &&
+            _skippedProtocols.Contains(protocolDecl.SwiftTypeName.ModuleQualifiedName))
+            return true;
+        return false;
+    }
+
+    /// <summary>
     /// Returns true if any instance method, property accessor, or subscript on the protocol
     /// has a noncopyable parameter or return type. The EveryProtocol trampoline uses inout
     /// pointers via a local-var copy, which the compiler rejects for ~Copyable types.
     /// Suppressing the entire conformance avoids generating ill-formed Swift in the wrapper.
     /// </summary>
     internal bool HasNoncopyableMember(ProtocolDecl protocolDecl)
+        => HasNoncopyableMember(protocolDecl, _typeDatabase);
+
+    /// <summary>
+    /// Static counterpart to the instance <see cref="HasNoncopyableMember(ProtocolDecl)"/>
+    /// gate so callers without an <c>EveryProtocolEmitter</c> instance (e.g.
+    /// <c>ModuleHandler</c> when filtering the input to
+    /// <see cref="ComputePropertyEmissionPlans"/> /
+    /// <see cref="ComputeSubscriptEmissionPlans"/>) can apply the same emittability
+    /// check. Mirrors the early-return at the top of <c>EmitProtocolConformance</c>:
+    /// protocols whose method/property/subscript signatures touch a noncopyable type
+    /// have their EveryProtocol conformance suppressed because the wrapper's
+    /// <c>inout</c> trampoline cannot copy the value across the C# boundary. Keeping
+    /// these protocols out of the sibling plan input prevents the owner body from
+    /// referencing a vtable that the wrapper never emits.
+    /// </summary>
+    public static bool HasNoncopyableMember(ProtocolDecl protocolDecl, ITypeDatabase typeDatabase)
     {
         bool IsNoncopyable(TypeSpec? spec)
         {
             if (spec == null || spec.IsEmptyTuple) return false;
-            return WrapperValidation.IsNonCopyableType(spec, _typeDatabase, protocolDecl.ModuleDecl);
+            return WrapperValidation.IsNonCopyableType(spec, typeDatabase, protocolDecl.ModuleDecl);
         }
 
         foreach (var method in protocolDecl.Methods)

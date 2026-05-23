@@ -2389,18 +2389,23 @@ namespace BindingsGeneration
 
             // Remaining children are index parameters
             var indexParameters = new List<ArgumentDecl>();
-            var paramNames = ExtractSubscriptParameterNames(node.PrintedName);
+            var paramInfo = ExtractSubscriptParameterNamesWithUnlabeled(node.PrintedName);
 
             for (int i = 1; i < children.Count; i++)
             {
-                var paramName = i - 1 < paramNames.Count ? paramNames[i - 1] : $"index{i - 1}";
+                var idx = i - 1;
+                var paramName = idx < paramInfo.Count ? paramInfo[idx].Name : $"index{idx}";
+                var originalSwiftName = idx < paramInfo.Count ? paramInfo[idx].OriginalSwiftName : null;
+                var isUnlabeled = idx < paramInfo.Count && paramInfo[idx].IsUnlabeled;
                 indexParameters.Add(new ArgumentDecl
                 {
                     SwiftTypeSpec = CreateTypeSpec(children[i]),
                     Name = paramName,
+                    OriginalSwiftName = originalSwiftName,
                     PrivateName = string.Empty,
                     IsInOut = false,
                     IsGeneric = false,
+                    IsUnlabeledSubscriptIndex = isUnlabeled,
                     ParentDecl = parentDecl,
                     ModuleDecl = moduleDecl
                 });
@@ -2472,10 +2477,17 @@ namespace BindingsGeneration
                             // have no argument label in Swift.
                             if (!indexParameters[i].Name.StartsWith("index"))
                                 indexParameters[i].Name = $"index{i}";
+                            indexParameters[i].IsUnlabeledSubscriptIndex = true;
                         }
                         else
                         {
-                            indexParameters[i].Name = label;
+                            // Apply C#-keyword safety so the Name field stays a valid C# identifier,
+                            // while OriginalSwiftName preserves the raw Swift label for emission paths
+                            // that backtick-escape via NameProvider.ParserNameToSwift.
+                            var (csLabel, swiftLabel) = ExtractUniqueNameWithOriginal(label);
+                            indexParameters[i].Name = csLabel;
+                            indexParameters[i].OriginalSwiftName = swiftLabel;
+                            indexParameters[i].IsUnlabeledSubscriptIndex = false;
                         }
                     }
                 }
@@ -2493,12 +2505,20 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Extracts parameter names from a subscript's printed name.
-        /// Examples: "subscript(_:)" -> ["_"], "subscript(row:column:)" -> ["row", "column"]
+        /// Extracts parameter names from a subscript's printed name, paired with a flag
+        /// indicating whether each position was originally unlabeled (<c>_</c>) in Swift and
+        /// the original Swift label (if the name was C#-keyword-safed).
+        /// Examples: "subscript(_:)" -> [("index0", null, true)], "subscript(row:column:)" -> [("row", null, false), ("column", null, false)],
+        /// "subscript(default:)" -> [("_default", "default", false)].
+        /// The IsUnlabeled flag is the ground truth for label suppression — pattern-matching
+        /// the synthetic <c>index{i}</c> name would mis-classify real user labels that happen
+        /// to spell <c>index0</c>, <c>index1</c>, etc. The OriginalSwiftName is required so
+        /// Swift emission can recover the real label (e.g. <c>default</c>) and backtick-escape
+        /// it, instead of leaking the C#-safe form (<c>_default</c>) into Swift signatures.
         /// </summary>
-        private List<string> ExtractSubscriptParameterNames(string printedName)
+        private List<(string Name, string? OriginalSwiftName, bool IsUnlabeled)> ExtractSubscriptParameterNamesWithUnlabeled(string printedName)
         {
-            var result = new List<string>();
+            var result = new List<(string Name, string? OriginalSwiftName, bool IsUnlabeled)>();
             var start = printedName.IndexOf('(');
             var end = printedName.LastIndexOf(')');
 
@@ -2514,11 +2534,12 @@ namespace BindingsGeneration
                 // If the parameter name is just "_", generate a unique name
                 if (name == "_")
                 {
-                    result.Add($"index{i}");
+                    result.Add(($"index{i}", null, true));
                 }
                 else
                 {
-                    result.Add(ExtractUniqueName(name));
+                    var (csName, swiftName) = ExtractUniqueNameWithOriginal(name);
+                    result.Add((csName, swiftName, false));
                 }
             }
 

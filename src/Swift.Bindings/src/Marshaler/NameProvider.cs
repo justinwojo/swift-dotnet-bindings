@@ -747,6 +747,23 @@ public static class NameProvider
         => IsSwiftKeyword(name) ? $"`{name}`" : name;
 
     /// <summary>
+    /// Returns the external Swift argument label to emit for a subscript index parameter,
+    /// keyword-escaped if necessary. Returns <c>_</c> when the source had no external label
+    /// (i.e. <c>subscript(name: T)</c> / <c>subscript(_ name: T)</c>), driven by
+    /// <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/> — never by a string pattern, since
+    /// real user labels can spell <c>index0</c>, <c>default</c>, etc. and would collide with
+    /// either the synthetic sentinel or a Swift keyword.
+    /// Recovers the raw Swift label via <see cref="ParserNameToSwift"/>, so keywords mangled to
+    /// C#-safe form (<c>default</c> → <c>_default</c>) are restored before backtick escaping.
+    /// </summary>
+    public static string GetSubscriptExternalLabel(ArgumentDecl param)
+    {
+        if (param.IsUnlabeledSubscriptIndex || string.IsNullOrEmpty(param.Name))
+            return "_";
+        return ParserNameToSwift(param);
+    }
+
+    /// <summary>
     /// Gets the correct Swift identifier for a declaration, with backtick escaping
     /// if it is a Swift keyword. Uses <see cref="BaseDecl.OriginalSwiftName"/> when
     /// available (set by the parser when the name was modified for C# safety),

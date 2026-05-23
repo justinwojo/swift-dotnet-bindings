@@ -401,6 +401,22 @@ public partial class ProtocolProxyEmitter
                     continue;
                 }
 
+                // Ancestor conformance was skipped (e.g. static-only requirements, hidden
+                // requirements, class-bound + non-NSObjectProtocol-only, etc.) so the
+                // ancestor's C# proxy class was suppressed by ProtocolHandler — there is no
+                // `XProxy` type to reference via `typeof`. ConformanceDecisions is populated
+                // by EveryProtocolEmitter BEFORE any proxy emission begins (ModuleHandler.
+                // EmitEveryProtocolConformances precedes ProtocolHandler), so this check is
+                // order-independent even when the ancestor's proxy is processed AFTER ours.
+                // Walk transitively so grandparents whose proxies WERE emitted still get a
+                // cctor call.
+                if (_emissionContext.ConformanceDecisions.Count > 0 &&
+                    !_emissionContext.WasConformanceEmitted(ancestorDecl.Name))
+                {
+                    queue.Enqueue(ancestorDecl);
+                    continue;
+                }
+
                 collected.Add(ancestorDecl);
                 queue.Enqueue(ancestorDecl);
             }

@@ -115,6 +115,19 @@ public partial class ProtocolProxyEmitter
 
         var pascalPropertyName = NameProvider.GetPropertyName(property.Name);
 
+        // Sibling-property fallback: when this property is part of a sibling group (two or
+        // more class-bound protocols declaring the same property name+type with differing
+        // accessor sets), the Swift fan-out picks ANY populated sibling vtable, not the one
+        // matching the proxy actually registered for this EveryProtocol instance. Without
+        // a per-instance fallback in the receiver, a smaller-sibling proxy whose vtable was
+        // skipped by the fan-out would silently return "" / no-op. We emit additional
+        // lookups across the sibling interfaces (filtered by setter-presence for the setter
+        // receiver) so whichever vtable Swift picks correctly locates the proxy.
+        // See EveryProtocolEmitter.ComputeSiblingPropertyFallbacks and the receiver-fallback
+        // helper EmitGetterFallbackLookups / EmitSetterFallbackLookups below.
+        var protoQName = EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl);
+        var siblingFallbacks = _emissionContext.GetSiblingPropertyFallbacks(protoQName, property.Name);
+
         if (hasGetter)
         {
             var receiverName = $"Receive_{property.Name}_get";
@@ -166,28 +179,43 @@ public partial class ProtocolProxyEmitter
                 var nullReturnStr = isStringReturn
                     ? "MarshalStringToUtf8Slice(string.Empty)"
                     : $"(IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{carrierTypeName}>())";
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                writer.Indent++;
-                writer.WriteLine($"return {nullReturnStr};");
-                writer.Indent--;
-                writer.WriteLine("var impl = proxy.UserImpl;");
-                writer.WriteLine("if (impl is null)");
-                writer.Indent++;
-                writer.WriteLine($"return {nullReturnStr};");
-                writer.Indent--;
-                writer.WriteLine($"var result = impl.{pascalPropertyName};");
-                if (isStringReturn)
+                if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    writer.WriteLine("return MarshalStringToUtf8Slice(result);");
-                }
-                else if (getterConversion != null)
-                {
-                    writer.WriteLine($"var swiftResult = {getterConversion};");
-                    writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
+                    writer.Indent++;
+                    writer.WriteLine($"return {nullReturnStr};");
+                    writer.Indent--;
+                    writer.WriteLine("var impl = proxy.UserImpl;");
+                    writer.WriteLine("if (impl is null)");
+                    writer.Indent++;
+                    writer.WriteLine($"return {nullReturnStr};");
+                    writer.Indent--;
+                    writer.WriteLine($"var result = impl.{pascalPropertyName};");
+                    if (isStringReturn)
+                    {
+                        writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+                    }
+                    else if (getterConversion != null)
+                    {
+                        writer.WriteLine($"var swiftResult = {getterConversion};");
+                        writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                    }
+                    else
+                    {
+                        writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                    }
                 }
                 else
                 {
-                    writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                    EmitGetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, getterConversion, isStringReturn);
+                    int siblingIdx = 0;
+                    foreach (var sibling in siblingFallbacks)
+                    {
+                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                        EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, isStringReturn);
+                        siblingIdx++;
+                    }
+                    writer.WriteLine($"return {nullReturnStr};");
                 }
                 writer.Indent--;
                 writer.WriteLine("}");
@@ -217,24 +245,48 @@ public partial class ProtocolProxyEmitter
                     ? $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr)"
                     : $"MarshalFromSwift<{abiTypeName}>(valuePtr)";
 
-                writer.WriteLines($$"""
-                    [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
-                    private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
-                    {
-                        var handle = *(IntPtr*)selfContainer;
-                        // Dead-impl safe: silently drop the write if the proxy is unregistered
-                        // or the managed impl has already been GC'd. A throw here would propagate
-                        // across the [UnmanagedCallersOnly] boundary and terminate the process.
-                        if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>>(handle, out var proxy) || proxy is null)
-                            return;
-                        var impl = proxy.UserImpl;
-                        if (impl is null)
-                            return;
-                        var value = {{marshalExpr}};
-                        impl.{{pascalPropertyName}} = {{assignmentExpr}};
-                    }
+                var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
+                if (setterSiblings == null || setterSiblings.Count == 0)
+                {
+                    writer.WriteLines($$"""
+                        [UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+                        private static void {{receiverName}}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)
+                        {
+                            var handle = *(IntPtr*)selfContainer;
+                            // Dead-impl safe: silently drop the write if the proxy is unregistered
+                            // or the managed impl has already been GC'd. A throw here would propagate
+                            // across the [UnmanagedCallersOnly] boundary and terminate the process.
+                            if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{{interfaceName}}>>(handle, out var proxy) || proxy is null)
+                                return;
+                            var impl = proxy.UserImpl;
+                            if (impl is null)
+                                return;
+                            var value = {{marshalExpr}};
+                            impl.{{pascalPropertyName}} = {{assignmentExpr}};
+                        }
 
-                    """);
+                        """);
+                }
+                else
+                {
+                    writer.WriteLine("[UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+                    writer.WriteLine($"private static void {receiverName}(IntPtr vtHandle, IntPtr selfContainer, IntPtr valuePtr)");
+                    writer.WriteLine("{");
+                    writer.Indent++;
+                    writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
+                    writer.WriteLine($"var value = {marshalExpr};");
+                    EmitSetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, assignmentExpr);
+                    int siblingIdx = 0;
+                    foreach (var sibling in setterSiblings)
+                    {
+                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                        EmitSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, assignmentExpr);
+                        siblingIdx++;
+                    }
+                    writer.Indent--;
+                    writer.WriteLine("}");
+                    writer.WriteLine();
+                }
             }
         }
     }
@@ -261,6 +313,16 @@ public partial class ProtocolProxyEmitter
         var delegateType = closureHandler.GetCSharpDelegateType(closure);
         var nullableDelegateType = isOptional ? $"{delegateType}?" : delegateType;
 
+        // Sibling fallback applies the same shape as value-typed properties — see
+        // EmitPropertyReceivers above. Closure properties have a different value
+        // shape (16-byte (fnPtr, ctxPtr) buffer / set takes the pair) but the
+        // proxy-lookup-fan-out logic is identical: any populated sibling vtable
+        // can route to this receiver, so we must try each sibling's
+        // IProtocolProxyImpl<T> after the primary.
+        var protoQName = EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl);
+        var siblingFallbacks = _emissionContext.GetSiblingPropertyFallbacks(protoQName, property.Name);
+        var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
+
         // Per-(protocol, property) C# cdecl thunk + invoker class — fired from Swift when
         // the materialised getter closure is called. ctx is the GCHandle.ToIntPtr of the
         // user-supplied delegate stored on impl.<PascalProp>; the box wrapping it on the
@@ -281,28 +343,30 @@ public partial class ProtocolProxyEmitter
                 writer.WriteLine("{");
                 writer.Indent++;
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                writer.Indent++;
-                writer.WriteLine("return;");
-                writer.Indent--;
-                writer.WriteLine("var impl = proxy.UserImpl;");
-                writer.WriteLine("if (impl is null)");
-                writer.Indent++;
-                writer.WriteLine("return;");
-                writer.Indent--;
-                writer.WriteLine("if (rawFn == IntPtr.Zero)");
-                writer.WriteLine("{");
-                writer.Indent++;
-                if (isOptional)
-                    writer.WriteLine($"impl.{pascalPropertyName} = null;");
+                if (setterSiblings == null || setterSiblings.Count == 0)
+                {
+                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
+                    writer.Indent++;
+                    writer.WriteLine("return;");
+                    writer.Indent--;
+                    writer.WriteLine("var impl = proxy.UserImpl;");
+                    writer.WriteLine("if (impl is null)");
+                    writer.Indent++;
+                    writer.WriteLine("return;");
+                    writer.Indent--;
+                    EmitClosureSetterBody(writer, isOptional, pascalPropertyName, delegateType, invokerClassName, implVar: "impl");
+                }
                 else
-                    writer.WriteLine($"// Non-Optional closure property: nil fnPtr is a contract violation; leave existing impl value unchanged.");
-                writer.WriteLine("return;");
-                writer.Indent--;
-                writer.WriteLine("}");
-                writer.WriteLine($"var _wrapper = SwiftEscapingClosure<{delegateType}>.FromSwift(rawFn, rawCtx);");
-                writer.WriteLine($"var _inv = new {invokerClassName}((nint)_wrapper.FunctionPointer, (nint)_wrapper.Context, _wrapper);");
-                writer.WriteLine($"impl.{pascalPropertyName} = _inv.Invoke;");
+                {
+                    EmitClosureSetterLookupHit(writer, interfaceName, "primary", isOptional, pascalPropertyName, delegateType, invokerClassName);
+                    int idx = 0;
+                    foreach (var sibling in setterSiblings)
+                    {
+                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                        EmitClosureSetterLookupHit(writer, siblingIface, $"s{idx}", isOptional, pascalPropertyName, delegateType, invokerClassName);
+                        idx++;
+                    }
+                }
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -322,26 +386,32 @@ public partial class ProtocolProxyEmitter
                 // 16-byte buffer carrying (fnPtr, ctxPtr). Allocate up-front so every exit
                 // path returns the same shape.
                 writer.WriteLine("var buf = (IntPtr)NativeMemory.AllocZeroed(16);");
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                writer.Indent++;
-                writer.WriteLine("return buf;");
-                writer.Indent--;
-                writer.WriteLine("var impl = proxy.UserImpl;");
-                writer.WriteLine("if (impl is null)");
-                writer.Indent++;
-                writer.WriteLine("return buf;");
-                writer.Indent--;
-                writer.WriteLine($"{nullableDelegateType} _del = impl.{pascalPropertyName};");
-                writer.WriteLine("if (_del is null)");
-                writer.Indent++;
-                writer.WriteLine("return buf;");
-                writer.Indent--;
-                // GCHandle is freed by the Swift-side _SBClosureCtx box's deinit via the
-                // SwiftClosureContext destroy trampoline. Caller (Swift) takes ownership.
-                writer.WriteLine("var _gch = global::System.Runtime.InteropServices.GCHandle.Alloc(_del);");
-                writer.WriteLine($"*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&{getterThunkName};");
-                writer.WriteLine("*(IntPtr*)(buf + IntPtr.Size) = global::System.Runtime.InteropServices.GCHandle.ToIntPtr(_gch);");
-                writer.WriteLine("return buf;");
+                if (siblingFallbacks == null || siblingFallbacks.Count == 0)
+                {
+                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
+                    writer.Indent++;
+                    writer.WriteLine("return buf;");
+                    writer.Indent--;
+                    writer.WriteLine("var impl = proxy.UserImpl;");
+                    writer.WriteLine("if (impl is null)");
+                    writer.Indent++;
+                    writer.WriteLine("return buf;");
+                    writer.Indent--;
+                    EmitClosureGetterBody(writer, pascalPropertyName, nullableDelegateType, getterThunkName, implVar: "impl");
+                    writer.WriteLine("return buf;");
+                }
+                else
+                {
+                    EmitClosureGetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, nullableDelegateType, getterThunkName);
+                    int idx = 0;
+                    foreach (var sibling in siblingFallbacks)
+                    {
+                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                        EmitClosureGetterLookupHit(writer, siblingIface, $"s{idx}", pascalPropertyName, nullableDelegateType, getterThunkName);
+                        idx++;
+                    }
+                    writer.WriteLine("return buf;");
+                }
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
@@ -529,6 +599,17 @@ public partial class ProtocolProxyEmitter
         // P0: Use ABI type for MarshalFromSwift (reads Swift memory layout)
         var returnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec, forAbiMarshalling: true);
         var paramCount = subscript.IndexParameters.Count;
+        var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
+
+        // Sibling-subscript fallback: same shape as the property sibling pipeline. When
+        // this subscript participates in a sibling group, the Swift fan-out can pick any
+        // populated sibling vtable, so each receiver tries its own interface first and then
+        // falls back to the recorded sibling interfaces. See
+        // EveryProtocolEmitter.ComputeSiblingSubscriptFallbacks.
+        var protoQName = EveryProtocolEmitter.GetProtocolFallbackKey(protocolDecl);
+        var subscriptKey = $"subscript_{index}(" +
+            string.Join(",", subscript.IndexParameters.Select(p => p.SwiftTypeSpec?.ToString() ?? "")) + ")";
+        var siblingFallbacks = _emissionContext.GetSiblingSubscriptFallbacks(protoQName, subscriptKey);
 
         if (subscript.HasGetter)
         {
@@ -550,26 +631,18 @@ public partial class ProtocolProxyEmitter
                 // Codex P1 #1: size the fallback by the carrier the success path uses for
                 // MarshalToSwiftBuffer<T>(...), not by the idiomatic interface type.
                 var subscriptIsString = IsStringTypeSpec(subscript.ReturnTypeSpec);
-                var subscriptGetterConvForSizing = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
+                var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
                     ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
                 var subscriptPublicReturnTypeName = GetCSharpTypeName(subscript.ReturnTypeSpec);
-                var subscriptCarrierTypeName = subscriptGetterConvForSizing != null
+                var subscriptCarrierTypeName = subscriptGetterConv != null
                     ? (GetReceiverGetterCarrierType(subscript.ReturnTypeSpec) ?? subscriptPublicReturnTypeName)
                     : subscriptPublicReturnTypeName;
                 var subscriptNullReturnStr = subscriptIsString
                     ? "MarshalStringToUtf8Slice(string.Empty)"
                     : $"(IntPtr)NativeMemory.AllocZeroed((nuint)Unsafe.SizeOf<{subscriptCarrierTypeName}>())";
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                writer.Indent++;
-                writer.WriteLine($"return {subscriptNullReturnStr};");
-                writer.Indent--;
-                writer.WriteLine("var impl = proxy.UserImpl;");
-                writer.WriteLine("if (impl is null)");
-                writer.Indent++;
-                writer.WriteLine($"return {subscriptNullReturnStr};");
-                writer.Indent--;
 
-                // Unmarshal index parameters — P0: use ABI types for MarshalFromSwift
+                // Unmarshal index parameters once — same indexes used for every sibling lookup.
+                // P0: use ABI types for MarshalFromSwift.
                 for (int i = 0; i < subscript.IndexParameters.Count; i++)
                 {
                     var param = subscript.IndexParameters[i];
@@ -580,18 +653,48 @@ public partial class ProtocolProxyEmitter
                         writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
-                var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
-                writer.WriteLine($"var result = impl[{indexArgs}];");
-                var subscriptGetterConv = GetReceiverExistentialGetterConversion("result", subscript.ReturnTypeSpec)
-                    ?? GetReceiverGetterConversion("result", subscript.ReturnTypeSpec);
-                if (subscriptGetterConv != null)
+                if (siblingFallbacks == null || siblingFallbacks.Count == 0)
                 {
-                    writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
-                    writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
+                    writer.Indent++;
+                    writer.WriteLine($"return {subscriptNullReturnStr};");
+                    writer.Indent--;
+                    writer.WriteLine("var impl = proxy.UserImpl;");
+                    writer.WriteLine("if (impl is null)");
+                    writer.Indent++;
+                    writer.WriteLine($"return {subscriptNullReturnStr};");
+                    writer.Indent--;
+                    writer.WriteLine($"var result = impl[{indexArgs}];");
+                    // String returns use Utf8Slice encoding to avoid ARC issues with
+                    // MarshalToSwiftBuffer<SwiftString> — same rationale as the property
+                    // getter path: SwiftString contains ARC-managed references that
+                    // Unsafe.Write can't retain properly, crashing the receiver when
+                    // Swift reads the result.
+                    if (subscriptIsString)
+                    {
+                        writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+                    }
+                    else if (subscriptGetterConv != null)
+                    {
+                        writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
+                        writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+                    }
+                    else
+                    {
+                        writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                    }
                 }
                 else
                 {
-                    writer.WriteLine("return MarshalToSwiftBuffer(result);");
+                    EmitSubscriptGetterLookupHit(writer, interfaceName, "primary", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
+                    int siblingIdx = 0;
+                    foreach (var sibling in siblingFallbacks)
+                    {
+                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                        EmitSubscriptGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs, subscript.ReturnTypeSpec, subscriptGetterConv, subscriptIsString);
+                        siblingIdx++;
+                    }
+                    writer.WriteLine($"return {subscriptNullReturnStr};");
                 }
 
                 writer.Indent--;
@@ -615,17 +718,8 @@ public partial class ProtocolProxyEmitter
                 writer.Indent++;
 
                 writer.WriteLine("var handle = *(IntPtr*)selfContainer;");
-                // Dead-impl safe: silently drop the write if the proxy is unregistered
-                // or the impl has been GC'd.
-                writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
-                writer.Indent++;
-                writer.WriteLine("return;");
-                writer.Indent--;
-                writer.WriteLine("var impl = proxy.UserImpl;");
-                writer.WriteLine("if (impl is null)");
-                writer.Indent++;
-                writer.WriteLine("return;");
-                writer.Indent--;
+
+                // Unmarshal value once — same value used for every sibling lookup.
                 if (IsStringTypeSpec(subscript.ReturnTypeSpec))
                 {
                     writer.WriteLine($"var value = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Swift.SwiftString>(valuePtr).ToString();");
@@ -655,14 +749,102 @@ public partial class ProtocolProxyEmitter
                         writer.WriteLine($"var index{i} = MarshalFromSwift<{paramTypeName}>(arg{i});");
                 }
 
-                var indexArgs = string.Join(", ", Enumerable.Range(0, paramCount).Select(i => $"index{i}"));
-                writer.WriteLine($"impl[{indexArgs}] = value;");
+                var setterSiblings = siblingFallbacks?.Where(s => s.HasSetter).ToList();
+                if (setterSiblings == null || setterSiblings.Count == 0)
+                {
+                    // Dead-impl safe: silently drop the write if the proxy is unregistered
+                    // or the impl has been GC'd.
+                    writer.WriteLine($"if (!SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var proxy) || proxy is null)");
+                    writer.Indent++;
+                    writer.WriteLine("return;");
+                    writer.Indent--;
+                    writer.WriteLine("var impl = proxy.UserImpl;");
+                    writer.WriteLine("if (impl is null)");
+                    writer.Indent++;
+                    writer.WriteLine("return;");
+                    writer.Indent--;
+                    writer.WriteLine($"impl[{indexArgs}] = value;");
+                }
+                else
+                {
+                    EmitSubscriptSetterLookupHit(writer, interfaceName, "primary", indexArgs);
+                    int siblingIdx = 0;
+                    foreach (var sibling in setterSiblings)
+                    {
+                        var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
+                        EmitSubscriptSetterLookupHit(writer, siblingIface, $"s{siblingIdx}", indexArgs);
+                        siblingIdx++;
+                    }
+                }
 
                 writer.Indent--;
                 writer.WriteLine("}");
                 writer.WriteLine();
             }
         }
+    }
+
+    /// <summary>
+    /// Emits a try-lookup block for one interface in a sibling-subscript getter receiver.
+    /// On lookup hit, materialises the subscript value, applies any conversion, and returns
+    /// via MarshalToSwiftBuffer. On miss, falls through to the next sibling. Indexes are
+    /// unmarshalled once by the caller and threaded in via <paramref name="indexArgs"/>.
+    /// Uses the bare names <c>result</c>/<c>swiftResult</c>/<c>impl</c>/<c>proxy</c>
+    /// because each lookup block is its own C# scope — same pattern as the property
+    /// counterpart <see cref="EmitGetterLookupHit"/>.
+    /// </summary>
+    private void EmitSubscriptGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
+        string indexArgs, TypeSpec returnTypeSpec, string? getterConversion, bool isStringReturn)
+    {
+        var proxyVar = $"proxy_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var impl = {proxyVar}.UserImpl;");
+        writer.WriteLine("if (impl is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var result = impl[{indexArgs}];");
+        if (isStringReturn)
+        {
+            writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+        }
+        else if (getterConversion != null)
+        {
+            writer.WriteLine($"var swiftResult = {getterConversion};");
+            writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+        }
+        else
+        {
+            writer.WriteLine("return MarshalToSwiftBuffer(result);");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits a try-lookup block for one interface in a sibling-subscript setter receiver.
+    /// On lookup hit, performs the assignment and returns. On miss, falls through to the
+    /// next sibling.
+    /// </summary>
+    private void EmitSubscriptSetterLookupHit(CSharpWriter writer, string interfaceName, string slug, string indexArgs)
+    {
+        var proxyVar = $"proxy_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var impl = {proxyVar}.UserImpl;");
+        writer.WriteLine("if (impl is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"impl[{indexArgs}] = value;");
+        writer.WriteLine("return;");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 
     private void EmitMethodReceiver(CSharpWriter writer, MethodDecl method, ProtocolDecl protocolDecl, string interfaceName, int index, HashSet<string> emittedReceivers)
@@ -1543,5 +1725,192 @@ public partial class ProtocolProxyEmitter
             }
 
             """);
+    }
+
+    /// <summary>
+    /// Emits a try-lookup block for one interface in a sibling-property getter receiver.
+    /// On lookup hit, materialises the property value, applies any conversion, and returns
+    /// via the appropriate marshalling helper. On miss, falls through to the next sibling.
+    /// </summary>
+    private static void EmitGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
+        string pascalPropertyName, string? getterConversion, bool isStringReturn)
+    {
+        var proxyVar = $"proxy_{slug}";
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
+        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var result = {implVar}.{pascalPropertyName};");
+        if (isStringReturn)
+            writer.WriteLine("return MarshalStringToUtf8Slice(result);");
+        else if (getterConversion != null)
+        {
+            writer.WriteLine($"var swiftResult = {getterConversion};");
+            writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
+        }
+        else
+        {
+            writer.WriteLine("return MarshalToSwiftBuffer(result);");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Emits a try-lookup block for one interface in a sibling-property setter receiver.
+    /// On lookup hit, assigns the marshalled value and returns. On miss, falls through to
+    /// the next sibling. The trailing block implicitly silently drops the write when no
+    /// sibling proxy is registered for this handle.
+    /// </summary>
+    private static void EmitSetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
+        string pascalPropertyName, string assignmentExpr)
+    {
+        var proxyVar = $"proxy_{slug}";
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
+        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"{implVar}.{pascalPropertyName} = {assignmentExpr};");
+        writer.WriteLine("return;");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Returns a fully-qualified C# interface name suitable for use in a same-file
+    /// <c>SwiftObjectRegistry.TryGetProxy&lt;IProtocolProxyImpl&lt;...&gt;&gt;</c> call.
+    /// Cross-module siblings need the <c>global::&lt;ns&gt;.{Interface}</c> prefix because
+    /// the proxy class file may not <c>using</c> the sibling's namespace; <c>&lt;ns&gt;</c>
+    /// is the GENERATED C# namespace (resolved through <see cref="NamespacePatternResolver"/>),
+    /// not the raw Swift module name — under <c>--namespace-pattern</c> they can differ
+    /// (e.g. Swift <c>StoreKit</c> → C# <c>StoreKit2</c>).
+    /// </summary>
+    private string GetQualifiedInterfaceName(ProtocolDecl protocolDecl)
+    {
+        var moduleName = protocolDecl.ModuleDecl?.Name ?? "";
+        var baseName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: moduleName);
+        if (protocolDecl.ParentDecl is TypeDecl parentType)
+        {
+            var parentNames = new List<string>();
+            BaseDecl? current = parentType;
+            while (current is TypeDecl td)
+            {
+                parentNames.Insert(0, td.Name);
+                current = td.ParentDecl;
+            }
+            baseName = string.Join(".", parentNames) + "." + baseName;
+        }
+        if (string.IsNullOrEmpty(moduleName))
+            return baseName;
+        var csNamespace = _emissionContext.NamespaceResolver?.ResolveNamespace(moduleName) ?? moduleName;
+        return $"global::{csNamespace}.{baseName}";
+    }
+
+    /// <summary>
+    /// Closure-property setter body (assignment + wrapper construction), parameterised
+    /// over the impl variable so the no-fallback and per-sibling-lookup paths can share
+    /// the same body shape.
+    /// </summary>
+    private static void EmitClosureSetterBody(CSharpWriter writer, bool isOptional, string pascalPropertyName,
+        string delegateType, string invokerClassName, string implVar)
+    {
+        writer.WriteLine("if (rawFn == IntPtr.Zero)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        if (isOptional)
+            writer.WriteLine($"{implVar}.{pascalPropertyName} = null;");
+        else
+            writer.WriteLine("// Non-Optional closure property: nil fnPtr is a contract violation; leave existing impl value unchanged.");
+        writer.WriteLine("return;");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine($"var _wrapper = SwiftEscapingClosure<{delegateType}>.FromSwift(rawFn, rawCtx);");
+        writer.WriteLine($"var _inv = new {invokerClassName}((nint)_wrapper.FunctionPointer, (nint)_wrapper.Context, _wrapper);");
+        writer.WriteLine($"{implVar}.{pascalPropertyName} = _inv.Invoke;");
+        writer.WriteLine("return;");
+    }
+
+    /// <summary>
+    /// Closure-property setter sibling-lookup branch: tries
+    /// <c>IProtocolProxyImpl&lt;sibling&gt;</c>; on hit it executes the same setter
+    /// body and returns. On miss it falls through to the next sibling. The trailing
+    /// block silently drops the write when no sibling proxy matches the handle.
+    /// </summary>
+    private void EmitClosureSetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
+        bool isOptional, string pascalPropertyName, string delegateType, string invokerClassName)
+    {
+        var proxyVar = $"proxy_{slug}";
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
+        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        EmitClosureSetterBody(writer, isOptional, pascalPropertyName, delegateType, invokerClassName, implVar);
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Closure-property getter body (reads delegate from impl, allocates GCHandle, writes
+    /// (fnPtr, ctxPtr) into the 16-byte buffer). Caller is responsible for the
+    /// surrounding allocation and the final <c>return buf;</c>.
+    /// </summary>
+    private static void EmitClosureGetterBody(CSharpWriter writer, string pascalPropertyName,
+        string nullableDelegateType, string getterThunkName, string implVar)
+    {
+        writer.WriteLine($"{nullableDelegateType} _del = {implVar}.{pascalPropertyName};");
+        writer.WriteLine("if (_del is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        // GCHandle is freed by the Swift-side _SBClosureCtx box's deinit via the
+        // SwiftClosureContext destroy trampoline.
+        writer.WriteLine("var _gch = global::System.Runtime.InteropServices.GCHandle.Alloc(_del);");
+        writer.WriteLine($"*(IntPtr*)buf = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, void>)&{getterThunkName};");
+        writer.WriteLine("*(IntPtr*)(buf + IntPtr.Size) = global::System.Runtime.InteropServices.GCHandle.ToIntPtr(_gch);");
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Closure-property getter sibling-lookup branch: tries
+    /// <c>IProtocolProxyImpl&lt;sibling&gt;</c>; on hit it executes the getter body
+    /// and returns the populated buffer. On miss it falls through to the next sibling
+    /// (which keeps the zero-initialised buffer).
+    /// </summary>
+    private void EmitClosureGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
+        string pascalPropertyName, string nullableDelegateType, string getterThunkName)
+    {
+        var proxyVar = $"proxy_{slug}";
+        var implVar = $"impl_{slug}";
+        writer.WriteLine($"if (SwiftObjectRegistry.TryGetProxy<Swift.Runtime.IProtocolProxyImpl<{interfaceName}>>(handle, out var {proxyVar}) && {proxyVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        writer.WriteLine($"var {implVar} = {proxyVar}.UserImpl;");
+        writer.WriteLine($"if ({implVar} is not null)");
+        writer.WriteLine("{");
+        writer.Indent++;
+        EmitClosureGetterBody(writer, pascalPropertyName, nullableDelegateType, getterThunkName, implVar);
+        writer.WriteLine("return buf;");
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.Indent--;
+        writer.WriteLine("}");
     }
 }

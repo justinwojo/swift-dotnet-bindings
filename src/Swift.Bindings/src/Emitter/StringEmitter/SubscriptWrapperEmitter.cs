@@ -610,40 +610,41 @@ public static class SubscriptWrapperEmitter
     }
 
     /// <summary>
-    /// Gets the protocol subscript label for an index parameter.
-    /// Unlabeled subscript params are named "indexN" by the parser — these become "_" in protocol declarations.
-    /// Labeled subscript params keep their label.
+    /// Builds the index-parameter list for an existential-bypass subscript protocol declaration
+    /// in the explicit `<external> <internal>:` form. Subscripts default to NO external label
+    /// when written as `subscript(name: Type)`, so emitting just the label would suppress the
+    /// real subscript's argument label and break witness matching on the bypass conformance.
     /// </summary>
-    private static string GetProtocolSubscriptLabel(ArgumentDecl param)
+    private static List<string> BuildBypassSubscriptIndexParams(SubscriptDecl subscriptDecl)
     {
-        var name = param.Name;
-        if (string.IsNullOrEmpty(name))
-            return "_";
-        // Parser generates "index0", "index1" etc. for unlabeled subscript params
-        if (name.StartsWith("index") && name.Length > 5 && char.IsDigit(name[5]))
-            return "_";
-        return name;
+        var indexParams = new List<string>();
+        for (int i = 0; i < subscriptDecl.IndexParameters.Count; i++)
+        {
+            var param = subscriptDecl.IndexParameters[i];
+            var externalLabel = NameProvider.GetSubscriptExternalLabel(param);
+            var internalName = $"arg{i}";
+            var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
+            indexParams.Add($"{externalLabel} {internalName}: {paramType}");
+        }
+        return indexParams;
     }
 
     /// <summary>
     /// Fixes the call argument from GetCdeclParamMapping for subscript bracket syntax.
-    /// GetCdeclParamMapping generates "label: value" using arg.Name, but for subscripts:
-    /// - Unlabeled params (Name = "indexN") should have NO label in bracket syntax
-    /// - Labeled params should keep their label
+    /// GetCdeclParamMapping generates "label: value" using arg.Name, but for subscripts
+    /// declared as <c>subscript(name: T)</c> / <c>subscript(_ name: T)</c> the bracket
+    /// expression must have NO label. Driven by <see cref="ArgumentDecl.IsUnlabeledSubscriptIndex"/>
+    /// rather than a name pattern, so a real label literally named <c>index0</c> is preserved.
     /// </summary>
     private static string FixSubscriptCallArg(string callArg, ArgumentDecl param)
     {
-        var name = param.Name;
+        if (!param.IsUnlabeledSubscriptIndex)
+            return callArg;
 
-        // Parser generates "index0", "index1" etc. for unlabeled subscript params (from "_")
-        if (name.StartsWith("index") && name.Length > 5 && char.IsDigit(name[5]))
-        {
-            // Strip the incorrect "indexN: " label from the callArg
-            var colonIdx = callArg.IndexOf(':');
-            if (colonIdx >= 0)
-                return callArg.Substring(colonIdx + 1).Trim();
-        }
-
+        // Strip the leading "label: " — bracket syntax for unlabeled subscripts is positional.
+        var colonIdx = callArg.IndexOf(':');
+        if (colonIdx >= 0)
+            return callArg.Substring(colonIdx + 1).Trim();
         return callArg;
     }
 
@@ -754,14 +755,11 @@ public static class SubscriptWrapperEmitter
         var protocolName = $"_SBW_SG_{EmitterUtility.DeterministicHash8(symbolName)}";
         var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
 
-        // Build subscript signature for protocol
-        var indexParams = new List<string>();
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            var label = GetProtocolSubscriptLabel(param);
-            var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
-            indexParams.Add($"{label}: {paramType}");
-        }
+        // Build subscript signature for protocol. Swift subscripts default to NO external label
+        // when only one name is written (`subscript(at: Int)` parses as external=_, internal=at),
+        // so emit the explicit `<external> <internal>:` form to preserve the real subscript's
+        // argument label when the bypass type's witness is type-checked.
+        var indexParams = BuildBypassSubscriptIndexParams(subscriptDecl);
         var indexParamString = string.Join(", ", indexParams);
 
         // Conformance extensions are top-level decls and don't inherit the enclosing
@@ -793,14 +791,9 @@ public static class SubscriptWrapperEmitter
         var protocolName = $"_SBW_SS_{EmitterUtility.DeterministicHash8(symbolName)}";
         var returnSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(subscriptDecl.ReturnTypeSpec);
 
-        // Build subscript signature for protocol
-        var indexParams = new List<string>();
-        foreach (var param in subscriptDecl.IndexParameters)
-        {
-            var label = GetProtocolSubscriptLabel(param);
-            var paramType = ExistentialBypassEmitter.RenderSwiftTypeSpec(param.SwiftTypeSpec);
-            indexParams.Add($"{label}: {paramType}");
-        }
+        // Build subscript signature for protocol. See EmitGetterProtocolAndConformance for why
+        // the explicit `<external> <internal>:` form is required for subscripts.
+        var indexParams = BuildBypassSubscriptIndexParams(subscriptDecl);
         var indexParamString = string.Join(", ", indexParams);
 
         // Conformance extensions are top-level decls and don't inherit the enclosing
