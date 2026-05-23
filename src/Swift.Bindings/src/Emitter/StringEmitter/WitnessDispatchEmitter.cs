@@ -348,6 +348,59 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
+    /// Returns true if the existential binding loaded from <c>containerPtr</c> must be
+    /// declared as <c>var</c> for the property getter to compile. Swift forbids invoking
+    /// a <c>mutating get</c> accessor through an immutable existential binding, so any
+    /// protocol that could legally declare <c>var foo: T { mutating get }</c> — i.e.
+    /// any non-class-bound protocol — must use <c>var</c> when the property has any
+    /// mutating-getter signal.
+    ///
+    /// Class-boundedness is read transitively from the protocol's
+    /// <see cref="TypeRecordFlags.ClassBound"/> bit (populated by
+    /// <c>ModuleProcessor.ProtocolIsClassBoundTransitive</c>), not from the parser's
+    /// direct <c>ProtocolDecl.IsClassBound</c> bit. That keeps <c>protocol Child: Parent</c>
+    /// in sync with <c>Parent: AnyObject</c> — both short-circuit to <c>let boxed</c>,
+    /// matching the proxy-layout and existential-return machinery.
+    ///
+    /// The ABI digester sometimes strips the <c>mutating</c> attribute from accessors
+    /// (see the <c>PropertyWrapperEmitter.cs</c> concrete-property handling), so the
+    /// <c>IsMutating</c> bit alone is not load-bearing. Mirror the same conservative
+    /// widening: a settable protocol property on a non-class-bound protocol is treated
+    /// as potentially mutating. False positives here cost only a benign
+    /// <c>'existential' was never mutated</c> warning; false negatives would be a
+    /// compile error in the generated wrapper.
+    /// </summary>
+    private bool RequiresMutableExistentialBinding(PropertyDecl property, ProtocolDecl protocolDecl)
+    {
+        if (IsProtocolClassBoundTransitive(protocolDecl))
+            return false;
+        bool getMutating = property.Accessors
+            .OfType<GetAccessorDecl>()
+            .FirstOrDefault()?.Method.IsMutating == true;
+        bool hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
+        return getMutating || hasSetter;
+    }
+
+    /// <summary>
+    /// Reads the transitive class-boundedness of <paramref name="protocolDecl"/> from
+    /// its <see cref="TypeRecord"/> if available (populated by
+    /// <c>ModuleProcessor.ProtocolIsClassBoundTransitive</c>), falling back to the
+    /// direct <see cref="ProtocolDecl.IsClassBound"/> bit when no record is registered
+    /// (e.g. synthetic protocols in unit tests).
+    /// </summary>
+    private bool IsProtocolClassBoundTransitive(ProtocolDecl protocolDecl)
+    {
+        var swiftTypeName = protocolDecl.SwiftTypeName;
+        if (swiftTypeName is not null &&
+            _typeDatabase.TryGetTypeRecord(swiftTypeName, out var record) &&
+            record.Kind == TypeRecordKind.Protocol)
+        {
+            return record.Flags.HasFlag(TypeRecordFlags.ClassBound);
+        }
+        return protocolDecl.IsClassBound;
+    }
+
+    /// <summary>
     /// Classifies how a method can be dispatched through the witness table.
     /// Returns <see cref="MethodDispatchKind.BlittableOrString"/> for methods with all blittable/String types,
     /// <see cref="MethodDispatchKind.ExistentialReturn"/> for methods returning protocol existentials
@@ -1207,15 +1260,17 @@ public class WitnessDispatchEmitter
     /// <c>UnsafeMutablePointer&lt;T&gt;</c> and <c>assumingMemoryBound(to: T.self)</c>.
     /// </summary>
     private void EmitHeapAllocatedPropertyGetter(SwiftWriter writer, string accessorSymbol, string freeSymbol,
-        string moduleQualifiedName, string propertyName, string swiftTypeName, bool needsMainActor = false)
+        string moduleQualifiedName, string propertyName, string swiftTypeName, bool needsMainActor = false,
+        bool needsMutableBinding = false)
     {
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
         var avail = _currentAvailabilityPrefix;
+        var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = existential.{{propertyName}}
+                {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = {{bindName}}.{{propertyName}}
                 let ptr = UnsafeMutablePointer<{{swiftTypeName}}>.allocate(capacity: 1)
                 ptr.initialize(to: result)
                 return UnsafeMutableRawPointer(ptr)
@@ -1239,14 +1294,16 @@ public class WitnessDispatchEmitter
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
         var avail = _currentAvailabilityPrefix;
+        bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
         if (IsStringType(property.SwiftTypeSpec))
         {
+            var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
             // String getter: convert Swift String to UTF-8 bytes via SBW_Utf8Slice
             writer.WriteLines($$"""
                 {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
                 public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                    var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                    let result: String = existential.{{property.Name}}
+                    {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                    let result: String = {{bindName}}.{{property.Name}}
                     let utf8 = Array(result.utf8)
                     let bufferPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: max(utf8.count, 1))
                     if !utf8.isEmpty {
@@ -1289,7 +1346,7 @@ public class WitnessDispatchEmitter
             {
                 swiftReturnType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(property.SwiftTypeSpec);
             }
-            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, needsMainActor);
+            EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, needsMainActor, needsMutableBinding);
         }
     }
 
@@ -1982,12 +2039,14 @@ public class WitnessDispatchEmitter
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
         var avail = _currentAvailabilityPrefix;
+        bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
+        var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer) -> UnsafeMutableRawPointer {
-                var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = existential.{{property.Name}}
+                {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = {{bindName}}.{{property.Name}}
                 return Unmanaged.passRetained(result as AnyObject).toOpaque()
             }
 
@@ -2010,12 +2069,14 @@ public class WitnessDispatchEmitter
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
         var mainActorAttr = needsMainActor ? "@MainActor " : "";
         var avail = _currentAvailabilityPrefix;
+        bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
+        var (bindKw, bindName) = needsMutableBinding ? ("var", "existential") : ("let", "boxed");
 
         writer.WriteLines($$"""
             {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
             public func {{accessorSymbol}}(_ containerPtr: UnsafeRawPointer, _ resultBuf: UnsafeMutableRawPointer) {
-                var existential = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
-                let result = existential.{{property.Name}}
+                {{bindKw}} {{bindName}} = containerPtr.load(as: (any {{moduleQualifiedName}}).self)
+                let result = {{bindName}}.{{property.Name}}
                 resultBuf.assumingMemoryBound(to: {{swiftConcreteType}}.self).initialize(to: result)
             }
 
@@ -2038,7 +2099,8 @@ public class WitnessDispatchEmitter
         var accessorSymbol = GetAccessorSymbol(protocolName, "get", property.Name, 0);
         var freeSymbol = GetFreeSymbol(protocolName, "get", property.Name, 0);
         bool needsMainActor = property.IsMainActorIsolated || protocolDecl.IsMainActorIsolated;
-        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftCollectionType, needsMainActor);
+        bool needsMutableBinding = RequiresMutableExistentialBinding(property, protocolDecl);
+        EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftCollectionType, needsMainActor, needsMutableBinding);
     }
 
     /// <summary>

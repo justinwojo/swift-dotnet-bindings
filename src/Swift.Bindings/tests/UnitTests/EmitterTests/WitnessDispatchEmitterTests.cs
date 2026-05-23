@@ -12,14 +12,30 @@ namespace BindingsGeneration.Tests;
 public class WitnessDispatchEmitterTests
 {
     private readonly TypeDatabase _typeDatabase;
+    private readonly ModuleTypeDatabase _testModule;
     private readonly WitnessDispatchEmitter _emitter;
 
     public WitnessDispatchEmitterTests()
     {
         _typeDatabase = new TypeDatabase();
-        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
-        _typeDatabase.AddModuleDatabase(module);
+        _testModule = new ModuleTypeDatabase("TestModule", "/fake/path");
+        _typeDatabase.AddModuleDatabase(_testModule);
         _emitter = new WitnessDispatchEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+    }
+
+    private void RegisterProtocolTypeRecord(ProtocolDecl protocolDecl, TypeRecordFlags flags)
+    {
+        var swiftTypeName = protocolDecl.SwiftTypeName!;
+        _testModule.RegisterType(
+            swiftTypeName,
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", $"I{protocolDecl.Name}"),
+                SwiftTypeName = swiftTypeName,
+                MetadataAccessor = "$sMa",
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol
+            });
     }
 
     #region Swift Accessor Generation Tests
@@ -68,7 +84,94 @@ public class WitnessDispatchEmitterTests
         var protocolDecl = CreateProtocolWithProperty("HasValue", "myProp", new NamedTypeSpec("Swift.Double"));
         var output = EmitDispatch(protocolDecl);
 
-        Assert.Contains("existential.myProp", output);
+        Assert.Contains("boxed.myProp", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_ReadOnlyNonClassBound_BindsAsLetBoxed()
+    {
+        // Non-class-bound protocol with a single read-only getter is the safe `let` case.
+        // The generated body must not contain `let existential` (the SwiftSourceStripper
+        // text pattern at build/Helpers/SwiftSourceStripper.cs:312/:695 strips wrappers
+        // matching that literal) and must not emit a `var` binding that would warn.
+        var protocolDecl = CreateProtocolWithProperty("HasValue", "myProp", new NamedTypeSpec("Swift.Double"));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("let boxed = containerPtr.load(as: (any TestModule.HasValue).self)", output);
+        Assert.DoesNotContain("let existential =", output);
+        Assert.DoesNotContain("var existential =", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_MutatingGetter_BindsAsVarExistential()
+    {
+        // A protocol declaring `var x: T { mutating get }` cannot have its getter
+        // invoked through a `let`-bound existential — swiftc rejects it. The emitter
+        // must fall back to `var existential` for that case.
+        var protocolDecl = CreateSimpleProtocol("MutatingGetter");
+        protocolDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "value",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMutatingGetterMethodDecl("value_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("var existential = containerPtr.load(as: (any TestModule.MutatingGetter).self)", output);
+        Assert.DoesNotContain("let boxed =", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_SettableNonClassBound_BindsAsVarExistential()
+    {
+        // The ABI digester sometimes strips `mutating` from accessors. For non-class-bound
+        // protocols we widen conservatively: any settable property is treated as potentially
+        // mutating and emits `var existential`. This mirrors PropertyWrapperEmitter's
+        // concrete-property handling.
+        var protocolDecl = CreateProtocolWithGetterAndSetter("HasMutable", "value", new NamedTypeSpec("Swift.Int32"));
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("var existential = containerPtr.load(as: (any TestModule.HasMutable).self)", output);
+        Assert.DoesNotContain("let boxed =", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_ClassBoundWithSetter_BindsAsLetBoxed()
+    {
+        // Class-bound protocols (`: AnyObject`) cannot legally declare `mutating get`
+        // requirements, so even a get/set pair is safe to read through a `let` binding.
+        // This test exercises the *direct* ProtocolDecl.IsClassBound fallback used when
+        // no TypeRecord is registered (synthetic protocols in unit tests).
+        var protocolDecl = CreateProtocolWithGetterAndSetter("HasMutable", "value", new NamedTypeSpec("Swift.Int32"));
+        protocolDecl.IsClassBound = true;
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("let boxed = containerPtr.load(as: (any TestModule.HasMutable).self)", output);
+        Assert.DoesNotContain("var existential = containerPtr.load(as: (any TestModule.HasMutable)", output);
+    }
+
+    [Fact]
+    public void EmitPropertyGetter_TransitivelyClassBoundWithSetter_BindsAsLetBoxed()
+    {
+        // A protocol whose direct ProtocolDecl.IsClassBound is false but whose TypeRecord
+        // carries TypeRecordFlags.ClassBound (set by ModuleProcessor when the protocol
+        // inherits a class-bound parent) must also short-circuit to `let boxed`. The gate
+        // reads the transitive bit from the TypeDatabase, so this test mirrors what real
+        // module processing produces for `protocol Child: ParentAnyObject`.
+        var protocolDecl = CreateProtocolWithGetterAndSetter("TransitiveChild", "value", new NamedTypeSpec("Swift.Int32"));
+        Assert.False(protocolDecl.IsClassBound, "Direct flag must remain false to prove the transitive lookup runs.");
+        RegisterProtocolTypeRecord(protocolDecl, TypeRecordFlags.ClassBound);
+        var output = EmitDispatch(protocolDecl);
+
+        Assert.Contains("let boxed = containerPtr.load(as: (any TestModule.TransitiveChild).self)", output);
+        Assert.DoesNotContain("var existential = containerPtr.load(as: (any TestModule.TransitiveChild)", output);
     }
 
     [Fact]
@@ -1760,6 +1863,13 @@ public class WitnessDispatchEmitterTests
             IsAsync = false,
             Visibility = Visibility.Public
         };
+    }
+
+    private static MethodDecl CreateMutatingGetterMethodDecl(string name)
+    {
+        var method = CreateMethodDecl(name);
+        method.IsMutating = true;
+        return method;
     }
 
     #endregion
