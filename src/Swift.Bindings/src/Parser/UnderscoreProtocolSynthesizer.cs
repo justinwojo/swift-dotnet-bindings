@@ -62,11 +62,14 @@ internal static class UnderscoreProtocolSynthesizer
     /// in <paramref name="moduleName"/> that is missing from <paramref name="moduleDecl"/>.
     /// </summary>
     /// <returns>
-    /// Module-qualified names of synthesized protocols. Callers should fold this
-    /// set into the underscore-suppression set so the wrapper post-processor and
-    /// MemberValidationPipeline treat them as internal — RegisterProtocolType
-    /// produces the TypeRecord we need, but we do not want a public
-    /// <c>I_IntentValue</c> C# interface emitted from the empty decl.
+    /// Module-qualified names of synthesized protocols. Callers fold this set into the
+    /// underscore-suppression set (and emission context) so the empty synthesized decl
+    /// never surfaces as a public <c>I_IntentValue</c> C# interface — RegisterProtocolType
+    /// still produces the TypeRecord we need for PWT resolution. These names must NOT be
+    /// added to <c>ModuleDecl.InternalTypeNames</c>: the protocols are <c>public</c> in
+    /// Swift (only digester-stripped), so generated wrappers may legally reference them and
+    /// the Pattern-2 member-reach gate must not suppress members whose generic constraints
+    /// name them. See the suppression-set merge in <c>Program.cs</c>.
     /// </returns>
     public static HashSet<string> Synthesize(
         string moduleName,
@@ -142,10 +145,216 @@ internal static class UnderscoreProtocolSynthesizer
             logger.LogInformation(
                 "UnderscoreProtocolSynthesizer: synthesized '{Qualified}' (mangled '{Mangled}', AssociatedTypes={ATs}, HasSelfRequirement={Self}).",
                 swiftTypeName, mangledName, associatedTypes.Count, hasSelfRequirement);
+
+            // swift-api-digester strips the protocol decl AND its conformance records
+            // together, so the conformers we just unblocked still have no evidence that
+            // they satisfy the constraint. Re-attach the stripped conformance records the
+            // same pass synthesizes the protocol.
+            IngestStrippedConformances(source, moduleName, swiftTypeName, moduleDecl, logger);
         }
 
         return synthesized;
     }
+
+    /// <summary>
+    /// Folds the underscore-suppression set into the Pattern-2 internal-type-name set
+    /// (consumed by the wrapper post-processor and <c>MemberValidationPipeline</c>'s
+    /// member-reach gate), <b>excluding</b> the synthesized public-underscore protocols.
+    ///
+    /// <para>
+    /// Synthesized protocols (e.g. <c>AppIntents._IntentValue</c>) are <c>public</c> in
+    /// Swift — swift-api-digester only strips them from the ABI JSON — so a generated
+    /// <c>@_cdecl</c> wrapper may legally name them. They belong in the underscore-suppression
+    /// set (so the empty synthesized decl never surfaces as a public C# interface) but must
+    /// NOT enter the internal-type set, or the member-reach gate would suppress every member
+    /// whose generic constraint mentions them. A genuinely module-internal underscore type
+    /// (not synthesized) still flows through and suppresses correctly. This decoupling is the
+    /// fix for the init-suppression cascade that otherwise drops the bulk of the surface.
+    /// </para>
+    /// </summary>
+    /// <returns>
+    /// The merged set. A new set is allocated only when <paramref name="internalTypeNames"/>
+    /// is null <i>and</i> at least one genuine (non-synthesized) name is added; otherwise the
+    /// input set is returned mutated in place so callers can re-sync <c>decl.InternalTypeNames</c>.
+    /// When every suppressed name is a synthesized protocol there is nothing to add, so the
+    /// original input is returned untouched (including null) — a module whose only underscore
+    /// names are the synthesized protocols keeps its prior <c>InternalTypeNames</c> identity.
+    /// </returns>
+    public static HashSet<string>? MergeSuppressedIntoInternalTypeNames(
+        HashSet<string>? internalTypeNames,
+        IReadOnlyCollection<string> underscoreSuppressedNames,
+        IReadOnlySet<string> synthesizedUnderscoreNames)
+    {
+        if (underscoreSuppressedNames.Count == 0)
+            return internalTypeNames;
+
+        var merged = internalTypeNames;
+        foreach (var name in underscoreSuppressedNames)
+        {
+            if (synthesizedUnderscoreNames.Contains(name))
+                continue;
+            merged ??= new HashSet<string>();
+            merged.Add(name);
+        }
+        return merged;
+    }
+
+    /// <summary>
+    /// Re-attaches the protocol-conformance records that swift-api-digester strips from the
+    /// ABI JSON alongside an underscored protocol decl, so that bound-generic constraint
+    /// checks (<see cref="BoundGenericsHandler"/>'s <c>HasConformance</c>) and conformer
+    /// indexing (<see cref="ConcreteSpecializationEngine"/>) can see the conformance.
+    ///
+    /// <para>
+    /// Only <b>unconditional</b> extensions whose conforming type is a <b>local,
+    /// reference-typed</b> nominal in <paramref name="moduleDecl"/> are ingested:
+    /// </para>
+    /// <list type="bullet">
+    ///   <item>Conditional conformances (<c>extension X : _P where ...</c>) can't be
+    ///   attached unconditionally — the constraint check must keep failing for element
+    ///   types that don't themselves conform — so they are skipped.</item>
+    ///   <item>Foreign / stdlib conformers (<c>Swift.Int</c>, <c>Foundation.Date</c>, …)
+    ///   have no local <see cref="TypeDecl"/>; <c>SatisfiesConstraint</c> already fails them
+    ///   closed at its <c>typeArgumentDecl == null</c> branch, matching the fact that a C#
+    ///   projection cannot retroactively add an interface to a type owned by another
+    ///   assembly.</item>
+    ///   <item>Value-typed local conformers are excluded: the downstream KeyPath surface
+    ///   constrains the parameter value to a reference type (<c>ISwiftObject</c>), so
+    ///   satisfying the constraint for a frozen struct would only enable a binding the C#
+    ///   projection can never use.</item>
+    /// </list>
+    ///
+    /// <para>
+    /// The conformance is attached with an <b>empty</b> descriptor symbol. The synthesized
+    /// protocol is module-internal and PAT-shaped, so every runtime-conformance emission
+    /// path (the conformance dictionary, the single-PAT <c>typeof(object)</c> entry, and
+    /// NativeAOT factory registration) already skips empty-descriptor and PAT entries. The
+    /// record therefore exists purely as a type-database fact for constraint satisfaction
+    /// and never surfaces as generated runtime code.
+    /// </para>
+    /// </summary>
+    private static void IngestStrippedConformances(
+        string source,
+        string moduleName,
+        SwiftTypeName protocolName,
+        ModuleDecl moduleDecl,
+        ILogger logger)
+    {
+        // Lookup of local nominal types by module-qualified name (e.g. "AppIntents.IntentFile").
+        // Nested types live under their parent's Types list, so flatten recursively — a nested
+        // conformer (extension Outer.Inner : _P) must be reachable just like a top-level one.
+        var localTypes = new Dictionary<string, TypeDecl>(StringComparer.Ordinal);
+        IndexLocalNominals(moduleDecl.Types, localTypes);
+
+        foreach (var (conformingTypeName, isConditional) in EnumerateExtensionConformers(source, protocolName, moduleName))
+        {
+            if (isConditional)
+                continue;
+
+            // swiftinterface extension headers may write the extended type either fully
+            // qualified (AppIntents.IntentFile) or bare (IntentFile), and a nested conformer
+            // appears dotted-but-unqualified (IntentParameter.DateKind). Try the name as-is and
+            // module-prefixed so all three forms resolve against the module-qualified index.
+            if (!TryResolveLocalConformer(conformingTypeName, moduleName, localTypes, out var decl))
+                continue; // foreign / stdlib conformer — correctly stays unsatisfied.
+
+            if (!IsReferenceTyped(decl))
+                continue; // value-typed local conformer — unusable under the ISwiftObject surface.
+
+            var conformanceList = GetConformanceList(decl);
+            if (conformanceList == null)
+                continue;
+            if (conformanceList.Any(c => c.Protocol == protocolName))
+                continue; // already attached (idempotent across allowlist entries).
+
+            conformanceList.Add(new TypeConformance(decl.SwiftTypeName, protocolName, ProtocolConformanceDescriptor: string.Empty));
+            logger.LogInformation(
+                "UnderscoreProtocolSynthesizer: attached stripped conformance '{Type} : {Protocol}'.",
+                decl.SwiftTypeName, protocolName);
+        }
+    }
+
+    private static readonly Regex s_extensionHeaderRegex = new(
+        @"(?m)^\s*(?:@[\w.]+(?:\s*\([^)]*\))?\s+)*extension\s+([\w.]+)\s*:\s*([^{]+?)\s*\{",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Enumerates <c>extension &lt;Type&gt; : &lt;conformance-list&gt; [where …] { … }</c>
+    /// headers in the swiftinterface whose conformance list names
+    /// <paramref name="protocolName"/>, yielding the extended type's name and whether the
+    /// extension carries a <c>where</c> clause (a conditional conformance). The match against
+    /// the protocol accepts both the module-qualified form (<c>AppIntents._IntentValue</c>)
+    /// and the bare form (<c>_IntentValue</c>), and only at top-level (angle-bracket depth
+    /// zero) so an inner generic argument can never be mistaken for the conformance.
+    /// </summary>
+    private static IEnumerable<(string conformingType, bool isConditional)> EnumerateExtensionConformers(
+        string source, SwiftTypeName protocolName, string moduleName)
+    {
+        var qualifiedTarget = protocolName.ModuleQualifiedName;
+        var bareTarget = protocolName.Name;
+
+        foreach (Match m in s_extensionHeaderRegex.Matches(source))
+        {
+            var conformingType = m.Groups[1].Value.Trim();
+            var clause = m.Groups[2].Value;
+
+            var whereIdx = clause.IndexOf(" where ", StringComparison.Ordinal);
+            var isConditional = whereIdx >= 0;
+            var conformanceListText = isConditional ? clause[..whereIdx] : clause;
+
+            var names = SwiftTypeListText.SplitTopLevelCommas(conformanceListText);
+            var conformsToTarget = names.Any(n =>
+            {
+                var t = n.Trim();
+                return t == qualifiedTarget || t == bareTarget;
+            });
+
+            if (conformsToTarget)
+                yield return (conformingType, isConditional);
+        }
+    }
+
+    /// <summary>
+    /// Recursively indexes every local nominal type (and nested type) by its module-qualified
+    /// name, so conformer resolution sees nested types as well as top-level ones.
+    /// </summary>
+    private static void IndexLocalNominals(IEnumerable<TypeDecl> types, Dictionary<string, TypeDecl> index)
+    {
+        foreach (var t in types)
+        {
+            if (t is StructDecl or ClassDecl or EnumDecl)
+                index[t.SwiftTypeName.ModuleQualifiedName] = t;
+            IndexLocalNominals(t.Types, index);
+        }
+    }
+
+    /// <summary>
+    /// Resolves an extension's extended-type name against the module-qualified index, trying the
+    /// name verbatim (already fully qualified) and module-prefixed (bare or nested-but-unqualified).
+    /// </summary>
+    private static bool TryResolveLocalConformer(
+        string conformingTypeName, string moduleName, Dictionary<string, TypeDecl> localTypes, out TypeDecl decl)
+    {
+        if (localTypes.TryGetValue(conformingTypeName, out decl!))
+            return true;
+        return localTypes.TryGetValue($"{moduleName}.{conformingTypeName}", out decl!);
+    }
+
+    private static bool IsReferenceTyped(TypeDecl decl) => decl switch
+    {
+        ClassDecl => true,
+        StructDecl s => !s.IsFrozen,
+        EnumDecl e => !e.IsFrozen,
+        _ => false,
+    };
+
+    private static List<TypeConformance>? GetConformanceList(TypeDecl decl) => decl switch
+    {
+        StructDecl s => s.Conformances,
+        ClassDecl c => c.Conformances,
+        EnumDecl e => e.Conformances,
+        _ => null,
+    };
 
     /// <summary>
     /// Computes the Swift-mangled protocol-type symbol for a top-level protocol

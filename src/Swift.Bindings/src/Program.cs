@@ -371,11 +371,15 @@ namespace BindingsGeneration
                 if (synthesizedUnderscoreNames.Count > 0)
                     underscoreSuppressedNames.UnionWith(synthesizedUnderscoreNames);
 
-                // Merge underscore-suppressed names into internalTypeNames for wrapper post-processing
+                // Merge underscore-suppressed names into internalTypeNames for wrapper
+                // post-processing and the Pattern-2 member-reach gate, EXCLUDING synthesized
+                // public-underscore protocols (e.g. AppIntents._IntentValue). See
+                // UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames for why
+                // the synthesized names must not enter the internal-reach set.
+                internalTypeNames = UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+                    internalTypeNames, underscoreSuppressedNames, synthesizedUnderscoreNames);
                 if (underscoreSuppressedNames.Count > 0)
                 {
-                    internalTypeNames ??= new HashSet<string>();
-                    internalTypeNames.UnionWith(underscoreSuppressedNames);
                     logger.LogInformation("Suppressing {Count} underscore-prefixed types from C# output", underscoreSuppressedNames.Count);
                 }
                 // Re-sync the property so emission-time gates (MemberValidationPipeline)

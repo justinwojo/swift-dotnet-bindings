@@ -373,6 +373,324 @@ public class UnderscoreProtocolSynthesizerTests
         }
     }
 
+    // ---- Gap A: re-attaching digester-stripped conformance records --------------
+
+    [Fact]
+    public void Synthesize_AttachesStrippedConformance_ToLocalReferenceTypedConformers()
+    {
+        // The digester strips `_IntentValue` AND its conformance records. After synthesis,
+        // unconditional extensions on local reference-typed nominals (non-frozen struct,
+        // class) must regain the conformance so bound-generic constraint checks pass.
+        var module = CreateEmptyModule("AppIntents");
+        var intentFile = AddStruct(module, "IntentFile", isFrozen: false);
+        var someClass = AddClass(module, "SomeReferenceType");
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var path = WriteInterface(
+            """
+            public protocol _IntentValue { associatedtype Value }
+            extension AppIntents.IntentFile : AppIntents._IntentValue {}
+            extension AppIntents.SomeReferenceType : AppIntents._IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+
+            Assert.Contains(intentFile.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            Assert.Contains(someClass.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            // Empty descriptor: the conformance is a type-database fact only; every
+            // runtime-conformance emission path skips empty-descriptor / PAT entries.
+            Assert.All(intentFile.Conformances, c => Assert.Equal(string.Empty, c.ProtocolConformanceDescriptor));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Synthesize_SkipsStrippedConformance_ForFrozenValueTypeConformer()
+    {
+        // A frozen (value-typed) local struct is excluded — the downstream KeyPath surface
+        // constrains the parameter value to a reference type (ISwiftObject), so satisfying
+        // the constraint for a value type would only enable an unusable binding.
+        var module = CreateEmptyModule("AppIntents");
+        var frozen = AddStruct(module, "FrozenValue", isFrozen: true);
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var path = WriteInterface(
+            """
+            public protocol _IntentValue { associatedtype Value }
+            extension AppIntents.FrozenValue : AppIntents._IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+
+            Assert.Empty(frozen.Conformances);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Synthesize_SkipsConditionalConformance()
+    {
+        // `extension X : _IntentValue where ...` is a conditional conformance. Attaching it
+        // unconditionally would let element types that don't themselves conform slip the
+        // constraint check, so the conditional extension must be skipped even for a local
+        // reference-typed conformer.
+        var module = CreateEmptyModule("AppIntents");
+        var box = AddStruct(module, "Box", isFrozen: false);
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var path = WriteInterface(
+            """
+            public protocol _IntentValue { associatedtype Value }
+            extension AppIntents.Box : AppIntents._IntentValue where Element : AppIntents._IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+
+            Assert.Empty(box.Conformances);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Synthesize_IgnoresForeignConformer_WithNoLocalDecl()
+    {
+        // Foreign / stdlib conformers (Swift.Int, Foundation.Date) have no local TypeDecl.
+        // SatisfiesConstraint already fails them closed at typeArgumentDecl == null, so the
+        // synthesizer simply finds nothing to attach — and must not throw.
+        var module = CreateEmptyModule("AppIntents");
+        var intentFile = AddStruct(module, "IntentFile", isFrozen: false);
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var path = WriteInterface(
+            """
+            public protocol _IntentValue { associatedtype Value }
+            extension Swift.Int : AppIntents._IntentValue {}
+            extension Foundation.Date : AppIntents._IntentValue {}
+            extension AppIntents.IntentFile : AppIntents._IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+
+            // The only local reference-typed conformer gets the conformance; the foreign
+            // extensions are silently ignored (no local decl to attach to).
+            Assert.Contains(intentFile.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Synthesize_AttachesStrippedConformance_ToLocalNestedConformer()
+    {
+        // Nested conformers live under their parent's Types list and are written dotted in the
+        // swiftinterface — either fully qualified (AppIntents.Outer.Inner) or module-relative
+        // (Outer.Inner). Both forms must resolve against the recursively-built index so a nested
+        // local reference type regains the stripped conformance just like a top-level one.
+        var module = CreateEmptyModule("AppIntents");
+        var outerQualified = AddClass(module, "OuterQualified");
+        var innerQualified = AddNestedClass(outerQualified, module, "Inner");
+        var outerRelative = AddClass(module, "OuterRelative");
+        var innerRelative = AddNestedClass(outerRelative, module, "Inner");
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var path = WriteInterface(
+            """
+            public protocol _IntentValue { associatedtype Value }
+            extension AppIntents.OuterQualified.Inner : AppIntents._IntentValue {}
+            extension OuterRelative.Inner : AppIntents._IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+
+            Assert.Contains(innerQualified.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            Assert.Contains(innerRelative.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Synthesize_StrippedConformanceIsIdempotent()
+    {
+        // A conformer that appears under a multi-protocol extension list must not gain a
+        // duplicate _IntentValue conformance.
+        var module = CreateEmptyModule("AppIntents");
+        var intentFile = AddStruct(module, "IntentFile", isFrozen: false);
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var path = WriteInterface(
+            """
+            public protocol _IntentValue { associatedtype Value }
+            extension AppIntents.IntentFile : Swift.Sendable, AppIntents._IntentValue {}
+            extension AppIntents.IntentFile : AppIntents._IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+
+            Assert.Single(intentFile.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    // ---- Gap B: decoupling synthesized names from the internal-type-name set ----
+
+    [Fact]
+    public void MergeSuppressed_ExcludesSynthesizedButKeepsGenuineInternal()
+    {
+        // The decoupling contract: a synthesized public-underscore protocol
+        // (AppIntents._IntentValue) must NOT enter the internal-reach set — otherwise the
+        // member-reach gate suppresses every member whose generic constraint names it. A
+        // genuinely module-internal underscore type still flows through and suppresses.
+        var suppressed = new[] { "AppIntents._IntentValue", "AppIntents._GenuinelyInternal" };
+        var synthesized = new HashSet<string>(StringComparer.Ordinal) { "AppIntents._IntentValue" };
+
+        var merged = UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+            internalTypeNames: null, suppressed, synthesized);
+
+        Assert.NotNull(merged);
+        Assert.DoesNotContain("AppIntents._IntentValue", merged!);
+        Assert.Contains("AppIntents._GenuinelyInternal", merged);
+    }
+
+    [Fact]
+    public void MergeSuppressed_PreservesPreexistingInternalNames()
+    {
+        var existing = new HashSet<string>(StringComparer.Ordinal) { "AppIntents.AlreadyInternal" };
+        var suppressed = new[] { "AppIntents._IntentValue", "AppIntents._RealInternal" };
+        var synthesized = new HashSet<string>(StringComparer.Ordinal) { "AppIntents._IntentValue" };
+
+        var merged = UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+            existing, suppressed, synthesized);
+
+        Assert.Same(existing, merged); // mutated in place so decl.InternalTypeNames re-sync is correct.
+        Assert.NotNull(merged);
+        Assert.Contains("AppIntents.AlreadyInternal", merged!);
+        Assert.Contains("AppIntents._RealInternal", merged!);
+        Assert.DoesNotContain("AppIntents._IntentValue", merged!);
+    }
+
+    [Fact]
+    public void MergeSuppressed_EmptySuppressedSet_ReturnsInputUnchanged()
+    {
+        var synthesized = new HashSet<string>(StringComparer.Ordinal) { "AppIntents._IntentValue" };
+
+        // Null passthrough: nothing to merge means no allocation forced.
+        Assert.Null(UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+            internalTypeNames: null, Array.Empty<string>(), synthesized));
+
+        var existing = new HashSet<string>(StringComparer.Ordinal) { "AppIntents.AlreadyInternal" };
+        Assert.Same(existing, UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+            existing, Array.Empty<string>(), synthesized));
+    }
+
+    [Fact]
+    public void MergeSuppressed_OnlySynthesizedSuppressed_ReturnsInputUntouched()
+    {
+        // When the only suppressed name is the synthesized protocol, nothing is added: the
+        // protocol stays reachable from generated wrappers and the original input is returned
+        // untouched — no set is allocated for a null input, and an existing set is not mutated.
+        var synthesized = new HashSet<string>(StringComparer.Ordinal) { "AppIntents._IntentValue" };
+
+        // Null input + only-synthesized => null passthrough (no forced allocation).
+        Assert.Null(UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+            internalTypeNames: null, new[] { "AppIntents._IntentValue" }, synthesized));
+
+        // Existing set + only-synthesized => same instance, unchanged contents.
+        var existing = new HashSet<string>(StringComparer.Ordinal) { "AppIntents.AlreadyInternal" };
+        var merged = UnderscoreProtocolSynthesizer.MergeSuppressedIntoInternalTypeNames(
+            existing, new[] { "AppIntents._IntentValue" }, synthesized);
+        Assert.Same(existing, merged);
+        Assert.DoesNotContain("AppIntents._IntentValue", merged!);
+        Assert.Contains("AppIntents.AlreadyInternal", merged!);
+    }
+
+    private static StructDecl AddStruct(ModuleDecl module, string name, bool isFrozen)
+    {
+        var decl = new StructDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module.Name}.{name}"),
+            MangledName = $"$sFake{name}V",
+            IsFrozen = isFrozen,
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = string.Empty,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = module,
+            ModuleDecl = module,
+        };
+        module.Types.Add(decl);
+        return decl;
+    }
+
+    private static ClassDecl AddClass(ModuleDecl module, string name)
+    {
+        var decl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module.Name}.{name}"),
+            MangledName = $"$sFake{name}C",
+            Conformances = new List<TypeConformance>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = module,
+            ModuleDecl = module,
+        };
+        module.Types.Add(decl);
+        return decl;
+    }
+
+    private static ClassDecl AddNestedClass(TypeDecl parent, ModuleDecl module, string name)
+    {
+        var decl = new ClassDecl
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{parent.SwiftTypeName.ModuleQualifiedName}.{name}"),
+            MangledName = $"$sFake{name}C",
+            Conformances = new List<TypeConformance>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = module,
+        };
+        parent.Types.Add(decl);
+        return decl;
+    }
+
     private static ModuleDecl CreateEmptyModule(string name)
     {
         return new ModuleDecl

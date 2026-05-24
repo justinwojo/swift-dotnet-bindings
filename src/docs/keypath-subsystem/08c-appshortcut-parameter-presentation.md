@@ -129,6 +129,71 @@ Resolution: the C#-side `UnderscoreProtocolSynthesizer` (`src/Swift.Bindings/src
 
 Downstream gate: once the synthesizer is consumed against real AppIntents (via `swift-dotnet-packages`), the previously-tombstoned types will reach emitter for the first time and may surface new emitter bugs. See `08b-entityproperty-init-keypath.md` "Predicted downstream emitter surface" for the catalogue of predicted categories, and `roadmap.md` → "AppIntents downstream emitter bugs" for the validation-libraries.json gate.
 
+### Phase 0 spike re-run (2026-05-23 — synthesizer-projected `IntentParameter<TValue>`)
+
+Regen procedure: `nuke pack --version 0.12.0 --skip-apple` against this worktree (head `8ead3167`) → drop `SwiftBindings.Sdk.0.12.0.nupkg` + `SwiftBindings.Runtime.0.12.0.nupkg` into `/Users/wojo/Dev/swift-dotnet-packages/local-packages/` → wipe `~/.nuget/packages/swiftbindings.{sdk,runtime}/0.12.0/` → `dotnet build -c Release` on `apple-frameworks/AppIntents/SwiftBindings.Apple.AppIntents.csproj`. macOS and Mac Catalyst targets produced the managed `SwiftBindings.Apple.AppIntents.dll`; iOS and tvOS targets failed at the swiftc wrapper-Swift compile step on the known async/throws cdecl-wrapper categories (doc 14 § "Wrapper-compile failures" items 4 + 5, declared out-of-scope per this doc's parent — *not* a regression).
+
+**Verdict: the four-generic-param shape with higher-kinded `ParameterKeyPath : KeyPath<TIntent, TParameter>` is admitted by the C# compiler, with two adjustments to the verbatim shape proposed in the original spike (lines 116–120 above).**
+
+Spike workspace: `/tmp/8c-spike/Spike.{csproj,cs}` (throwaway; references the regen's `obj/Release/net10.0-macos26.2/SwiftBindings.Apple.AppIntents.dll`). All five variants below compiled cleanly (`0 Warning(s), 0 Error(s)`).
+
+Adjustments to the original proposed shape:
+
+1. `IAppIntent` is emitted as the F-bounded form `IAppIntent<TSelf> where TSelf : IAppIntent<TSelf>` (regen line 3418, macOS slice). The spike constraint must read `TIntent : IAppIntent<TIntent>`, not the unparameterized `IAppIntent`.
+2. `IntentParameter<TValue>` carries the fallback constraint `where TValue : ISwiftObject` (regen line 5109). The synthesizer is `IsModuleInternal=true` so no public `I_IntentValue` C# interface is emitted from the synthetic protocol body; `ISwiftObject` is what the generator falls back to as the most-specific projected bound. The spike `TValue` must therefore be constrained `TValue : class, ISwiftObject` to satisfy `IntentParameter<TValue>`.
+
+Compiled variants (`/tmp/8c-spike/Spike.cs`):
+
+```csharp
+// V2 — open four-generic with all constraints
+public class V2_FBoundedIntent<TIntent, TValue, TParameter, TParameterKeyPath>
+    where TIntent : class, IAppIntent<TIntent>
+    where TValue : class, ISwiftObject
+    where TParameter : IntentParameter<TValue>
+    where TParameterKeyPath : KeyPath<TIntent, TParameter> { }
+
+// V3 — same with a constructor consuming TParameterKeyPath (the actual
+// AppShortcutParameterPresentation.init(for:…) signature shape)
+public class V3_ConstructorShape<TIntent, TValue, TParameter, TParameterKeyPath>
+    where TIntent : class, IAppIntent<TIntent>
+    where TValue : class, ISwiftObject
+    where TParameter : IntentParameter<TValue>
+    where TParameterKeyPath : KeyPath<TIntent, TParameter>
+{
+    public V3_ConstructorShape(TParameterKeyPath forKeyPath) { _ = forKeyPath; }
+}
+
+// V4 — closed substitution against a reference-typed _IntentValue conformer
+// (AppIntents.EntityIdentifier is a `partial class : ISwiftObject` in the regen).
+public static class V4_ClosedSubstitution {
+    public static void Accept(KeyPath<MockIntent, IntentParameter<EntityIdentifier>> forKeyPath) { }
+}
+
+// V5 — call-site emission of a closed AppShortcutParameterPresentation.init,
+// shape equivalent to what the per-tuple emitter would produce.
+public static class V5_CallSite {
+    public static void Construct<TIntent, TValue, TParameter, TParameterKeyPath>(TParameterKeyPath forKeyPath)
+        where TIntent : class, IAppIntent<TIntent>
+        where TValue : class, ISwiftObject
+        where TParameter : IntentParameter<TValue>
+        where TParameterKeyPath : KeyPath<TIntent, TParameter> { }
+}
+```
+
+#### Caveat: primitive `_IntentValue` conformers do not close against `IntentParameter<TValue>`
+
+`IntentParameter<TValue> where TValue : ISwiftObject` rejects C# primitive projections of value-type `_IntentValue` conformers. Specifically: Swift declares `extension Swift.Int : AppIntents._IntentValue {}` (swiftinterface line 2197), but `Swift.Int` projects to C# `nint`, and `nint` does not implement `ISwiftObject`. So `IntentParameter<nint>` does not type-check on the C# side. The same applies to every `_IntentValue` conformer whose C# projection is a primitive: `Swift.Bool → bool`, `Swift.Double → double`, `Swift.String → string`. Only reference-typed conformers (`AppIntents.EntityIdentifier`, `AppIntents.IntentFile`, `AppIntents.IntentCurrencyAmount`, `Foundation.AttributedString` if/when it lands as a SafeHandle-backed C# class, plus user-declared `AppEntity` types) compose against the synthesizer's fallback `ISwiftObject` bound.
+
+The per-tuple emitter for 8c must therefore either (a) decline to emit closed `AppShortcutParameterPresentation<…>` overloads where Value is a primitive _IntentValue conformer, with a tombstone, or (b) lift `IntentParameter<TValue>`'s C# constraint to allow primitive TValues — e.g. by changing the synthesizer to project `_IntentValue` as a TypeRecord without the `ISwiftObject` fallback constraint surfacing on dependent generic types. Path (b) is a larger redesign and probably bleeds into the same change that lets the type database see Swift.Int as an `_IntentValue` conformer (see the CSM conformance gap below). Recommend revisiting this together with the conformance ingestion gap rather than as a tactical patch.
+
+#### Higher-priority 8c blocker: `AppShortcutParameterPresentation` is silently dropped before emission
+
+Every one of the five parallel structs declared in the swiftinterface (`AppShortcutParameterPresentation`, `…Title`, `…TitleString`, `…Summary`, `…SummaryString`, at swiftinterface lines 909, 486, 493, 8889, 8895) is **completely absent** from the regen — no `partial class`, no `// Unsupported:` tombstone, no decl at all. `grep -n "AppShortcutParameterPresentation" AppIntents.cs` returns zero hits. The four-generic-param-pack with `Parameter : IntentParameter<Value>` + higher-kinded `ParameterKeyPath : Swift.KeyPath<Intent, Parameter>` is being filtered upstream of every tombstone-emitting gate in the type pipeline. This is *not* the synthesizer's doing — `_IntentValue` is now projected and `IntentParameter<TValue>` *does* emit as a partial class, so the filter killing ASPP is a separate one.
+
+This is the gating problem for 8c and is the next investigation: trace where in the parser / type-database / closed-conformer pipeline the four-generic-param-pack with higher-kinded constraints is being discarded silently. Likely a `where T : ConstructedGeneric<…, …>` shape filter that returns "drop this type" without writing a tombstone, in the type-registration phase before MemberValidationPipeline runs. Once that filter is identified and either lifted or made tombstone-producing, the generic-shape emission can proceed.
+
+**Resolved — 8a-3 (shipped, uncommitted in `keypath-worktree`).** The silent drop was *not* a type-registration shape filter — it was `GenericSignatureParser.ParseConstraint` throwing on the higher-kinded constraint. The where-clause `ParameterKeyPath : Swift.KeyPath<Intent, Parameter>` was first torn apart by a naive `Split(',')` on the inner comma, and the constructed-generic target was then fed to `SwiftTypeName.FromModuleQualifiedName`, which throws on `<`. That throw propagated up to `SwiftABIParser.HandleNode`, which swallowed it and discarded the *entire enclosing decl* — hence zero decls and zero tombstones. The fix: split the where-clause at top-level commas only (`SwiftTypeListText.SplitTopLevelCommas`) and have `ParseConstraint` return null (dropping just that one unrepresentable constraint) instead of throwing. All five `AppShortcutParameterPresentation*` structs now emit. The primitive-`_IntentValue`-conformer caveat above still applies to the 8c per-tuple emitter.
+
 ---
 
 ## Phase 8c.1 — `AppIntent` conformer enumeration
@@ -210,3 +275,7 @@ Same constraint as `08b`. `ConcreteSpecializationEngine.GetConformers("AppIntent
 - `04-typed-singleton-emission.md` — typed singleton machinery
 - `08b-entityproperty-init-keypath.md` — sibling follow-up; conformer enumeration may be shared
 - `AppIntents.swiftinterface` lines 486, 493, 909, 8889, 8895, 9645 (the five parallel structs + AppShortcut factory)
+
+## Recommendation for the next implementation session (2026-05-23)
+
+**8a-2 and 8a-3 have shipped (uncommitted in `keypath-worktree`); 8b and 8c are now both actionable.** The two pre-8b structural gaps the synthesizer downstream regen surfaced — `_IntentValue` conformance-record ingestion (Gap A; closes the reference-typed conformer CSM failures, primitive conformers excluded by design) and the synthesized-name internal-reach cascade (Gap B; `Pattern2InternalTypeReach` 784 → 0) — are closed by 8a-2. The 8c-specific gap, the silent drop of all five `AppShortcutParameterPresentation*` structs, is closed by 8a-3 (it was `GenericSignatureParser.ParseConstraint` throwing through `SwiftABIParser.HandleNode` on the higher-kinded `KeyPath<Intent, Parameter>` constraint — see "Higher-priority 8c blocker" above). The C#-side four-generic constraint shape proposed in this doc compiles cleanly when adjusted for `IAppIntent<TSelf>` self-reference and `IntentParameter<TValue>`'s `ISwiftObject` fallback bound (spike workspace at `/tmp/8c-spike/`), so 8c's emission design from Phase 8c.3 onward stands. Realistic ordering: 8b → 8c (8c carries the additional primitive-`_IntentValue`-conformer decision for its per-tuple emitter — see the caveat subsection above). Both gated only on committing 8a-2 + 8a-3 and re-running the AppIntents downstream regen.
