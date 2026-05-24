@@ -100,6 +100,32 @@ These three blockers are pre-implementation work — they prevent 8b's `IMethodP
 - **#2 (47× CSM `_IntentValue` conformance failures) — partially closed by 8a-2 Gap A, by design.** `IngestStrippedConformances` re-attaches the digester-stripped `extension X : _IntentValue {}` records, but only for **local reference-typed** conformers (non-frozen struct / class / enum); the conformance is attached with an empty descriptor (type-database fact only, never emitted as runtime code). Foreign / stdlib conformers (`Swift.Int`, `Swift.Double`, `Swift.String`, `Swift.Bool`) intentionally stay unsatisfied — they have no local `TypeDecl`, and their C# projections are primitives that cannot implement `ISwiftObject` (the synthesizer's fallback bound on `IntentParameter<TValue>`; see the primitive-conformer caveat in `08c-…md`). Regen: `_IntentValue` suppressions 17 → 12. The residual 12 are the by-design primitive-conformer exclusions plus the Session 9 SwiftUI/Combine surface.
 - **#3 (ASPP silent drop) — closed by 8a-3 Gap C.** `GenericSignatureParser.ParseConstraint` now returns null for a constructed-generic constraint target (`ParameterKeyPath : KeyPath<Intent, Parameter>`) instead of feeding it to `SwiftTypeName.FromModuleQualifiedName` (which threw on `<`) and propagating the throw up through `SwiftABIParser.HandleNode`, which had been swallowing it and discarding the entire enclosing decl. All five `AppShortcutParameterPresentation*` structs now emit. See `08c-…md` "Higher-priority 8c blocker" for the trace.
 
+#### Empirical re-confirmation (2026-05-24 — fresh CLI regen at HEAD `c5698e43`)
+
+A direct generator regen against the iOS 26.2 simulator SDK's public `AppIntents.swiftinterface`
+(`swift-api-digester` dump → generator CLI, no downstream pack) confirms the internal-type-reach
+cascade is **fully closed at HEAD**, not merely the `_IntentValue` portion:
+
+- **`Pattern2InternalTypeReach` / `@usableFromInline`-reach suppressions: 0** in `binding-report.json`.
+  The 467 `EntityProperty<Value>` + 226 `IntentParameter.DateKind` internal-reach tombstones from the
+  2026-05-23 table do not reproduce. The input still declares `_IntentValueRepresentable` (swiftinterface
+  line 9762) and `_SystemIntentValue` (line 2584) and the `extension EntityProperty where Value.ValueType :
+  _SystemIntentValue` blocks (line 2162), so the signatures that *would* trip the gate are present — they
+  are simply no longer suppressed for internal-reach.
+- **Residual `EntityProperty` init skips (1035 total) are the expected 8b.3 surface**, not parser
+  suppression: 479 `SwiftUIConstraint` (signature names `Foundation.LocalizedStringResource` — Session 9
+  scope), **160 `UnsupportedSignature` = "C# does not support generic constructors with method-own type
+  parameters"** (the `init<Entity>(getter: KeyPath<Entity, Value>) where Entity : AppEntity` family — this
+  is exactly what 8b.3's per-`(Entity, init-shape, flavor)` overload emitter is designed to close; the
+  pre-resolution table predicted only 9 because the rest were hidden behind the internal-reach gate), 159
+  `UnsatisfiedGenericConstraint` (primitive `ISwiftObject` conformers — by-design per #2 above), 156
+  `DuplicateSignature`, 80 `UnsupportedClosure` (`asyncGetter`).
+
+**Consequence:** the "parser-suppression prerequisite" is already satisfied at HEAD. The remaining work to
+land KeyPath-init construction is the 8b.3 overload emitter itself (against the 160 method-own-generic-ctor
+surface) — subject to the still-open cross-assembly constraint (blocker 1 below) when `EntityProperty` is a
+resolved `--framework-dependency` rather than the emit target.
+
 ---
 
 ## Generator pieces required
@@ -213,6 +239,169 @@ The Swift trampoline this calls into is `init<Entity>(…)` directly — no sepa
 This is acceptable for v1. The product story is: "your AppEntity types live in the same library as your generated AppIntents bindings, and the binding regenerates whenever you add or remove an AppEntity type." Documented in the wiki Known Limitations.
 
 Roadmap item (see `roadmap.md`): cross-module / cross-assembly conformer enumeration is its own architectural session (changes to `ConcreteSpecializationEngine`, TypeDatabase dependency-closure aggregation, and `Program.cs` engine construction). Open when a real consumer asks.
+
+## Implementation outcomes (shipped 2026-05-24)
+
+The KeyPath-singleton half of this session (8b.1 + 8b.2 + 8b.4) shipped. The
+`EntityProperty`-construction half (8b.3) shipped as a **consumer-side factory emitter**
+(`ConformerKeyPathInitFactoryEmitter`) against a BindingTests dependency stand-in
+(`MiniEntityProperty<Value>`); the *real* AppIntents `EntityProperty` remains blocked on
+the parser-suppression prerequisites documented below.
+
+### Shipped: `AppEntityKeyPathSingletonEmitter` (8b.1 + 8b.2)
+
+`src/Swift.Bindings/src/Emitter/StringEmitter/Handler/AppEntityKeyPathSingletonEmitter.cs`.
+Module-scope emitter, called from `ModuleHandler` at namespace scope after the type
+walk (alongside the foreign-extension / CSM container classes), **not** from
+`Class/Struct` per-type handlers as the plan above sketched. The handler hook the plan
+named (`EmitKeyPathSingletonsForGenericParent`'s call site) is parent-bag-demand-driven;
+the AppEntity surface has no parent-bag demand signal, so a module-scope driver that
+enumerates conformers directly is the correct shape.
+
+Key differences from the plan as written:
+
+- **Root is the conformer itself**, not a nested bag. `\MockBook.title` →
+  `WritableKeyPath<MockBook, String>`, container `MockBookAppEntityKeyPaths`. Simpler
+  than Session 4 (no associated-type-bag resolution).
+- **Conformer eligibility** is gated by `IsEligibleConformerType` (factored out, unit-
+  tested): reject generic (`Foo<T>` has no single closed Root), SPI-protected, and
+  module-internal conformers. The caller additionally requires the conformer's
+  `TypeDecl` to be present in the emitted module's type-decl index (the local-to-module
+  gate — see v1 limitations).
+- **Computed properties are admitted** (unlike Session 4's stored-bag path). The shared
+  `KeyPathBagWalker.IsEmittableProperty` gained an `allowComputed` parameter; the
+  AppEntity emitter passes `allowComputed: true` because a concrete root forms valid
+  KeyPaths for computed properties — `\Root.getOnly` is a read-only `KeyPath` and
+  `\Root.getSet` is a `WritableKeyPath`. Flavor follows the presence of a setter, so a
+  get-only computed property correctly yields `KeyPath` (not `WritableKeyPath`).
+- **Effectful read-only getters are excluded.** `var foo: T { get throws }` /
+  `{ get async }` are valid Swift but cannot be referenced by a `\Root.foo` KeyPath
+  literal (Swift rejects key paths to accessors with effects). The walker rejects them
+  (`EffectfulGetter`); the gate is dormant for stored properties (whose synthesized
+  accessors are never effectful) and only bites once `allowComputed` admits computed
+  leaves.
+- **Symbol scheme** `SBW_KP_AppEntity_{module}_{conformerSan}_{propSan}_{hash8}` — a
+  prefix disjoint from Session 4's `SBW_KP_`, method wrappers' `SBW_`, and CSM's
+  `SBW_CSM_`, so the dedup registries never collide. Dedup key
+  `AppEntity|{conformer.SwiftQualifiedName}` in the shared singleton-container registry.
+- Availability is merged from property + ancestor + the conformer's own availability
+  record so the Swift trampoline's `@available` floor and the C# `[SupportedOSPlatform]`
+  agree with what swiftc type-checks against the device SDK. For a **writable** path the
+  `\Root.prop` literal references the setter, so when the setter carries a tighter floor
+  (`SetterAvailabilityAnnotations`, e.g. getter iOS 17.0 / setter iOS 17.4) that
+  stricter list is the member base — the `WritableKeyPath` isn't exposed under the
+  looser getter floor.
+
+For `MockBook` this emits `MockBookAppEntityKeyPaths.{Id, Title, PageCount}` as
+`WritableKeyPath` (stored `var`s), plus `Summary` as a read-only `KeyPath` (get-only
+computed) and `DisplayTitle` as a `WritableKeyPath` (get/set computed).
+
+### Shipped: BindingTests + unit coverage (8b.4)
+
+- `BindingTests/Sources/SwiftBindingsTestLib/AppIntents/MockAppEntity.swift` —
+  read-through (`readMockBookString`/`readMockBookInt`), write-through
+  (`writeMockBookString`/`writeMockBookInt`, returning a mutated copy per the
+  inout-write-back generator gap noted in `KeyPathFoundation.swift`), and
+  AnyKeyPath-equality (`sameMockBookPath`) consumers. `MockBook` also carries `summary`
+  (get-only computed) and `displayTitle` (get/set computed) to exercise the
+  computed-property surface.
+- `BindingTests/RuntimeTestsApp/AppIntents/MockAppEntityTests.cs` — Session-8b tests:
+  container resolution, conformer-rooted flavor, lazy-caching, read/write round-trips
+  through Swift consumers, Swift-sided equality, plus computed-property coverage
+  (`Summary` is a read-only `KeyPath`, `DisplayTitle` is a `WritableKeyPath` whose write
+  mutates the backing `title`). 2269 pass on sim, 2290 on device (NativeAOT), 0 crash.
+- `src/Swift.Bindings/tests/UnitTests/EmitterTests/AppEntityKeyPathSingletonEmitterTests.cs`
+  — 10 tests: `IsEligibleConformerType`'s negative gates (generic / SPI / internal
+  rejected; concrete and frozen-concrete accepted), the `allowComputed` switch (stored
+  admitted either way; computed rejected by default, admitted with `allowComputed`;
+  static computed still rejected), and the effectful-getter exclusion (throwing / async
+  computed getters rejected even with `allowComputed`).
+
+### Shipped: `ConformerKeyPathInitFactoryEmitter` (8b.3 via the factory route)
+
+`src/Swift.Bindings/src/Emitter/StringEmitter/Handler/ConformerKeyPathInitFactoryEmitter.cs`.
+A dependency's generic class can declare a method-own-generic, KeyPath-keyed init
+(`init<Entity: AppEntity>(identifier:, getter:/getSetter: KeyPath<Entity, Value>)`) that
+tombstones in the dependency's *own* binding (C# has no generic constructors with
+method-own type parameters). The consumer-side emitter rescues it: for each closed
+AppEntity conformer (`MockBook`), it emits a `{Conformer}{Dep}Factory` container with
+`CreateFromGetter` / `CreateFromGetSetter` overloads (one per distinct property value
+type) that build the dependency object through a Swift `@_cdecl` trampoline calling the
+init with `Entity` closed to the conformer, then adopt the returned `+1` ARC handle via
+`SwiftMarshal.MarshalFromSwiftObject<T>`. The factory consumes the already-shipped
+`MockBookAppEntityKeyPaths` singletons as its KeyPath argument.
+
+Key points:
+
+- **Type-projection split.** The KeyPath parameter is typed in idiomatic C#
+  (`KeyPath<MockBook, string>`, `projection.PublicType`) so it binds the emitted
+  singleton; the dependency's `MiniEntityProperty<Value>` return generic argument and the
+  `MarshalFromSwiftObject<…>` call use the **marshal** type (`SwiftString`, an
+  `ISwiftObject` — `projection.MarshalFromSwiftType`) so the dep binding's
+  `TypeMetadata.GetTypeMetadataOrThrow<Value>()` resolves at runtime. For blittable values
+  (`Int`→`nint`) the two coincide; for classes both are the qualified name.
+- **Recognizer scope (`TryRecognizeInitShape`, pure / unit-tested).** Admits exactly the
+  shape it can faithfully emit: one class generic; a constructor with exactly one
+  *method-own* generic (the ctor's `GenericParameters` also carries the class generic at
+  depth-0, so the method-own set is isolated by excluding class-generic names); that
+  generic constrained by exactly one protocol and no associated-type / concrete bound;
+  the Value being the class's sole generic; scalar params restricted to `Swift.String`;
+  one KeyPath param. `ReferenceWritableKeyPath` is rejected (value-type AppEntity roots
+  only originate `KeyPath` / `WritableKeyPath` singletons, and the emission path collapses
+  writable shapes to `WritableKeyPath`). Each rejected shape is a guard against emitting a
+  trampoline that fails to type-check and is silently stripped by the wrapper build.
+- **Availability** merges the dep-class floor (+ ancestors) with the conformer's floor,
+  emitted as `@available` (Swift trampoline) + `[SupportedOSPlatform]` (C# factory +
+  P/Invoke), mirroring `AppEntityKeyPathSingletonEmitter`.
+- **Symbol scheme** `SBW_EPF_{module}_{conformerSan}_{depSan}_{labelSan}_{hash8}` — prefix
+  disjoint from `SBW_KP_*` / `SBW_` / `SBW_CSM_`. Dedup key
+  `{conformer}|{dep}|{label}|{csValueType}` in a dedicated `ModuleEmissionContext` set.
+- **Coverage.** `BindingTests/Sources/SwiftBindingsTestLibDependency/MiniEntityProperty.swift`
+  (dep stand-in), `BindingTests/RuntimeTestsApp/AppIntents/EntityPropertyFactoryTests.cs`
+  (8 runtime tests: identifier round-trip, writable flag, AnyKeyPath-equality of the
+  captured path vs. the singleton, string + nint, computed get-only / get-set, instance
+  independence), and `ConformerKeyPathInitFactoryEmitterTests.cs` (17 recognizer unit
+  tests). +8 on sim and +8 on device (NativeAOT), 0 crash.
+
+**Known limitation — value-type availability (shared with `AppEntityKeyPathSingletonEmitter`).**
+The merged availability floor combines the dep-class and conformer floors but **not** the
+floor of the property's *value* type. A conformer property whose value type is introduced
+on a later OS than both the conformer and the dep class would produce an under-annotated
+Swift trampoline (stripped) and C# factory. Not triggered by the current fixture (all
+value types are `String`/`Int`), and the sibling singleton emitter has the same gap — so
+the fix is a coordinated change across both emitters plus a gated-value-type fixture, out
+of scope for this pass. Surfaced for prioritization rather than silently patched untested.
+
+### Blocked: 8b.3 `EntityProperty` convenience-init overloads (the *real* AppIntents type)
+
+8b.3 as specified — attach closed convenience-init overloads to `EntityProperty<Value>`
+via an `IMethodPostProcessor` — cannot proceed, for two independent reasons:
+
+1. **`EntityProperty<Value>` is never in the consumer module's emit target.** In the
+   BindingTests pipeline (and the real product story), AppIntents is a *dependency*
+   (`--framework-dependency`), which is **resolved, not C#-emitted**. `EntityProperty`
+   lives in the AppIntents binding, not in `SwiftBindingsTestLib.cs`. There is no
+   `EntityProperty` decl in the emitted module for a post-processor to attach to, and
+   C# constructors cannot be added to a type across assembly boundaries (partial
+   classes don't span assemblies) — so a factory, not a constructor, would be required
+   regardless.
+2. **Even in the real AppIntents binding, the convenience-init family is parser-
+   suppressed.** Per the 2026-05-23 regen table above: 467 `init` tombstones on
+   `EntityProperty<TValue>` + 9 `C# does not support generic constructors with method-
+   own type parameters`. The init signatures reach `@usableFromInline internal` /
+   underscored shape types (`_IntentValueRepresentable`, `_SystemIntentValue`) not on
+   the synthesizer allowlist, so `IsNodeModuleInternal` suppresses them before any
+   post-processor sees the KeyPath-typed parameters. Line 91 flags this as a "Pre-8b
+   session needed."
+
+Both Codex and Grok independently confirmed the block (the `IMethodPostProcessor`-on-
+ctors approach is also structurally impossible: `MemberValidationPipeline` Phase 6 skips
+`init<Entity>` method-own-generic ctors *before* `handler.Emit`, so the post-processor
+never fires for them). The KeyPath singletons shipped here are the standalone-useful
+bulk of the surface; the `EntityProperty`-construction half needs a deliberate
+direction decision (managed Apple-Supplement `EntityProperty<T>` with factories, vs.
+resolving the parser-suppression prerequisites first, vs. deferring). Surfaced to the
+project owner rather than auto-deferred to roadmap.
 
 ## References
 

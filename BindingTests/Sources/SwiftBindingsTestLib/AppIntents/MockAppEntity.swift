@@ -64,6 +64,22 @@ public struct MockBook: AppEntity {
     public var title: String
     public var pageCount: Int
 
+    // Computed properties exercise the AppEntity-direct-root KeyPath surface beyond
+    // stored slots. Swift forms a real `KeyPath` for a get-only computed property and a
+    // `WritableKeyPath` for a get/set computed property, so both must surface as
+    // `MockBookAppEntityKeyPaths` singletons.
+
+    /// Get-only computed → `\MockBook.summary` is `KeyPath<MockBook, String>`.
+    public var summary: String { "\(title) (\(pageCount) pages)" }
+
+    /// Get/set computed → `\MockBook.displayTitle` is `WritableKeyPath<MockBook, String>`.
+    /// The setter mutates the backing `title`, so a write through the KeyPath is
+    /// observable on `title`.
+    public var displayTitle: String {
+        get { title }
+        set { title = newValue }
+    }
+
     public init(id: String, title: String, pageCount: Int) {
         self.id = id
         self.title = title
@@ -124,6 +140,65 @@ public func mockBookPageCount(_ book: MockBook) -> Int {
 @available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
 public func mockBookId(_ book: MockBook) -> String {
     book.id
+}
+
+// MARK: - AppEntity KeyPath singleton round-trip consumers (Session 8b)
+//
+// Session 8b emits `MockBookAppEntityKeyPaths.{Id,Title,PageCount}` —
+// `WritableKeyPath<MockBook, *>` singletons rooted directly on the closed
+// AppEntity conformer, originated by Swift `@_cdecl` trampolines. These free
+// functions are the consumer side that proves a C#-originated singleton
+// marshals back into Swift and reads/writes the correct property.
+//
+// They take `MockBook` (a value-type AppEntity, surfaced as a SafeHandle-backed
+// C# class) plus a typed KeyPath, mirroring `KeyPathConsumer.writeInt` in
+// KeyPathFoundation.swift: the writable variants return a mutated copy rather
+// than using `inout` because the generated C# inout-write-back for struct
+// arguments is a known generator gap, out of scope here. A `WritableKeyPath`
+// singleton binds fine to a `KeyPath` parameter (it is-a KeyPath), so the read
+// helpers accept the broader `KeyPath` type.
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
+public func readMockBookString(_ book: MockBook, by kp: KeyPath<MockBook, String>) -> String {
+    book[keyPath: kp]
+}
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
+public func readMockBookInt(_ book: MockBook, by kp: KeyPath<MockBook, Int>) -> Int {
+    book[keyPath: kp]
+}
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
+public func writeMockBookString(into book: MockBook, by kp: WritableKeyPath<MockBook, String>, to value: String) -> MockBook {
+    var copy = book
+    copy[keyPath: kp] = value
+    return copy
+}
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
+public func writeMockBookInt(into book: MockBook, by kp: WritableKeyPath<MockBook, Int>, to value: Int) -> MockBook {
+    var copy = book
+    copy[keyPath: kp] = value
+    return copy
+}
+
+// AnyKeyPath.==-driven value equality, called on the Swift side from two
+// C#-originated singleton handles — proves the IN-path handle is a real,
+// comparable KeyPath rather than an opaque pointer.
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
+public func sameMockBookPath(_ a: KeyPath<MockBook, String>, _ b: KeyPath<MockBook, String>) -> Bool {
+    a == b
+}
+
+// Type-erased AnyKeyPath equality. The consumer-side EntityProperty factory
+// (Session 8b.3) captures the C#-originated KeyPath singleton inside the
+// dependency's `MiniEntityProperty.capturedKeyPath` (an `AnyKeyPath`). Reading
+// that property back across the dependency boundary and comparing it here to
+// the original singleton proves the factory threaded the *exact same* KeyPath
+// into `init<Entity>(getter:)` — not merely a non-null pointer.
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, watchOS 9.0, *)
+public func sameAnyKeyPath(_ a: AnyKeyPath, _ b: AnyKeyPath) -> Bool {
+    a == b
 }
 
 #endif // canImport(AppIntents)

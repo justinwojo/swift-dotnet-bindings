@@ -257,6 +257,24 @@ namespace BindingsGeneration
                 ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, emissionCtx);
                 ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name, emissionCtx);
 
+                // Session 8b: emit typed KeyPath singletons rooted on this module's
+                // closed AppIntents.AppEntity conformers (KeyPath roots for the
+                // EntityProperty / IntentParameter convenience-init family). Driven by
+                // conformer enumeration over the current module — see
+                // AppEntityKeyPathSingletonEmitter.
+                AppEntityKeyPathSingletonEmitter.EmitForModule(
+                    csWriter, swiftWriter, moduleDecl, env.TypeDatabase, emissionCtx,
+                    emissionCtx.SpecializationEngine, _logger);
+
+                // Session 8b.3: emit consumer-side factories that construct a framework
+                // dependency's generic type via its method-own-generic KeyPath init,
+                // closing the method generic to a local conformer and consuming the
+                // KeyPath singletons emitted just above. See
+                // ConformerKeyPathInitFactoryEmitter.
+                ConformerKeyPathInitFactoryEmitter.EmitForModule(
+                    csWriter, swiftWriter, moduleDecl, env.TypeDatabase, emissionCtx,
+                    emissionCtx.SpecializationEngine, _logger);
+
                 // Emit deferred enum extension classes (from nested simple enums).
                 // C# requires extension methods to be in top-level static classes, so nested
                 // enums (e.g., ImageProcessingOptions.Unit) defer their extension classes here.

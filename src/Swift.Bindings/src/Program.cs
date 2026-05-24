@@ -211,6 +211,11 @@ namespace BindingsGeneration
                         // gap (BindingTests path uses --framework-dependency without --module-database).
                         NameProvider.PrecomputeNestedTypeRenames(depParseResult.ModuleDecl, typeDatabase);
 
+                        // Retain the dependency's parsed ModuleDecl so consumer-side emitters can
+                        // walk constructor shapes the TypeRecord projection discards (e.g. the
+                        // KeyPath-init factory emitter needs a dep class's `init<G: P>(KeyPath<G, V>)`).
+                        typeDatabase.AddDependencyModuleDecl(depParseResult.ModuleDecl);
+
                         // Stash dep ProtocolDecls so the bound module's EveryProtocol emission
                         // can resolve cross-module parents to their full member list.
                         if (depParseResult.ModuleDecl.Protocols is { Count: > 0 } depProtos)

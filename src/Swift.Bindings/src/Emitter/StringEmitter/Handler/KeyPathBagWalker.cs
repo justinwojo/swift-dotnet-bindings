@@ -185,10 +185,17 @@ internal static class KeyPathBagWalker
     /// true for ProtocolDecl bags (their requirements are abstract by construction;
     /// the <c>\Protocol.requirement</c> KeyPath literal still compiles and resolves
     /// through the witness table at use time).
+    ///
+    /// <paramref name="allowComputed"/> admits computed (non-stored) properties on a
+    /// concrete root. Swift forms valid KeyPaths for computed properties —
+    /// <c>\Root.getOnly</c> is a <c>KeyPath</c> and <c>\Root.getSet</c> is a
+    /// <c>WritableKeyPath</c> — so a concrete root (e.g. an <c>AppEntity</c> conformer)
+    /// rooting singletons directly on itself wants them, unlike the Session 4 nested-bag
+    /// scenario where only stored bag fields are KeyPath leaves.
     /// </summary>
-    public static string? WhyPropertyNotEmittable(PropertyDecl propertyDecl, bool allowAbstract)
+    public static string? WhyPropertyNotEmittable(PropertyDecl propertyDecl, bool allowAbstract, bool allowComputed = false)
     {
-        if (!allowAbstract && !propertyDecl.HasStorage) return "!HasStorage";
+        if (!allowAbstract && !allowComputed && !propertyDecl.HasStorage) return "!HasStorage";
         if (propertyDecl.IsStatic) return "IsStatic";
         if (propertyDecl.IsSpiProtected) return "IsSpiProtected";
         // `@objc optional var foo: T` is inferred by Swift as `KeyPath<any P, T?>`
@@ -201,7 +208,14 @@ internal static class KeyPathBagWalker
         // The bag-level check already rejected internal protocols, so when we're
         // allowAbstract=true the requirement is implicitly public.
         if (!allowAbstract && propertyDecl.IsModuleInternal) return "IsModuleInternal";
-        if (!propertyDecl.Accessors.OfType<GetAccessorDecl>().Any()) return "!Getter";
+        var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+        if (getter is null) return "!Getter";
+        // Effectful read-only properties (`var foo: T { get throws }` / `{ get async }`)
+        // cannot be referenced by a `\Root.foo` KeyPath literal — Swift rejects key paths
+        // to accessors that carry effects. Only computed properties can be effectful
+        // (a stored property's synthesized accessor never is), so this gate is dormant for
+        // the stored-bag path and only bites once `allowComputed` admits computed leaves.
+        if (getter.Method?.Throws == true || getter.Method?.IsAsync == true) return "EffectfulGetter";
         if (string.IsNullOrEmpty(propertyDecl.Name)) return "EmptyName";
         return null;
     }
@@ -211,8 +225,8 @@ internal static class KeyPathBagWalker
     /// <see cref="WhyPropertyNotEmittable"/> so the bag-level <c>Any()</c> probe and
     /// the per-property projection loop share the exact same predicate.
     /// </summary>
-    public static bool IsEmittableProperty(PropertyDecl propertyDecl, bool allowAbstract) =>
-        WhyPropertyNotEmittable(propertyDecl, allowAbstract) is null;
+    public static bool IsEmittableProperty(PropertyDecl propertyDecl, bool allowAbstract, bool allowComputed = false) =>
+        WhyPropertyNotEmittable(propertyDecl, allowAbstract, allowComputed) is null;
 
     /// <summary>
     /// One-shot index: <c>SwiftQualifiedName → TypeDecl</c> over module-scope types

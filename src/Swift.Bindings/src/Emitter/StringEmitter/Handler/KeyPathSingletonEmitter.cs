@@ -444,7 +444,7 @@ internal static class KeyPathSingletonEmitter
         }
     }
 
-    private static string? ResolveCSharpFullName(TypeDecl bagDecl, ITypeDatabase typeDatabase)
+    internal static string? ResolveCSharpFullName(TypeDecl bagDecl, ITypeDatabase typeDatabase)
     {
         // Prefer the TypeRecord's canonical C# name (handles renames, nested-type
         // collisions, and module-namespace mapping). Fall back to building the
@@ -471,7 +471,7 @@ internal static class KeyPathSingletonEmitter
     /// but keeps a flat character set safe for cdecl symbol names — no angle brackets,
     /// no commas, no whitespace.
     /// </summary>
-    private static string SanitizeSymbol(string name)
+    internal static string SanitizeSymbol(string name)
         => name.Replace(".", "_").Replace("<", "_").Replace(">", "")
                .Replace(",", "_").Replace(" ", "").Replace("[", "Arr_").Replace("]", "");
 
@@ -483,7 +483,7 @@ internal static class KeyPathSingletonEmitter
     /// the dot sanitised by <see cref="SanitizeIdentifier"/>) so the container
     /// names remain unique across cross-module conformers.
     /// </summary>
-    private static string StripModulePrefix(string cSharpType, string moduleName)
+    internal static string StripModulePrefix(string cSharpType, string moduleName)
     {
         var prefix = moduleName + ".";
         return cSharpType.StartsWith(prefix, StringComparison.Ordinal)
@@ -491,7 +491,7 @@ internal static class KeyPathSingletonEmitter
             : cSharpType;
     }
 
-    private static string SanitizeIdentifier(string name)
+    internal static string SanitizeIdentifier(string name)
     {
         // Used for C# class-name segments only. Drop characters that can't appear
         // in a C# identifier — same approach as SanitizeTypeName in CSM. Avoids

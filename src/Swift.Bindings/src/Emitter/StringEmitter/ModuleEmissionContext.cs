@@ -326,6 +326,25 @@ public sealed class ModuleEmissionContext
     public bool TryAddKeyPathSingletonContainer(string key) =>
         _emittedKeyPathSingletonContainers.Add(key);
 
+    // Session 8b.3 — per-(conformer × dependency-class × init-shape × value-type) dedup
+    // for consumer-side KeyPath-init factory overloads. The factory recognizer walks
+    // every dependency generic class's KeyPath-init shapes against every local conformer
+    // of the init's generic constraint; two recognized shapes (e.g. getter/getSetter) host
+    // overloads in the same `{Conformer}{DepClass}Factory` partial class, and the same shape
+    // can surface twice if a dependency module is parsed more than once. Without this guard
+    // we would re-emit a duplicate C# overload (CS0111) or a duplicate `SBW_EPF_…` Swift
+    // @_cdecl symbol (duplicate-symbol link error). Key shape:
+    // `{conformer-qualified}|{dep-class-qualified}|{keypath-arg-label}|{V-CSharp-Type}`.
+    private readonly HashSet<string> _emittedKeyPathInitFactories = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Registers a (conformer, dependency class, init-shape label, value-type) KeyPath-init
+    /// factory overload for this module. Returns true if newly added; false if a previous
+    /// emission pass already registered it.
+    /// </summary>
+    public bool TryAddKeyPathInitFactory(string key) =>
+        _emittedKeyPathInitFactories.Add(key);
+
     // Session 6c Route C: per-(parent × conformer × method × V) sort overload dedup.
     // Two generic parents in the same module that emit the same (conformer × V) sort
     // shape would otherwise collide on both the C# partial-class member set and the

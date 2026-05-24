@@ -107,4 +107,183 @@ public class MockAppEntityTests : TestBase
         AssertEqual("id-a", a.Id, "Id on a unchanged");
         AssertEqual("id-b", b.Id, "Id on b unchanged");
     }
+
+    // ---------------------------------------------------------------------------------------
+    // Session 8b: AppEntity KeyPath singletons
+    //
+    // MockBookAppEntityKeyPaths.{Id,Title,PageCount} are WritableKeyPath
+    // singletons rooted DIRECTLY on the closed AppEntity conformer (not on a
+    // nested bag, as in Session 4). They are originated by Swift @_cdecl
+    // trampolines and surface as C# `public static` properties. These tests
+    // assert the container resolves, the singletons carry the right
+    // Root/Value/flavor, and they round-trip through Swift consumers.
+    // ---------------------------------------------------------------------------------------
+
+    public void TestAppEntityKeyPaths_IdSingleton_NonNull()
+    {
+        var kp = MockBookAppEntityKeyPaths.Id;
+        AssertNotNull(kp, "Id singleton resolves to non-null KeyPath");
+        AssertFalse(kp.IsInvalid, "Id singleton handle is valid");
+    }
+
+    public void TestAppEntityKeyPaths_TitleSingleton_NonNull()
+    {
+        var kp = MockBookAppEntityKeyPaths.Title;
+        AssertNotNull(kp, "Title singleton resolves to non-null KeyPath");
+        AssertFalse(kp.IsInvalid, "Title singleton handle is valid");
+    }
+
+    public void TestAppEntityKeyPaths_PageCountSingleton_NonNull()
+    {
+        var kp = MockBookAppEntityKeyPaths.PageCount;
+        AssertNotNull(kp, "PageCount singleton resolves to non-null KeyPath");
+        AssertFalse(kp.IsInvalid, "PageCount singleton handle is valid");
+    }
+
+    public void TestAppEntityKeyPaths_RootedOnConformerItself()
+    {
+        // Unlike Session 4 (rooted on a nested LibraryFilter bag), the AppEntity
+        // singletons are rooted on the conformer type directly. The static type
+        // is WritableKeyPath<MockBook, *> because all three properties are `var`.
+        var title = MockBookAppEntityKeyPaths.Title;
+        AssertTrue(
+            title is global::Swift.WritableKeyPath<MockBook, string>,
+            "Title is WritableKeyPath<MockBook, string> (var property, conformer root)");
+        AssertTrue(
+            title is global::Swift.KeyPath<MockBook, string>,
+            "WritableKeyPath is-a KeyPath");
+        AssertTrue(
+            title is global::Swift.AnyKeyPath,
+            "And is-a AnyKeyPath");
+
+        var pageCount = MockBookAppEntityKeyPaths.PageCount;
+        AssertTrue(
+            pageCount is global::Swift.WritableKeyPath<MockBook, nint>,
+            "PageCount is WritableKeyPath<MockBook, nint> (Int value type)");
+    }
+
+    public void TestAppEntityKeyPaths_RepeatedAccess_SameInstance()
+    {
+        // Lazy<T>.Value contract: the static singleton returns the same reference.
+        var a = MockBookAppEntityKeyPaths.Title;
+        var b = MockBookAppEntityKeyPaths.Title;
+        AssertTrue(ReferenceEquals(a, b),
+            "Lazy<T>-backed AppEntity singleton returns same reference on repeated access");
+    }
+
+    public void TestAppEntityKeyPaths_ReadId_RoundTripsThroughSwiftConsumer()
+    {
+        using var book = new MockBook("isbn-42", "The Title", 100);
+        var kp = MockBookAppEntityKeyPaths.Id;
+        var read = TestLibFunctions.ReadMockBookString(book, kp);
+        AssertEqual("isbn-42", read,
+            "Swift consumer reads id through C#-originated AppEntity singleton");
+    }
+
+    public void TestAppEntityKeyPaths_ReadTitle_RoundTripsThroughSwiftConsumer()
+    {
+        using var book = new MockBook("id-1", "Gravity's Rainbow", 760);
+        var kp = MockBookAppEntityKeyPaths.Title;
+        var read = TestLibFunctions.ReadMockBookString(book, kp);
+        AssertEqual("Gravity's Rainbow", read,
+            "Swift consumer reads title through C#-originated AppEntity singleton");
+    }
+
+    public void TestAppEntityKeyPaths_ReadPageCount_RoundTripsThroughSwiftConsumer()
+    {
+        using var book = new MockBook("id-2", "Some Book", 432);
+        var kp = MockBookAppEntityKeyPaths.PageCount;
+        var read = TestLibFunctions.ReadMockBookInt(book, kp);
+        AssertEqual<nint>(432, read,
+            "Swift consumer reads pageCount (Int) through C#-originated AppEntity singleton");
+    }
+
+    public void TestAppEntityKeyPaths_WriteTitle_RoundTripsThroughSwiftConsumer()
+    {
+        // WritableKeyPath flavor: assign through the KP subscript on the Swift
+        // side. The consumer returns a mutated copy (inout-write-back for struct
+        // args is a known generator gap), so we read the returned book back.
+        using var book = new MockBook("id-3", "Old Title", 50);
+        var kp = MockBookAppEntityKeyPaths.Title;
+        using var mutated = TestLibFunctions.WriteMockBookString(book, kp, "New Title");
+        AssertEqual("New Title", mutated.Title,
+            "WritableKeyPath singleton assigns title through Swift KP subscript");
+        AssertEqual("Old Title", book.Title,
+            "Original book is unchanged (mutated copy returned)");
+    }
+
+    public void TestAppEntityKeyPaths_WritePageCount_RoundTripsThroughSwiftConsumer()
+    {
+        using var book = new MockBook("id-4", "Title", 50);
+        var kp = MockBookAppEntityKeyPaths.PageCount;
+        using var mutated = TestLibFunctions.WriteMockBookInt(book, kp, 777);
+        AssertEqual(777, mutated.PageCount,
+            "WritableKeyPath singleton assigns pageCount through Swift KP subscript");
+        AssertEqual(50, book.PageCount,
+            "Original book pageCount is unchanged (mutated copy returned)");
+    }
+
+    public void TestAppEntityKeyPaths_SwiftSidedEquality_OnSamePath()
+    {
+        // AnyKeyPath.== on the Swift side from two C#-originated singleton handles
+        // (the same singleton here). Proves the IN-path handle is a real,
+        // comparable KeyPath, not an opaque pointer.
+        var kp = MockBookAppEntityKeyPaths.Id;
+        AssertTrue(TestLibFunctions.SameMockBookPath(kp, kp),
+            "AnyKeyPath.== on identical AppEntity singleton returns true");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Computed properties: a concrete AppEntity root forms valid KeyPaths for computed
+    // properties too (`\Root.getOnly` → KeyPath, `\Root.getSet` → WritableKeyPath), not
+    // just stored slots. MockBook.summary (get-only) and MockBook.displayTitle (get/set)
+    // exercise the allowComputed gate.
+    // ---------------------------------------------------------------------------------------
+
+    public void TestAppEntityKeyPaths_ComputedGetOnly_IsReadOnlyKeyPath()
+    {
+        // summary has no setter → `\MockBook.summary` is a (read-only) KeyPath, NOT a
+        // WritableKeyPath. The static type of the singleton must reflect that.
+        var kp = MockBookAppEntityKeyPaths.Summary;
+        AssertNotNull(kp, "Summary computed-property singleton resolves");
+        AssertFalse(kp.IsInvalid, "Summary singleton handle is valid");
+        AssertTrue(
+            kp is global::Swift.KeyPath<MockBook, string>,
+            "get-only computed property surfaces as KeyPath<MockBook, string>");
+        AssertFalse(
+            kp is global::Swift.WritableKeyPath<MockBook, string>,
+            "get-only computed property is NOT a WritableKeyPath (no setter)");
+    }
+
+    public void TestAppEntityKeyPaths_ReadComputedSummary_RoundTripsThroughSwiftConsumer()
+    {
+        using var book = new MockBook("id-5", "The Hobbit", 310);
+        var kp = MockBookAppEntityKeyPaths.Summary;
+        var read = TestLibFunctions.ReadMockBookString(book, kp);
+        AssertEqual("The Hobbit (310 pages)", read,
+            "Swift consumer reads the computed summary through a C#-originated KeyPath singleton");
+    }
+
+    public void TestAppEntityKeyPaths_ComputedGetSet_IsWritableKeyPath()
+    {
+        // displayTitle has a setter → `\MockBook.displayTitle` is a WritableKeyPath.
+        var kp = MockBookAppEntityKeyPaths.DisplayTitle;
+        AssertNotNull(kp, "DisplayTitle computed-property singleton resolves");
+        AssertTrue(
+            kp is global::Swift.WritableKeyPath<MockBook, string>,
+            "get/set computed property surfaces as WritableKeyPath<MockBook, string>");
+    }
+
+    public void TestAppEntityKeyPaths_WriteComputedDisplayTitle_MutatesBackingTitle()
+    {
+        // Writing through the computed get/set KeyPath invokes the Swift setter
+        // (`set { title = newValue }`), which mutates the backing stored `title`.
+        using var book = new MockBook("id-6", "Original", 42);
+        var kp = MockBookAppEntityKeyPaths.DisplayTitle;
+        using var mutated = TestLibFunctions.WriteMockBookString(book, kp, "Reassigned");
+        AssertEqual("Reassigned", mutated.Title,
+            "Writing computed displayTitle through the WritableKeyPath mutates the backing title");
+        AssertEqual("Original", book.Title,
+            "Original book unchanged (mutated copy returned)");
+    }
 }

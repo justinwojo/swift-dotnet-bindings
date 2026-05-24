@@ -67,4 +67,20 @@ public interface ITypeDatabase
     /// </summary>
     public IReadOnlyCollection<(string Namespace, string ProxyName)> GetCrossModuleSuppressedProxyClassNames()
         => Array.Empty<(string, string)>();
+
+    /// <summary>
+    /// Records a framework-dependency module's parsed <see cref="ModuleDecl"/> so consumer-side
+    /// emitters can walk its declarations (e.g. constructor shapes) that the TypeRecord projection
+    /// discards. Only <see cref="ModuleTypeDatabase"/> records are retained for type resolution;
+    /// the full <see cref="ModuleDecl"/> is otherwise dropped after name precomputation. Defaults
+    /// to a no-op so the many test mocks that implement <see cref="ITypeDatabase"/> don't need to
+    /// override it. The real <see cref="TypeDatabase"/> overrides it.
+    /// </summary>
+    public void AddDependencyModuleDecl(ModuleDecl moduleDecl) { }
+
+    /// <summary>
+    /// Gets the framework-dependency module declarations retained via
+    /// <see cref="AddDependencyModuleDecl"/>. Defaults to empty for test mocks.
+    /// </summary>
+    public IReadOnlyList<ModuleDecl> GetDependencyModuleDecls() => Array.Empty<ModuleDecl>();
 }

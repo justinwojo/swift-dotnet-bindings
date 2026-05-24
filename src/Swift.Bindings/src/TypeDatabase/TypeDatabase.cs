@@ -27,6 +27,12 @@ namespace BindingsGeneration
         // foreign module's database once it becomes available. See AddModuleDatabase.
         private readonly ConcurrentDictionary<string, List<(SwiftTypeName Name, TypeRecord Record)>> _pendingCrossModuleRecords = new();
 
+        // Parsed ModuleDecls for framework-dependency modules. The TypeRecord projection that
+        // AddModuleDatabase ingests discards constructor/method declarations, but consumer-side
+        // emitters (e.g. the KeyPath-init factory emitter) need to walk a dependency class's
+        // constructor shapes. Retained here so that information survives past name precomputation.
+        private readonly List<ModuleDecl> _dependencyModuleDecls = new();
+
         // Module aliases for types that appear under different module names in ABI JSON vs their canonical location.
         // For example, CGSize appears as CoreFoundation.CGSize in ABI JSON but is registered under CoreGraphics.
         private static readonly Dictionary<string, string> _moduleAliases = new()
@@ -58,6 +64,16 @@ namespace BindingsGeneration
         public TypeDatabase()
         {
         }
+
+        /// <inheritdoc/>
+        public void AddDependencyModuleDecl(ModuleDecl moduleDecl)
+        {
+            if (moduleDecl is not null)
+                _dependencyModuleDecls.Add(moduleDecl);
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyList<ModuleDecl> GetDependencyModuleDecls() => _dependencyModuleDecls;
 
         /// <summary>
         /// Loads a module database from a specified file.
