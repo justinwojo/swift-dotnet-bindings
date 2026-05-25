@@ -1865,6 +1865,75 @@ public class SwiftInterfaceAccessParserTests
         finally { File.Delete(path); }
     }
 
+    // ===== ExtractClosureParameterAttributes / GetClosureParameterAttributes Tests =====
+
+    [Fact]
+    public void ExtractClosureParameterAttributes_MainActorAndSendable()
+    {
+        // GRDB's ValueObservationMainActorScheduler requirement — the ABI JSON strips these.
+        var line = "func scheduleOnMainActor(_ action: @escaping @_Concurrency.MainActor @Sendable () -> Swift.Void)";
+        var perParam = SwiftInterfaceAccessParser.ExtractClosureParameterAttributes(line);
+
+        Assert.NotNull(perParam);
+        Assert.Single(perParam!);
+        Assert.Equal(new List<string> { "MainActor", "Sendable" }, perParam![0]);
+    }
+
+    [Fact]
+    public void ExtractClosureParameterAttributes_UnqualifiedAndQualifiedForms()
+    {
+        // @MainActor (bare), @Swift.Sendable (module-qualified) both normalize.
+        var line = "public func go(_ a: @escaping @MainActor () -> Void, _ b: @escaping @Swift.Sendable () -> Void)";
+        var perParam = SwiftInterfaceAccessParser.ExtractClosureParameterAttributes(line);
+
+        Assert.NotNull(perParam);
+        Assert.Equal(2, perParam!.Count);
+        Assert.Equal(new List<string> { "MainActor" }, perParam[0]);
+        Assert.Equal(new List<string> { "Sendable" }, perParam[1]);
+    }
+
+    [Fact]
+    public void ExtractClosureParameterAttributes_NonClosureParamsGetEmptyLists()
+    {
+        // First param has no attributes; only the second closure carries @MainActor.
+        var line = "public func go(count: Swift.Int, _ action: @escaping @MainActor () -> Void)";
+        var perParam = SwiftInterfaceAccessParser.ExtractClosureParameterAttributes(line);
+
+        Assert.NotNull(perParam);
+        Assert.Equal(2, perParam!.Count);
+        Assert.Empty(perParam[0]);
+        Assert.Equal(new List<string> { "MainActor" }, perParam[1]);
+    }
+
+    [Fact]
+    public void ExtractClosureParameterAttributes_NoAttributes_ReturnsNull()
+    {
+        var line = "public func go(_ action: @escaping () -> Void, value: Swift.Int)";
+        var perParam = SwiftInterfaceAccessParser.ExtractClosureParameterAttributes(line);
+        Assert.Null(perParam);
+    }
+
+    [Fact]
+    public void GetClosureParameterAttributes_ExtractsFromSwiftInterface()
+    {
+        var swiftInterface = """
+            public protocol ValueObservationMainActorScheduler {
+              func scheduleOnMainActor(_ action: @escaping @_Concurrency.MainActor @Sendable () -> Swift.Void)
+              func plain(_ action: @escaping () -> Swift.Void)
+            }
+            """;
+        var path = WriteTempFile(swiftInterface);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetClosureParameterAttributes(path);
+            Assert.True(result.ContainsKey("ValueObservationMainActorScheduler.scheduleOnMainActor(_:)"));
+            Assert.False(result.ContainsKey("ValueObservationMainActorScheduler.plain(_:)"));
+            Assert.Equal(new List<string> { "MainActor", "Sendable" },
+                result["ValueObservationMainActorScheduler.scheduleOnMainActor(_:)"][0]);
+        }
+        finally { File.Delete(path); }
+    }
+
     // ===== GetActorIsolatedMembers with Custom Actors Tests =====
 
     [Fact]
@@ -3125,6 +3194,83 @@ public class DisposeBag {
             var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
             Assert.True(result.TryGetValue("__SyncService", out var unsatisfied));
             Assert.Contains("__fromCore", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_TypeHiddenFuncSignature_ReturnsRequirementName()
+    {
+        // Member NAME is ordinary (`_resolve`), but the signature references __-prefixed SPI
+        // types. swift-api-digester strips these from the ABI JSON, so the EveryProtocol
+        // conformance would be a broken empty marker. Models RealityCoordinateSpace.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol RealityCoordinateSpace {
+              func _resolve(in context: TestModule.__RealityCoordinateSpaceContext) -> TestModule.__ResolvedRealityCoordinateSpace
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.True(result.TryGetValue("RealityCoordinateSpace", out var unsatisfied));
+            Assert.Contains("_resolve", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_TypeHiddenWithExtensionDefault_NotDetected()
+    {
+        // A same-module extension default for the type-hidden requirement satisfies it,
+        // so the conformance need not be suppressed.
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol RealityCoordinateSpace {
+              func _resolve(in context: TestModule.__Ctx) -> TestModule.__Resolved
+            }
+            extension TestModule.RealityCoordinateSpace {
+              public func _resolve(in context: TestModule.__Ctx) -> TestModule.__Resolved { fatalError() }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.False(result.ContainsKey("RealityCoordinateSpace"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_TypeHiddenProperty_ReturnsRequirementName()
+    {
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol HasHiddenProp {
+              var resolved: TestModule.__ResolvedThing { get }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.True(result.TryGetValue("HasHiddenProp", out var unsatisfied));
+            Assert.Contains("resolved", unsatisfied);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void GetProtocolsWithUnsatisfiedHiddenRequirements_OrdinaryTypeSignature_NotDetected()
+    {
+        // No __-prefixed type anywhere — must NOT be flagged (guards against the
+        // type-hidden path over-firing on a `foo__bar`-style mid-identifier).
+        var path = WriteTempFile(TestModuleHeader + """
+            public protocol PlainSignatures {
+              func compute(in context: TestModule.RegularContext) -> TestModule.RegularResult
+              var label__suffix: Swift.String { get }
+            }
+            """);
+        try
+        {
+            var result = SwiftInterfaceAccessParser.GetProtocolsWithUnsatisfiedHiddenRequirements(path);
+            Assert.Empty(result);
         }
         finally { File.Delete(path); }
     }

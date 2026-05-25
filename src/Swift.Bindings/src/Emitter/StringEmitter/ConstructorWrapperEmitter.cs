@@ -984,8 +984,17 @@ public static class ConstructorWrapperEmitter
             {
                 // Concrete param → pass through directly
                 var (cdeclParam, reconstruction, callExpr) = CdeclParamMapper.Map(arg, label, env, false);
-                // For the protocol, use the Swift type
-                var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(arg.SwiftTypeSpec);
+                // For the protocol/extension, render the Swift type module-qualified and
+                // existential-aware. This protocol+extension is emitted at file scope where
+                // the wrapper imports several modules, so an unqualified nested generic
+                // argument can collide across them (e.g. BlinkIDUX's
+                // `any CameraFrameAnalyzer<BlinkID.CameraFrame, BlinkIDUX.UIEvent>` rendered
+                // bare as `CameraFrameAnalyzer<CameraFrame, UIEvent>` makes `UIEvent` ambiguous
+                // with `UIKit.UIEvent`). Qualified names are always valid Swift, and the helper
+                // restores the `any` keyword for protocol existentials (a bare
+                // protocol-with-primary-associated-types name is a Swift 6 error).
+                var swiftType = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
+                    arg.SwiftTypeSpec, env.TypeDatabase);
                 protocolParams.Add($"{paramPrefix}: {swiftType}");
                 cdeclParams.Add(cdeclParam);
 
@@ -1150,13 +1159,14 @@ public static class ConstructorWrapperEmitter
         // Build extension implementation
         var extensionBody = string.Join("\n        ", extensionLines);
 
-        // When the constructor itself constrains the parent's generic param via a same-type
-        // requirement (e.g. SampledAnimation.init(jointNames:) requires Value == JointTransforms),
-        // the conformance extension must inherit that constraint. Without it, Self(…) inside the
-        // factory body fails Swift type-checking because the unconstrained extension can't see
-        // the specialized init.
+        // When the constructor itself constrains the parent's generic param — via a same-type
+        // requirement (e.g. SampledAnimation.init(jointNames:) requires Value == JointTransforms)
+        // OR a stricter conformance requirement (e.g. MusicCatalogResourceRequest.init() requires
+        // MusicItemType : MusicCatalogTopLevelResourceRequesting) — the conformance extension must
+        // inherit that constraint. Without it, Self(…) inside the factory body fails Swift
+        // type-checking because the unconstrained extension can't see the specialized init.
         var extensionWhereClause = WrapperEmitterHelpers.BuildParentSameTypeExtensionWhere(
-            env.MethodDecl, parentTypeDecl);
+            env.MethodDecl, parentTypeDecl, includeConformanceConstraints: true);
 
         swiftWriter.WriteLines($$"""
             {{extensionAvailPrefix}}extension {{moduleQualifiedSwiftName}}: {{protocolName}}{{extensionWhereClause}} {

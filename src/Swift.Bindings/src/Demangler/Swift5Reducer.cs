@@ -36,6 +36,14 @@ internal class Swift5Reducer
             Reducer = ConvertNominal
         },
         new MatchRule() {
+            Name = "ProtocolList", NodeKind = NodeKind.ProtocolList, Reducer = ConvertProtocolList
+        },
+        new MatchRule() {
+            Name = "ProtocolListWithConstraint",
+            NodeKindList = new List<NodeKind>() { NodeKind.ProtocolListWithClass, NodeKind.ProtocolListWithAnyObject, NodeKind.ConstrainedExistential },
+            Reducer = ConvertProtocolListWithConstraint
+        },
+        new MatchRule() {
             Name = "Module", NodeKind = NodeKind.Module, Reducer = (n, s) => ProvenanceReduction.TopLevel (s, n.Text)
         },
         new MatchRule() {
@@ -350,6 +358,68 @@ internal class Swift5Reducer
             return ReductionErrorLow(err.Message, mangledName);
         }
         return new TypeSpecReduction() { Symbol = mangledName, TypeSpec = new NamedTypeSpec(sb.ToString()) };
+    }
+
+    /// <summary>
+    /// Converts a node of type ProtocolList into a TypeSpecReduction wrapping a ProtocolListTypeSpec.
+    /// This is the structured existential (`any P`, `any P & Q`, or the bare `Any` for an empty list)
+    /// that appears in function signatures. Without this rule any function whose parameters or return
+    /// type contain an existential fails reduction ("No rule for node ProtocolList"), which in turn
+    /// silently disables demangle-based async and variadic detection for that overload.
+    /// </summary>
+    /// <param name="node">A ProtocolList node</param>
+    /// <param name="mangledName">the mangled name that generated the Node</param>
+    /// <returns>A TypeSpecReduction with a ProtocolListTypeSpec; an empty protocol list renders `Any`</returns>
+    static IReduction ConvertProtocolList(Node node, string mangledName)
+    {
+        // What to expect here:
+        // ProtocolList
+        //   TypeList
+        //     Type(Protocol nominal)*   - 0 or more; an empty list is the existential `Any`
+        var protocols = new List<NamedTypeSpec>();
+        if (node.Children.Count > 0 && node.Children[0].Kind == NodeKind.TypeList)
+        {
+            foreach (var child in node.Children[0].Children)
+            {
+                var reduction = Convert(child, mangledName);
+                if (reduction is ReductionError error)
+                    return error;
+                if (reduction is TypeSpecReduction typeSpecReduction && typeSpecReduction.TypeSpec is NamedTypeSpec named)
+                    protocols.Add(named);
+                else
+                    return ReductionErrorLow(ExpectedButGot("NamedTypeSpec in protocol list", reduction.GetType().Name, mangledName), mangledName);
+            }
+        }
+        return new TypeSpecReduction() { Symbol = mangledName, TypeSpec = new ProtocolListTypeSpec(protocols) };
+    }
+
+    /// <summary>
+    /// Converts a constrained existential by reducing its inner protocol list while discarding the
+    /// constraint. Three shapes share this reducer:
+    /// <list type="bullet">
+    ///   <item>class-bound: `any P &amp; SomeClass` (ProtocolListWithClass)</item>
+    ///   <item>AnyObject-bound: `any P &amp; AnyObject` (ProtocolListWithAnyObject)</item>
+    ///   <item>parameterized: `any P&lt;Int&gt;` (ConstrainedExistential, SE-0346)</item>
+    /// </list>
+    /// The constraint (superclass, AnyObject, or the `where`-clause requirement list) is intentionally
+    /// NOT re-encoded: this reduction feeds only async + variadic detection in the parser, and the
+    /// emitted parameter types come from the ABI-JSON CSSignature rather than from this TypeSpec.
+    /// Reducing the inner list closes the same "No rule for node" hole that plain existentials had,
+    /// for the constrained shapes.
+    /// </summary>
+    /// <param name="node">A ProtocolListWithClass, ProtocolListWithAnyObject, or ConstrainedExistential node</param>
+    /// <param name="mangledName">the mangled name that generated the Node</param>
+    /// <returns>The reduction of the inner ProtocolList</returns>
+    static IReduction ConvertProtocolListWithConstraint(Node node, string mangledName)
+    {
+        // ProtocolListWithClass     ProtocolListWithAnyObject     ConstrainedExistential
+        //   ProtocolList      -or-     ProtocolList          -or-   Type(ProtocolList)
+        //   Type(superclass)                                       ConstrainedExistentialRequirementList
+        // In every shape the first child is (or wraps) the protocol list; the trailing
+        // constraint child is ignored.
+        if (node.Children.Count == 0)
+            return ReductionErrorLow(ExpectedButGot("inner ProtocolList", "no children", mangledName), mangledName);
+        return Convert(node.Children[0], mangledName);
     }
 
     /// <summary>

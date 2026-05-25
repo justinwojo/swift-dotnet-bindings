@@ -51,3 +51,36 @@ public struct VariadicSectionBuilder {
         return []
     }
 }
+
+// MARK: - Variadic-of-existential result-builder coverage
+//
+// Regression guard for RxSwift `DisposableBuilder`, GRDB, and SwiftyBeaver, whose
+// result-builder `buildBlock` takes an existential variadic — `(any P)...`. Unlike the
+// concrete `VariadicSection...` case above, swift-api-digester renders this parameter as a
+// plain `[any VariadicItem]` with NO trailing "..." in its printedName. The per-overload
+// variadic-ness is therefore recoverable ONLY from the demangled mangled-name "d" marker.
+// When the demangler couldn't reduce the existential (no ProtocolList reducer rule), this
+// signal was lost and the wrapper emitted a direct `f(arrayVal)` call that fails to compile
+// ("cannot pass array of '[any VariadicItem]' as variadic arguments of type 'any VariadicItem'").
+public protocol VariadicItem {
+    var itemName: String { get }
+}
+
+public struct NamedVariadicItem: VariadicItem {
+    public let itemName: String
+    public init(_ name: String) { self.itemName = name }
+}
+
+public struct ExistentialVariadicBuilder {
+    /// Existential variadic: `(any P)...`. Returns the count to keep the round-trip simple
+    /// and focused on the variadic-detection regression rather than existential-array return
+    /// marshalling.
+    public static func buildBlock(_ items: (any VariadicItem)...) -> Int {
+        return items.count
+    }
+
+    /// Zero-children overload, mirroring the result-builder DSL shape.
+    public static func buildBlock() -> Int {
+        return 0
+    }
+}

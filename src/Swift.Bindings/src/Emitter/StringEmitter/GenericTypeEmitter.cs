@@ -126,6 +126,14 @@ public static class GenericTypeEmitter
 
         var constraints = new List<string>();
 
+        // Validator used by the empty-marker-interface gate below. Same-module only: a
+        // ProtocolDecl is needed to evaluate HasEmittableInterfaceMembers, and only the
+        // current module's protocols are available here. Built once for the whole clause.
+        ProtocolConformanceValidator? conformanceValidator =
+            (typeDatabase != null && typeDecl.ModuleDecl != null)
+                ? new ProtocolConformanceValidator(typeDecl.ModuleDecl, typeDatabase)
+                : null;
+
         for (int i = 0; i < ownParams.Count; i++)
         {
             var param = ownParams[i];
@@ -214,6 +222,26 @@ public static class GenericTypeEmitter
                     // through PInvokeHelperEmitter's runtime-descriptor path.
                     if (typeDatabase != null && HasSelfRequirement(typeDatabase, conformance.ConformanceTarget))
                         continue;
+
+                    // Skip same-module protocols emitted as an EMPTY marker interface because
+                    // all their requirements were filtered (e.g. GRDB.StatementColumnConvertible:
+                    // only a static Self-returning factory and a failable init taking an opaque
+                    // SQLiteStatement pointer, neither projectable to a C# interface member).
+                    // ProtocolConformanceHelper.GetImplementedInterfaces drops such conformances
+                    // from every concrete type (the same HasEmittableInterfaceMembers predicate),
+                    // so NO type ever implements the marker — emitting `where T : IMarker` would
+                    // make the generic type uninstantiable for ANY argument (CS0315). Sharing the
+                    // predicate keeps the where-clause and the conformance list in lockstep.
+                    // Genuinely empty marker protocols (zero declared requirements) return true
+                    // here and are correctly retained — conformers DO list them.
+                    if (conformanceValidator != null)
+                    {
+                        var constraintProtocol = conformanceValidator.FindProtocol(
+                            conformance.ConformanceTarget.ModuleQualifiedName);
+                        if (constraintProtocol != null
+                            && !conformanceValidator.HasEmittableInterfaceMembers(constraintProtocol))
+                            continue;
+                    }
 
                     // Skip cross-module protocol constraints not registered in TypeDatabase.
                     // Same-module protocols are always registered during module processing.

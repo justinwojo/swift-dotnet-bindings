@@ -160,6 +160,12 @@ internal sealed class InterfaceFactsJsonPayload
     [JsonPropertyName("constLiteralParameters")]
     public Dictionary<string, List<bool>>? ConstLiteralParameters { get; set; }
 
+    // Per-parameter closure type-level attributes (@MainActor / @Sendable) on protocol
+    // requirements. Additive field; like constLiteralParameters the SwiftSyntax host does
+    // not yet emit this key — the regex producer is the source of truth, so no schema bump.
+    [JsonPropertyName("closureParameterAttributes")]
+    public Dictionary<string, List<List<string>>>? ClosureParameterAttributes { get; set; }
+
     [JsonPropertyName("subscriptLabels")]
     public Dictionary<string, List<string>>? SubscriptLabels { get; set; }
 

@@ -574,6 +574,28 @@ public class InterfaceFactsProducerParityTests
                 "extension HasSecret {\n" +
                 "  public var __secret: Swift.Int { 0 }\n" +
                 "}\n" },
+            // Type-hidden requirement: the member NAME is ordinary (`_resolve`) but its
+            // signature references a __-prefixed SPI type. swift-api-digester strips it from
+            // the ABI JSON, so the EveryProtocol conformance would be a broken empty marker.
+            // Models RealityFoundation.RealityCoordinateSpace.
+            new object[] { "TypeHiddenRequirementFunc",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol RealityCoordinateSpace {\n" +
+                "  func _resolve(in context: Mod.__RealityCoordinateSpaceContext) -> Mod.__ResolvedRealityCoordinateSpace\n" +
+                "}\n" },
+            new object[] { "TypeHiddenRequirementSatisfied",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol RealityCoordinateSpace {\n" +
+                "  func _resolve(in context: Mod.__RealityCoordinateSpaceContext) -> Mod.__ResolvedRealityCoordinateSpace\n" +
+                "}\n" +
+                "extension RealityCoordinateSpace {\n" +
+                "  public func _resolve(in context: Mod.__RealityCoordinateSpaceContext) -> Mod.__ResolvedRealityCoordinateSpace { fatalError() }\n" +
+                "}\n" },
+            new object[] { "TypeHiddenRequirementProperty",
+                "// swift-module-flags: -module-name Mod\n" +
+                "public protocol HasHiddenProp {\n" +
+                "  var resolved: Mod.__ResolvedThing { get }\n" +
+                "}\n" },
             // The regex's `ConventionTypeAliasRegex` scans EVERY line in the file, including
             // typealiases inside nested types. The walker's previous `tree.statements`-only
             // scan missed nested aliases; now uses a recursive `ConventionAliasCollector`.

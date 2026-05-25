@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using BindingsGeneration.Demangling;
 using Microsoft.CodeAnalysis.CSharp;
@@ -563,6 +564,43 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Applies per-parameter closure type-level attributes (<c>@MainActor</c>,
+        /// <c>@Sendable</c>) from swiftinterface data onto closure parameters of a protocol
+        /// requirement. swift-api-digester strips these attributes from the ABI JSON (the
+        /// closure's <c>printedName</c> collapses to <c>() -&gt; ()</c>), so the swiftinterface
+        /// is the only source. They matter only for protocol-requirement signature matching:
+        /// the synthesized <c>extension EveryProtocol: SomeProtocol</c> conformance must
+        /// reproduce the requirement's exact closure type, or the conformance fails to compile.
+        /// Restricted to protocol parents — non-protocol method wrappers define their own
+        /// <c>@_cdecl</c> signatures and don't need (and could be perturbed by) these attributes.
+        /// </summary>
+        private void ApplyMemberClosureAttributeFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        {
+            var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
+            if (!_facts.ClosureParameterAttributes.TryGetValue(key, out var perParam))
+                return;
+            ApplyClosureAttributeFlagsToSignature(methodDecl, perParam);
+        }
+
+        private static void ApplyClosureAttributeFlagsToSignature(MethodDecl methodDecl, List<List<string>> perParam)
+        {
+            // CSSignature[0] is the return type, [1..] are parameters.
+            for (int i = 1; i < methodDecl.CSSignature.Count; i++)
+            {
+                var argIdx = i - 1;
+                if (argIdx < perParam.Count &&
+                    methodDecl.CSSignature[i].SwiftTypeSpec is ClosureTypeSpec closureSpec)
+                {
+                    foreach (var attrName in perParam[argIdx])
+                    {
+                        if (!closureSpec.Attributes.Exists(a => a.Name == attrName))
+                            closureSpec.Attributes.Add(new TypeSpecAttribute(attrName));
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Checks if a member is unconditionally unavailable from swiftinterface availability annotations.
         /// Only returns true for truly unconditional `@available(*, unavailable)` annotations. A
         /// per-platform form like `@available(watchOS, unavailable)` parses into an annotation with
@@ -1101,20 +1139,25 @@ namespace BindingsGeneration
                     if (_facts.HiddenRequirementProtocols.TryGetValue(decl.Name, out var swiftinterfaceUnderscored) &&
                         swiftinterfaceUnderscored.Count > 0)
                     {
-                        var abiUnderscored = new HashSet<string>(StringComparer.Ordinal);
+                        // Collect ALL protocol-requirement member names present in the ABI JSON
+                        // (not just __-prefixed ones). The hidden-requirement candidate set now
+                        // includes requirements whose NAME is ordinary but whose signature
+                        // references a __-prefixed SPI type (e.g. RealityCoordinateSpace._resolve);
+                        // those are keyed by their real name. Broadening the ABI set is safe for
+                        // the original __-name case: a __-prefixed candidate can only match a
+                        // __-prefixed ABI name, so ordinary ABI names never mask it.
+                        var abiRequirementNames = new HashSet<string>(StringComparer.Ordinal);
                         foreach (var child in node.Children ?? Array.Empty<Node>())
                         {
                             if (child.protocolReq != true)
                                 continue;
                             if (child.Kind != "Function" && child.Kind != "Var" && child.Kind != "Constructor" && child.Kind != "Subscript")
                                 continue;
-                            var memberName = ExtractUniqueName(child.Name);
-                            if (memberName.StartsWith("__", StringComparison.Ordinal))
-                                abiUnderscored.Add(memberName);
+                            abiRequirementNames.Add(ExtractUniqueName(child.Name));
                         }
                         foreach (var name in swiftinterfaceUnderscored)
                         {
-                            if (!abiUnderscored.Contains(name))
+                            if (!abiRequirementNames.Contains(name))
                             {
                                 protocolDecl2.HasUnsatisfiedHiddenRequirements = true;
                                 _logger.LogDebug("Protocol {Name}: swiftinterface declares __-prefixed requirement '{Member}' that is missing from ABI JSON; skipping EveryProtocol conformance.",
@@ -1719,6 +1762,22 @@ namespace BindingsGeneration
 
                     if (namedTypeSpec != null)
                     {
+                        // @_originallyDefinedIn: the conformance MangledName encodes the symbol's
+                        // ORIGINAL module (e.g. RealityKit), so the demangled spec reads
+                        // `RealityKit.HasTransform` even though the protocol is now vended from the
+                        // current module (RealityFoundation). The USR records the real defining
+                        // module. Prefer it so the emitted base-interface reference resolves to a
+                        // type that exists — otherwise an unbound `RealityKit.IHasTransform` leaks
+                        // into the inheritance list and Roslyn reports CS0246.
+                        if (TryGetModuleFromSwiftUsr(conformance.usr, out var usrModule) &&
+                            !string.IsNullOrEmpty(namedTypeSpec.Module) &&
+                            usrModule != namedTypeSpec.Module)
+                        {
+                            var corrected = new NamedTypeSpec($"{usrModule}.{namedTypeSpec.NameWithoutModule}");
+                            corrected.GenericParameters.AddRange(namedTypeSpec.GenericParameters);
+                            namedTypeSpec = corrected;
+                        }
+
                         // Skip compiler-internal marker protocols that have no C# binding
                         var simpleName = namedTypeSpec.NameWithoutModule;
                         if (simpleName is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype")
@@ -2054,26 +2113,51 @@ namespace BindingsGeneration
                 _opaqueParamCapture = prevOpaqueCapture;
             }
 
-            // Detect variadic parameters from swiftinterface data.
-            // Swift variadic params (T...) appear as Array<T> in ABI JSON, making them
-            // indistinguishable from regular array params. The swiftinterface shows the actual
-            // "..." syntax. @_cdecl wrappers can't call variadic methods correctly — passing
-            // [T] where T... is expected causes a compilation error.
-            // Primary source: swiftinterface VariadicMembers set.
-            // Fallback: demangler's FunctionReduction (when the demangler succeeds).
-            // Use BuildTypeQualifiedPath for nested types (e.g., "DisposeBag.DisposableBuilder")
-            var variadicScopedKey = parentDecl is TypeDecl varParentType
-                ? $"{BuildTypeQualifiedPath(varParentType)}.{node.PrintedName}"
-                : node.PrintedName;
-            if (_facts.VariadicMembers.Contains(variadicScopedKey) ||
-                _facts.VariadicMembers.Contains(node.PrintedName))
-            {
-                methodDecl.HasVariadicParameter = true;
-            }
+            // Detect variadic parameters per-overload. A Swift variadic parameter (T...)
+            // lowers to Array<T> and shares its ABI with a plain [T] parameter; the two
+            // differ only by the mangled-name "d" variadic marker. We combine three signals,
+            // in order of cost and reliability:
+            //
+            //   1. printedName "...": swift-api-digester renders SOME variadics with a
+            //      trailing "..." that CreateTypeSpec lowers to Swift.Array<E> with
+            //      E.IsVariadic. This is a sound positive (no non-variadic param carries
+            //      "...") but INCOMPLETE — e.g. result-builder buildBlock overloads render
+            //      their variadic parameter as a plain "[T]" with no "...".
+            //   2. demangled "d" marker: the per-overload mangled name carries the
+            //      authoritative variadic marker. This catches the overloads tier 1 misses
+            //      and distinguishes two overloads that share a printedName but differ only
+            //      in variadic-ness, e.g. PageBuilder:
+            //          buildBlock(_ components: [Page])      // not variadic
+            //          buildBlock(_ components: [Page]...)   // variadic
+            //      Both print as "[Page]"; only the "d" marker tells them apart. @_cdecl
+            //      wrappers can't call variadic methods, so getting this per-overload flag
+            //      right is what keeps us from emitting an invalid "[Page] as variadic" cast.
+            //   3. name-keyed swiftinterface fact: a guarded last-resort fallback (see below).
+            methodDecl.HasVariadicParameter =
+                methodDecl.CSSignature.Skip(1).Any(p => IsVariadicArraySpec(p.SwiftTypeSpec));
             if (!methodDecl.HasVariadicParameter &&
                 functionReduction?.Function?.ParameterList is TupleTypeSpec paramTuple)
             {
                 methodDecl.HasVariadicParameter = HasVariadicElement(paramTuple);
+            }
+            if (!methodDecl.HasVariadicParameter &&
+                !methodDecl.CSSignature.Skip(1).Any(p => IsArraySpec(p.SwiftTypeSpec)))
+            {
+                // Last-resort fallback: only when no array-typed parameter exists to inspect,
+                // so neither precise signal above can apply (e.g. an unforeseen ABI lowering
+                // that doesn't produce an Array<E>). The !IsArraySpec guard is what makes this
+                // safe: the name-keyed fact cannot tell a variadic overload from a plain-[T]
+                // sibling that shares its name, so we only consult it once tiers 1-2 have
+                // declined AND there is no array parameter they could have inspected.
+                // Use BuildTypeQualifiedPath for nested types (e.g. "DisposeBag.DisposableBuilder").
+                var variadicScopedKey = parentDecl is TypeDecl varParentType
+                    ? $"{BuildTypeQualifiedPath(varParentType)}.{node.PrintedName}"
+                    : node.PrintedName;
+                if (_facts.VariadicMembers.Contains(variadicScopedKey) ||
+                    _facts.VariadicMembers.Contains(node.PrintedName))
+                {
+                    methodDecl.HasVariadicParameter = true;
+                }
             }
 
             // Apply default parameter value expressions from swiftinterface data.
@@ -2083,6 +2167,8 @@ namespace BindingsGeneration
                 ApplyMemberDefaultValues(methodDecl, parentTypeForDefaults, node.PrintedName);
                 ApplyMemberAutoclosureFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
                 ApplyMemberConstLiteralFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
+                if (parentTypeForDefaults is ProtocolDecl)
+                    ApplyMemberClosureAttributeFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
             }
             else
             {
@@ -2118,6 +2204,29 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether a type spec is the lowered form of a Swift variadic parameter:
+        /// Array&lt;E&gt; (or Swift.Array&lt;E&gt;) whose element E carries IsVariadic=true.
+        /// </summary>
+        internal static bool IsVariadicArraySpec(TypeSpec spec)
+        {
+            return spec is NamedTypeSpec named &&
+                (named.Name == "Swift.Array" || named.Name == "Array") &&
+                named.GenericParameters.Count > 0 &&
+                named.GenericParameters[0].IsVariadic;
+        }
+
+        /// <summary>
+        /// Whether a type spec is an array (Array&lt;E&gt; / Swift.Array&lt;E&gt;), variadic or not.
+        /// Used to decide whether a method has a parameter the per-overload variadic
+        /// signal can inspect.
+        /// </summary>
+        private static bool IsArraySpec(TypeSpec spec)
+        {
+            return spec is NamedTypeSpec named &&
+                (named.Name == "Swift.Array" || named.Name == "Array");
+        }
+
+        /// <summary>
         /// Checks whether any element in a demangled parameter list is a variadic parameter.
         /// Variadic params (T...) are demangled as Array&lt;T&gt; where the inner T has IsVariadic=true.
         /// </summary>
@@ -2125,10 +2234,7 @@ namespace BindingsGeneration
         {
             foreach (var element in paramTuple.Elements)
             {
-                if (element is NamedTypeSpec named &&
-                    (named.Name == "Swift.Array" || named.Name == "Array") &&
-                    named.GenericParameters.Count > 0 &&
-                    named.GenericParameters[0].IsVariadic)
+                if (IsVariadicArraySpec(element))
                 {
                     return true;
                 }
@@ -3220,6 +3326,31 @@ namespace BindingsGeneration
             if (raw.Contains('.'))
                 return SwiftTypeName.FromModuleQualifiedName(raw);
             return SwiftTypeName.FromModuleQualifiedName($"Swift.{raw}");
+        }
+
+        /// <summary>
+        /// Extracts the defining module from a Swift USR's first length-prefixed segment.
+        /// <c>s:17RealityFoundation12HasTransformP</c> → "RealityFoundation". Returns false for
+        /// stdlib short-form USRs (<c>s:s9EscapableP</c>) and any non-Swift USR — callers keep
+        /// their existing module in those cases. The USR records a symbol's REAL defining module,
+        /// unlike the mangled name, which can carry an <c>@_originallyDefinedIn</c> original module.
+        /// </summary>
+        internal static bool TryGetModuleFromSwiftUsr(string? usr, [NotNullWhen(true)] out string? module)
+        {
+            module = null;
+            if (string.IsNullOrEmpty(usr) || !usr.StartsWith("s:", StringComparison.Ordinal))
+                return false;
+            int i = 2;
+            int digitStart = i;
+            while (i < usr.Length && char.IsDigit(usr[i])) i++;
+            if (i == digitStart) // no length prefix (e.g. stdlib short form "s:s9...")
+                return false;
+            if (!int.TryParse(usr.AsSpan(digitStart, i - digitStart), out int len) || len <= 0)
+                return false;
+            if (i + len > usr.Length)
+                return false;
+            module = usr.Substring(i, len);
+            return true;
         }
 
         /// <summary>

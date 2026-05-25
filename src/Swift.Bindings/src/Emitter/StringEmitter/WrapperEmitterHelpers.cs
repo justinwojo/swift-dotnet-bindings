@@ -209,16 +209,28 @@ public static class WrapperEmitterHelpers
         => AvailabilityHelpers.MergeAvailabilityFromAncestors(memberAnnotations, startDecl);
 
     /// <summary>
-    /// Builds a Swift where clause of same-type constraints on the parent type's generic
-    /// parameters (e.g. <c>" where DonationInfo == TipKit.Tips.EmptyDonation"</c>), parsed
-    /// from <see cref="MethodDecl.RawGenericSig"/>. Emitted on the wrapper's
+    /// Builds a Swift where clause of constraints on the parent type's generic parameters,
+    /// parsed from <see cref="MethodDecl.RawGenericSig"/>. Emitted on the wrapper's
     /// <c>extension ... { }</c> line so that the body call resolves to the correct
     /// specialization. Without this, a specialized wrapper (e.g. Tips.Event.donate()
     /// requiring <c>DonationInfo == EmptyDonation</c>) emitted in a generic extension
     /// fails Swift type-checking because the constraint is never re-established.
-    /// Returns an empty string when no parent same-type constraint applies.
+    /// <para>
+    /// Same-type (<c>==</c>) clauses are always emitted — they are never expressible at the
+    /// parent type's own declaration on a single generic param. Conformance (<c>:</c>) clauses
+    /// are emitted only when <paramref name="includeConformanceConstraints"/> is true, and only
+    /// when the constraint is strictly stricter than the parent type's own declaration (any
+    /// target already declared on the parent generic param is skipped to avoid a redundant
+    /// conditional-conformance constraint). The conformance path is used by the generic static
+    /// factory constructor emitter, whose <c>extension Parent: _SBW_GSF_x</c> conformance must
+    /// inherit a constructor-only conformance constraint (e.g.
+    /// <c>MusicCatalogResourceRequest.init() where MusicItemType : MusicCatalogTopLevelResourceRequesting</c>)
+    /// before <c>Self()</c> in the factory body type-checks.
+    /// </para>
+    /// Returns an empty string when no applicable parent constraint exists.
     /// </summary>
-    public static string BuildParentSameTypeExtensionWhere(MethodDecl methodDecl, TypeDecl? parentType)
+    public static string BuildParentSameTypeExtensionWhere(
+        MethodDecl methodDecl, TypeDecl? parentType, bool includeConformanceConstraints = false)
     {
         if (parentType?.GenericParameters == null || parentType.GenericParameters.Count == 0)
             return string.Empty;
@@ -235,15 +247,52 @@ public static class WrapperEmitterHelpers
             .Select(p => p.SugaredTypeName)
             .ToHashSet(StringComparer.Ordinal);
 
+        // Per-param set of conformance targets already declared at the parent type level
+        // (both module-qualified and short names). A constructor-only conformance clause whose
+        // target is already required by the parent must be skipped — re-stating it on the
+        // conditional conformance is a redundant-constraint error in Swift.
+        var parentLevelConstraints = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        if (includeConformanceConstraints)
+        {
+            foreach (var p in parentType.GenericParameters)
+            {
+                var set = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var gc in p.GenericConformances)
+                {
+                    if (gc.Kind != ConformanceKind.Protocol) continue;
+                    var target = gc.ConformanceTarget;
+                    if (string.IsNullOrEmpty(target.Name)) continue;
+                    set.Add(target.ModuleQualifiedName);
+                    set.Add(target.Name);
+                }
+                parentLevelConstraints[p.SugaredTypeName] = set;
+            }
+        }
+
         var clauses = new List<string>();
         foreach (var rawClause in afterWhere.Split(','))
         {
             var clause = rawClause.Trim();
-            var match = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*==\s*(.+)$");
-            if (!match.Success) continue;
-            var paramName = match.Groups[1].Value;
-            if (!parentParamNames.Contains(paramName)) continue;
-            clauses.Add($"{paramName} == {match.Groups[2].Value.Trim()}");
+            var sameType = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*==\s*(.+)$");
+            if (sameType.Success)
+            {
+                var paramName = sameType.Groups[1].Value;
+                if (!parentParamNames.Contains(paramName)) continue;
+                clauses.Add($"{paramName} == {sameType.Groups[2].Value.Trim()}");
+                continue;
+            }
+
+            if (!includeConformanceConstraints) continue;
+
+            var conformance = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*:\s*(.+)$");
+            if (!conformance.Success) continue;
+            var cParam = conformance.Groups[1].Value;
+            if (!parentParamNames.Contains(cParam)) continue;
+            var cTarget = conformance.Groups[2].Value.Trim();
+            // Skip constraints the parent already requires — re-stating them is redundant.
+            if (parentLevelConstraints.TryGetValue(cParam, out var declared) && declared.Contains(cTarget))
+                continue;
+            clauses.Add($"{cParam} : {cTarget}");
         }
         return clauses.Count == 0 ? string.Empty : " where " + string.Join(", ", clauses);
     }

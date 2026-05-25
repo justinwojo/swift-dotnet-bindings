@@ -77,3 +77,28 @@ public struct OpenLabelledContainer<U>: LabelledContainer {
         return "generic"
     }
 }
+
+// MARK: - Constrained-existential VARIADIC coverage
+//
+// A result-builder `buildBlock` whose variadic parameter is a constrained existential:
+// `(any LabelledContainer<String>)...`. This is the intersection of two features —
+// SE-0346 parameterized-protocol existentials AND variadic packs — and is the deepest
+// case of the demangle-based variadic-detection regression. `any LabelledContainer<String>`
+// mangles through the `ConstrainedExistential` (`XP`) node with an inline requirement list
+// (`Self.Label == String`), whose base is `ConstrainedExistentialSelf` (the `s` marker in
+// `Rts_`). Until the demangler learned that node, ANY such signature threw during demangle
+// (caught + logged → null reduction), silently disabling the demangled "d"-marker variadic
+// signal. swift-api-digester renders the parameter as a plain `[any LabelledContainer<String>]`
+// with no trailing "...", so the "d" marker is the only per-overload variadic signal — the same
+// lost-signal failure mode as the plain-existential `(any VariadicItem)...` case, one layer deeper.
+// `Int` return keeps the round-trip focused on variadic detection, not existential-array returns.
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+public struct LabelledContainerBuilder {
+    public static func buildBlock(_ items: (any LabelledContainer<String>)...) -> Int {
+        return items.count
+    }
+
+    public static func buildBlock() -> Int {
+        return 0
+    }
+}

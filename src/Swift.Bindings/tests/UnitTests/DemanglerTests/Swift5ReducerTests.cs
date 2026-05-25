@@ -130,6 +130,159 @@ public class Swift5ReducerTests
         Assert.Equal("Mod.Outer.Inner", ((NamedTypeSpec)ts.TypeSpec).Name);
     }
 
+    // --- ProtocolList (existential) reductions ---
+
+    /// <summary>
+    /// Builds: ProtocolList(TypeList(protocols...))
+    /// </summary>
+    static Node MakeProtocolList(params Node[] protocols)
+    {
+        var protoList = new Node(NodeKind.ProtocolList);
+        var typeList = new Node(NodeKind.TypeList);
+        foreach (var p in protocols)
+            typeList.AddChild(p);
+        protoList.AddChild(typeList);
+        return protoList;
+    }
+
+    [Fact]
+    public void ConvertProtocolList_Empty_IsAny()
+    {
+        // `Any` is an existential with an empty protocol list.
+        var node = MakeGlobal(MakeProtocolList());
+        var result = Swift5Reducer.Convert(node, kSymbol);
+        var ts = Assert.IsType<TypeSpecReduction>(result);
+        var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
+        Assert.Empty(protoList.Protocols);
+    }
+
+    [Fact]
+    public void ConvertProtocolList_SingleProtocol()
+    {
+        var node = MakeGlobal(MakeProtocolList(
+            MakeType(MakeNominal(NodeKind.Protocol, "RxSwift", "Disposable"))));
+        var result = Swift5Reducer.Convert(node, kSymbol);
+        var ts = Assert.IsType<TypeSpecReduction>(result);
+        var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
+        Assert.Single(protoList.Protocols);
+        Assert.Equal("RxSwift.Disposable", protoList.Protocols.Keys[0].Name);
+    }
+
+    [Fact]
+    public void ConvertProtocolList_MultipleProtocols()
+    {
+        var node = MakeGlobal(MakeProtocolList(
+            MakeType(MakeNominal(NodeKind.Protocol, "Mod", "P")),
+            MakeType(MakeNominal(NodeKind.Protocol, "Mod", "Q"))));
+        var result = Swift5Reducer.Convert(node, kSymbol);
+        var ts = Assert.IsType<TypeSpecReduction>(result);
+        var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
+        Assert.Equal(2, protoList.Protocols.Count);
+    }
+
+    [Fact]
+    public void ConvertProtocolListWithAnyObject_ReducesInnerList()
+    {
+        // ProtocolListWithAnyObject(ProtocolList(...)) — the AnyObject constraint is dropped;
+        // we reduce to the inner protocol list (sufficient for async/variadic detection).
+        var node = new Node(NodeKind.ProtocolListWithAnyObject);
+        node.AddChild(MakeProtocolList(
+            MakeType(MakeNominal(NodeKind.Protocol, "Mod", "P"))));
+        var result = Swift5Reducer.Convert(MakeGlobal(node), kSymbol);
+        var ts = Assert.IsType<TypeSpecReduction>(result);
+        var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
+        Assert.Single(protoList.Protocols);
+        Assert.Equal("Mod.P", protoList.Protocols.Keys[0].Name);
+    }
+
+    [Fact]
+    public void ConvertProtocolListWithClass_ReducesInnerList()
+    {
+        // ProtocolListWithClass(ProtocolList(...), Superclass) — the superclass is dropped.
+        var node = new Node(NodeKind.ProtocolListWithClass);
+        node.AddChild(MakeProtocolList(
+            MakeType(MakeNominal(NodeKind.Protocol, "Mod", "P"))));
+        node.AddChild(MakeType(MakeNominal(NodeKind.Class, "Mod", "Base")));
+        var result = Swift5Reducer.Convert(MakeGlobal(node), kSymbol);
+        var ts = Assert.IsType<TypeSpecReduction>(result);
+        var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
+        Assert.Single(protoList.Protocols);
+        Assert.Equal("Mod.P", protoList.Protocols.Keys[0].Name);
+    }
+
+    [Fact]
+    public void ConvertConstrainedExistential_ReducesInnerProtocolList()
+    {
+        // ConstrainedExistential(Type(ProtocolList(P)), ConstrainedExistentialRequirementList) —
+        // the `where`-clause requirement list (e.g. `any P<Int>`'s `T == Int`) is dropped; we
+        // reduce to the inner protocol list, sufficient for async/variadic detection.
+        var node = new Node(NodeKind.ConstrainedExistential);
+        node.AddChild(MakeType(MakeProtocolList(
+            MakeType(MakeNominal(NodeKind.Protocol, "Mod", "P")))));
+        node.AddChild(new Node(NodeKind.ConstrainedExistentialRequirementList));
+        var result = Swift5Reducer.Convert(MakeGlobal(node), kSymbol);
+        var ts = Assert.IsType<TypeSpecReduction>(result);
+        var protoList = Assert.IsType<ProtocolListTypeSpec>(ts.TypeSpec);
+        Assert.Single(protoList.Protocols);
+        Assert.Equal("Mod.P", protoList.Protocols.Keys[0].Name);
+    }
+
+    /// <summary>
+    /// End-to-end regression guard: a result-builder buildBlock whose variadic parameter is an
+    /// existential array (`(any Disposable)...` from RxSwift's DisposableBuilder). Before the
+    /// ProtocolList reducer rule existed, this mangled name failed reduction ("No rule for node
+    /// ProtocolList"), which silently disabled demangle-based variadic detection. swift-api-digester
+    /// renders the parameter as a plain "[any Disposable]" with no "...", so the mangled-name "d"
+    /// marker is the ONLY reliable per-overload variadic signal.
+    /// </summary>
+    [Fact]
+    public void Demangle_VariadicExistentialArray_DetectsVariadic()
+    {
+        const string mangled = "$s7RxSwift10DisposeBagC17DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ";
+        var result = new Swift5Demangler().Run(mangled);
+        var fr = Assert.IsType<FunctionReduction>(result);
+        var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
+        Assert.True(BindingsGeneration.SwiftABIParser.HasVariadicElement(paramTuple),
+            "Variadic-of-existential parameter must be detected via the demangled 'd' marker.");
+    }
+
+    /// <summary>
+    /// Sibling guard: the non-variadic result-builder overload (`[Page]`, no "d" marker) must NOT
+    /// be flagged variadic, while its variadic sibling (`[Page]...`, has "d") must be — proving the
+    /// per-overload demangle signal distinguishes two overloads that share a printedName.
+    /// </summary>
+    [Theory]
+    [InlineData("$s9Parchment11PageBuilderV10buildBlockySayAA0B0VGAGFZ", false)]   // [Page]    — not variadic
+    [InlineData("$s9Parchment11PageBuilderV10buildBlockySayAA0B0VGAGd_tFZ", true)] // [Page]... — variadic
+    public void Demangle_ResultBuilderOverloads_VariadicDistinguishedByMarker(string mangled, bool expectedVariadic)
+    {
+        var result = new Swift5Demangler().Run(mangled);
+        var fr = Assert.IsType<FunctionReduction>(result);
+        var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
+        Assert.Equal(expectedVariadic, BindingsGeneration.SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
+    /// <summary>
+    /// Constrained-existential (SE-0346 parameterized protocol) regression guard. Both symbols are
+    /// genuine swiftc output for `func g(_:(any P&lt;Int&gt;)...) -> Int` and `func h(_:any P&lt;Int&gt;) -> Int`
+    /// (protocol `P&lt;T&gt;`). The `any P&lt;Int&gt;` existential mangles through `ConstrainedExistential` (`XP`)
+    /// with an inline requirement list whose base is `ConstrainedExistentialSelf` (the `s` marker in
+    /// `Rts_`). Before that demangler support existed, BOTH threw ArgumentOutOfRangeException —
+    /// disabling demangle-based async/variadic detection for any parameterized-protocol existential
+    /// in a signature. The `d` marker still distinguishes the variadic overload per-overload.
+    /// </summary>
+    [Theory]
+    [InlineData("$s7TestMod1hySiAA1P_pSi1TAaCPRts_XPF", false)]    // h(_: any P<Int>) -> Int               — not variadic
+    [InlineData("$s7TestMod1gySiAA1P_pSi1TAaCPRts_XPd_tF", true)]  // g(_: (any P<Int>)...) -> Int          — variadic
+    [InlineData("$s2M21mySiAA2P2_pSi1AAaCPRts_SS1BAERtsXPF", false)] // m(_: any P2<Int,String>) -> Int     — two requirements
+    public void Demangle_ConstrainedExistential_ReducesAndDetectsVariadic(string mangled, bool expectedVariadic)
+    {
+        var result = new Swift5Demangler().Run(mangled);
+        var fr = Assert.IsType<FunctionReduction>(result);
+        var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
+        Assert.Equal(expectedVariadic, BindingsGeneration.SwiftABIParser.HasVariadicElement(paramTuple));
+    }
+
     // --- Module reduction ---
 
     [Fact]

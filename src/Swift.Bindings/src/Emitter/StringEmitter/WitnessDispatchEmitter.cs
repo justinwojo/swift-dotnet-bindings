@@ -1237,6 +1237,34 @@ public class WitnessDispatchEmitter
     }
 
     /// <summary>
+    /// Resolves the Swift type name to use in witness-dispatch blittable marshalling — i.e.
+    /// for <c>UnsafeMutablePointer&lt;T&gt;</c>, <c>load(as: T.self)</c>, and
+    /// <c>assumingMemoryBound(to: T.self)</c>. The resolved name must be the *static Swift type*
+    /// of the marshalled value, since <c>initialize(to:)</c> / <c>load(as:)</c> are type-checked.
+    /// <list type="bullet">
+    /// <item>Swift pointer types (OpaquePointer, UnsafeRawPointer, …) project to nint/IntPtr but
+    /// must keep their bare Swift name.</item>
+    /// <item>Genuine Swift primitives (Swift.Int, Swift.Double, …) round-trip through the C#
+    /// projection to their bare Swift name (Int, Double).</item>
+    /// <item>Everything else — including value types that merely *project* to a C# primitive
+    /// (e.g. Foundation.Date → double) and generic containers — keeps its real module-qualified
+    /// Swift type. Round-tripping these through the projection produces the wrong pointee type
+    /// (e.g. <c>UnsafeMutablePointer&lt;Double&gt;</c> for a <c>Foundation.Date</c> value).</item>
+    /// </list>
+    /// </summary>
+    private string GetSwiftBlittableTypeName(TypeSpec typeSpec)
+    {
+        if (typeSpec is NamedTypeSpec named)
+        {
+            if (IsSwiftPointerType(named.Name))
+                return named.NameWithoutModule;
+            if (named.GenericParameters.Count == 0 && SwiftToCSharpPrimitiveMap.ContainsKey(named.Name))
+                return GetSwiftPrimitiveType(GetCSharpTypeName(typeSpec));
+        }
+        return ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
+    }
+
+    /// <summary>
     /// Checks if a module-qualified Swift type name is a non-generic pointer type.
     /// These types map to nint/IntPtr in C# but must use their original Swift name
     /// (not Int) in load(as:) calls.
@@ -1328,24 +1356,11 @@ public class WitnessDispatchEmitter
         }
         else
         {
-            // Blittable getter: direct pointer allocation.
-            // Primitives (Swift.Int32, Swift.Bool, …) round-trip through GetSwiftPrimitiveType
-            // to get the Swift-side bare name (`Int32`, `Bool`). Container types fall back to
-            // RenderModuleQualifiedSwiftTypeSpec so generic parameters survive — without that,
-            // `Swift.Array<Float>` collapses to `Swift.Array` and the emitted Swift name
-            // (`[Swift.Array]`) would not name a real type.
-            string swiftReturnType;
-            if (property.SwiftTypeSpec is NamedTypeSpec primitiveCandidate &&
-                primitiveCandidate.GenericParameters.Count == 0 &&
-                SwiftToCSharpPrimitiveMap.ContainsKey(primitiveCandidate.Name))
-            {
-                var csharpReturnType = GetCSharpTypeName(property.SwiftTypeSpec);
-                swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
-            }
-            else
-            {
-                swiftReturnType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(property.SwiftTypeSpec);
-            }
+            // Blittable getter: direct pointer allocation. See GetSwiftBlittableTypeName —
+            // primitives round-trip to their bare Swift name, container/value types keep their
+            // real module-qualified Swift type so generic parameters survive and value types that
+            // merely project to a primitive (e.g. Foundation.Date → double) keep their true type.
+            var swiftReturnType = GetSwiftBlittableTypeName(property.SwiftTypeSpec);
             EmitHeapAllocatedPropertyGetter(writer, accessorSymbol, freeSymbol, moduleQualifiedName, property.Name, swiftReturnType, needsMainActor, needsMutableBinding);
         }
     }
@@ -1385,8 +1400,7 @@ public class WitnessDispatchEmitter
         else
         {
             // Blittable setter: typed pointee assignment
-            var csharpType = GetCSharpTypeName(property.SwiftTypeSpec);
-            var swiftType = GetSwiftPrimitiveType(csharpType);
+            var swiftType = GetSwiftBlittableTypeName(property.SwiftTypeSpec);
 
             writer.WriteLines($$"""
                 {{avail}}{{mainActorAttr}}@_cdecl("{{accessorSymbol}}")
@@ -1469,8 +1483,7 @@ public class WitnessDispatchEmitter
             else
             {
                 // Blittable return: direct pointer allocation
-                var csharpReturnType = GetCSharpTypeName(returnType!);
-                var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+                var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
                 writer.WriteLine($"let result = existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
                 writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
@@ -1512,8 +1525,7 @@ public class WitnessDispatchEmitter
             else
             {
                 // Blittable return: simple dealloc
-                var csharpReturnType = GetCSharpTypeName(returnType!);
-                var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+                var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
 
                 writer.WriteLines($$"""
                     {{avail}}@_cdecl("{{freeSymbol}}")
@@ -1605,8 +1617,7 @@ public class WitnessDispatchEmitter
             else
             {
                 // Blittable return: direct pointer allocation
-                var csharpReturnType = GetCSharpTypeName(returnType!);
-                var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+                var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
                 writer.WriteLine($"let result = try existential.{NameProvider.ParserNameToSwift(method)}({callArgsString})");
                 writer.WriteLine($"let ptr = UnsafeMutablePointer<{swiftReturnType}>.allocate(capacity: 1)");
                 writer.WriteLine("ptr.initialize(to: result)");
@@ -1656,8 +1667,7 @@ public class WitnessDispatchEmitter
             }
             else
             {
-                var csharpReturnType = GetCSharpTypeName(returnType!);
-                var swiftReturnType = GetSwiftPrimitiveType(csharpReturnType);
+                var swiftReturnType = GetSwiftBlittableTypeName(returnType!);
 
                 writer.WriteLines($$"""
                     {{avail}}@_cdecl("{{freeSymbol}}")
@@ -2166,21 +2176,14 @@ public class WitnessDispatchEmitter
         else
         {
             // Blittable parameter: direct load
-            // Use var for inout params so the value can be passed by reference
+            // Use var for inout params so the value can be passed by reference.
+            // GetSwiftBlittableTypeName handles Swift pointer types (OpaquePointer, … — which map
+            // to nint/IntPtr but must keep their bare Swift name), genuine primitives, and value
+            // types that project to a primitive (e.g. Foundation.Date → double) but must load as
+            // their real type. ABI JSON resolves typealiases (e.g., SQLiteStatement →
+            // Swift.OpaquePointer), so checking the TypeSpec name covers alias-backed pointers too.
             var binding = param.IsInOut ? "var" : "let";
-            // Swift pointer types (OpaquePointer, UnsafeRawPointer, etc.) map to nint/IntPtr
-            // on the C# side, but nint round-trips to Swift.Int via GetSwiftPrimitiveType.
-            // For load(as:), we must use the original Swift type, not Int.
-            // ABI JSON resolves typealiases (e.g., SQLiteStatement → Swift.OpaquePointer),
-            // so checking the TypeSpec name covers alias-backed pointer parameters too.
-            string swiftType;
-            if (param.SwiftTypeSpec is NamedTypeSpec paramNamed && IsSwiftPointerType(paramNamed.Name))
-                swiftType = paramNamed.NameWithoutModule;
-            else
-            {
-                var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
-                swiftType = GetSwiftPrimitiveType(csharpType);
-            }
+            var swiftType = GetSwiftBlittableTypeName(param.SwiftTypeSpec);
             writer.WriteLine($"{binding} arg{argIdx} = arg{argIdx}Ptr.load(as: {swiftType}.self)");
         }
     }
@@ -2201,13 +2204,8 @@ public class WitnessDispatchEmitter
                 string swiftType;
                 if (IsIndirectStructType(param.SwiftTypeSpec))
                     swiftType = GetSwiftConcreteTypeName(param.SwiftTypeSpec) ?? param.SwiftTypeSpec.ToString();
-                else if (param.SwiftTypeSpec is NamedTypeSpec inoutNamed && IsSwiftPointerType(inoutNamed.Name))
-                    swiftType = inoutNamed.NameWithoutModule;
                 else
-                {
-                    var csharpType = GetCSharpTypeName(param.SwiftTypeSpec);
-                    swiftType = GetSwiftPrimitiveType(csharpType);
-                }
+                    swiftType = GetSwiftBlittableTypeName(param.SwiftTypeSpec);
                 writer.WriteLine($"UnsafeMutableRawPointer(mutating: arg{argIdx}Ptr).assumingMemoryBound(to: {swiftType}.self).pointee = arg{argIdx}");
             }
             argIdx++;

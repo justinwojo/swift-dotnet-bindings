@@ -4648,6 +4648,73 @@ public class MethodWrapperEmitterTests
         Assert.True(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingA, parent));
     }
 
+    [Fact]
+    public void HasReturnTypeOnlyOverloadSibling_SameTypeDifferentLabels_ReturnsFalse()
+    {
+        // Two same-name same-param-TYPE siblings that differ by argument LABEL (and return
+        // type) — e.g. UITableViewDelegate's tableView(_:viewForHeaderInSection:) -> UIView?
+        // vs tableView(_:numberOfRowsInSection:) -> Int. These are distinguishable by an
+        // ordinary labeled call, so the predicate must NOT fire: the label-erasing `as` cast
+        // would pin by type only and can match an inherited same-type sibling
+        // (viewForFooterInSection), producing "ambiguous use of 'tableView'".
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var parent = CreateClassDecl("Picker", moduleDecl);
+        var paramTypeSpec = new NamedTypeSpec("Swift.Int");
+        ArgumentDecl MakeParam(string label) => new ArgumentDecl
+        {
+            Name = label, PrivateName = "section", SwiftTypeSpec = paramTypeSpec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        ArgumentDecl MakeReturn(TypeSpec spec) => new ArgumentDecl
+        {
+            Name = "", PrivateName = "", SwiftTypeSpec = spec,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+        };
+        var siblingA = new MethodDecl
+        {
+            Name = "tableView",
+            MangledName = "siblingA",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                MakeReturn(new NamedTypeSpec("UIKit.UIView")),
+                MakeParam("viewForHeaderInSection")
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        };
+        var siblingB = new MethodDecl
+        {
+            Name = "tableView",
+            MangledName = "siblingB",
+            MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                MakeReturn(new NamedTypeSpec("Swift.Int")),
+                MakeParam("numberOfRowsInSection")
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent, ModuleDecl = moduleDecl,
+            Throws = false, IsAsync = false, Visibility = Visibility.Public
+        };
+        parent.Methods.Add(siblingA);
+        parent.Methods.Add(siblingB);
+
+        Assert.False(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingA, parent));
+        Assert.False(MethodWrapperEmitter.HasReturnTypeOnlyOverloadSibling(siblingB, parent));
+    }
+
     [Theory]
     [InlineData(true, false)]   // throws-only
     [InlineData(false, true)]   // async-only

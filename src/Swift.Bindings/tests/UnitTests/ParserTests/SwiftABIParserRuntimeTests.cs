@@ -1512,6 +1512,123 @@ public class SwiftABIParserRuntimeTests
 
     #endregion
 
+    #region Variadic detection (per-overload, not name-keyed)
+
+    // Two PageBuilder.buildBlock overloads share the printedName "buildBlock(_:)" but
+    // differ only in variadic-ness:
+    //     buildBlock(_ components: [Page])      // not variadic
+    //     buildBlock(_ components: [Page]...)   // variadic
+    // The variadic flag must come from the per-overload ABI signature, not a name-keyed
+    // VariadicMembers fact — keying on the shared name marks BOTH variadic and emits an
+    // invalid "[Page] as variadic" cast on the non-variadic sibling.
+
+    [Fact]
+    public void ParseModule_VariadicArrayParam_FlaggedFromSignature()
+    {
+        var func = CreateBuildBlockNode(variadic: true);
+
+        using var fixture = CreateParserWithNodes(func);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.HasVariadicParameter);
+    }
+
+    [Fact]
+    public void ParseModule_NonVariadicArraySibling_NotFlaggedEvenWhenNameFactPresent()
+    {
+        // Regression guard: the name fact names the shared printedName, but the
+        // non-variadic overload has an inspectable (non-variadic) array param, so the
+        // per-overload signature wins and the name fact must NOT over-fire.
+        var func = CreateBuildBlockNode(variadic: false);
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            VariadicMembers = new HashSet<string> { "buildBlock(_:)" }
+        };
+
+        using var fixture = CreateParserWithFacts(facts, func);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.False(method.HasVariadicParameter);
+    }
+
+    [Fact]
+    public void ParseModule_VariadicArrayParam_FlaggedWhenNameFactAlsoPresent()
+    {
+        var func = CreateBuildBlockNode(variadic: true);
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            VariadicMembers = new HashSet<string> { "buildBlock(_:)" }
+        };
+
+        using var fixture = CreateParserWithFacts(facts, func);
+        var result = fixture.Parser.ParseModule();
+
+        var method = Assert.Single(result.ModuleDecl.Methods);
+        Assert.True(method.HasVariadicParameter);
+    }
+
+    // Builds a free function `buildBlock(_:)` returning Void whose single parameter is
+    // either `[Page]` (variadic:false) or the variadic `[Page]...` (variadic:true), as
+    // swift-api-digester renders them: an Array TypeNominal whose printedName carries a
+    // trailing "..." for the variadic case.
+    private static Node CreateBuildBlockNode(bool variadic)
+    {
+        var returnTypeNode = CreateNode(kind: "TypeNominal", name: "Void", mangledName: "$s");
+        returnTypeNode.PrintedName = "()";
+
+        var element = CreateNode(kind: "TypeNominal", name: "Page", moduleName: "TestModule", mangledName: "$s");
+        element.PrintedName = "TestModule.Page";
+
+        var arrayParam = CreateNode(kind: "TypeNominal", name: "Array", mangledName: "$s", children: new[] { element });
+        arrayParam.PrintedName = "[TestModule.Page]";
+
+        Node paramNode = arrayParam;
+        if (variadic)
+        {
+            // Variadic of arrays: `[Page]...` lowers to Array<Array<Page>> with the
+            // outer Array's printedName ending in "...".
+            var variadicArray = CreateNode(kind: "TypeNominal", name: "Array", mangledName: "$s", children: new[] { arrayParam });
+            variadicArray.PrintedName = "[TestModule.Page]...";
+            paramNode = variadicArray;
+        }
+
+        return CreateFunctionNode(
+            name: "buildBlock",
+            printedName: "buildBlock(_:)",
+            funcSelfKind: null,
+            children: new[] { returnTypeNode, paramNode });
+    }
+
+    #endregion
+
+    private static ParserFixture CreateParserWithFacts(SwiftInterfaceFacts facts, params Node[] nodes)
+    {
+        var root = new ABIRootNode
+        {
+            ABIRoot = new RootNode
+            {
+                Kind = "Root",
+                Name = "Root",
+                PrintedName = "Root",
+                Children = nodes
+            }
+        };
+
+        var filePath = Path.GetTempFileName();
+        File.WriteAllText(filePath, JsonConvert.SerializeObject(root));
+
+        var parser = new SwiftABIParser(
+            filePath,
+            new TypeDatabase(),
+            CreateEmptyDemanglingResults(),
+            NullLogger.Instance,
+            facts);
+
+        return new ParserFixture(parser, filePath);
+    }
+
     private static ParserFixture CreateParserWithNodes(params Node[] nodes)
     {
         return CreateParserWithNodes(availabilityAnnotations: null, typeDatabase: null, nodes);

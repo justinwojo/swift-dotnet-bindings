@@ -120,6 +120,10 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             () => SwiftInterfaceAccessParser.GetConstLiteralParameters(swiftInterfacePath),
             () => new Dictionary<string, List<bool>>());
 
+        var closureParameterAttributes = TryParse("closure parameter attributes", logger, ref parseFailures,
+            () => SwiftInterfaceAccessParser.GetClosureParameterAttributes(swiftInterfacePath),
+            () => new Dictionary<string, List<List<string>>>());
+
         var subscriptLabels = TryParse("subscript labels", logger, ref parseFailures,
             () => SwiftInterfaceAccessParser.GetSubscriptLabels(swiftInterfacePath),
             () => new Dictionary<string, List<string>>());
@@ -194,6 +198,7 @@ public sealed class RegexInterfaceFactsProducer : IInterfaceFactsProducer
             DefaultParameterValues = defaultParameterValues,
             AutoclosureParameters = autoclosureParameters,
             ConstLiteralParameters = constLiteralParameters,
+            ClosureParameterAttributes = closureParameterAttributes,
             SubscriptLabels = subscriptLabels,
             VariadicMembers = variadicMembers,
             ConventionCProtocols = conventionCProtocols,

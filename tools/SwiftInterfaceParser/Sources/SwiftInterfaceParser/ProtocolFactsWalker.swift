@@ -12,9 +12,12 @@ import SwiftParser
 ///   * `conventionCProtocolPositions`   — line/column of each detected protocol's
 ///     access-modifier token. Position points at the `public`/`open` keyword,
 ///     NOT at the `@convention` reference.
-///   * `hiddenRequirementProtocols`     — `protocolName -> Set<__memberName>` for
-///     `__`-prefixed requirements that are NOT satisfied by a same-module
-///     extension default. Used downstream to suppress EveryProtocol generation.
+///   * `hiddenRequirementProtocols`     — `protocolName -> Set<memberName>` for
+///     requirements that are NOT satisfied by a same-module extension default and that
+///     swift-api-digester strips from the ABI JSON. Two shapes qualify: (a) the member
+///     NAME is `__`-prefixed, or (b) the member's SIGNATURE references a `__`-prefixed SPI
+///     type (e.g. `func _resolve(in: __Ctx) -> __Resolved`). Used downstream to suppress
+///     EveryProtocol generation.
 ///
 /// PARITY CONTRACTS:
 ///   * `SwiftInterfaceAccessParser.GetProtocolsWithConventionClosures` (line 1045)
@@ -39,9 +42,10 @@ import SwiftParser
 ///    at the location of the access modifier (`public`/`open`) token at the
 ///    protocol declaration.
 ///
-/// 5. **`__`-prefix detection**: only `var`/`let` and `func` decls whose name
-///    starts with two literal underscores. `subscript`, `init`, `typealias`,
-///    `associatedtype` with `__` prefixes are NOT detected (regex parity).
+/// 5. **`__`-prefix detection**: `var`/`let` and `func` decls whose name starts with two
+///    literal underscores. `typealias`/`associatedtype` with `__` names are NOT detected
+///    (regex parity). The separate **type-hidden** path (signature references a `__`-type)
+///    additionally covers `init` and `subscript`, keyed by `"init"`/`"subscript"`.
 ///
 /// 6. **Same-module extension matching**: an extension's qualifier (text before
 ///    the FIRST `.` in the extended type) is compared (ordinal) to the file's
@@ -248,14 +252,44 @@ final class ProtocolFactsWalker: SyntaxVisitor {
                 let name = pattern.identifier.text
                 if name.hasPrefix("__") {
                     set.insert(name)
+                } else if let ty = binding.typeAnnotation?.type,
+                          ProtocolFactsWalker.textReferencesUnderscoredType(ty.trimmedDescription) {
+                    // Type-hidden requirement: ordinary name, but the property type
+                    // references a __-prefixed SPI type (stripped from the ABI JSON).
+                    set.insert(name)
                 }
             }
         } else if let f = decl.as(FunctionDeclSyntax.self) {
             let name = f.name.text
             if name.hasPrefix("__") {
                 set.insert(name)
+            } else if ProtocolFactsWalker.textReferencesUnderscoredType(f.signature.trimmedDescription) {
+                set.insert(name)
+            }
+        } else if let i = decl.as(InitializerDeclSyntax.self) {
+            if ProtocolFactsWalker.textReferencesUnderscoredType(i.signature.trimmedDescription) {
+                set.insert("init")
+            }
+        } else if let s = decl.as(SubscriptDeclSyntax.self) {
+            let sig = s.parameterClause.trimmedDescription + s.returnClause.trimmedDescription
+            if ProtocolFactsWalker.textReferencesUnderscoredType(sig) {
+                set.insert("subscript")
             }
         }
+    }
+
+    /// True when `text` references a `__`-prefixed identifier (typically an SPI type such as
+    /// `RealityFoundation.__ResolvedRealityCoordinateSpace`). Mirrors the C# regex producer's
+    /// `UnderscoredTypeReferenceRegex` exactly so the two producers stay in parity: the
+    /// negative lookbehind excludes alnum/underscore but NOT `.`, so module-qualified SPI
+    /// types still match while mid-identifier hits like `foo__bar` are rejected.
+    private static let underscoredTypeReferenceRegex = try! NSRegularExpression(
+        pattern: "(?<![A-Za-z0-9_])__\\w+", options: [])
+
+    private static func textReferencesUnderscoredType(_ text: String) -> Bool {
+        return underscoredTypeReferenceRegex.firstMatch(
+            in: text, options: [],
+            range: NSRange(location: 0, length: text.utf16.count)) != nil
     }
 
     private func firstAccessModifierToken(_ modifiers: DeclModifierListSyntax, accept: Set<String>) -> TokenSyntax? {

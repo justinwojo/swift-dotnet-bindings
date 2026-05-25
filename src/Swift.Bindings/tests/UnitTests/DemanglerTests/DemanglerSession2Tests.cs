@@ -901,27 +901,34 @@ exports:
     // ================================================================
 
     [Fact]
-    public void VariadicParam_SwiftyBeaver_StartsWith_DemanglerReturnsError()
+    public void VariadicParam_SwiftyBeaver_StartsWith_ReducesWithVariadicDetected()
     {
-        // SwiftyBeaver.FunctionFilterFactory.startsWith(_: String..., caseSensitive: Bool, required: Bool, minLevel: Level)
-        // The demangler doesn't produce a FunctionReduction for this symbol — it returns a ReductionError.
-        // This is expected because the demangler's ConvertVariadicTupleElement only handles simple cases.
-        // Variadic detection must use an alternative approach (swiftinterface or ABI JSON analysis).
+        // static SwiftyBeaver.FunctionFilterFactory.startsWith(_: String..., caseSensitive: Bool,
+        //     required: Bool, minLevel: Level) -> any FilterType
+        // The return type is an existential (`any FilterType`). Before the ProtocolList reducer rule
+        // existed this symbol failed reduction, which silently disabled demangle-based variadic
+        // detection for the `String...` parameter. It must now reduce to a FunctionReduction whose
+        // parameter list carries the variadic marker.
         var demangler = new Swift5Demangler();
         var result = demangler.Run("$s12SwiftyBeaver21FunctionFilterFactoryC10startsWith_13caseSensitive8required8minLevelAA0D4Type_pSSd_S2bA2AC0L0OtFZ");
-        // Demangler may return null or ReductionError — both are acceptable
-        // FunctionReduction is NOT expected for this symbol
-        Assert.True(result is null or ReductionError,
-            $"Expected null or ReductionError but got {result?.GetType().Name}");
+        var fr = Assert.IsType<FunctionReduction>(result);
+        var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
+        Assert.True(SwiftABIParser.HasVariadicElement(paramTuple),
+            "String... variadic must be detected even though the function returns an existential.");
     }
 
     [Fact]
-    public void VariadicParam_RxSwift_BuildBlock_DemanglerReturnsError()
+    public void VariadicParam_RxSwift_BuildBlock_ReducesWithVariadicDetected()
     {
-        // RxSwift.DisposeBag.DisposableBuilder.buildBlock(_: Disposable...)
+        // static RxSwift.DisposeBag.DisposableBuilder.buildBlock(RxSwift.Disposable...) -> [any Disposable]
+        // Variadic-of-existential: the parameter is `(any Disposable)...`. swift-api-digester renders
+        // it as a plain `[any Disposable]` with no "...", so the demangled "d" marker — recoverable
+        // only now that ProtocolList reduces — is the sole reliable per-overload variadic signal.
         var demangler = new Swift5Demangler();
-        var result = demangler.Run("$s7RxSwift10DisposeBagC19DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ");
-        Assert.True(result is null or ReductionError,
-            $"Expected null or ReductionError but got {result?.GetType().Name}");
+        var result = demangler.Run("$s7RxSwift10DisposeBagC17DisposableBuilderV10buildBlockySayAA0E0_pGAaG_pd_tFZ");
+        var fr = Assert.IsType<FunctionReduction>(result);
+        var paramTuple = Assert.IsType<TupleTypeSpec>(fr.Function.ParameterList);
+        Assert.True(SwiftABIParser.HasVariadicElement(paramTuple),
+            "Variadic-of-existential parameter must be detected via the demangled 'd' marker.");
     }
 }

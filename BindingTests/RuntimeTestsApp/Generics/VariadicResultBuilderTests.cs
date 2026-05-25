@@ -64,4 +64,29 @@ public class VariadicResultBuilderTests : TestBase
         AssertEqual("b", result[1].Title.ToString(), "Flatten preserves order: b");
         AssertEqual("c", result[2].Title.ToString(), "Flatten preserves order: c");
     }
+
+    public void TestVariadicBuildBlock_AcceptsExistentialSplat()
+    {
+        // Variadic-of-existential: static func buildBlock(_ items: (any VariadicItem)...) -> Int
+        // Unlike the concrete cases above, swift-api-digester renders this parameter as a plain
+        // `[any VariadicItem]` with NO trailing "...", so its variadic-ness is recoverable only from
+        // the demangled mangled-name "d" marker. The @_cdecl wrapper bridges the runtime array to the
+        // variadic call via unsafeBitCast — exactly the RxSwift/SwiftyBeaver regression shape.
+        using var first = new NamedVariadicItem("alpha");
+        using var second = new NamedVariadicItem("beta");
+        using var third = new NamedVariadicItem("gamma");
+
+        var count = ExistentialVariadicBuilder.BuildBlock(new IVariadicItem[] { first, second, third });
+
+        AssertEqual(3, (int)count, "BuildBlock((any VariadicItem)...) returns the element count");
+    }
+
+    public void TestVariadicBuildBlock_Existential_EmptyOverload()
+    {
+        // The zero-children overload must remain callable alongside the variadic one — the variadic
+        // flag is per-overload, so the empty buildBlock() must NOT inherit the variadic bridge.
+        var count = ExistentialVariadicBuilder.BuildBlock();
+
+        AssertEqual(0, (int)count, "Zero-children buildBlock() returns 0");
+    }
 }

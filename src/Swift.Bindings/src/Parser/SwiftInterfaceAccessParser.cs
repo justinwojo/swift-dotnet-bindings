@@ -1406,6 +1406,53 @@ public static class SwiftInterfaceAccessParser
         @"\bfunc\s+(__\w+)\b",
         RegexOptions.Compiled);
 
+    // Matches a __-prefixed identifier that is NOT preceded by an identifier character. The
+    // exclusion set deliberately omits '.' so module-qualified SPI types
+    // (e.g. `RealityFoundation.__ResolvedRealityCoordinateSpace`) still match — only
+    // mid-identifier hits like `foo__bar` are rejected.
+    private static readonly Regex UnderscoredTypeReferenceRegex = new(
+        @"(?<![A-Za-z0-9_])__\w+",
+        RegexOptions.Compiled);
+
+    // Captures the declared name of a var/let requirement (used to key requirements whose
+    // signature — not name — references a __-prefixed type).
+    private static readonly Regex AnyVarLetRegex = new(
+        @"\b(?:var|let)\s+(`?\w+`?)\b",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// If <paramref name="declLine"/> is a protocol requirement (func/var/let/subscript/init)
+    /// whose signature references a <c>__</c>-prefixed SPI type — e.g.
+    /// <c>func _resolve(in: __Ctx) -> __Resolved</c> — returns its declared member name.
+    /// swift-api-digester strips such requirements from the ABI JSON because their
+    /// parameter/return types are hidden, so the parser never sees them and would emit a
+    /// broken empty <c>EveryProtocol</c> conformance. Returns <c>null</c> when the line is not
+    /// a requirement declaration or references no <c>__</c>-type. The member name itself
+    /// starting with <c>__</c> is already handled by <see cref="UnderscoredFuncRegex"/>/
+    /// <see cref="UnderscoredVarRegex"/>; this path adds the type-hidden case.
+    /// </summary>
+    private static string? TryExtractUnderscoredTypeRequirementName(string declLine)
+    {
+        if (!UnderscoredTypeReferenceRegex.IsMatch(declLine))
+            return null;
+
+        var funcMatch = AnyFuncRegex.Match(declLine);
+        if (funcMatch.Success)
+            return funcMatch.Groups[1].Value;
+
+        if (AnyInitRegex.IsMatch(declLine))
+            return "init";
+
+        if (Regex.IsMatch(declLine, @"\bsubscript\b"))
+            return "subscript";
+
+        var varMatch = AnyVarLetRegex.Match(declLine);
+        if (varMatch.Success)
+            return varMatch.Groups[1].Value.Trim('`');
+
+        return null;
+    }
+
     // Header line format: "// swift-module-flags: ... -module-name <Name> ..."
     private static readonly Regex ModuleNameHeaderRegex = new(
         @"-module-name\s+([A-Za-z_][A-Za-z0-9_]*)",
@@ -1506,6 +1553,11 @@ public static class SwiftInterfaceAccessParser
                     var funcMatch = UnderscoredFuncRegex.Match(trimmed);
                     if (funcMatch.Success)
                         requirements[currentProtocol].Add(funcMatch.Groups[1].Value);
+                    // Type-hidden requirement: name is ordinary but the signature references a
+                    // __-prefixed SPI type (e.g. RealityCoordinateSpace._resolve).
+                    var typeHidden = TryExtractUnderscoredTypeRequirementName(trimmed);
+                    if (typeHidden != null)
+                        requirements[currentProtocol].Add(typeHidden);
                 }
 
                 // Adjust nested depth using the line's net brace delta (after we've
@@ -1594,6 +1646,11 @@ public static class SwiftInterfaceAccessParser
                 var funcMatch = UnderscoredFuncRegex.Match(trimmed);
                 if (funcMatch.Success)
                     satisfied[currentExtensionProto].Add(funcMatch.Groups[1].Value);
+                // Symmetric with Pass 1: a type-hidden default impl in an extension satisfies
+                // the requirement, so the EveryProtocol conformance need not be suppressed.
+                var typeHidden = TryExtractUnderscoredTypeRequirementName(trimmed);
+                if (typeHidden != null)
+                    satisfied[currentExtensionProto].Add(typeHidden);
             }
 
             extInnerNestedDepth += opens - closes;
@@ -4789,6 +4846,151 @@ public static class SwiftInterfaceAccessParser
         }
 
         return hasAny ? flags : null;
+    }
+
+    /// <summary>
+    /// Parses closure-parameter attributes (<c>@MainActor</c>, <c>@Sendable</c>) from a
+    /// .swiftinterface file. The ABI JSON strips these attributes from closure parameter
+    /// types, so a synthesized <c>EveryProtocol</c> conformance for a protocol requirement
+    /// like <c>func scheduleOnMainActor(_ action: @escaping @MainActor @Sendable () -> Void)</c>
+    /// would emit a signature that drops the attributes and fails to satisfy the requirement.
+    /// The .swiftinterface is the only source that preserves them.
+    /// <para/>
+    /// Returns a dictionary mapping qualified member keys (e.g.,
+    /// <c>"GRDB.ValueObservationMainActorScheduler.scheduleOnMainActor(_:)"</c>) to a
+    /// per-parameter list of normalized attribute-name lists (<c>"MainActor"</c>,
+    /// <c>"Sendable"</c>). Only members where at least one parameter carries at least one
+    /// such attribute are included; callers should treat a missing key as "no attributes."
+    /// </summary>
+    public static Dictionary<string, List<List<string>>> GetClosureParameterAttributes(string swiftInterfacePath)
+    {
+        var result = new Dictionary<string, List<List<string>>>();
+
+        if (!File.Exists(swiftInterfacePath))
+            return result;
+
+        var lines = File.ReadAllLines(swiftInterfacePath);
+        var tracker = new SwiftInterfaceContextTracker();
+
+        foreach (var line in lines)
+        {
+            var trimmed = line.TrimStart();
+            var kind = tracker.ProcessLine(trimmed, line);
+
+            bool isMember = kind == SwiftInterfaceContextTracker.LineKind.MemberLine;
+            bool isFreeFunc = kind == SwiftInterfaceContextTracker.LineKind.FreeFunctionLine ||
+                              (kind == SwiftInterfaceContextTracker.LineKind.Other &&
+                               tracker.TypeDepth == 0 &&
+                               SwiftInterfaceContextTracker.ExtractMemberPrintedName(trimmed) != null);
+
+            if (isMember || isFreeFunc)
+            {
+                var memberText = tracker.CompletedMultiLine ?? trimmed;
+                // Protocol requirements carry no access modifier, so the bare-requirement
+                // regex path must be enabled when we are inside a protocol body.
+                var printedName = SwiftInterfaceContextTracker.ExtractMemberPrintedName(memberText, tracker.IsInsideProtocol);
+                if (printedName != null)
+                {
+                    var perParam = ExtractClosureParameterAttributes(memberText);
+                    if (perParam != null && perParam.Any(p => p.Count > 0))
+                    {
+                        var key = tracker.BuildMemberKey(printedName);
+                        result[key] = perParam;
+                    }
+                }
+                tracker.ConsumePendingAnnotations();
+            }
+            else if (kind == SwiftInterfaceContextTracker.LineKind.TypeDeclaration ||
+                     kind == SwiftInterfaceContextTracker.LineKind.ExtensionDeclaration)
+            {
+                tracker.ConsumePendingAnnotations();
+            }
+        }
+
+        return result;
+    }
+
+    // Matches @MainActor / @Sendable and their module-qualified forms
+    // (@_Concurrency.MainActor, @Swift.Sendable). The captured group is the bare
+    // attribute name, normalized to "MainActor" / "Sendable".
+    private static readonly Regex ClosureAttributeRegex =
+        new(@"@(?:\w+\.)?(MainActor|Sendable)\b", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Extracts per-parameter closure attributes (<c>@MainActor</c>, <c>@Sendable</c>) from a
+    /// function/init declaration line. Returns a list index-aligned with parameters; each entry
+    /// is the (possibly empty) list of normalized attribute names found in that parameter's type
+    /// portion. Returns <c>null</c> if the line has no parameter list.
+    /// </summary>
+    internal static List<List<string>>? ExtractClosureParameterAttributes(string memberLine)
+    {
+        // Mirrors ExtractConstLiteralFlags shape — locate the func/init's parameter list,
+        // split parameters at top level, and inspect the type portion after each colon.
+        string? funcName = null;
+        var funcMatch = AnyFuncRegex.Match(memberLine);
+        if (funcMatch.Success)
+            funcName = funcMatch.Groups[1].Value;
+        else if (AnyInitRegex.IsMatch(memberLine))
+            funcName = "init";
+        else
+            return null;
+
+        var funcNameIdx = memberLine.IndexOf($" {funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName} (", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($"{funcName}(", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            funcNameIdx = memberLine.IndexOf($" {funcName}<", StringComparison.Ordinal);
+        if (funcNameIdx < 0)
+            return null;
+
+        var parenStart = memberLine.IndexOf('(', funcNameIdx);
+        if (parenStart < 0)
+            return null;
+
+        int depth = 0, parenEnd = parenStart;
+        for (int i = parenStart; i < memberLine.Length; i++)
+        {
+            if (memberLine[i] == '(') depth++;
+            if (memberLine[i] == ')')
+            {
+                depth--;
+                if (depth == 0) { parenEnd = i; break; }
+            }
+        }
+
+        if (parenEnd == parenStart)
+            return null;
+
+        var paramStr = memberLine.Substring(parenStart + 1, parenEnd - parenStart - 1);
+        if (string.IsNullOrWhiteSpace(paramStr))
+            return null;
+
+        var parts = SplitParameters(paramStr);
+        var perParam = new List<List<string>>();
+        bool hasAny = false;
+
+        foreach (var part in parts)
+        {
+            var attrs = new List<string>();
+            var trimmedPart = part.Trim();
+            var colonIdx = FindTopLevelColon(trimmedPart);
+            if (colonIdx >= 0)
+            {
+                var typeStr = trimmedPart.Substring(colonIdx + 1).TrimStart();
+                foreach (Match m in ClosureAttributeRegex.Matches(typeStr))
+                {
+                    var name = m.Groups[1].Value;
+                    if (!attrs.Contains(name))
+                        attrs.Add(name);
+                }
+                if (attrs.Count > 0) hasAny = true;
+            }
+            perParam.Add(attrs);
+        }
+
+        return hasAny ? perParam : null;
     }
 
     /// <summary>

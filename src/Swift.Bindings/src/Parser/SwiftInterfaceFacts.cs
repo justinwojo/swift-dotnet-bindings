@@ -114,6 +114,17 @@ namespace BindingsGeneration
         /// "expect a compile-time constant literal".</summary>
         public required Dictionary<string, List<bool>> ConstLiteralParameters { get; init; }
 
+        /// <summary>Per-parameter closure type-level attributes (<c>@MainActor</c>,
+        /// <c>@Sendable</c>) on protocol requirements. Key: "TypeName.member(labels:)".
+        /// Value: index-aligned with parameters; each entry is the list of normalized
+        /// attribute names (e.g. <c>["MainActor", "Sendable"]</c>) carried by that
+        /// parameter's closure type, empty for params without such attributes. ABI JSON
+        /// strips these attributes; the swiftinterface is the only source. Consumed by
+        /// <c>SwiftABIParser.ApplyMemberClosureAttributeFlags</c> so the synthesized
+        /// <c>extension EveryProtocol: SomeProtocol</c> conformance reproduces the
+        /// requirement's exact closure type and compiles.</summary>
+        public required Dictionary<string, List<List<string>>> ClosureParameterAttributes { get; init; }
+
         /// <summary>Subscript external labels. Key: "TypeName.subscript(label1:label2:)"
         /// (e.g., "AES.subscript(bitAt:)"). Value: list of external labels (e.g.,
         /// <c>["bitAt"]</c>).</summary>
@@ -311,6 +322,7 @@ namespace BindingsGeneration
             DefaultParameterValues = new Dictionary<string, List<string?>>(),
             AutoclosureParameters = new Dictionary<string, List<bool>>(),
             ConstLiteralParameters = new Dictionary<string, List<bool>>(),
+            ClosureParameterAttributes = new Dictionary<string, List<List<string>>>(),
             SubscriptLabels = new Dictionary<string, List<string>>(),
             VariadicMembers = new HashSet<string>(),
             ConventionCProtocols = new HashSet<string>(),

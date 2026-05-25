@@ -111,25 +111,7 @@ public static class CdeclParamMapper
         // Marshal as UnsafeRawPointer and reconstruct inside the wrapper body.
         if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
         {
-            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-            // NamedTypeSpec protocol existentials need explicit "any" prefix for Swift 6.
-            // ProtocolListTypeSpec already includes "any" from RenderSwiftTypeSpecCore.
-            // Optional<Protocol> needs "any" on the INNER type: Optional<any Protocol>,
-            // NOT on the outer type (Swift rejects "any Optional<Protocol>").
-            if (swiftTypeSpec is NamedTypeSpec namedSpec && !swiftType.StartsWith("any "))
-            {
-                if (IsOptionalProtocolExistential(namedSpec, env.TypeDatabase))
-                {
-                    // Optional<Protocol> → Optional<any Protocol>
-                    var innerType = namedSpec.GenericParameters[0];
-                    var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
-                    swiftType = $"Swift.Optional<(any {innerSwiftType})>";
-                }
-                else
-                {
-                    swiftType = $"any {swiftType}";
-                }
-            }
+            var swiftType = RenderModuleQualifiedSwiftTypeWithExistentialAny(swiftTypeSpec, env.TypeDatabase);
             // Existential types need parenthesization in metatype position: (any Protocol).self
             var loadType = swiftType.StartsWith("any ") ? $"({swiftType})" : swiftType;
             return ($"_ {label}: UnsafeRawPointer",
@@ -485,6 +467,43 @@ public static class CdeclParamMapper
     }
 
     /// <summary>
+    /// Renders a TypeSpec as module-qualified Swift, prepending the existential <c>any</c>
+    /// keyword when the type is a protocol existential (required by Swift 6;
+    /// a bare protocol-with-primary-associated-types name is a Swift 6 error).
+    /// <c>Optional&lt;Protocol&gt;</c> becomes <c>Optional&lt;any Protocol&gt;</c> — the
+    /// <c>any</c> binds to the inner type, since Swift rejects <c>any Optional&lt;Protocol&gt;</c>.
+    /// A <see cref="ProtocolListTypeSpec"/> already carries <c>any</c> from
+    /// RenderSwiftTypeSpecCore and is returned unchanged.
+    /// </summary>
+    internal static string RenderModuleQualifiedSwiftTypeWithExistentialAny(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
+        if (IsProtocolExistentialType(typeSpec, typeDatabase) &&
+            typeSpec is NamedTypeSpec namedSpec && !swiftType.StartsWith("any "))
+        {
+            if (IsOptionalProtocolExistential(namedSpec, typeDatabase))
+            {
+                var innerType = namedSpec.GenericParameters[0];
+                var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
+                // A ProtocolListTypeSpec inner (P & Q, or empty composition → "Any") already
+                // carries `any` from RenderSwiftTypeSpecCore; only a bare single-protocol
+                // NamedTypeSpec needs it added. Mirror the outer path's StartsWith guard so an
+                // optional protocol *composition* doesn't become the invalid `any any P & Q`.
+                if (!innerSwiftType.StartsWith("any "))
+                {
+                    innerSwiftType = $"any {innerSwiftType}";
+                }
+                swiftType = $"Swift.Optional<({innerSwiftType})>";
+            }
+            else
+            {
+                swiftType = $"any {swiftType}";
+            }
+        }
+        return swiftType;
+    }
+
+    /// <summary>
     /// Checks whether a type spec represents a protocol existential (any Protocol),
     /// including Optional-wrapped protocol existentials.
     /// Protocol existentials are not C-representable and must be marshalled as UnsafeRawPointer in @_cdecl functions.
@@ -761,27 +780,7 @@ public static class CdeclParamMapper
         // Argument label (same as Map)
         var argLabel = omitLabels ? "" : BuildSwiftCallArgLabel(arg);
 
-        var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
-
-        // Protocol existentials need "any" prefix in Swift 6.
-        // Optional<Protocol> needs "any" on the INNER type: Optional<any Protocol>,
-        // NOT on the outer type (Swift rejects "any Optional<Protocol>").
-        if (IsProtocolExistentialType(swiftTypeSpec, env.TypeDatabase))
-        {
-            if (swiftTypeSpec is NamedTypeSpec namedSpec && !swiftType.StartsWith("any "))
-            {
-                if (IsOptionalProtocolExistential(namedSpec, env.TypeDatabase))
-                {
-                    var innerType = namedSpec.GenericParameters[0];
-                    var innerSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(innerType);
-                    swiftType = $"Swift.Optional<(any {innerSwiftType})>";
-                }
-                else
-                {
-                    swiftType = $"any {swiftType}";
-                }
-            }
-        }
+        var swiftType = RenderModuleQualifiedSwiftTypeWithExistentialAny(swiftTypeSpec, env.TypeDatabase);
 
         // Bool: stored as Int8 in @_cdecl ABI, needs conversion
         var renderedType = ExistentialBypassEmitter.RenderSwiftTypeSpec(swiftTypeSpec);

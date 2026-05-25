@@ -35,6 +35,9 @@ public enum NodeKind
     Class,
     ClassMetadataBaseOffset,
     ConcreteProtocolConformance,
+    ConstrainedExistential,
+    ConstrainedExistentialRequirementList,
+    ConstrainedExistentialSelf,
     [Context]
     Constructor,
     CoroutineContinuationPrototype,

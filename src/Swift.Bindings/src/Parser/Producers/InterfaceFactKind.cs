@@ -56,6 +56,11 @@ public enum InterfaceFactKind
     // must skip any member with a `_const` parameter. ABI JSON strips this annotation;
     // the swiftinterface is the only source.
     ConstLiteralParameters,
+    // Per-parameter closure type-level attributes (`@MainActor`, `@Sendable`) on protocol
+    // requirements. swift-api-digester strips these from the ABI JSON, so the swiftinterface
+    // is the only source. Needed so the synthesized `extension EveryProtocol: SomeProtocol`
+    // conformance reproduces the requirement's exact closure type.
+    ClosureParameterAttributes,
 }
 
 internal static class InterfaceFactKindHelpers

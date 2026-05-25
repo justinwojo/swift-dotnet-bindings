@@ -572,6 +572,106 @@ public static partial class ConcreteProtocolSpecializationEmitter
         return current;
     }
 
+    /// <summary>
+    /// Substitutes Swift <c>Self</c> (→ the closed parent type) AND every pairing generic
+    /// (→ its chosen conformer) in <paramref name="typeSpec"/>. The ABI carries <c>Self</c>
+    /// literally for protocol/class methods whose signature references the dynamic receiver
+    /// (e.g. <c>func enumerated() -> EnumeratedCursor&lt;Self&gt;</c>); when the specialization
+    /// is closed over a concrete receiver, <c>Self</c> is known and resolves to it, so
+    /// <c>EnumeratedCursor&lt;Self&gt;</c> on receiver <c>RecordCursor&lt;ColumnInfo&gt;</c>
+    /// renders as <c>EnumeratedCursor&lt;RecordCursor&lt;ColumnInfo&gt;&gt;</c>. Self is resolved
+    /// first so the pairing pass still sees a structured tree. Used at both the C# public-signature
+    /// render and the Swift <c>@_cdecl</c> wrapper render so the two stay ABI-aligned.
+    /// </summary>
+    internal static TypeSpec SubstituteSelfAndPairingGenericsInTypeSpec(
+        TypeSpec typeSpec,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        var current = typeSpec;
+        if (BuildClosedParentTypeSpec(parentTypeDecl, pairing) is { } closedParent)
+            current = SubstituteSelfInTypeSpec(current, closedParent);
+        return SubstitutePairingGenericsInTypeSpec(current, pairing);
+    }
+
+    /// <summary>
+    /// Builds the closed parent type as a <see cref="NamedTypeSpec"/> — the concrete receiver
+    /// the specialization is emitted on (e.g. <c>RecordCursor&lt;GRDB.ColumnInfo&gt;</c>, or the
+    /// bare parent for a non-generic receiver). Used to resolve Swift <c>Self</c> and to validate
+    /// the receiver against the parent's C# generic constraints. Returns null when a parent-generic
+    /// conformer can't be rendered as a TypeSpec, so callers fall back to their prior behavior.
+    /// </summary>
+    private static NamedTypeSpec? BuildClosedParentTypeSpec(
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing)
+    {
+        var spec = new NamedTypeSpec(parentTypeDecl.SwiftTypeName.ModuleQualifiedName);
+        foreach (var (_, conformer) in pairing.Where(p => p.Param.IsParentGeneric))
+        {
+            if (!TryBuildConformerTypeSpec(conformer, out var conformerSpec))
+                return null;
+            spec.GenericParameters.Add(conformerSpec);
+        }
+        return spec;
+    }
+
+    /// <summary>
+    /// Replaces literal Swift <c>Self</c> references in <paramref name="typeSpec"/> with
+    /// <paramref name="closedParentSpec"/>. Recurses into generic args, tuple elements, and
+    /// closure arg/return positions. Mirrors the <see cref="SubstituteTypeSpec"/> generic-param
+    /// substitution but keyed on the dynamic-Self name rather than a pairing generic.
+    ///
+    /// Also closes a bare reference to the parent's own generic nominal type. A protocol-
+    /// extension requirement returning <c>Self</c> (e.g. <c>AnimationDefinition.repeated() -&gt;
+    /// Self</c>) is carried in the ABI as the unbound conformer name (<c>FromToByAnimation</c>,
+    /// no <c>&lt;Value&gt;</c>) once <c>Self</c> is resolved to the conformer. Swift's type
+    /// checker infers the arguments from the call's RHS, but C# requires them explicitly, so an
+    /// unclosed reference becomes CS0305. When the name matches the closed parent's nominal and
+    /// carries no arguments while the parent is generic, substitute the closed parent.
+    /// </summary>
+    private static TypeSpec SubstituteSelfInTypeSpec(TypeSpec typeSpec, NamedTypeSpec closedParentSpec)
+    {
+        switch (typeSpec)
+        {
+            case NamedTypeSpec named:
+                if (named.Name == "Self" || named.Name.EndsWith(".Self"))
+                    return CloneNamedTypeSpec(closedParentSpec);
+                if (named.Name == closedParentSpec.Name &&
+                    named.GenericParameters.Count == 0 &&
+                    closedParentSpec.GenericParameters.Count > 0)
+                    return CloneNamedTypeSpec(closedParentSpec);
+                if (named.GenericParameters.Count == 0)
+                    return typeSpec;
+                var newNamed = new NamedTypeSpec(named.Name);
+                CopyTypeSpecProps(named, newNamed);
+                foreach (var gp in named.GenericParameters)
+                    newNamed.GenericParameters.Add(SubstituteSelfInTypeSpec(gp, closedParentSpec));
+                return newNamed;
+
+            case TupleTypeSpec tuple:
+                var newElements = new List<TypeSpec>(tuple.Elements.Count);
+                foreach (var e in tuple.Elements)
+                    newElements.Add(SubstituteSelfInTypeSpec(e, closedParentSpec));
+                var newTuple = new TupleTypeSpec(newElements);
+                CopyTypeSpecProps(tuple, newTuple);
+                return newTuple;
+
+            case ClosureTypeSpec closure:
+                var newClosure = new ClosureTypeSpec(
+                    SubstituteSelfInTypeSpec(closure.Arguments, closedParentSpec),
+                    SubstituteSelfInTypeSpec(closure.ReturnType, closedParentSpec))
+                {
+                    Throws = closure.Throws,
+                    IsAsync = closure.IsAsync,
+                };
+                CopyTypeSpecProps(closure, newClosure);
+                return newClosure;
+
+            default:
+                return typeSpec;
+        }
+    }
+
     // ─── Swift Wrapper Generation ────────────────────────────────────
 
     private static void EmitSwiftWrapper(
@@ -907,12 +1007,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
             }
             else
             {
-                // Return type may CONTAIN pairing generics (e.g. `HashedAuthenticationCode<H>`).
-                // Substitute each pairing's method-level and parent-level generic param with its
-                // concrete conformer so the rendered type doesn't leak an unresolved `H` into
-                // `initializeMemory(as:)`. Falls back to the unsubstituted render on failure
-                // (matches previous behavior — no regression for shapes we couldn't handle before).
-                var substitutedReturn = SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing);
+                // Return type may CONTAIN pairing generics (e.g. `HashedAuthenticationCode<H>`)
+                // or a literal `Self` (e.g. `EnumeratedCursor<Self>`). Substitute each pairing's
+                // method-level and parent-level generic param — and `Self` → the closed parent —
+                // with the concrete conformer so the rendered type doesn't leak an unresolved `H`
+                // or `Self` into `initializeMemory(as:)`. Falls back to the unsubstituted render on
+                // failure (matches previous behavior — no regression for shapes we couldn't handle).
+                var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing);
                 returnTypeStr = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(substitutedReturn);
             }
             // Explicit type annotation on _result — needed when the callee is a generic
@@ -1257,13 +1358,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
             else
             {
                 // Composite return types that carry pairing generics (e.g.
-                // `HashedAuthenticationCode<H>` on `HMAC<H>.authenticationCode`) must have
-                // those generics substituted with the chosen conformer before the C# type
-                // is resolved — otherwise an unresolved `H` leaks into the public signature
-                // and Roslyn reports CS0246. Mirrors the Swift-side substitution used for
-                // `initializeMemory(as:)` at the result-pointer path.
+                // `HashedAuthenticationCode<H>` on `HMAC<H>.authenticationCode`) or a literal
+                // `Self` (e.g. `EnumeratedCursor<Self>` on `Cursor.enumerated()`) must have
+                // those generics — and `Self` → the closed parent — substituted before the C#
+                // type is resolved; otherwise an unresolved `H`/`Self` leaks into the public
+                // signature and Roslyn reports CS0246. Mirrors the Swift-side substitution used
+                // for `initializeMemory(as:)` at the result-pointer path.
                 var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
-                var substitutedReturn = SubstitutePairingGenericsInTypeSpec(returnTypeSpec, pairing);
+                var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing);
                 csReturnType = ResolvePublicCSharpType(substitutedReturn, typeDatabase);
             }
         }
@@ -1847,6 +1949,25 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     rejectReason = $"frozen-trivial-layout struct conformer '{conformer.SwiftQualifiedName}' projects to C# value `struct` (no Payload member) — CSM emitter lacks pin-and-pass for this shape";
                     return false;
             }
+        }
+
+        // Closed-receiver C# constraint gate: a parent-generic pairing closes the parent type
+        // over its conformers (e.g. `FastDatabaseValueCursor<System.Guid>`). The C# declaration
+        // of `FastDatabaseValueCursor<TValue>` carries `where TValue : IDatabaseValueConvertible,
+        // IStatementColumnConvertible, ISwiftObject`, seeded from the Swift generic signature.
+        // A conformer like Foundation.UUID satisfies those protocols in Swift (via GRDB
+        // extensions) but its C# projection System.Guid cannot implement those interfaces, so the
+        // closed receiver type is uninstantiable (CS0315/CS0311). Reuse the bound-generic
+        // constraint validator — the same logic that produces the "does not satisfy constraint"
+        // diagnostic on the open-generic use-site path — so the gate stays in lockstep with the
+        // C# `where` clauses GenericTypeEmitter actually emits (PAT/Self/Sendable constraints it
+        // drops are skipped here too, avoiding over-rejection).
+        if (parentTypeDecl.IsGeneric &&
+            BuildClosedParentTypeSpec(parentTypeDecl, pairing) is { GenericParameters.Count: > 0 } closedReceiver &&
+            new BoundGenericsHandler(typeDatabase).TryGetFirstUnsatisfiedConstraint(closedReceiver, method, out var constraintDetails))
+        {
+            rejectReason = $"closed receiver type violates C# generic constraints: {constraintDetails}";
+            return false;
         }
 
         bool isConstructor = method.IsConstructor;

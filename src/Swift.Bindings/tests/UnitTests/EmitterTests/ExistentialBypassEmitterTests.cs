@@ -46,6 +46,46 @@ public class ExistentialBypassEmitterTests
     }
 
     [Fact]
+    public void RenderModuleQualifiedSwiftTypeWithExistentialAny_OptionalProtocolComposition_NoDoubleAny()
+    {
+        var typeDatabase = CreateTypeDatabase();
+
+        // Optional<P & Q>: the inner ProtocolListTypeSpec already renders WITH `any`,
+        // so the Optional path must not prepend a second one (which produces the
+        // unparseable `any any P & Q`).
+        var composition = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.P"),
+            new NamedTypeSpec("TestModule.Q")
+        });
+        var optionalComposition = new NamedTypeSpec("Swift.Optional", composition);
+
+        var rendered = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
+            optionalComposition, typeDatabase);
+
+        Assert.DoesNotContain("any any", rendered);
+        Assert.Equal("Swift.Optional<(any TestModule.P & TestModule.Q)>", rendered);
+    }
+
+    [Fact]
+    public void RenderModuleQualifiedSwiftTypeWithExistentialAny_OptionalAny_NoDoubleAny()
+    {
+        var typeDatabase = CreateTypeDatabase();
+
+        // Optional<Any>: an empty ProtocolListTypeSpec renders as the bare existential
+        // "Any" (no `any ` prefix), so exactly one `any` is added → `any Any`, which is
+        // valid Swift. Guards against the StartsWith check being case-confused.
+        var emptyComposition = new ProtocolListTypeSpec(System.Array.Empty<NamedTypeSpec>());
+        var optionalAny = new NamedTypeSpec("Swift.Optional", emptyComposition);
+
+        var rendered = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(
+            optionalAny, typeDatabase);
+
+        Assert.DoesNotContain("any any", rendered);
+        Assert.Equal("Swift.Optional<(any Any)>", rendered);
+    }
+
+    [Fact]
     public void TryEmit_ExistentialParamWithoutDefaultArg_ReturnsFalse()
     {
         var typeDatabase = CreateTypeDatabase();

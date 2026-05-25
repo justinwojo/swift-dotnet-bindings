@@ -1986,6 +1986,15 @@ namespace BindingsGeneration.Demangling
             {
                 return GetDependentGenericParamType(0, 0);
             }
+            // The `s` marker denotes the implicit `Self` of a constrained existential
+            // (SE-0346 parameterized protocols, e.g. `any P<Int>`). It only ever appears
+            // here in the requirement list of an `XP` constrained-existential type, never
+            // as an ordinary generic-parameter index (those use `d`/`z`/a natural number),
+            // so consuming it cannot affect normal generic-requirement parsing.
+            if (NextIf('s'))
+            {
+                return new Node(NodeKind.ConstrainedExistentialSelf);
+            }
             return GetDependentGenericParamType(0, DemangleIndex() + 1);
         }
 
@@ -2610,6 +2619,27 @@ namespace BindingsGeneration.Demangling
             }
         }
 
+        // Pops the requirements of a constrained existential (`any P<...>`) off the node
+        // stack into a ConstrainedExistentialRequirementList. The requirements were built
+        // by the ordinary `R` generic-requirement operators (whose `Self` base is the
+        // `ConstrainedExistentialSelf` node produced by the `s` marker), and the list is
+        // bounded by a FirstElementMarker — the same idiom as PopAssocTypePath.
+        Node DemangleConstrainedExistentialRequirementList()
+        {
+            var reqList = new Node(NodeKind.ConstrainedExistentialRequirementList);
+            bool firstElem = false;
+            do
+            {
+                firstElem = (PopNode(NodeKind.FirstElementMarker) != null);
+                var req = PopNode(IsRequirement);
+                if (req == null)
+                    return null;
+                reqList.AddChild(req);
+            } while (!firstElem);
+            reqList.ReverseChildren();
+            return reqList;
+        }
+
         Node DemangleSpecialType()
         {
             char specialChar;
@@ -2663,6 +2693,20 @@ namespace BindingsGeneration.Demangling
                 {
                     var Protocols = DemangleProtocolList();
                     return CreateType(CreateWithChild(NodeKind.ProtocolListWithAnyObject, Protocols));
+                }
+                case 'P':
+                {
+                    // Constrained existential (SE-0346 parameterized protocols, e.g. `any P<Int>`).
+                    // The requirements were pushed by the preceding `R` operators and the base
+                    // protocol-list type by the preceding `_p`/`_c`/`_l` operator; pop the
+                    // requirement list first, then the base, exactly as Apple's demangler does.
+                    var reqList = DemangleConstrainedExistentialRequirementList();
+                    if (reqList == null)
+                        return null;
+                    var baseType = PopNode(NodeKind.Type);
+                    if (baseType == null)
+                        return null;
+                    return CreateType(CreateWithChildren(NodeKind.ConstrainedExistential, baseType, reqList));
                 }
                 case 'X':
                 case 'x':

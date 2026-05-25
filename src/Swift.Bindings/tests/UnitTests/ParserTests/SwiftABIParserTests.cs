@@ -985,6 +985,38 @@ public class SwiftABIParserTests
 
     #endregion
 
+    #region TryGetModuleFromSwiftUsr Tests
+
+    // The USR records the type's REAL defining module. For @_originallyDefinedIn symbols
+    // (e.g. RealityFoundation's HasTransform, whose mangled name carries the original
+    // RealityKit module) the USR is the authoritative module source. Used to correct
+    // inherited-protocol references away from the unbound original module (CS0246).
+    [Theory]
+    [InlineData("s:17RealityFoundation12HasTransformP", "RealityFoundation")] // protocol USR
+    [InlineData("s:17RealityFoundation6EntityC", "RealityFoundation")]        // class USR
+    [InlineData("s:10Foundation13LocalizedErrorP", "Foundation")]             // cross-framework
+    [InlineData("s:5MyMod5OuterV5InnerP", "MyMod")]                           // nested → first segment
+    public void TryGetModuleFromSwiftUsr_LengthPrefixed_ReturnsModule(string usr, string expected)
+    {
+        Assert.True(SwiftABIParser.TryGetModuleFromSwiftUsr(usr, out var module));
+        Assert.Equal(expected, module);
+    }
+
+    [Theory]
+    [InlineData("s:s9EscapableP")]   // stdlib short form — no length prefix
+    [InlineData("s:s8CopyableP")]    // stdlib short form
+    [InlineData("c:objc(pl)NSCoding")] // ObjC USR — not Swift
+    [InlineData("")]                  // empty
+    [InlineData("s:")]                // truncated
+    [InlineData("s:99RealityFoundation")] // length overruns string
+    public void TryGetModuleFromSwiftUsr_NonLengthPrefixedOrInvalid_ReturnsFalse(string usr)
+    {
+        Assert.False(SwiftABIParser.TryGetModuleFromSwiftUsr(usr, out var module));
+        Assert.Null(module);
+    }
+
+    #endregion
+
     #region HasVariadicElement Tests
 
     [Fact]

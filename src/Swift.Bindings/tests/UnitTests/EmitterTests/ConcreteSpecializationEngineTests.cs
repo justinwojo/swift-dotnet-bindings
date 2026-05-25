@@ -2441,4 +2441,74 @@ public class ConcreteSpecializationEngineTests
     {
         Assert.Equal(input, ConcreteProtocolSpecializationEmitter.CanonicalizeConformerCSharpType(input));
     }
+
+    #region SubstituteSelfAndPairingGenericsInTypeSpec — return-type closure
+
+    // A protocol-extension requirement returning `Self` (e.g. AnimationDefinition.repeated()
+    // -> Self) is carried in the ABI as the unbound conformer nominal once Self is resolved.
+    // The conformer here is `ActionAnimation<ActionType>`, so the bare return `TestLib.Holder`
+    // must be closed over the parent pairing → `TestLib.Holder<TestLib.SongItem>`. Without
+    // this, C# emits the open generic and Roslyn reports CS0305.
+    [Fact]
+    public void SubstituteSelfAndPairingGenerics_BareParentNominal_ClosesOverPairing()
+    {
+        var parent = CreateGenericStructDecl("Holder", "τ_0_0");
+        var pairing = BuildParentPairing(parent, "TestLib.SongItem", "SongItem");
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstituteSelfAndPairingGenericsInTypeSpec(
+            new NamedTypeSpec("TestLib.Holder"), parent, pairing);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("TestLib.Holder", named.Name);
+        Assert.Single(named.GenericParameters);
+        Assert.Equal("TestLib.SongItem", ((NamedTypeSpec)named.GenericParameters[0]).Name);
+    }
+
+    [Fact]
+    public void SubstituteSelfAndPairingGenerics_LiteralSelf_ResolvesToClosedParent()
+    {
+        var parent = CreateGenericStructDecl("Holder", "τ_0_0");
+        var pairing = BuildParentPairing(parent, "TestLib.SongItem", "SongItem");
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstituteSelfAndPairingGenericsInTypeSpec(
+            new NamedTypeSpec("Self"), parent, pairing);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("TestLib.Holder", named.Name);
+        Assert.Single(named.GenericParameters);
+        Assert.Equal("TestLib.SongItem", ((NamedTypeSpec)named.GenericParameters[0]).Name);
+    }
+
+    [Fact]
+    public void SubstituteSelfAndPairingGenerics_UnrelatedNonGenericType_PassesThrough()
+    {
+        // A return type that is neither Self nor the parent nominal must be left untouched —
+        // the bare-parent closure must not over-fire on same-named-but-unrelated types.
+        var parent = CreateGenericStructDecl("Holder", "τ_0_0");
+        var pairing = BuildParentPairing(parent, "TestLib.SongItem", "SongItem");
+
+        var result = ConcreteProtocolSpecializationEmitter.SubstituteSelfAndPairingGenericsInTypeSpec(
+            new NamedTypeSpec("Swift.String"), parent, pairing);
+
+        var named = Assert.IsType<NamedTypeSpec>(result);
+        Assert.Equal("Swift.String", named.Name);
+        Assert.Empty(named.GenericParameters);
+    }
+
+    private static (ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)[]
+        BuildParentPairing(TypeDecl parent, string conformerSwift, string conformerCs)
+    {
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: conformerSwift,
+            CSharpType: conformerCs);
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+        return new[] { (specParam, conformer) };
+    }
+
+    #endregion
 }

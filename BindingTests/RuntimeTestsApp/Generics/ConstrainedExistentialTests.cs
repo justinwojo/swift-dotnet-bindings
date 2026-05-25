@@ -238,4 +238,54 @@ public class ConstrainedExistentialTests : TestBase
 
         TestLogger.Info($"Direct={direct}, viaTypedExistential={viaTypedExistential}");
     }
+
+    /// <summary>
+    /// End-to-end ABI coverage for a VARIADIC constrained existential —
+    /// <c>LabelledContainerBuilder.buildBlock(_ items: (any LabelledContainer&lt;String&gt;)...)</c>.
+    /// This is the intersection of parameterized-protocol existentials and variadic packs, and the
+    /// deepest case of the demangle-based variadic-detection path: <c>any LabelledContainer&lt;String&gt;</c>
+    /// mangles through the <c>ConstrainedExistential</c> (<c>XP</c>) node, which the demangler must
+    /// reduce for the per-overload "d" variadic marker to be read. swift-api-digester renders the
+    /// parameter as a plain <c>[any LabelledContainer&lt;String&gt;]</c> (no "..."), so the marker is the
+    /// only variadic signal. If detection fails, the generated wrapper emits a direct splat call that
+    /// fails to compile — i.e. this test reaching runtime at all already proves the wrapper bridged
+    /// the variadic-to-array ABI via <c>unsafeBitCast</c>; the count assertion proves the round-trip.
+    /// </summary>
+    public void TestLabelledContainerBuilder_VariadicExistentialSplat()
+    {
+        // Same iOS 16+ guard as the other LabelledContainer round-trip tests — the
+        // @available(iOS 16+) struct propagates as CA1416 against our iOS 15 floor.
+        if (!OperatingSystem.IsIOSVersionAtLeast(16))
+        {
+            TestLogger.Info("any LabelledContainer<String> requires iOS 16+; skipping on this OS.");
+            return;
+        }
+
+        using var alpha = new StringLabel("alpha");
+        using var beta = new StringLabel("beta");
+        using var gamma = new StringLabel("gamma");
+
+        var count = LabelledContainerBuilder.BuildBlock(
+            new ILabelledContainer<SwiftString>[] { alpha, beta, gamma });
+
+        AssertEqual(3, (int)count, "buildBlock((any LabelledContainer<String>)...) returns the element count");
+    }
+
+    /// <summary>
+    /// The zero-children overload must remain callable alongside the variadic one — the variadic
+    /// flag is per-overload, so the empty <c>buildBlock()</c> must NOT inherit the variadic bridge.
+    /// Mirrors the plain-existential <c>ExistentialVariadicBuilder</c> empty-overload guard.
+    /// </summary>
+    public void TestLabelledContainerBuilder_EmptyOverload()
+    {
+        if (!OperatingSystem.IsIOSVersionAtLeast(16))
+        {
+            TestLogger.Info("LabelledContainerBuilder requires iOS 16+; skipping on this OS.");
+            return;
+        }
+
+        var count = LabelledContainerBuilder.BuildBlock();
+
+        AssertEqual(0, (int)count, "Zero-children buildBlock() returns 0");
+    }
 }
