@@ -631,7 +631,14 @@ partial class Build
 
             var overallPassed = compilePassed + depPassed;
             var overallFailed = totalTargets - overallPassed - compileNoOutput;
-            if (overallFailed <= 0 && compileNoOutput == 0)
+            if (overallFailed < 0)
+                // The standalone-compile and dependency gates are meant to partition the
+                // target set, so passes should never exceed the total. A negative value
+                // means a target was counted by both gates — surface it instead of
+                // rounding it up into the success branch.
+                Log.Error("  Overall: {Passed}/{Total} — count inconsistency: a target is double-counted across the compile and dependency gates",
+                    overallPassed, totalTargets);
+            else if (overallFailed == 0 && compileNoOutput == 0)
                 Log.Information("  Overall: {Passed}/{Total} passed", overallPassed, totalTargets);
             else
                 Log.Error("  Overall: {Passed}/{Total} passed, {Failed} failed",
@@ -1808,6 +1815,12 @@ partial class Build
         var depMap = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var lib in manifest.Libraries)
         {
+            // Apple-framework targets are validated standalone (their deps are system
+            // frameworks resolved at runtime, not user-built DLLs the cascade can wait
+            // on) and are excluded from the dep gate by the `hasDeps` classifier above.
+            // Mirror that exclusion here so a dep-declaring apple-framework target is not
+            // counted by both gates — otherwise the Overall tally double-counts it.
+            if (lib.Mode == "apple-framework") continue;
             var platforms = lib.Platforms ?? ["ios"];
             foreach (var prod in lib.Products)
             {
