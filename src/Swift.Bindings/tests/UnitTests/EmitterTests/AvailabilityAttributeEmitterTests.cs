@@ -545,4 +545,124 @@ public class AvailabilityAttributeEmitterTests
         Assert.Single(keys);
         Assert.Equal("iOS 16.0", keys[0]);
     }
+
+    // --- macCatalyst-tracks-iOS floor lift: Swift @available side stays as it was ---
+
+    [Fact]
+    public void CollectStrictestAvailabilityKeys_LiftsExplicitCatalystToIOSFloor()
+    {
+        // iOS 18 + explicit macCatalyst 17 -> the Swift wrapper must require macCatalyst 18 (the
+        // floor swiftc enforces for -target ...-macabi). This pins the previously-inline lift now
+        // routed through AvailabilityHelpers.LiftMacCatalystFloorToIOS — output must be unchanged.
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        };
+        var keys = WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(annotations);
+        Assert.Contains("macCatalyst 18.0", keys);
+        Assert.DoesNotContain("macCatalyst 17.0", keys);
+        Assert.Contains("iOS 18.0", keys);
+    }
+
+    // --- macCatalyst-tracks-iOS floor lift: C# [SupportedOSPlatform] side now matches ---
+
+    [Fact]
+    public void EmitAvailabilityAttributes_LiftsExplicitCatalystToIOSFloor()
+    {
+        // Without the lift the C# attribute advertises maccatalyst17.0 while the @_cdecl wrapper is
+        // exported at maccatalyst18.0 — orphaning the symbol for a Catalyst consumer on 17.x.
+        var (csWriter, stringWriter) = CreateWriter();
+        var decl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        });
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, decl);
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"maccatalyst18.0\")", output);
+        Assert.DoesNotContain("maccatalyst17.0", output);
+        Assert.Contains("SupportedOSPlatform(\"ios18.0\")", output);
+    }
+
+    [Fact]
+    public void EmitAvailabilityAttributes_AbsentCatalyst_EmitsOnlyIOS()
+    {
+        // iOS-only API: .NET's ios->maccatalyst inheritance already narrows Catalyst consumers, so
+        // no maccatalyst attribute should be invented (mirrors the Swift presence gate).
+        var (csWriter, stringWriter) = CreateWriter();
+        var decl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+        });
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, decl);
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"ios18.0\")", output);
+        Assert.DoesNotContain("maccatalyst", output);
+    }
+
+    [Fact]
+    public void EmitAvailabilityAttributes_ParentAndChildCatalystMismatch_DedupesOnLiftedFloor()
+    {
+        // Parent type and child member both gate iOS 18 + macCatalyst 17. Both lift to maccatalyst
+        // 18; lifting the parent for the dedup comparison lets the child correctly suppress the
+        // repeated (lifted) floor instead of re-emitting a stale low one.
+        var (csWriter, stringWriter) = CreateWriter();
+        var parentDecl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        });
+        var childDecl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        });
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, childDecl, parentDecl);
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.DoesNotContain("SupportedOSPlatform", output);
+    }
+
+    [Fact]
+    public void EmitFromAnnotations_LiftsExplicitCatalystToIOSFloor()
+    {
+        var (csWriter, stringWriter) = CreateWriter();
+        var annotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        };
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, annotations);
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"maccatalyst18.0\")", output);
+        Assert.DoesNotContain("maccatalyst17.0", output);
+    }
+
+    [Fact]
+    public void EmitSetterAccessorAvailability_LiftsExplicitCatalystToIOSFloor()
+    {
+        // Setter is gated iOS 18 + macCatalyst 17 above the property's iOS 16 floor; the accessor
+        // attribute must advertise the lifted maccatalyst18.0, not the stale 17.0.
+        var (csWriter, stringWriter) = CreateWriter();
+        var propertyAvailability = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null),
+        };
+        var setterAvailability = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "18.0", null, null, false, false, null, null),
+            new("macCatalyst", "17.0", null, null, false, false, null, null),
+        };
+        var emitted = AvailabilityAttributeEmitter.EmitSetterAccessorAvailability(
+            csWriter, propertyAvailability, setterAvailability);
+        csWriter.Flush();
+        Assert.True(emitted);
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"maccatalyst18.0\")", output);
+        Assert.DoesNotContain("maccatalyst17.0", output);
+    }
 }

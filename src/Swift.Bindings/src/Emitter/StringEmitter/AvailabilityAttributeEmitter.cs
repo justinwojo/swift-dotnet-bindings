@@ -35,11 +35,17 @@ internal static class AvailabilityAttributeEmitter
         if (decl.AvailabilityAnnotations == null || decl.AvailabilityAnnotations.Count == 0)
             return;
 
+        // Lift an explicit macCatalyst floor to the iOS floor so the C# attribute matches the
+        // floor the @_cdecl wrapper is exported at; lift the parent the same way so the dedup
+        // below compares effective (lifted) versions. See AvailabilityHelpers.LiftMacCatalystFloorToIOS.
+        var annotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(decl.AvailabilityAnnotations)!;
+        var parentAnnotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(parentDecl?.AvailabilityAnnotations);
+
         // Collect parent's platform annotations for dedup
         var parentPlatforms = new HashSet<string>();
-        if (parentDecl?.AvailabilityAnnotations != null)
+        if (parentAnnotations != null)
         {
-            foreach (var pa in parentDecl.AvailabilityAnnotations)
+            foreach (var pa in parentAnnotations)
             {
                 if (pa.Platform != null && pa.IntroducedVersion != null && PlatformMapping.ContainsKey(pa.Platform))
                     parentPlatforms.Add($"{PlatformMapping[pa.Platform]}{NormalizeVersion(pa.IntroducedVersion)}");
@@ -47,7 +53,7 @@ internal static class AvailabilityAttributeEmitter
         }
 
         bool obsoleteEmitted = false;
-        foreach (var annotation in decl.AvailabilityAnnotations)
+        foreach (var annotation in annotations)
         {
             // Platform-specific attributes
             if (annotation.Platform != null && PlatformMapping.TryGetValue(annotation.Platform, out var dotnetPlatform))
@@ -109,8 +115,12 @@ internal static class AvailabilityAttributeEmitter
         IReadOnlyList<AvailabilityAnnotation>? annotations,
         IReadOnlyList<AvailabilityAnnotation>? parentAnnotations = null)
     {
+        // Lift an explicit macCatalyst floor to the iOS floor so the emitted attribute matches
+        // the floor the @_cdecl wrapper is exported at — see AvailabilityHelpers.LiftMacCatalystFloorToIOS.
+        annotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(annotations);
         if (annotations == null || annotations.Count == 0)
             return;
+        parentAnnotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(parentAnnotations);
 
         var parentPlatforms = new HashSet<string>(StringComparer.Ordinal);
         if (parentAnnotations != null)
@@ -159,8 +169,13 @@ internal static class AvailabilityAttributeEmitter
         IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
         IReadOnlyList<AvailabilityAnnotation>? setterAvailability)
     {
+        // Lift both sides' explicit macCatalyst floors so the setter-vs-property comparison and
+        // the emitted accessor attribute use the floor the @_cdecl setter wrapper is exported at —
+        // see AvailabilityHelpers.LiftMacCatalystFloorToIOS.
+        setterAvailability = AvailabilityHelpers.LiftMacCatalystFloorToIOS(setterAvailability);
         if (setterAvailability == null || setterAvailability.Count == 0)
             return false;
+        propertyAvailability = AvailabilityHelpers.LiftMacCatalystFloorToIOS(propertyAvailability);
 
         var propPlatforms = new Dictionary<string, string>(StringComparer.Ordinal);
         if (propertyAvailability != null)

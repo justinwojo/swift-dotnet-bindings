@@ -60,6 +60,12 @@ public static class WrapperEmitterHelpers
     /// </summary>
     internal static IReadOnlyList<string> CollectStrictestAvailabilityKeys(IReadOnlyList<AvailabilityAnnotation>? annotations)
     {
+        // Mac Catalyst tracks iOS for the unified-SDK era (iOS 13.0+): an API gated above its
+        // explicit macCatalyst floor must lift that floor or the `@_cdecl` fails to compile for
+        // `-target arm64-apple-ios<X>-macabi`. Routed through the shared helper so the Swift
+        // `@available` and the C# `[SupportedOSPlatform]` emitters apply one identical rule —
+        // see AvailabilityHelpers.LiftMacCatalystFloorToIOS.
+        annotations = AvailabilityHelpers.LiftMacCatalystFloorToIOS(annotations);
         if (annotations == null || annotations.Count == 0)
             return Array.Empty<string>();
 
@@ -69,27 +75,10 @@ public static class WrapperEmitterHelpers
             if (annotation.Platform == null || annotation.IntroducedVersion == null)
                 continue;
             if (!perPlatformMax.TryGetValue(annotation.Platform, out var existing)
-                || CompareOsVersions(annotation.IntroducedVersion, existing) > 0)
+                || AvailabilityHelpers.CompareOsVersions(annotation.IntroducedVersion, existing) > 0)
             {
                 perPlatformMax[annotation.Platform] = annotation.IntroducedVersion;
             }
-        }
-
-        // Mac Catalyst's version policy mirrors iOS for the unified SDK era (iOS 13.0+):
-        // an API marked `@available(iOS 26.0, *)` is unavailable on macCatalyst < 26.0
-        // even when the parent type carries an explicit `@available(macCatalyst 17.4, *)`.
-        // When both an iOS floor and a macCatalyst floor are present, lift macCatalyst to
-        // at least iOS so the wrapper's `@available` matches what swiftc actually checks
-        // when compiling for `-target arm64-apple-ios<X>-macabi`. Without this, properties
-        // from iOS-only-newer APIs (e.g. ConversationManager.Configuration.supportsAudioTranslation
-        // on iOS 26.0 inside a struct introduced at macCatalyst 17.4) fail wrapper compile
-        // with `'<member>' is only available in iOS <X> or newer`.
-        if (perPlatformMax.TryGetValue("iOS", out var iOSVersion)
-            && perPlatformMax.TryGetValue("macCatalyst", out var catalystVersion)
-            && CompareOsVersions(iOSVersion, catalystVersion) > 0
-            && CompareOsVersions(iOSVersion, "13.0") >= 0)
-        {
-            perPlatformMax["macCatalyst"] = iOSVersion;
         }
 
         var result = new List<string>(perPlatformMax.Count);

@@ -57,4 +57,104 @@ public static class AvailabilityHelpers
 
         return merged;
     }
+
+    /// <summary>
+    /// Component-wise numeric comparison of dotted OS-version strings: "13.0" &lt; "26.0" and
+    /// "9.0" &lt; "10.0" (not lexicographic). Missing components are treated as 0 so "13" == "13.0".
+    /// Returns &gt;0 when <paramref name="left"/> is newer, &lt;0 when older, 0 when equal. Single
+    /// source of truth for OS-version ordering shared by the Swift <c>@available</c> collector
+    /// (<c>WrapperEmitterHelpers.CollectStrictestAvailabilityKeys</c>) and the C#
+    /// <c>[SupportedOSPlatform]</c> emitters.
+    /// </summary>
+    public static int CompareOsVersions(string left, string right)
+    {
+        var leftParts = left.Split('.');
+        var rightParts = right.Split('.');
+        int len = Math.Max(leftParts.Length, rightParts.Length);
+        for (int i = 0; i < len; i++)
+        {
+            int l = i < leftParts.Length && int.TryParse(leftParts[i], out var lv) ? lv : 0;
+            int r = i < rightParts.Length && int.TryParse(rightParts[i], out var rv) ? rv : 0;
+            if (l != r) return l < r ? -1 : 1;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Mac Catalyst tracks iOS for the unified-SDK era (iOS 13.0+): an API marked
+    /// <c>@available(iOS 18.0, *)</c> is unavailable on macCatalyst &lt; 18.0 even when an explicit
+    /// <c>@available(macCatalyst 17.0, *)</c> is also present, because swiftc maps iOS&gt;=13 floors
+    /// onto macCatalyst 1:1 when compiling for <c>-target arm64-apple-ios&lt;X&gt;-macabi</c>. The
+    /// generated <c>@_cdecl</c> wrapper is therefore force-lifted to the iOS floor (otherwise it
+    /// fails to compile), so the native symbol is exported gated at the iOS floor. This returns the
+    /// annotation list with every explicit macCatalyst floor raised to match, so the C#
+    /// <c>[SupportedOSPlatform("maccatalyst…")]</c> a consumer sees agrees with the floor the symbol
+    /// is actually exported at. Without it, a Mac Catalyst consumer between the declared macCatalyst
+    /// floor and the iOS floor sees no CA1416 diagnostic yet hits a missing symbol at runtime.
+    ///
+    /// <para>Gated on an EXPLICIT macCatalyst entry being present (mirrors the Swift collector's
+    /// gate): when the source <c>@available</c> names only iOS, .NET's ios→maccatalyst
+    /// child-platform inheritance already narrows Catalyst consumers to the iOS floor, so no
+    /// macCatalyst entry is invented. When a lifted macCatalyst introduced version would sit above
+    /// that annotation's own deprecated / obsoleted version, those are cleared — a deprecation below
+    /// an introduced floor is vacuous (the API never existed there) and would otherwise emit a
+    /// backwards <c>[ObsoletedOSPlatform]</c>.</para>
+    ///
+    /// <para>Pure: returns the input reference unchanged when no lift applies and never mutates the
+    /// input list or its records.</para>
+    /// </summary>
+    public static IReadOnlyList<AvailabilityAnnotation>? LiftMacCatalystFloorToIOS(
+        IReadOnlyList<AvailabilityAnnotation>? annotations)
+    {
+        if (annotations is null || annotations.Count == 0)
+            return annotations;
+
+        string? maxIOS = null;
+        bool hasExplicitCatalyst = false;
+        foreach (var ann in annotations)
+        {
+            if (ann.IntroducedVersion is null)
+                continue;
+            if (string.Equals(ann.Platform, "iOS", StringComparison.Ordinal))
+            {
+                if (maxIOS is null || CompareOsVersions(ann.IntroducedVersion, maxIOS) > 0)
+                    maxIOS = ann.IntroducedVersion;
+            }
+            else if (string.Equals(ann.Platform, "macCatalyst", StringComparison.Ordinal))
+            {
+                hasExplicitCatalyst = true;
+            }
+        }
+
+        if (maxIOS is null || !hasExplicitCatalyst || CompareOsVersions(maxIOS, "13.0") < 0)
+            return annotations;
+
+        List<AvailabilityAnnotation>? lifted = null;
+        for (int i = 0; i < annotations.Count; i++)
+        {
+            var ann = annotations[i];
+            if (!string.Equals(ann.Platform, "macCatalyst", StringComparison.Ordinal)
+                || ann.IntroducedVersion is null
+                || CompareOsVersions(maxIOS, ann.IntroducedVersion) <= 0)
+            {
+                continue;
+            }
+
+            lifted ??= new List<AvailabilityAnnotation>(annotations);
+            // Clear a deprecated / obsoleted version that the lift would push the introduced
+            // version above — see the doc comment's vacuous-deprecation note.
+            var deprecated = ann.DeprecatedVersion is { } dep && CompareOsVersions(dep, maxIOS) < 0
+                ? null : ann.DeprecatedVersion;
+            var obsoleted = ann.ObsoletedVersion is { } obs && CompareOsVersions(obs, maxIOS) < 0
+                ? null : ann.ObsoletedVersion;
+            lifted[i] = ann with
+            {
+                IntroducedVersion = maxIOS,
+                DeprecatedVersion = deprecated,
+                ObsoletedVersion = obsoleted,
+            };
+        }
+
+        return lifted ?? annotations;
+    }
 }

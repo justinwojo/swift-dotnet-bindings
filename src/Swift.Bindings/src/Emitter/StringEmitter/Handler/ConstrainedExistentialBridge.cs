@@ -586,33 +586,15 @@ public static class ConstrainedExistentialBridge
     }
 
     /// <summary>
-    /// Emits C# [SupportedOSPlatform] attributes matching the merged availability.
-    /// Uses the same platform mapping as AvailabilityAttributeEmitter.
+    /// Emits C# [SupportedOSPlatform] attributes matching the merged availability. Routed through
+    /// the shared <see cref="AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations"/>
+    /// so the iOS→macCatalyst floor lift and strictest-per-platform dedup match every other C#
+    /// availability site. The merged availability is already one entry per platform, so the dedup
+    /// is a no-op here; the lift is what keeps a gated existential's Catalyst surface from
+    /// advertising a floor below the one the @_cdecl wrapper is exported at (orphaned symbol).
     /// </summary>
     private static void EmitCSharpAvailability(CSharpWriter csWriter, IReadOnlyList<AvailabilityAnnotation>? annotations)
     {
-        if (annotations == null || annotations.Count == 0)
-            return;
-
-        foreach (var ann in annotations)
-        {
-            if (ann.Platform == null || ann.IntroducedVersion == null)
-                continue;
-            // Map Swift platform names to .NET SupportedOSPlatform identifiers.
-            // Mirrors AvailabilityAttributeEmitter.PlatformMapping — keep in sync.
-            var dotnetPlatform = ann.Platform switch
-            {
-                "iOS" => "ios",
-                "macOS" => "macos",
-                "tvOS" => "tvos",
-                "watchOS" => "watchos",
-                "macCatalyst" => "maccatalyst",
-                "visionOS" => "visionos",
-                _ => null
-            };
-            if (dotnetPlatform == null) continue;
-            var version = ann.IntroducedVersion.Contains('.') ? ann.IntroducedVersion : ann.IntroducedVersion + ".0";
-            csWriter.WriteLine($"[global::System.Runtime.Versioning.SupportedOSPlatform(\"{dotnetPlatform}{version}\")]");
-        }
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, annotations);
     }
 }
