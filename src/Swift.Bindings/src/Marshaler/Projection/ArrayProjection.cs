@@ -190,9 +190,14 @@ public class ArrayProjection : ITypeProjection
 
         return strategy switch
         {
+            // Direct (by-value register) return: `resultName` is a stack temporary the caller OWNS
+            // (the Swift Array value carrying +1 on its CoW storage). SwiftArray's from-handle ctor
+            // runs VWT InitializeWithCopy (a fresh +1 for the SafeHandle), so the owned temporary
+            // must be value-witness-destroyed afterwards or its +1 leaks the entire storage — use the
+            // consuming marshal, which copies then destroys the source slot.
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftArray<{rawElem}>>(new IntPtr(&{resultName})){asProjected}",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftArray<{rawElem}>>(&{resultName}){asProjected}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan

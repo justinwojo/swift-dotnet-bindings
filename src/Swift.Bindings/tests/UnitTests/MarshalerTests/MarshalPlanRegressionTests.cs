@@ -265,7 +265,9 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+        // Consuming variant: the Direct return owns the by-value stack temporary, so it must
+        // be value-witness-destroyed after NewFromPayload copies it, else its +1 leaks.
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObjectConsuming<ManagedFrozen>(&result)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -337,7 +339,9 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftArray<Int64>>(new IntPtr(&result))", plan.PInvokeExpression);
+        // Direct returns must consume (copy then VWT-Destroy the source register slot) so the
+        // wire carrier's +1 on its element refs is balanced — a plain copy-out leaks per call.
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftArray<Int64>>(&result)", plan.PInvokeExpression);
         Assert.Contains(".AsProjected(e => e)", plan.PInvokeExpression);
     }
 
@@ -454,7 +458,9 @@ public class MarshalPlanRegressionTests
         Assert.True(plan.RequiresUnsafe);
         // Should use HasValue/Some pattern instead of ToNullable() which is broken for value types
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<Int64>>", setupLine.Code);
+        // Direct returns consume the source slot (copy + VWT-Destroy); for POD inners the Destroy
+        // is a no-op, but the call shape is uniform across all Optional payload kinds.
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftOptional<Int64>>", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.Contains("_swiftOpt.Some", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
@@ -501,7 +507,7 @@ public class MarshalPlanRegressionTests
 
         Assert.True(plan.RequiresUnsafe);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<int>>", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftOptional<int>>", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }
@@ -546,7 +552,7 @@ public class MarshalPlanRegressionTests
 
         Assert.True(plan.RequiresUnsafe);
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<CGPoint>>", setupLine.Code);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftOptional<CGPoint>>", setupLine.Code);
         Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
         Assert.DoesNotContain("ToNullable", plan.PInvokeExpression);
     }

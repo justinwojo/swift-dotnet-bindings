@@ -70,12 +70,16 @@ public class ResultProjection : ITypeProjection
 
         return strategy switch
         {
+            // Direct (by-value register) return: the owned Swift Result temporary carries +1 on its
+            // success payload's reference. SwiftResult's from-handle ctor runs VWT InitializeWithCopy
+            // (a fresh +1 for the SafeHandle), so the source slot must be value-witness-destroyed or
+            // that +1 leaks — use the consuming marshal (copy then destroy the source).
             ReturnStrategy.Direct => new MarshalPlan
             {
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var _swiftResult = {marshalFromSwift}(new IntPtr(&{resultName}));")
+                        $"var _swiftResult = SwiftMarshal.MarshalFromSwiftObjectConsuming<{resultType}>(&{resultName});")
                 },
                 PInvokeExpression = $"_swiftResult",
                 RequiresUnsafe = true

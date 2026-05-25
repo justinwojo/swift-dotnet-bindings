@@ -52,3 +52,34 @@ public func callThrowingBool(_ callback: @escaping (Int32) throws -> Bool) -> Bo
         return false
     }
 }
+
+// MARK: - Returned Throwing Closure (Swift -> C# error path)
+
+/// Error thrown by `makeAlwaysThrowingIntClosure`. Participates in the shared
+/// allocation counters (see Lifetime/OwnershipTests.swift) so a C# leak test can
+/// assert exactly how many error instances were created and how many survive —
+/// i.e. whether the +1 the boundary retains on the way to C# is ever released.
+public final class TrackedClosureError: Error {
+    public let code: Int32
+
+    public init(code: Int32) {
+        self.code = code
+        recordTrackedAllocation()
+    }
+
+    deinit {
+        recordTrackedDeallocation()
+    }
+}
+
+/// Returns a `() throws -> Int32` closure that always throws a fresh
+/// `TrackedClosureError`. This is the Swift -> C# *returned*-throwing-closure
+/// direction (C# invokes the closure), exercising
+/// `ClosureEmitter.EmitThrowingClosureReturnMarshalling` — a supported shape
+/// that currently has no end-to-end runtime coverage. The error-out the Swift
+/// thunk hands back is `Unmanaged.passRetained` (+1); the C# side surfaces it as
+/// `SwiftResult.FromFailure`, letting a leak test characterize whether that +1
+/// is ever released.
+public func makeAlwaysThrowingIntClosure() -> () throws -> Int32 {
+    return { throw TrackedClosureError(code: 7) }
+}

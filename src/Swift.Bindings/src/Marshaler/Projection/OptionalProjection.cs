@@ -456,6 +456,13 @@ public class OptionalProjection : ITypeProjection
         // (T? is T in IL, not Nullable<T>, so default returns zero-value instead of null).
         // Use explicit HasValue/Some check in generated concrete code, where default(T?) IS null.
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<{returnTypeParam}>>";
+        // Direct (by-value register) return: the owned SwiftOptional temporary carries +1 on any
+        // non-POD payload (class ref, frozen-with-ref struct, container). Its from-handle ctor runs
+        // VWT InitializeWithCopy for non-POD payloads (a fresh +1 for the wrapper), so the source slot
+        // must be value-witness-destroyed afterwards or that +1 leaks. The consuming marshal copies
+        // then destroys the source; for POD payloads the witness Destroy is a trivial no-op, so it is
+        // safe to use uniformly here.
+        var marshalFromSwiftConsuming = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
 
         if (innerRetConv != null)
@@ -470,7 +477,7 @@ public class OptionalProjection : ITypeProjection
                     SetupStatements = new List<MarshalStatement>
                     {
                         new MarshalStatement.Line(
-                            $"using var _swiftOpt = {marshalFromSwift}(new IntPtr(&{resultName}));")
+                            $"using var _swiftOpt = {marshalFromSwiftConsuming}(&{resultName});")
                     },
                     PInvokeExpression = $"_swiftOpt.HasValue ? {convExpr} : null",
                     RequiresUnsafe = true
@@ -511,7 +518,7 @@ public class OptionalProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"using var _swiftOpt = {marshalFromSwift}(new IntPtr(&{resultName}));")
+                        $"using var _swiftOpt = {marshalFromSwiftConsuming}(&{resultName});")
                 },
                 PInvokeExpression = nullableExpr,
                 RequiresUnsafe = true
@@ -587,6 +594,11 @@ public class OptionalProjection : ITypeProjection
         string resultName, ReturnStrategy strategy, string optTypeParam, string convExpr)
     {
         var marshalFromSwift = $"SwiftMarshal.MarshalFromSwiftObject<SwiftOptional<{optTypeParam}>>";
+        // Direct (by-value register) return: the owned SwiftOptional temporary copies its payload
+        // (existential box or container carrier) via VWT InitializeWithCopy, taking a +1 that the
+        // source slot still owns. Value-witness-destroy the source via the consuming marshal or that
+        // +1 leaks per call. POD payloads' witness Destroy is a no-op, so this is uniformly safe.
+        var marshalFromSwiftConsuming = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftOptional<{optTypeParam}>>";
         return strategy switch
         {
             ReturnStrategy.Direct => new MarshalPlan
@@ -594,7 +606,7 @@ public class OptionalProjection : ITypeProjection
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"var swiftResult = {marshalFromSwift}(new IntPtr(&{resultName}));")
+                        $"var swiftResult = {marshalFromSwiftConsuming}(&{resultName});")
                 },
                 PInvokeExpression = $"swiftResult.Case == SwiftOptionalCases.None ? null : {convExpr}",
                 RequiresUnsafe = true

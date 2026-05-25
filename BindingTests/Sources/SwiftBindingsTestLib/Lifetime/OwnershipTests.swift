@@ -47,6 +47,22 @@ public func getLiveObjectCount() -> Int32 {
     return _allocationCounter - _deallocationCounter
 }
 
+/// Internal hooks so tracked fixtures defined in OTHER files (e.g. the
+/// struct-with-ref fixtures in MemoryManagement/LeakDetection.swift) feed the
+/// same allocation counters that `LifetimeTracker` reads. The counters are
+/// file-private; these record functions are the cross-file seam.
+func recordTrackedAllocation() {
+    counterLock.lock()
+    _allocationCounter += 1
+    counterLock.unlock()
+}
+
+func recordTrackedDeallocation() {
+    counterLock.lock()
+    _deallocationCounter += 1
+    counterLock.unlock()
+}
+
 // MARK: - Tracked Classes
 
 /// A class that tracks its own allocation and deallocation.

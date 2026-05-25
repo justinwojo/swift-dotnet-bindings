@@ -12,9 +12,16 @@ namespace Swift;
 /// to each element on access. This is a live view — mutations to the source array are reflected
 /// in the projection, and elements are not copied upfront.
 /// </summary>
+/// <remarks>
+/// The projection owns the underlying <see cref="SwiftArray{TSource}"/>, whose SafeHandle holds a
+/// retain on the Swift copy-on-write storage. Disposing the projection releases that retain
+/// deterministically; otherwise it is released only when the GC finalizes the carrier. The public
+/// return type is <see cref="IReadOnlyList{T}"/>, so callers that want deterministic native-storage
+/// release must cast to <see cref="IDisposable"/>.
+/// </remarks>
 /// <typeparam name="TSource">The element type of the source SwiftArray.</typeparam>
 /// <typeparam name="TResult">The projected element type.</typeparam>
-internal sealed class SwiftArrayProjection<TSource, TResult> : IReadOnlyList<TResult>
+internal sealed class SwiftArrayProjection<TSource, TResult> : IReadOnlyList<TResult>, IDisposable
 {
     private readonly SwiftArray<TSource> _source;
     private readonly Func<TSource, TResult> _selector;
@@ -39,4 +46,6 @@ internal sealed class SwiftArrayProjection<TSource, TResult> : IReadOnlyList<TRe
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public void Dispose() => _source.Dispose();
 }

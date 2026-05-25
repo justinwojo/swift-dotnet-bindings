@@ -680,27 +680,71 @@ internal class MethodMarshalPlanBuilder
                 // Decomposed Optional: conditionally freed — the return emitter sets _cdeclBuf = null
                 // when NewFromPayload takes ownership (Some case). Use conditional free.
                 string? cleanupCode;
-                if (_env.MethodDecl.UsesCdeclPropertyWrapper &&
+                bool isDecomposedOptional = _env.MethodDecl.UsesCdeclPropertyWrapper &&
                     !_env.MethodDecl.IsSubscriptAccessor &&
-                    OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase))
+                    OptionalMarshalClassifier.IsDecomposed(returnArg.SwiftTypeSpec, _env.TypeDatabase);
+                if (isDecomposedOptional)
                 {
+                    // Decomposed Optional: the buffer is inner-payload + a separate hasValue byte
+                    // (NOT an Optional<T> value-witness buffer), and the return emitter sets
+                    // _cdeclBuf = null when NewFromPayload adopts the inner (Some case). Conditional
+                    // free, and NEVER a value-witness Destroy — Destroying this layout as if it were
+                    // an Optional<T> value buffer would corrupt the inner/hasValue bytes.
                     cleanupCode = "if (_cdeclBuf != null) NativeMemory.Free(_cdeclBuf);";
                 }
                 else
                 {
                     cleanupCode = "NativeMemory.Free(_cdeclBuf);";
-                }
-                if (returnArg.SwiftTypeSpec is NamedTypeSpec returnNts && returnNts.HasModule())
-                {
-                    var returnTypeName = SwiftTypeName.FromTypeSpec(returnNts);
-                    if (_env.TypeDatabase.TryGetTypeRecord(returnTypeName, out var returnTypeRecord))
+
+                    // The buffer's ownership policy is decided here (the builder owns the _cdeclBuf
+                    // allocation), keyed off the actual return projection:
+                    //   copy-out carriers -> the from-handle ctor / NewFromPayload COPIES the wire
+                    //     buffer (VWT InitializeWithCopy → +1 on embedded refs or CoW storage) into
+                    //     a fresh SafeHandle-owned buffer; the temp buffer must be value-witness
+                    //     Destroyed before free or that +1 is orphaned (a per-call leak).
+                    //   adopt carriers  -> SafeHandle takes the buffer; don't free or destroy.
+                    //
+                    // The copy-out projection whitelist runs FIRST and OVERRIDES the record-based
+                    // adopt heuristic. stdlib Result/Optional ARE complex enums by TypeRecord, yet
+                    // their NewFromPayload runs VWT InitializeWithCopy (copy-out, not adopt) — so the
+                    // "complex enum adopts" rule below would wrongly null their cleanup and orphan
+                    // the wire-buffer +1. The whitelist is exactly the set of projections whose
+                    // from-handle path copies; Destroy with the WIRE type the projection marshals the
+                    // buffer as (SwiftOptional<…>, SwiftResult<…>, SwiftArray<…>, …). Bitwise/adopt
+                    // carriers (SwiftString etc.) are NOT in the whitelist, so a VWT Destroy never
+                    // runs over a buffer that isn't a Swift value buffer.
+                    if (returnArg.SwiftTypeSpec is NamedTypeSpec returnNts)
                     {
-                        bool isNonFrozenStruct = returnTypeRecord.Kind == TypeRecordKind.Struct &&
-                            !MarshallingHelpers.IsTypeFrozen(returnTypeRecord);
-                        bool isComplexEnum = returnTypeRecord.Kind == TypeRecordKind.Enum &&
-                            !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
-                        if (isNonFrozenStruct || isComplexEnum)
-                            cleanupCode = null;
+                        var returnProjection = s_projectionFactory.Project(returnNts,
+                            new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                                GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                                CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                        if (returnProjection is ArrayProjection or DictionaryProjection or SetProjection
+                            or OptionalProjection or ResultProjection or FrozenWithMemoryProjection)
+                        {
+                            // Resolve the wire metadata via the cached TryGetTypeMetadata<wireType>
+                            // (already materialized by the alloc block's GetTypeMetadataOrThrow) and
+                            // destroy through the NON-generic overload. Emitting the generic
+                            // DestroyWireBufferRetains<wireType> would force a brand-new generic
+                            // instantiation inside this (possibly generic) wrapper method's finally;
+                            // for a generic-param wire type (e.g. SwiftOptional<TValue>) that shifts
+                            // Mono JIT native-wrapper generation and can SIGSEGV (jit-info.c:918).
+                            var wireType = returnProjection.MarshalFromSwiftType;
+                            cleanupCode = $"if (TypeMetadata.TryGetTypeMetadata<{wireType}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+                        }
+                        else if (returnNts.HasModule() &&
+                            _env.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(returnNts), out var returnTypeRecord))
+                        {
+                            // Non-frozen structs / complex enums (that are NOT copy-out projections):
+                            // NewFromPayload ADOPTS the buffer pointer into the SafeHandle (ownership
+                            // transfer); it frees the buffer on dispose, so don't free or destroy here.
+                            bool isNonFrozenStruct = returnTypeRecord.Kind == TypeRecordKind.Struct &&
+                                !MarshallingHelpers.IsTypeFrozen(returnTypeRecord);
+                            bool isComplexEnum = returnTypeRecord.Kind == TypeRecordKind.Enum &&
+                                !returnTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+                            if (isNonFrozenStruct || isComplexEnum)
+                                cleanupCode = null;
+                        }
                     }
                 }
                 // Bare generic parameter return (e.g. T, U, τ_0_0): the concrete type is not known
@@ -807,10 +851,31 @@ internal class MethodMarshalPlanBuilder
                 }
             }
 
-            if (returnArg2.SwiftTypeSpec is NamedTypeSpec returnNts2 && returnNts2.HasModule())
+            // Same ownership policy as the @_cdecl path: the copy-out projection whitelist runs
+            // FIRST and overrides the record-based adopt heuristic. stdlib Result/Optional are
+            // complex enums by TypeRecord but copy-out wrappers (NewFromPayload runs VWT
+            // InitializeWithCopy), so the wire-buffer +1 must be value-witness-Destroyed here
+            // rather than left to the (wrong) "complex enum adopts → null cleanup" rule, which
+            // otherwise orphans the source retain AND leaks the temp buffer (no finally emitted,
+            // since WrapperEmitter only emits the finally when CleanupCode != null).
+            if (returnArg2.SwiftTypeSpec is NamedTypeSpec returnNts2)
             {
-                var returnTypeName2 = SwiftTypeName.FromTypeSpec(returnNts2);
-                if (_env.TypeDatabase.TryGetTypeRecord(returnTypeName2, out var returnTypeRecord2))
+                var returnProjection2 = s_projectionFactory.Project(returnNts2,
+                    new ProjectionContext { TypeDatabase = _env.TypeDatabase, IsParameter = false,
+                        GenericContext = _genericContext, ParentTypeDecl = _env.ParentDecl as TypeDecl,
+                        CurrentModuleName = _env.ExistentialHandler.CurrentModuleName });
+                if (returnProjection2 is ArrayProjection or DictionaryProjection or SetProjection
+                    or OptionalProjection or ResultProjection or FrozenWithMemoryProjection)
+                {
+                    // Non-generic destroy via the cached TryGetTypeMetadata<wireType> (already
+                    // materialized by the alloc block) — see the @_cdecl path above: emitting the
+                    // generic DestroyWireBufferRetains<wireType> in a generic wrapper's finally forces
+                    // a new generic instantiation that can crash Mono JIT (jit-info.c:918).
+                    var wireType2 = returnProjection2.MarshalFromSwiftType;
+                    swiftIndirectCleanup = $"if (TypeMetadata.TryGetTypeMetadata<{wireType2}>(out var _wireCarrierMeta)) {{ global::Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)_cdeclBuf, _wireCarrierMeta.Value); }} NativeMemory.Free(_cdeclBuf);";
+                }
+                else if (returnNts2.HasModule() &&
+                    _env.TypeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(returnNts2), out var returnTypeRecord2))
                 {
                     bool isNonFrozenStruct2 = returnTypeRecord2.Kind == TypeRecordKind.Struct &&
                         !MarshallingHelpers.IsTypeFrozen(returnTypeRecord2);

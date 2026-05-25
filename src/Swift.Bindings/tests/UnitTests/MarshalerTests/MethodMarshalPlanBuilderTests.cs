@@ -484,7 +484,16 @@ public class MethodMarshalPlanBuilderTests
         // Must use SwiftArray metadata, not IReadOnlyList<string>
         Assert.Contains("SwiftArray<SwiftString>", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("IReadOnlyList", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
+        // Copy-out carrier: the from-handle ctor InitializeWithCopy's the wire buffer into a
+        // fresh SafeHandle-owned buffer, so the temp must be value-witness Destroyed (with the
+        // SwiftArray wire metadata) before free, or the source's +1 is orphaned every call.
+        // Resolve via the cached TryGetTypeMetadata<wireType> and destroy through the non-generic
+        // overload — never the generic DestroyWireBufferRetains<wireType> (a new generic
+        // instantiation in a generic wrapper's finally crashes Mono JIT, jit-info.c:918).
+        Assert.Contains("TryGetTypeMetadata<SwiftArray<SwiftString>>", plan.IndirectResultMethod.CleanupCode);
+        Assert.Contains("DestroyWireBufferRetains((IntPtr)_cdeclBuf,", plan.IndirectResultMethod.CleanupCode);
+        Assert.DoesNotContain("DestroyWireBufferRetains<", plan.IndirectResultMethod.CleanupCode);
+        Assert.Contains("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]
@@ -526,7 +535,13 @@ public class MethodMarshalPlanBuilderTests
         // Must use SwiftDictionary metadata, not IReadOnlyDictionary
         Assert.Contains("SwiftDictionary<SwiftString, SwiftString>", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("IReadOnlyDictionary", plan.IndirectResultMethod.AllocationCode);
-        Assert.Equal("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
+        // Copy-out carrier: Destroy the temp wire buffer (with the SwiftDictionary wire metadata)
+        // before free so the source's +1 retain isn't orphaned every call. Resolve via the cached
+        // TryGetTypeMetadata<wireType> + non-generic destroy overload (not the generic form).
+        Assert.Contains("TryGetTypeMetadata<SwiftDictionary<SwiftString, SwiftString>>", plan.IndirectResultMethod.CleanupCode);
+        Assert.Contains("DestroyWireBufferRetains((IntPtr)_cdeclBuf,", plan.IndirectResultMethod.CleanupCode);
+        Assert.DoesNotContain("DestroyWireBufferRetains<", plan.IndirectResultMethod.CleanupCode);
+        Assert.Contains("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     [Fact]
@@ -1699,6 +1714,55 @@ public class MethodMarshalPlanBuilderTests
         Assert.NotNull(plan.IndirectResultMethod);
         Assert.Contains("_cdeclBuf", plan.IndirectResultMethod!.AllocationCode);
         Assert.DoesNotContain("var payload", plan.IndirectResultMethod.AllocationCode);
+    }
+
+    [Fact]
+    public void IndirectResult_NonCdeclResultReturn_HasDestroyWireBufferCleanup()
+    {
+        // stdlib Swift.Result is a complex enum by TypeRecord, but SwiftResult.NewFromPayload
+        // runs VWT InitializeWithCopy (copy-out, NOT adopt). The copy-out projection whitelist
+        // must override the "complex enum adopts → null cleanup" rule: the wire buffer's +1 has
+        // to be value-witness Destroyed (and the buffer freed) in the finally. Without the
+        // override the cleanup is nulled, so no finally is emitted and both the source retain and
+        // the temp buffer leak every call.
+        var moduleDecl = CreateModuleDecl();
+        var classDecl = CreateClassDecl("Factory", moduleDecl);
+        var method = new MethodDecl
+        {
+            Name = "makeResult",
+            MangledName = "$s10TestModule7Factory10makeResults6ResultOyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", new NamedTypeSpec("Swift.Result",
+                    new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.String")), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            Visibility = Visibility.Public
+        };
+
+        var (typeDb, _) = CreateTypeDatabaseWithModule("Factory");
+        var env = new MethodEnvironment(method, typeDb);
+
+        var wrapperSig = new Signature("SwiftResult<SwiftString, SwiftString>", Array.Empty<Parameter>());
+        var pInvokeSig = new Signature("void", Array.Empty<Parameter>());
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig, requiresIndirectResult: true);
+
+        Assert.NotNull(plan.IndirectResultMethod);
+        Assert.NotNull(plan.IndirectResultMethod!.CleanupCode);
+        // Result is a copy-out carrier: resolve its wire metadata via the cached
+        // TryGetTypeMetadata<SwiftResult<…>> and destroy through the non-generic overload before
+        // free. The generic DestroyWireBufferRetains<SwiftResult<…>> must NOT be emitted — a new
+        // generic instantiation in a generic wrapper's finally crashes Mono JIT (jit-info.c:918).
+        Assert.Contains("TryGetTypeMetadata<SwiftResult<", plan.IndirectResultMethod.CleanupCode);
+        Assert.Contains("DestroyWireBufferRetains((IntPtr)_cdeclBuf,", plan.IndirectResultMethod.CleanupCode);
+        Assert.DoesNotContain("DestroyWireBufferRetains<", plan.IndirectResultMethod.CleanupCode);
+        Assert.Contains("NativeMemory.Free(_cdeclBuf);", plan.IndirectResultMethod.CleanupCode);
     }
 
     #endregion

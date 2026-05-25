@@ -550,13 +550,18 @@ public class TypeProjectionFactoryTests
     }
 
     [Fact]
-    public void FrozenWithMemoryProjection_ReturnPlan_Direct_MarshalFromSwiftWithAddressOf()
+    public void FrozenWithMemoryProjection_ReturnPlan_Direct_MarshalFromSwiftConsuming()
     {
         var projection = new FrozenWithMemoryProjection("TestModule.ManagedFrozen");
         var plan = projection.GetReturnPlan("result", ReturnStrategy.Direct);
 
+        // The by-value (Direct) return owns the C# stack temporary `result` — the Swift
+        // value moved out of the callee carrying +1 on its heap fields. NewFromPayload
+        // makes an InitializeWithCopy duplicate for the wrapper, so the temporary must be
+        // value-witness-destroyed afterwards or its +1 leaks. MarshalFromSwiftObjectConsuming
+        // copies then destroys the owned temporary; plain MarshalFromSwiftObject would leak.
         Assert.True(plan.RequiresUnsafe);
-        Assert.Equal("SwiftMarshal.MarshalFromSwiftObject<TestModule.ManagedFrozen>(new IntPtr(&result))", plan.PInvokeExpression);
+        Assert.Equal("SwiftMarshal.MarshalFromSwiftObjectConsuming<TestModule.ManagedFrozen>(&result)", plan.PInvokeExpression);
     }
 
     [Fact]

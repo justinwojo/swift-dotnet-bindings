@@ -182,9 +182,13 @@ public class SetProjection : ITypeProjection
 
         return strategy switch
         {
+            // Direct (by-value register) return: the owned Swift Set temporary carries +1 on its CoW
+            // storage. SwiftSet's from-handle ctor runs VWT InitializeWithCopy (a fresh +1 for the
+            // SafeHandle), so the source slot must be value-witness-destroyed or that +1 leaks the
+            // storage — use the consuming marshal (copy then destroy the source).
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftSet<{rawElem}>>(new IntPtr(&{resultName})){conversion}",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftSet<{rawElem}>>(&{resultName}){conversion}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan

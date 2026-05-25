@@ -148,7 +148,14 @@ public static class SwiftMarshal
         TypeMetadata metadata;
         try
         {
-            metadata = SwiftObjectHelper<T>.GetTypeMetadata();
+            // Resolve via TypeMetadata.GetTypeMetadataOrThrow<T> (reflection-based on Mono),
+            // NOT SwiftObjectHelper<T>.GetTypeMetadata(): the latter materializes the generic
+            // struct SwiftObjectHelper<T>, whose static-virtual ISwiftObject dispatch crashes
+            // Mono JIT (jit-info.c:918) when T is itself a generic instantiation over a method's
+            // own type parameter (e.g. SwiftOptional<TValue> from inside a generic wrapper
+            // method's cleanup). GetTypeMetadataOrThrow is the Mono-safe reflection path the rest
+            // of the runtime already standardized on for exactly this reason.
+            metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
         }
         catch
         {
@@ -157,9 +164,96 @@ public static class SwiftMarshal
             // Skip the destroy; the caller still frees the carrier.
             return;
         }
+        DestroyWireBufferRetains(buffer, metadata);
+    }
+
+    /// <summary>
+    /// Non-generic <see cref="DestroyWireBufferRetains{T}"/> variant that releases a wire buffer's
+    /// value-witness retains using already-resolved <paramref name="metadata"/>. Generated copy-out
+    /// cleanup uses this form so the generic wrapper method's <c>finally</c> never has to materialize
+    /// a fresh generic helper instantiation (e.g.
+    /// <c>DestroyWireBufferRetains&lt;SwiftOptional&lt;TValue&gt;&gt;</c>): a brand-new generic
+    /// instantiation there shifts Mono JIT native-wrapper generation and can SIGSEGV. The caller
+    /// resolves <paramref name="metadata"/> via the cached, Mono-safe
+    /// <see cref="TypeMetadata.TryGetTypeMetadata{T}"/> the method body already exercised, so no new
+    /// generic type is forced.
+    /// </summary>
+    /// <param name="buffer">The wire buffer pointer to destroy. <c>IntPtr.Zero</c> is a no-op.</param>
+    /// <param name="metadata">The Swift type metadata of the value occupying the buffer.</param>
+    public static unsafe void DestroyWireBufferRetains(IntPtr buffer, TypeMetadata metadata)
+    {
+        if (buffer == IntPtr.Zero)
+            return;
         if (!metadata.IsValid)
             return;
         metadata.ValueWitnessTable->Destroy((void*)buffer, metadata);
+    }
+
+    /// <summary>
+    /// Marshals an <b>owned</b> by-value Swift struct out of a caller-owned temporary into a
+    /// managed wrapper, then releases the temporary's value-witness retains. Used for the direct
+    /// (by-value register) return of a frozen-with-memory struct: the C# local holds an
+    /// initialized Swift value carrying <c>+1</c> retains on its heap fields, <c>NewFromPayload</c>
+    /// makes an <c>InitializeWithCopy</c> duplicate owned by the wrapper's <c>SwiftSafeHandle</c>,
+    /// and this then destroys the caller's original temporary so its <c>+1</c> is not orphaned on
+    /// the stack (C# never runs Swift value destruction when the local goes out of scope). This is
+    /// the by-value analogue of <see cref="DestroyWireBufferRetains{T}"/>, which handles the
+    /// indirect-result wire-buffer shape.
+    /// </summary>
+    /// <typeparam name="T">The Swift wrapper type whose value occupies the buffer.</typeparam>
+    /// <param name="owned">Pointer to the caller-owned, initialized Swift value to consume.</param>
+    public static unsafe T MarshalFromSwiftObjectConsuming<T>(void* owned) where T : ISwiftObject
+    {
+        try
+        {
+            return MarshalFromSwiftObject<T>((IntPtr)owned);
+        }
+        finally
+        {
+            DestroyWireBufferRetains<T>((IntPtr)owned);
+        }
+    }
+
+    /// <summary>
+    /// Marshals a value out of an initialized Swift value slot using <b>move</b> semantics: the
+    /// slot's <c>+1</c> ownership transfers to the returned wrapper, so the caller must <b>not</b>
+    /// value-witness-<c>Destroy</c> the slot afterward (only free the raw backing buffer).
+    /// <para>
+    /// For a true Swift class (<see cref="ISwiftObject"/>, not a value type, not an
+    /// <see cref="ISwiftStruct"/>, runtime metadata <see cref="TypeMetadataKind.Class"/>) the slot
+    /// <em>contains</em> the object pointer, and <c>NewFromPayload</c> expects that pointer value
+    /// itself — so the slot is dereferenced. Every other shape (<see cref="ISwiftStruct"/>, complex
+    /// enums, tuples, primitives) is read through the slot address, preserving the prior behavior
+    /// exactly.
+    /// </para>
+    /// <para>
+    /// This mirrors the class special-case in <c>SwiftArray.this[int]</c>. The eager-snapshot
+    /// collection paths (<c>SwiftDictionary</c>/<c>SwiftSet</c> enumeration and lookup) MUST route
+    /// class slots through here: handing the slot address straight to <c>NewFromPayload</c> stores
+    /// the address of a soon-to-be-freed temporary as the object handle, producing a
+    /// use-after-free on the extracted wrapper's <c>Dispose</c>.
+    /// </para>
+    /// <para>
+    /// This is the move counterpart to the copy-semantics class extraction in
+    /// <c>SwiftOptional</c>/<c>SwiftResult</c>, which <c>Arc.Retain</c> because their source payload
+    /// outlives the extraction. Do <b>not</b> add a retain here.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The element/key/value type occupying the slot.</typeparam>
+    /// <param name="slot">Address of the initialized value slot. For classes it holds the object pointer.</param>
+    /// <param name="metadata">Runtime metadata for <typeparamref name="T"/>, used to detect a true class.</param>
+    internal static unsafe T MarshalMovedValueFromSlot<T>(void* slot, TypeMetadata metadata)
+    {
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
+            && !typeof(T).IsValueType
+            && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T))
+            && metadata.Kind == TypeMetadataKind.Class)
+        {
+            IntPtr classPointer = *(IntPtr*)slot;
+            return MarshalFromSwift<T>(classPointer);
+        }
+
+        return MarshalFromSwift<T>((IntPtr)slot);
     }
 
     /// <summary>

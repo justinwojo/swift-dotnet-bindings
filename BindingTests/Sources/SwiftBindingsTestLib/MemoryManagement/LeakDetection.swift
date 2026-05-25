@@ -195,3 +195,188 @@ public func passThroughEmbeddedStruct(a: EmbeddedStructWithRefAtOffset) -> Embed
 public func passThroughGenericValue<T>(a: T) -> T {
     return a
 }
+
+// MARK: - Counter-Tracked Struct-With-Ref Fixtures (VWT Destroy on GC)
+
+/// Reference type that participates in the shared allocation counters defined in
+/// Lifetime/OwnershipTests.swift (the same counters `LifetimeTracker` reads).
+///
+/// Unlike `DeinitTracker`, it owns no external probe buffer, so instances can be
+/// churned through tight create-and-abandon leak loops without leaking a side
+/// allocation per instance. Embedding it in the struct fixtures below lets a
+/// leak test assert that the GC finalizer actually drove VWT Destroy — which
+/// ARC-releases this ref and decrements the live count back to zero.
+public final class TrackedRef: Hashable {
+    public let tag: Int32
+
+    public init(tag: Int32) {
+        self.tag = tag
+        recordTrackedAllocation()
+    }
+
+    deinit {
+        recordTrackedDeallocation()
+    }
+
+    // Identity-based Hashable so the type can be an element of a Swift Set
+    // (the SwiftSet copy-out leak probe). Conformance is additive and does not
+    // affect the existing struct/array/optional fixtures.
+    public static func == (lhs: TrackedRef, rhs: TrackedRef) -> Bool { lhs === rhs }
+    public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
+}
+
+/// Error carrier for the `SwiftResult` copy-out leak probe.
+public enum TrackedRefError: Error {
+    case failed
+}
+
+/// Non-frozen struct carrying a `TrackedRef`. Projects to the
+/// ClassWithOpaquePayload (SafeHandle) path — disposal/finalization runs VWT
+/// Destroy on the buffer, which ARC-releases the embedded `TrackedRef`.
+public struct TrackedRefStruct {
+    public var ref: TrackedRef
+    public var value: Int32
+
+    public init(value: Int32) {
+        self.ref = TrackedRef(tag: value)
+        self.value = value
+    }
+}
+
+/// Frozen struct carrying a `TrackedRef` field. Projects to the
+/// ClassWithBufferStruct path — a C# class wrapping a Buffer inner struct whose
+/// VWT Destroy (on dispose or finalize) ARC-releases the embedded `TrackedRef`.
+@frozen
+public struct FrozenTrackedRefStruct {
+    public var ref: TrackedRef
+    public var value: Int32
+
+    public init(value: Int32) {
+        self.ref = TrackedRef(tag: value)
+        self.value = value
+    }
+}
+
+/// Factory for the non-frozen tracked struct.
+public func makeTrackedRefStruct(value: Int32) -> TrackedRefStruct {
+    return TrackedRefStruct(value: value)
+}
+
+/// Factory for the frozen tracked struct.
+public func makeFrozenTrackedRefStruct(value: Int32) -> FrozenTrackedRefStruct {
+    return FrozenTrackedRefStruct(value: value)
+}
+
+/// Pass-through (round-trip) for the non-frozen tracked struct.
+public func passThroughTrackedRefStruct(_ a: TrackedRefStruct) -> TrackedRefStruct {
+    return a
+}
+
+/// Pass-through (round-trip) for the frozen tracked struct.
+public func passThroughFrozenTrackedRefStruct(_ a: FrozenTrackedRefStruct) -> FrozenTrackedRefStruct {
+    return a
+}
+
+/// Large frozen struct carrying FIVE `TrackedRef` fields (5 × 8 = 40 bytes,
+/// exceeding the 4-GPR / 32-byte arm64 direct-return threshold). Where the small
+/// `FrozenTrackedRefStruct` returns by value in registers (the "Direct" return
+/// strategy), this one is returned through an indirect result buffer (the
+/// "IndirectResult" strategy) — the callee initializes the struct INTO a heap
+/// buffer the caller allocates. It still projects to the ClassWithBufferStruct
+/// path, so NewFromPayload COPIES out of that buffer. This fixture exists to prove
+/// the indirect-result success-path cleanup VWT-destroys the temp buffer's retains
+/// (one per embedded `TrackedRef`) before freeing it, rather than leaking them.
+@frozen
+public struct LargeFrozenTrackedRefStruct {
+    public var a: TrackedRef
+    public var b: TrackedRef
+    public var c: TrackedRef
+    public var d: TrackedRef
+    public var e: TrackedRef
+
+    public init(value: Int32) {
+        self.a = TrackedRef(tag: value)
+        self.b = TrackedRef(tag: value)
+        self.c = TrackedRef(tag: value)
+        self.d = TrackedRef(tag: value)
+        self.e = TrackedRef(tag: value)
+    }
+}
+
+/// Factory for the large frozen tracked struct — exercises the IndirectResult
+/// return path (struct exceeds the arm64 direct-return register budget).
+public func makeLargeFrozenTrackedRefStruct(value: Int32) -> LargeFrozenTrackedRefStruct {
+    return LargeFrozenTrackedRefStruct(value: value)
+}
+
+/// Pass-through (round-trip) for the large frozen tracked struct.
+public func passThroughLargeFrozenTrackedRefStruct(_ a: LargeFrozenTrackedRefStruct) -> LargeFrozenTrackedRefStruct {
+    return a
+}
+
+// MARK: - Wire-Carrier Copy-Out Probe Fixtures (Optional / Array of tracked refs)
+
+/// Factory returning an `Optional<FrozenTrackedRefStruct>`. The wire carrier is a
+/// `SwiftOptional<…>` value whose non-POD `NewFromPayload` runs InitializeWithCopy
+/// (SwiftOptional.cs) — it COPIES the payload out of the result buffer, taking a +1
+/// on the embedded `TrackedRef`. If the result-buffer cleanup only frees (without a
+/// value-witness Destroy of the carrier), that +1 is orphaned: a per-call leak of
+/// the embedded ref. `present: false` returns nil (no embedded ref → no leak either
+/// way) so the test can contrast the two tags.
+public func makeOptionalFrozenTrackedRefStruct(present: Bool, value: Int32) -> FrozenTrackedRefStruct? {
+    return present ? FrozenTrackedRefStruct(value: value) : nil
+}
+
+/// Factory returning an `Optional<LargeFrozenTrackedRefStruct>`. The 5-ref payload (40 bytes)
+/// exceeds the arm64 direct-return register budget, so the Optional is returned via the
+/// IndirectResult strategy — the @_cdecl wrapper writes the `Optional<T>` value into a heap
+/// result buffer and the marshaller copies it out (VWT InitializeWithCopy, +1 on all 5 embedded
+/// refs). Unlike the small-Optional probe (which returns by-value in registers), this exercises
+/// the IndirectResult copy-out arm: if that arm doesn't value-witness-destroy the source buffer,
+/// all 5 embedded refs leak per call.
+public func makeOptionalLargeFrozenTrackedRefStruct(present: Bool, value: Int32) -> LargeFrozenTrackedRefStruct? {
+    return present ? LargeFrozenTrackedRefStruct(value: value) : nil
+}
+
+/// Factory returning `[TrackedRef]` — a Swift Array whose copy-on-write storage holds
+/// `count` `TrackedRef` references. The wire carrier is a `SwiftArray<…>` value whose
+/// `NewFromPayload` runs InitializeWithCopy (SwiftArray.cs), taking a +1 on the CoW
+/// storage. If the result-buffer cleanup only frees the buffer without a value-witness
+/// Destroy of the array carrier, that +1 is orphaned and the entire storage (all
+/// `count` `TrackedRef`s) leaks per call.
+public func makeTrackedRefArray(count: Int32) -> [TrackedRef] {
+    var result: [TrackedRef] = []
+    for i in 0..<count {
+        result.append(TrackedRef(tag: i))
+    }
+    return result
+}
+
+/// Factory returning `[Int32: TrackedRef]` — wire carrier is SwiftDictionary, whose
+/// from-handle constructor runs VWT InitializeWithCopy (SwiftDictionary.cs), taking a
+/// +1 on the CoW storage that holds every value's reference.
+public func makeTrackedRefDict(count: Int32) -> [Int32: TrackedRef] {
+    var result: [Int32: TrackedRef] = [:]
+    for i in 0..<count {
+        result[i] = TrackedRef(tag: i)
+    }
+    return result
+}
+
+/// Factory returning `Set<TrackedRef>` — wire carrier is SwiftSet, whose from-handle
+/// constructor runs VWT InitializeWithCopy (SwiftSet.cs), taking a +1 on the CoW storage
+/// that holds every member's reference.
+public func makeTrackedRefSet(count: Int32) -> Set<TrackedRef> {
+    var result: Set<TrackedRef> = []
+    for i in 0..<count {
+        result.insert(TrackedRef(tag: i))
+    }
+    return result
+}
+
+/// Factory returning `Result<TrackedRef, TrackedRefError>` — wire carrier is SwiftResult,
+/// whose from-handle constructor runs VWT InitializeWithCopy (SwiftResult.cs), taking a +1
+/// on the success payload's embedded reference.
+public func makeTrackedRefResult(success: Bool, value: Int32) -> Result<TrackedRef, TrackedRefError> {
+    return success ? .success(TrackedRef(tag: value)) : .failure(.failed)
+}

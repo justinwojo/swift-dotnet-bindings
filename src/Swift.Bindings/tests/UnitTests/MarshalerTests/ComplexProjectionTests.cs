@@ -282,8 +282,10 @@ public class ComplexProjectionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.True(plan.RequiresUnsafe);
-        Assert.Contains("MarshalFromSwift", plan.PInvokeExpression);
-        Assert.Contains("new IntPtr(&result)", plan.PInvokeExpression);
+        // Direct returns consume the source register slot (copy + VWT-Destroy) to balance the
+        // wire carrier's element-ref +1; the address is passed by `&result`, not `new IntPtr(&result)`.
+        Assert.Contains("MarshalFromSwiftObjectConsuming", plan.PInvokeExpression);
+        Assert.Contains("&result", plan.PInvokeExpression);
         Assert.Contains(".AsProjected(e => e)", plan.PInvokeExpression);
     }
 

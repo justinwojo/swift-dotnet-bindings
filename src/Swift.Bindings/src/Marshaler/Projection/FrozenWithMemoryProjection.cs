@@ -63,9 +63,14 @@ public class FrozenWithMemoryProjection : ITypeProjection
     {
         return strategy switch
         {
+            // Direct (by-value register) return: `resultName` is a C# stack temporary the caller
+            // OWNS (the Swift value moved out of the callee, carrying +1 on its heap fields).
+            // NewFromPayload makes an InitializeWithCopy duplicate for the wrapper's SafeHandle, so
+            // the owned temporary must be value-witness-destroyed afterwards or its +1 leaks — C#
+            // never runs Swift destruction when the stack local goes out of scope.
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<{_typeName}>(new IntPtr(&{resultName}))",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<{_typeName}>(&{resultName})",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan

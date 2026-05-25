@@ -230,7 +230,7 @@ public static partial class ClosureEmitter
                         var _rawResult = _fp({{invokeArgsString}});
 
                         // Check for error
-                        if (_error.Value != IntPtr.Zero)
+                        if (_error.Value != null)
                         {
                             return {{resultType}}.FromFailure(_error);
                         }
@@ -264,7 +264,7 @@ public static partial class ClosureEmitter
                         _fp({{invokeArgsString}});
 
                         // Check for error
-                        if (_error.Value != IntPtr.Zero)
+                        if (_error.Value != null)
                         {
                             return {{resultType}}.FromFailure(_error);
                         }

@@ -190,9 +190,13 @@ public class DictionaryProjection : ITypeProjection
 
         return strategy switch
         {
+            // Direct (by-value register) return: the owned Swift Dictionary temporary carries +1 on
+            // its CoW storage. SwiftDictionary's from-handle ctor runs VWT InitializeWithCopy (a fresh
+            // +1 for the SafeHandle), so the source slot must be value-witness-destroyed or that +1
+            // leaks the storage — use the consuming marshal (copy then destroy the source).
             ReturnStrategy.Direct => new MarshalPlan
             {
-                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObject<SwiftDictionary<{rawK}, {rawV}>>(new IntPtr(&{resultName})){asProjected}",
+                PInvokeExpression = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftDictionary<{rawK}, {rawV}>>(&{resultName}){asProjected}",
                 RequiresUnsafe = true
             },
             ReturnStrategy.IndirectResult => new MarshalPlan

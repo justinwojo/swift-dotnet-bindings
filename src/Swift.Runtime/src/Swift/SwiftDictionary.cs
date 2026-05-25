@@ -347,7 +347,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                 return false;
             }
 
-            value = SwiftMarshal.MarshalFromSwift<TValue>((IntPtr)resultPayload);
+            // Move the +1 the Get wrote into the Optional<TValue> buffer out into the wrapper
+            // (buffer is freed raw below, not Destroyed). For a class TValue the .some payload
+            // is the object pointer at offset 0, which MarshalMovedValueFromSlot dereferences.
+            value = SwiftMarshal.MarshalMovedValueFromSlot<TValue>(resultPayload, ValueTypeMetadata);
             return true;
         }
         finally
@@ -493,10 +496,12 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                     }
 
                     // Marshal key from offset 0, value from tuple metadata offset.
-                    // MarshalFromSwift does a raw byte copy — this "moves" ownership of
-                    // ref-counted values from the buffer to the marshalled objects.
-                    TKey key = SwiftMarshal.MarshalFromSwift<TKey>((IntPtr)nextResultBuffer);
-                    TValue val = SwiftMarshal.MarshalFromSwift<TValue>((IntPtr)((byte*)nextResultBuffer + valueOffset));
+                    // Move ownership of the +1 the iterator wrote into the buffer out into the
+                    // marshalled objects (no source Destroy below — buffer is freed raw). For a
+                    // true class key/value the slot holds the object pointer, which must be
+                    // dereferenced; MarshalMovedValueFromSlot handles that (see its remarks).
+                    TKey key = SwiftMarshal.MarshalMovedValueFromSlot<TKey>(nextResultBuffer, KeyTypeMetadata);
+                    TValue val = SwiftMarshal.MarshalMovedValueFromSlot<TValue>((byte*)nextResultBuffer + valueOffset, ValueTypeMetadata);
                     resultConsumed = true; // ownership transferred to key/val
 
                     result.Add(new KeyValuePair<TKey, TValue>(key, val));
@@ -583,7 +588,9 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                 if (tag == SwiftOptionalCases.None)
                     return default!;
 
-                return SwiftMarshal.MarshalFromSwift<TValue>((IntPtr)resultPayload);
+                // Move the removed value's +1 out of the Optional<TValue> buffer into the wrapper
+                // (buffer is freed raw below). Class payloads are the object pointer at offset 0.
+                return SwiftMarshal.MarshalMovedValueFromSlot<TValue>(resultPayload, ValueTypeMetadata);
             }
             finally
             {

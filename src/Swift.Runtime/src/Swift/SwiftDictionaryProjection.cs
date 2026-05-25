@@ -16,7 +16,7 @@ namespace Swift;
 /// <typeparam name="TKey">The key type (shared with source).</typeparam>
 /// <typeparam name="TSource">The source value type.</typeparam>
 /// <typeparam name="TResult">The projected value type.</typeparam>
-internal sealed class SwiftDictionaryValueProjection<TKey, TSource, TResult> : IReadOnlyDictionary<TKey, TResult>
+internal sealed class SwiftDictionaryValueProjection<TKey, TSource, TResult> : IReadOnlyDictionary<TKey, TResult>, IDisposable
     where TKey : notnull
 {
     private readonly SwiftDictionary<TKey, TSource> _source;
@@ -60,6 +60,8 @@ internal sealed class SwiftDictionaryValueProjection<TKey, TSource, TResult> : I
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public void Dispose() => _source.Dispose();
 }
 
 /// <summary>
@@ -71,7 +73,7 @@ internal sealed class SwiftDictionaryValueProjection<TKey, TSource, TResult> : I
 /// <typeparam name="TSrcVal">The source value type.</typeparam>
 /// <typeparam name="TResKey">The projected key type.</typeparam>
 /// <typeparam name="TResVal">The projected value type.</typeparam>
-internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResVal> : IReadOnlyDictionary<TResKey, TResVal>
+internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResVal> : IReadOnlyDictionary<TResKey, TResVal>, IDisposable
     where TSrcKey : notnull
     where TResKey : notnull
 {
@@ -141,4 +143,6 @@ internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResV
     }
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public void Dispose() => _source.Dispose();
 }

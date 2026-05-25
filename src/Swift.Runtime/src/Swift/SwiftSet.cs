@@ -620,10 +620,11 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
                         break;
                     }
 
-                    // Marshal element from the buffer.
-                    // MarshalFromSwift does a raw byte copy — this "moves" ownership of
-                    // ref-counted values from the buffer to the marshalled object.
-                    Element elem = SwiftMarshal.MarshalFromSwift<Element>((IntPtr)nextResultBuffer);
+                    // Move ownership of the +1 the iterator wrote into the buffer out into the
+                    // marshalled object (no source Destroy below — buffer is freed raw). For a
+                    // true class member the slot holds the object pointer, which must be
+                    // dereferenced; MarshalMovedValueFromSlot handles that (see its remarks).
+                    Element elem = SwiftMarshal.MarshalMovedValueFromSlot<Element>(nextResultBuffer, ElementTypeMetadata);
                     resultConsumed = true; // ownership transferred to elem
 
                     result.Add(elem);
