@@ -207,6 +207,18 @@ internal static class AppEntityKeyPathSingletonEmitter
                 combined.AddRange(conformerAvailability);
                 merged = combined;
             }
+            // The trampoline names the Value type (`as KeyPath<Root, Value>`); a Value gated to
+            // a later OS than the property/conformer must lift the floor or the `@_cdecl` is
+            // stripped at wrapper-build, orphaning the C# P/Invoke.
+            if (KeyPathBagWalker.CollectValueTypeAvailability(prop.SwiftTypeSpec, typeDatabase)
+                is { Count: > 0 } valueAvailability)
+            {
+                var combined = merged is null
+                    ? new List<AvailabilityAnnotation>()
+                    : new List<AvailabilityAnnotation>(merged);
+                combined.AddRange(valueAvailability);
+                merged = combined;
+            }
 
             emittable.Add((prop, symbol, csValueType, swiftValueTypeForWrapper, isWritable, merged));
         }

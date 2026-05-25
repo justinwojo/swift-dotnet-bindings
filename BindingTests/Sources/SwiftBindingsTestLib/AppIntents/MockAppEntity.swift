@@ -80,6 +80,16 @@ public struct MockBook: AppEntity {
         set { title = newValue }
     }
 
+    /// Get-only computed whose *value type* (`MockReleaseInfo`) is gated to a later OS than
+    /// MockBook itself (iOS 18 vs. the type's iOS 16). The KeyPath trampolines that materialize
+    /// `\MockBook.releaseInfo` (singleton) and close `MiniEntityProperty<MockReleaseInfo>`
+    /// (factory) NAME `MockReleaseInfo` in their `@_cdecl` body, so their `@available` floor must
+    /// be lifted to the value type's — otherwise the wrapper build silently strips them against
+    /// the iOS 15 deployment target and the C# P/Invoke is orphaned. Regression fixture for the
+    /// value-type-availability merge shared by the singleton + factory emitters.
+    @available(iOS 18.0, macOS 15.0, tvOS 18.0, watchOS 11.0, *)
+    public var releaseInfo: MockReleaseInfo { MockReleaseInfo(year: 2026) }
+
     public init(id: String, title: String, pageCount: Int) {
         self.id = id
         self.title = title
@@ -89,6 +99,19 @@ public struct MockBook: AppEntity {
     public var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(title: "\(title)")
     }
+}
+
+// MARK: - MockReleaseInfo (gated value type)
+//
+// A reference-typed KeyPath Value whose availability floor (iOS 18) is strictly higher than
+// MockBook's (iOS 16) and the dependency MiniEntityProperty's (iOS 16). It exists only to be
+// named as the `Value` of `\MockBook.releaseInfo` so the value-type-availability merge in the
+// KeyPath singleton + EntityProperty factory emitters has something to lift the floor to.
+
+@available(iOS 18.0, macOS 15.0, tvOS 18.0, watchOS 11.0, *)
+public final class MockReleaseInfo {
+    public let year: Int
+    public init(year: Int) { self.year = year }
 }
 
 // MARK: - MockBookQuery : EntityQuery

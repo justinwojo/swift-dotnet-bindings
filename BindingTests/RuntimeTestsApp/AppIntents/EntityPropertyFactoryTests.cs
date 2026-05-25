@@ -159,4 +159,41 @@ public class EntityPropertyFactoryTests : TestBase
         AssertEqual("id-a", a.Identifier, "instance a keeps its own identifier");
         AssertEqual("id-b", b.Identifier, "instance b keeps its own identifier");
     }
+
+    // -------------------------------------------------------------------------------------
+    // Value-type availability — a KeyPath Value gated above the conformer/dependency floor must
+    // lift the trampoline's @available, or the wrapper build silently strips the @_cdecl against
+    // the iOS 15 deployment target and the C# P/Invoke is left pointing at no symbol.
+    // -------------------------------------------------------------------------------------
+
+    [global::System.Runtime.Versioning.SupportedOSPlatform("ios18.0")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("maccatalyst18.0")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("macos15.0")]
+    [global::System.Runtime.Versioning.SupportedOSPlatform("tvos18.0")]
+    public void TestCreateFromGetter_GatedValueType_TrampolineSurvivesAndResolves()
+    {
+        // MockReleaseInfo is iOS 18 / macOS 15 / tvOS 18 — strictly above MockBook (iOS 16) and
+        // MiniEntityProperty (iOS 16). Without the value-type-availability merge the SBW_EPF_…
+        // trampoline closing MiniEntityProperty<MockReleaseInfo> would be emitted at the iOS 16
+        // floor, fail to type-check against the iOS 15 wrapper deployment target, and be stripped —
+        // so this call would hit a missing native symbol. Reaching the assertions at all proves the
+        // trampoline survived and the symbol is exported under the lifted floor.
+        if (!OperatingSystem.IsIOSVersionAtLeast(18)
+            && !OperatingSystem.IsMacCatalystVersionAtLeast(18)
+            && !OperatingSystem.IsMacOSVersionAtLeast(15)
+            && !OperatingSystem.IsTvOSVersionAtLeast(18))
+        {
+            return;
+        }
+
+        using var prop = MockBookMiniEntityPropertyFactory.CreateFromGetter(
+            "release-prop", MockBookAppEntityKeyPaths.ReleaseInfo);
+
+        AssertEqual("release-prop", prop.Identifier,
+            "gated-value-type factory trampoline is exported (not stripped) and round-trips identifier");
+        AssertFalse(prop.IsWritable, "getter: → not writable");
+        AssertTrue(
+            TestLibFunctions.SameAnyKeyPath(prop.CapturedKeyPath, MockBookAppEntityKeyPaths.ReleaseInfo),
+            "captured AnyKeyPath equals the gated ReleaseInfo singleton threaded into init<Entity>(getter:)");
+    }
 }

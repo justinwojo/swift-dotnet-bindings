@@ -328,6 +328,23 @@ internal static class KeyPathSingletonEmitter
                 merged = combined;
             }
 
+            // The trampoline names the Value type in `KeyPath<Bag, Value>`. A Value gated above the
+            // property/bag/conformer floor would leave the `@_cdecl` under-annotated → stripped at
+            // wrapper-build → orphaned C# P/Invoke, so lift the floor here — the same merge the
+            // AppEntity and EntityProperty-factory KeyPath emitters apply. Output-neutral while the
+            // bag walk admits only stored properties: Swift forbids `@available` on stored properties,
+            // so a stored Value can never out-live its container's floor (which `merged` already
+            // carries). This guard becomes load-bearing the moment a computed bag property is admitted.
+            if (KeyPathBagWalker.CollectValueTypeAvailability(prop.SwiftTypeSpec, typeDatabase)
+                is { Count: > 0 } valueAvailability)
+            {
+                var combined = merged is null
+                    ? new List<AvailabilityAnnotation>()
+                    : new List<AvailabilityAnnotation>(merged);
+                combined.AddRange(valueAvailability);
+                merged = combined;
+            }
+
             // Symbol-collision avoidance: the SBW_KP_ prefix is dedicated to this
             // emitter and does not overlap with SBW_ (method wrappers) or SBW_CSM_
             // (conformer specialisation wrappers). The hash input includes the

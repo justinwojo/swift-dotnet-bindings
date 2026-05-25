@@ -246,4 +246,70 @@ internal static class KeyPathBagWalker
             foreach (var nested in td.Types) AddRecursive(nested, index);
         }
     }
+
+    /// <summary>
+    /// Availability floor contributed by every named type appearing in a KeyPath's <c>Value</c>
+    /// type. Both KeyPath trampoline emitters name the Value type in the <c>@_cdecl</c> body
+    /// (<c>\Root.prop as KeyPath&lt;Root, Value&gt;</c> / <c>Dep&lt;Value&gt;(getter: kp)</c>),
+    /// so a Value introduced on a later OS than the conformer / dependency class would leave the
+    /// trampoline under-annotated — it fails to type-check against the device SDK and is silently
+    /// stripped from the wrapper, leaving the C# P/Invoke with no symbol at runtime. Callers
+    /// concatenate this with the conformer / dep / property floors; the Swift <c>@available</c>
+    /// and C# <c>[SupportedOSPlatform]</c> emitters both dedup to one entry per platform (max
+    /// version), so plain concatenation is correct.
+    ///
+    /// <para>Walks every named node in the spec — the outermost type, its nested
+    /// <see cref="NamedTypeSpec.InnerType"/> chain, generic arguments, the elements / argument /
+    /// return specs of any tuple or closure Value, and the member protocols of an existential
+    /// (<c>any P &amp; GatedQ</c>) Value — so wrappers like <c>Optional&lt;Gated&gt;</c>,
+    /// <c>(Gated, Int)</c>, <c>(Gated) -> Void</c>, or <c>any GatedProtocol</c> still surface the
+    /// inner floor. <see cref="TypeRecord.AvailabilityAnnotations"/> is already ancestor-merged at
+    /// parse time, so no further ancestor walk is needed here. Stdlib / primitive Value types resolve
+    /// to records with no annotations and contribute nothing.</para>
+    ///
+    /// <para>Known limitation: resolution follows a typealias to the underlying type's record, but the
+    /// generated trampoline spells the Value via <c>SwiftTypeSpec.ToString()</c>, which may be the alias
+    /// name. If a local typealias declaration carries a tighter floor than the type it aliases, that
+    /// alias floor is not captured — a documented gap, narrow enough that the concrete-nominal Values
+    /// these emitters actually see are unaffected.</para>
+    /// </summary>
+    public static IReadOnlyList<AvailabilityAnnotation>? CollectValueTypeAvailability(
+        TypeSpec valueSpec, ITypeDatabase typeDatabase)
+    {
+        var collected = new List<AvailabilityAnnotation>();
+        CollectInto(valueSpec, typeDatabase, collected);
+        return collected.Count > 0 ? collected : null;
+
+        static void CollectInto(TypeSpec spec, ITypeDatabase db, List<AvailabilityAnnotation> acc)
+        {
+            switch (spec)
+            {
+                case NamedTypeSpec nts:
+                    if (db.TryGetTypeRecord(nts, out var record)
+                        && record.AvailabilityAnnotations is { Count: > 0 } annotations)
+                    {
+                        acc.AddRange(annotations);
+                    }
+                    foreach (var generic in nts.GenericParameters)
+                        CollectInto(generic, db, acc);
+                    if (nts.InnerType is { } inner)
+                        CollectInto(inner, db, acc);
+                    break;
+                case TupleTypeSpec tuple:
+                    foreach (var element in tuple.Elements)
+                        CollectInto(element, db, acc);
+                    break;
+                case ClosureTypeSpec closure:
+                    CollectInto(closure.Arguments, db, acc);
+                    CollectInto(closure.ReturnType, db, acc);
+                    break;
+                case ProtocolListTypeSpec protocolList:
+                    // Existential Value (`any P & GatedQ`): the trampoline names the composition,
+                    // so each member protocol's floor counts. Members are NamedTypeSpec.
+                    foreach (var proto in protocolList.Protocols.Keys)
+                        CollectInto(proto, db, acc);
+                    break;
+            }
+        }
+    }
 }

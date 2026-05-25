@@ -389,6 +389,21 @@ internal static class KeyPathBagValueSpecializationEmitter
             availabilityExtras.AddRange(propAvail);
         if (conformer.AvailabilityAnnotations is { Count: > 0 } conformerAvail)
             availabilityExtras.AddRange(conformerAvail);
+        // The routing trampoline names every variant's Value type (one `as? KeyPath<Bag, V>`
+        // branch each); a Value gated above the method/bag/conformer floor would leave the
+        // `@_cdecl` under-annotated → stripped → orphaned P/Invoke, so lift the floor — the same
+        // value-type merge the singleton + EntityProperty-factory emitters apply. Output-neutral
+        // while the bag walk admits only stored properties (Swift forbids `@available` on stored
+        // properties, so a stored Value can't out-live its container's floor); load-bearing once a
+        // computed bag property is admitted.
+        foreach (var variant in variants)
+        {
+            if (KeyPathBagWalker.CollectValueTypeAvailability(variant.Property.SwiftTypeSpec, typeDatabase)
+                is { Count: > 0 } valueAvail)
+            {
+                availabilityExtras.AddRange(valueAvail);
+            }
+        }
         if (availabilityExtras.Count > 0)
         {
             var combined = mergedAvailability is null

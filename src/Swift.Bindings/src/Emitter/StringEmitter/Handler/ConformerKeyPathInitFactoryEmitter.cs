@@ -302,7 +302,8 @@ internal static class ConformerKeyPathInitFactoryEmitter
         // the two stay aligned without coupling to the singleton emitter's internal state.
         var projector = new TypeProjectionFactory();
         var seenValueTypes = new HashSet<string>(StringComparer.Ordinal);
-        var values = new List<(string CSValueType, string CSMarshalValueType, string SwiftValueTypeForWrapper)>();
+        var values = new List<(string CSValueType, string CSMarshalValueType, string SwiftValueTypeForWrapper,
+            IReadOnlyList<AvailabilityAnnotation>? Availability)>();
         foreach (var prop in conformerDecl.Properties)
         {
             if (!KeyPathBagWalker.IsEmittableProperty(prop, allowAbstract: false, allowComputed: true)) continue;
@@ -325,7 +326,13 @@ internal static class ConformerKeyPathInitFactoryEmitter
             // must use the *marshal* type — `SwiftString` (an ISwiftObject), not `string` — so the
             // dep binding's `TypeMetadata.GetTypeMetadataOrThrow<Value>()` resolves at runtime. For
             // blittable values the two coincide (`nint`); for classes both are the qualified name.
-            values.Add((projection.PublicType, projection.MarshalFromSwiftType, swiftValueTypeForWrapper));
+            //
+            // The trampoline closes `MiniEntityProperty<Value>` over this Value type and names it
+            // in the body, so a Value gated to a later OS than the dep class / conformer must lift
+            // the per-method floor or the `@_cdecl` is stripped at wrapper-build, orphaning the
+            // C# P/Invoke. Availability is therefore per-Value, not one floor for the container.
+            var valueAvailability = MergeWithValueType(mergedAvailability, prop.SwiftTypeSpec, typeDatabase);
+            values.Add((projection.PublicType, projection.MarshalFromSwiftType, swiftValueTypeForWrapper, valueAvailability));
         }
         if (values.Count == 0) return;
 
@@ -338,8 +345,9 @@ internal static class ConformerKeyPathInitFactoryEmitter
         var depGlobalBase = EnsureGlobalPrefix(shape.DepClassCSharpBaseName);
 
         // Collect the emittable (V, symbol) set first so we can skip an empty container.
-        var emit = new List<(string CSValueType, string CSMarshalValueType, string SwiftValueTypeForWrapper, string Symbol)>();
-        foreach (var (csValueType, csMarshalValueType, swiftValueTypeForWrapper) in values)
+        var emit = new List<(string CSValueType, string CSMarshalValueType, string SwiftValueTypeForWrapper,
+            IReadOnlyList<AvailabilityAnnotation>? Availability, string Symbol)>();
+        foreach (var (csValueType, csMarshalValueType, swiftValueTypeForWrapper, valueAvailability) in values)
         {
             var dedupKey =
                 $"{conformer.SwiftQualifiedName}|{shape.DepClassSwiftQualified}|{shape.KeyPathArgLabel}|{csValueType}";
@@ -354,7 +362,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
             // SBW_EPF_ (EntityProperty factory) is dedicated to this emitter — disjoint from
             // SBW_KP_ / SBW_KP_AppEntity_ (KeyPath singletons), SBW_ (methods), SBW_CSM_.
             var symbol = $"SBW_EPF_{moduleName}_{conformerSan}_{depSan}_{labelSan}_{hash}";
-            emit.Add((csValueType, csMarshalValueType, swiftValueTypeForWrapper, symbol));
+            emit.Add((csValueType, csMarshalValueType, swiftValueTypeForWrapper, valueAvailability, symbol));
         }
         if (emit.Count == 0) return;
 
@@ -364,7 +372,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        foreach (var (csValueType, csMarshalValueType, _, symbol) in emit)
+        foreach (var (csValueType, csMarshalValueType, _, availability, symbol) in emit)
         {
             var pinvokeName = $"PInvoke_{symbol}";
             // Return generic arg uses the marshal type (`SwiftString`, not `string`); the KeyPath
@@ -386,7 +394,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
             // parentAnnotations: null — the container sits at namespace scope (not nested in
             // the conformer), so there is no parent floor to dedup against.
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
-                csWriter, mergedAvailability, parentAnnotations: null);
+                csWriter, availability, parentAnnotations: null);
             csWriter.WriteLine("[System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new Type[] { typeof(System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[System.Runtime.InteropServices.LibraryImport(\"SwiftBindings\", EntryPoint = \"{symbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr {pinvokeName}({string.Join(", ", pinvokeParams)});");
@@ -399,7 +407,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
             factoryParams.Add($"{keyPathParamType} {shape.KeyPathArgLabel}");
 
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
-                csWriter, mergedAvailability, parentAnnotations: null);
+                csWriter, availability, parentAnnotations: null);
             csWriter.WriteLine($"public static {returnType} {methodName}({string.Join(", ", factoryParams)})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -430,7 +438,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
         csWriter.WriteLine("}");
         csWriter.WriteLine();
 
-        EmitSwiftTrampolines(swiftWriter, shape, conformerSwiftForWrapper, keyPathFlavor, emit, mergedAvailability);
+        EmitSwiftTrampolines(swiftWriter, shape, conformerSwiftForWrapper, keyPathFlavor, emit);
     }
 
     private static void EmitSwiftTrampolines(
@@ -438,10 +446,10 @@ internal static class ConformerKeyPathInitFactoryEmitter
         InitShape shape,
         string conformerSwiftForWrapper,
         string keyPathFlavor,
-        IReadOnlyList<(string CSValueType, string CSMarshalValueType, string SwiftValueTypeForWrapper, string Symbol)> emit,
-        IReadOnlyList<AvailabilityAnnotation>? mergedAvailability)
+        IReadOnlyList<(string CSValueType, string CSMarshalValueType, string SwiftValueTypeForWrapper,
+            IReadOnlyList<AvailabilityAnnotation>? Availability, string Symbol)> emit)
     {
-        foreach (var (_, _, swiftValueTypeForWrapper, symbol) in emit)
+        foreach (var (_, _, swiftValueTypeForWrapper, availability, symbol) in emit)
         {
             // Trampoline params: scalars as (w0, w1) Int pairs, then the KeyPath pointer.
             var trampolineParams = new List<string>();
@@ -454,7 +462,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
 
             swiftWriter.WriteLine();
             swiftWriter.WriteLine($"// KeyPath-init factory trampoline: {shape.DepClassSwiftQualified}({shape.KeyPathArgLabel}: \\{conformerSwiftForWrapper}.*) as {keyPathFlavor}<{conformerSwiftForWrapper}, {swiftValueTypeForWrapper}>");
-            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, mergedAvailability);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"@_cdecl(\"{symbol}\")");
             swiftWriter.WriteLine($"public func {symbol}({string.Join(", ", trampolineParams)}) -> UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;
@@ -493,6 +501,25 @@ internal static class ConformerKeyPathInitFactoryEmitter
         if (conformer.AvailabilityAnnotations is { Count: > 0 } conformerAvailability)
             combined.AddRange(conformerAvailability);
         return combined.Count > 0 ? combined : null;
+    }
+
+    /// <summary>
+    /// Layer the per-Value floor (the Value type named in this trampoline's closed
+    /// <c>MiniEntityProperty&lt;Value&gt;</c>) onto the container's dep+conformer base. Concatenation
+    /// is correct because the downstream emitters take the max version per platform.
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation>? MergeWithValueType(
+        IReadOnlyList<AvailabilityAnnotation>? baseAvailability,
+        TypeSpec valueSpec,
+        ITypeDatabase typeDatabase)
+    {
+        if (KeyPathBagWalker.CollectValueTypeAvailability(valueSpec, typeDatabase) is not { Count: > 0 } valueAvailability)
+            return baseAvailability;
+        var combined = baseAvailability is null
+            ? new List<AvailabilityAnnotation>()
+            : new List<AvailabilityAnnotation>(baseAvailability);
+        combined.AddRange(valueAvailability);
+        return combined;
     }
 
     private static string Capitalize(string s) =>
