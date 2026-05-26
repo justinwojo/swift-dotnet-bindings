@@ -485,3 +485,87 @@ public func makeOptionalPodPoint(present: Bool, x: Int64, y: Int64) -> Extractio
 public func makeResultPodPoint(x: Int64, y: Int64) -> Result<ExtractionPodPoint, TrackedRefError> {
     return .success(ExtractionPodPoint(x: x, y: y))
 }
+
+// MARK: - Dictionary / Set with ref-containing NON-class values (MOVE-context element move, P1)
+
+/// Factory returning `[Int32: FrozenTrackedRefStruct]`. The dictionary VALUE is a frozen-with-ref
+/// struct (the COPY ownership shape: NewFromPayload allocates its own buffer + InitializeWithCopy).
+/// Enumerating / looking up a value moves it out of the iterator's `Optional<(K,V)>` buffer via
+/// `MarshalMovedValueFromSlot`. Before the per-shape move fix, only true CLASS values were handled;
+/// a frozen-with-ref struct value fell to a bitwise read + raw free with no value-witness Destroy of
+/// the slot's `+1` — leaking one embedded `TrackedRef` per moved value.
+public func makeFrozenRefValueDict(count: Int32) -> [Int32: FrozenTrackedRefStruct] {
+    var result: [Int32: FrozenTrackedRefStruct] = [:]
+    for i in 0..<count {
+        result[i] = FrozenTrackedRefStruct(value: i)
+    }
+    return result
+}
+
+/// Factory returning `[Int32: TrackedRefStruct]`. The dictionary VALUE is a non-frozen ref struct
+/// (the ADOPT ownership shape: NewFromPayload adopts the buffer pointer directly). Moving such a
+/// value out of the iterator buffer with the old bitwise path adopted the slot itself, so freeing
+/// the slot raw afterwards left the wrapper's SafeHandle dangling at freed memory — a use-after-free
+/// on dispose, not merely a leak. The per-shape move copies into a stable buffer first.
+public func makeNonFrozenRefValueDict(count: Int32) -> [Int32: TrackedRefStruct] {
+    var result: [Int32: TrackedRefStruct] = [:]
+    for i in 0..<count {
+        result[i] = TrackedRefStruct(value: i)
+    }
+    return result
+}
+
+/// Frozen struct carrying a `TrackedRef`, made `Hashable` (by the ref's identity) so it can be a
+/// Swift `Set` element. Projects to the COPY shape, exercising `SwiftSet.CollectElements`' per-shape
+/// element move for a ref-containing non-class element.
+@frozen
+public struct HashableFrozenTrackedRefStruct: Hashable {
+    public var ref: TrackedRef
+    public var value: Int32
+
+    public init(value: Int32) {
+        self.ref = TrackedRef(tag: value)
+        self.value = value
+    }
+
+    public static func == (lhs: HashableFrozenTrackedRefStruct, rhs: HashableFrozenTrackedRefStruct) -> Bool {
+        lhs.ref === rhs.ref
+    }
+    public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(ref)) }
+}
+
+/// Factory returning `Set<HashableFrozenTrackedRefStruct>`. Each element embeds a unique `TrackedRef`
+/// (identity hashing keeps them all distinct). Enumerating the set moves each element out of the
+/// iterator buffer via `MarshalMovedValueFromSlot`; the per-shape move must value-witness-Destroy the
+/// slot's `+1` after copying out, or each element's embedded ref leaks.
+public func makeFrozenRefValueSet(count: Int32) -> Set<HashableFrozenTrackedRefStruct> {
+    var result: Set<HashableFrozenTrackedRefStruct> = []
+    for i in 0..<count {
+        result.insert(HashableFrozenTrackedRefStruct(value: i))
+    }
+    return result
+}
+
+// MARK: - Optional / Result of a tuple embedding a class + heap String (COPY-context per-element, P3)
+
+/// Stashes a `TrackedRef` in the shared global, then returns `Optional<(TrackedRef, String)>` whose
+/// tuple embeds that SAME class ref alongside a heap-backed `String` (long enough to defeat the
+/// ≤15-byte small-string inlining, forcing real heap storage). A tuple is not itself `ISwiftObject`,
+/// so the carrier copy is a bitwise `+0` whole-tuple read; the per-element extraction
+/// (`ExtractCopiedElement`) must take an INDEPENDENT `+1` on the class (deref + retain) and on the
+/// String (InitializeWithCopy / MOVE) so disposing the extracted element wrappers never over-releases
+/// the carrier's (and this global's) references. Under-retain surfaces as the global's live count
+/// dropping to 0 while the global is non-nil, and as string-storage over-release on the heap String.
+public func stashSharedRefAndReturnOptionalTuple(value: Int32) -> (TrackedRef, String)? {
+    let shared = TrackedRef(tag: value)
+    _sharedExtractionRef = shared
+    return (shared, "tracked-tuple-\(value)-padding-well-past-the-fifteen-byte-inline-threshold")
+}
+
+/// `Result<(TrackedRef, String), _>.success` companion to `stashSharedRefAndReturnOptionalTuple`,
+/// driving the same per-element tuple extraction through `SwiftResult.ExtractPayloadValue`.
+public func stashSharedRefAndReturnResultTuple(value: Int32) -> Result<(TrackedRef, String), TrackedRefError> {
+    let shared = TrackedRef(tag: value)
+    _sharedExtractionRef = shared
+    return .success((shared, "tracked-tuple-\(value)-padding-well-past-the-fifteen-byte-inline-threshold"))
+}

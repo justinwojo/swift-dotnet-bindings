@@ -590,12 +590,12 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             }
 
             void* nextResultBuffer = NativeMemory.Alloc(optionalElementMetadata.Size);
-            // Track whether the current buffer contents have been consumed via MarshalFromSwift.
-            // MarshalFromSwift performs a raw byte copy ("move" semantics) — ownership of
-            // ref-counted values transfers from the buffer to the marshalled object. Calling
-            // VWT Destroy after a successful move would double-release. But if an exception
-            // occurs between IteratorNext and MarshalFromSwift, the unconsumed result must
-            // be destroyed to avoid leaking ref-counted values.
+            // Track whether the current buffer's element slot has been consumed.
+            // MarshalMovedValueFromSlot consumes the slot's +1 atomically — class deref-transfer,
+            // or ADOPT/COPY copy-out-then-value-witness-Destroy — so on success the buffer is freed
+            // raw and a whole-buffer Destroy would double-release. The helper is atomic (a throw
+            // leaves the slot intact), so if it (or IteratorNext) throws before consumption the
+            // unconsumed result must be Destroyed to avoid leaking ref-counted values.
             bool resultConsumed = true; // starts true (buffer is uninitialized)
             try
             {
@@ -620,12 +620,13 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
                         break;
                     }
 
-                    // Move ownership of the +1 the iterator wrote into the buffer out into the
-                    // marshalled object (no source Destroy below — buffer is freed raw). For a
-                    // true class member the slot holds the object pointer, which must be
-                    // dereferenced; MarshalMovedValueFromSlot handles that (see its remarks).
+                    // Move the +1 the iterator wrote into the buffer out into the marshalled object.
+                    // The helper consumes the slot itself (class deref-transfer, or ADOPT/COPY
+                    // copy-out + value-witness-Destroy of the slot), so the buffer is freed raw with
+                    // no whole-buffer Destroy below; a ref-containing non-class member would otherwise
+                    // leak (COPY) or alias the freed buffer (ADOPT).
                     Element elem = SwiftMarshal.MarshalMovedValueFromSlot<Element>(nextResultBuffer, ElementTypeMetadata);
-                    resultConsumed = true; // ownership transferred to elem
+                    resultConsumed = true; // slot consumed by the helper
 
                     result.Add(elem);
                 }

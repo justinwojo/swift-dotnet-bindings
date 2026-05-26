@@ -98,7 +98,7 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
     /// <summary>
     /// Called by Swift for each element in the stream.
     /// </summary>
-    private bool OnElement(IntPtr elementPtr, long context)
+    private unsafe bool OnElement(IntPtr elementPtr, long context)
     {
         if (_disposed || _cts.Token.IsCancellationRequested)
         {
@@ -107,8 +107,19 @@ public class SwiftAsyncStream<TElement> : IAsyncEnumerable<TElement>, IDisposabl
 
         try
         {
-            // Marshal the element from Swift
-            var element = SwiftMarshal.MarshalFromSwift<TElement>(elementPtr);
+            // Swift passes a BORROWED element pointer: withUnsafePointer(to: element) is valid only for
+            // the duration of this callback, and the Swift producer still owns (and will release) its own
+            // reference. The element escapes via the channel, so we must copy out an INDEPENDENT reference
+            // now — a bare MarshalFromSwift would either alias the soon-to-die slot (class/non-frozen-struct
+            // shapes → use-after-free once the closure returns) or bitwise-move a borrowed +0 as if it were
+            // a +1 (SwiftString and other move-on-construction shapes → double-release). ExtractCopiedValue
+            // dereferences + retains a class payload and takes a value-witness +1 for reference-backed
+            // payloads, leaving Swift's borrow intact.
+            nuint payloadSize =
+                TypeMetadata.TryGetTypeMetadata<TElement>(out var elementMd) && elementMd.Value.IsValid
+                    ? elementMd.Value.Size
+                    : (nuint)Unsafe.SizeOf<TElement>();
+            var element = SwiftMarshal.ExtractCopiedValue<TElement>((void*)elementPtr, payloadSize);
 
             // Write to channel (this should not block since it's unbounded)
             if (!_channel.Writer.TryWrite(element))

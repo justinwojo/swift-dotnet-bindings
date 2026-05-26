@@ -289,42 +289,44 @@ public class RealityFrameworkRemapFixTests
         Assert.Equal("matrix", second.TypeLabel);
     }
 
-    // --- Fix E: Optional<Tuple<String, Class>> per-element decomposition -----
+    // --- Fix E: Optional<Tuple<String, Class>> per-element extraction --------
 
     [Fact]
     public void OptionalTupleOfStringClass_GetReturnPlan_DecomposesPerElement()
     {
-        // Reproduces RealityFoundation Iterator.next() for `(name: String, animation: AnimationResource)?`.
-        // Before the fix, OptionalProjection's "no element conversion" path emitted
-        //   _swiftOpt.HasValue ? ((string, AnimationResource)?)_swiftOpt.Some : default
-        // which is a CS0030 — ValueTuple<SwiftString, IntPtr> can't be cast to (string, Class)?.
-        //
-        // The fix is in TupleProjection.GetReturnElementConversion: it now emits a per-element
-        // ValueTuple expression where SwiftString.ToString() handles Item1 and
-        // SwiftMarshal.MarshalFromSwiftObject<Class>(Item2) lifts the IntPtr field to a class
-        // instance. Optional then selects the innerRetConv branch and threads `_swiftOpt.Some`
-        // through that expression.
+        // RealityFoundation Iterator.next() for `(name: String, animation: AnimationResource)?`.
+        // The carrier's tuple value-witness metadata is derived from the wrapper element types, so
+        // the class slot appears as its wrapper (AnimationResource), NOT a raw IntPtr. That is what
+        // lets the carrier retain the class on copy and release it on destroy — an IntPtr slot reads
+        // as POD and leaks the wire +1. Extraction binds .Some ONCE (each access re-extracts a fresh
+        // +1), hands the class element through self-owning (no MarshalFromSwiftObject re-wrap), and
+        // converts + disposes the SwiftString element.
         var stringProj = new StringProjection();
         var classProj = new ClassProjection("AnimationResource");
         var tupleProj = new TupleProjection(new ITypeProjection[] { stringProj, classProj });
         var optProj = new OptionalProjection(tupleProj);
 
         var plan = optProj.GetReturnPlan("resultPtr", ReturnStrategy.IndirectResult);
+        var setup = RenderSetup(plan);
 
-        // The container type still flows through SwiftOptional<ValueTuple<SwiftString, IntPtr>> —
-        // we are not changing the runtime layout, only the C# decomposition.
-        var setup = Assert.IsType<MarshalStatement.Line>(Assert.Single(plan.SetupStatements));
-        Assert.Contains("SwiftOptional<ValueTuple<SwiftString, IntPtr>>", setup.Code);
+        // Class-aware carrier metadata — the class slot is the wrapper type, never a raw IntPtr.
+        Assert.Contains(setup, l => l.Contains("SwiftOptional<ValueTuple<SwiftString, AnimationResource>>"));
+        Assert.DoesNotContain(setup, l => l.Contains("ValueTuple<SwiftString, IntPtr>"));
 
-        // Both elements must be lifted from their P/Invoke shape inside the Some branch.
-        Assert.Contains("_swiftOpt.HasValue", plan.PInvokeExpression);
-        Assert.Contains("_swiftOpt.Some.Item1.ToString()", plan.PInvokeExpression);
-        Assert.Contains("MarshalFromSwiftObject<AnimationResource>(_swiftOpt.Some.Item2)",
-            plan.PInvokeExpression);
+        // .Some bound exactly once (re-access would leak a +1 per element per access).
+        Assert.Single(setup, l => l.Contains("= _swiftOpt.Some;"));
 
-        // The buggy cast must be gone — no `((string, AnimationResource)?)_swiftOpt.Some`.
-        Assert.DoesNotContain("(string, AnimationResource)?)", plan.PInvokeExpression);
-        Assert.DoesNotContain("(AnimationResource)?)_swiftOpt.Some", plan.PInvokeExpression);
+        // Class element passes through self-owning — NOT re-wrapped via MarshalFromSwiftObject.
+        Assert.Contains(setup, l => l.Contains("= _optTuple.Item2;"));
+        Assert.DoesNotContain(setup, l => l.Contains("MarshalFromSwiftObject<AnimationResource>"));
+
+        // String element is converted and its +1 disposed in place.
+        Assert.Contains(setup, l => l.Contains("_optTuple.Item1.ToString()"));
+        Assert.Contains(setup, l => l.Contains("_optTuple.Item1.Dispose();"));
+
+        // The buggy whole-tuple cast must be gone; the body lives entirely in setup.
+        Assert.DoesNotContain(setup, l => l.Contains("(string, AnimationResource)?)"));
+        Assert.Empty(plan.PInvokeExpression);
     }
 
     [Fact]
@@ -522,20 +524,23 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void OptionalTupleOfStringObjCRootedClass_GetReturnPlan_DecomposesPerElement()
     {
-        // Mirror coverage for the Optional<Tuple> inner-element path with ObjCRootedClass.
-        // GetReturnElementConversion must also emit MarshalFromSwiftObject for the
-        // ObjC-rooted class slot — otherwise the Some branch composes
-        // ValueTuple<SwiftString, IntPtr> into a (string, ObjCClass)? cast and breaks.
+        // Mirror coverage with ObjCRootedClass: the carrier's tuple metadata must use the wrapper
+        // type for the ObjC-rooted slot (never a raw IntPtr), and extraction passes that element
+        // through self-owning rather than re-wrapping it via MarshalFromSwiftObject.
         var stringProj = new StringProjection();
         var rootedProj = new ObjCRootedClassProjection("ARKit.ARView");
         var tupleProj = new TupleProjection(new ITypeProjection[] { stringProj, rootedProj });
         var optProj = new OptionalProjection(tupleProj);
 
         var plan = optProj.GetReturnPlan("resultPtr", ReturnStrategy.IndirectResult);
+        var setup = RenderSetup(plan);
 
-        Assert.Contains("MarshalFromSwiftObject<ARKit.ARView>(_swiftOpt.Some.Item2)",
-            plan.PInvokeExpression);
-        Assert.Contains("_swiftOpt.Some.Item1.ToString()", plan.PInvokeExpression);
+        Assert.Contains(setup, l => l.Contains("SwiftOptional<ValueTuple<SwiftString, ARKit.ARView>>"));
+        Assert.DoesNotContain(setup, l => l.Contains("ValueTuple<SwiftString, IntPtr>"));
+        Assert.Contains(setup, l => l.Contains("= _optTuple.Item2;"));
+        Assert.DoesNotContain(setup, l => l.Contains("MarshalFromSwiftObject<ARKit.ARView>"));
+        Assert.Contains(setup, l => l.Contains("_optTuple.Item1.ToString()"));
+        Assert.Contains(setup, l => l.Contains("_optTuple.Item1.Dispose();"));
     }
 
     [Fact]
@@ -562,19 +567,23 @@ public class RealityFrameworkRemapFixTests
     [Fact]
     public void OptionalTupleOfStringNonFrozenStruct_GetReturnPlan_DecomposesPerElement()
     {
-        // Inner-element path coverage for the same shape — Optional<(String, NonFrozenStruct)>
-        // composes through TupleProjection.GetReturnElementConversion, which must also lift
-        // the NonFrozenStruct slot from raw IntPtr.
+        // Same shape with NonFrozenStruct — Optional<(String, NonFrozenStruct)>'s carrier metadata
+        // must describe the struct slot as its wrapper type (resilient struct read through a
+        // pointer), never a raw IntPtr, and extraction passes it through self-owning.
         var stringProj = new StringProjection();
         var nfsProj = new NonFrozenStructProjection("RealityFoundation.Transform");
         var tupleProj = new TupleProjection(new ITypeProjection[] { stringProj, nfsProj });
         var optProj = new OptionalProjection(tupleProj);
 
         var plan = optProj.GetReturnPlan("resultPtr", ReturnStrategy.IndirectResult);
+        var setup = RenderSetup(plan);
 
-        Assert.Contains("MarshalFromSwiftObject<RealityFoundation.Transform>(_swiftOpt.Some.Item2)",
-            plan.PInvokeExpression);
-        Assert.Contains("_swiftOpt.Some.Item1.ToString()", plan.PInvokeExpression);
+        Assert.Contains(setup, l => l.Contains("SwiftOptional<ValueTuple<SwiftString, RealityFoundation.Transform>>"));
+        Assert.DoesNotContain(setup, l => l.Contains("ValueTuple<SwiftString, IntPtr>"));
+        Assert.Contains(setup, l => l.Contains("= _optTuple.Item2;"));
+        Assert.DoesNotContain(setup, l => l.Contains("MarshalFromSwiftObject<RealityFoundation.Transform>"));
+        Assert.Contains(setup, l => l.Contains("_optTuple.Item1.ToString()"));
+        Assert.Contains(setup, l => l.Contains("_optTuple.Item1.Dispose();"));
     }
 
     // --- Fix D: B12 ObjC optional gating defers to TypeRecord ----------------
@@ -599,6 +608,19 @@ public class RealityFrameworkRemapFixTests
     }
 
     // --- Helpers --------------------------------------------------------------
+
+    /// <summary>
+    /// Renders a return plan's setup statements to their C# text so assertions can match against
+    /// the owned-carrier extraction body (a <c>using</c> carrier declaration plus per-element lines).
+    /// </summary>
+    private static List<string> RenderSetup(MarshalPlan plan) =>
+        plan.SetupStatements.Select(s => s switch
+        {
+            MarshalStatement.Line line => line.Code,
+            MarshalStatement.Using u => $"using {u.Type} {u.Name} = {u.InitExpression};",
+            MarshalStatement.Block b => b.Header,
+            _ => s.ToString() ?? string.Empty,
+        }).ToList();
 
     private static ModuleDecl BuildEmptyModuleDecl(string name) => new()
     {

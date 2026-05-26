@@ -228,4 +228,164 @@ public class WireCarrierLeakProbeTests : TestBase
         LifetimeTracker.AssertNoLeaks("Result<TrackedRef,_> success return must not orphan the SwiftResult carrier's retain");
         TestLogger.Info("Result<TrackedRef,_>: 200 success returns released their embedded ref");
     }
+
+    // ---- P1: Dict/Set with ref-containing NON-class values (MOVE-context per-shape element move) ----
+    //
+    // Enumerating a Dict/Set moves each value/element out of the iterator's Optional<…> buffer via
+    // MarshalMovedValueFromSlot, then frees the buffer RAW. Before the per-shape move fix, that helper
+    // special-cased only true CLASS slots; a ref-containing NON-class value fell to a bitwise read with
+    // no value-witness Destroy — COPY-shape values (frozen-with-ref structs) LEAKED the slot's +1, and
+    // ADOPT-shape values (non-frozen structs) adopted the slot the caller then freed raw → use-after-free
+    // on the value wrapper's dispose. Each value embeds a LifetimeTracker-counted TrackedRef, so a leak
+    // shows up as a non-zero live count after the wrappers and the carrier are disposed.
+
+    /// <summary>
+    /// Dictionary with a <b>frozen-with-ref struct</b> value (COPY shape): enumeration moves each value
+    /// out of the iterator buffer. The per-shape move must value-witness-Destroy the slot's +1 after
+    /// copying out an independent wrapper; the old bitwise read leaked one embedded ref per moved value.
+    /// </summary>
+    public void TestFrozenRefValueDictEnumerationReleasesValues()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int entriesPerCall = 5;
+        AllocAndDisposeFrozenRefValueDicts(50, entriesPerCall);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("[Int32: FrozenTrackedRefStruct] enumeration must value-witness-Destroy each moved COPY-shape value's slot +1");
+        TestLogger.Info($"[Int32: FrozenTrackedRefStruct]: 50 returns x {entriesPerCall} values all released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeFrozenRefValueDicts(int iterations, int entriesPerCall)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var dict = TestLibFunctions.MakeFrozenRefValueDict(entriesPerCall);
+            try
+            {
+                foreach (var value in dict.Values)
+                    value.Dispose();
+            }
+            finally
+            {
+                (dict as IDisposable)?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dictionary with a <b>non-frozen ref struct</b> value (ADOPT shape): enumeration moves each value
+    /// out of the iterator buffer. The old bitwise path adopted the slot directly, so freeing the slot
+    /// raw left the value wrapper's SafeHandle dangling — a use-after-free on dispose. The per-shape move
+    /// copies into a stable buffer first, so disposing each value is safe and balances the embedded ref.
+    /// </summary>
+    public void TestNonFrozenRefValueDictEnumerationReleasesValues()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int entriesPerCall = 5;
+        AllocAndDisposeNonFrozenRefValueDicts(50, entriesPerCall);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("[Int32: TrackedRefStruct] enumeration must copy each moved ADOPT-shape value into a stable buffer (no slot adopt + raw free → UAF)");
+        TestLogger.Info($"[Int32: TrackedRefStruct]: 50 returns x {entriesPerCall} values all released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeNonFrozenRefValueDicts(int iterations, int entriesPerCall)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var dict = TestLibFunctions.MakeNonFrozenRefValueDict(entriesPerCall);
+            try
+            {
+                foreach (var value in dict.Values)
+                    value.Dispose();
+            }
+            finally
+            {
+                (dict as IDisposable)?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Set with a <b>frozen-with-ref struct</b> element (COPY shape): enumeration moves each element out
+    /// of the iterator buffer via <c>CollectElements</c>. The per-shape move must value-witness-Destroy
+    /// the slot's +1 after copying out; the old bitwise read leaked one embedded ref per moved element.
+    /// </summary>
+    public void TestFrozenRefValueSetEnumerationReleasesMembers()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int membersPerCall = 5;
+        AllocAndDisposeFrozenRefValueSets(50, membersPerCall);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("Set<HashableFrozenTrackedRefStruct> enumeration must value-witness-Destroy each moved COPY-shape element's slot +1");
+        TestLogger.Info($"Set<HashableFrozenTrackedRefStruct>: 50 returns x {membersPerCall} members all released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeFrozenRefValueSets(int iterations, int membersPerCall)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var set = TestLibFunctions.MakeFrozenRefValueSet(membersPerCall);
+            try
+            {
+                foreach (var member in set)
+                    member.Dispose();
+            }
+            finally
+            {
+                (set as IDisposable)?.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dictionary <c>TryGetValue</c> on a frozen-with-ref struct value (COPY shape) — the single-slot
+    /// MOVE path (distinct from the multi-slot <c>CollectEntries</c> tuple path). Each lookup moves the
+    /// value out of an <c>Optional&lt;TValue&gt;</c> buffer and frees it raw; the per-shape move must
+    /// value-witness-Destroy the slot's +1 after copying out. Disposing each looked-up value plus the
+    /// carrier must drive the live count to 0.
+    /// </summary>
+    public void TestFrozenRefValueDictTryGetValueReleasesValue()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int entriesPerCall = 5;
+        AllocAndTryGetFrozenRefValueDicts(50, entriesPerCall);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("TryGetValue of a COPY-shape value must value-witness-Destroy the moved slot's +1");
+        TestLogger.Info($"[Int32: FrozenTrackedRefStruct].TryGetValue: 50 returns x {entriesPerCall} lookups all released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndTryGetFrozenRefValueDicts(int iterations, int entriesPerCall)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var dict = TestLibFunctions.MakeFrozenRefValueDict(entriesPerCall);
+            try
+            {
+                for (int k = 0; k < entriesPerCall; k++)
+                {
+                    if (dict.TryGetValue(k, out var value))
+                        value.Dispose();
+                }
+            }
+            finally
+            {
+                (dict as IDisposable)?.Dispose();
+            }
+        }
+    }
 }

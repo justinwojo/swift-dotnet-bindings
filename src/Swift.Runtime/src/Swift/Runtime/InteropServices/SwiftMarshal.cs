@@ -215,33 +215,47 @@ public static class SwiftMarshal
     }
 
     /// <summary>
-    /// Marshals a value out of an initialized Swift value slot using <b>move</b> semantics: the
-    /// slot's <c>+1</c> ownership transfers to the returned wrapper, so the caller must <b>not</b>
-    /// value-witness-<c>Destroy</c> the slot afterward (only free the raw backing buffer).
+    /// Marshals a value out of an initialized Swift value slot the caller <b>owns</b> and will free
+    /// <i>raw</i> (no value-witness <c>Destroy</c>) afterward — the Dict/Set eager-snapshot paths
+    /// (<c>SwiftDictionary</c>/<c>SwiftSet</c> enumeration + lookup). The returned wrapper must end up
+    /// owning the slot's <c>+1</c> exactly once, with the slot's original reference accounted for by
+    /// the time the caller frees the buffer. This is the <c>Move</c> sibling of
+    /// <see cref="ExtractCopiedValue{T}"/> (the borrowed-source <c>Copy</c> entry); dispatch is
+    /// per-ownership-shape because the shapes consume the slot differently and a uniform "copy each
+    /// slot + one whole-buffer Destroy" is unsound for the shapes that transfer in place (see below).
+    /// <list type="bullet">
+    /// <item><b>True Swift class</b> (<see cref="ISwiftObject"/>, not a value type, not
+    /// <see cref="ISwiftStruct"/>, metadata <see cref="TypeMetadataKind.Class"/>): the slot
+    /// <em>contains</em> the object pointer and <c>NewFromPayload</c> expects that pointer value, so
+    /// the slot is dereferenced. The slot's <c>+1</c> transfers to the wrapper — <b>no</b> retain and
+    /// <b>no</b> <c>Destroy</c>.</item>
+    /// <item><b>ADOPT / COPY reference-backed non-POD</b>, excluding move-on-construction (non-frozen
+    /// structs, complex enums, frozen-with-ref structs, <c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>,
+    /// and the bare-<see cref="ISwiftObject"/> SwiftUI value wrappers): a bitwise read would either
+    /// alias the about-to-be-freed slot (ADOPT → use-after-free) or take a fresh <c>+1</c> while
+    /// orphaning the slot's original (COPY → leak). Instead <see cref="ExtractCopiedValue{T}"/> builds
+    /// an <i>independent</i> wrapper (its own buffer / its own <c>+1</c>), then a value-witness
+    /// <c>Destroy</c> consumes the slot's original <c>+1</c>. The <c>Destroy</c> runs <b>only after</b>
+    /// the copy succeeds, so a throw leaves the slot intact for the caller's exception-path release —
+    /// the slot is therefore consumed atomically (fully, or not at all on throw).</item>
+    /// <item><b>Move-on-construction</b> (<see cref="ISwiftMovesPayloadOnConstruction"/>,
+    /// i.e. <c>SwiftString</c>), <b>existential containers</b>, and <b>POD</b>/primitives/value-type
+    /// structs: a bitwise read transfers the slot's <c>+1</c> (or there is none). An existential
+    /// container in particular must NOT be value-witness-copied/destroyed with its static container
+    /// metadata at offset 0 (that metadata is not the box's ARC owner — the consumer takes ownership
+    /// of the container words instead). <b>No</b> <c>Destroy</c>.</item>
+    /// </list>
     /// <para>
-    /// For a true Swift class (<see cref="ISwiftObject"/>, not a value type, not an
-    /// <see cref="ISwiftStruct"/>, runtime metadata <see cref="TypeMetadataKind.Class"/>) the slot
-    /// <em>contains</em> the object pointer, and <c>NewFromPayload</c> expects that pointer value
-    /// itself — so the slot is dereferenced. Every other shape (<see cref="ISwiftStruct"/>, complex
-    /// enums, tuples, primitives) is read through the slot address, preserving the prior behavior
-    /// exactly.
-    /// </para>
-    /// <para>
-    /// This mirrors the class special-case in <c>SwiftArray.this[int]</c>. The eager-snapshot
-    /// collection paths (<c>SwiftDictionary</c>/<c>SwiftSet</c> enumeration and lookup) MUST route
-    /// class slots through here: handing the slot address straight to <c>NewFromPayload</c> stores
-    /// the address of a soon-to-be-freed temporary as the object handle, producing a
-    /// use-after-free on the extracted wrapper's <c>Dispose</c>.
-    /// </para>
-    /// <para>
-    /// This is the move counterpart to the copy-semantics class extraction in
-    /// <c>SwiftOptional</c>/<c>SwiftResult</c>, which <c>Arc.Retain</c> because their source payload
-    /// outlives the extraction. Do <b>not</b> add a retain here.
+    /// Because the ADOPT/COPY branch consumes its own slot in place (not via a deferred whole-buffer
+    /// <c>Destroy</c>), callers that pack multiple values into one buffer (<c>CollectEntries</c>'
+    /// <c>(K,V)</c> pair) MUST track consumption <b>per slot</b> on the exception path: re-running a
+    /// whole-buffer <c>Destroy</c> over an already-consumed slot (a transferred class pointer, or an
+    /// already-<c>Destroy</c>ed ADOPT/COPY slot) double-frees it.
     /// </para>
     /// </summary>
     /// <typeparam name="T">The element/key/value type occupying the slot.</typeparam>
     /// <param name="slot">Address of the initialized value slot. For classes it holds the object pointer.</param>
-    /// <param name="metadata">Runtime metadata for <typeparamref name="T"/>, used to detect a true class.</param>
+    /// <param name="metadata">Runtime metadata for <typeparamref name="T"/>: detects a true class and drives the ADOPT/COPY value-witness <c>Destroy</c>.</param>
     internal static unsafe T MarshalMovedValueFromSlot<T>(void* slot, TypeMetadata metadata)
     {
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
@@ -251,6 +265,22 @@ public static class SwiftMarshal
         {
             IntPtr classPointer = *(IntPtr*)slot;
             return MarshalFromSwift<T>(classPointer);
+        }
+
+        // ADOPT (non-frozen struct, complex enum, bare-ISwiftObject SwiftUI wrapper) / COPY
+        // (frozen-with-ref, SwiftArray/Dictionary/Set) reference-backed non-POD, excluding
+        // move-on-construction (SwiftString) which transfers its +1 via the bitwise read below.
+        // Copy out an independent wrapper, THEN Destroy the slot's original +1 — Destroy strictly
+        // after the copy so a throw leaves the slot intact (the caller's exception path releases it).
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
+            && !typeof(T).IsValueType
+            && !typeof(ISwiftMovesPayloadOnConstruction).IsAssignableFrom(typeof(T))
+            && metadata.IsValid
+            && metadata.ValueWitnessTable->IsNonPOD)
+        {
+            T moved = ExtractCopiedValue<T>(slot, metadata.Size);
+            metadata.ValueWitnessTable->Destroy(slot, metadata);
+            return moved;
         }
 
         return MarshalFromSwift<T>((IntPtr)slot);
@@ -280,12 +310,13 @@ public static class SwiftMarshal
     /// structs are excluded (read by value; their <c>SwiftHandle</c> throws). POD payloads, primitives,
     /// and existential containers carry no ARC references at this layer — and an existential container's
     /// resolved metadata is not value-witness-copyable at offset 0 — so they take a plain bitwise copy.
-    /// <b>Caveat:</b> a non-<see cref="ISwiftObject"/> <i>tuple</i> whose elements embed ARC references
-    /// (e.g. a tuple containing a <c>String</c> or class) is read by value here without a value-witness
-    /// <c>+1</c>, so the extracted element wrappers share the carrier's reference rather than owning an
-    /// independent one. That is a pre-existing under-retain shared with the wire-carrier element-move
-    /// gaps (tuples/collections of ARC elements); this helper does not yet balance per-element ARC for
-    /// composite read-by-value payloads.
+    /// A non-<see cref="ISwiftObject"/> <i>tuple</i> whose elements embed ARC references (e.g. a tuple
+    /// containing a <c>String</c> or class) is read by value here without a whole-tuple value-witness
+    /// <c>+1</c>: the bitwise copy aliases the carrier's references at <c>+0</c>, and the subsequent
+    /// <c>MarshalFromSwift&lt;T&gt;</c> tuple walk takes the independent per-element <c>+1</c>s via
+    /// <see cref="ExtractCopiedElement"/> (so each element wrapper owns its own reference and the
+    /// carrier's stays intact). This buffer is then freed raw — correct precisely because it never took
+    /// a +1 of its own.
     /// </para>
     /// <para>
     /// <b>Cleanup</b> depends on what <c>NewFromPayload</c> did with the temporary, detected by
@@ -384,6 +415,59 @@ public static class SwiftMarshal
         }
 
         return wrapper;
+    }
+
+    /// <summary>
+    /// Extracts a value of type <typeparamref name="T"/> out of a <b>borrowed</b> Swift source — an
+    /// Optional/Result wire-carrier payload, or a stream element pointer whose backing slot is only
+    /// valid for the duration of a Swift callback — into a freshly-constructed managed wrapper that owns
+    /// an <b>independent</b> reference, leaving the source's reference intact. This is the <c>Copy</c>
+    /// sibling of <see cref="MarshalMovedValueFromSlot{T}"/> (<c>Move</c>): the unified entry point for
+    /// "the source keeps its <c>+1</c>, the result must own a separate <c>+1</c>" extraction.
+    /// <para>
+    /// Dispatch is per-ownership-shape:
+    /// <list type="bullet">
+    /// <item><b>True Swift class</b> (<see cref="ISwiftObject"/>, not a value type, not
+    /// <see cref="ISwiftStruct"/>, metadata <c>Kind == Class</c>): the payload word at offset 0 <i>is</i>
+    /// the instance pointer. Dereference it, take an independent <see cref="Arc.Retain(System.IntPtr)"/>,
+    /// and marshal the pointer directly — <c>NewFromPayload</c> for a class expects the pointer value,
+    /// not the address holding it. This folds in the hand-rolled class fast path that
+    /// <c>SwiftOptional.Some</c> and <c>SwiftResult.ExtractPayloadValue</c> previously each carried.</item>
+    /// <item><b>Everything else</b> (value types, <see cref="ISwiftStruct"/> wrappers, bare-<see
+    /// cref="ISwiftObject"/> struct wrappers, primitives, existential containers): delegate to
+    /// <see cref="MarshalExtractedPayloadValue{T}"/>, which takes a value-witness <c>+1</c> for non-POD
+    /// reference-backed payloads and balances ARC across the adopt/copy/move <c>NewFromPayload</c> shapes.</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// The borrowed-source contract is why stream elements (<c>SwiftAsyncStream.OnElement</c>) MUST route
+    /// through here rather than <see cref="MarshalFromSwift{T}"/>: the Swift producer passes
+    /// <c>withUnsafePointer(to: element)</c>, a pointer valid only during the callback, and still owns
+    /// (and will release) its own reference. A bare <c>MarshalFromSwift</c> would either alias the
+    /// soon-to-die slot (class/adopt shapes → use-after-free) or bitwise-move a borrowed <c>+0</c> as if
+    /// it were a <c>+1</c> (move-on-construction shapes like <c>SwiftString</c> → double-release). Copying
+    /// out an independent reference during the callback closes both.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The value type being extracted.</typeparam>
+    /// <param name="source">Address of the borrowed source bytes (still owned by the caller/Swift).</param>
+    /// <param name="swiftPayloadSize">The source payload's value-witness size in bytes.</param>
+    /// <returns>The constructed managed wrapper, owning an independent reference.</returns>
+    public static unsafe T ExtractCopiedValue<T>(void* source, nuint swiftPayloadSize)
+    {
+        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
+            && !typeof(T).IsValueType
+            && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T))
+            && TypeMetadata.TryGetTypeMetadata<T>(out var classMd)
+            && classMd.Value.IsValid
+            && classMd.Value.Kind == TypeMetadataKind.Class)
+        {
+            IntPtr classPointer = *(IntPtr*)source;
+            Arc.Retain(classPointer);
+            return MarshalFromSwift<T>(classPointer);
+        }
+
+        return MarshalExtractedPayloadValue<T>(source, swiftPayloadSize);
     }
 
     /// <summary>
@@ -1112,7 +1196,7 @@ public static class SwiftMarshal
 
             // Marshal the element from Swift
             var elementPtr = IntPtr.Add(swiftSource, currentOffset);
-            elementValues[i] = MarshalElementFromSwiftUnsafe(elementPtr, elementType);
+            elementValues[i] = MarshalElementFromSwiftUnsafe(elementPtr, elementType, elementMetadata);
 
             currentOffset += elementSize;
         }
@@ -1258,7 +1342,7 @@ public static class SwiftMarshal
     [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
     [UnconditionalSuppressMessage("Trimming", "IL2067",
         Justification = "elementType comes from ValueTuple generic args which are preserved for tuple marshalling")]
-    private static unsafe object? MarshalElementFromSwiftUnsafe(IntPtr source, Type elementType)
+    private static unsafe object? MarshalElementFromSwiftUnsafe(IntPtr source, Type elementType, TypeMetadata elementMetadata)
     {
         // Handle primitives directly without reflection
         if (elementType == typeof(bool))
@@ -1315,18 +1399,111 @@ public static class SwiftMarshal
         }
         else if (typeof(ISwiftObject).IsAssignableFrom(elementType))
         {
-            // Try factory cache first (NativeAOT-safe, no reflection).
-            var cached = NewFromPayloadDispatcher.TryCreate(elementType, source);
-            if (cached != null)
-                return cached;
-
-            // Fallback: reflection (works on Mono; NativeAOT only for preserved types).
-            return SwiftObjectReflectionHelper.InvokeNewFromPayload(elementType, source);
+            // The tuple buffer this slot lives in is a borrowed read-by-value copy of a carrier payload
+            // (e.g. Optional<(class, String)>): MarshalExtractedPayloadValue took a bitwise +0 copy of
+            // the whole tuple, so the slot's reference is still the carrier's. Extract an INDEPENDENT
+            // +1 per element so disposing the element wrapper never over-releases storage the carrier
+            // still owns. COPY context — we never destroy the source slot.
+            return ExtractCopiedElement(source, elementType, elementMetadata);
         }
         else
         {
             throw new NotSupportedException($"Cannot marshal tuple element type {elementType.Name} from Swift");
         }
+    }
+
+    /// <summary>
+    /// Builds NewFromPayload non-generically, preferring the NativeAOT-safe factory cache and falling
+    /// back to reflection (Mono, or preserved NativeAOT types). The non-generic sibling of
+    /// <see cref="MarshalFromSwift{T}"/>'s <c>ISwiftObject</c> dispatch, for tuple-element marshalling
+    /// where the element type is only known as a <see cref="Type"/>.
+    /// </summary>
+    [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
+    private static object NewFromPayloadForType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods | DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] Type elementType,
+        IntPtr payload)
+    {
+        var cached = NewFromPayloadDispatcher.TryCreate(elementType, payload);
+        if (cached != null)
+            return cached;
+        return SwiftObjectReflectionHelper.InvokeNewFromPayload(elementType, payload);
+    }
+
+    /// <summary>
+    /// The non-generic, per-element <c>Copy</c> sibling of <see cref="ExtractCopiedValue{T}"/>: extracts
+    /// an <see cref="ISwiftObject"/> tuple element out of a <b>borrowed</b> slot into a wrapper that owns
+    /// an <b>independent</b> reference, leaving the slot's reference (the carrier's) intact. Dispatch
+    /// mirrors <see cref="ExtractCopiedValue{T}"/> / <see cref="MarshalExtractedPayloadValue{T}"/>, but
+    /// keyed off the runtime <paramref name="elementType"/> and <paramref name="elementMetadata"/> rather
+    /// than a generic parameter:
+    /// <list type="bullet">
+    /// <item><b>True Swift class</b> (not a value type, not <see cref="ISwiftStruct"/>, metadata
+    /// <c>Kind == Class</c>): the slot word IS the instance pointer. Dereference it, take an independent
+    /// <see cref="Arc.Retain(System.IntPtr)"/>, and build NewFromPayload from the pointer — a class's
+    /// NewFromPayload wraps the pointer value directly, not the address holding it.</item>
+    /// <item><b>Reference-backed non-class</b> (<see cref="ISwiftStruct"/>, bare-<see cref="ISwiftObject"/>
+    /// SwiftUI value wrappers, <c>SwiftString</c>/<c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>):
+    /// <c>InitializeWithCopy</c> into a temporary to take a fresh <c>+1</c>, then balance ARC across the
+    /// adopt/copy/move <c>NewFromPayload</c> shapes exactly as <see cref="MarshalExtractedPayloadValue{T}"/>
+    /// does — detected by comparing the wrapper's <c>SwiftHandle</c> to the temporary. We never destroy
+    /// the source slot (the carrier still owns it).</item>
+    /// <item><b>Value-type <see cref="ISwiftObject"/> struct / POD</b>: bitwise read straight from the
+    /// slot, no ARC.</item>
+    /// </list>
+    /// </summary>
+    [RequiresDynamicCode("Non-primitive element marshalling uses reflection")]
+    [UnconditionalSuppressMessage("Trimming", "IL2067",
+        Justification = "elementType comes from ValueTuple generic args which are preserved for tuple marshalling")]
+    private static unsafe object? ExtractCopiedElement(IntPtr source, Type elementType, TypeMetadata elementMetadata)
+    {
+        // True Swift class: the slot word is the instance pointer; deref + independent retain.
+        if (!elementType.IsValueType
+            && !typeof(ISwiftStruct).IsAssignableFrom(elementType)
+            && elementMetadata.IsValid
+            && elementMetadata.Kind == TypeMetadataKind.Class)
+        {
+            IntPtr classPointer = *(IntPtr*)source;
+            Arc.Retain(classPointer);
+            return NewFromPayloadForType(elementType, classPointer);
+        }
+
+        // Reference-backed non-class value: take a value-witness +1 into a temporary so the element
+        // wrapper owns an independent reference, then balance ARC across adopt/copy/move. Value-type
+        // ISwiftObject structs (SwiftHandle throws) are excluded and fall through to the bitwise read.
+        if (!elementType.IsValueType
+            && elementMetadata.IsValid
+            && elementMetadata.ValueWitnessTable->IsNonPOD)
+        {
+            nuint size = elementMetadata.Size;
+            byte* temp = (byte*)NativeMemory.AllocZeroed(size);
+            elementMetadata.ValueWitnessTable->InitializeWithCopy(temp, (void*)source, elementMetadata);
+
+            object wrapper;
+            try
+            {
+                wrapper = NewFromPayloadForType(elementType, (IntPtr)temp);
+            }
+            catch
+            {
+                elementMetadata.ValueWitnessTable->Destroy(temp, elementMetadata);
+                NativeMemory.Free(temp);
+                throw;
+            }
+
+            if (wrapper is ISwiftObject swiftObj && swiftObj.SwiftHandle != (IntPtr)temp)
+            {
+                // COPY shape took its own +1, orphaning ours — destroy it. MOVE shape
+                // (ISwiftMovesPayloadOnConstruction) transferred our +1 into the wrapper; only free.
+                if (!typeof(ISwiftMovesPayloadOnConstruction).IsAssignableFrom(elementType))
+                    elementMetadata.ValueWitnessTable->Destroy(temp, elementMetadata);
+                NativeMemory.Free(temp);
+            }
+            // else ADOPT: the wrapper's SafeHandle owns the temporary (and its +1); leave it.
+            return wrapper;
+        }
+
+        // Value-type ISwiftObject struct (read by value) / POD: bitwise read from the slot.
+        return NewFromPayloadForType(elementType, source);
     }
 
     /// <summary>

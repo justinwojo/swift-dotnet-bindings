@@ -329,6 +329,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         // Use the Optional<TValue> metadata to get the proper size
         var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
         void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
+        bool slotLive = false; // resultPayload holds an initialized .some whose slot is unconsumed
         try
         {
             SwiftDictionaryPInvokes.Get(
@@ -348,13 +349,18 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             }
 
             // Move the +1 the Get wrote into the Optional<TValue> buffer out into the wrapper
-            // (buffer is freed raw below, not Destroyed). For a class TValue the .some payload
-            // is the object pointer at offset 0, which MarshalMovedValueFromSlot dereferences.
+            // (buffer is freed raw on success, not Destroyed). MarshalMovedValueFromSlot consumes the
+            // slot atomically (class deref-transfer, or ADOPT/COPY copy-then-Destroy); `slotLive`
+            // guards the exception path so a throw before consumption releases the intact slot's +1.
+            slotLive = true;
             value = SwiftMarshal.MarshalMovedValueFromSlot<TValue>(resultPayload, ValueTypeMetadata);
+            slotLive = false;
             return true;
         }
         finally
         {
+            if (slotLive)
+                optionalMetadata.ValueWitnessTable->Destroy(resultPayload, optionalMetadata);
             NativeMemory.Free(resultPayload);
         }
     }
@@ -465,13 +471,18 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             }
 
             void* nextResultBuffer = NativeMemory.Alloc(optionalTupleMetadata.Size);
-            // Track whether the current buffer contents have been consumed via MarshalFromSwift.
-            // MarshalFromSwift performs a raw byte copy ("move" semantics) — ownership of
-            // ref-counted values transfers from the buffer to the marshalled object. Calling
-            // VWT Destroy after a successful move would double-release. But if an exception
-            // occurs between IteratorNext and MarshalFromSwift, the unconsumed result must
-            // be destroyed to avoid leaking ref-counted values.
-            bool resultConsumed = true; // starts true (buffer is uninitialized)
+            // The buffer holds Optional<(TKey, TValue)>. Each MarshalMovedValueFromSlot consumes ITS
+            // OWN slot: a class/String/POD/existential slot transfers its +1 via a bitwise read; an
+            // ADOPT/COPY ref-backed slot copies out an independent wrapper and value-witness-Destroys
+            // the slot. On the SUCCESS path nothing further is destroyed (the buffer is freed raw).
+            // On an EXCEPTION mid-extraction we must release ONLY the slots not yet consumed — re-
+            // destroying an already-consumed slot (a transferred class pointer, or an already-
+            // Destroyed ADOPT/COPY slot) via a whole-tuple Destroy double-frees it. `bufferLive` marks
+            // an initialized .some still holding unconsumed slots; `keyMoved`/`valueMoved` track per-
+            // slot consumption so the finally destroys exactly the intact remainder.
+            bool bufferLive = false;
+            bool keyMoved = false;
+            bool valueMoved = false;
             try
             {
                 while (true)
@@ -481,7 +492,9 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                         new SwiftIndirectResult(nextResultBuffer),
                         iteratorMetadata,
                         new SwiftSelf(iteratorBuffer));
-                    resultConsumed = false; // buffer now holds an initialized Optional value
+                    bufferLive = true;
+                    keyMoved = false;
+                    valueMoved = false;
 
                     // Use VWT GetEnumTag to check Optional.none — the only correct way
                     // to detect .none for all type combinations (pointer, value, existential).
@@ -491,27 +504,39 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                     {
                         // .none has no ref-counted payload to leak, but destroy for correctness
                         optionalTupleMetadata.ValueWitnessTable->Destroy(nextResultBuffer, optionalTupleMetadata);
-                        resultConsumed = true;
+                        bufferLive = false;
                         break;
                     }
 
-                    // Marshal key from offset 0, value from tuple metadata offset.
-                    // Move ownership of the +1 the iterator wrote into the buffer out into the
-                    // marshalled objects (no source Destroy below — buffer is freed raw). For a
-                    // true class key/value the slot holds the object pointer, which must be
-                    // dereferenced; MarshalMovedValueFromSlot handles that (see its remarks).
+                    // Move key from offset 0, value from the tuple metadata offset. Each helper
+                    // consumes its own slot's +1 (class deref-transfer, or ADOPT/COPY copy-then-
+                    // Destroy); the buffer is freed raw afterward with no whole-tuple Destroy.
                     TKey key = SwiftMarshal.MarshalMovedValueFromSlot<TKey>(nextResultBuffer, KeyTypeMetadata);
+                    keyMoved = true;
                     TValue val = SwiftMarshal.MarshalMovedValueFromSlot<TValue>((byte*)nextResultBuffer + valueOffset, ValueTypeMetadata);
-                    resultConsumed = true; // ownership transferred to key/val
+                    valueMoved = true;
 
                     result.Add(new KeyValuePair<TKey, TValue>(key, val));
+                    bufferLive = false; // both slots consumed; buffer freed raw below
                 }
             }
             finally
             {
-                // Destroy unconsumed result (exception between IteratorNext and MarshalFromSwift)
-                if (!resultConsumed)
-                    optionalTupleMetadata.ValueWitnessTable->Destroy(nextResultBuffer, optionalTupleMetadata);
+                if (bufferLive)
+                {
+                    // Exception between IteratorNext and full consumption: release only the intact slots.
+                    if (!keyMoved)
+                    {
+                        // Neither slot consumed — the whole Optional<(K,V)> is intact.
+                        optionalTupleMetadata.ValueWitnessTable->Destroy(nextResultBuffer, optionalTupleMetadata);
+                    }
+                    else if (!valueMoved)
+                    {
+                        // Key consumed (its +1 moved into the key wrapper, or its slot already
+                        // Destroyed); only the value slot remains live — Destroy just that element.
+                        ValueTypeMetadata.ValueWitnessTable->Destroy((byte*)nextResultBuffer + valueOffset, ValueTypeMetadata);
+                    }
+                }
                 NativeMemory.Free(nextResultBuffer);
             }
         }
@@ -573,6 +598,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             // Allocate space for optional return value and check .none via VWT GetEnumTag
             var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
             void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
+            bool slotLive = false; // resultPayload holds an initialized .some whose slot is unconsumed
             try
             {
                 SwiftDictionaryPInvokes.RemoveValue(
@@ -589,11 +615,17 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
                     return default!;
 
                 // Move the removed value's +1 out of the Optional<TValue> buffer into the wrapper
-                // (buffer is freed raw below). Class payloads are the object pointer at offset 0.
-                return SwiftMarshal.MarshalMovedValueFromSlot<TValue>(resultPayload, ValueTypeMetadata);
+                // (buffer is freed raw on success). MarshalMovedValueFromSlot consumes the slot
+                // atomically; `slotLive` releases the intact slot if the move throws first.
+                slotLive = true;
+                TValue removed = SwiftMarshal.MarshalMovedValueFromSlot<TValue>(resultPayload, ValueTypeMetadata);
+                slotLive = false;
+                return removed;
             }
             finally
             {
+                if (slotLive)
+                    optionalMetadata.ValueWitnessTable->Destroy(resultPayload, optionalMetadata);
                 NativeMemory.Free(resultPayload);
             }
         }

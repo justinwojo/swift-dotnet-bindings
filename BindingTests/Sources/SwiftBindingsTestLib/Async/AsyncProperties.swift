@@ -119,3 +119,50 @@ public class AsyncValueSource {
         }
     }
 }
+
+// MARK: - Tracked-element AsyncStreams (ownership regression coverage)
+// SwiftAsyncStream.OnElement receives a BORROWED `withUnsafePointer(to: element)` (valid only for the
+// callback) while the Swift `for await` loop still owns its own +1 on `element` until the iteration
+// ends. The element escapes via the C# channel, so OnElement must copy out an INDEPENDENT reference
+// during the callback. These fixtures drive the three ownership shapes the borrowed-slot escape breaks:
+//   - class element (TrackedRef): the payload word IS the object pointer → must deref + Arc.Retain;
+//     a bare marshal stores the soon-dead slot address as the handle (wrong value + use-after-free).
+//   - non-frozen struct (TrackedRefStruct, ADOPT/SafeHandle): the SafeHandle must wrap an independent
+//     copy, not the borrowed slot the closure frees on return (use-after-free / double-free).
+//   - large heap String (move-on-construction): a borrowed +0 must not be bitwise-moved as if it were
+//     a transferred +1, or the shared storage is double-released. Small inline strings (≤15 UTF-8
+//     bytes) have no heap storage / no ARC and hide the bug, so these strings force heap storage.
+public final class TrackedRefStreamSource {
+    public init() {}
+
+    /// AsyncStream of class elements. Each TrackedRef is allocated as it is yielded; after a full
+    /// drain plus disposal of the extracted C# wrappers the tracked live-count must return to zero.
+    public var trackedRefs: AsyncStream<TrackedRef> {
+        AsyncStream { continuation in
+            continuation.yield(TrackedRef(tag: 1))
+            continuation.yield(TrackedRef(tag: 2))
+            continuation.yield(TrackedRef(tag: 3))
+            continuation.finish()
+        }
+    }
+
+    /// AsyncStream of non-frozen structs — the ADOPT/SafeHandle shape.
+    public var trackedStructs: AsyncStream<TrackedRefStruct> {
+        AsyncStream { continuation in
+            continuation.yield(TrackedRefStruct(value: 1))
+            continuation.yield(TrackedRefStruct(value: 2))
+            continuation.yield(TrackedRefStruct(value: 3))
+            continuation.finish()
+        }
+    }
+
+    /// AsyncStream of large (heap-backed) Strings — the move-on-construction shape.
+    public var longMessages: AsyncStream<String> {
+        AsyncStream { continuation in
+            continuation.yield(String(repeating: "alpha-", count: 8) + "tail0")
+            continuation.yield(String(repeating: "bravo-", count: 8) + "tail1")
+            continuation.yield(String(repeating: "charlie-", count: 8) + "tail2")
+            continuation.finish()
+        }
+    }
+}

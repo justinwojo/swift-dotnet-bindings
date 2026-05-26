@@ -472,6 +472,48 @@ public class OptionalProjection : ITypeProjection
         var marshalFromSwiftConsuming = $"SwiftMarshal.MarshalFromSwiftObjectConsuming<SwiftOptional<{returnTypeParam}>>";
         var innerRetConv = _innerProjection.GetReturnElementConversion("rawVal");
 
+        // Tuple inner carrying class and/or self-owning ISwiftObject elements: ownership-aware
+        // extraction. The generic innerRetConv path below would access _swiftOpt.Some twice
+        // (".Some" re-extracts each access → a fresh +1 leaked per element per access). Instead
+        // bind .Some ONCE; the carrier's class-aware tuple metadata (TupleProjection.MarshalFromSwiftType)
+        // extracts each element as its self-owning wrapper, so class elements pass through (+1 to the
+        // caller) and consumed ISwiftObject elements (e.g. SwiftString) are disposed after the public
+        // tuple is built. The whole body lives in setup with an empty PInvokeExpression (the
+        // ClassProjection pattern) so disposal can run after the public tuple is built.
+        if (_innerProjection is TupleProjection ownedTuple && ownedTuple.RequiresOwnedCarrierExtraction)
+        {
+            var (elemSetup, tupleExpr) = ownedTuple.GetOwnedCarrierReturnConversion("_optTuple");
+
+            List<MarshalStatement> BuildBody(string carrierCtor)
+            {
+                var body = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Using($"SwiftOptional<{returnTypeParam}>", "_swiftOpt", carrierCtor),
+                    new MarshalStatement.Line("if (!_swiftOpt.HasValue) return null;"),
+                    new MarshalStatement.Line("var _optTuple = _swiftOpt.Some;")
+                };
+                body.AddRange(elemSetup);
+                body.Add(new MarshalStatement.Line($"return {tupleExpr};"));
+                return body;
+            }
+
+            return strategy switch
+            {
+                ReturnStrategy.Direct => new MarshalPlan
+                {
+                    SetupStatements = BuildBody($"{marshalFromSwiftConsuming}(&{resultName})"),
+                    PInvokeExpression = "",
+                    RequiresUnsafe = true
+                },
+                ReturnStrategy.IndirectResult or ReturnStrategy.OutBuffer or ReturnStrategy.AsyncCallback => new MarshalPlan
+                {
+                    SetupStatements = BuildBody($"{marshalFromSwift}({resultName})"),
+                    PInvokeExpression = ""
+                },
+                _ => MarshalPlan.PassThrough(resultName)
+            };
+        }
+
         if (innerRetConv != null)
         {
             // Element conversion needed: MarshalFromSwift → HasValue check → conditional convert.

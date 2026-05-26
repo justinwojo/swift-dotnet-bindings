@@ -488,43 +488,13 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                     return (T)Enum.ToObject(typeof(T), caseValue);
                 }
 
-                var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
-
-                // For true Swift class types (SwiftClassHandle), the payload IS
-                // the class pointer (8 bytes). MarshalFromSwift/NewFromPayload for class
-                // types expects the pointer value directly, not a pointer to memory
-                // containing it. Read the class pointer and pass it directly.
-                //
-                // Buffer-backed types (SwiftSafeHandle) — including C# classes wrapping
-                // Swift structs like SwiftString, URL, SwiftArray — implement ISwiftStruct
-                // and must use the heap-copy path below, because their NewFromPayload
-                // expects a pointer to memory containing the struct's raw bytes.
-                if (typeof(ISwiftObject).IsAssignableFrom(typeof(T))
-                    && !typeof(T).IsValueType
-                    && !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
-                {
-                    // Use Swift metadata to distinguish true classes from complex enums,
-                    // since both implement ISwiftObject without ISwiftStruct in generated C#.
-                    var elementMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-                    if (elementMetadata.Kind == TypeMetadataKind.Class)
-                    {
-                        IntPtr classPointer = *(IntPtr*)sourcePayload;
-                        // The class pointer's ARC retain belongs to _payload. We need an
-                        // independent +1 retain for the SwiftClassHandle that NewFromPayload
-                        // creates, otherwise disposing this SwiftOptional releases the only
-                        // retain and the extracted wrapper becomes a dangling pointer.
-                        Arc.Retain(classPointer);
-                        return SwiftMarshal.MarshalFromSwift<T>(classPointer);
-                    }
-                }
-
-                // For value types, ISwiftStruct types, and non-ISwiftObject types: copy the payload
-                // out into a fresh, independently-owned wrapper. MarshalExtractedPayloadValue takes a
-                // value-witness retain for non-POD payloads (so disposing the extracted wrapper does
-                // not over-release storage _payload still owns), sizes the temporary for the managed
-                // read (compact `any Error` modeled as the larger ExistentialContainer1), and balances
-                // ARC across the adopt/copy/move NewFromPayload shapes.
-                return SwiftMarshal.MarshalExtractedPayloadValue<T>(sourcePayload, _payloadSize);
+                // Copy the payload out into a fresh, independently-owned wrapper. ExtractCopiedValue
+                // dereferences + Arc.Retains a true class payload (the payload word IS the instance
+                // pointer), and otherwise takes a value-witness retain for non-POD reference-backed
+                // payloads (so disposing the extracted wrapper does not over-release storage _payload
+                // still owns), sizing the temporary for the managed read (compact `any Error` modeled as
+                // the larger ExistentialContainer1) and balancing ARC across the adopt/copy/move shapes.
+                return SwiftMarshal.ExtractCopiedValue<T>(sourcePayload, _payloadSize);
             }
             finally
             {

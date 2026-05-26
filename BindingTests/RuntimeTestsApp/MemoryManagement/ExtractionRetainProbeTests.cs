@@ -150,6 +150,77 @@ public class ExtractionRetainProbeTests : TestBase
     }
 
     /// <summary>
+    /// <c>Optional&lt;(TrackedRef, String)&gt;.Some</c> per-element extraction. Because the carrier's
+    /// tuple metadata is built from the wrapper element types (class → <c>TrackedRef</c>, String →
+    /// <c>SwiftString</c>) the carrier owns its class slot's <c>+1</c> and releases it on destroy; the
+    /// per-element extraction hands the caller a self-owning <c>TrackedRef</c> (+1) which the test
+    /// disposes. The String element is extracted self-owning (+1) and disposed in-place by the glue
+    /// after <c>ToString()</c>. The embedded class ref is also stashed in a Swift global: after
+    /// disposing the returned wrapper, exactly one instance must remain (the global's). If the carrier
+    /// instead lowered the class slot to <c>IntPtr</c> (POD metadata), neither the carrier copy nor its
+    /// destroy would touch the class ref and the wire <c>+1</c> would leak — this asserts it does not.
+    /// </summary>
+    public void TestOptionalSomeTupleExtractionDoesNotOverReleaseSharedRef()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        var extracted = TestLibFunctions.StashSharedRefAndReturnOptionalTuple(42);
+        extracted?.Item1.Dispose();
+        DrainFinalizers();
+
+        LifetimeTracker.AssertLiveCount(1,
+            "Optional<(class, String)>.Some must independently retain the escaping class element; the Swift global still owns the shared ref");
+
+        TestLibFunctions.ClearSharedExtractionRef();
+        DrainFinalizers();
+        LifetimeTracker.AssertLiveCount(0,
+            "clearing the Swift global must release the last retain on the shared ref");
+
+        TestLogger.Info("Optional<(class, String)>.Some: returned-wrapper Dispose left the global-owned ref intact");
+    }
+
+    /// <summary>
+    /// <c>Result&lt;(TrackedRef, String), _&gt;.Success</c> companion to
+    /// <see cref="TestOptionalSomeTupleExtractionDoesNotOverReleaseSharedRef"/>, driving the same
+    /// per-element tuple extraction through <c>SwiftResult.ExtractPayloadValue</c>. The success tuple
+    /// is returned raw as <c>(TrackedRef, SwiftString)</c>: the carrier's wrapper-typed tuple metadata
+    /// extracts BOTH elements self-owning (+1) — a class <c>TrackedRef</c> and a <c>SwiftString</c> —
+    /// so the consumer disposes both, then disposes the carrier. The shared class ref must survive at
+    /// live == 1 (the Swift global). An under-retain in <c>ExtractCopiedElement</c> over-releases the
+    /// shared storage; an over-retain leaks it — both surface against the global's balanced count.
+    /// </summary>
+    public void TestResultSuccessTupleExtractionDoesNotOverReleaseSharedRef()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        using (var result = TestLibFunctions.StashSharedRefAndReturnResultTuple(7))
+        {
+            if (result.IsSuccess)
+            {
+                // Access .Success ONCE (each access re-extracts). Both elements arrive self-owning:
+                // the class element (Item1) as a +1 TrackedRef and the String element (Item2) as a
+                // +1 SwiftString. Dispose both.
+                var tuple = result.Success;
+                tuple.Item1.Dispose();
+                tuple.Item2.Dispose();
+            }
+        }
+        DrainFinalizers();
+
+        LifetimeTracker.AssertLiveCount(1,
+            "Result<(class, String),_>.Success per-element extraction must balance: borrowed class + disposed String leave the global-owned ref alive");
+
+        TestLibFunctions.ClearSharedExtractionRef();
+        DrainFinalizers();
+        LifetimeTracker.AssertLiveCount(0,
+            "clearing the Swift global must release the last retain on the shared ref");
+
+        TestLogger.Info("Result<(class, String),_>.Success: extracted String + carrier Dispose left the global-owned ref intact");
+    }
+
+    /// <summary>
     /// SwiftString MOVE-bitwise extraction shape. <c>SwiftString</c>'s from-handle constructor
     /// (<c>ISwiftMovesPayloadOnConstruction</c>) allocates its own buffer and bitwise-copies the
     /// temporary, transferring the bridge-object retain WITHOUT taking a new one — so the extraction

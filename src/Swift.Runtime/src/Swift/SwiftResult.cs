@@ -350,32 +350,14 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     {
         byte* sourcePayload = (byte*)_payload!.DangerousGetHandle();
 
-        // True Swift classes: payload bytes contain the class pointer at offset 0.
-        // Dereference and Arc.Retain for +1 ownership (SwiftClassHandle expects this).
-        // Value types are excluded up front (their payload word is not a class pointer) — matching
-        // SwiftOptional.Some — so the class-pointer dereference is only reached for reference types.
-        if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)) &&
-            !typeof(T).IsValueType &&
-            !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
-        {
-            var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
-            if (metadata.Kind == TypeMetadataKind.Class)
-            {
-                IntPtr classPtr = *(IntPtr*)sourcePayload;
-                Arc.Retain(classPtr);
-                return SwiftMarshal.MarshalFromSwift<T>(classPtr);
-            }
-        }
-
-        // Everything that is not a true Swift class — value types, ISwiftStruct wrappers (non-frozen
-        // structs, complex enums, frozen-projected-as-class, String/Array/Dictionary/Set), bare
-        // ISwiftObject struct wrappers, and non-ISwiftObject values: copy the payload out into a fresh,
-        // independently-owned wrapper. MarshalExtractedPayloadValue
-        // takes a value-witness retain for non-POD payloads (so disposing the extracted wrapper does
-        // not over-release storage _payload still owns), sizes the temporary for the managed read
-        // (compact `any Error` modeled as the larger ExistentialContainer1), and balances ARC across
-        // the adopt/copy/move NewFromPayload shapes.
-        return SwiftMarshal.MarshalExtractedPayloadValue<T>(sourcePayload, PayloadSize);
+        // Copy the payload out into a fresh, independently-owned wrapper. ExtractCopiedValue
+        // dereferences + Arc.Retains a true Swift class payload (the payload word IS the instance
+        // pointer at offset 0), and otherwise takes a value-witness retain for non-POD reference-backed
+        // payloads (ISwiftStruct wrappers, String/Array/Dictionary/Set, bare-ISwiftObject struct
+        // wrappers) so disposing the extracted wrapper does not over-release storage _payload still
+        // owns, sizing the temporary for the managed read (compact `any Error` modeled as the larger
+        // ExistentialContainer1) and balancing ARC across the adopt/copy/move shapes.
+        return SwiftMarshal.ExtractCopiedValue<T>(sourcePayload, PayloadSize);
     }
 
     /// <summary>

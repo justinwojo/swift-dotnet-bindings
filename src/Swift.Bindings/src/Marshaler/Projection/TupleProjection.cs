@@ -42,6 +42,19 @@ public class TupleProjection : ITypeProjection
 
     public string? PInvokeAttribute => null;
 
+    /// <summary>
+    /// The carrier/container element type: composes each element's <see cref="ITypeProjection.MarshalFromSwiftType"/>
+    /// (a class → its wrapper type, String → <c>SwiftString</c>) rather than the P/Invoke type
+    /// (class → <c>IntPtr</c>). When this tuple is the payload of <c>SwiftOptional</c>/<c>SwiftResult</c>/
+    /// <c>SwiftArray</c>/etc., the carrier's Swift value-witness metadata is derived from this C# type, so a
+    /// class element MUST appear as its wrapper type (metadata <c>Kind == Class</c>) — otherwise the tuple
+    /// VWT treats the class slot as POD, the carrier neither retains the class on copy nor releases it on
+    /// destroy, and the wire buffer's <c>+1</c> leaks. Mirrors Array/Dictionary/Set/Optional/Result, which
+    /// already compose <c>MarshalFromSwiftType</c> for their element/inner types.
+    /// </summary>
+    public string MarshalFromSwiftType =>
+        $"ValueTuple<{string.Join(", ", _elementProjections.Select(p => p.MarshalFromSwiftType))}>";
+
     public MarshalPlan GetParameterPlan(string paramName)
     {
         var needsConversion = _elementProjections.Any(p => p.GetParameterElementConversion("x") != null);
@@ -159,13 +172,66 @@ public class TupleProjection : ITypeProjection
         => $"({p.PublicType})SwiftMarshal.MarshalFromSwiftObject<{p.PublicType}>({elementVar})";
 
     /// <summary>
-    /// Element-level conversion for when this Tuple is the inner of a container that materializes
-    /// fields as raw P/Invoke shapes — e.g. <c>SwiftOptional&lt;ValueTuple&lt;SwiftString, IntPtr&gt;&gt;</c>
-    /// where <c>.Some</c> returns a ValueTuple with each field at its <c>PInvokeType</c>.
-    /// Composes per-element conversions: <c>StringProjection</c> emits <c>{var}.Item1.ToString()</c>;
-    /// <c>ClassProjection</c> needs an explicit lift from IntPtr to the class instance because
-    /// nothing else in the Tuple-of-classes path constructs the wrapper (unlike SwiftArray/Dictionary
-    /// AsProjected lambdas, which receive already-materialized instances).
+    /// True when this tuple, extracted from an OWNING carrier (Optional.Some / Result.Success), must
+    /// bind <c>.Some</c>/<c>.Success</c> ONCE (each access re-extracts, leaking a fresh +1 per access)
+    /// and dispose any self-owning elements consumed in place. Two shapes force it:
+    ///  - class / non-frozen-struct elements, which the carrier's class-aware metadata extracts as a
+    ///    self-owning (+1) wrapper handed to the caller, and
+    ///  - self-owning <c>ISwiftObject</c> elements (e.g. <c>SwiftString</c> at +1) converted to a
+    ///    managed value in place, which must be disposed after conversion or leak.
+    /// </summary>
+    public bool RequiresOwnedCarrierExtraction =>
+        _elementProjections.Any(p => IsRawPointerClassProjection(p) || p.ElementRequiresDisposal);
+
+    /// <summary>
+    /// Builds the setup statements plus the public ValueTuple expression for a tuple already bound to
+    /// <paramref name="tupleLocal"/> and extracted ONCE from an owning carrier. The carrier's
+    /// class-aware tuple metadata (see <see cref="MarshalFromSwiftType"/>) means each element arrives
+    /// as its self-owning wrapper type: class / non-frozen-struct elements are handed to the caller
+    /// as-is (the caller owns the +1); elements converted to a non-disposable public type (e.g.
+    /// <c>SwiftString</c> → <c>string</c>) are read into a managed local then disposed after every
+    /// element has been read. The returned expression is a ValueTuple of per-element locals, so it
+    /// stays valid after the consumed-element wrappers are disposed.
+    /// </summary>
+    public (List<MarshalStatement> Setup, string Expression) GetOwnedCarrierReturnConversion(string tupleLocal)
+    {
+        var setup = new List<MarshalStatement>();
+        var disposeAfter = new List<MarshalStatement>();
+        var elemVars = new List<string>();
+
+        for (int i = 0; i < _elementProjections.Count; i++)
+        {
+            var proj = _elementProjections[i];
+            var itemAccess = $"{tupleLocal}.Item{i + 1}";
+            var elemVar = $"{tupleLocal}_e{i}";
+            var conv = proj.GetReturnElementConversion(itemAccess) ?? itemAccess;
+            setup.Add(new MarshalStatement.Line($"var {elemVar} = {conv};"));
+
+            if (proj.ElementRequiresDisposal)
+            {
+                // Self-owning ISwiftObject element converted to a managed value (e.g. SwiftString →
+                // string): dispose the wrapper's +1 after every element has been read. Class /
+                // non-frozen-struct elements pass through self-owning and are disposed by the caller.
+                disposeAfter.Add(new MarshalStatement.Line($"{itemAccess}.Dispose();"));
+            }
+
+            elemVars.Add(elemVar);
+        }
+
+        setup.AddRange(disposeAfter);
+        return (setup, $"({string.Join(", ", elemVars)})");
+    }
+
+    /// <summary>
+    /// Element-level conversion for when this Tuple is an element of a container (SwiftArray /
+    /// SwiftDictionary / SwiftSet / SwiftOptional / SwiftResult). The container's generic argument is
+    /// the element's <see cref="ITypeProjection.MarshalFromSwiftType"/>, so for this tuple the field
+    /// supplied here is its <see cref="MarshalFromSwiftType"/> form — each slot is already its wrapper
+    /// type (a class is the wrapper instance, not a raw <c>IntPtr</c>; a String is <c>SwiftString</c>).
+    /// Class / non-frozen-struct slots therefore pass through unchanged; only slots with their own
+    /// element conversion (e.g. <c>SwiftString</c> → <c>{var}.ToString()</c>) are rewritten. This is
+    /// distinct from <see cref="GetReturnPlan"/>, which operates on the direct P/Invoke result at
+    /// <see cref="PInvokeType"/> (class slot is <c>IntPtr</c>) and must lift via MarshalFromSwiftObject.
     /// </summary>
     public string? GetReturnElementConversion(string elementVar)
     {
@@ -175,20 +241,7 @@ public class TupleProjection : ITypeProjection
         {
             var proj = _elementProjections[i];
             var itemAccess = $"{elementVar}.Item{i + 1}";
-            string? conv;
-            if (IsRawPointerClassProjection(proj))
-            {
-                // Tuple stores PInvokeType for each field. For class-shaped slots that's
-                // IntPtr (pure Swift class OR ObjC-rooted class) — lift via
-                // MarshalFromSwiftObject. SwiftArray/SwiftDictionary don't hit this case
-                // because their AsProjected lambdas receive already-materialized class
-                // instances (T = MarshalFromSwiftType, not IntPtr).
-                conv = RawPointerClassLift(proj, itemAccess);
-            }
-            else
-            {
-                conv = proj.GetReturnElementConversion(itemAccess);
-            }
+            var conv = proj.GetReturnElementConversion(itemAccess);
 
             if (conv != null)
             {
