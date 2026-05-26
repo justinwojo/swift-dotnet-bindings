@@ -1,7 +1,14 @@
 {
-  "git_sha": "0ad49dbc",
+  "git_sha": "2ac7d3a2",
   "compile_gate": {
     "libraries": {
+      "AppIntents": {
+        "compile": "ok",
+        "errors": 0,
+        "lines": 46160,
+        "dep_compile": "none",
+        "swift_compile": "ok"
+      },
       "ActivityKit": {
         "compile": "ok",
         "errors": 0,
@@ -68,28 +75,28 @@
       "MusicKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 72793,
+        "lines": 72792,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@macos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 65641,
+        "lines": 65640,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@maccatalyst": {
         "compile": "ok",
         "errors": 0,
-        "lines": 65832,
+        "lines": 65831,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "MusicKit@tvos": {
         "compile": "ok",
         "errors": 0,
-        "lines": 72012,
+        "lines": 72011,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -117,7 +124,7 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 194438,
+        "lines": 194107,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -271,7 +278,7 @@
       "CryptoSwift": {
         "compile": "ok",
         "errors": 0,
-        "lines": 22638,
+        "lines": 22676,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -600,7 +607,7 @@
       "DifferenceKit": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2501,
+        "lines": 2488,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -908,49 +915,49 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 24545,
-    "total_skipped_members": 5709,
-    "skip_rate_pct": 18.9,
+    "total_emitted_members": 24872,
+    "total_skipped_members": 7768,
+    "skip_rate_pct": 23.8,
     "skip_reasons": {
-      "UnsupportedSignature": 1228,
-      "SynthesizedCodable": 953,
-      "ModuleInternal": 917,
-      "AnyTypeFallback": 368,
-      "UnsupportedType": 348,
-      "DuplicateSignature": 314,
-      "GenericProtocolConstraint": 297,
-      "EveryProtocolConformanceSkipped": 274,
-      "MissingWrapperSymbol": 260,
-      "UnsupportedClosure": 227,
+      "UnsupportedSignature": 1445,
+      "SynthesizedCodable": 971,
+      "SwiftUIConstraint": 938,
+      "ModuleInternal": 918,
+      "UnsupportedClosure": 591,
+      "DuplicateSignature": 489,
+      "AnyTypeFallback": 425,
+      "GenericProtocolConstraint": 415,
+      "EveryProtocolConformanceSkipped": 384,
+      "UnsupportedType": 372,
+      "UnsatisfiedGenericConstraint": 273,
+      "MissingWrapperSymbol": 259,
       "Pattern2InternalTypeReach": 216,
-      "SwiftUIConstraint": 145,
-      "UnsupportedExistential": 142,
-      "UnsatisfiedGenericConstraint": 102,
-      "GenericTypeCallback": 97,
-      "StaticProtocolMember": 63,
+      "UnsupportedExistential": 143,
+      "GenericTypeCallback": 99,
+      "StaticProtocolMember": 67,
       "SwiftUIView": 53,
       "SuppressedProxyMethodBody": 23,
       "OwnedByAppleSupplement": 12,
+      "NonBlittableCallConvSwift": 11,
       "IndeterminatePwtShape": 9,
-      "NonBlittableCallConvSwift": 5,
-      "UnsupportedAsyncStream": 4,
-      "UnderscorePrefixInternal": 2
+      "UnderscorePrefixInternal": 4,
+      "UnsupportedAsyncStream": 4
     },
     "post_processor_sub_causes": {
-      "InternalType": 321,
+      "InternalType": 320,
       "NSInvocation": 1,
       "Other": 0
     }
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2338,
+      "pass": 2341,
       "fail": 0,
       "skip": 61,
       "crash": 0
     },
     "device": {
-      "pass": 2359,
+      "pass": 2362,
       "fail": 0,
       "skip": 40,
       "crash": 0

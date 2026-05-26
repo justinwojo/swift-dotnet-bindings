@@ -1,6 +1,18 @@
 {
   "libraries": [
     {
+      "name": "AppIntents",
+      "mode": "apple-framework",
+      "platformVersion": "26.2",
+      "platforms": ["ios"],
+      "products": [
+        {
+          "framework": "AppIntents"
+        }
+      ],
+      "tier": 1
+    },
+    {
       "name": "ActivityKit",
       "mode": "apple-framework",
       "platformVersion": "26.2",

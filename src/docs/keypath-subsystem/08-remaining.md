@@ -24,10 +24,14 @@ shipped-work records and their forward-looking sections are superseded by this f
   `IntentParameter<TValue>` close over primitive/frozen-value `_IntentValue` conformers.
   (`a1152f1a` + `c5698e43`)
 - **8d (partial)** — CoreSpotlight `wrapperImportable` flip + unit-test row. (`d408df92`)
+- **AppIntents graduation** — AppIntents enabled in `validation-libraries.json` (apple-framework,
+  tier 1) as a permanent compile-gate. The graduation surfaced and fixed an unrelated CSM bug
+  (see R1 below): the specialization engine was leaking the v2-parked `indexingKey:` inits as
+  *broken* (unqualified) C#.
 
 ## Remaining items
 
-### R1 — Real AppIntents `EntityProperty` convenience inits (blocked; needs a direction decision)
+### R1 — Real AppIntents `EntityProperty` convenience inits (decided: decline for v1)
 
 *Was 8b.3.* The KeyPath singletons and the consumer-side factory shipped against a
 BindingTests stand-in (`MiniEntityProperty`). The **real** `AppIntents.EntityProperty<Value>`
@@ -44,15 +48,34 @@ convenience-init family does not bind, for two independent reasons:
    the synthesizer allowlist) + 9 "C# does not support generic constructors with method-own
    type parameters."
 
-Needs a deliberate decision — not auto-deferral:
-- **(a)** Ship a managed Apple-Supplement `EntityProperty<T>` (the `AttributedString`-supplement
-  pattern from Session 7) with factory methods.
-- **(b)** Resolve the parser-suppression prerequisites first — extend the synthesizer allowlist
-  to the `_IntentValue…` shape types and confirm the init signatures then survive to emission.
-- **(c)** Defer until a consumer asks.
+**Decision (declined for v1, grounded — not auto-deferral):** the only init sub-family that
+actually survived to emission was the `init(indexingKey: PartialKeyPath<CSSearchableItemAttributeSet>)`
+specializations, which the `ConcreteSpecializationEngine` emitted for 4 conformers (IntentFile,
+IntentCurrencyAmount, IntentPaymentMethod, IntentPerson). Those cannot be made *usable*: their
+sole argument type is gated on **R2**, which is structurally blocked — `CSSearchableItemAttributeSet`
+is `declKind=Import` (ObjC-rooted) so there is no generated C# type, hence no constructable
+`PartialKeyPath<CSSearchableItemAttributeSet>` argument. Emitting them is dead, compiling-but-
+uncallable surface — and in fact they did not even compile: the CSM renderer
+(`ResolvePublicCSharpType`) drops the namespace for any no-`TypeRecord` type, so it emitted a bare
+`PartialKeyPath<CSSearchableItemAttributeSet>` → CS0246.
+
+**Fix shipped this session:** a resolvability gate in
+`ConcreteProtocolSpecializationEmitter.AreNonGenericParamsCompatible` /
+`IsKeyPathGenericArgResolvable` rejects a CSM KeyPath specialization whose inner generic arg has
+no `TypeRecord` and is not a Swift primitive — mirroring the null-return rejection the projection
+path (`TypeProjectionFactory.Project`) already uses for the same case, and keeping the
+predicate↔emitter contract intact. The 4 broken factories are dropped; the `EntityProperty…CsmExtensions`
+classes are now empty. This is consistent with the projection path, which emits *zero*
+`KeyPath<CSSearchableItemAttributeSet,…>` surface. Independently corroborated by Grok + the shipped
+`Done/08d` structural-blocker record.
+
+The broader managed Apple-Supplement `EntityProperty<T>` (the `AttributedString`-supplement
+pattern from Session 7) remains the only path to a *usable* convenience-init family, and is
+deferred until a consumer asks **or** R2 unparks (whichever comes first). Resolving the
+parser-suppression allowlist alone would not help while R2 is blocked.
 
 Background: `Done/08b-entityproperty-init-keypath.md` → "Blocked: 8b.3 `EntityProperty`
-convenience-init overloads".
+convenience-init overloads"; `Done/08d-partialkeypath-cssearchableitem.md` → "Phase 8d.1 preflight result".
 
 ### R2 — CoreSpotlight `CSSearchableItemAttributeSet` typed-singleton container (parked v2)
 
