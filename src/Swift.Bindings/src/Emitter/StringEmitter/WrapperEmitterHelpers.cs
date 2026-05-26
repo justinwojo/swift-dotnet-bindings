@@ -241,7 +241,15 @@ public static class WrapperEmitterHelpers
         var whereStart = sig.IndexOf(" where ", StringComparison.Ordinal);
         if (whereStart < 0)
             return string.Empty;
-        var afterWhere = sig.Substring(whereStart + " where ".Length).TrimEnd('>');
+        // Strip exactly ONE trailing `>` (the angle-wrapped signature closer), not all of
+        // them — a greedy TrimEnd('>') eats the closing bracket of a generic SameType target
+        // like `== Swift.Dictionary<Swift.String, Swift.Int>`, and this clause is emitted
+        // verbatim into the generated wrapper's Swift `extension … where …`, so a truncated
+        // target produces invalid Swift that fails the wrapper compile.
+        var afterWhere = sig.Substring(whereStart + " where ".Length).Trim();
+        if (sig.TrimStart().StartsWith("<", StringComparison.Ordinal) &&
+            afterWhere.EndsWith(">", StringComparison.Ordinal))
+            afterWhere = afterWhere.Substring(0, afterWhere.Length - 1).TrimEnd();
 
         var parentParamNames = parentType.GenericParameters
             .Select(p => p.SugaredTypeName)
@@ -270,7 +278,9 @@ public static class WrapperEmitterHelpers
         }
 
         var clauses = new List<string>();
-        foreach (var rawClause in afterWhere.Split(','))
+        // Top-level comma split: a generic SameType target's inner commas (angle-depth>0)
+        // must stay attached to their clause, not be torn into invalid Swift fragments.
+        foreach (var rawClause in SwiftTypeListText.SplitTopLevelCommas(afterWhere))
         {
             var clause = rawClause.Trim();
             var sameType = System.Text.RegularExpressions.Regex.Match(clause, @"^(\w+)\s*==\s*(.+)$");

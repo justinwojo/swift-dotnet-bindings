@@ -1369,7 +1369,23 @@ public class ConcreteSpecializationEngine
     /// compare equal. Falls back to the raw string when parsing fails.
     /// </summary>
     private static string NormalizeTypeForComparison(string raw)
-        => TypeSpecParser.Parse(raw)?.ToString(true) ?? raw;
+    {
+        try
+        {
+            return TypeSpecParser.Parse(raw)?.ToString(true) ?? raw;
+        }
+        catch (Exception)
+        {
+            // TypeSpecParser.Parse signals an unparseable type by THROWING (not by
+            // returning null), e.g. a dependent-member/placeholder fragment such as a
+            // leading-`.` segment that reaches here from a constrained-extension
+            // same-type clause. Fall back to the raw string — the documented contract.
+            // A raw-vs-canonical mismatch makes the same-type compare return false
+            // (skip-with-tombstone), which is the fail-closed direction: CSM declines
+            // to emit the specialization rather than emitting one Swift would reject.
+            return raw;
+        }
+    }
 
     /// <summary>
     /// Canonical Swift generic-parameter-placeholder same-type RHS shape that is
@@ -1424,8 +1440,22 @@ public class ConcreteSpecializationEngine
         var whereIdx = rawGenericSig.IndexOf(" where ", StringComparison.Ordinal);
         if (whereIdx < 0) return result;
 
-        var afterWhere = rawGenericSig.Substring(whereIdx + " where ".Length).TrimEnd('>').Trim();
-        foreach (var rawClause in afterWhere.Split(','))
+        // The whole generic signature is wrapped in one pair of angle brackets:
+        // `<τ_0_0 where τ_0_0 == Foundation.Measurement<Foundation.UnitDuration>>`. Strip
+        // exactly ONE trailing `>` (the signature closer). A greedy TrimEnd('>') also eats
+        // the closing bracket of a generic SameType target, truncating
+        // `Measurement<UnitDuration>` to `Measurement<UnitDuration` — which then fails to
+        // parse downstream and silently drops the specialization. Only strip when the sig is
+        // genuinely angle-wrapped (defensive: if the ABI ever hands us an unwrapped string we
+        // must not chop a real RHS closer).
+        var afterWhere = rawGenericSig.Substring(whereIdx + " where ".Length).Trim();
+        if (rawGenericSig.TrimStart().StartsWith("<", StringComparison.Ordinal) &&
+            afterWhere.EndsWith(">", StringComparison.Ordinal))
+            afterWhere = afterWhere.Substring(0, afterWhere.Length - 1).TrimEnd();
+        // Split on top-level commas only — a generic SameType target like
+        // `Swift.Dictionary<Swift.String, Swift.Int>` carries an inner comma at angle-depth>0
+        // that a naive Split(',') would tear into two bogus clauses.
+        foreach (var rawClause in SwiftTypeListText.SplitTopLevelCommas(afterWhere))
         {
             var clause = rawClause.Trim();
             MethodConstraintKind kind;

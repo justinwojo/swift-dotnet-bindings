@@ -2498,8 +2498,21 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // strict superset of the closure-bridge layer's IsAbiCategoryPassable. Honors
             // the predicate↔emitter contract: KeyPathFamily is "passable" here exactly
             // because the CSM emitter renders it.
-            if (!MethodClosureBridge.IsAbiCategoryPassableForCsm(
-                    MethodClosureBridge.ClassifyParam(arg, typeDatabase)))
+            var category = MethodClosureBridge.ClassifyParam(arg, typeDatabase);
+            if (!MethodClosureBridge.IsAbiCategoryPassableForCsm(category))
+            {
+                return false;
+            }
+
+            // …but the KeyPathFamily renderer (BuildKeyPathPublicCSharpType) can only produce a
+            // valid signature when every KeyPath generic argument resolves to a qualified C#
+            // type. A foreign-framework root (e.g. CoreSpotlight's CSSearchableItemAttributeSet
+            // in an AppIntents-only generation) has no TypeRecord and would render unqualified,
+            // failing to compile. Reject the specialization rather than emit broken code —
+            // mirroring the null-return the projection-based path already uses for the same case.
+            if (category == MethodClosureBridge.ParamAbiCategory.KeyPathFamily &&
+                arg.SwiftTypeSpec is NamedTypeSpec keyPathSpec &&
+                !keyPathSpec.GenericParameters.All(g => IsKeyPathGenericArgResolvable(g, typeDatabase)))
             {
                 return false;
             }
@@ -2724,29 +2737,75 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// use <see cref="ResolvePublicCSharpType"/>'s TypeRecord-derived form (<c>Swift.SwiftString</c>)
     /// and CS1503 would fire at the call site against a <c>KeyPath&lt;R, string&gt;</c> argument.
     /// </summary>
+    /// <summary>
+    /// Swift primitive → idiomatic C# keyword for KeyPath generic arguments. Single source of
+    /// truth shared by <see cref="ResolveKeyPathGenericArgPublicType"/> (which renders the
+    /// keyword) and <see cref="IsKeyPathGenericArgResolvable"/> (which treats membership as
+    /// "always resolvable without a TypeRecord"), so the two cannot drift.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> s_keyPathPrimitiveCSharpRenders =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Swift.String"] = "string",
+            ["Swift.Bool"]   = "bool",
+            ["Swift.Int"]    = "nint",
+            ["Swift.UInt"]   = "nuint",
+            ["Swift.Int8"]   = "sbyte",
+            ["Swift.Int16"]  = "short",
+            ["Swift.Int32"]  = "int",
+            ["Swift.Int64"]  = "long",
+            ["Swift.UInt8"]  = "byte",
+            ["Swift.UInt16"] = "ushort",
+            ["Swift.UInt32"] = "uint",
+            ["Swift.UInt64"] = "ulong",
+            ["Swift.Float"]  = "float",
+            ["Swift.Double"] = "double",
+        };
+
     private static string ResolveKeyPathGenericArgPublicType(TypeSpec arg, ITypeDatabase typeDatabase)
     {
-        if (arg is NamedTypeSpec named)
+        if (arg is NamedTypeSpec named &&
+            s_keyPathPrimitiveCSharpRenders.TryGetValue(named.Name, out var keyword))
         {
-            switch (named.Name)
-            {
-                case "Swift.String": return "string";
-                case "Swift.Bool":   return "bool";
-                case "Swift.Int":    return "nint";
-                case "Swift.UInt":   return "nuint";
-                case "Swift.Int8":   return "sbyte";
-                case "Swift.Int16":  return "short";
-                case "Swift.Int32":  return "int";
-                case "Swift.Int64":  return "long";
-                case "Swift.UInt8":  return "byte";
-                case "Swift.UInt16": return "ushort";
-                case "Swift.UInt32": return "uint";
-                case "Swift.UInt64": return "ulong";
-                case "Swift.Float":  return "float";
-                case "Swift.Double": return "double";
-            }
+            return keyword;
         }
         return ResolvePublicCSharpType(arg, typeDatabase);
+    }
+
+    /// <summary>
+    /// A KeyPath generic argument is admissible only when it renders to a QUALIFIED, in-scope
+    /// C# type. <see cref="ResolvePublicCSharpType"/> falls back to an UNqualified bare name
+    /// (<c>named.Name.Split('.').Last()</c>) for any named type with no <c>TypeRecord</c> — e.g.
+    /// a foreign-framework KeyPath root like CoreSpotlight's <c>CSSearchableItemAttributeSet</c>
+    /// in an AppIntents-only generation — yielding a <c>PartialKeyPath&lt;CSSearchableItemAttributeSet&gt;</c>
+    /// that fails to compile (CS0246). The projection-based (non-CSM) path already drops such a
+    /// KeyPath by returning <c>null</c> from <c>TypeProjectionFactory.Project</c>; this mirrors
+    /// that so the admissibility predicate and the renderer agree. Recurses into nested generic
+    /// arguments because the renderer renders those too.
+    /// </summary>
+    internal static bool IsKeyPathGenericArgResolvable(TypeSpec arg, ITypeDatabase typeDatabase)
+    {
+        // Non-named args render to "IntPtr" (resolvable); leave that path unchanged.
+        if (arg is not NamedTypeSpec named)
+            return true;
+
+        if (s_keyPathPrimitiveCSharpRenders.ContainsKey(named.Name))
+            return true;
+
+        bool hasRecord;
+        try
+        {
+            var typeName = SwiftTypeName.FromModuleQualifiedName(named.Name);
+            hasRecord = typeDatabase.TryGetTypeRecord(typeName, out _);
+        }
+        catch (ArgumentException)
+        {
+            hasRecord = false;
+        }
+        if (!hasRecord)
+            return false;
+
+        return named.GenericParameters.All(g => IsKeyPathGenericArgResolvable(g, typeDatabase));
     }
 
     private static string ResolvePublicCSharpType(TypeSpec typeSpec, ITypeDatabase typeDatabase)

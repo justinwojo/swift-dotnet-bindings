@@ -901,6 +901,75 @@ public class ConcreteSpecializationEngineTests
             "concrete SameType match (τ_0_0 == Swift.String against Swift.String) must be admitted");
     }
 
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_SameType_GenericRhs_NotTruncated_AdmitsMatch()
+    {
+        // Regression: the whole generic signature is wrapped in one pair of angle brackets,
+        // and when the last SameType RHS is itself a generic type the sig ends in `>>` —
+        // `<τ_0_0 where τ_0_0 == Foundation.Measurement<Foundation.UnitDuration>>`. A greedy
+        // TrimEnd('>') ate BOTH closers, truncating the target to
+        // `Foundation.Measurement<Foundation.UnitDuration`. That made an exactly-matching
+        // conformer compare unequal (false reject, silent under-emission) AND, on the
+        // dependent-member path, threw out of TypeSpecParser.Parse. The parser must keep the
+        // target's own closing `>`, so this exact-match conformer is admitted.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig(
+            "expectMeasurement",
+            "<τ_0_0 where τ_0_0 == Foundation.Measurement<Foundation.UnitDuration>>");
+        var parent = CreateGenericStructDecl("Holder", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "Foundation.Measurement<Foundation.UnitDuration>",
+            CSharpType: "Measurement");
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.True(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "generic SameType RHS must retain its closing '>' — exact-match conformer must be admitted, not truncated away");
+    }
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_SameType_GenericRhs_StillRejectsMismatch()
+    {
+        // Negative control for the truncation fix: keeping the full (untruncated) target
+        // must still reject a conformer that differs only by the generic argument — proving
+        // the compare is against the whole `Measurement<UnitDuration>`, not a prefix.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig(
+            "expectMeasurement",
+            "<τ_0_0 where τ_0_0 == Foundation.Measurement<Foundation.UnitDuration>>");
+        var parent = CreateGenericStructDecl("Holder", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "Foundation.Measurement<Foundation.UnitLength>",
+            CSharpType: "Measurement");
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.False(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "generic SameType RHS mismatch (UnitDuration vs UnitLength) must still be rejected");
+    }
+
     // The five tests above all exercise the BARE-LHS SameType branch (`τ_0_0 == …`, routed
     // through IsCouplingDeferredSameTypeTarget). The three below cover the complementary
     // DEPENDENT-MEMBER-LHS branch (`τ_0_0.Element == …`, routed through
@@ -1102,6 +1171,66 @@ public class ConcreteSpecializationEngineTests
                 AssosiatedTypeConformances: new List<GenericParameterConformance>()),
             ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Protocol"),
             Conformers: conformers);
+    }
+
+    // ============ KeyPath generic-arg resolvability gate ============
+    // A CSM KeyPath-family parameter renders its inner generic arguments into the public C#
+    // signature via BuildKeyPathPublicCSharpType → ResolvePublicCSharpType, which falls back to
+    // an UNqualified bare name for any type with no TypeRecord (e.g. CoreSpotlight's ObjC-rooted
+    // CSSearchableItemAttributeSet in an AppIntents-only generation), producing
+    // PartialKeyPath<CSSearchableItemAttributeSet> → CS0246. IsKeyPathGenericArgResolvable gates
+    // the specialization so the predicate and the renderer agree.
+
+    [Fact]
+    public void IsKeyPathGenericArgResolvable_SwiftPrimitive_NeedsNoTypeRecord()
+    {
+        // Empty DB: no records at all, yet a Swift primitive still renders to a C# keyword.
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsKeyPathGenericArgResolvable(
+            new NamedTypeSpec("Swift.String"), new EmptyTypeDatabase()));
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsKeyPathGenericArgResolvable(
+            new NamedTypeSpec("Swift.Int"), new EmptyTypeDatabase()));
+    }
+
+    [Fact]
+    public void IsKeyPathGenericArgResolvable_TypeWithRecord_IsResolvable()
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("AppIntents.IntentFile"),
+            "AppIntents", "IntentFile");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsKeyPathGenericArgResolvable(
+            new NamedTypeSpec("AppIntents.IntentFile"), db));
+    }
+
+    [Fact]
+    public void IsKeyPathGenericArgResolvable_ForeignTypeWithoutRecord_IsRejected()
+    {
+        // CoreSpotlight has no TypeRecord (declKind=Import, ObjC-rooted) → would render
+        // unqualified → reject. This is the AppIntents indexingKey: regression.
+        Assert.False(ConcreteProtocolSpecializationEmitter.IsKeyPathGenericArgResolvable(
+            new NamedTypeSpec("CoreSpotlight.CSSearchableItemAttributeSet"), new ResolvingTypeDatabase()));
+    }
+
+    [Fact]
+    public void IsKeyPathGenericArgResolvable_NestedGenericWithUnresolvableInner_IsRejected()
+    {
+        // Resolvable base, unresolvable inner arg: ResolvePublicCSharpType recurses into the
+        // inner type, so the gate must too — an inner unqualified name still breaks the build.
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+
+        var nested = new NamedTypeSpec("Swift.Array",
+            new NamedTypeSpec("CoreSpotlight.CSSearchableItemAttributeSet"));
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.IsKeyPathGenericArgResolvable(nested, db));
+    }
+
+    [Fact]
+    public void IsKeyPathGenericArgResolvable_NonNamedArg_RendersToIntPtr_IsResolvable()
+    {
+        // Non-named args render to "IntPtr" (resolvable); the gate must not over-reject them.
+        Assert.True(ConcreteProtocolSpecializationEmitter.IsKeyPathGenericArgResolvable(
+            new TupleTypeSpec(), new EmptyTypeDatabase()));
     }
 
     // ==================== Test Doubles ====================
