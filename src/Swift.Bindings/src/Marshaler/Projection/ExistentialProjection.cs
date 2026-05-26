@@ -39,6 +39,12 @@ public class ExistentialProjection : ITypeProjection
     public string PInvokeType => _containerType;
     public string? PInvokeAttribute => null;
 
+    // The owned-return ctor argument, emitted only for single-protocol (EC1) proxies that
+    // expose the ownership-aware ctor. Multi-protocol composition proxies (EC2+) use a
+    // distinct 1-arg ctor and a separate (currently no-op) release path.
+    private string OwnsContainerArg =>
+        _containerType == "Swift.Runtime.ExistentialContainer1" ? ", ownsContainer: true" : string.Empty;
+
     public MarshalPlan GetParameterPlan(string paramName)
     {
         string expr;
@@ -77,7 +83,12 @@ public class ExistentialProjection : ITypeProjection
         else
         {
             expression = _proxyClassName != null
-                ? $"new {_proxyClassName}({resultName})"
+                // Owned return: Swift transfers the existential at +1, so the proxy adopts
+                // the container and releases it on Dispose/finalize (ownsContainer: true).
+                // Only single-protocol (EC1) proxies expose the ownership-aware ctor;
+                // multi-protocol composition proxies (EC2+, emitted by ModuleHandler with an
+                // empty Dispose) are a separate release mechanism and keep their 1-arg ctor.
+                ? $"new {_proxyClassName}({resultName}{OwnsContainerArg})"
                 : _publicType == "object"
                     ? resultName
                     : $"new {_publicType}({resultName})";
@@ -99,6 +110,14 @@ public class ExistentialProjection : ITypeProjection
                 ? $"ExistentialContainerFactory.GetOrCreate<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
                 : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
+    // Non-owning by design: this element conversion is reused by BOTH owned collection-element
+    // returns AND borrowed Swift->C# receiver-callback parameter wraps
+    // (GetReceiverExistentialSetterConversion). A receiver parameter is +0 guaranteed — Swift
+    // retains ownership and MarshalFromSwift bitwise-reads the container without a retain — so
+    // adopting it would run a value-witness Destroy on storage Swift still owns (over-release /
+    // UAF). Owned scalar returns balance their +1 through GetReturnPlan; owned OPTIONAL existential
+    // returns use GetOwnedReturnElementConversion below. The owned collection-element +1 stays a
+    // pre-existing deferred wire-carrier gap pending per-collection copy-then-destroy verification.
     public string? GetReturnElementConversion(string elementVar) =>
         _isBareAny
             ? $"ExistentialContainer0.Unbox({elementVar})"
@@ -109,6 +128,20 @@ public class ExistentialProjection : ITypeProjection
                 : _publicType == "object"
                     ? $"(object){elementVar}"
                     : $"new {_publicType}({elementVar})";
+
+    /// <summary>
+    /// Owned-return variant of <see cref="GetReturnElementConversion"/>: the proxy ADOPTS a
+    /// Swift-returned existential at +1 (read out of an sret/out buffer that is then raw-freed,
+    /// so the only surviving retain lives in the proxy) and releases it on Dispose/finalize.
+    /// Used only by owned OPTIONAL existential returns (<c>OptionalProjection</c>); the borrowed
+    /// receiver-callback path keeps the non-owning <see cref="GetReturnElementConversion"/>.
+    /// Falls back to the non-owning form for bare-<c>any</c>/no-proxy and non-EC1 containers
+    /// (<see cref="OwnsContainerArg"/> is empty for those), which have no single-proxy +1 to adopt.
+    /// </summary>
+    public string? GetOwnedReturnElementConversion(string elementVar) =>
+        !_isBareAny && _proxyClassName != null
+            ? $"({_publicType})new {_proxyClassName}({elementVar}{OwnsContainerArg})"
+            : GetReturnElementConversion(elementVar);
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

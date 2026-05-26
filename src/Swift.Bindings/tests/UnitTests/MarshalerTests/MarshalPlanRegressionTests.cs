@@ -711,7 +711,7 @@ public class MarshalPlanRegressionTests
             "Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Equal("new DescribableProxy(result)", plan.PInvokeExpression);
+        Assert.Equal("new DescribableProxy(result, ownsContainer: true)", plan.PInvokeExpression);
     }
 
     [Fact]

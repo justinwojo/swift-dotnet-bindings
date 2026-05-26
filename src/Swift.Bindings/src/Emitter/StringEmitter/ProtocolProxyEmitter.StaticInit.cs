@@ -64,6 +64,17 @@ public partial class ProtocolProxyEmitter
             private ExistentialContainer1 _swiftContainer;
             private bool _disposed;
 
+            // True only for proxies that ADOPTED a Swift-returned existential at +1 (the
+            // owned-return marshalling paths construct with `ownsContainer: true`). Such a
+            // proxy owns the container's value-witness retains and must release them on
+            // Dispose/finalize. False for every other construction — C#-impl-backed
+            // proxies (lifetime owned by ProxyLifetimeTracker), borrowed parameter wraps
+            // (ExistentialContainerFactory.GetOrCreate), payload-pointer reads
+            // (NewFromPayload), and externally-constructed/synthetic containers — none of
+            // which own a +1, so releasing their (often borrowed or zeroed) container
+            // would be a use-after-free / null-metadata crash.
+            private readonly bool _ownsContainer;
+
             """);
     }
 

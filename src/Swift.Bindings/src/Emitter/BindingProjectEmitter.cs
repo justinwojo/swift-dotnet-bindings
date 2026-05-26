@@ -388,7 +388,7 @@ namespace BindingsGeneration
                     <PackageId>{packageId}</PackageId>{versionComment}
                     <PackageVersion>{options.Metadata.PackageVersion}</PackageVersion>
                     <SupportedOSPlatformVersion>{options.Metadata.EffectiveMinimumOSVersion}</SupportedOSPlatformVersion>
-                    <NoWarn>CS0169;CA1420</NoWarn>
+                    <NoWarn>CS0169;CS0414;CA1420</NoWarn>
                     <!-- Disable default Compile items: the generator already lists every emitted
                          .cs file explicitly below, and the SDK's wildcard would otherwise pull in
                          the same files a second time and trip NETSDK1022 ("duplicate Compile

@@ -52,7 +52,7 @@ public class ComplexProjectionTests
     {
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("new DescribableProxy(result)", plan.PInvokeExpression);
+        Assert.Equal("new DescribableProxy(result, ownsContainer: true)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -79,9 +79,39 @@ public class ComplexProjectionTests
         Assert.NotNull(paramConv);
         Assert.Contains("ExistentialContainerFactory.GetOrCreate<IDescribable>", paramConv);
 
+        // Element conversion stays NON-owning: it is reused by GetReceiverExistentialSetterConversion
+        // to wrap borrowed Swift->C# callback parameters (+0 guaranteed). Stamping it ownsContainer:true
+        // would give a borrowed-parameter proxy a value-witness Destroy on finalize -> over-release/UAF.
+        // Scalar owned returns balance their +1 via GetReturnPlan (asserted above), not here.
         var retConv = proj.GetReturnElementConversion("e");
         Assert.NotNull(retConv);
         Assert.Equal("(IDescribable)new DescribableProxy(e)", retConv);
+    }
+
+    [Fact]
+    public void Existential_OwnedElementConversion_EC1_Adopts()
+    {
+        // Owned OPTIONAL existential returns (OptionalProjection's existential-inner branch) adopt the
+        // Swift-returned +1: the inner container is read out of an sret/out buffer that is then raw-freed,
+        // so the proxy is the only surviving retain and must release on Dispose/finalize. The owned
+        // variant stamps ownsContainer:true; the shared GetReturnElementConversion stays non-owning so
+        // borrowed receiver-callback wraps don't over-release.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy");
+        Assert.Equal("(IDescribable)new DescribableProxy(e, ownsContainer: true)", proj.GetOwnedReturnElementConversion("e"));
+        Assert.Equal("(IDescribable)new DescribableProxy(e)", proj.GetReturnElementConversion("e"));
+    }
+
+    [Fact]
+    public void Existential_OwnedElementConversion_NonEC1_FallsBackNonOwning()
+    {
+        // Only EC1 single-protocol proxies expose the ownership-aware ctor. EC2+ composition proxies
+        // (and bare-any/object) have no single +1 to adopt, so the owned variant falls back to the
+        // non-owning form (OwnsContainerArg is empty for non-EC1 containers).
+        var ec2 = new ExistentialProjection("Swift.Runtime.ExistentialContainer2", "IDescribable", "DescribableProxy");
+        Assert.Equal("(IDescribable)new DescribableProxy(e)", ec2.GetOwnedReturnElementConversion("e"));
+
+        var bareAny = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
+        Assert.Equal(bareAny.GetReturnElementConversion("e"), bareAny.GetOwnedReturnElementConversion("e"));
     }
 
     [Fact]

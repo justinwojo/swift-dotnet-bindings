@@ -729,7 +729,7 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public TestProtocolProxy(ExistentialContainer1 container)", output);
+        Assert.Contains("public TestProtocolProxy(ExistentialContainer1 container, bool ownsContainer = false)", output);
     }
 
     [Fact]
@@ -923,7 +923,7 @@ public class ProtocolProxyEmitterTests
         Assert.Contains(": IEmptyProtocol, ISwiftObject, IDisposable", output);
         // Constructor and ISwiftObject implementation still emitted
         Assert.Contains("public unsafe EmptyProtocolProxy(IEmptyProtocol implementation)", output);
-        Assert.Contains("public EmptyProtocolProxy(ExistentialContainer1 container)", output);
+        Assert.Contains("public EmptyProtocolProxy(ExistentialContainer1 container, bool ownsContainer = false)", output);
         Assert.Contains("public static TypeMetadata GetTypeMetadata()", output);
     }
 
@@ -3893,7 +3893,7 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocolDecl);
 
         // Should construct proxy from existential container
-        Assert.Contains("new TargetProtocolProxy(container)", output);
+        Assert.Contains("new TargetProtocolProxy(container, ownsContainer: true)", output);
         // Should use Unsafe.Read to recover the container (fully qualified type name)
         Assert.Contains("Unsafe.Read<Swift.Runtime.ExistentialContainer1>", output);
         // Should call accessor P/Invoke
@@ -3979,7 +3979,7 @@ public class ProtocolProxyEmitterTests
         // Should check null result for error
         Assert.Contains("resultPtr == IntPtr.Zero", output);
         // Should still construct proxy on success
-        Assert.Contains("new TargetProtocolProxy(container)", output);
+        Assert.Contains("new TargetProtocolProxy(container, ownsContainer: true)", output);
     }
 
     [Fact]
@@ -5469,16 +5469,29 @@ public class ProtocolProxyEmitterTests
     #region Proxy Lifetime Ownership Tests
 
     [Fact]
-    public void Proxy_HasNoFinalizer()
+    public void Proxy_OwnedContainerFinalizer_ReleasesAdoptedExistentialButIsSuppressedOtherwise()
     {
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false);
         var output = EmitProxyClass(protocolDecl);
 
-        // ProxyLifetimeTracker owns the +1 release path now. The proxy holds no
-        // unmanaged resources directly, so there is nothing for a finalizer to do.
-        Assert.DoesNotContain("~TestProtocolProxy()", output);
-        // No "was finalized without Dispose" leak warning either — missed Dispose
-        // is no longer a leak under the impl-anchored lifetime model.
+        // An owned-return proxy (constructed with ownsContainer: true) adopts a Swift-returned
+        // existential at +1, so it owns the container's value-witness retains and needs a
+        // finalizer to release them if the consumer never calls Dispose. Unlike the
+        // C#-impl-backed proxies (whose +1 is anchored by ProxyLifetimeTracker), an adopted
+        // return value has no tracker — Dispose or the finalizer is its only release path.
+        Assert.Contains("~TestProtocolProxy()", output);
+        Assert.Contains("ReleaseAdoptedSwiftContainer", output);
+        // The release is gated on ownership: borrowed parameter/payload wraps and zeroed
+        // containers are never value-witness Destroyed (doing so would crash).
+        Assert.Contains("if (!_ownsContainer)", output);
+        // Non-owning constructions suppress finalization in the constructor, so the finalizer
+        // only ever runs for proxies that actually own a +1 — preserving the original
+        // impl-anchored model's guarantee that a C#-impl-backed proxy never finalizes its
+        // Swift instance out from under in-flight Swift dispatch.
+        Assert.Contains("if (!ownsContainer)", output);
+        Assert.Contains("GC.SuppressFinalize(this)", output);
+        // Still no eager "finalized without Dispose" leak warning — a missed Dispose on an
+        // owned proxy is recovered by the finalizer, not flagged.
         Assert.DoesNotContain("was finalized without Dispose()", output);
     }
 
@@ -5597,7 +5610,7 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("resultPtr == IntPtr.Zero", output);
         Assert.Contains("return null", output);
         // Should have proxy construction when non-null
-        Assert.Contains("new DataCachingProxy(container)", output);
+        Assert.Contains("new DataCachingProxy(container, ownsContainer: true)", output);
         // Should have free function
         Assert.Contains("SBW_TestProtocol_free_method_findCache_0", output);
     }

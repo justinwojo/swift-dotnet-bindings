@@ -11,7 +11,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <NoWarn>$(NoWarn);CS0169;CA1420;SB0001;SB0002;SB0003;SB0004</NoWarn>
+    <NoWarn>$(NoWarn);CS0169;CS0414;CA1420;SB0001;SB0002;SB0003;SB0004</NoWarn>
 
     <!-- Exclude nested obj/ directories from default Compile globs.
          Microsoft.NET.Sdk only excludes $(BaseIntermediateOutputPath)/** (= obj/**),

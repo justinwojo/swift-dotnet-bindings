@@ -1698,7 +1698,14 @@ public partial class ProtocolProxyEmitter
         proxyClassName = existentialHandler.QualifyProxyClassName(proxyClassName, protocolList!);
 
         var resultPreamble = $"var container = Unsafe.Read<{containerType}>((void*)resultPtr);";
-        var resultExpression = $"new {proxyClassName}(container)";
+        // Owned return: the dispatched Swift method returned the existential at +1, so the
+        // proxy adopts the container and releases it on Dispose. Only single-protocol (EC1)
+        // proxies expose the ownership-aware ctor; composition proxies (EC2+) use a 1-arg ctor.
+        // Gate on the container type, not the protocol count (ObjC filtering can diverge them).
+        var ownsContainerArg = containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal)
+            ? ", ownsContainer: true"
+            : string.Empty;
+        var resultExpression = $"new {proxyClassName}(container{ownsContainerArg})";
         EmitHeapPointerMethodBody(writer, method, dispatchEmitter,
             methodName, argsString, argNames, paramSwiftTypeSpecs,
             accessorSymbol, freeSymbol, resultExpression, resultPreamble, isOptionalReturn: isOptionalExistential);

@@ -340,8 +340,15 @@ public class OptionalProjection : ITypeProjection
 
         if (_isExistentialInner)
         {
-            // Existential inner — discriminant check + proxy construction
-            var elemConversion = _innerProjection.GetReturnElementConversion("swiftResult.Some");
+            // Existential inner — discriminant check + proxy construction.
+            // Owned return: Swift transfers the inner existential at +1 via the sret/out buffer
+            // (raw-freed after the read), so the adopting proxy must release it on Dispose/finalize
+            // or the payload's +1 leaks. Request the owned element conversion (ownsContainer: true)
+            // explicitly — the shared GetReturnElementConversion stays non-owning because it is also
+            // reused for borrowed Swift->C# receiver-callback parameter wraps.
+            var elemConversion = _innerProjection is ExistentialProjection existInner
+                ? existInner.GetOwnedReturnElementConversion("swiftResult.Some")
+                : _innerProjection.GetReturnElementConversion("swiftResult.Some");
             var convExpr = elemConversion ?? "swiftResult.Some";
 
             // Optional<any Error> direct-IntPtr return: `any Error` is class-bound (single

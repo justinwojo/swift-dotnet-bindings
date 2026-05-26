@@ -36,6 +36,99 @@ public partial class ProtocolProxyEmitter
         // our-proxy-on-the-wire case, word 1 IS our witness table already (set by the ctor
         // that originated the proxy), so preserving is also correct.
         var useClassBoundContainerLayout = IsProtocolClassBound(protocolDecl) || _useObjCBase;
+
+        // A proxy that ADOPTED a Swift-returned `any P` / `(any P)?` existential at +1
+        // (constructed with `ownsContainer: true` by the owned-return marshalling paths)
+        // owns, for the OPAQUE (5-word) layout, the container's value-witness retains —
+        // the inline class reference for a class conformer, or the heap box for a boxed
+        // value conformer — and must release them on Dispose/finalize, or the payload's
+        // +1 is orphaned. Destroying through the opaque existential's own value-witness
+        // table (resolved by protocol count) releases either shape correctly. The release
+        // is gated on _ownsContainer: borrowed parameter wraps, payload-pointer reads,
+        // C#-impl-backed proxies (lifetime anchored by ProxyLifetimeTracker), and
+        // externally constructed / zeroed containers do NOT own a +1 and must not be
+        // destroyed. The class-bound / ObjC 2-word [classRef][witnessTable] layout is a
+        // separate release shape and keeps the original no-release Dispose untouched.
+        var disposeOwnsContainer = !useClassBoundContainerLayout;
+        var disposeAndFinalizer = disposeOwnsContainer
+            ? $$"""
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                GC.SuppressFinalize(this);
+                ReleaseAdoptedSwiftContainer();
+                // C#-impl-backed proxies anchor their +1 via ProxyLifetimeTracker, so
+                // Dispose only unregisters the strong root here; the ARC release waits
+                // for impl GC (tracker finalizer) or Swift's last release (deinit
+                // callback). The null-safe receivers ensure an Unregister'd handle does
+                // not throw across the [UnmanagedCallersOnly] boundary if Swift
+                // dispatches concurrently.
+                if (_everyProtocolHandle != IntPtr.Zero)
+                    SwiftObjectRegistry.Unregister(_everyProtocolHandle);
+            }
+
+            /// <summary>
+            /// Finalizer — releases an adopted (<c>_ownsContainer</c>) existential container
+            /// if the consumer never called <see cref="Dispose"/>. Non-owning proxies
+            /// suppress finalization in their constructor, so this only runs for owners.
+            /// </summary>
+            ~{{proxyClassName}}()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                ReleaseAdoptedSwiftContainer();
+            }
+
+            // Releases the value-witness retains of an ADOPTED Swift-returned existential
+            // container. Gated to proxies that actually own a +1 (_ownsContainer == true,
+            // set only by the owned-return marshalling paths). C#-impl-backed proxies,
+            // borrowed parameter wraps, payload-pointer reads, and externally constructed
+            // or zeroed containers do NOT own a +1 — destroying their (possibly borrowed
+            // or null-metadata) container would be a use-after-free / SIGSEGV. Destroying
+            // through the opaque existential's own VWT releases an inline class reference
+            // or a boxed value payload alike.
+            private void ReleaseAdoptedSwiftContainer()
+            {
+                if (!_ownsContainer)
+                    return;
+                try
+                {
+                    fixed (ExistentialContainer1* containerPtr = &_swiftContainer)
+                    {
+                        var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(_swiftContainer.Count);
+                        Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)containerPtr, existentialMetadata);
+                    }
+                }
+                catch
+                {
+                    // Existential metadata unavailable (e.g. SwiftBindingsRuntime not
+                    // loaded under unit tests) — skip the destroy rather than throw
+                    // from Dispose/finalize.
+                }
+            }
+            """
+            : """
+            public void Dispose()
+            {
+                if (_disposed) return;
+                _disposed = true;
+                // No finalizer to suppress — the proxy no longer owns any unmanaged
+                // resources directly. ProxyLifetimeTracker owns the +1 release path
+                // via the impl-keyed ConditionalWeakTable; dropping it here would
+                // deallocate the Swift instance while in-flight Swift code may still
+                // be dispatching into this proxy. Explicit Dispose unregisters the
+                // strong root so further Swift callbacks route to the receivers'
+                // null-impl guard (silent no-op / zeroed-buffer default) — the ARC
+                // release waits for either impl GC (tracker finalizer) or Swift's
+                // last release (deinit callback), whichever comes first. The
+                // null-safe receivers (Codex P0/P1 #3 fix) ensure that an
+                // Unregister'd handle does NOT throw across the
+                // [UnmanagedCallersOnly] boundary if Swift dispatches concurrently.
+                if (_everyProtocolHandle != IntPtr.Zero)
+                    SwiftObjectRegistry.Unregister(_everyProtocolHandle);
+            }
+            """;
         var newFromPayloadBody = useClassBoundContainerLayout
             ? $"// Class-bound (AnyObject-rooted or EveryObjCProtocol): Swift passes a 2-word\n                // existential ([classRef][witnessTable]). Read exactly two wire words;\n                // preserve both so foreign implementations round-trip through their own WT.\n                var wordPtr = (IntPtr*)payload;\n                var container = new ExistentialContainer1\n                {{\n                    Payload0 = wordPtr[0],\n                    Payload1 = wordPtr[1],\n                }};\n                return new {proxyClassName}(container);"
             : $"// Opaque (5-word [payload0][payload1][payload2][metadata][WT]) existential\n                var container = *(ExistentialContainer1*)payload;\n                return new {proxyClassName}(container);";
@@ -108,25 +201,7 @@ public partial class ProtocolProxyEmitter
                     "Proxy classes use EveryProtocol's witness table, not native conformance descriptors.");
             }
 
-            public void Dispose()
-            {
-                if (_disposed) return;
-                _disposed = true;
-                // No finalizer to suppress — the proxy no longer owns any unmanaged
-                // resources directly. ProxyLifetimeTracker owns the +1 release path
-                // via the impl-keyed ConditionalWeakTable; dropping it here would
-                // deallocate the Swift instance while in-flight Swift code may still
-                // be dispatching into this proxy. Explicit Dispose unregisters the
-                // strong root so further Swift callbacks route to the receivers'
-                // null-impl guard (silent no-op / zeroed-buffer default) — the ARC
-                // release waits for either impl GC (tracker finalizer) or Swift's
-                // last release (deinit callback), whichever comes first. The
-                // null-safe receivers (Codex P0/P1 #3 fix) ensure that an
-                // Unregister'd handle does NOT throw across the
-                // [UnmanagedCallersOnly] boundary if Swift dispatches concurrently.
-                if (_everyProtocolHandle != IntPtr.Zero)
-                    SwiftObjectRegistry.Unregister(_everyProtocolHandle);
-            }
+            {{disposeAndFinalizer}}
 
             #endregion
 

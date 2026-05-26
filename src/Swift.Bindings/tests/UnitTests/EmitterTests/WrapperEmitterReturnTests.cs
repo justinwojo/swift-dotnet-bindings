@@ -261,7 +261,37 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("new DrawableProxy(result)", csOutput);
+        Assert.Contains("new DrawableProxy(result, ownsContainer: true)", csOutput);
+    }
+
+    [Fact]
+    public void Return_OptionalExistential_EmitsOwningProxyConstruction()
+    {
+        // Owned optional-existential return: Swift transfers the inner existential at +1, so the
+        // wrapping EC1 proxy must adopt and release it on Dispose/finalize (ownsContainer: true) or
+        // the payload's +1 leaks. Mirrors the non-optional case above; guards the owned-return
+        // routing across the Optional wrapper (the borrowed receiver-callback path stays non-owning).
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        // Method returning `(any Drawable)?` — optional existential return
+        var optionalExistential = new NamedTypeSpec("Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Drawable") }));
+
+        var method = CreateMethodDecl(
+            name: "getDrawableMaybe",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: optionalExistential,
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("ownsContainer: true", csOutput);
+        Assert.Contains("DrawableProxy", csOutput);
     }
 
     [Fact]

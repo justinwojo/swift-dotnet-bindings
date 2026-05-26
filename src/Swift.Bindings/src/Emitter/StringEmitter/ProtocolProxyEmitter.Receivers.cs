@@ -1702,6 +1702,10 @@ public partial class ProtocolProxyEmitter
                     try { Arc.Release(_everyProtocolHandle); } catch { /* already deallocating */ }
                     throw;
                 }
+                // C#-impl-backed proxies never adopt a +1 container (ProxyLifetimeTracker
+                // owns the release path); the finalizer's container release is a no-op for
+                // them, so suppress it to keep them off the finalizer queue.
+                GC.SuppressFinalize(this);
                 Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 
@@ -1715,12 +1719,25 @@ public partial class ProtocolProxyEmitter
             /// (non-blittable non-String types, throwing, async) throw <see cref="NotSupportedException"/>.
             /// </remarks>
             /// <param name="container">The Swift existential container.</param>
+            /// <param name="ownsContainer">
+            /// True when this proxy ADOPTS a Swift-returned existential at +1 (set by the
+            /// owned-return marshalling paths). The proxy then owns the container's
+            /// value-witness retains and releases them on Dispose/finalize. Defaults to
+            /// false: borrowed parameter wraps, payload-pointer reads, and externally
+            /// constructed/synthetic containers do NOT own a +1 and must not be released.
+            /// </param>
             [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
-            public {{proxyClassName}}(ExistentialContainer1 container)
+            public {{proxyClassName}}(ExistentialContainer1 container, bool ownsContainer = false)
             {
                 _swiftContainer = container;
                 _csharpImplRef = null;
                 _everyProtocolHandle = IntPtr.Zero;
+                _ownsContainer = ownsContainer;
+                // Only an owning proxy has anything to release; suppress the finalizer for
+                // borrowed/synthetic containers so they never queue a no-op finalize (and,
+                // critically, never run a value-witness Destroy on a container they don't own).
+                if (!ownsContainer)
+                    GC.SuppressFinalize(this);
                 Swift.Runtime.SwiftDisposeScope.TryRegister(this);
             }
 

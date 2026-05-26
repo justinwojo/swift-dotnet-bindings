@@ -3,6 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using Swift;
+using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Collections;
 
@@ -125,6 +126,66 @@ public class SwiftSetWrapperTests : TestBase
         var s3 = new SwiftString("world");
         AssertTrue(set.Add(s3), "Add(\"world\") after duplicate insert returns true");
         AssertEqual(2, set.Count, "SwiftSet<SwiftString> count is 2 after distinct insert post-duplicate");
+    }
+
+    #endregion
+
+    #region Set<class> — Hashable witness table on a reference-type element (NativeAOT pre-registration)
+
+    /// <summary>
+    /// Count / contains / membership round-trip for a Swift <c>Set</c> whose element is a
+    /// user-defined Swift CLASS conforming to Hashable (<c>TrackedRef</c>, identity-based
+    /// <c>==</c>/<c>hash(into:)</c>). Every Set operation resolves the element's Hashable
+    /// witness table through <c>HashableConformanceRegistry.GetHashableWitnessTable&lt;T&gt;</c>.
+    /// On NativeAOT that path is reflection-free ONLY when the class's Hashable conformance
+    /// was pre-registered into <c>WitnessTableDispatcher</c> by the generated
+    /// <c>[ModuleInitializer]</c> — class (reference-type) Hashable conformances were
+    /// previously dropped from that registration list, so this exercised the AOT-incompatible
+    /// reflection fallback and crashed on device. Functional companion to
+    /// <c>WireCarrierLeakProbeTests.TestSetOfClassReturnReleasesMembers</c>.
+    ///
+    /// The set is produced by Swift (<c>MakeTrackedRefSet</c>) rather than built C#-side with
+    /// <c>Add</c>: <c>SwiftSet&lt;class&gt;.Add</c> routes through the generic CallConvSwift
+    /// <c>Set.insert</c>, whose <c>(Bool direct, @out Element via x0)</c> tuple-return shape is
+    /// the confirmed-upstream Mono-simulator bug (Issue 3) — it corrupts the caller's <c>self</c>
+    /// slot and SIGSEGVs on the next VWT Destroy. The concrete <c>@_cdecl</c> insert wrappers
+    /// (Int/Int64/String) sidestep it, but no such wrapper exists for an arbitrary user class.
+    /// <c>Count</c>, enumeration, and <c>Contains</c> use the property / Bool-return / @out-via-x8
+    /// CallConvSwift shapes, which are unaffected, so this probe runs on both Simulator and device
+    /// while still exercising the class-element Hashable witness resolution that T1 restores.
+    /// </summary>
+    public void TestSwiftSetOfClassContainsCount()
+    {
+        const int memberCount = 5;
+        var set = TestLibFunctions.MakeTrackedRefSet(memberCount);
+        var members = new List<TrackedRef>();
+        try
+        {
+            AssertEqual(memberCount, set.Count, "Set<TrackedRef>.Count reflects the Swift-populated member count");
+
+            // Enumeration drives Set.Iterator.next() — each member is moved out through the
+            // element's value-witness table; the count must match what Swift inserted.
+            members.AddRange(set);
+            AssertEqual(memberCount, members.Count, "Enumerated member count matches Set<TrackedRef>.Count");
+
+            // Identity hashing/equality (===) via the registered Hashable witness table: every
+            // enumerated member wraps the same Swift object stored in the set, so Contains is true.
+            foreach (var member in members)
+                AssertTrue(set.Contains(member), $"Set<TrackedRef> contains its own member (tag={member.Tag})");
+
+            // An independently constructed instance is a distinct object: not a member. Proves the
+            // witness table drives membership, not a structural byte hash over the handle pointers.
+            using var stranger = new TrackedRef(memberCount + 100);
+            AssertTrue(!set.Contains(stranger), "Set<TrackedRef> does not contain an independently constructed instance");
+        }
+        finally
+        {
+            // Each enumerated member carries an independent +1 (moved out by the iterator),
+            // separate from the set carrier's copy — release both deterministically.
+            foreach (var member in members)
+                member.Dispose();
+            (set as IDisposable)?.Dispose();
+        }
     }
 
     #endregion

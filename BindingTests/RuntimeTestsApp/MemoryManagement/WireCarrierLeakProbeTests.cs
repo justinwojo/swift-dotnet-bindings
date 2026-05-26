@@ -172,7 +172,6 @@ public class WireCarrierLeakProbeTests : TestBase
     /// member wrappers must drive the live count to 0; a leaked carrier retain pins every
     /// member per call.
     /// </summary>
-    [SkipOnDevice("Generator bug: class Set-elements need a Hashable witness table, but the generator emits no WitnessTableDispatcher.Register for class conformances, so the unconstrained HashableConformanceRegistry.GetHashableWitnessTable<T> path falls to reflection MakeGenericMethod (AOT-incompatible). Orthogonal to the wire-carrier leak fix this probe validates on Mono; needs generated witness-table pre-registration.")]
     public void TestSetOfClassReturnReleasesMembers()
     {
         DrainFinalizers();

@@ -1294,8 +1294,20 @@ internal static class ProtocolConformanceHelper
         {
             if (!ShouldEmitConformance(conformance, moduleName, typeDatabase))
                 continue;
+            // Mirror GenerateProtocolConformanceDictionaryEntries: skip Self-requirement
+            // protocols EXCEPT Swift.Hashable. Hashable's witness table is consumed at
+            // runtime by SwiftSet/SwiftDictionary (and SwiftHashable.GetHashCode) via a
+            // PWT lookup keyed on typeof(ISwiftHashable). Reference (class) Hashable
+            // conformances resolve to a Hashable record that carries HasSelfRequirement
+            // (Hashable: Equatable), so without this exception they would be dropped from
+            // module-init pre-registration — leaving Set<ClassType>/[ClassKey: V] to fall
+            // back to AOT-incompatible reflection on NativeAOT. The conformance dictionary
+            // already keeps the entry via the same exception; this keeps the two consistent.
+            bool isHashable = conformance.Protocol.ModuleQualifiedName == "Swift.Hashable"
+                || (conformance.Protocol.Name == "Hashable" && string.IsNullOrEmpty(conformance.Protocol.Module));
             if (typeDatabase.TryGetTypeRecord(conformance.Protocol, out var protoRecord) &&
-                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement))
+                protoRecord.Flags.HasFlag(TypeRecordFlags.HasSelfRequirement) &&
+                !isHashable)
                 continue;
             if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
                 continue;
