@@ -295,6 +295,36 @@ public class WrapperEmitterReturnTests
     }
 
     [Fact]
+    public void AsyncReturn_Existential_EmitsOwningProxyConstruction()
+    {
+        // Owned async existential return: the async harness boxes `any Drawable` into the carrier
+        // at +1 and the completion callback reads it (`__existentialResult`) into the EC1 proxy,
+        // which must adopt and release the payload on Dispose/finalize (ownsContainer: true) — the
+        // same owned-return contract as the sync path above, but on the distinct async completion-
+        // callback emission mechanism (WrapperEmitter.Async). Guards that the async wrapper routes
+        // the existential return through the shared owned-return ctor arg, not a borrowed proxy.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Container", moduleDecl);
+
+        var protocolList = new ProtocolListTypeSpec(
+            new[] { new NamedTypeSpec("TestModule.Drawable") });
+
+        var method = CreateMethodDecl(
+            name: "getDrawableAsync",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: protocolList,
+            isAsync: true,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var (csOutput, _) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("new DrawableProxy(__existentialResult, ownsContainer: true)", csOutput);
+    }
+
+    [Fact]
     public void Return_WellKnownExistential_EmitsOwnedAnyError()
     {
         // `any Swift.Error` must emit the well-known `Swift.Foundation.AnyError`,

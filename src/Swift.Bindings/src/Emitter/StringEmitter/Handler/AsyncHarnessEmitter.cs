@@ -730,11 +730,20 @@ namespace BindingsGeneration
                 // this, the generic catch-all below emits `MarshalFromSwift<I{Protocol}>(resultPtr)`,
                 // which has no marshalling support for a plain interface target and throws
                 // NotSupportedException inside the [UnmanagedCallersOnly] callback — escaping a native
-                // Swift caller, which crashes the process (SIGSEGV). The container copy takes
-                // ownership of the boxed value's +1, so a plain SBW_Free (no VWT Destroy) is correct.
+                // Swift caller, which crashes the process (SIGSEGV). Swift wrote the existential
+                // into the carrier at +1, so the proxy ADOPTS the container (ownsContainer) and
+                // releases the payload's value-witness retains on Dispose/finalize — same owned-return
+                // contract as the sync proxy branch. The carrier free stays a plain dealloc (no VWT
+                // Destroy): the proxy holds an independent bitwise copy and owns its own release.
                 var asyncProtocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(asyncReturnSpec)!;
                 var asyncContainerType = _env.ExistentialHandler.GetCSharpExistentialType(asyncProtocolList);
                 var asyncPublicType = _env.ExistentialHandler.GetPublicExistentialType(asyncProtocolList);
+                // Owned-return ctor arg (`, ownsContainer: true`) for EC1/EC2+ proxies, mirroring
+                // WrapperEmitter.OwnedExistentialCtorArg; gated on the container TYPE via the shared
+                // ExistentialHandler predicate (not protocol count — ObjC filtering can drop protocols).
+                var asyncOwnedArg = ExistentialHandler.IsOwnedExistentialContainerType(asyncContainerType)
+                    ? ", ownsContainer: true"
+                    : string.Empty;
                 string asyncWrapExpr;
                 if (asyncProtocolList.Protocols.Count == 0 || asyncPublicType == "object")
                     asyncWrapExpr = "__existentialResult";
@@ -743,7 +752,7 @@ namespace BindingsGeneration
                 else if (_env.ExistentialHandler.TryGetWellKnownProtocolType(asyncProtocolList, out var asyncWkIR))
                     asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
                 else
-                    asyncWrapExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList)}(__existentialResult)";
+                    asyncWrapExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList)}(__existentialResult{asyncOwnedArg})";
                 marshalResultCode =
                     $"var __existentialResult = SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr);\n" +
                     $"                                var result = {asyncWrapExpr};";

@@ -36,4 +36,29 @@ public struct AsyncOpaqueWorker {
     public func makeOpaqueThrowing(text: String) throws -> some Describable {
         return SimpleItem(id: "throwing-opaque", label: text)
     }
+
+    // MARK: - Async owned-return ARC leak probes
+    //
+    // The async harness boxes a `some Renderable` return into an `any Renderable` existential at
+    // +1 (initializeMemory into the carrier), and the C# completion callback wraps that container
+    // in `RenderableProxy(..., ownsContainer: true)`. Disposing the proxy must value-witness
+    // Destroy the adopted container — ARC-releasing the inline class payload. Without the async
+    // ownsContainer wiring, each call orphans the payload's +1 (one leaked `TrackedRenderable` per
+    // call). These mirror the SYNC `makeTrackedRenderable` probe (MemoryManagement/
+    // ExistentialReturnLeak.swift) on the async-harness path. `TrackedRenderable` conforms to
+    // `Renderable` (declared in Protocols/OptionalExistentialProperties.swift).
+
+    /// `async -> some Renderable` returning a `LifetimeTracker`-counted CLASS conformer (reference
+    /// stored inline in the opaque container's first payload word).
+    public func makeTrackedRenderableAsync(tag: Int32) async -> some Renderable {
+        try? await Task.sleep(nanoseconds: 1_000_000)
+        return TrackedRenderable(tag: tag)
+    }
+
+    /// `async throws -> some Renderable`: the throwing async arm of the owned-return leak probe
+    /// (the AppIntents `perform()` shape, with a tracked class payload to measure ARC balance).
+    public func makeTrackedRenderableAsyncThrowing(tag: Int32) async throws -> some Renderable {
+        try await Task.sleep(nanoseconds: 1_000_000)
+        return TrackedRenderable(tag: tag)
+    }
 }
