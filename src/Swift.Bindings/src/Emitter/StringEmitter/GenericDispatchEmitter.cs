@@ -86,6 +86,16 @@ internal static class GenericDispatchEmitter
                 if (HasWrapperHelperGateBlocker(parentTypeDecl, env.TypeDatabase, GenericDispatchKind.Constructor))
                     return false;
 
+                // An init declared in a constrained extension that adds a requirement on the
+                // parent type's generic param (e.g. `extension Box where Value.Element == Int`)
+                // cannot be erased through an OPEN form against the unconstrained type: both
+                // `_SBW_CI_` (Path 1) and the GSF static factory (Path 2) emit against bare `Box`,
+                // which Swift rejects ("does not conform" / "requires the types … be equivalent").
+                // CSM emits the satisfying closed forms per conformer instead; open dispatch refuses.
+                if (ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(
+                        env.MethodDecl, parentTypeDecl))
+                    return false;
+
                 // Path 1: Generic class with concrete (non-T-referencing) params — metatype dispatch
                 // via _SBW_CI_ protocol with init() requirement. Only works for final classes
                 // because non-final classes can't satisfy protocol init() without `required`.

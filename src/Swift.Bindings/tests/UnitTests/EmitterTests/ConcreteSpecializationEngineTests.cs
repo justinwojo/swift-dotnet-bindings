@@ -901,6 +901,147 @@ public class ConcreteSpecializationEngineTests
             "concrete SameType match (τ_0_0 == Swift.String against Swift.String) must be admitted");
     }
 
+    // The five tests above all exercise the BARE-LHS SameType branch (`τ_0_0 == …`, routed
+    // through IsCouplingDeferredSameTypeTarget). The three below cover the complementary
+    // DEPENDENT-MEMBER-LHS branch (`τ_0_0.Element == …`, routed through
+    // DependentMemberClauseSatisfied) when the RHS is itself a generic-parameter placeholder.
+    // A method-own RHS is a registered coupling and must be deferred; a parent-parent RHS is
+    // registered by NO coupling path, so it must be proven against the bound conformer or
+    // fail-closed — deferring it (the prior behavior) was a false-acceptance that let CSM emit
+    // a closed form Swift then rejects.
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_DependentMemberLhs_ParentParentRhs_AdmitsMatch()
+    {
+        // `<τ_0_0, τ_0_1 where τ_0_0.Element == τ_0_1>` — τ_0_0's conformer resolves Element to
+        // the SAME Swift type chosen for τ_0_1, so the parent-parent equality is provably
+        // satisfied against the bound tuple and must be admitted.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig(
+            "pairedElement",
+            "<τ_0_0, τ_0_1 where τ_0_0.Element == τ_0_1>");
+        var parent = CreateTwoParamGenericStructDecl("TwoParam", "τ_0_0", "τ_0_1");
+
+        var conformerT = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.SongList", CSharpType: "SongList",
+            AssociatedTypes: new Dictionary<string, string> { ["Element"] = "TestLib.Song" });
+        var conformerU = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.Song", CSharpType: "Song");
+
+        var parentTuple = TwoParentTuple(parent, conformerT, conformerU);
+
+        Assert.True(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "parent-parent dependent-member SameType is provably satisfied (Element == bound τ_0_1 conformer) and must be admitted");
+    }
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_DependentMemberLhs_ParentParentRhs_RejectsMismatch()
+    {
+        // Same shape, but τ_0_0's Element (TestLib.Song) differs from τ_0_1's chosen conformer
+        // (TestLib.Album). No coupling path registers a parent-parent dependent-member equality,
+        // so deferring would be a false-acceptance — it must be proven and fail-closed on mismatch.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig(
+            "pairedElement",
+            "<τ_0_0, τ_0_1 where τ_0_0.Element == τ_0_1>");
+        var parent = CreateTwoParamGenericStructDecl("TwoParam", "τ_0_0", "τ_0_1");
+
+        var conformerT = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.SongList", CSharpType: "SongList",
+            AssociatedTypes: new Dictionary<string, string> { ["Element"] = "TestLib.Song" });
+        var conformerU = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.Album", CSharpType: "Album");
+
+        var parentTuple = TwoParentTuple(parent, conformerT, conformerU);
+
+        Assert.False(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "parent-parent dependent-member SameType with a mismatched bound τ_0_1 conformer is not coupling-enforced and must fail-closed");
+    }
+
+    [Fact]
+    public void ParentTupleSatisfiesMethodConstraints_DependentMemberLhs_MethodOwnRhs_Admits()
+    {
+        // `<τ_0_0, τ_1_0 where τ_0_0.Element == τ_1_0>` — τ_1_0 is METHOD-OWN (absent from the
+        // parent tuple). That coupling IS registered (RHS-form) and enforced at cartesian pairing,
+        // so the parent-tuple filter must defer (admit) rather than fail-closed.
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        var method = CreateMethodWithSig(
+            "ownElement",
+            "<τ_0_0, τ_1_0 where τ_0_0.Element == τ_1_0>");
+        var parent = CreateGenericStructDecl("Holder", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.SongList", CSharpType: "SongList",
+            AssociatedTypes: new Dictionary<string, string> { ["Element"] = "TestLib.Song" });
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.True(
+            engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple),
+            "method-own dependent-member SameType RHS is a registered coupling and must be deferred (admitted) by the parent-tuple filter");
+    }
+
+    private static StructDecl CreateTwoParamGenericStructDecl(string name, string tok0, string tok1)
+    {
+        return new StructDecl
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestLib.{name}"),
+            MangledName = "",
+            IsFrozen = true,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                new(tok0, "T", new(), new()),
+                new(tok1, "U", new(), new()),
+            },
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            MetadataAccessor = "",
+            AvailabilityAnnotations = null,
+        };
+    }
+
+    private static List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)> TwoParentTuple(
+        StructDecl parent,
+        ConcreteSpecializationEngine.ConcreteConformer conformer0,
+        ConcreteSpecializationEngine.ConcreteConformer conformer1)
+    {
+        var permitted = SwiftTypeName.FromModuleQualifiedName("TestLib.Permitted");
+        var specParam0 = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: permitted,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer0 },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+        var specParam1 = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[1],
+            ConstraintProtocol: permitted,
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer1 },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+        return new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam0, conformer0),
+            (specParam1, conformer1),
+        };
+    }
+
     private static MethodDecl CreateMethodWithSig(string methodName, string rawGenericSig)
     {
         return new MethodDecl

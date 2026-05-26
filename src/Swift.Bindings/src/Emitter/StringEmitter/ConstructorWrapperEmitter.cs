@@ -109,8 +109,9 @@ public static class ConstructorWrapperEmitter
         // AppIntents.IntentCollectionSize.init(min: _const Int, max: _const Int).
         // The @_cdecl wrapper passes runtime values; Swift rejects the call with
         // "expect a compile-time constant literal". ABI JSON strips this annotation;
-        // the flag is sourced from the swiftinterface via SwiftABIParser.
-        if (env.MethodDecl.CSSignature.Skip(1).Any(a => a.IsConstLiteral))
+        // the flag is sourced from the swiftinterface via SwiftABIParser. Shared with
+        // CSM via ConstructorAdmissibility so all erasure paths drop `_const` inits alike.
+        if (ConstructorAdmissibility.HasConstLiteralParameter(env.MethodDecl))
             return false;
 
         // Skip constructors with variadic expansion pattern: N individual protocol params

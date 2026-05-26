@@ -723,6 +723,7 @@ public class MemberValidationPipeline
         if (ConstructorWrapperEmitter.HasUnsupportedBufferPointerParameter(env)) return "unsupported_buffer_pointer_parameter";
         if (WrapperValidation.HasRawGenericTypeParams(env.MethodDecl)) return "raw_generic_type_params";
         if (env.MethodDecl.HasVariadicParameter) return "variadic_parameter";
+        if (ConstructorAdmissibility.HasConstLiteralParameter(env.MethodDecl)) return "const_literal_parameter";
         if (ConstructorWrapperEmitter.HasVariadicExpansionPattern(env)) return "variadic_expansion_pattern";
         return "unknown";
     }

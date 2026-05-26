@@ -1974,6 +1974,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
         bool isConstructor = method.IsConstructor;
         bool isClass = parentTypeDecl is ClassDecl;
 
+        // Cheap, receiver-independent ctor filters the normal `@_cdecl` wrapper path applies but
+        // CSM historically did not mirror: `_const` params (a runtime wrapper cannot supply a
+        // compile-time-constant literal) and internal/unavailable inits. Shared with the open
+        // ctor path via ConstructorAdmissibility so the three erasure paths stay in lockstep.
+        if (isConstructor &&
+            !ConstructorAdmissibility.PassesConstructorCheapFilters(method, out var cheapReject))
+        {
+            rejectReason = cheapReject;
+            return false;
+        }
+
         var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
         bool isVoidReturn = returnTypeSpec.IsEmptyTuple;
         bool returnsGenericParam = !isVoidReturn &&

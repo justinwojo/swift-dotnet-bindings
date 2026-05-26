@@ -48,6 +48,26 @@ public class ConformanceGraph
     }
 
     /// <summary>
+    /// Enumerates every associated-type witness recorded for a specific conformance
+    /// <c>(conformingType, protocol)</c>. Lets a consumer recover associated types that
+    /// swiftc elided as redundant typealiases (e.g. a struct whose <c>Element</c> is
+    /// inferred from a stored property emits no <c>TypeAlias</c> node, but the conformance
+    /// still carries the <c>TypeWitness</c>).
+    /// </summary>
+    public IEnumerable<(string AssociatedTypeName, TypeSpec ResolvedType)> WitnessesFor(
+        string conformingType, string protocol)
+    {
+        foreach (var kv in _witnesses)
+        {
+            if (string.Equals(kv.Key.ConformingType, conformingType, StringComparison.Ordinal) &&
+                string.Equals(kv.Key.Protocol, protocol, StringComparison.Ordinal))
+            {
+                yield return (kv.Key.AssociatedTypeName, kv.Value);
+            }
+        }
+    }
+
+    /// <summary>
     /// The number of TypeWitness entries in the graph.
     /// </summary>
     public int Count => _witnesses.Count;

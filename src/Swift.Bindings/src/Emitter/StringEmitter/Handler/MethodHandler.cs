@@ -517,6 +517,50 @@ namespace BindingsGeneration
                 }
             }
 
+            // An INADMISSIBLE generic-CLASS constructor has no ABI-correct surface once the
+            // open wrapper is refused. A generic-class init expects type metadata / protocol
+            // witness tables delivered through specific registers (x20 metatype, trailing PWT
+            // args) that a plain CallConvSwift P/Invoke against the raw mangled symbol cannot
+            // set up — so falling through to WrapperEmitter.EmitConstructor would emit an open
+            // C# constructor whose P/Invoke binds the raw generic init symbol via CallConvSwift:
+            // it compiles but the call is not valid.
+            //
+            // We suppress ONLY when ConstructorAdmissibility refuses the init — i.e. the same
+            // predicate that gates the Swift `_SBW_CI_`/GSF wrapper and CSM enumeration:
+            //   • a `_const` (compile-time-constant) parameter (no runtime-callable surface), or
+            //   • an init confined to a constrained extension the unconstrained type can't
+            //     satisfy (`extension Box where Value.Element == Int`). The only correct surface
+            //     is the CSM closed form per satisfying conformer, which CSM still emits.
+            // This is deliberately narrower than "any generic-class init lacking a wrapper":
+            // other no-wrapper generic-class inits (e.g. a T-typed designated init that GSF
+            // can't yet carry) keep their existing direct path so their in-tree regression
+            // markers continue to compile. Tracked separately in src/docs/roadmap.md.
+            if (!methodEnv.MethodDecl.UsesWrapperLibrary &&
+                !methodEnv.MethodDecl.UsesNativeThunk &&
+                methodEnv.ParentDecl is ClassDecl genericClassParent && genericClassParent.IsGeneric &&
+                (!ConstructorAdmissibility.PassesConstructorCheapFilters(methodEnv.MethodDecl, out _) ||
+                 ConstructorAdmissibility.HasUnsatisfiableParentGenericExtensionConstraint(
+                     methodEnv.MethodDecl, genericClassParent)))
+            {
+                _logger.LogInformation(
+                    "Skipping open constructor {Name} on generic class {Parent}: inadmissible for open dispatch " +
+                    "(ConstructorAdmissibility refused the wrapper); direct CallConvSwift against the raw generic " +
+                    "init symbol is not ABI-correct. CSM emits any satisfying closed forms.",
+                    methodEnv.MethodDecl.Name, genericClassParent.Name);
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method,
+                    methodEnv.MethodDecl.Name,
+                    methodEnv.MethodDecl.ParentDecl,
+                    SkipReason.NonBlittableCallConvSwift,
+                    "Generic-class constructor is inadmissible for open dispatch (`_const` parameter or " +
+                    "an unsatisfiable parent-generic extension constraint); direct CallConvSwift against the " +
+                    "raw generic init symbol is not ABI-correct. Any satisfying concrete-conformer forms are emitted via CSM.");
+                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodEnv.MethodDecl.Name,
+                    BindingItemKind.Method, SkipReason.NonBlittableCallConvSwift,
+                    "generic-class constructor inadmissible for open dispatch (CSM emits concrete forms)");
+                return;
+            }
+
             // Track wrapper strategy for emission report AFTER thunk emission/fallback
             // so the report reflects the final strategy (thunk success → NativeThunk,
             // thunk failure → CdeclConstructor or None).

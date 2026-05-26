@@ -30,6 +30,10 @@ public class ConcreteSpecializationEngine
     private readonly string? _currentModuleName;
     private string? _indexedModuleName;
     private HashSet<string>? _indexedModuleDependencies;
+    // The conformance graph of the module currently being indexed — supplies associated-type
+    // witnesses (Element → Swift.Int) that swiftc elided as redundant typealiases. Captured at
+    // the top of IndexModuleConformances and consumed while building each ConcreteConformer.
+    private ConformanceGraph? _indexedConformanceGraph;
     private readonly HashSet<CsmRejectedPairing> _rejectedPairings = new();
 
     /// <summary>
@@ -193,6 +197,7 @@ public class ConcreteSpecializationEngine
             moduleDecl.Dependencies, StringComparer.Ordinal);
         foreach (var dep in moduleDecl.DependencyModuleNames)
             _indexedModuleDependencies.Add(dep);
+        _indexedConformanceGraph = moduleDecl.ConformanceGraph;
 
         // First pass: index protocol declarations so transitive-conformance checks at
         // query time can walk ProtocolDecl.InheritedProtocols. Types may appear before
@@ -255,14 +260,33 @@ public class ConcreteSpecializationEngine
             var csName = ResolveCSharpName(conformance.ConformingType);
             if (csName != null)
             {
-                // Surface this conformer's `typealias` decls as the associated-type
-                // resolution map. Route C's bag walker uses this to find the per-
-                // conformer protocol/struct that satisfies a parent generic's PAT
-                // (e.g. `Album.LibrarySortProperties → MusicKit.LibraryAlbumSortProperties`).
-                // Empty dict is treated the same as null by downstream consumers.
-                IReadOnlyDictionary<string, string>? assocTypes = typeDecl.Typealiases.Count > 0
+                // Surface this conformer's associated-type resolution map. Route C's bag
+                // walker uses it to find the per-conformer protocol/struct that satisfies a
+                // parent generic's PAT (e.g. `Album.LibrarySortProperties →
+                // MusicKit.LibraryAlbumSortProperties`), and ParentTupleSatisfiesMethodConstraints
+                // uses it to gate constrained-extension inits (`where Value.Element == Int`).
+                //
+                // Explicit `typealias` decls are the primary source, but swiftc ELIDES
+                // typealiases it can infer (a struct whose `Element` is fixed by a stored
+                // property emits no TypeAlias node). For those, merge the conformance's
+                // TypeWitness entries — scoped to THIS conformance's protocol so identically
+                // named associated types from different protocols never bleed together, and
+                // never overriding an explicit typealias. Empty dict ≡ null downstream.
+                var assocMap = typeDecl.Typealiases.Count > 0
                     ? new Dictionary<string, string>(typeDecl.Typealiases, StringComparer.Ordinal)
-                    : null;
+                    : new Dictionary<string, string>(StringComparer.Ordinal);
+                if (_indexedConformanceGraph is { } graph)
+                {
+                    foreach (var (assocName, resolved) in
+                             graph.WitnessesFor(conformance.ConformingType.ToString(), protocolKey))
+                    {
+                        if (assocMap.ContainsKey(assocName)) continue;
+                        var witnessName = resolved.ToString(true);
+                        if (!string.IsNullOrEmpty(witnessName))
+                            assocMap[assocName] = witnessName;
+                    }
+                }
+                IReadOnlyDictionary<string, string>? assocTypes = assocMap.Count > 0 ? assocMap : null;
                 _abiConformers[protocolKey].Add(new ConcreteConformer(
                     conformance.ConformingType.ToString(),
                     csName,
@@ -1180,8 +1204,25 @@ public class ConcreteSpecializationEngine
                 CollectAllProtocolConstraints(entry.Param.GenericParam).Select(p => p.ToString()),
                 StringComparer.Ordinal);
 
-            foreach (var (kind, target) in methodClauses)
+            foreach (var (kind, memberPath, target) in methodClauses)
             {
+                // Dependent-member clause from a constrained extension
+                // (`where Value.Element == Int` / `where Value.Element : CtorAdmCollectionish`,
+                // parsed to memberPath="Element"). Evaluate against the chosen parent
+                // conformer's associated-type resolution: satisfy-when-provable, else
+                // skip-with-tombstone (fail-closed) so CSM never emits a closed form whose
+                // `where` clause the conformer fails.
+                if (memberPath.Length > 0)
+                {
+                    if (DependentMemberClauseSatisfied(kind, memberPath, target, entry.Conformer, parentTuple))
+                        continue;
+                    RecordMethodWhereRejection(
+                        parentTypeDecl, method, entry.Param.GenericParam,
+                        entry.Param.ConstraintProtocol, entry.Conformer,
+                        $"{memberPath} {(kind == MethodConstraintKind.Conformance ? ":" : "==")} {target}");
+                    return false;
+                }
+
                 if (kind == MethodConstraintKind.Conformance)
                 {
                     if (parentLevelNames.Contains(target)) continue;
@@ -1240,6 +1281,97 @@ public class ConcreteSpecializationEngine
     }
 
     /// <summary>
+    /// Evaluates a constrained-extension dependent-member clause (e.g.
+    /// <c>Value.Element == Swift.Int</c> or <c>Value.Element : Collection</c>, parsed to
+    /// memberPath="Element") against the chosen parent <paramref name="conformer"/>.
+    /// Returns true when the clause is provably satisfied; false (skip-with-tombstone)
+    /// when unprovable or contradicted, so CSM emits a closed form ONLY for conformers
+    /// the extension's <c>where</c> clause actually admits.
+    /// <list type="bullet">
+    /// <item>SameType: the conformer's <c>AssociatedTypes[memberPath]</c> must equal the
+    /// target. A target that is itself a generic-parameter placeholder (<c>τ_…</c>) is a
+    /// cross-level coupling enforced at cartesian pairing time by
+    /// <c>ConformerPairingSatisfiesCoupling</c> — deferred (treated satisfied) here.</item>
+    /// <item>Conformance: the resolved associated type must be ABI-CONFIRMED to conform to
+    /// the target protocol. Uncertain and Disproved both skip — a runtime CSM wrapper whose
+    /// associated-type bound cannot be shown to hold must not be emitted. This is stricter
+    /// (fail-closed) than the direct-conformance policy on the parent param itself, which
+    /// fails open because the parent param was already validated against its declared
+    /// protocols at parent-tuple resolution; an associated-type bound introduced by a
+    /// constrained extension has had no such prior check.</item>
+    /// </list>
+    /// Only single-hop member paths are resolvable (<c>AssociatedTypes</c> is one level);
+    /// multi-hop paths (<c>Value.Element.Foo</c>) and unresolved associated types fail closed.
+    /// </summary>
+    private bool DependentMemberClauseSatisfied(
+        MethodConstraintKind kind,
+        string memberPath,
+        string target,
+        ConcreteConformer conformer,
+        IReadOnlyList<(SpecializableParam Param, ConcreteConformer Conformer)> parentTuple)
+    {
+        // A same-type RHS naming a generic-parameter placeholder needs care. When it names a
+        // METHOD-OWN param, the coupling `τ_<parent>.member == τ_own` is registered (RHS-form,
+        // see AddCoupling ~lines 702-711) and enforced at cartesian pairing time by
+        // ConformerPairingSatisfiesCoupling — the parent-tuple filter cannot bind the method-own
+        // side yet, so defer (treat satisfied here). But when the RHS names ANOTHER PARENT param
+        // (parent-parent, e.g. `τ_0_0.Element == τ_0_1`), NO coupling path registers it —
+        // AddCoupling requires a method-own endpoint — so deferring would be a false-acceptance
+        // that lets CSM emit a closed form Swift then rejects. The other parent IS already bound
+        // in parentTuple: rebind the target to that conformer's Swift name and prove the equality
+        // through the normal resolution below; fail-closed (skip-with-tombstone) if unprovable.
+        if (kind == MethodConstraintKind.SameType &&
+            target.StartsWith("τ_", StringComparison.Ordinal))
+        {
+            ConcreteConformer? boundParentConformer = null;
+            foreach (var entry in parentTuple)
+            {
+                if (entry.Param.IsParentGeneric &&
+                    string.Equals(entry.Param.GenericParam.TypeName, target, StringComparison.Ordinal))
+                {
+                    boundParentConformer = entry.Conformer;
+                    break;
+                }
+            }
+            if (boundParentConformer is null)
+                return true; // method-own RHS — coupling enforces at pairing time
+            target = boundParentConformer.SwiftQualifiedName; // parent-parent — prove against the bound conformer
+        }
+
+        // Multi-hop member paths or an unresolved associated type cannot be proven. The
+        // associated type is resolved from the conformer's typealiases AND conformance
+        // TypeWitness entries (merged in IndexTypeConformances), so an inferred-and-elided
+        // typealias still resolves.
+        if (memberPath.IndexOf('.') >= 0) return false;
+        if (conformer.AssociatedTypes is null ||
+            !conformer.AssociatedTypes.TryGetValue(memberPath, out var resolvedMemberType) ||
+            string.IsNullOrEmpty(resolvedMemberType))
+            return false;
+
+        if (kind == MethodConstraintKind.SameType)
+        {
+            // Normalize both sides through the type-spec parser so printed sugar matches the
+            // canonical form (e.g. `Data?` vs `Swift.Optional<Foundation.Data>`).
+            return string.Equals(
+                NormalizeTypeForComparison(resolvedMemberType),
+                NormalizeTypeForComparison(target),
+                StringComparison.Ordinal);
+        }
+
+        // Conformance: require ABI-confirmed conformance of the resolved associated type.
+        return VerifyHintAgainstAbi(resolvedMemberType, target) == AbiVerification.Confirmed;
+    }
+
+    /// <summary>
+    /// Canonicalizes a type string for same-type comparison by round-tripping it through the
+    /// type-spec parser (<c>ToString(useFullNames: true)</c>). Collapses printed sugar to its
+    /// canonical spelling so a witness and a raw generic-sig target that name the same type
+    /// compare equal. Falls back to the raw string when parsing fails.
+    /// </summary>
+    private static string NormalizeTypeForComparison(string raw)
+        => TypeSpecParser.Parse(raw)?.ToString(true) ?? raw;
+
+    /// <summary>
     /// Canonical Swift generic-parameter-placeholder same-type RHS shape that is
     /// deferred to <c>ConformerPairingSatisfiesCoupling</c>: <c>τ_&lt;d&gt;+_&lt;d&gt;+.&lt;id&gt;</c>
     /// (e.g. <c>τ_1_0.Element</c>). Single-hop only — multi-segment chains are not
@@ -1286,9 +1418,9 @@ public class ConcreteSpecializationEngine
     /// <see cref="ParentTupleSatisfiesMethodConstraints"/> to detect when a per-method
     /// where-clause adds requirements beyond the parent type's declaration.
     /// </summary>
-    private static Dictionary<string, List<(MethodConstraintKind Kind, string Target)>> ParseMethodLevelConstraints(string rawGenericSig)
+    private static Dictionary<string, List<(MethodConstraintKind Kind, string MemberPath, string Target)>> ParseMethodLevelConstraints(string rawGenericSig)
     {
-        var result = new Dictionary<string, List<(MethodConstraintKind, string)>>(StringComparer.Ordinal);
+        var result = new Dictionary<string, List<(MethodConstraintKind, string, string)>>(StringComparer.Ordinal);
         var whereIdx = rawGenericSig.IndexOf(" where ", StringComparison.Ordinal);
         if (whereIdx < 0) return result;
 
@@ -1315,20 +1447,39 @@ public class ConcreteSpecializationEngine
                 opLen = 1;
             }
 
-            var paramName = clause.Substring(0, opIdx).Trim();
+            var lhs = clause.Substring(0, opIdx).Trim();
             var target = clause.Substring(opIdx + opLen).Trim();
-            if (paramName.Length == 0 || target.Length == 0) continue;
+            if (lhs.Length == 0 || target.Length == 0) continue;
 
-            // Skip clauses whose LHS is a dependent-member path (e.g. `T.Element == Data?`);
-            // they constrain associated types, not the parent param itself.
-            if (paramName.Contains('.', StringComparison.Ordinal)) continue;
-
-            if (!result.TryGetValue(paramName, out var list))
+            // Split the LHS into its root generic param and an optional dependent-member
+            // path. `τ_0_0 : P` keys `τ_0_0` with an empty member path — a direct
+            // constraint on the param. `τ_0_0.Element == Swift.Int` keys `τ_0_0` with
+            // member path "Element" — a constraint on the param's associated type,
+            // contributed by a constrained extension (`extension Box where Value.Element
+            // == Int`). Keying by the ROOT lets ParentTupleSatisfiesMethodConstraints find
+            // every clause for a bound parent param in one lookup; the member path drives
+            // associated-type resolution against the chosen conformer.
+            string rootParam;
+            string memberPath;
+            var dotIdx = lhs.IndexOf('.');
+            if (dotIdx < 0)
             {
-                list = new List<(MethodConstraintKind, string)>();
-                result[paramName] = list;
+                rootParam = lhs;
+                memberPath = string.Empty;
             }
-            var entry = (kind, target);
+            else
+            {
+                rootParam = lhs.Substring(0, dotIdx);
+                memberPath = lhs.Substring(dotIdx + 1);
+            }
+            if (rootParam.Length == 0) continue;
+
+            if (!result.TryGetValue(rootParam, out var list))
+            {
+                list = new List<(MethodConstraintKind, string, string)>();
+                result[rootParam] = list;
+            }
+            var entry = (kind, memberPath, target);
             if (!list.Contains(entry))
                 list.Add(entry);
         }

@@ -126,6 +126,141 @@ land KeyPath-init construction is the 8b.3 overload emitter itself (against the 
 surface) — subject to the still-open cross-assembly constraint (blocker 1 below) when `EntityProperty` is a
 resolved `--framework-dependency` rather than the emit target.
 
+#### Observed downstream emitter surface (2026-05-25 — fresh CLI regen at HEAD `a1152f1a`, post-8a Phase A+B)
+
+First regen after `a1152f1a` ("allow C# primitives/frozen values as generic args to PAT/Self-constrained
+Swift types" + stripped-conformer ingestion). The 8a Phase A+B relaxation means the **reference-typed**
+`_IntentValue` conformers (`IntentFile`, `EntityIdentifier`, `IntentCurrencyAmount`, `IntentPaymentMethod`,
+`IntentPerson`) now reach the CSM/`_SBW_CI_` init paths *for the first time*. Direct generator CLI →
+`swiftc` on the emitted wrapper. **C# generation succeeded; the C# tombstone surface is clean of new bugs
+(all by-design — SwiftUI `LocalizedStringResource` = Session 9, `asyncGetter` closures, method-own-generic
+ctors = the 8b.3 surface above, primitive-`ISwiftObject` exclusions, collapsed duplicates).** The new bugs
+are all in the **emitted Swift wrapper**, which fails `swiftc` with **30 errors (complete set — no error
+cap in `SwiftWrapperCompiler`)**:
+
+| Count | `swiftc` error | Emission mechanism | Root cause |
+|---|---|---|---|
+| 8 | `expect a compile-time constant literal` | CSM (`ConcreteSpecializationEngine` → `ConcreteProtocolSpecializationEmitter`) | CSM emits a concrete `SBW_CSM_*_init_*` `@_cdecl` wrapper that passes a *runtime* `String`/enum for a `_const` parameter (`identifier: _const String`, `inputConnectionBehavior: _const InputConnectionBehavior`, `mode: _const`). The **normal** ctor path filters these (`ConstructorWrapperEmitter` `IsConstLiteral` gate); the CSM path applies no such gate. |
+| 4 | `'init()' is unavailable` | CSM | CSM emits an init marked `@available(*, unavailable)` on the conformer. Same gap: the normal path's unavailable filter is not mirrored in CSM admissibility. |
+| 14 + 2 | `no exact matches in call to initializer` / `…requires 'IntentPerson.UnwrappedType' (aka 'IntentPerson') conform to 'Collection'` | CSM | CSM emits an init that lives in a **constrained extension** (`extension … where UnwrappedType: Collection`, `where Value.ValueType == X`) for a closed specialization that does **not** satisfy the extension's `where` clause. The extension constraints are never checked against the closed conformer. |
+| 2 | `type 'EntityProperty<Value>' does not conform to protocol '_SBW_CI_E415B868'` | `_SBW_CI_*` (`GenericProtocolEmitter` → `ConstructorWrapperEmitter`) | `GenericProtocolEmitter` emits `extension EntityProperty: _SBW_CI_{hash} {}` **unconditionally** for an init that exists only inside a constrained extension — so the unconstrained type does not actually satisfy the routing protocol's init requirement. |
+
+**Comparison to the 5 predictions (updates the historical table above):**
+
+- **#4 (`IntentCollectionSize.init(min:max:)` value-generic constant literals) — MATERIALIZED, as the general CSM `_const` facet.** `IntentCollectionSize.init` itself is collapsed by `DuplicateSignature` (`ctor(nint)`), unrelated. But the *mechanism* it predicted — runtime wrappers feeding `_const` parameters — is exactly the 8× "compile-time constant literal" CSM failures above. The prediction was right about the mechanism, wrong about the specific decl.
+- **#5 (async-throws `@_silgen_name` wrappers without `async throws`) — now CLOSED.** The 2026-05-23 run still saw these (doc 14 items 4+5); at `a1152f1a` the async `try await perform()` wrappers emit and compile. Zero occurrences in this regen's 30-error set.
+- **#1/#2 (`_SBW_CI_*` / foreign-extension missing `@available`) — still not the failure mode.** `_SBW_CI_*` *did* surface (2 errors) but as a **constrained-extension conformance** bug, not a missing-`@available` bug. #2 stays closed.
+- **#3 (`AppShortcutsBuilder.buildExpression` collapse) — still closed.**
+
+**Shared deep root (Codex + Grok concur): three init-erasure paths — normal `@_cdecl` ctor wrapper, GSF,
+and `_SBW_CI_` — each re-implement *part* of the ctor-admissibility contract, and CSM + `_SBW_CI_` skip the
+parts that matter here.** The facets:
+- Facet A (`_const`, 8×) and facet C (unavailable, 4×) are "the gate exists but CSM never calls it" — the
+  normal path filters `_const` at `ConstructorWrapperEmitter.ShouldEmitWrapper` (`CSSignature.Skip(1).Any(a
+  => a.IsConstLiteral)`, ~:113) and unavailable at parse time (`SwiftABIParser` → `IsModuleInternal`); CSM's
+  `CanEmitConcreteOverloadForPairing` applies neither. (Grok also flagged pre-existing drift:
+  `MemberValidationPipeline.GetConstructorWrapperRejectionReason` already *omits* the `_const` gate that
+  `ShouldEmitWrapper` has.)
+- Facet B (constrained-extension `where` unsatisfied, 14+2×) and the `_SBW_CI_` conformance bug (2×) need a
+  *satisfaction* check. Grok's key finding: the extension `where` clauses are **already parsed** into the
+  per-method `GenericConformances`/`RawGenericSig` (`GenericSignatureParser` via `CreateMethodDecl`; see the
+  `BoundGenericsHandler` conditional-extension fallbacks and `ConstrainedExtensionEmitter.ExtractSameType…`).
+  What is missing is a distinguished "from a constrained extension" marker plus *evaluation against the
+  chosen conformer (or the open type, for `_SBW_CI_`)* at the decision point — not a new constraint model.
+
+**Recommended cut — Codex/Grok synthesis: ONE scoped session built around a single shared admissibility
+predicate, delivered in two stages within it** (Grok's unified-predicate architecture eliminates the
+double-touch of the enumeration sites and the stranded-`_SBW_CI_` guard that a Codex-style independent A/B
+split would create; Codex's fail-closed-first sequencing is preserved as the stage boundary; one restructured
+charter up front honors `feedback_no_session_cascade`):
+
+- **Stage 1 — extract `CanEmitConstructorForReceiver(MethodDecl, receiver)` and make CSM enumeration + the
+  `_SBW_CI_` unconditional-conformance emission both consume it; wire in the existing cheap filters.**
+  Mechanically safe (turns emission *off* for currently-failing shapes): closes facet A + facet C + the
+  `_SBW_CI_` guard ("only emit `extension T: _SBW_CI_{hash}` when an admissible init exists on the
+  *unconstrained* type"). 8+4+2 = 14 of the 30 errors, no satisfaction logic.
+- **Stage 2 — extend the predicate to evaluate the already-parsed extension-origin `where` constraints
+  against the closed conformer.** Satisfy-when-provable (`where Value.ValueType == Int` *is* valid for an
+  `Int` conformer — do **not** blanket-skip constrained-extension inits, that loses real surface),
+  skip-with-tombstone otherwise. Closes facet B (14+2 = 16 errors). Judgment-call stage; lands second so a
+  satisfaction-logic regression is attributable.
+
+One BindingTests fixture covers all three facets — a generic type over a known conformer with (a) a
+`_const`-param init, (b) an `@available(*,unavailable)` init, (c) a constrained-extension init
+(`extension … where Value: Collection { init(…) }`) — plus a *satisfying* and a *non-satisfying* conformer;
+assert the closed specializations that should appear and the skips for the ones that shouldn't. Ships
+**with the fix** (a red fixture would break the gate). General-mechanism hardening, not AppIntents-specific:
+any framework with `_const` / unavailable / constrained-extension inits on a generic type with closed
+conformers trips it. Gates enabling AppIntents in `validation-libraries.json`; Session 9 (SwiftUI) and
+Session 10 (residual consumers) are independent and not blocked.
+
+> Dissent recorded: Codex argued for two fully independent sessions (A then B) for risk isolation; Grok
+> argued one session is mandatory because the A/B split strands mixed cases (a `_const` init that *also*
+> lives in a constrained extension) and double-touches the enumeration/decision sites. Synthesis adopted
+> Grok's single-predicate seam with Codex's stage ordering — i.e. one session, two stages, the predicate as
+> the seam (the exact two-PR carve Grok offered as its fallback).
+
+#### Shipped outcome (2026-05-26 — unified `ConstructorAdmissibility` predicate)
+
+The single-session, two-stage cut above shipped. The seam is the static `ConstructorAdmissibility`
+(`Emitter/StringEmitter/ConstructorAdmissibility.cs`): `HasConstLiteralParameter`,
+`PassesConstructorCheapFilters(MethodDecl, out reason)` (rejects `_const`-param + `IsModuleInternal`), and
+`HasUnsatisfiableParentGenericExtensionConstraint(MethodDecl, TypeDecl)` (evaluates already-parsed
+extension-origin `where` keys against the chosen conformer — Stage 2). CSM enumeration and `_SBW_CI_`
+conformance emission both consume it.
+
+**A third consumer was required that the plan did not anticipate.** Suppressing the Swift `_SBW_CI_`/GSF
+*wrappers* for an inadmissible generic-class init does not, by itself, remove the **C#** surface: the C#
+`ConstructorHandler.Emit` (`MethodHandler.cs`) then falls back to a direct `[CallConvSwift]` P/Invoke against
+the raw `$s…` generic-class init symbol. That *compiles* but is **not ABI-correct** — a generic-class init
+needs type metadata / PWT in registers a plain P/Invoke cannot set up (a generic *struct* direct-CallConvSwift
+init is the established, working path and is untouched). So a parallel suppression guard lives in
+`ConstructorHandler.Emit`, deliberately **narrowed** to fire only when `ConstructorAdmissibility` actually
+refuses the ctor (cheap-filter failure *or* unsatisfiable parent-generic extension constraint). The narrowing
+matters: a broad "any no-wrapper generic-class init" guard also caught `CrossHostSiblingClass<T>(by:)` — a
+T-typed designated init already on the established direct path, referenced by a `[Skip]`'d-but-still-compiled
+test — and would have broken the compile gate.
+
+**Facet (d) correction — the unavailable-init facet is NOT closed by an end-to-end fixture.** The plan
+counted "facet C (unavailable, 4×)" as closed by Stage 1. In practice `@available(*, unavailable)` members are
+**stripped from a from-source `.abi.json` by `swiftc`** before the parser ever sees them, so the
+constructor-admissibility BindingTests fixture *cannot reproduce* facet (d): the unavailable init simply has
+no decl for the predicate to reject. What shipped for facet (d) is a **defense-in-depth `IsModuleInternal`
+reject** inside `PassesConstructorCheapFilters` — verified only by a unit test against a synthetic model, not
+by the end-to-end Swift→C# fixture. The 4 AppIntents `'init()' is unavailable` errors are therefore **not
+claimed closed by a tested path**; they would be caught *iff* an unavailable decl reaches the parser with
+`IsModuleInternal` set, which the from-source pipeline does not exercise. Facets actually closed by the
+shipping fixture: **A (`_const`)**, **B (constrained-extension `where`)**, and the **`_SBW_CI_`
+unconditional-conformance guard**.
+
+Fixture: `BindingTests/Sources/SwiftBindingsTestLib/Generics/ConstructorAdmissibility.swift` —
+`final class CtorAdmBox<Value: CtorAdmValue>` with an admissible `init(tag:salt:)`, a `_const` init, an
+`intMarker` init in `where Value.Element == Int`, and a `ropeFlag` init in
+`where Value.Element: CtorAdmCollectionish`, over a satisfying (`CtorAdmIntValue`) and a non-satisfying
+(`CtorAdmRopeValue`) conformer. C# coverage: `BindingTests/RuntimeTestsApp/Generics/ConstructorAdmissibilityTests.cs`
+(functional CSM round-trips + structural reflection-absence) and
+`src/Swift.Bindings/tests/UnitTests/EmitterTests/ConstructorAdmissibilityTests.cs` (predicate unit tests).
+
+**Stage 2 refinement (end-of-task Codex review).** The independent review caught a latent false-acceptance
+in the Stage 2 `DependentMemberClauseSatisfied` helper: a constrained-extension same-type clause whose LHS is
+a dependent member and whose RHS is a bare generic-parameter placeholder (`τ_0_0.Element == τ_0_1`) was
+deferred to coupling for *any* `τ_`-prefixed RHS — but coupling only registers when a **method-own** param is
+an endpoint (`AddCoupling`, ~lines 702-741). A **parent-parent** RHS (another parent-tuple param) is
+registered by no path, so deferring it would let CSM emit a closed form `swiftc` rejects. The fix distinguishes
+the two: a method-own RHS still defers (coupling enforces at cartesian pairing); a parent-parent RHS is
+rebound to its already-chosen conformer in the parent tuple and *proven* (satisfy-when-equal, fail-closed
+otherwise) — matching the documented Stage 2 contract. This path is not reachable from the single-param
+fixture or AppIntents `EntityProperty<Value>`; it's covered by three new unit tests in
+`ConcreteSpecializationEngineTests` (parent-parent admit, parent-parent reject, method-own defer) that
+complement the pre-existing bare-LHS coverage. The regenerated bindings are byte-identical before and after
+the refinement (the reachable surface uses no such clause), so the runtime gates below are unaffected. (Grok's
+parallel review returned clean on all four focus areas; the false-acceptance was Codex-only.)
+
+Gates (zero-regression): unit **11967 pass** (+3 Stage-2-refinement tests); `binding-tests --compile-only`
+**Succeeded** (fail-closed); sim (Mono JIT) **2338 pass / 0 fail / 0 crash**; device (NativeAOT) **2359 pass /
+0 fail / 0 crash** — all 8 fixture tests green on both runtimes; generated output byte-identical across the
+Stage 2 refinement.
+
 ---
 
 ## Generator pieces required
