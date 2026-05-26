@@ -1,5 +1,7 @@
 # Session 8b — `EntityProperty.init<Entity>(…)` KeyPath-keyed convenience-init family
 
+> **Archived — shipped-work record.** The singleton + factory half shipped (`cb07dfe3`). Remaining/forward-looking Phase 8 work (here: the blocked real-AppIntents `EntityProperty` inits = R1) is consolidated in [`../08-remaining.md`](../08-remaining.md), the single source of truth for what's left. Sections below describing unbuilt phases are retained for design background only.
+
 Bind AppIntents' `EntityProperty<Value>` KeyPath-taking convenience inits against closed `AppEntity` conformers. This is the bulk of the AppIntents KeyPath surface — the 240-WritableKeyPath number from `00-overview.md`'s consumer table mostly lives here.
 
 Depends on: Session 3 (KeyPath foundation), Session 4 (typed singleton emission). Builds on Session 8 v1 (AppIntents wrapperImportable + MockBook fixture).

@@ -1,5 +1,7 @@
 # Session 8d — `PartialKeyPath<CSSearchableItemAttributeSet>` `indexingKey:` parameter
 
+> **Archived — shipped-work record.** The `wrapperImportable` flip + unit-test row shipped (`d408df92`); the typed-singleton container is **parked as v2** behind an ObjC-rooted-projection blocker. The remaining work (R2) and its two unblock paths are consolidated in [`../08-remaining.md`](../08-remaining.md), the single source of truth for what's left. The phase plan below is retained for design background only.
+
 Bind the `indexingKey:` parameter that appears on many AppIntents convenience inits. Root is hardcoded to `CoreSpotlight.CSSearchableItemAttributeSet` — not a method-own generic — so this is fundamentally different from Sessions 4 / 8b / 8c.
 
 Depends on: Session 3 (KeyPath foundation, including `PartialKeyPath` projection), Session 4 (typed singleton emission). Independent of 8b / 8c.

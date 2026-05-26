@@ -1,5 +1,7 @@
 # Session 8c — `AppShortcutParameterPresentation` higher-kinded `ParameterKeyPath`
 
+> **Archived — shipped-work record.** v1 (the higher-kinded constraint capability + Phase A/B primitive-conformer relaxation) shipped (`a1152f1a` + `c5698e43`). Per-tuple emission was **declined** as an upstream framework-design blocker (see "Phase C feasibility audit" below) — that is a finished conclusion, not pending work. There is no remaining actionable 8c work; the cross-module-conformer limitation (R3) is tracked in [`../08-remaining.md`](../08-remaining.md).
+
 Bind AppIntents' `AppShortcutParameterPresentation` family, all of which are parameterized by a **higher-kinded KeyPath generic param** — a generic-param-is-a-KeyPath-type constraint shape no existing emitter handles.
 
 Depends on: Session 3 (KeyPath foundation), Session 4 (typed singleton emission), Session 8b (closed-`AppEntity` conformer enumeration may overlap with closed-`AppIntent` conformer enumeration; check at session time).

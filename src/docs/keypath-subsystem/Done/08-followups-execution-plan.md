@@ -1,5 +1,7 @@
 # Session 08 follow-ups — execution plan
 
+> **Archived — shipped-work record.** Steps 1–5 executed (cohesion fixes, 8c spike, 8d preflight, 8b ship). The remaining items — Step 6 (optional shared-core extraction = R4) and Step 7 (cross-module conformer enumeration = R3) — plus the still-live 8b/8d residuals are consolidated in [`../08-remaining.md`](../08-remaining.md), which supersedes this doc as the source of truth for remaining work.
+
 Working doc for the 8b/8c/8d sequencing. Created 2026-05-21 after a branch-wide audit (Grok), targeted review of the original "refactor first, then 8b/8c/8d as thin drivers" proposal (Grok), and a third independent assessment (Codex) including a C# generic-shape spike. All three reviewers converged on the plan below with refinements; this doc is the source of truth for upcoming work, superseding any ad-hoc ordering implied by the individual 8b/8c/8d session docs.
 
 ## Goal
