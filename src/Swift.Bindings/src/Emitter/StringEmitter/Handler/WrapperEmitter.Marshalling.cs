@@ -18,6 +18,17 @@ namespace BindingsGeneration
             if (!_requiresOpaqueReturnWrapper)
                 return;
 
+            // Async / throwing methods are handled by their own harness — EmitAsync emits a
+            // Task-based callback wrapper (which already boxes the opaque return into an
+            // existential) and the C# P/Invoke that targets it. This thin @_silgen_name alias
+            // emits a synchronous `return self.method()` with no `try`/`await`, so for an async
+            // or throwing method it (a) fails to compile ("'async' call …", "call can throw …")
+            // and (b) for async collides on the shared `{mangled}_async` symbol + PInvoke name
+            // the async harness already owns — a duplicate definition. Skip it: the alias is
+            // only valid for synchronous, non-throwing opaque-return methods.
+            if (_env.MethodDecl.IsAsync || _env.MethodDecl.Throws)
+                return;
+
             // When the method has a @_cdecl wrapper, the standard wrapper body already handles
             // opaque returns via initializeMemory(as: (any Protocol).self). The @_silgen_name
             // wrapper is only needed as a fallback when no @_cdecl wrapper is available.

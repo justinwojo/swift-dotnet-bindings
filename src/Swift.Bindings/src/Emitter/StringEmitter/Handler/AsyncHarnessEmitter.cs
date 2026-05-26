@@ -719,7 +719,36 @@ namespace BindingsGeneration
             // The inner type must be the runtime/marshal type (e.g., SwiftString not string, SwiftArray<T>
             // not IReadOnlyList<T>) — resolved via TypeProjectionFactory.
             string marshalResultCode;
-            if (isObjCBridged)
+            var asyncReturnSpec = _env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+            if (_env.ExistentialHandler.IsExistential(asyncReturnSpec))
+            {
+                // Existential / opaque-protocol return (`some P` is boxed to `any P` by the async
+                // harness, which `initializeMemory(as: P.self, ...)` into the carrier). The carrier
+                // holds an existential container, NOT a value of the public interface type, so read
+                // the blittable container struct and wrap it in the proxy / union — mirroring the
+                // synchronous @_cdecl existential-return path in WrapperEmitter.Return.cs. Without
+                // this, the generic catch-all below emits `MarshalFromSwift<I{Protocol}>(resultPtr)`,
+                // which has no marshalling support for a plain interface target and throws
+                // NotSupportedException inside the [UnmanagedCallersOnly] callback — escaping a native
+                // Swift caller, which crashes the process (SIGSEGV). The container copy takes
+                // ownership of the boxed value's +1, so a plain SBW_Free (no VWT Destroy) is correct.
+                var asyncProtocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(asyncReturnSpec)!;
+                var asyncContainerType = _env.ExistentialHandler.GetCSharpExistentialType(asyncProtocolList);
+                var asyncPublicType = _env.ExistentialHandler.GetPublicExistentialType(asyncProtocolList);
+                string asyncWrapExpr;
+                if (asyncProtocolList.Protocols.Count == 0 || asyncPublicType == "object")
+                    asyncWrapExpr = "__existentialResult";
+                else if (asyncPublicType == "Swift.Runtime.ExistentialUnion")
+                    asyncWrapExpr = "new Swift.Runtime.ExistentialUnion(__existentialResult)";
+                else if (_env.ExistentialHandler.TryGetWellKnownProtocolType(asyncProtocolList, out var asyncWkIR))
+                    asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
+                else
+                    asyncWrapExpr = $"new {_env.ExistentialHandler.GetQualifiedProxyClassName(asyncProtocolList)}(__existentialResult)";
+                marshalResultCode =
+                    $"var __existentialResult = SwiftMarshal.MarshalFromSwift<{asyncContainerType}>(resultPtr);\n" +
+                    $"                                var result = {asyncWrapExpr};";
+            }
+            else if (isObjCBridged)
             {
                 // Swift passed +1 via passRetained. GetNSObject/GetINativeObject adds its own +1 retain
                 // (NSObject(handle, false) → DangerousRetain). DangerousRelease() balances passRetained,
