@@ -13,6 +13,7 @@ Specific in-flight workstreams with dedicated docs. Roadmap-categorical items be
 | Workstream | Doc |
 |---|---|
 | KeyPath subsystem | [`keypath-subsystem/`](keypath-subsystem/) |
+| Memory management open items | [`memory-management-open-items.md`](memory-management-open-items.md) |
 
 ---
 

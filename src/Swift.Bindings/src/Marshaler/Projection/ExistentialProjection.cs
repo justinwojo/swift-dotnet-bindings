@@ -39,11 +39,11 @@ public class ExistentialProjection : ITypeProjection
     public string PInvokeType => _containerType;
     public string? PInvokeAttribute => null;
 
-    // The owned-return ctor argument, emitted only for single-protocol (EC1) proxies that
-    // expose the ownership-aware ctor. Multi-protocol composition proxies (EC2+) use a
-    // distinct 1-arg ctor and a separate (currently no-op) release path.
+    // The owned-return ctor argument, emitted for both single-protocol (EC1) and composition
+    // (EC2+) proxies that expose the ownership-aware ctor. The proxy adopts the +1 and releases
+    // the container's one conforming value via the existential's own metadata on Dispose/finalize.
     private string OwnsContainerArg =>
-        _containerType == "Swift.Runtime.ExistentialContainer1" ? ", ownsContainer: true" : string.Empty;
+        ExistentialHandler.IsOwnedExistentialContainerType(_containerType) ? ", ownsContainer: true" : string.Empty;
 
     public MarshalPlan GetParameterPlan(string paramName)
     {

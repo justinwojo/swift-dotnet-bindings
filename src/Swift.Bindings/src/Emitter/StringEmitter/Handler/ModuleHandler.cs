@@ -1700,6 +1700,16 @@ namespace BindingsGeneration
         /// Emits a wrap-only proxy class for a composition interface.
         /// The proxy wraps a Swift existential container; member access throws NotSupportedException.
         /// </summary>
+        /// <remarks>
+        /// Only reached for PURE-PROTOCOL compositions, whose ABI is the opaque
+        /// <c>ExistentialContainerN</c> layout (N witness-table words + 3-word inline value buffer +
+        /// metadata word). Class-bound / ObjC compositions (<c>any SomeClass &amp; P</c>) are degraded to
+        /// <c>object</c> upstream by <see cref="ExistentialHandler"/> and never produce a composition
+        /// proxy, so the opaque container deref in <c>NewFromPayload</c> and the value-witness Destroy in
+        /// the ownership path are always layout-correct here. A class-bound composition would need a
+        /// distinct 2-word class-existential release shape (cf. the EC1 <c>useClassBoundContainerLayout</c>
+        /// split) — out of scope until that path is supported.
+        /// </remarks>
         private void EmitCompositionProxy(CSharpWriter csWriter, string compositionName, List<string> parentInterfaces,
             ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
         {
@@ -1717,21 +1727,52 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
-            // Field
+            // Fields
             csWriter.WriteLine($"private readonly {containerType} _swiftContainer;");
+            csWriter.WriteLine("private bool _disposed;");
             csWriter.WriteLine();
 
-            // Constructor from container
-            csWriter.WriteLine($"public {proxyClassName}({containerType} container)");
+            // True only for a composition proxy that ADOPTED a Swift-returned `any A & B & …`
+            // existential at +1 (the owned-return marshalling paths construct with
+            // `ownsContainer: true`). Such a proxy owns the container's value-witness retains
+            // and must release them on Dispose/finalize. False for every other construction —
+            // borrowed parameter wraps and payload-pointer reads (NewFromPayload) do NOT own a
+            // +1, so destroying their (borrowed) container would be a use-after-free.
+            csWriter.WriteLine("private readonly bool _ownsContainer;");
+            csWriter.WriteLine();
+
+            // Constructor from container. `ownsContainer` mirrors the single-protocol (EC1) proxy:
+            // an owned return adopts the +1 and releases it on Dispose/finalize. A composition
+            // container holds exactly ONE conforming value regardless of protocol count, so its
+            // value-witness Destroy (via the existential's own metadata) releases that one value.
+            csWriter.WriteLine($"public {proxyClassName}({containerType} container, bool ownsContainer = false)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("_swiftContainer = container;");
+            csWriter.WriteLine("_ownsContainer = ownsContainer;");
+            csWriter.WriteLine("// Only an owning proxy has anything to release; suppress the finalizer for");
+            csWriter.WriteLine("// borrowed/synthetic containers so they never run a value-witness Destroy on");
+            csWriter.WriteLine("// a container they don't own.");
+            csWriter.WriteLine("if (!ownsContainer)");
+            csWriter.Indent++;
+            csWriter.WriteLine("GC.SuppressFinalize(this);");
+            csWriter.Indent--;
+            csWriter.WriteLine("// Register with the ambient dispose scope (if any) so an owned return is");
+            csWriter.WriteLine("// deterministically released at scope exit instead of waiting on the finalizer,");
+            csWriter.WriteLine("// mirroring the single-protocol (EC1) proxy.");
+            csWriter.WriteLine("Swift.Runtime.SwiftDisposeScope.TryRegister(this);");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
             // ISwiftExistentialConvertible (explicit interface implementation to hide from public API)
-            csWriter.WriteLine($"{containerType} ISwiftExistentialConvertible<{containerType}>.GetExistentialContainer() => _swiftContainer;");
+            csWriter.WriteLine($"{containerType} ISwiftExistentialConvertible<{containerType}>.GetExistentialContainer()");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (_disposed) throw new ObjectDisposedException(GetType().Name);");
+            csWriter.WriteLine("return _swiftContainer;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
             csWriter.WriteLine();
 
             // ISwiftObject implementation
@@ -1750,6 +1791,7 @@ namespace BindingsGeneration
 
                 public int MarshalToSwift(ref Span<byte> swiftDestSpan)
                 {
+                    if (_disposed) throw new ObjectDisposedException(GetType().Name);
                     var size = _swiftContainer.SizeOf;
                     if (swiftDestSpan.Length < size)
                         throw new ArgumentException("Destination span too small", nameof(swiftDestSpan));
@@ -1765,7 +1807,53 @@ namespace BindingsGeneration
                     throw new NotSupportedException("Composition proxy does not support protocol conformance descriptors.");
                 }
 
-                public void Dispose() { }
+                public void Dispose()
+                {
+                    if (_disposed) return;
+                    _disposed = true;
+                    GC.SuppressFinalize(this);
+                    ReleaseAdoptedSwiftContainer();
+                }
+
+                /// <summary>
+                /// Finalizer — releases an adopted (<c>_ownsContainer</c>) composition existential
+                /// container if the consumer never called <see cref="Dispose"/>. Non-owning proxies
+                /// suppress finalization in their constructor, so this only runs for owners.
+                /// </summary>
+                ~{{proxyClassName}}()
+                {
+                    if (_disposed) return;
+                    _disposed = true;
+                    ReleaseAdoptedSwiftContainer();
+                }
+
+                // Releases the value-witness retains of an ADOPTED Swift-returned composition
+                // existential container. Gated to proxies that actually own a +1 (_ownsContainer,
+                // set only by the owned-return marshalling paths). Borrowed parameter wraps and
+                // payload-pointer reads (NewFromPayload) do NOT own a +1 — destroying their
+                // (borrowed) container would be a use-after-free. A composition container holds
+                // ONE conforming value (3-word inline buffer or heap box), so destroying through
+                // the existential's own value-witness table — resolved by protocol count, which
+                // for EC2+ skips the leading witness-table words to the payload — releases that
+                // one value (inline class reference or boxed value payload alike).
+                private void ReleaseAdoptedSwiftContainer()
+                {
+                    if (!_ownsContainer)
+                        return;
+                    try
+                    {
+                        fixed ({{containerType}}* containerPtr = &_swiftContainer)
+                        {
+                            var existentialMetadata = Swift.Runtime.TypeMetadata.GetExistentialTypeMetadata(_swiftContainer.Count);
+                            Swift.Runtime.InteropServices.SwiftMarshal.DestroyWireBufferRetains((IntPtr)containerPtr, existentialMetadata);
+                        }
+                    }
+                    catch
+                    {
+                        // Existential metadata unavailable (e.g. SwiftBindingsRuntime not loaded
+                        // under unit tests) — skip the destroy rather than throw from Dispose/finalize.
+                    }
+                }
                 """);
             csWriter.WriteLine();
 

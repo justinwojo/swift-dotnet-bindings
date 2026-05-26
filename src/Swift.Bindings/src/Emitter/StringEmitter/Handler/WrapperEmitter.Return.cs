@@ -12,16 +12,14 @@ namespace BindingsGeneration
         /// The owned-return ctor argument (<c>, ownsContainer: true</c>) for an existential
         /// return, or empty. A proxy that adopts a Swift-returned existential at +1 must release
         /// the container's value-witness retains on Dispose/finalize, or the payload's +1 leaks.
-        /// Only single-protocol (EC1) proxies expose the ownership-aware ctor; multi-protocol
-        /// composition proxies (EC2+, emitted by ModuleHandler with an empty Dispose) use a
-        /// distinct 1-arg ctor and remain a separate, not-yet-balanced release mechanism.
-        /// Gated on the container TYPE, not the protocol count: ObjC filtering can drop
-        /// protocols, so <c>protocolList.Protocols.Count</c> diverges from the actual EC1/EC2
-        /// width (see the mixed-composition guard in constraints), but the container type is
-        /// authoritative for which proxy ctor was emitted.
+        /// Both single-protocol (EC1) and composition (EC2+) proxies expose the ownership-aware
+        /// ctor and release the adopted container's one conforming value via the existential's own
+        /// metadata. Gated on the container TYPE via <see cref="ExistentialHandler.IsOwnedExistentialContainerType"/>,
+        /// not the protocol count: ObjC filtering can drop protocols, so a protocol-list count
+        /// diverges from the emitted EC width (see the mixed-composition guard in constraints).
         /// </summary>
         private static string OwnedExistentialCtorArg(string containerType) =>
-            containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal)
+            ExistentialHandler.IsOwnedExistentialContainerType(containerType)
                 ? ", ownsContainer: true"
                 : string.Empty;
 

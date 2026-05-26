@@ -161,6 +161,95 @@ public class ExistentialReturnLeakProbeTests : TestBase
     }
 
     /// <summary>
+    /// <c>any Nameable &amp; Ageable</c> return wrapping a tracked CLASS conforming to BOTH protocols
+    /// — an EC2 COMPOSITION existential. The single conforming value (one class instance regardless
+    /// of protocol count) lives inline in the container's first payload word; disposing the composition
+    /// proxy must value-witness Destroy the adopted EC2 container, ARC-releasing the instance. Before
+    /// the EC2+ ownership fix the composition proxy had an empty <c>Dispose()</c> and no ownership-aware
+    /// ctor, so each owned return orphaned the payload's +1 and pinned one tracked instance per call.
+    /// </summary>
+    public void TestCompositionExistentialReturnReleasesInlinePayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AllocAndDisposeNameableAgeable(200);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) return must not orphan the composition existential payload's retain");
+        TestLogger.Info("any Nameable & Ageable: 200 returns released their inline class payload");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeNameableAgeable(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var v = TestLibFunctions.MakeTrackedNameableAgeable(i);
+            (v as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// <c>(any Nameable &amp; Ageable)?</c> return — the decomposed OPTIONAL composition-existential
+    /// owned-return path, a distinct emission site from the non-optional path above but routed
+    /// through the same EC2 composition proxy. Disposing the proxy must release the inline class payload.
+    /// </summary>
+    public void TestOptionalCompositionExistentialReturnReleasesInlinePayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AllocAndDisposeNameableAgeableOptional(200);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("(any Nameable & Ageable)? (EC2) return must not orphan the composition existential payload's retain");
+        TestLogger.Info("(any Nameable & Ageable)?: 200 present returns released their inline class payload");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeNameableAgeableOptional(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var v = TestLibFunctions.MakeTrackedNameableAgeableOptional(true, i);
+            (v as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// <c>any Nameable &amp; Ageable</c> (EC2) return wrapping a BOXED value-type conformer — five
+    /// embedded tracked refs push the struct past the container's 3-word inline buffer, so the
+    /// payload is heap-boxed and the container's first word holds the box pointer. Disposing the
+    /// composition proxy must release the EC2 container through its value-witness table (which
+    /// releases the box and its five embedded refs), NOT a bare release of the first payload word.
+    /// This guards the EC2+ release path for the boxed case — the inline-vs-boxed distinction lives
+    /// in the existential's own VWT, independent of the witness-table word count, so a release path
+    /// that only handled inline class refs would leak all five refs per call here.
+    /// </summary>
+    public void TestCompositionExistentialReturnReleasesBoxedPayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AllocAndDisposeBoxedNameableAgeable(50);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("any Nameable & Ageable (EC2) boxed-payload return must not orphan the box's retains");
+        TestLogger.Info("any Nameable & Ageable boxed: 50 returns x 5 embedded refs all released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeBoxedNameableAgeable(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var v = TestLibFunctions.MakeBoxedTrackedNameableAgeable(i);
+            (v as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// <c>(any Error)?</c> return wrapping a tracked CLASS conforming to <c>Error</c> — a 1-word
     /// class-bound existential the marshalling wraps in the <c>AnyError</c> value struct. Because
     /// <c>AnyError</c> is blittable and copied by value, it has no deterministic release point, so

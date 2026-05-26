@@ -39,6 +39,36 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// True when <paramref name="containerType"/> names an opaque existential container that an
+    /// owned-return proxy ADOPTS at +1 — <c>ExistentialContainer1</c> (single-protocol <c>any P</c>)
+    /// through <c>ExistentialContainer8</c> (composition <c>any A &amp; B &amp; …</c>). The proxy then
+    /// releases the container's value-witness retains on Dispose/finalize through the existential's
+    /// own metadata, which destroys exactly the one conforming value the container holds regardless
+    /// of how many witness-table words precede it (extra protocols add witness tables, not payloads).
+    /// <c>ExistentialContainer0</c> (bare <c>Any</c> / <c>AnyError</c>) is a value type with no proxy
+    /// ownership and is excluded.
+    /// <para>
+    /// Gated on the container TYPE, not the declared protocol count: ObjC filtering can drop protocols,
+    /// so a protocol-list count diverges from the emitted EC width (see the mixed-composition guard in
+    /// constraints), but the container type string is authoritative for which proxy ctor was emitted.
+    /// </para>
+    /// </summary>
+    public static bool IsOwnedExistentialContainerType(string? containerType)
+    {
+        if (string.IsNullOrEmpty(containerType))
+            return false;
+        const string marker = "ExistentialContainer";
+        var idx = containerType.LastIndexOf(marker, StringComparison.Ordinal);
+        if (idx < 0)
+            return false;
+        var suffix = containerType.Substring(idx + marker.Length);
+        // EC1..EC8 own a payload; EC0 (n == 0), non-numeric suffixes (e.g. "Heap"), and any
+        // n past MaxSupportedWitnessTables (no runtime metadata case, no emitted proxy ctor)
+        // are excluded — keep the shared ownership gate fail-closed.
+        return int.TryParse(suffix, out var n) && n >= 1 && n <= MaxSupportedWitnessTables;
+    }
+
+    /// <summary>
     /// Sets the composition collector on this handler for late injection.
     /// </summary>
     /// <remarks>

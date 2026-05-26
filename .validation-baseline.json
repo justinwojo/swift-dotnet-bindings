@@ -1,5 +1,5 @@
 {
-  "git_sha": "0a77b652",
+  "git_sha": "4f90d7bd",
   "compile_gate": {
     "libraries": {
       "ActivityKit": {
@@ -117,7 +117,7 @@
       "RealityFoundation": {
         "compile": "ok",
         "errors": 0,
-        "lines": 191348,
+        "lines": 191353,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
@@ -944,13 +944,13 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2194,
+      "pass": 2206,
       "fail": 0,
       "skip": 62,
       "crash": 0
     },
     "device": {
-      "pass": 2217,
+      "pass": 2229,
       "fail": 0,
       "skip": 39,
       "crash": 0

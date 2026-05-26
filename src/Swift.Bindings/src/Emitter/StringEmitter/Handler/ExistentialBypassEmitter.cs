@@ -763,10 +763,10 @@ public static class ExistentialBypassEmitter
             publicReturnType = env.ExistentialHandler.GetPublicExistentialType(protocolList);
             // Mirror WrapperEmitter.Return.cs: well-known (Swift.Error → AnyError), else proxy.
             // Owned return: the proxy adopts the +1 existential and releases it on Dispose.
-            // Only single-protocol (EC1) proxies expose the ownership-aware ctor; composition
-            // proxies (EC2+) use a separate 1-arg ctor. Gate on the container type, not the
-            // protocol count (ObjC filtering can make those diverge).
-            var ownsArg = containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal)
+            // Both single-protocol (EC1) and composition (EC2+) proxies expose the ownership-aware
+            // ctor. Gate on the container type, not the protocol count (ObjC filtering can make
+            // those diverge).
+            var ownsArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType)
                 ? ", ownsContainer: true"
                 : string.Empty;
             returnWrapExpr = env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnown)

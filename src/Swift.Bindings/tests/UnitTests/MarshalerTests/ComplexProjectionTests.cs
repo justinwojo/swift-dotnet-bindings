@@ -102,14 +102,23 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Existential_OwnedElementConversion_NonEC1_FallsBackNonOwning()
+    public void Existential_OwnedElementConversion_EC2_Adopts()
     {
-        // Only EC1 single-protocol proxies expose the ownership-aware ctor. EC2+ composition proxies
-        // (and bare-any/object) have no single +1 to adopt, so the owned variant falls back to the
-        // non-owning form (OwnsContainerArg is empty for non-EC1 containers).
+        // EC2+ composition proxies now expose the ownership-aware ctor (mirroring EC1): a composition
+        // container holds one conforming value regardless of protocol count, so the proxy adopts the
+        // Swift-returned +1 and releases that one value via the existential's own metadata on
+        // Dispose/finalize. The owned variant stamps ownsContainer:true; the shared
+        // GetReturnElementConversion stays non-owning so borrowed receiver-callback wraps don't over-release.
         var ec2 = new ExistentialProjection("Swift.Runtime.ExistentialContainer2", "IDescribable", "DescribableProxy");
-        Assert.Equal("(IDescribable)new DescribableProxy(e)", ec2.GetOwnedReturnElementConversion("e"));
+        Assert.Equal("(IDescribable)new DescribableProxy(e, ownsContainer: true)", ec2.GetOwnedReturnElementConversion("e"));
+        Assert.Equal("(IDescribable)new DescribableProxy(e)", ec2.GetReturnElementConversion("e"));
+    }
 
+    [Fact]
+    public void Existential_OwnedElementConversion_BareAny_FallsBackNonOwning()
+    {
+        // Bare any (EC0 / object) has no proxy and no single owned +1 to adopt, so the owned variant
+        // falls back to the non-owning form (OwnsContainerArg is empty for EC0).
         var bareAny = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
         Assert.Equal(bareAny.GetReturnElementConversion("e"), bareAny.GetOwnedReturnElementConversion("e"));
     }
