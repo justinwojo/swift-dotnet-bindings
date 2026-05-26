@@ -372,7 +372,7 @@ namespace BindingsGeneration
                 // post-processor and MemberValidationPipeline treat them as internal — the
                 // synthesized decl has no members and must not surface as a C# interface.
                 var synthesizedUnderscoreNames = UnderscoreProtocolSynthesizer.Synthesize(
-                    moduleName, swiftInterfacePath, decl, moduleTypes, logger);
+                    moduleName, swiftInterfacePath, decl, moduleTypes, typeDatabase, logger);
                 if (synthesizedUnderscoreNames.Count > 0)
                     underscoreSuppressedNames.UnionWith(synthesizedUnderscoreNames);
 

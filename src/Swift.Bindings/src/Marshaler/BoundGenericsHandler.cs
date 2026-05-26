@@ -1376,6 +1376,16 @@ public class BoundGenericsHandler
             if (HasWellKnownStdlibConformance(typeArgumentName, protocolConstraint))
                 return true;
 
+            // Stripped foreign conformances: swift-api-digester drops underscore-PAT
+            // conformance records (e.g. `Swift.Int : AppIntents._IntentValue`) along with the
+            // protocol decl. UnderscoreProtocolSynthesizer re-parses them from the owning
+            // module's swiftinterface and registers the foreign (concrete, protocol) pairs here.
+            // Without this, members on closed bound generics like `IntentParameter<Int>` are
+            // skipped. The table holds only the synthesizer's narrow allowlist facts, so the
+            // exact-pair match is itself the gate (no general external-conformance oracle).
+            if (_typeDatabase.HasStrippedConformance(typeArgumentName, protocolConstraint))
+                return true;
+
             // For external concrete types (e.g. Swift stdlib types), we can't verify
             // conformance from local declarations, so fail closed and skip the member.
             return false;

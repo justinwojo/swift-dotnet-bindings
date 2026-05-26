@@ -557,11 +557,19 @@ public class PInvokeHelperContext
     /// For each PWT entry the expression is one of:
     /// <list type="bullet">
     /// <item>Resolvable: <c>ProtocolWitnessTable.GetOrThrowAuto&lt;T0, IDescribable&gt;().Handle</c></item>
-    /// <item>Unresolvable: <c>{HelperClassName}.Get{Protocol}PWT(SwiftObjectHelper&lt;T0&gt;.GetTypeMetadata()).Handle</c></item>
+    /// <item>Unresolvable (descriptor-symbol): <c>{HelperClassName}.Get{Protocol}PWT(TypeMetadata.GetTypeMetadataOrThrow&lt;T0&gt;()).Handle</c></item>
     /// </list>
-    /// PWT entries continue to use <c>SwiftObjectHelper</c> / <c>GetOrThrowAuto</c> because
-    /// they only fire when the param HAS a protocol constraint — which always pairs with
-    /// the retained <c>ISwiftObject</c> seed in the where clause.
+    /// The resolvable branch uses <c>GetOrThrowAuto&lt;T, IFoo&gt;()</c>, which requires
+    /// <c>T : ISwiftObject</c>; it only fires when a C# interface constraint survives, which
+    /// always pairs with the retained <c>ISwiftObject</c> seed in the where clause. The
+    /// unresolvable branch sources <c>TypeMetadata</c> through the UNCONSTRAINED
+    /// <c>TypeMetadata.GetTypeMetadataOrThrow&lt;T&gt;()</c> helper so it compiles even when
+    /// the surrounding where clause has DROPPED the seed — a generic param can survive in
+    /// <see cref="PwtEntries"/> via a descriptor-symbol path while its only protocol
+    /// conformance is filtered out of the where clause for being a PAT / Self-requirement /
+    /// associated-type protocol (e.g. <c>IntentParameter&lt;nint&gt;</c> against the
+    /// synthesized <c>_IntentValue</c>). See
+    /// <c>GenericTypeEmitter.GetWhereClause</c>'s descriptor-path-safe seed drop.
     /// </summary>
     public IReadOnlyList<string> GetTypeMetadataAccessorArgumentList()
     {

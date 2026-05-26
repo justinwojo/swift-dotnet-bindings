@@ -33,6 +33,21 @@ namespace BindingsGeneration
         // constructor shapes. Retained here so that information survives past name precomputation.
         private readonly List<ModuleDecl> _dependencyModuleDecls = new();
 
+        // Conformance facts for FOREIGN concrete types (no local TypeDecl in any processed
+        // module) against synthesized underscore PATs that swift-api-digester stripped from the
+        // ABI JSON — e.g. `Swift.Int : AppIntents._IntentValue`. UnderscoreProtocolSynthesizer
+        // parses these from the owning module's swiftinterface extension headers and registers
+        // them here; BoundGenericsHandler.SatisfiesConstraint consults the table in its
+        // `typeArgumentDecl == null` branch so members typed on closed bound generics like
+        // `IntentParameter<Int>` are not skipped. Local conformers (incl. frozen value types)
+        // do NOT use this table — their conformance is attached to the local decl and persists
+        // via TypeRecord.ProtocolConformances. Keyed by concrete-type module-qualified name →
+        // set of protocol module-qualified names. Registration only ever comes from the
+        // synthesizer's narrow allowlist, so the exact (concrete, protocol) pair is itself the
+        // gate against this becoming a general external-conformance oracle.
+        private readonly ConcurrentDictionary<string, HashSet<string>> _strippedForeignConformances =
+            new(StringComparer.Ordinal);
+
         // Module aliases for types that appear under different module names in ABI JSON vs their canonical location.
         // For example, CGSize appears as CoreFoundation.CGSize in ABI JSON but is registered under CoreGraphics.
         private static readonly Dictionary<string, string> _moduleAliases = new()
@@ -119,6 +134,28 @@ namespace BindingsGeneration
         /// </summary>
         /// <param name="moduleDatabase">The module database to add.</param>
         /// <exception cref="Exception">Thrown if a module with the same name already exists in the database.</exception>
+        /// <inheritdoc/>
+        public void RegisterStrippedConformance(SwiftTypeName concreteType, SwiftTypeName protocolName)
+        {
+            var set = _strippedForeignConformances.GetOrAdd(
+                concreteType.ModuleQualifiedName, _ => new HashSet<string>(StringComparer.Ordinal));
+            lock (set)
+            {
+                set.Add(protocolName.ModuleQualifiedName);
+            }
+        }
+
+        /// <inheritdoc/>
+        public bool HasStrippedConformance(SwiftTypeName concreteType, SwiftTypeName protocolName)
+        {
+            if (!_strippedForeignConformances.TryGetValue(concreteType.ModuleQualifiedName, out var set))
+                return false;
+            lock (set)
+            {
+                return set.Contains(protocolName.ModuleQualifiedName);
+            }
+        }
+
         public void AddModuleDatabase(ModuleTypeDatabase moduleDatabase)
         {
             if (!_modules.TryAdd(moduleDatabase.Name, moduleDatabase))

@@ -39,7 +39,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             var synthesized = UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Contains("AppIntents._IntentValue", synthesized);
             var decl = Assert.Single(module.Protocols, p => p.Name == "_IntentValue");
@@ -75,7 +75,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             var synthesized = UnderscoreProtocolSynthesizer.Synthesize(
-                "SomeRandomFramework", path, module, moduleTypes, NullLogger.Instance);
+                "SomeRandomFramework", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Empty(synthesized);
             Assert.Empty(module.Protocols);
@@ -116,7 +116,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             var synthesized = UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Empty(synthesized);
             Assert.Single(module.Protocols);
@@ -136,7 +136,7 @@ public class UnderscoreProtocolSynthesizerTests
 
         var synthesized = UnderscoreProtocolSynthesizer.Synthesize(
             "AppIntents", swiftInterfacePath: null,
-            module, moduleTypes, NullLogger.Instance);
+            module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
         Assert.Empty(synthesized);
         Assert.Empty(module.Protocols);
@@ -156,7 +156,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             var synthesized = UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Contains("AppIntents._IntentValue", synthesized);
             Assert.DoesNotContain("AppIntents._ParameterSummarySwitchCase", synthesized);
@@ -184,7 +184,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             Assert.Equal(2, decl.InheritedProtocols.Count);
@@ -220,7 +220,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             Assert.True(decl.HasSelfRequirement);
@@ -249,7 +249,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             Assert.False(decl.HasSelfRequirement);
@@ -277,7 +277,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             Assert.Equal("_IntentValue", decl.Name);
@@ -304,7 +304,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             Assert.Equal("_IntentValue", decl.Name);
@@ -334,7 +334,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             Assert.Single(decl.AssociatedTypes);
@@ -360,7 +360,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             var decl = Assert.Single(module.Protocols);
             var at = Assert.Single(decl.AssociatedTypes);
@@ -395,7 +395,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Contains(intentFile.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
             Assert.Contains(someClass.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
@@ -410,11 +410,12 @@ public class UnderscoreProtocolSynthesizerTests
     }
 
     [Fact]
-    public void Synthesize_SkipsStrippedConformance_ForFrozenValueTypeConformer()
+    public void Synthesize_AttachesStrippedConformance_ToFrozenValueTypeConformer()
     {
-        // A frozen (value-typed) local struct is excluded — the downstream KeyPath surface
-        // constrains the parameter value to a reference type (ISwiftObject), so satisfying
-        // the constraint for a value type would only enable an unusable binding.
+        // A frozen (value-typed) local struct now regains the conformance just like a
+        // reference type. The relaxed GenericTypeEmitter seed (descriptor-path-safe PATs drop
+        // the ISwiftObject seed) lets a closed IntentParameter<FrozenStruct> type-check, so
+        // satisfying the constraint enables a usable binding rather than a dead one.
         var module = CreateEmptyModule("AppIntents");
         var frozen = AddStruct(module, "FrozenValue", isFrozen: true);
         var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
@@ -427,9 +428,11 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
-            Assert.Empty(frozen.Conformances);
+            Assert.Contains(frozen.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            // Type-database fact only: empty descriptor, never emitted as runtime conformance.
+            Assert.All(frozen.Conformances, c => Assert.Equal(string.Empty, c.ProtocolConformanceDescriptor));
         }
         finally
         {
@@ -456,7 +459,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Empty(box.Conformances);
         }
@@ -467,14 +470,17 @@ public class UnderscoreProtocolSynthesizerTests
     }
 
     [Fact]
-    public void Synthesize_IgnoresForeignConformer_WithNoLocalDecl()
+    public void Synthesize_RegistersForeignConformer_OnTypeDatabase()
     {
-        // Foreign / stdlib conformers (Swift.Int, Foundation.Date) have no local TypeDecl.
-        // SatisfiesConstraint already fails them closed at typeArgumentDecl == null, so the
-        // synthesizer simply finds nothing to attach — and must not throw.
+        // Foreign / stdlib conformers (Swift.Int, Foundation.Date) have no local TypeDecl to
+        // carry a conformance, so their (concrete, protocol) fact is recorded on the type
+        // database instead. BoundGenericsHandler.SatisfiesConstraint consults this in its
+        // typeArgumentDecl == null branch so a closed IntentParameter<Int> is not skipped.
+        // The local reference-typed conformer still gets the conformance attached to its decl.
         var module = CreateEmptyModule("AppIntents");
         var intentFile = AddStruct(module, "IntentFile", isFrozen: false);
         var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var typeDatabase = new TypeDatabase();
         var path = WriteInterface(
             """
             public protocol _IntentValue { associatedtype Value }
@@ -486,11 +492,17 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, typeDatabase, NullLogger.Instance);
 
-            // The only local reference-typed conformer gets the conformance; the foreign
-            // extensions are silently ignored (no local decl to attach to).
+            var protocolName = SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue");
+            // Foreign conformers land in the fact table, not on any local decl.
+            Assert.True(typeDatabase.HasStrippedConformance(
+                SwiftTypeName.FromModuleQualifiedName("Swift.Int"), protocolName));
+            Assert.True(typeDatabase.HasStrippedConformance(
+                SwiftTypeName.FromModuleQualifiedName("Foundation.Date"), protocolName));
+            // The local conformer is attached to its decl, NOT the foreign fact table.
             Assert.Contains(intentFile.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            Assert.False(typeDatabase.HasStrippedConformance(intentFile.SwiftTypeName, protocolName));
         }
         finally
         {
@@ -521,7 +533,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Contains(innerQualified.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
             Assert.Contains(innerRelative.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
@@ -550,7 +562,7 @@ public class UnderscoreProtocolSynthesizerTests
         try
         {
             UnderscoreProtocolSynthesizer.Synthesize(
-                "AppIntents", path, module, moduleTypes, NullLogger.Instance);
+                "AppIntents", path, module, moduleTypes, new TypeDatabase(), NullLogger.Instance);
 
             Assert.Single(intentFile.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
         }

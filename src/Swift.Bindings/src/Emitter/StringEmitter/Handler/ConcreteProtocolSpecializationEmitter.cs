@@ -1868,13 +1868,14 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 || MarshallingHelpers.IsObjCRooted(record)))
             return StructuralEmitReject.ObjCBridged;
 
-        // Reject simple-enum and unemittable-enum conformers. The CSM emitter targets
-        // parent types whose C# binding carries `where T : ISwiftObject` (seeded by
-        // GenericTypeEmitter for any non-marker protocol conformance on the parent
-        // generic). Two enum shapes fail that constraint:
+        // Reject simple-enum and unemittable-enum conformers. The CSM emitter's struct/enum
+        // arms can't render them. Two enum shapes fail:
         //   • SimpleEnum (no associated values, frozen, non-generic, integral or no
         //     raw value): emits as a plain C# `enum` value type with no ISwiftObject
-        //     impl → CS0315 at the parent constraint.
+        //     impl. (Historically this also tripped CS0315 at a `where T : ISwiftObject`
+        //     parent constraint; GenericTypeEmitter now DROPS that seed for descriptor-
+        //     path-safe PATs, so the parent may be unconstrained — but the emitter still
+        //     has no value-enum conformer arm, so the rejection stands.)
         //   • Unemittable (e.g. single-case no-payload, TypeMetadata.Size == 0): not
         //     emitted at all → CS0234 at the missing type reference.
         // Complex enums (associated-value cases) DO project to C# classes that

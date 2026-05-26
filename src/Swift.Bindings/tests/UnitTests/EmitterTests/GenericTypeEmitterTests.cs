@@ -597,6 +597,162 @@ public class GenericTypeEmitterTests
 
     #endregion
 
+    #region Descriptor-Path-Safe Seed Drop Tests
+
+    [Fact]
+    public void GetWhereClause_DropsISwiftObjectSeed_WhenOnlyConformanceIsSelfRequirementProtocol()
+    {
+        // The 8c shape: `IntentParameter<TValue>` where `TValue : AppIntents._IntentValue`,
+        // a PAT/Self-requirement protocol. The protocol can't be projected as a usable C#
+        // interface constraint, so it's filtered out of the where clause — and its PWT arg
+        // flows through the UNCONSTRAINED descriptor-symbol path
+        // (TypeMetadata.GetTypeMetadataOrThrow<T>()), which does NOT require T : ISwiftObject.
+        // Seeding ISwiftObject here would needlessly reject primitive/frozen conformers like
+        // IntentParameter<nint>. Because this is the ONLY conformance and no conservative
+        // filter fired, the seed must be dropped → empty where clause.
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("IntentParameter", "AppIntents",
+            new List<string> { "AppIntents._IntentValue" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("AppIntents", "I_IntentValue"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasSelfRequirement,
+                Kind = TypeRecordKind.Protocol,
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void GetWhereClause_DropsISwiftObjectSeed_WhenOnlyConformanceIsAssociatedTypeProtocol()
+    {
+        // A protocol with associated types lowers to a generic C# interface that can't be
+        // used as a bare constraint; it's filtered and dispatched via the descriptor-symbol
+        // path. Same rule as the Self-requirement case: drop the seed when it's the only
+        // conformance and nothing conservative fired.
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Box", "MyModule",
+            new List<string> { "MyModule.Sequence" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("MyModule.Sequence"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyModule", "ISequence"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("MyModule.Sequence"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasAssociatedTypes,
+                Kind = TypeRecordKind.Protocol,
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact]
+    public void GetWhereClause_KeepsISwiftObjectSeed_WhenOnlyConformanceIsMethodSelfTypeParamProtocol()
+    {
+        // A protocol that uses Self only in method parameter/return positions (e.g.
+        // `func add(_ other: Self) -> Self`) carries HasMethodSelfTypeParams but NEITHER
+        // HasAssociatedTypes NOR HasSelfRequirement. PInvokeHelperEmitter classifies such a
+        // protocol as RESOLVABLE (`isResolvable = !HasAssociatedTypes && !HasSelfRequirement`)
+        // and emits `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>()`, which requires
+        // `T : ISwiftObject`. So the seed must be KEPT here — dropping it (as an earlier
+        // revision did) produces CS0314 in the type's own metadata accessor. The interface is
+        // still filtered out of the C# constraint list (it can't be implemented — CS0738), so
+        // only the bare ISwiftObject seed survives.
+        var typeDecl = CreateGenericStructWithConstraintsAndModule("Box", "MyModule",
+            new List<string> { "MyModule.Summable" });
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("MyModule.Summable"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyModule", "ISummable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("MyModule.Summable"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasMethodSelfTypeParams,
+                Kind = TypeRecordKind.Protocol,
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        Assert.Contains("ISwiftObject", result);
+        Assert.DoesNotContain("ISummable", result);
+    }
+
+    [Fact]
+    public void GetWhereClause_KeepsISwiftObjectSeed_WhenDescriptorSafeMixesWithConservativeFilter()
+    {
+        // A param carries BOTH a descriptor-path-safe Self-requirement protocol AND an
+        // unregistered cross-module protocol (conservative bucket). The conservative filter
+        // wins: we can't positively prove the param avoids an ISwiftObject-requiring path,
+        // so the seed is retained. Guards against an over-eager drop when buckets mix.
+        var conformances = new List<GenericParameterConformance>
+        {
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue"),
+                ConformanceKind.Protocol),
+            new GenericParameterConformance(
+                new[] { "τ_0_0" },
+                SwiftTypeName.FromModuleQualifiedName("Swift.Decodable"),
+                ConformanceKind.Protocol),
+        };
+        var genericParams = new List<GenericArgumentDecl>
+        {
+            new GenericArgumentDecl("τ_0_0", "T", conformances, new List<GenericParameterConformance>()),
+        };
+        var moduleDecl = CreateModuleDecl("AppIntents");
+        var typeDecl = new StructDecl
+        {
+            Name = "MixedParameter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("AppIntents.MixedParameter"),
+            MangledName = "$s10AppIntents14MixedParameterV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10AppIntents14MixedParameterVMa",
+            GenericParameters = genericParams,
+        };
+        var typeDatabase = new TypeDatabase();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("AppIntents", "I_IntentValue"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue"),
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.HasSelfRequirement,
+                Kind = TypeRecordKind.Protocol,
+            })
+        });
+
+        var result = GenericTypeEmitter.GetWhereClause(typeDecl, typeDatabase);
+
+        // Swift.Decodable is unregistered → conservative; _IntentValue → descriptor-safe.
+        // Conservative wins, seed retained, and neither protocol surfaces as an interface.
+        Assert.Contains("ISwiftObject", result);
+        Assert.DoesNotContain("Decodable", result);
+        Assert.DoesNotContain("I_IntentValue", result);
+    }
+
+    #endregion
+
     #region Class-Bound Generic Constraint Tests
 
     [Fact]

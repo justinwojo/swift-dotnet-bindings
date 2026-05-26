@@ -83,4 +83,25 @@ public interface ITypeDatabase
     /// <see cref="AddDependencyModuleDecl"/>. Defaults to empty for test mocks.
     /// </summary>
     public IReadOnlyList<ModuleDecl> GetDependencyModuleDecls() => Array.Empty<ModuleDecl>();
+
+    /// <summary>
+    /// Records that a FOREIGN concrete type (one with no local <see cref="TypeDecl"/> in any
+    /// processed module — e.g. <c>Swift.Int</c>, <c>Foundation.Date</c>) conforms to a
+    /// synthesized underscore PAT whose conformance record swift-api-digester stripped from
+    /// the ABI JSON (e.g. <c>AppIntents._IntentValue</c>). Fed by
+    /// <c>UnderscoreProtocolSynthesizer.IngestStrippedConformances</c> from the owning module's
+    /// swiftinterface extension headers. Defaults to a no-op so the many test mocks that
+    /// implement <see cref="ITypeDatabase"/> don't need to override it.
+    /// </summary>
+    public void RegisterStrippedConformance(SwiftTypeName concreteType, SwiftTypeName protocolName) { }
+
+    /// <summary>
+    /// Returns true when <paramref name="concreteType"/> was registered (via
+    /// <see cref="RegisterStrippedConformance"/>) as conforming to
+    /// <paramref name="protocolName"/>. Consulted by
+    /// <c>BoundGenericsHandler.SatisfiesConstraint</c> in its <c>typeArgumentDecl == null</c>
+    /// branch so closed bound generics over foreign conformers (e.g. <c>IntentParameter&lt;Int&gt;</c>)
+    /// are not skipped. Defaults to false for test mocks.
+    /// </summary>
+    public bool HasStrippedConformance(SwiftTypeName concreteType, SwiftTypeName protocolName) => false;
 }

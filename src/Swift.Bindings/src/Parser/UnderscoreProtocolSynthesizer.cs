@@ -76,6 +76,7 @@ internal static class UnderscoreProtocolSynthesizer
         string? swiftInterfacePath,
         ModuleDecl moduleDecl,
         Dictionary<NamedTypeSpec, TypeDecl> moduleTypes,
+        ITypeDatabase typeDatabase,
         ILogger logger)
     {
         var synthesized = new HashSet<string>(StringComparer.Ordinal);
@@ -150,7 +151,7 @@ internal static class UnderscoreProtocolSynthesizer
             // together, so the conformers we just unblocked still have no evidence that
             // they satisfy the constraint. Re-attach the stripped conformance records the
             // same pass synthesizes the protocol.
-            IngestStrippedConformances(source, moduleName, swiftTypeName, moduleDecl, logger);
+            IngestStrippedConformances(source, moduleName, swiftTypeName, moduleDecl, typeDatabase, logger);
         }
 
         return synthesized;
@@ -206,31 +207,39 @@ internal static class UnderscoreProtocolSynthesizer
     /// indexing (<see cref="ConcreteSpecializationEngine"/>) can see the conformance.
     ///
     /// <para>
-    /// Only <b>unconditional</b> extensions whose conforming type is a <b>local,
-    /// reference-typed</b> nominal in <paramref name="moduleDecl"/> are ingested:
+    /// Only <b>unconditional</b> extensions are ingested. Conditional conformances
+    /// (<c>extension X : _P where ...</c>, e.g. <c>Array : _IntentValue where Element : _IntentValue</c>)
+    /// can't be attached unconditionally — the constraint check must keep failing for element
+    /// types that don't themselves conform — so they are skipped. Unconditional conformers are
+    /// split by where the satisfaction fact must live:
     /// </para>
     /// <list type="bullet">
-    ///   <item>Conditional conformances (<c>extension X : _P where ...</c>) can't be
-    ///   attached unconditionally — the constraint check must keep failing for element
-    ///   types that don't themselves conform — so they are skipped.</item>
-    ///   <item>Foreign / stdlib conformers (<c>Swift.Int</c>, <c>Foundation.Date</c>, …)
-    ///   have no local <see cref="TypeDecl"/>; <c>SatisfiesConstraint</c> already fails them
-    ///   closed at its <c>typeArgumentDecl == null</c> branch, matching the fact that a C#
-    ///   projection cannot retroactively add an interface to a type owned by another
-    ///   assembly.</item>
-    ///   <item>Value-typed local conformers are excluded: the downstream KeyPath surface
-    ///   constrains the parameter value to a reference type (<c>ISwiftObject</c>), so
-    ///   satisfying the constraint for a frozen struct would only enable a binding the C#
-    ///   projection can never use.</item>
+    ///   <item><b>Local</b> nominal conformers (a <see cref="TypeDecl"/> in
+    ///   <paramref name="moduleDecl"/>), <i>reference- OR value-typed</i>: the conformance is
+    ///   appended to the local decl's <c>Conformances</c> list. With the relaxed
+    ///   <c>GenericTypeEmitter.GetWhereClause</c> seed (descriptor-path-safe PATs drop
+    ///   <c>ISwiftObject</c>), a closed <c>IntentParameter&lt;FrozenStruct&gt;</c> now type-checks,
+    ///   so frozen value-typed conformers are no longer excluded. <c>HasConformance</c> then
+    ///   sees the fact, and it persists across modules via <c>TypeRecord.ProtocolConformances</c>.</item>
+    ///   <item><b>Foreign</b> conformers (<c>Swift.Int</c>, <c>Foundation.Date</c>, …) have no
+    ///   local <see cref="TypeDecl"/> to carry a conformance. Their (concrete, protocol) fact is
+    ///   registered on <paramref name="typeDatabase"/> via
+    ///   <see cref="ITypeDatabase.RegisterStrippedConformance"/>;
+    ///   <c>BoundGenericsHandler.SatisfiesConstraint</c> consults it in the
+    ///   <c>typeArgumentDecl == null</c> branch. (This table is in-memory and scoped to the
+    ///   current generator run — sufficient because the decision to emit the closed binding is
+    ///   made during this run; a different module that later loads this module's database and
+    ///   re-validates the same closed generic would fail closed, which is safe.)</item>
     /// </list>
     ///
     /// <para>
-    /// The conformance is attached with an <b>empty</b> descriptor symbol. The synthesized
-    /// protocol is module-internal and PAT-shaped, so every runtime-conformance emission
+    /// Local conformances are attached with an <b>empty</b> descriptor symbol. The synthesized
+    /// protocol is module-internal and PAT/Self-shaped, so every runtime-conformance emission
     /// path (the conformance dictionary, the single-PAT <c>typeof(object)</c> entry, and
-    /// NativeAOT factory registration) already skips empty-descriptor and PAT entries. The
-    /// record therefore exists purely as a type-database fact for constraint satisfaction
-    /// and never surfaces as generated runtime code.
+    /// NativeAOT factory registration) skips empty-descriptor / PAT / Self-requirement entries
+    /// by <i>protocol</i> flag — independent of whether the conformer is a class or a frozen
+    /// struct — so the record exists purely as a type-database fact for constraint satisfaction
+    /// and never surfaces as generated runtime code or a bogus <c>: I_IntentValue</c> interface.
     /// </para>
     /// </summary>
     private static void IngestStrippedConformances(
@@ -238,6 +247,7 @@ internal static class UnderscoreProtocolSynthesizer
         string moduleName,
         SwiftTypeName protocolName,
         ModuleDecl moduleDecl,
+        ITypeDatabase typeDatabase,
         ILogger logger)
     {
         // Lookup of local nominal types by module-qualified name (e.g. "AppIntents.IntentFile").
@@ -256,11 +266,22 @@ internal static class UnderscoreProtocolSynthesizer
             // appears dotted-but-unqualified (IntentParameter.DateKind). Try the name as-is and
             // module-prefixed so all three forms resolve against the module-qualified index.
             if (!TryResolveLocalConformer(conformingTypeName, moduleName, localTypes, out var decl))
-                continue; // foreign / stdlib conformer — correctly stays unsatisfied.
+            {
+                // Foreign / stdlib conformer (Swift.Int, Foundation.Date, …): no local TypeDecl
+                // to carry the conformance, so record the (concrete, protocol) fact on the type
+                // database. SatisfiesConstraint's typeArgumentDecl == null branch consults it.
+                // Names in the swiftinterface extension header are already module-qualified.
+                var foreignType = SwiftTypeName.FromModuleQualifiedName(conformingTypeName);
+                typeDatabase.RegisterStrippedConformance(foreignType, protocolName);
+                logger.LogInformation(
+                    "UnderscoreProtocolSynthesizer: registered foreign stripped conformance '{Type} : {Protocol}'.",
+                    foreignType, protocolName);
+                continue;
+            }
 
-            if (!IsReferenceTyped(decl))
-                continue; // value-typed local conformer — unusable under the ISwiftObject surface.
-
+            // Local conformer (reference- OR value-typed). Value types are no longer excluded:
+            // the relaxed GenericTypeEmitter seed lets a closed IntentParameter<FrozenStruct>
+            // compile, so satisfying the constraint now enables a usable binding.
             var conformanceList = GetConformanceList(decl);
             if (conformanceList == null)
                 continue;
@@ -339,14 +360,6 @@ internal static class UnderscoreProtocolSynthesizer
             return true;
         return localTypes.TryGetValue($"{moduleName}.{conformingTypeName}", out decl!);
     }
-
-    private static bool IsReferenceTyped(TypeDecl decl) => decl switch
-    {
-        ClassDecl => true,
-        StructDecl s => !s.IsFrozen,
-        EnumDecl e => !e.IsFrozen,
-        _ => false,
-    };
 
     private static List<TypeConformance>? GetConformanceList(TypeDecl decl) => decl switch
     {

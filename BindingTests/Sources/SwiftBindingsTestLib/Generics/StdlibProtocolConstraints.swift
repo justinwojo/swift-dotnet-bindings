@@ -8,9 +8,14 @@
 // enclosing type silently tombstoned — same shape as WeatherKit's
 // `Forecast<TElement>`. Keep these fixtures minimal — the surface that must
 // emit is the constrained generic itself and a factory that returns a
-// concrete specialization over a user-defined Equatable/Codable conformer
-// (primitive generics like `Int32` bring their own unrelated ISwiftObject
-// constraint issue, out of scope for this regression).
+// concrete specialization over a conformer. Both a user-defined struct
+// conformer (`EquatableTicket`) and a stdlib PRIMITIVE conformer (`Int`,
+// projected as the C# `nint` value type) are covered. The primitive case is
+// the load-bearing one: a Swift struct conformer always projects to a C# type
+// that implements `ISwiftObject`, so it satisfies the historical seed
+// regardless — only a primitive (which does NOT implement `ISwiftObject`)
+// exercises the generator dropping the `ISwiftObject` seed for a
+// descriptor-path-safe Self-requirement protocol like `Equatable`.
 
 import Foundation
 
@@ -40,6 +45,18 @@ public struct EquatableContainer<T: Equatable> {
 /// Concrete specialization — exercises the Equatable PWT slot.
 public func makeEquatableContainer(id: Int32) -> EquatableContainer<EquatableTicket> {
     return EquatableContainer(item: EquatableTicket(id: id))
+}
+
+/// Primitive specialization. `Int` is already `Equatable` in the stdlib and
+/// projects to the C# `nint` value type, which does NOT implement
+/// `ISwiftObject`. `EquatableContainer<Int>` therefore only type-checks once
+/// the generator drops the `ISwiftObject` seed — which it does because
+/// `Equatable` is a Self-requirement (descriptor-path-safe) protocol whose PWT
+/// arg flows through the unconstrained `TypeMetadata.GetTypeMetadataOrThrow<T>()`
+/// path. The construct-via-factory + read-back-`item` round-trip on the C# side
+/// is the durable gate for that seed drop.
+public func makeIntEquatableContainer(value: Int) -> EquatableContainer<Int> {
+    return EquatableContainer(item: value)
 }
 
 // MARK: - Decodable & Encodable-constrained generic (hasAssociatedTypes = true, x2)

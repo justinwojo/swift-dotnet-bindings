@@ -186,6 +186,14 @@ public static class V5_CallSite {
 
 The per-tuple emitter for 8c must therefore either (a) decline to emit closed `AppShortcutParameterPresentation<…>` overloads where Value is a primitive _IntentValue conformer, with a tombstone, or (b) lift `IntentParameter<TValue>`'s C# constraint to allow primitive TValues — e.g. by changing the synthesizer to project `_IntentValue` as a TypeRecord without the `ISwiftObject` fallback constraint surfacing on dependent generic types. Path (b) is a larger redesign and probably bleeds into the same change that lets the type database see Swift.Int as an `_IntentValue` conformer (see the CSM conformance gap below). Recommend revisiting this together with the conformance ingestion gap rather than as a tactical patch.
 
+**Resolved — 8c Phase A + B (shipped, uncommitted in `keypath-worktree`).** Took path (b), in two parts:
+
+- **Phase A — seed relaxation (`GenericTypeEmitter.GetWhereClause`).** The emitter previously seeded an `ISwiftObject` bound on every generic param that had *any* protocol conformance but no concrete constraint, which is what forced `IntentParameter<TValue>` to require `TValue : ISwiftObject` and excluded primitives. The seed is now dropped *only* when every filtered conformance on the param is **descriptor-path-safe** (PAT / Self-requirement / method-Self — the shapes that resolve through the unconstrained `TypeMetadata.GetTypeMetadataOrThrow<T>()` descriptor-symbol path rather than the `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>()` resolvable-interface path that genuinely needs `ISwiftObject`) **and** no *conservative* filter fired (unsupported-module, empty-marker, cross-module-unregistered, well-known-runtime). When a conservative filter is mixed in, the seed is kept — fail-closed. `IntentParameter<TValue>` whose only constraint is the synthesized `_IntentValue` PAT now type-checks for primitive and frozen-value TValues. Covered by `GenericTypeEmitterTests` descriptor-path-safe seed-drop tests.
+
+- **Phase B — conformance visibility (`UnderscoreProtocolSynthesizer` + `BoundGenericsHandler`).** Relaxing the C# constraint is necessary but not sufficient: `BoundGenericsHandler.SatisfiesConstraint` still has to *believe* the closed type argument conforms, or it skips the binding. The digester strips the protocol decl and its conformance records together, so the synthesizer now re-attaches the stripped records in the same pass. **Local** conformers (reference- *or* frozen-value-typed — the old frozen exclusion is gone) get a `TypeConformance` with an empty descriptor appended to their decl; this persists across modules via `TypeRecord.ProtocolConformances`. **Foreign** conformers (`Swift.Int`, `Foundation.Date`, …) have no local decl, so their `(concrete, protocol)` fact is registered on `ITypeDatabase.RegisterStrippedConformance`, which `SatisfiesConstraint` consults in its `typeArgumentDecl == null` branch.
+
+  **Persistence boundary (intentional).** The foreign fact table (`TypeDatabase._strippedForeignConformances`) is **in-memory and scoped to the current generator run** — it is *not* serialized into the module database XML. This is sufficient because the decision to emit a closed binding over a foreign conformer is made during the same run that synthesizes the protocol and ingests the extension headers. The same boundary applies whenever the conformer-owning module is *not* the module being bound this run: a dependency is loaded either from a pre-built database XML or by re-parsing its ABI JSON, and neither path runs `UnderscoreProtocolSynthesizer` for the dependency (it runs only for the bound module). So a consumer that closes a *dependency's* generic over a foreign conformer — e.g. `AppIntents.IntentParameter<Swift.Int>` where `AppIntents` is a framework dependency — would not see the fact and would fail closed (skip the binding) — which is safe, not a correctness bug. Local conformer facts do not have this boundary (they ride `TypeRecord.ProtocolConformances`). If a future cross-module scenario needs the foreign facts to survive into a dependent module's run, the fix is to project `_strippedForeignConformances` into `ModuleDatabaseEmitter` / the database XML schema (and/or run the synthesizer for re-parsed dependency ABI); deferred until a real consumer needs it. No live surface hits this today — the motivating consumer (`AppShortcutParameterPresentation`) is framework-blocked per the Phase C audit below.
+
 #### Higher-priority 8c blocker: `AppShortcutParameterPresentation` is silently dropped before emission
 
 Every one of the five parallel structs declared in the swiftinterface (`AppShortcutParameterPresentation`, `…Title`, `…TitleString`, `…Summary`, `…SummaryString`, at swiftinterface lines 909, 486, 493, 8889, 8895) is **completely absent** from the regen — no `partial class`, no `// Unsupported:` tombstone, no decl at all. `grep -n "AppShortcutParameterPresentation" AppIntents.cs` returns zero hits. The four-generic-param-pack with `Parameter : IntentParameter<Value>` + higher-kinded `ParameterKeyPath : Swift.KeyPath<Intent, Parameter>` is being filtered upstream of every tombstone-emitting gate in the type pipeline. This is *not* the synthesizer's doing — `_IntentValue` is now projected and `IntentParameter<TValue>` *does* emit as a partial class, so the filter killing ASPP is a separate one.
@@ -193,6 +201,22 @@ Every one of the five parallel structs declared in the swiftinterface (`AppShort
 This is the gating problem for 8c and is the next investigation: trace where in the parser / type-database / closed-conformer pipeline the four-generic-param-pack with higher-kinded constraints is being discarded silently. Likely a `where T : ConstructedGeneric<…, …>` shape filter that returns "drop this type" without writing a tombstone, in the type-registration phase before MemberValidationPipeline runs. Once that filter is identified and either lifted or made tombstone-producing, the generic-shape emission can proceed.
 
 **Resolved — 8a-3 (shipped, uncommitted in `keypath-worktree`).** The silent drop was *not* a type-registration shape filter — it was `GenericSignatureParser.ParseConstraint` throwing on the higher-kinded constraint. The where-clause `ParameterKeyPath : Swift.KeyPath<Intent, Parameter>` was first torn apart by a naive `Split(',')` on the inner comma, and the constructed-generic target was then fed to `SwiftTypeName.FromModuleQualifiedName`, which throws on `<`. That throw propagated up to `SwiftABIParser.HandleNode`, which swallowed it and discarded the *entire enclosing decl* — hence zero decls and zero tombstones. The fix: split the where-clause at top-level commas only (`SwiftTypeListText.SplitTopLevelCommas`) and have `ParseConstraint` return null (dropping just that one unrepresentable constraint) instead of throwing. All five `AppShortcutParameterPresentation*` structs now emit. The primitive-`_IntentValue`-conformer caveat above still applies to the 8c per-tuple emitter.
+
+#### Phase C feasibility audit — construction surface is framework-blocked; no per-tuple emitter ships
+
+With Phase A + B + 8a-3 in place the type-system novelty this session set out to prove — closing the four-generic-param-pack with the higher-kinded `ParameterKeyPath : KeyPath<Intent, Parameter>` constraint, over both primitive and reference `_IntentValue` conformers — **is proven**: `IntentParameter<TValue>` now emits and type-checks for primitive `TValue` (Phase A), `SatisfiesConstraint` accepts the stripped foreign conformers (Phase B), all five `AppShortcutParameterPresentation*` structs survive parsing (8a-3), and a throwaway spike confirmed the C# compiler accepts the closed four-generic shape.
+
+What remains — Phases 8c.3 / 8c.4 / 8c.5 below (per-tuple closed-struct emission + `AppShortcut.init(parameterPresentation:)` overloads) — **will not ship**, because an empirical audit of the *member surface* of the family in the iOS 26.2 `AppIntents.swiftinterface` shows there is **no C#- or trampoline-constructible path** to any value that participates in a public API. The entire family is designed for Swift result-builder + string-literal syntax inside an `AppShortcutsProvider`; it has no non-Swift construction path. Concretely:
+
+- **Main `AppShortcutParameterPresentation`** — its sole `init` requires `optionsCollections: () -> some AppShortcutOptionsCollectionSpecification<Value.UnwrappedType>` built by `@AppShortcutOptionsCollectionSpecificationBuilder`. That builder has **no zero-arg `buildBlock()`** (lowest arity is `buildBlock<C0>(_ c0:)`), so `{ }` does not type-check even inside a trampoline we emit. Its only public conformer is `AppShortcutOptionsCollection<Provider> where Provider : DynamicOptionsProvider` (an app-defined PAT) + a `LocalizedStringResource` title. Constructing it from C# would mean binding a whole `DynamicOptionsProvider` + result-builder + `LocalizedStringResource` subsystem.
+- **`…Title`** — `init(specific:, generic: StaticString, table: StaticString? = nil)`. `StaticString` is a compile-time literal; a runtime trampoline cannot synthesize one from a C# `string`. Not constructible.
+- **`…Summary`** — `init(_ summaryString:, table: StaticString? = nil)`. Constructible (pass `table: nil`), but its only sink is the blocked main struct.
+- **`…TitleString` / `…SummaryString`** — `init(_ value: String)`. Directly constructible from a C# string, but they feed only `…Title` (blocked) / `…Summary` → main (blocked).
+- **`AppShortcut.init(…, parameterPresentation:)`** — requires a main-struct value (blocked) plus `[AppShortcutPhrase<Intent>]` + `LocalizedStringResource` + `_const String`.
+
+The constructible leaves (`…TitleString` / `…SummaryString` from a string; `…Summary` via a `nil`-table trampoline) all terminate in types that are themselves unconstructible from C#. Emitting closed structs for them would be **dead code**: a C# type with a ctor that round-trips an opaque handle but feeds no usable sink. That violates the "no unusable bindings / no dead code to claim a roadmap item" rule, so per-tuple emission is declined rather than half-shipped. This was reviewed independently by Codex and Grok; both converged on the same call.
+
+This is an **upstream framework-design blocker**, not a generator gap: there is no hidden simpler `init`, no `@_alwaysEmitIntoClient` convenience init, and no extension adding one (audited against the full swiftinterface). It becomes reusable the day a `DynamicOptionsProvider` + result-builder binding subsystem exists, or Apple adds a C-friendly construction path. The proven higher-kinded substitution capability and the Phase A/B primitive-conformer relaxation are the shippable v1 deliverable; the durable in-repo gate for Phase A's seed-drop is the `EquatableContainer<Int>` (→ `nint`) round-trip in `StdlibProtocolConstraintTests` (a Swift struct conformer always projects to an `ISwiftObject`-implementing C# type, so only a *primitive* type argument actually exercises the dropped seed).
 
 ---
 
@@ -217,6 +241,12 @@ public struct MockBookLookupIntent : AppIntent {
 ```
 
 The macro expansion synthesizes `let book: IntentParameter<MockBook>` (or similar — verify against the macro expansion in a sample app). This closed `(MockBookLookupIntent, MockBook, IntentParameter<MockBook>, KeyPath<MockBookLookupIntent, IntentParameter<MockBook>>)` tuple is what the closed C# struct emission targets.
+
+> **Superseded by the Phase C feasibility audit above.** Phases 8c.3 / 8c.4 / 8c.5 are
+> retained as the design record for when the upstream construction surface becomes
+> bindable, but they are **not built** in this session: the family has no
+> C#-constructible terminal sink (see the audit). v1 ships Phase A + B + 8a-3 plus the
+> documentation of this blocker.
 
 ## Phase 8c.3 — Closed-struct emission for the five parallel structs
 
@@ -244,20 +274,25 @@ For each closed tuple, emit a per-tuple `AppShortcut` constructor overload that 
 - Construct `AppShortcut` with the closed `parameterPresentation`.
 - Verify the shortcut shape round-trips through whatever public read paths AppIntents exposes (likely limited at the binding level; full integration test requires the Shortcuts app and is out of scope — covered by the regression-validation skill flow at session-completion time).
 
-## Validation gates
+## Validation gates (v1 — Phase A + B + 8a-3)
 
 | Gate | Expected |
 |---|---|
-| `nuke test` | Baseline + unit coverage for the new emitter |
-| `nuke binding-tests --sim` | New `AppShortcutParameterPresentationTests` cells pass |
-| `nuke binding-tests --device` | Same |
-| `nuke validate` (opt-in) | AppIntents `cs_compile` ratchets up further beyond 8b's contribution |
+| `nuke test` | Baseline + `GenericTypeEmitterTests` descriptor-path-safe seed-drop cases + `UnderscoreProtocolSynthesizerTests` stripped-conformance cases |
+| `nuke binding-tests --compile-only` | Regen + compile-check clean; `EquatableContainer<nint>` emits with the `ISwiftObject` seed dropped and compiles |
+| `nuke binding-tests --sim` | New `StdlibProtocolConstraintTests.TestEquatableContainer_PrimitiveElement_SeedDropRoundTrips` passes (construct over `nint` via factory, read `.Item` back) |
+| `nuke binding-tests --device` | Same (NativeAOT — Phase A changes the generic where-clause / PWT arg path) |
+| `nuke validate` (opt-in) | No regression; Phase A's `GetWhereClause` change is cross-cutting so a full sweep is warranted once |
 
-## Exit criteria
+## Exit criteria (v1)
 
-- For every closed `(AppIntent, IntentParameter<X>)` pair × each of the five parallel structs in the `AppShortcutParameterPresentation` family: a closed C# struct emits.
-- `AppShortcut.init<…>(parameterPresentation:)` has a closed-overload form for each tuple.
-- BindingTests fixture passes sim + device.
+- `IntentParameter<TValue>` type-checks and emits for primitive/frozen-value `_IntentValue` conformers (Phase A), and `SatisfiesConstraint` accepts the stripped foreign conformers (Phase B). Covered by unit tests.
+- The seed-drop produces a *usable* binding end-to-end: a PAT/Self-requirement-constrained generic instantiated over a C# primitive constructs and round-trips a value (`EquatableContainer<nint>` in BindingTests, sim + device).
+- The `AppShortcutParameterPresentation` family's construction-surface blocker is documented with swiftinterface cites (Phase C audit above); no dead per-tuple structs are emitted.
+
+### Not in v1 (framework-blocked, see Phase C audit)
+
+- Per-tuple closed `AppShortcutParameterPresentation*` structs and `AppShortcut.init<…>(parameterPresentation:)` overloads — no C#-constructible terminal sink exists upstream.
 
 ## Risks
 

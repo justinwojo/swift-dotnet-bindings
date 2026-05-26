@@ -157,6 +157,22 @@ public static class GenericTypeEmitter
             // (would give an invalid C# constraint order).
             bool hasClassBoundConstraint = false;
 
+            // Classify *why* each non-marker conformance was filtered out of the C#
+            // constraint list. When a param has no surviving resolvable interface, the
+            // ISwiftObject seed is only safe to DROP if every filtered conformance was a
+            // PAT / Self-requirement / associated-type protocol — those route through the
+            // descriptor-symbol PWT path, which uses the UNCONSTRAINED
+            // `TypeMetadata.GetTypeMetadataOrThrow<T>()` helper (see
+            // PInvokeHelperEmitter.GetTypeMetadataAccessorArgumentList), so they never
+            // require `T : ISwiftObject`. Dropping the seed there lets primitive / blittable
+            // closed instantiations type-check (e.g. `IntentParameter<nint>` for the
+            // `Swift.Int : _IntentValue` conformer). Any other filter reason
+            // (unsupported-module, unregistered cross-module, well-known-runtime, or an
+            // empty/non-projectable marker) keeps the seed conservatively — those cases
+            // are not positively known to avoid an ISwiftObject-requiring code path.
+            bool sawDescriptorPathSafeFilter = false;
+            bool sawConservativeFilter = false;
+
             // Add protocol conformance constraints
             foreach (var conformance in param.GenericConformances)
             {
@@ -173,7 +189,10 @@ public static class GenericTypeEmitter
 
                     // Skip constraints from unsupported framework modules (e.g. SwiftUI.View).
                     if (IsUnsupportedConstraintModule(conformance.ConformanceTarget.Module))
+                    {
+                        sawConservativeFilter = true;
                         continue;
+                    }
 
                     // Class-bound generic constraint (`<T : SomeClass>`). The parser tags
                     // every `:` clause as ConformanceKind.Protocol because it has no
@@ -205,23 +224,52 @@ public static class GenericTypeEmitter
                         continue;
                     }
 
-                    // Skip protocols with associated types (they generate generic interfaces
-                    // which can't be used as constraints without type arguments)
-                    if (typeDatabase != null && HasAssociatedTypes(typeDatabase, conformance.ConformanceTarget))
-                        continue;
+                    // The seed-drop classification below must mirror PInvokeHelperEmitter's
+                    // `isResolvable = !HasAssociatedTypes && !HasSelfRequirement` predicate
+                    // exactly: a conformance is descriptor-path-safe (seed droppable) iff the
+                    // PWT emitter routes it through the unconstrained descriptor-symbol path
+                    // rather than `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>()` (which needs
+                    // `T : ISwiftObject`). So HasAssociatedTypes and HasSelfRequirement are
+                    // descriptor-path-safe; a method-Self-only protocol is NOT.
 
-                    // Skip protocols whose methods use Self (τ_0_0) in parameter/return types.
-                    // The interface emits AnyType for Self positions, so concrete types can't
-                    // implement the interface (CS0738) and the constraint can't be satisfied.
-                    if (typeDatabase != null && HasMethodSelfTypeParams(typeDatabase, conformance.ConformanceTarget))
+                    // Skip protocols with associated types (they generate generic interfaces
+                    // which can't be used as constraints without type arguments). Descriptor-
+                    // path-safe: PInvokeHelperEmitter classifies HasAssociatedTypes protocols as
+                    // unresolvable, so the PWT arg flows via the unconstrained descriptor-symbol
+                    // helper and the ISwiftObject seed is not required for this conformance.
+                    if (typeDatabase != null && HasAssociatedTypes(typeDatabase, conformance.ConformanceTarget))
+                    {
+                        sawDescriptorPathSafeFilter = true;
                         continue;
+                    }
 
                     // Skip protocols whose Self is a required associated type (Equatable,
                     // Hashable, Comparable, …). These cannot be expressed as a non-generic
-                    // C# interface constraint; the PWT arg still flows via descriptor symbol
-                    // through PInvokeHelperEmitter's runtime-descriptor path.
+                    // C# interface constraint; PInvokeHelperEmitter also classifies them as
+                    // unresolvable, so the PWT arg flows via the descriptor-symbol path and the
+                    // seed is not required. Descriptor-path-safe. Checked BEFORE the method-Self
+                    // filter below so a protocol carrying both flags is treated as seed-droppable
+                    // (matching `isResolvable`, which keys only off these two flags).
                     if (typeDatabase != null && HasSelfRequirement(typeDatabase, conformance.ConformanceTarget))
+                    {
+                        sawDescriptorPathSafeFilter = true;
                         continue;
+                    }
+
+                    // Skip protocols whose methods use Self (τ_0_0) in parameter/return types.
+                    // The interface emits AnyType for Self positions, so concrete types can't
+                    // implement the interface (CS0738) and it can't be a C# constraint — but
+                    // PInvokeHelperEmitter still classifies a method-Self-only protocol as
+                    // RESOLVABLE (it carries neither HasAssociatedTypes nor HasSelfRequirement),
+                    // emitting `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>()`, which requires
+                    // `T : ISwiftObject`. So the seed must be KEPT — this is a conservative
+                    // filter, NOT descriptor-path-safe. (A primitive could never satisfy that
+                    // resolvable PWT lookup at runtime anyway.)
+                    if (typeDatabase != null && HasMethodSelfTypeParams(typeDatabase, conformance.ConformanceTarget))
+                    {
+                        sawConservativeFilter = true;
+                        continue;
+                    }
 
                     // Skip same-module protocols emitted as an EMPTY marker interface because
                     // all their requirements were filtered (e.g. GRDB.StatementColumnConvertible:
@@ -240,7 +288,12 @@ public static class GenericTypeEmitter
                             conformance.ConformanceTarget.ModuleQualifiedName);
                         if (constraintProtocol != null
                             && !conformanceValidator.HasEmittableInterfaceMembers(constraintProtocol))
+                        {
+                            // Conservative: a non-projectable marker still has a witness table
+                            // and is not positively a PAT/Self protocol — keep the seed.
+                            sawConservativeFilter = true;
                             continue;
+                        }
                     }
 
                     // Skip cross-module protocol constraints not registered in TypeDatabase.
@@ -265,11 +318,19 @@ public static class GenericTypeEmitter
                         }
 
                         if (!typeDatabase.TryGetTypeRecord(conformance.ConformanceTarget, out var constraintRecord))
+                        {
+                            // Conservative: an unregistered cross-module protocol can't be
+                            // positively classified as descriptor-path-safe — keep the seed.
+                            sawConservativeFilter = true;
                             continue;
+                        }
                         // Skip well-known stdlib protocols that map to runtime types (not interfaces).
                         // e.g., Swift.Error → AnyError (no IError interface is emitted)
                         if (TypeDatabaseExtensions.IsWellKnownRuntimeProtocol(constraintRecord))
+                        {
+                            sawConservativeFilter = true;
                             continue;
+                        }
                         // Other Kind values (Struct, Enum, Protocol) fall through to
                         // the historical interface-name emission below — that path is
                         // intentionally permissive (cross-module records get "I"-prefixed
@@ -301,14 +362,6 @@ public static class GenericTypeEmitter
                 continue;
             }
 
-            // Seed ISwiftObject when the Swift param carries ANY non-Sendable protocol
-            // conformance — including ones filtered from the C# constraint list (associated
-            // types, Self-requirement, etc.) because the descriptor-symbol PWT path still
-            // emits `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>` calls for them, which
-            // require `T : ISwiftObject`. Drop the seed only when there are zero protocol
-            // conformances at all, so unconstrained generics accept blittable args
-            // (Vector3, float, uint, …) instead of failing CS0315 at call sites.
-            //
             // Class-bound constraints (`where T : SomeClass`) already imply ISwiftObject
             // (every projected Swift class derives from `SwiftObject` and implements
             // `ISwiftObject`), AND a class-type constraint MUST appear before any
@@ -316,11 +369,35 @@ public static class GenericTypeEmitter
             // in front would move an interface ahead of the class constraint and break
             // compilation. Skip the seed when a class bound is already present.
             bool hasAnyProtocolConformance = HasAnyNonMarkerProtocolConformance(param);
-            if (paramConstraints.Count > 0 || hasAnyProtocolConformance)
+            if (paramConstraints.Count > 0)
             {
+                // A resolvable C# interface constraint survived. The generated dynamic
+                // dispatch calls `ProtocolWitnessTable.GetOrThrowAuto<T, IFoo>()`, which
+                // requires `where T : ISwiftObject`, so the seed must stay.
                 if (!hasClassBoundConstraint)
                     paramConstraints.Insert(0, "ISwiftObject");
                 constraints.Add($"{typeParamName} : {string.Join(", ", paramConstraints)}");
+            }
+            else if (hasAnyProtocolConformance)
+            {
+                // No interface constraint survived, but the param does carry a non-marker
+                // protocol conformance. The question is whether the seed is still required.
+                //
+                // Drop ISwiftObject ONLY when every filtered conformance is
+                // descriptor-path-safe (PAT / Self-requirement / associated-type protocols
+                // whose dispatch goes through the unconstrained descriptor-symbol PWT path:
+                // `TypeMetadata.GetTypeMetadataOrThrow<T>()` → `SwiftConformance`). Those do
+                // NOT require `T : ISwiftObject`, so seeding it would needlessly reject
+                // primitive/frozen conformers (e.g. `IntentParameter<nint>` against the
+                // synthesized `_IntentValue` PAT).
+                //
+                // Keep the seed conservatively whenever any filter we couldn't positively
+                // classify fired (unsupported module, unregistered cross-module record,
+                // well-known-runtime protocol, empty marker interface). Those historically
+                // relied on the seed and must not regress.
+                bool dropSeed = sawDescriptorPathSafeFilter && !sawConservativeFilter;
+                if (!dropSeed)
+                    constraints.Add($"{typeParamName} : ISwiftObject");
             }
         }
 
