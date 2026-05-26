@@ -518,26 +518,13 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                     }
                 }
 
-                // For value types, ISwiftStruct types, and non-ISwiftObject types: heap-copy the payload
-                // bytes. We can't use stackalloc because ISwiftObject.NewFromPayload
-                // takes ownership of the pointer (stores it in SwiftSafeHandle which
-                // calls NativeMemory.Free).
-                byte* heapCopy = (byte*)NativeMemory.Alloc(_payloadSize);
-                new Span<byte>(sourcePayload, (int)_payloadSize).CopyTo(
-                    new Span<byte>(heapCopy, (int)_payloadSize));
-                try
-                {
-                    return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(heapCopy));
-                }
-                finally
-                {
-                    // ISwiftObject.NewFromPayload takes ownership of the buffer,
-                    // so only free for non-ISwiftObject types (primitives, tuples, etc.)
-                    if (!typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
-                    {
-                        NativeMemory.Free(heapCopy);
-                    }
-                }
+                // For value types, ISwiftStruct types, and non-ISwiftObject types: copy the payload
+                // out into a fresh, independently-owned wrapper. MarshalExtractedPayloadValue takes a
+                // value-witness retain for non-POD payloads (so disposing the extracted wrapper does
+                // not over-release storage _payload still owns), sizes the temporary for the managed
+                // read (compact `any Error` modeled as the larger ExistentialContainer1), and balances
+                // ARC across the adopt/copy/move NewFromPayload shapes.
+                return SwiftMarshal.MarshalExtractedPayloadValue<T>(sourcePayload, _payloadSize);
             }
             finally
             {

@@ -336,12 +336,15 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
     }
 
     /// <summary>
-    /// Extracts a typed value from the Result payload.
-    /// Follows the same ownership pattern as SwiftOptional.Some:
-    /// - Classes: dereference the class pointer from payload bytes, Arc.Retain for +1 ownership.
-    /// - ISwiftObject (enums, non-frozen structs): heap-allocate a copy, NewFromPayload takes ownership.
-    /// - Primitives/value types: heap-allocate a copy, free after marshal.
-    /// Uses Swift metadata Kind to distinguish true classes from complex enums.
+    /// Extracts a typed value from the Result payload. Follows the same ownership pattern as
+    /// <c>SwiftOptional.Some</c>:
+    /// - True Swift classes (payload word IS the instance pointer): dereference and <c>Arc.Retain</c>
+    ///   for an independent <c>+1</c>, then marshal directly.
+    /// - Everything else (value types, <c>ISwiftStruct</c> wrappers, bare-<see cref="ISwiftObject"/>
+    ///   struct wrappers, and non-<see cref="ISwiftObject"/> values): delegate to
+    ///   <c>SwiftMarshal.MarshalExtractedPayloadValue</c>, which balances ARC across the
+    ///   adopt/copy/move/read-by-value shapes.
+    /// Uses Swift metadata <c>Kind</c> to distinguish true classes from complex enums / struct wrappers.
     /// </summary>
     private unsafe T ExtractPayloadValue<T>()
     {
@@ -349,7 +352,10 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
 
         // True Swift classes: payload bytes contain the class pointer at offset 0.
         // Dereference and Arc.Retain for +1 ownership (SwiftClassHandle expects this).
+        // Value types are excluded up front (their payload word is not a class pointer) — matching
+        // SwiftOptional.Some — so the class-pointer dereference is only reached for reference types.
         if (typeof(ISwiftObject).IsAssignableFrom(typeof(T)) &&
+            !typeof(T).IsValueType &&
             !typeof(ISwiftStruct).IsAssignableFrom(typeof(T)))
         {
             var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
@@ -361,26 +367,15 @@ public class SwiftResult<TSuccess, TFailure> : ISwiftObject, ISwiftStruct, IDisp
             }
         }
 
-        // Non-class ISwiftObject types (complex enums, non-frozen structs) and
-        // ISwiftStruct types: NewFromPayload takes ownership of the buffer pointer.
-        // Must heap-allocate — stackalloc would be freed on return.
-        byte* heapCopy = (byte*)NativeMemory.Alloc(PayloadSize);
-        new Span<byte>(sourcePayload, (int)PayloadSize).CopyTo(
-            new Span<byte>(heapCopy, (int)PayloadSize));
-        try
-        {
-            return SwiftMarshal.MarshalFromSwift<T>(new IntPtr(heapCopy));
-        }
-        finally
-        {
-            // ISwiftObject.NewFromPayload takes ownership of the buffer
-            // (stores it in SwiftSafeHandle which frees on dispose).
-            // Only free for non-ISwiftObject types (primitives, tuples, etc.)
-            if (!typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
-            {
-                NativeMemory.Free(heapCopy);
-            }
-        }
+        // Everything that is not a true Swift class — value types, ISwiftStruct wrappers (non-frozen
+        // structs, complex enums, frozen-projected-as-class, String/Array/Dictionary/Set), bare
+        // ISwiftObject struct wrappers, and non-ISwiftObject values: copy the payload out into a fresh,
+        // independently-owned wrapper. MarshalExtractedPayloadValue
+        // takes a value-witness retain for non-POD payloads (so disposing the extracted wrapper does
+        // not over-release storage _payload still owns), sizes the temporary for the managed read
+        // (compact `any Error` modeled as the larger ExistentialContainer1), and balances ARC across
+        // the adopt/copy/move NewFromPayload shapes.
+        return SwiftMarshal.MarshalExtractedPayloadValue<T>(sourcePayload, PayloadSize);
     }
 
     /// <summary>

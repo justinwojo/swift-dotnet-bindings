@@ -18,7 +18,7 @@ namespace Swift;
 /// <summary>
 /// Represents a Swift string with Foundation.Data payload.
 /// </summary>
-public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
+public class SwiftString : ISwiftObject, ISwiftStruct, ISwiftMovesPayloadOnConstruction, IDisposable
 {
     private static nuint _payloadSize = SwiftObjectHelper<SwiftString>.GetTypeMetadata().Size;
 
@@ -168,6 +168,13 @@ public class SwiftString : ISwiftObject, ISwiftStruct, IDisposable
     /// <summary>
     /// Constructs a new SwiftString from a pointer to raw Swift string payload.
     /// The caller must ensure the pointer points to a valid SwiftString.Buffer.
+    /// <para>
+    /// This is a <b>bitwise move</b>, not a value-witness copy: it duplicates the two-word
+    /// <see cref="Buffer"/> without a bridge-object retain, so the source's <c>+1</c> transfers into
+    /// this instance rather than producing an independent one. This is why <see cref="SwiftString"/>
+    /// is flagged <see cref="ISwiftMovesPayloadOnConstruction"/> — payload extraction must NOT
+    /// value-witness-destroy the temporary it hands here (the retain has already moved).
+    /// </para>
     /// </summary>
     internal unsafe SwiftString(IntPtr handle)
     {

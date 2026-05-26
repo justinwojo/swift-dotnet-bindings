@@ -380,3 +380,108 @@ public func makeTrackedRefSet(count: Int32) -> Set<TrackedRef> {
 public func makeTrackedRefResult(success: Bool, value: Int32) -> Result<TrackedRef, TrackedRefError> {
     return success ? .success(TrackedRef(tag: value)) : .failure(.failed)
 }
+
+// MARK: - Extraction-Side Retain Probe (Optional `.Some` / Result `.Success` copy-out)
+
+/// Strong global holding the SAME `TrackedRef` embedded in the struct handed back through the
+/// Optional/Result wire carrier below. The C# `.Some` / `.Success` getter COPIES the payload out
+/// of the carrier into a fresh wrapper that value-witness-destroys on Dispose. The source payload
+/// — and this global — outlive that extraction, so the copy MUST take a value-witness retain. If
+/// it under-retains, disposing the extracted wrapper over-releases the embedded ref and prematurely
+/// deallocates an object this global still owns: observable as the live count dropping to 0 while
+/// the global is non-nil (a dangling global pointer), with no GC timing involved.
+private var _sharedExtractionRef: TrackedRef?
+
+/// Builds a non-frozen `TrackedRefStruct` (SafeHandle copy-out path, same as String/Array/Dict
+/// COW storage) whose `ref` field IS the `TrackedRef` stashed in the global, so the struct and the
+/// global share one instance.
+private func makeStructSharingGlobalRef(value: Int32) -> TrackedRefStruct {
+    let shared = TrackedRef(tag: value)
+    _sharedExtractionRef = shared
+    var s = TrackedRefStruct(value: value)
+    s.ref = shared
+    return s
+}
+
+/// Stashes a `TrackedRef` in a global, then returns `Optional<TrackedRefStruct>` whose payload
+/// embeds that SAME ref. Drives the `SwiftOptional<T>.Some` extraction copy.
+public func stashSharedRefAndReturnOptionalStruct(value: Int32) -> TrackedRefStruct? {
+    return makeStructSharingGlobalRef(value: value)
+}
+
+/// Stashes a `TrackedRef` in a global, then returns `Result<TrackedRefStruct, _>.success` whose
+/// payload embeds that SAME ref. Drives the `SwiftResult.ExtractPayloadValue` (`.Success`) copy.
+public func stashSharedRefAndReturnResultStruct(value: Int32) -> Result<TrackedRefStruct, TrackedRefError> {
+    return .success(makeStructSharingGlobalRef(value: value))
+}
+
+/// Drops the global's strong reference established by the stash factories above, releasing the
+/// last retain on the shared `TrackedRef`.
+public func clearSharedExtractionRef() {
+    _sharedExtractionRef = nil
+}
+
+/// Complex (payload-carrying) enum whose `.present` case holds a `TrackedRef`. Projects to the
+/// ISwiftObject (non-`ISwiftStruct`) complex-enum path, whose `NewFromPayload` ADOPTS the wire
+/// handle directly. Extraction (`.Some`/`.Success`) must therefore take a value-witness retain on
+/// the embedded ref — the same under-retain shape as the non-frozen struct, but reached through the
+/// enum projection rather than the struct projection.
+public enum TrackedRefEnum {
+    case empty
+    case present(TrackedRef)
+}
+
+/// Stashes a `TrackedRef` in the shared global, then returns `Optional<TrackedRefEnum>.some(.present(ref))`
+/// embedding that SAME ref. Drives the complex-enum branch of `SwiftOptional<T>.Some`.
+public func stashSharedRefAndReturnOptionalEnum(value: Int32) -> TrackedRefEnum? {
+    let shared = TrackedRef(tag: value)
+    _sharedExtractionRef = shared
+    return .present(shared)
+}
+
+/// Stashes a `TrackedRef` in the shared global, then returns `Result<TrackedRefEnum, _>.success(.present(ref))`
+/// embedding that SAME ref. Drives the complex-enum branch of `SwiftResult.ExtractPayloadValue`.
+public func stashSharedRefAndReturnResultEnum(value: Int32) -> Result<TrackedRefEnum, TrackedRefError> {
+    let shared = TrackedRef(tag: value)
+    _sharedExtractionRef = shared
+    return .success(.present(shared))
+}
+
+/// Returns `Optional<String>` so the C# `SwiftOptional<SwiftString>.Some` extraction exercises the
+/// MOVE-bitwise (`ISwiftMovesPayloadOnConstruction`) NewFromPayload shape: SwiftString allocates its
+/// own buffer and bitwise-copies the temporary, transferring the bridge-object retain. The
+/// extraction must NOT value-witness-destroy the temporary (that would over-release the shared
+/// string storage). A tight extract+dispose loop over this surfaces the over-release as a crash.
+public func makeOptionalString(present: Bool, value: Int32) -> String? {
+    return present ? "tracked-\(value)" : nil
+}
+
+/// `Result<String, _>` companion to `makeOptionalString`, driving the SwiftString MOVE shape through
+/// `SwiftResult.ExtractPayloadValue` (`.Success`).
+public func makeResultString(value: Int32) -> Result<String, TrackedRefError> {
+    return .success("tracked-\(value)")
+}
+
+/// Frozen blittable POD struct. The generator projects this as a C# **value-type** `ISwiftObject`
+/// (a `struct`, NOT `ISwiftStruct`): its `NewFromPayload` reads it by value via `*(T*)handle` and its
+/// `SwiftHandle` is the throwing default (value structs are not heap-backed). Optional/Result
+/// extraction of such a value reads it by value and frees the temporary buffer WITHOUT touching
+/// `.SwiftHandle` during cleanup — this is the only payload kind that is `ISwiftObject` yet
+/// read-by-value, so it guards the cleanup branch that must not compare a (throwing) handle.
+@frozen
+public struct ExtractionPodPoint {
+    public var x: Int64
+    public var y: Int64
+    public init(x: Int64, y: Int64) { self.x = x; self.y = y }
+}
+
+/// `Optional<ExtractionPodPoint>` factory driving the value-type-struct branch of `SwiftOptional.Some`.
+public func makeOptionalPodPoint(present: Bool, x: Int64, y: Int64) -> ExtractionPodPoint? {
+    return present ? ExtractionPodPoint(x: x, y: y) : nil
+}
+
+/// `Result<ExtractionPodPoint, _>` companion driving the value-type-struct branch of
+/// `SwiftResult.ExtractPayloadValue`.
+public func makeResultPodPoint(x: Int64, y: Int64) -> Result<ExtractionPodPoint, TrackedRefError> {
+    return .success(ExtractionPodPoint(x: x, y: y))
+}

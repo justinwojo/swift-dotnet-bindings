@@ -257,6 +257,170 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Extracts a payload value of type <typeparamref name="T"/> out of a Swift wire carrier — the
+    /// <c>Some</c> payload of <c>SwiftOptional&lt;T&gt;</c> or the success/failure payload of
+    /// <c>SwiftResult</c> — into a freshly-constructed managed wrapper that owns an <b>independent</b>
+    /// reference, leaving the source carrier's reference intact. The caller passes the address of the
+    /// source payload bytes (owned by the carrier) and the carrier's value-witness <c>Size</c>; this
+    /// allocates the temporary, balances Swift ARC across the three <c>NewFromPayload</c> ownership
+    /// shapes, and returns the wrapper.
+    /// <para>
+    /// <b>Retain.</b> For a non-POD reference-backed payload (COW String/Array/Dictionary/Set storage, a
+    /// struct or complex enum embedding class references, or a bare-<see cref="ISwiftObject"/> SwiftUI
+    /// value wrapper) a value-witness <c>InitializeWithCopy</c> takes a <c>+1</c> into the temporary so
+    /// the extracted wrapper does not share the carrier's only reference — otherwise disposing the
+    /// wrapper would over-release storage the carrier still owns and double-free it. The gate is
+    /// "reference-backed" (<see cref="ISwiftObject"/> and not a value type) rather than the narrower
+    /// <see cref="ISwiftStruct"/>: the buffer-adopting SwiftUI wrappers (<c>Color</c>, <c>AnyView</c>,
+    /// <c>Image</c>, <c>Font</c>, <c>Animation</c>, <c>EdgeInsets</c>) are Swift structs projected to a
+    /// sealed class <i>without</i> <see cref="ISwiftStruct"/>, yet they adopt the temporary just like an
+    /// <see cref="ISwiftStruct"/> and must be retained the same way. A Swift <i>class</i> payload (where
+    /// the payload word IS the instance pointer) is retained and marshalled by the caller's class fast
+    /// path (metadata <c>Kind == Class</c>) and never reaches here. Value-type <see cref="ISwiftObject"/>
+    /// structs are excluded (read by value; their <c>SwiftHandle</c> throws). POD payloads, primitives,
+    /// and existential containers carry no ARC references at this layer — and an existential container's
+    /// resolved metadata is not value-witness-copyable at offset 0 — so they take a plain bitwise copy.
+    /// <b>Caveat:</b> a non-<see cref="ISwiftObject"/> <i>tuple</i> whose elements embed ARC references
+    /// (e.g. a tuple containing a <c>String</c> or class) is read by value here without a value-witness
+    /// <c>+1</c>, so the extracted element wrappers share the carrier's reference rather than owning an
+    /// independent one. That is a pre-existing under-retain shared with the wire-carrier element-move
+    /// gaps (tuples/collections of ARC elements); this helper does not yet balance per-element ARC for
+    /// composite read-by-value payloads.
+    /// </para>
+    /// <para>
+    /// <b>Cleanup</b> depends on what <c>NewFromPayload</c> did with the temporary, detected by
+    /// comparing the constructed wrapper's <c>SwiftHandle</c> to the temporary's address:
+    /// <list type="bullet">
+    /// <item><b>ADOPT</b> (non-frozen structs, complex enums, the SwiftUI value wrappers): the wrapper's
+    /// SafeHandle wraps the temporary pointer directly and frees+destroys it on dispose.
+    /// <c>SwiftHandle == temp</c> — leave it; the wrapper owns the temporary and its <c>+1</c>.</item>
+    /// <item><b>COPY</b> (frozen-projected-as-class structs, <c>SwiftArray</c>/<c>SwiftDictionary</c>/<c>SwiftSet</c>):
+    /// the wrapper allocates its own buffer and <c>InitializeWithCopy</c>s into it, taking a fresh
+    /// <c>+1</c>. <c>SwiftHandle != temp</c>, so the temporary's <c>+1</c> is orphaned — value-witness
+    /// <c>Destroy</c> it, then free the dead buffer.</item>
+    /// <item><b>MOVE</b> (<see cref="ISwiftMovesPayloadOnConstruction"/>, i.e. <c>SwiftString</c>): the
+    /// wrapper allocates its own buffer and <i>bitwise</i>-copies the temporary, transferring our
+    /// <c>+1</c> into it without taking a new one. <c>SwiftHandle != temp</c>, but destroying the
+    /// temporary would over-release the now-shared reference — only free the dead buffer.</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The payload value type being extracted.</typeparam>
+    /// <param name="source">Address of the source payload bytes (owned by the carrier).</param>
+    /// <param name="swiftPayloadSize">The carrier payload's value-witness size in bytes.</param>
+    /// <returns>The constructed managed wrapper, owning an independent reference.</returns>
+    public static unsafe T MarshalExtractedPayloadValue<T>(void* source, nuint swiftPayloadSize)
+    {
+        nuint bufferSize = ExtractionBufferSize<T>(swiftPayloadSize);
+        byte* heapCopy = (byte*)NativeMemory.AllocZeroed(bufferSize);
+
+        // Reference-backed wrappers store the payload in a SwiftSafeHandle and can adopt or copy the
+        // temporary buffer: every ISwiftStruct (non-frozen structs, complex enums, frozen-as-class,
+        // String/Array/Dictionary/Set), plus bare ISwiftObject reference types whose NewFromPayload
+        // adopts the buffer (the hand-written SwiftUI value wrappers — Color, AnyView, Image, Font,
+        // Animation, EdgeInsets — which are Swift structs projected to a sealed class without
+        // ISwiftStruct). Value-type ISwiftObject structs (e.g. LargeValueStruct) are excluded: they
+        // read by value and their SwiftHandle is the throwing default. True Swift classes never reach
+        // here — the callers' class fast path (metadata Kind == Class) handles them first.
+        bool referenceBacked = typeof(ISwiftObject).IsAssignableFrom(typeof(T)) && !typeof(T).IsValueType;
+
+        bool retained = false;
+        TypeMetadata metadata = default;
+        if (referenceBacked
+            && TypeMetadata.TryGetTypeMetadata<T>(out var md)
+            && md.Value.IsValid
+            && md.Value.ValueWitnessTable->IsNonPOD)
+        {
+            metadata = md.Value;
+            metadata.ValueWitnessTable->InitializeWithCopy(heapCopy, source, metadata);
+            retained = true;
+        }
+        else
+        {
+            new Span<byte>(source, (int)swiftPayloadSize).CopyTo(new Span<byte>(heapCopy, (int)swiftPayloadSize));
+        }
+
+        T wrapper;
+        try
+        {
+            wrapper = MarshalFromSwift<T>((IntPtr)heapCopy);
+        }
+        catch
+        {
+            // NewFromPayload threw before adopting the temporary: release our +1 (if any) and free it.
+            if (retained)
+                metadata.ValueWitnessTable->Destroy(heapCopy, metadata);
+            NativeMemory.Free(heapCopy);
+            throw;
+        }
+
+        // Only reference-backed wrappers (SafeHandle-storing — every ISwiftStruct and the bare
+        // ISwiftObject SwiftUI wrappers) can adopt the temporary buffer. Their SwiftHandle is
+        // meaningful, so the adopt/copy/move shape is detected by comparing it to the temporary's
+        // address. (wrapper is ISwiftObject is a null guard; referenceBacked already implies the type.)
+        if (referenceBacked && wrapper is ISwiftObject swiftObj)
+        {
+            if (swiftObj.SwiftHandle != (IntPtr)heapCopy)
+            {
+                // The wrapper made its own buffer (COPY or MOVE shape); the temporary is now dead.
+                // COPY shapes took their own +1, leaving ours orphaned — destroy it. MOVE shapes
+                // (ISwiftMovesPayloadOnConstruction) transferred our +1 into the wrapper, so destroying
+                // would over-release; only free the buffer.
+                if (retained && wrapper is not ISwiftMovesPayloadOnConstruction)
+                    metadata.ValueWitnessTable->Destroy(heapCopy, metadata);
+                NativeMemory.Free(heapCopy);
+            }
+            // else ADOPT: the wrapper's SafeHandle owns the temporary (and its +1); leave it.
+        }
+        else
+        {
+            // Read-by-value wrappers that never adopt the buffer: non-ISwiftObject values (existential
+            // containers, primitives, tuples) via Unsafe.Read, and frozen blittable ISwiftObject value
+            // structs (e.g. LargeValueStruct, whose NewFromPayload returns *(T*)handle by value — note
+            // its SwiftHandle is the throwing default, so it must NOT be compared above). Free the
+            // temporary; nothing references it. (retained is always false here — the retain gate is
+            // referenceBacked — so there is no +1 to release.)
+            NativeMemory.Free(heapCopy);
+        }
+
+        return wrapper;
+    }
+
+    /// <summary>
+    /// Computes the size of the destination buffer an extracted-by-copy payload of type
+    /// <typeparamref name="T"/> must be allocated with, given the Swift payload's own size
+    /// (<paramref name="swiftPayloadSize"/>, the enum/container value-witness <c>Size</c>).
+    /// <para>
+    /// For value-type payloads, <see cref="MarshalFromSwift{T}"/> reads <c>Unsafe.SizeOf&lt;T&gt;()</c>
+    /// bytes via <c>Unsafe.Read&lt;T&gt;</c>. The managed projection can be <b>larger</b> than the Swift
+    /// payload it is extracted from — most notably <c>any Error</c>, which Swift represents as a
+    /// compact single-word boxed existential (8 bytes) but C# models as the general 5-word
+    /// <c>ExistentialContainer1</c> (40 bytes). A buffer sized only to the Swift payload would be read
+    /// off the end, fabricating the unused container slots from adjacent-heap garbage. Returning the
+    /// larger of the two sizes (paired with a zeroed allocation and copying only the Swift bytes) keeps
+    /// the fixed-size read in bounds and leaves the unused slots zero.
+    /// </para>
+    /// <para>
+    /// <see cref="ISwiftObject"/> payloads (including <see cref="ISwiftStruct"/>) marshal via
+    /// <c>NewFromPayload</c>, which is metadata-driven rather than a blind <c>sizeof(T)</c> read, so the
+    /// Swift payload size is already correct for them and is returned unchanged.
+    /// </para>
+    /// </summary>
+    /// <typeparam name="T">The payload value type being extracted.</typeparam>
+    /// <param name="swiftPayloadSize">The Swift payload's value-witness size in bytes.</param>
+    /// <returns>The number of bytes to allocate for the extraction buffer.</returns>
+    public static nuint ExtractionBufferSize<T>(nuint swiftPayloadSize)
+    {
+        if (!typeof(ISwiftObject).IsAssignableFrom(typeof(T)))
+        {
+            nuint managedSize = (nuint)Unsafe.SizeOf<T>();
+            if (managedSize > swiftPayloadSize)
+                return managedSize;
+        }
+        return swiftPayloadSize;
+    }
+
+    /// <summary>
     /// Pre-registers a NewFromPayload factory for a type so NativeAOT can create instances
     /// without reflection. Called by generated [ModuleInitializer] code at assembly load time.
     /// </summary>
