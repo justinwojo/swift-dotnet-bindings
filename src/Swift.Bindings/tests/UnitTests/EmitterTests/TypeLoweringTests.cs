@@ -171,6 +171,70 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void LowerReturnType_MixedWidthStruct_ParsesPerFieldWidths()
+        {
+            // Mixed { i: Int32, f: Float, j: Int64, d: Double } → "i4,f4,i8,f8"
+            // Each slot must carry its real byte width so the thunk can store at natural offsets.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Mixed");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Mixed"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib5MixedV",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 24,
+                AbiFieldLayout = "i4,f4,i8,f8"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+
+            var result = TypeLowering.LowerReturnType(new NamedTypeSpec("MyLib.Mixed"), db);
+
+            Assert.NotNull(result);
+            Assert.False(result!.IsIndirect);
+            Assert.Equal(4, result.Slots.Count);
+            Assert.Equal(RegisterFile.Integer, result.Slots[0].File);
+            Assert.Equal(4, result.Slots[0].ByteSize);
+            Assert.Equal(RegisterFile.Float, result.Slots[1].File);
+            Assert.Equal(0, result.Slots[1].Index);
+            Assert.Equal(4, result.Slots[1].ByteSize);
+            Assert.Equal(RegisterFile.Integer, result.Slots[2].File);
+            Assert.Equal(1, result.Slots[2].Index);
+            Assert.Equal(8, result.Slots[2].ByteSize);
+            Assert.Equal(RegisterFile.Float, result.Slots[3].File);
+            Assert.Equal(1, result.Slots[3].Index);
+            Assert.Equal(8, result.Slots[3].ByteSize);
+            Assert.Equal(24, result.TotalByteSize);
+        }
+
+        [Fact]
+        public void LowerReturnType_LegacyBareLetters_DefaultToEightByteSlots()
+        {
+            // A type database produced before widths were tracked stores bare letters. They must
+            // still parse, defaulting to the historical 8-byte (1-byte for bool) slot widths.
+            var name = SwiftTypeName.FromModuleQualifiedName("MyLib.Legacy");
+            var record = new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Legacy"),
+                SwiftTypeName = name,
+                MetadataAccessor = "$s5MyLib6LegacyV",
+                Flags = TypeRecordFlags.Frozen | TypeRecordFlags.HasFloatFields,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 24,
+                AbiFieldLayout = "i,f,b"
+            };
+            var db = CreateTypeDbWithModule("MyLib", (name, record));
+
+            var result = TypeLowering.LowerReturnType(new NamedTypeSpec("MyLib.Legacy"), db);
+
+            Assert.NotNull(result);
+            Assert.Equal(3, result.Slots.Count);
+            Assert.Equal(8, result.Slots[0].ByteSize); // bare "i" → 8
+            Assert.Equal(8, result.Slots[1].ByteSize); // bare "f" → 8
+            Assert.Equal(1, result.Slots[2].ByteSize); // bare "b" → 1
+        }
+
+        [Fact]
         public void LowerReturnType_FrozenStruct4Int_DirectReturn()
         {
             // Rect { x: Int, y: Int, w: Int, h: Int } → 4 integer slots, direct (at the limit)

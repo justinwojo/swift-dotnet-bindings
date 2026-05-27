@@ -32,6 +32,113 @@ public struct FrozenPoint {
     }
 }
 
+// MARK: - Mixed Int/Float Register-File Returns
+
+/// An 8-byte frozen struct whose `Int32` and `Float` fields share one eightbyte. swiftcc returns
+/// it field-wise (the Int32 in a general-purpose register, the Float in a vector register) while
+/// the C ABI packs the eightbyte into a single integer register — so a register-return thunk would
+/// place the Float in the wrong register. The generator must route this through the @_cdecl wrapper
+/// instead. Round-tripped by `MixedRegisterReturnTests`.
+@frozen
+public struct MixedSmall {
+    public var tag: Int32
+    public var value: Float
+
+    public init(tag: Int32, value: Float) {
+        self.tag = tag
+        self.value = value
+    }
+
+    /// Returns a derived value by value — exercises the same return path on an instance method.
+    public func scaled(by factor: Float) -> MixedSmall {
+        return MixedSmall(tag: tag &+ 1, value: value * factor)
+    }
+}
+
+/// A 24-byte frozen struct mixing int and float fields at non-uniform offsets. Returned by value it
+/// exceeds 16 bytes, so the thunk uses the field-wise return bridge — each register stored to its
+/// natural buffer offset. Guards against an 8-byte-stride store corrupting the 4-byte `Float` or the
+/// `Int64`. Round-tripped by `MixedRegisterReturnTests`.
+@frozen
+public struct MixedWide {
+    public var tag: Int32
+    public var scale: Float
+    public var count: Int64
+    public var weight: Double
+
+    public init(tag: Int32, scale: Float, count: Int64, weight: Double) {
+        self.tag = tag
+        self.scale = scale
+        self.count = count
+        self.weight = weight
+    }
+}
+
+/// A 16-byte frozen struct whose `Int64` and `Double` fields each own a separate eightbyte. On
+/// x86_64 SysV the conventions agree (Int64 in a GPR, Double in an SSE register), but arm64 AAPCS64
+/// returns this non-HFA aggregate entirely in general-purpose registers (Int64 in x0, Double bits in
+/// x1) while swiftcc returns the Double in d0. A register-return thunk — chosen once for both arches —
+/// would read the Double from the wrong register on arm64, so the generator must route this through
+/// the @_cdecl wrapper. Round-tripped by `MixedRegisterReturnTests`.
+@frozen
+public struct WidePair {
+    public var count: Int64
+    public var weight: Double
+
+    public init(count: Int64, weight: Double) {
+        self.count = count
+        self.weight = weight
+    }
+
+    /// Returns a derived value by value — exercises the same return path on an instance method.
+    public func scaled(by factor: Double) -> WidePair {
+        return WidePair(count: count &+ 1, weight: weight * factor)
+    }
+}
+
+/// A 16-byte frozen struct whose `Float` and `Double` fields each own a separate eightbyte but are
+/// different floating-point types. On x86_64 SysV each owns an SSE eightbyte and the conventions agree,
+/// but the mixed widths mean this is NOT a homogeneous floating-point aggregate, so arm64 AAPCS64
+/// returns it in the general-purpose registers (Float bits in w0, Double bits in x1) while swiftcc
+/// returns it field-wise in s0/d1. The each-owns-an-eightbyte test alone would wrongly tail-call-thunk
+/// this; only requiring a homogeneous FP type routes it to the @_cdecl wrapper. Round-tripped by
+/// `MixedRegisterReturnTests`.
+@frozen
+public struct WideFloatDouble {
+    public var scale: Float
+    public var weight: Double
+
+    public init(scale: Float, weight: Double) {
+        self.scale = scale
+        self.weight = weight
+    }
+
+    /// Returns a derived value by value — exercises the same return path on an instance method.
+    public func scaled(by factor: Double) -> WideFloatDouble {
+        return WideFloatDouble(scale: scale + 1.0, weight: weight * factor)
+    }
+}
+
+/// Free-function factory returning a ≤16-byte mixed int/float struct by value.
+public func makeMixedSmall(tag: Int32, value: Float) -> MixedSmall {
+    return MixedSmall(tag: tag, value: value)
+}
+
+/// Free-function factory returning a 16-byte {Float, Double} struct by value (non-HFA, arm64-divergent).
+public func makeWideFloatDouble(scale: Float, weight: Double) -> WideFloatDouble {
+    return WideFloatDouble(scale: scale, weight: weight)
+}
+
+/// Free-function factory returning a 16-byte {Int64, Double} struct by value (arm64-divergent shape).
+public func makeWidePair(count: Int64, weight: Double) -> WidePair {
+    return WidePair(count: count, weight: weight)
+}
+
+/// Free-function factory returning a >16-byte mixed-width struct by value.
+public func makeMixedWide(tag: Int32, scale: Float, count: Int64, weight: Double) -> MixedWide {
+    return MixedWide(tag: tag, scale: scale, count: count, weight: weight)
+}
+
 /// A frozen struct with various property types for testing property emission.
 @frozen
 public struct FrozenStructWithProperties {

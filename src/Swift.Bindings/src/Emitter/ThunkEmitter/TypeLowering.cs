@@ -192,7 +192,10 @@ public static class TypeLowering
             return null;
         }
 
-        // Parse the ABI field layout string (e.g., "i,f,i,f")
+        // Parse the ABI field layout string. Each fragment is a register-file letter (i/f/b/p)
+        // followed by the field's byte width (e.g., "i4,f4,i8,f8"). A bare letter with no width
+        // is the legacy encoding and is treated as a full 8-byte slot (1 byte for bool), preserving
+        // behaviour for type databases produced before widths were tracked.
         var fields = record.AbiFieldLayout.Split(',');
         var slots = new List<RegisterSlot>();
         int intIndex = 0;
@@ -201,27 +204,24 @@ public static class TypeLowering
 
         foreach (var field in fields)
         {
-            switch (field.Trim())
+            if (!TryParseFieldFragment(field.Trim(), out char fieldClass, out int width))
+                return null; // Unknown field type
+
+            switch (fieldClass)
             {
-                case "i":
-                    slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, 8));
-                    totalBytes += 8;
+                case 'i':
+                case 'b':
+                case 'p':
+                    slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, width));
                     break;
-                case "f":
-                    slots.Add(new RegisterSlot(RegisterFile.Float, floatIndex++, 8));
-                    totalBytes += 8;
-                    break;
-                case "b":
-                    slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, 1));
-                    totalBytes += 1; // Bool is 1 byte, padded to register slot
-                    break;
-                case "p":
-                    slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, 8));
-                    totalBytes += 8;
+                case 'f':
+                    slots.Add(new RegisterSlot(RegisterFile.Float, floatIndex++, width));
                     break;
                 default:
                     return null; // Unknown field type
             }
+
+            totalBytes += width;
         }
 
         // 4-slot limit: if total slots exceed MaxDirectSlots, pass indirectly
@@ -235,6 +235,37 @@ public static class TypeLowering
             slots.AsReadOnly(),
             IsIndirect: false,
             TotalByteSize: record.InlineSize ?? totalBytes);
+    }
+
+    /// <summary>
+    /// Parses an ABI field-layout fragment into its register-file letter and byte width.
+    /// Accepts the width-suffixed form ("i4", "f8", "b1", "p8") and the legacy bare-letter form
+    /// ("i", "f", "b", "p"), which maps to the historical default slot width.
+    /// </summary>
+    private static bool TryParseFieldFragment(string fragment, out char fieldClass, out int width)
+    {
+        fieldClass = '\0';
+        width = 0;
+        if (string.IsNullOrEmpty(fragment))
+            return false;
+
+        fieldClass = fragment[0];
+        int legacyWidth = fieldClass switch
+        {
+            'i' or 'p' or 'f' => 8,
+            'b' => 1,
+            _ => -1,
+        };
+        if (legacyWidth < 0)
+            return false;
+
+        if (fragment.Length == 1)
+        {
+            width = legacyWidth; // legacy fragment with no width suffix
+            return true;
+        }
+
+        return int.TryParse(fragment.AsSpan(1), out width) && width > 0;
     }
 
     /// <summary>

@@ -1187,15 +1187,26 @@ public sealed class ModuleEmissionContext
             _emittedOpaqueTypes.Add(moduleQualifiedName);
     }
 
-    // ==================== Native ARM64 Thunks ====================
+    // ==================== Native Thunks ====================
 
     private readonly System.Text.StringBuilder _assemblyBuilder = new();
+    private readonly System.Text.StringBuilder _x64AssemblyBuilder = new();
 
     /// <summary>Accumulated ARM64 assembly thunk code for this module.</summary>
     public System.Text.StringBuilder AssemblyBuilder => _assemblyBuilder;
 
-    /// <summary>Whether any thunk assembly has been emitted.</summary>
+    /// <summary>Whether any ARM64 thunk assembly has been emitted.</summary>
     public bool HasThunkAssembly => _assemblyBuilder.Length > 0;
+
+    /// <summary>
+    /// Accumulated x86_64 (SysV) assembly thunk code for this module. May be a strict subset of
+    /// the ARM64 thunks: signatures whose arguments spill past the SysV register files are bridged
+    /// on ARM64 but fall back to an @_cdecl wrapper on x86_64.
+    /// </summary>
+    public System.Text.StringBuilder X64AssemblyBuilder => _x64AssemblyBuilder;
+
+    /// <summary>Whether any x86_64 thunk assembly has been emitted.</summary>
+    public bool HasX64ThunkAssembly => _x64AssemblyBuilder.Length > 0;
 
     // ==================== Protocol Conformance Decisions ====================
 

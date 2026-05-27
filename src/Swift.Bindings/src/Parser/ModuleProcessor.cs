@@ -522,46 +522,54 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Classifies a single field type for ABI layout purposes.
-        /// Returns a layout fragment: "i" for integer, "f" for float, "b" for bool, "p" for pointer,
-        /// or a comma-separated list for nested frozen structs (e.g., "i,f" for a struct with Int and Double).
+        /// Returns a layout fragment encoding register FILE and byte WIDTH: integer "i8/i4/i2/i1",
+        /// float "f8/f4", bool "b1", pointer "p8" — or a comma-separated list for nested frozen
+        /// structs (e.g., "i4,f4" for a struct with Int32 and Float).
         /// Returns null if the type cannot be classified.
         ///
-        /// NOTE: Sub-8-byte integer types (Int8, Int16, Int32) are classified as "i" (8-byte integer slot)
-        /// because the layout string represents register FILE classification, not exact byte widths.
-        /// Each leaf scalar field occupies one full ARM64 register in swiftcc. The exact byte sizes
-        /// needed for thunk store instructions are resolved at thunk emission time from
-        /// the original TypeSpec, not from this layout string.
+        /// The width suffix lets the thunk emitter compute the real in-memory field offset (natural
+        /// alignment) and pick a width-correct store instruction. A bare letter with no digit (the
+        /// legacy format produced before widths were tracked) is parsed back as a full 8-byte slot,
+        /// preserving behaviour for pre-existing type databases.
         /// </summary>
         private string? ClassifyFieldType(NamedTypeSpec namedType)
         {
-            // Primitive scalar types
+            // Primitive scalar types — the digit is the field's byte width.
             switch (namedType.Name)
             {
                 case "Swift.Int":
                 case "Swift.UInt":
-                case "Swift.Int8":
-                case "Swift.UInt8":
-                case "Swift.Int16":
-                case "Swift.UInt16":
-                case "Swift.Int32":
-                case "Swift.UInt32":
                 case "Swift.Int64":
                 case "Swift.UInt64":
-                    return "i";
+                    return "i8";
+
+                case "Swift.Int32":
+                case "Swift.UInt32":
+                    return "i4";
+
+                case "Swift.Int16":
+                case "Swift.UInt16":
+                    return "i2";
+
+                case "Swift.Int8":
+                case "Swift.UInt8":
+                    return "i1";
 
                 case "Swift.Float":
+                    return "f4";
+
                 case "Swift.Double":
                 case "CoreFoundation.CGFloat":
                 case "CoreGraphics.CGFloat":
-                    return "f";
+                    return "f8";
 
                 case "Swift.Bool":
-                    return "b";
+                    return "b1";
 
                 case "Swift.OpaquePointer":
                 case "Swift.UnsafeRawPointer":
                 case "Swift.UnsafeMutableRawPointer":
-                    return "p";
+                    return "p8";
             }
 
             // Generic types can't be classified without specialization
@@ -574,19 +582,19 @@ namespace BindingsGeneration
                     if (namedType.GenericParameters[0] is NamedTypeSpec innerType)
                     {
                         if (TryGetTypeRecord(innerType, out var innerRecord) && innerRecord.Kind == TypeRecordKind.Class)
-                            return "p";
+                            return "p8";
 
-                        // Optional<value type> = inner layout + tag byte (integer slot)
+                        // Optional<value type> = inner layout + a 1-byte tag (integer slot)
                         var innerLayout = ClassifyFieldType(innerType);
                         if (innerLayout != null)
-                            return $"{innerLayout},i";
+                            return $"{innerLayout},i1";
                     }
                     return null;
                 }
 
                 // UnsafePointer<T>, UnsafeMutablePointer<T> — pointer regardless of T
                 if (namedType.Name is "Swift.UnsafePointer" or "Swift.UnsafeMutablePointer")
-                    return "p";
+                    return "p8";
 
                 return null;
             }
@@ -602,11 +610,12 @@ namespace BindingsGeneration
             switch (record.Kind)
             {
                 case TypeRecordKind.Class:
-                    return "p"; // Class reference is always a pointer
+                    return "p8"; // Class reference is always a pointer
 
                 case TypeRecordKind.Enum:
                     if (record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
-                        return "i"; // Simple enum with raw integer value
+                        // Simple enum occupies one integer slot sized by its raw value.
+                        return $"i{NormalizeFieldWidth(record.InlineSize ?? 8)}";
                     return null; // Complex enum — can't classify without deeper analysis
 
                 case TypeRecordKind.Struct:
@@ -626,6 +635,18 @@ namespace BindingsGeneration
                 default:
                     return null;
             }
+        }
+
+        /// <summary>
+        /// Rounds a raw byte size up to the nearest ABI field-width bucket (1, 2, 4, or 8). Used so a
+        /// simple enum's raw-value size encodes as a power-of-two width the thunk emitter can align to.
+        /// </summary>
+        private static int NormalizeFieldWidth(int size)
+        {
+            if (size <= 1) return 1;
+            if (size <= 2) return 2;
+            if (size <= 4) return 4;
+            return 8;
         }
 
         /// <summary>

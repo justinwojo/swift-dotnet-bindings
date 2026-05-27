@@ -150,20 +150,13 @@ namespace BindingsGeneration
                     outputFile.Write(swiftOutput);
                 }
 
-                // Write ARM64 assembly thunk file if any thunks were emitted
-                if (emissionContext.HasThunkAssembly)
-                {
-                    var asmContent = new System.Text.StringBuilder();
-                    asmContent.Append(ThunkAssemblyEmitter.EmitFileHeader(moduleDecl.Name));
-                    asmContent.Append(emissionContext.AssemblyBuilder);
-                    asmContent.Append(ThunkAssemblyEmitter.EmitFileFooter());
-
-                    string asmOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.arm64.s");
-                    using (StreamWriter outputFile = new(asmOutputPath))
-                    {
-                        outputFile.Write(asmContent.ToString());
-                    }
-                }
+                // Write per-architecture assembly thunk files if any thunks were emitted. The
+                // x86_64 set may be a strict subset of the ARM64 set (some signatures spill past
+                // the SysV register files and fall back to @_cdecl wrappers on x86_64).
+                WriteThunkAssemblyFile(emissionContext.HasThunkAssembly, ThunkTargetArch.Arm64,
+                    emissionContext.AssemblyBuilder, moduleDecl.Name, @namespace);
+                WriteThunkAssemblyFile(emissionContext.HasX64ThunkAssembly, ThunkTargetArch.X86_64,
+                    emissionContext.X64AssemblyBuilder, moduleDecl.Name, @namespace);
 
                 // Detect theme-bridgeable types (classes with singleton + Color/Font properties)
                 var themeInfos = ThemeBridgeEmitter.DetectThemeBridgeableTypes(moduleDecl);
@@ -200,6 +193,26 @@ namespace BindingsGeneration
             {
                 _logger.LogWarning($"No module handler found for {moduleDecl.Name}");
             }
+        }
+
+        /// <summary>
+        /// Writes a per-architecture native thunk assembly file (<c>{namespace}.{arch}.s</c>) when
+        /// any thunks were emitted for that architecture.
+        /// </summary>
+        private void WriteThunkAssemblyFile(bool hasThunks, ThunkTargetArch target,
+            System.Text.StringBuilder assembly, string moduleName, string @namespace)
+        {
+            if (!hasThunks)
+                return;
+
+            var asmContent = new System.Text.StringBuilder();
+            target.EmitFileHeader(asmContent, moduleName);
+            asmContent.Append(assembly);
+            asmContent.Append(target.EmitFileFooter());
+
+            string asmOutputPath = Path.Combine(_outputDirectory, $"{@namespace}.{target.ArchTag}.s");
+            using StreamWriter outputFile = new(asmOutputPath);
+            outputFile.Write(asmContent.ToString());
         }
 
         /// <summary>

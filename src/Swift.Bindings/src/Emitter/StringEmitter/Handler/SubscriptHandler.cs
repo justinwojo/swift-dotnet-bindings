@@ -250,7 +250,7 @@ namespace BindingsGeneration
                             // Emit thunk assembly — pass the original mangled name since MangledName
                             // has been overwritten with the thunk symbol above
                             var thunkEnv = (MethodEnvironment)methodHandler.Marshal(accessor.Method, typeDatabase);
-                            bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, typeDecl.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName);
+                            bool emitted = NativeThunkEmitter.EmitThunk(thunkEnv, typeDecl.SwiftTypeName.Module, context.GetEmissionContext().AssemblyBuilder, originalMangledName, context.GetEmissionContext().X64AssemblyBuilder);
                             if (emitted)
                             {
                                 // Mark as emitted to prevent duplicate emission in MethodHandler.Emit

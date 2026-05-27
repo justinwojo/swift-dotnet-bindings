@@ -29,25 +29,27 @@ namespace BindingsGeneration
     public static class NativeThunkCompiler
     {
         /// <summary>
-        /// Compiles all .arm64.s files in the output directory into .o object files.
-        /// Returns null if no .arm64.s files exist.
+        /// Compiles all <c>.{arch}.s</c> files in the output directory into .o object files.
+        /// Returns null if no matching assembly files exist.
         /// </summary>
-        /// <param name="outputDirectory">Directory containing generated .arm64.s files.</param>
+        /// <param name="outputDirectory">Directory containing generated <c>.{arch}.s</c> files.</param>
         /// <param name="targetTriple">Target triple (e.g., "arm64-apple-ios17.0-simulator").</param>
         /// <param name="sdkPath">Resolved SDK path from xcrun.</param>
         /// <param name="logger">Logger instance.</param>
         /// <param name="commandRunner">Optional command runner for testing.</param>
+        /// <param name="arch">Architecture tag selecting the assembly files to compile ("arm64" or "x86_64").</param>
         public static NativeThunkCompilationResult? CompileThunkObjects(
             string outputDirectory,
             string targetTriple,
             string sdkPath,
             ILogger logger,
-            ICommandRunner? commandRunner = null)
+            ICommandRunner? commandRunner = null,
+            string arch = "arm64")
         {
-            var assemblyFiles = CollectAssemblyFiles(outputDirectory);
+            var assemblyFiles = CollectAssemblyFiles(outputDirectory, arch);
             if (assemblyFiles.Count == 0)
             {
-                logger.LogDebug("No .arm64.s thunk files found in {Dir} — skipping thunk compilation.", outputDirectory);
+                logger.LogDebug("No .{Arch}.s thunk files found in {Dir} — skipping thunk compilation.", arch, outputDirectory);
                 return null;
             }
 
@@ -126,14 +128,16 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Collects .arm64.s assembly files from the output directory.
+        /// Collects <c>.{arch}.s</c> assembly files from the output directory.
         /// </summary>
-        internal static List<string> CollectAssemblyFiles(string outputDirectory)
+        /// <param name="outputDirectory">Directory to search.</param>
+        /// <param name="arch">Architecture tag ("arm64" or "x86_64"). Defaults to "arm64".</param>
+        internal static List<string> CollectAssemblyFiles(string outputDirectory, string arch = "arm64")
         {
             if (!Directory.Exists(outputDirectory))
                 return new List<string>();
 
-            return Directory.GetFiles(outputDirectory, "*.arm64.s")
+            return Directory.GetFiles(outputDirectory, $"*.{arch}.s")
                 .OrderBy(f => f, StringComparer.Ordinal)
                 .ToList();
         }

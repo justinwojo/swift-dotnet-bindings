@@ -492,7 +492,7 @@ namespace BindingsGeneration
             {
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 string thunkModuleName = parentType_?.SwiftTypeName.Module ?? "";
-                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledNameForCtorThunk);
+                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledNameForCtorThunk, context.GetEmissionContext().X64AssemblyBuilder);
                 if (!emitted && originalMangledNameForCtorThunk != null)
                 {
                     // Revert thunk state
@@ -1282,7 +1282,7 @@ namespace BindingsGeneration
                 var parentType_ = methodEnv.ParentDecl as TypeDecl;
                 var parentModule = methodEnv.ParentDecl as ModuleDecl;
                 string thunkModuleName = parentType_?.SwiftTypeName.Module ?? parentModule?.Name ?? "";
-                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledForThunkEmit);
+                bool emitted = NativeThunkEmitter.EmitThunk(methodEnv, thunkModuleName, context.GetEmissionContext().AssemblyBuilder, originalMangledForThunkEmit, context.GetEmissionContext().X64AssemblyBuilder);
                 if (!emitted && originalMangledForThunkEmit != null)
                 {
                     // Revert thunk state

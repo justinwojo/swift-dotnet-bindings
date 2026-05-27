@@ -47,7 +47,8 @@
         "UnitTests",
         "Validate",
         "ValidateAppleTypesManifest",
-        "ValidateBlastRadius"
+        "ValidateBlastRadius",
+        "X64ThunkGate"
       ]
     },
     "Verbosity": {

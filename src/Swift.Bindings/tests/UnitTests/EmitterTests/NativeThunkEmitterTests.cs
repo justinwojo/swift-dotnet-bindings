@@ -283,6 +283,99 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ShouldEmitThunk_SmallMixedIntFloatStructReturn_ReturnsFalse()
+        {
+            // {Int32, Float} (8B): both fields share eightbyte 0. swiftcc returns the Int32 in a GPR
+            // and the Float in a vector register; the C ABI packs the whole eightbyte into one GPR.
+            // The tail call returns the float in the wrong register file — decline to @_cdecl.
+            var env = StructReturnEnv("Test.IntFloat", "i4,f4", inlineSize: 8);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_SmallTwoFloatStructReturn_ReturnsFalse()
+        {
+            // {Float, Float} (8B): both 4-byte floats share eightbyte 0. swiftcc returns them in two
+            // separate vector registers; the C ABI (x86_64 SysV) packs both into one SSE register.
+            // The arch-neutral thunk can't satisfy both — decline to @_cdecl.
+            var env = StructReturnEnv("Test.FloatPair", "f4,f4", inlineSize: 8);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_SmallTwoIntStructReturn_ReturnsTrue()
+        {
+            // {Int32, Int32} (8B): both 4-byte ints share eightbyte 0, but swiftcc packs them into a
+            // single GPR exactly as the C ABI does. No float divergence — stays thunk-eligible.
+            var env = StructReturnEnv("Test.IntPair", "i4,i4", inlineSize: 8);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_IntDoubleStructReturn_ReturnsFalse()
+        {
+            // {Int64, Double} (16B): on x86_64 SysV each field owns an eightbyte and the conventions
+            // agree, but arm64 AAPCS64 returns this non-HFA aggregate entirely in GPRs (Int64 in x0,
+            // Double bits in x1) while swiftcc returns the Double in d0. The thunk is chosen once for
+            // both arches, so it must decline the shape that diverges on either — decline to @_cdecl.
+            var env = StructReturnEnv("Test.IntDouble", "i,f", inlineSize: 16);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_Int64ThenFloatSeparateEightbytes_ReturnsFalse()
+        {
+            // {Int64, Float} (16B aligned): the float sits alone in eightbyte 1, so x86_64 SysV agrees,
+            // but arm64 AAPCS64 returns this non-HFA aggregate in GPRs (Int64 in x0, Float bits in w1)
+            // while swiftcc returns the Float in s0. Non-HFA + float diverges on arm64 — decline.
+            var env = StructReturnEnv("Test.Int64Float", "i,f4", inlineSize: 16);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_TwoDoubleStructReturn_ReturnsTrue()
+        {
+            // {Double, Double} (16B): a homogeneous floating-point aggregate. arm64 AAPCS64 returns it
+            // in d0/d1 and x86_64 SysV gives each Double its own SSE eightbyte (xmm0/xmm1) — both match
+            // swiftcc's field-wise return. The only multi-field float shape that stays thunk-eligible.
+            var env = StructReturnEnv("Test.DoublePair", "f,f", inlineSize: 16);
+            Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_FloatThenDoubleStructReturn_ReturnsFalse()
+        {
+            // {Float, Double} (16B): the Float owns eightbyte 0 and the Double owns eightbyte 1, so
+            // x86_64 SysV agrees with swiftcc, but the two fields are different FP types — NOT a
+            // homogeneous floating-point aggregate. arm64 AAPCS64 returns this non-HFA in GPRs (Float
+            // bits in w0, Double bits in x1) while swiftcc returns it field-wise in s0/d1. The
+            // each-owns-an-eightbyte test alone would wrongly allow this; the homogeneity test declines.
+            var env = StructReturnEnv("Test.FloatDouble", "f4,f8", inlineSize: 16);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_DoubleThenFloatStructReturn_ReturnsFalse()
+        {
+            // {Double, Float} (16B): mirror of the above — Double in eightbyte 0, Float in eightbyte 1.
+            // Mixed FP widths, so not an HFA: arm64 AAPCS64 returns it in GPRs (x0/w1) while swiftcc
+            // returns d0/s1. The homogeneity test declines what the eightbyte test alone would allow.
+            var env = StructReturnEnv("Test.DoubleFloat", "f8,f4", inlineSize: 16);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
+        public void ShouldEmitThunk_PrefixPackedThenLoneFloatReturn_ReturnsFalse()
+        {
+            // {Int32, Int32, Float} (12B → 16B): the two Int32s pack into eightbyte 0 and the float sits
+            // alone in eightbyte 1, so x86_64 SysV agrees, but arm64 AAPCS64 returns this non-HFA
+            // aggregate in GPRs (x0/x1) while swiftcc returns the Float in s0. Prefix-packed integers
+            // followed by a lone float still diverge on arm64 — decline.
+            var env = StructReturnEnv("Test.IntIntFloat", "i4,i4,f4", inlineSize: 16);
+            Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+        }
+
+        [Fact]
         public void ShouldEmitThunk_OptionalStringReturn_ReturnsFalse()
         {
             // Optional<String> can't be lowered by TypeLowering (inner type String has no
@@ -1058,6 +1151,35 @@ namespace BindingsGeneration.Tests
                 ParentDecl = null,
                 ModuleDecl = TestModule
             };
+        }
+
+        /// <summary>
+        /// Builds an environment for a static method that returns a frozen struct by value, described by
+        /// its <paramref name="abiFieldLayout"/> (e.g. "i4,f4" for {Int32, Float}). Used by the
+        /// register-file divergence gate tests.
+        /// </summary>
+        private static MethodEnvironment StructReturnEnv(string structName, string abiFieldLayout, int inlineSize)
+        {
+            var db = new ThunkMockTypeDatabase(xcframeworkMode: true);
+            var simpleName = structName.Substring(structName.IndexOf('.') + 1);
+            db.AddType(structName, new TypeRecord
+            {
+                Kind = TypeRecordKind.Struct,
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Test", simpleName),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(structName),
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                InlineSize = inlineSize,
+                AbiFieldLayout = abiFieldLayout,
+            });
+
+            var method = CreateMethodDecl(methodType: MethodType.Static, parentDecl: CreateClassDecl());
+            method.CSSignature = new List<ArgumentDecl>
+            {
+                MakeArg(new NamedTypeSpec(structName), ""), // return type
+                MakeArg(new NamedTypeSpec("Swift.Int"), "value"),
+            };
+            return new MethodEnvironment(method, db);
         }
 
         #endregion

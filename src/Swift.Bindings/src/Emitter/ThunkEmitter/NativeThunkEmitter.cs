@@ -230,6 +230,13 @@ public static class NativeThunkEmitter
                 return false;
         }
 
+        // Small (≤16B) structs returned by value are tail-call-thunked without repacking. Decline the
+        // shapes where swiftcc's field-wise register return diverges from the C ABI's aggregate return
+        // and let the @_cdecl wrapper return them via the C ABI instead. See
+        // SmallStructReturnDivergesFromCAbi.
+        if (SmallStructReturnDivergesFromCAbi(env))
+            return false;
+
         // Methods requiring indirect result can't be thunked yet.
         // Under CallConvCdecl, SwiftIndirectResult becomes a regular parameter (x0),
         // but the thunk reads x8 (AAPCS64 indirect return convention) → SIGSEGV.
@@ -273,6 +280,69 @@ public static class NativeThunkEmitter
     }
 
     /// <summary>
+    /// A small (≤16-byte) struct returned by value is tail-call-thunked with no repacking: the thunk
+    /// branches straight to the Swift symbol and lets swiftcc's return land in the caller's registers.
+    /// That is only correct when swiftcc's per-field register assignment matches the C ABI's aggregate
+    /// return — and the two C ABIs we target classify floats differently, so the thunk (which is chosen
+    /// once for both arches) is only safe on the intersection:
+    /// <list type="bullet">
+    /// <item>arm64 AAPCS64 returns any aggregate that is not a homogeneous floating-point aggregate
+    /// (HFA — all fields the same FP type) in the general-purpose registers x0/x1, regardless of field
+    /// type. So {Int64, Double} returns the Double in x1 while swiftcc returns it in d0; {Int32, Float}
+    /// packs into x0 while swiftcc uses w0/s0. Every non-HFA return containing a float diverges here.</item>
+    /// <item>x86_64 SysV classifies each 8-byte eightbyte: a float sharing an eightbyte with another
+    /// field gets packed into one register (INTEGER for mixed int/float, SSE for two floats), while
+    /// swiftcc gives each field its own register. So {Int32, Float} and {Float, Float} diverge here,
+    /// but {Int64, Double} (each field owns an eightbyte) agrees.</item>
+    /// </list>
+    /// The only shapes safe on both — and therefore still thunk-eligible — are: a single-field return,
+    /// an all-integer return ({Int32, Int32}; swiftcc and both C ABIs pack integers identically), and a
+    /// homogeneous all-floating-point return whose fields are the same FP type and each own a full
+    /// eightbyte (only {Double, Double} qualifies: an HFA on arm64 and one-float-per-eightbyte on
+    /// x86_64). Everything else — any int/float mix, two packed floats ({Float, Float}), a mixed-width
+    /// float pair ({Float, Double}, {Double, Float}; not an HFA, so arm64 returns it in GPRs),
+    /// {Int64, Double}, {Int64, Float}, {Int32, Int32, Float} — diverges on at least one arch and is
+    /// declined to the @_cdecl wrapper, whose C-ABI return is correct by construction. Larger (&gt;16-byte) returns are unaffected — they go through the field-wise return
+    /// bridge, which stores each register to its natural buffer offset.
+    /// </summary>
+    private static bool SmallStructReturnDivergesFromCAbi(MethodEnvironment env)
+    {
+        var returnSpec = env.MethodDecl.CSSignature.First().SwiftTypeSpec;
+        if (returnSpec.IsEmptyTuple)
+            return false;
+
+        var lowering = TypeLowering.LowerReturnType(returnSpec, env.TypeDatabase);
+        if (lowering == null || lowering.IsIndirect || lowering.TotalByteSize > 16)
+            return false;
+
+        var slots = ThunkAssemblyEmitter.ReturnBufferSlots(lowering).ToList();
+
+        // Single-register returns and all-integer returns are classified identically by swiftcc and
+        // both C ABIs — safe to thunk.
+        if (slots.Count <= 1 || slots.All(s => s.Slot.File != RegisterFile.Float))
+            return false;
+
+        // A multi-field return that contains a float is only safe when it is a homogeneous
+        // floating-point aggregate (HFA) whose fields each own a full eightbyte: an HFA on arm64 and
+        // one-float-per-eightbyte on x86_64. Homogeneity is load-bearing on arm64 — AAPCS64 returns an
+        // aggregate in the FP registers only when every field is the same fundamental FP type. A
+        // mixed-width pair like {Float, Double} or {Double, Float} is NOT an HFA, so the C ABI returns
+        // it in the GPRs (w0/x1) while swiftcc returns it field-wise in the FP registers (s0/d1). Once
+        // homogeneity is required, the each-owns-an-eightbyte constraint leaves only {Double, Double}.
+        // Any integer field present, any eightbyte shared by more than one slot, or any mix of FP widths
+        // makes at least one arch diverge.
+        bool allFloat = slots.All(s => s.Slot.File == RegisterFile.Float);
+        bool homogeneousFpWidth = slots.Select(s => s.Slot.ByteSize).Distinct().Count() == 1;
+        bool eachFieldOwnsEightbyte = slots
+            .GroupBy(slotOffset => slotOffset.Offset / 8)
+            .All(eightbyte => eightbyte.Count() == 1);
+        if (allFloat && homogeneousFpWidth && eachFieldOwnsEightbyte)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
     /// Generates a unique thunk symbol name for a method.
     /// Delegates to ThunkAssemblyEmitter.GenerateThunkSymbol.
     /// </summary>
@@ -285,18 +355,22 @@ public static class NativeThunkEmitter
     }
 
     /// <summary>
-    /// Emits a native ARM64 thunk for the given method environment.
-    /// Builds a ThunkDescriptor from the environment, runs TypeLowering, and calls
-    /// ThunkAssemblyEmitter to produce assembly code.
+    /// Emits native thunks for the given method environment.
+    /// Builds an arch-neutral ThunkDescriptor from the environment, runs TypeLowering, and calls
+    /// ThunkAssemblyEmitter to produce assembly code. The ARM64 thunk is always appended to
+    /// <paramref name="asmBuilder"/>; when <paramref name="x64AsmBuilder"/> is supplied and the
+    /// x86_64 target can encode the signature, the matching SysV thunk is appended there too.
     /// </summary>
     /// <param name="env">The method environment.</param>
     /// <param name="moduleName">The Swift module name.</param>
-    /// <param name="asmBuilder">StringBuilder to append the assembly output to.</param>
+    /// <param name="asmBuilder">StringBuilder to append the ARM64 assembly output to.</param>
     /// <param name="originalSwiftMangledName">The original Swift mangled name (before MangledName was overwritten with the thunk symbol).
     /// Required because callers set MangledName to the thunk symbol before calling EmitThunk.
     /// If null, falls back to methodDecl.MangledName (for backward compatibility in tests).</param>
-    /// <returns>True if the thunk was emitted; false if lowering failed.</returns>
-    public static bool EmitThunk(MethodEnvironment env, string moduleName, StringBuilder asmBuilder, string? originalSwiftMangledName = null)
+    /// <param name="x64AsmBuilder">Optional StringBuilder to append the x86_64 (SysV) assembly output to.
+    /// When null, only ARM64 is emitted (preserving single-arch callers and tests).</param>
+    /// <returns>True if the (ARM64) thunk was emitted; false if lowering failed.</returns>
+    public static bool EmitThunk(MethodEnvironment env, string moduleName, StringBuilder asmBuilder, string? originalSwiftMangledName = null, StringBuilder? x64AsmBuilder = null)
     {
         var methodDecl = env.MethodDecl;
 
@@ -384,7 +458,14 @@ public static class NativeThunkEmitter
             Throws: methodDecl.Throws,
             MetadataAccessorSymbol: metadataAccessorSymbol);
 
-        asmBuilder.Append(ThunkAssemblyEmitter.EmitThunk(descriptor));
+        asmBuilder.Append(ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.Arm64));
+
+        // Emit the parallel x86_64 (SysV) thunk when requested and encodable. Signatures whose
+        // arguments would spill past the SysV register files are skipped here and fall back to an
+        // @_cdecl wrapper on x86_64, while still getting a native ARM64 thunk above.
+        if (x64AsmBuilder != null && ThunkTargetArch.X86_64.CanEmit(descriptor))
+            x64AsmBuilder.Append(ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.X86_64));
+
         return true;
     }
 

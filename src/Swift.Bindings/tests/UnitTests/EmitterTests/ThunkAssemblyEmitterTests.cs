@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests
@@ -236,6 +237,80 @@ namespace BindingsGeneration.Tests
             Assert.Contains("str     d0, [x19, #8]", asm);    // floatVal at offset 8
             Assert.Contains("str     x1, [x19, #16]", asm);   // intVal2 at offset 16
             Assert.Contains("str     d1, [x19, #24]", asm);   // floatVal2 at offset 24
+        }
+
+        [Fact]
+        public void EmitThunk_MixedWidthStruct_NaturalOffsetsAndWidths()
+        {
+            // Mixed { i: Int32, f: Float, j: Int64, d: Double } (24 bytes, natural offsets 0,4,8,16).
+            // Swift returns field-wise: w0=Int32, s0=Float, x1=Int64, d1=Double. The store must use
+            // width-matched instructions at the packed offsets — not an 8-byte stride.
+            var returnLowering = new TypeLoweringResult(
+                new[] {
+                    new RegisterSlot(RegisterFile.Integer, 0, 4),
+                    new RegisterSlot(RegisterFile.Float, 0, 4),
+                    new RegisterSlot(RegisterFile.Integer, 1, 8),
+                    new RegisterSlot(RegisterFile.Float, 1, 8)
+                },
+                IsIndirect: false,
+                TotalByteSize: 24);
+
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_makeMixedWidth",
+                SwiftSymbol: "_$s4Test14makeMixedWidthAA0E0VyF",
+                ReturnLowering: returnLowering,
+                SelfLowering: null,
+                ParameterCount: 0,
+                FloatParameterCount: 0,
+                IsInstanceMethod: false,
+                IsStaticMethod: false,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: null);
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
+
+            Assert.Contains("str     w0, [x19]", asm);       // Int32 — 32-bit store at offset 0
+            Assert.Contains("str     s0, [x19, #4]", asm);   // Float — 32-bit float store at offset 4
+            Assert.Contains("str     x1, [x19, #8]", asm);   // Int64 — 64-bit store at offset 8
+            Assert.Contains("str     d1, [x19, #16]", asm);  // Double — 64-bit float store at offset 16
+            // The buggy 8-byte stride would have written the Float/Int64 at #8/#16 with full-width str.
+            Assert.DoesNotContain("str     d0, [x19, #8]", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_NarrowIntegerFields_ByteAndHalfStores()
+        {
+            // Packed integer fields of 1/2/4/8 bytes at natural offsets 0,2,4,8.
+            var returnLowering = new TypeLoweringResult(
+                new[] {
+                    new RegisterSlot(RegisterFile.Integer, 0, 1),
+                    new RegisterSlot(RegisterFile.Integer, 1, 2),
+                    new RegisterSlot(RegisterFile.Integer, 2, 4),
+                    new RegisterSlot(RegisterFile.Integer, 3, 8)
+                },
+                IsIndirect: false,
+                TotalByteSize: 24);
+
+            var descriptor = new ThunkDescriptor(
+                ThunkSymbol: "thunk_test_makeNarrow",
+                SwiftSymbol: "_$s4Test10makeNarrowAA0D0VyF",
+                ReturnLowering: returnLowering,
+                SelfLowering: null,
+                ParameterCount: 0,
+                FloatParameterCount: 0,
+                IsInstanceMethod: false,
+                IsStaticMethod: false,
+                IsConstructor: false,
+                Throws: false,
+                MetadataAccessorSymbol: null);
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor);
+
+            Assert.Contains("strb    w0, [x19]", asm);      // 1 byte at offset 0
+            Assert.Contains("strh    w1, [x19, #2]", asm);  // 2 bytes at offset 2
+            Assert.Contains("str     w2, [x19, #4]", asm);  // 4 bytes at offset 4
+            Assert.Contains("str     x3, [x19, #8]", asm);  // 8 bytes at offset 8
         }
 
         [Fact]
@@ -1023,6 +1098,51 @@ namespace BindingsGeneration.Tests
             Assert.Contains("ldr     d0, [sp, #8]", asm);
             // Must call metadata accessor
             Assert.Contains("bl      _$s4Test3FooCMa", asm);
+        }
+
+        #endregion
+
+        #region ReturnBufferSlots Natural Offsets
+
+        [Fact]
+        public void ReturnBufferSlots_MixedWidthFields_UsesNaturalAlignment()
+        {
+            // {Int32, Float, Int64, Double} ("i4,f4,i8,f8"): the 4-byte fields pack into the first
+            // eightbyte, then the 8-byte fields align to 8 and 16. A uniform 8-byte stride would place
+            // the Float at offset 8 and corrupt the following Int64 — these offsets must match the
+            // C/Swift Sequential layout the managed struct reads.
+            var ret = new TypeLoweringResult(
+                new[]
+                {
+                    new RegisterSlot(RegisterFile.Integer, 0, 4),
+                    new RegisterSlot(RegisterFile.Float, 0, 4),
+                    new RegisterSlot(RegisterFile.Integer, 1, 8),
+                    new RegisterSlot(RegisterFile.Float, 1, 8),
+                },
+                IsIndirect: false,
+                TotalByteSize: 24);
+
+            var offsets = ThunkAssemblyEmitter.ReturnBufferSlots(ret).Select(s => s.Offset).ToList();
+
+            Assert.Equal(new[] { 0, 4, 8, 16 }, offsets);
+        }
+
+        [Fact]
+        public void ReturnBufferSlots_AllEightByteFields_UsesUniformStride()
+        {
+            // {Double, Double} ("f,f"): each field owns a full eightbyte at 0 and 8.
+            var ret = new TypeLoweringResult(
+                new[]
+                {
+                    new RegisterSlot(RegisterFile.Float, 0, 8),
+                    new RegisterSlot(RegisterFile.Float, 1, 8),
+                },
+                IsIndirect: false,
+                TotalByteSize: 16);
+
+            var offsets = ThunkAssemblyEmitter.ReturnBufferSlots(ret).Select(s => s.Offset).ToList();
+
+            Assert.Equal(new[] { 0, 8 }, offsets);
         }
 
         #endregion
