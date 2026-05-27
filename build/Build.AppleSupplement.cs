@@ -46,6 +46,14 @@ partial class Build
 
     Target BuildAppleSupplementXcframework => _ => _
         .Description($"Build {AppleSupplementModuleName}.xcframework from src/Swift.Bindings.Apple/Shims/*.swift across all Apple platforms.")
+        // Pure ordering edge for strict-graph mode. This target is consumed only by Pack
+        // (Pack.DependsOn). Pack also runs after PackGate, so the supplement and PackGate
+        // are both predecessors of Pack and must be totally ordered. Chaining the supplement
+        // after PackGate lets it inherit PackGate's full ancestry, linearizing it into the
+        // spine immediately before Pack — one edge, no unordered sibling. PackGate builds its
+        // own throwaway-version supplement, so it does not consume this target's output;
+        // and this edge does not pull the supplement build into a standalone PackGate run.
+        .After(PackGate)
         .Executes(() => RunBuildAppleSupplementXcframework());
 
     void RunBuildAppleSupplementXcframework()
