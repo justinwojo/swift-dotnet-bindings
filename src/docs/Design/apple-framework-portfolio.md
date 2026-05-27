@@ -62,6 +62,10 @@ Highest-demand framework that cannot be bound:
 
 Macro-driven or SwiftUI-bound. Not consumable from C# regardless of binding effort.
 
+### VisualIntelligence (iOS 26)
+
+Visual-search / "find similar" integration surfaced entirely through App Intents — the framework's only public type, `SemanticContentDescriptor`, feeds `@AppIntent`-tied entry points. Same macro-lock as AppIntents: a C# consumer would still have to author the Swift intent, so a binding adds nothing.
+
 ### DockKit (iOS 17+)
 
 Motorized phone-stand tracking. Addressable market is too small to justify the binding work. Revisit only on customer ask.
@@ -76,6 +80,7 @@ Programmatic access to Wallet/Apple Card/Apple Cash transaction history.
 
 - **Macios status**: Not bound.
 - **Blocker**: Distribution entitlement is org-only and requires manual Apple approval. Launch partners are three apps (YNAB, Monarch, Copilot). Query APIs lean on Swift `Predicate` and `SortDescriptor` patterns that may not bind cleanly.
+- **iOS 26 note (May 2026 scan)**: the `FinanceStore` query/history surface is Swift-only and not macro-gated, so it is *technically* bindable now (iOS 26 also adds background delivery). The blocker is unchanged: the org-only entitlement still gates real use, so this stays defer-until-ask — the iOS 26 state just makes the binding more feasible once a customer is on the hook for the entitlement.
 - **Verdict**: Defer until a specific customer asks.
 
 ### GroupActivities / SharePlay (iOS 15+)
@@ -94,11 +99,51 @@ The public API is a generic SwiftUI picker plus a rich content struct:
 - `.journalingSuggestionsPicker(isPresented:onCompletion:)` is a View modifier extension → not bridgeable.
 - `onCompletion` receives a `JournalingSuggestion` struct with nested typed assets accessed via `content<T: JournalingSuggestionAsset>(forType:)` — a typed dynamic content bag that doesn't marshal cleanly.
 
-Feasible via a hand-written Swift wrapper using `JournalingSuggestionsPicker<Text>` internally and a fixed JSON schema for content types. Deprioritized: Journal app is iPhone-only and unavailable on iPad/simulator.
+Feasible via a hand-written Swift wrapper using `JournalingSuggestionsPicker<Text>` internally and a fixed JSON schema for content types. The shipped hosting bridge now absorbs the concrete-`View` half of that wrapper (it auto-wraps a `JournalingSuggestionsPicker<Text>` shim in a `UIHostingController` with a typed `ViewController` accessor), so the remaining work is just the content-bag marshalling. Still deprioritized for the same reason: the Journal app is iPhone-only and unavailable on iPad/simulator, so there is no automated end-to-end gate.
 
 ### ProximityReader, LiveCommunicationKit (on-demand pure bindings)
 
 Both ship cleanly when a customer asks. Entitlement-gated (ProximityReader) or narrow-audience (VoIP / default-dialer apps).
+
+---
+
+## iOS 26 framework scan (May 2026)
+
+Systematic pass against the iOS 26.2 SDK (Xcode 26.3). Grounded in `.swiftinterface` presence (a framework is Swift-only when it ships a `.swiftinterface` but no ObjC `Headers/`) plus a shape-read of each candidate's interface, cross-checked against two independent LLM reviews. Recorded so the scan is not repeated; the no's are as load-bearing as the yes's.
+
+### FoundationModels (iOS 26) — flagship candidate
+
+On-device LLM (Apple Intelligence). Swift-only; not bound by `dotnet/macios`.
+
+- **C#-reachable surface (real gap, high demand):** `SystemLanguageModel` availability, a `LanguageModelSession` created from string `Instructions`, `respond(to: String)` → `Response<String>`, `streamResponse(to: String)` → `ResponseStream<String>` (an `AsyncSequence`), and `GenerationOptions`. Verified by interface read: 9 of the 27 `respond`/`streamResponse` overloads are the plain-`String` path with no macro dependency.
+- **Out of reach (Swift-source-locked):** `@Generable` / `@Guide` structured output, custom `Tool` conformances, and the `@PromptBuilder` / `@InstructionsBuilder` result-builder forms. A C# consumer cannot define a `@Generable` type or conform a `Tool` — same wall as AppIntents.
+- **Verdict:** strongest candidate in this scan, *product-shaped / partial*. The text-generation + streaming subset is the highest-value Apple-framework gap the portfolio currently lacks and needs no consumer Swift authoring. Binding work: string constructors for `Prompt`/`Instructions`, `Response<String>` projection, and `AsyncSequence` streaming. Structured generation ships as a documented limitation, not a blocker on the whole framework.
+
+### Other new candidates
+
+| Framework | macios | Shape | Verdict |
+|---|---|---|---|
+| **DeclaredAgeRange** (iOS 26) | not bound | pure binding | Candidate. Clean async `AgeRangeService` request (takes a host `UIViewController`); relevant to App Store age-signal compliance. No macros/Views. |
+| **TabularData** (iOS 16+) | not bound | pure binding | Low-priority candidate. Large Swift-only DataFrame / CSV / JSON surface with zero macios coverage — but generic and `@dynamicMemberLookup`-heavy (projection difficulty), and C# already has DataFrame libraries (demand question). Real gap, weak pull. |
+| **PermissionKit** (iOS 26) | not bound | pure binding | Niche candidate. Communication-consent / parental-approval (`AskCenter`, `PermissionQuestion`, async flows); narrow audience. |
+| **PaperKit** (iOS 26) | not bound | pure binding | Candidate. UIKit markup view controllers (`PaperMarkupViewController`) + `PaperMarkup` model + delegate; PencilKit-adjacent drawing/annotation. |
+
+### Swift-only subset only — verify macios before investing
+
+ObjC-rooted frameworks where macios very likely already binds the `@objc` surface; only the Swift-only addition is a potential gap, so confirm coverage first.
+
+- **ImagePlayground** — the `@objc ImagePlaygroundViewController` is macios territory; the Swift-only `ImageCreator` (programmatic Genmoji / image generation, no UI) plus its value types is the gap. Pure binding for `ImageCreator` only.
+- **AlarmKit** — product-shaped. macios likely binds the ObjC surface; the Swift value-type `AlarmConfiguration` + ActivityKit-style presentation, plus the required `AppIntent` stop/repeat button actions, need a Swift shim (same shape as ActivityKit). Verify macios Swift coverage before sizing.
+
+### Bindable but gated — defer until a customer asks
+
+Technically clean Swift surfaces blocked by entitlement / hardware / narrow audience, not by binding feasibility — note them, don't invest pre-emptively:
+
+- **WiFiAware** (P2P Wi-Fi; entitlement-gated; macios ships only the Network error domain), **SecureElementCredential** (NFC, entitlement), **EnergyKit** (grid/EV scheduling, niche), **CarKey** (digital car keys, entitlement), **TelephonyMessagingKit** (RCS / carrier), **GeoToolbox** (tiny place-descriptor API), **CreateML / CreateMLComponents** (training-focused; CoreML inference is already covered), **ManagedAppDistribution / AutomatedDeviceEnrollment** (MDM / enterprise).
+
+### Confirmed no-change
+
+No shipped framework was obsoleted by new macios Swift coverage. No hard-skip was relaxed by iOS 26 — if anything FoundationModels reinforces the macro pattern for AI surfaces. `VisualIntelligence` is added to Hard skips above (AppIntents-coupled).
 
 ---
 
