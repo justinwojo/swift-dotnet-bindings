@@ -95,12 +95,10 @@ public func makeBoxedTrackedRenderableOptional(_ produce: Bool, tag: Int32) -> (
 }
 
 /// `LifetimeTracker`-counted CLASS conforming to `Error`. Returned as `(any Error)?`,
-/// it is a 1-word class-bound existential (a retained reference) wrapped by the
-/// generated marshalling in the `AnyError` value struct. `AnyError` is blittable and
-/// passed by value with no release path, so this instance never deinits → leak. This
-/// fixture exists to MEASURE that leak; the `AnyError` value-struct cannot own a
-/// deterministic-release +1 across bitwise copies, so the fix is an ownership-model
-/// decision rather than a localized projection change.
+/// it is a 1-word class-bound existential (a retained reference) wrapped by the generated
+/// marshalling in the `AnyError` reference type. On a Swift→C# owned transfer the `AnyError`
+/// adopts the box's +1 (`ownsContainer: true`) and releases it on Dispose/finalize, so this
+/// instance deinits once the wrapper is disposed and the GC drains.
 public final class TrackedError: Error {
     public let tag: Int32
 
@@ -117,6 +115,52 @@ public final class TrackedError: Error {
 /// Returns `(any Error)?` wrapping a freshly-allocated tracked class (or nil).
 public func makeTrackedErrorOptional(_ produce: Bool, tag: Int32) -> (any Error)? {
     return produce ? TrackedError(tag: tag) : nil
+}
+
+/// Returns a non-optional `any Error` wrapping a tracked class. Drives the direct
+/// (non-optional) existential-return projection (`ExistentialProjection.GetReturnPlan` well-known
+/// branch) — a DISTINCT owned-return emission mechanism from the `(any Error)?` optional path
+/// above (which routes through `OptionalProjection`). The returned existential transfers at +1,
+/// so the wrapping `AnyError` must adopt the box and release it on Dispose/finalize.
+public func makeTrackedError(tag: Int32) -> any Error {
+    return TrackedError(tag: tag)
+}
+
+/// Named enum carrying `any Error` in an associated value — the `Result`-shaped failure
+/// surface. The generated `TryGetFailed(out AnyError)` accessor extracts the payload by
+/// value-witness-copying the whole enum (retaining the boxed error at +1) into a buffer it
+/// never destroys, then wrapping the box pointer in `AnyError`. Each extraction therefore
+/// hands the consumer a fresh +1 that the wrapper must release on Dispose, distinct from the
+/// enum's own stored +1. This is a different emission mechanism from the standalone
+/// `(any Error)?` return above (enum-payload extraction, not a direct return slot).
+public enum TrackedErrorBox {
+    case empty
+    case failed(any Error)
+}
+
+/// Returns a `.failed` carrying a freshly-allocated tracked error. The enum owns one +1 on
+/// the box; each `TryGetFailed` extraction lays down an additional +1.
+public func makeTrackedErrorBoxFailure(tag: Int32) -> TrackedErrorBox {
+    return .failed(TrackedError(tag: tag))
+}
+
+/// Named enum carrying a NON-Error opaque existential (`any Renderable`) in an associated value —
+/// the proxy-extraction analogue of `TrackedErrorBox`. Where `any Error` projects to the well-known
+/// `AnyError`, `any Renderable` projects to the generated `RenderableProxy`, so this exercises a
+/// DISTINCT marshalling branch (`EnumHandler.Marshalling.cs` proxy path, not the well-known path).
+/// The generated `TryGetShown(...)` value-witness-copies the whole enum (retaining the boxed
+/// conformer at +1) into a buffer it never destroys, then wraps the container in the proxy. Each
+/// extraction lays a fresh +1 the proxy must adopt (`ownsContainer: true`) and release on Dispose,
+/// distinct from the enum's own stored +1.
+public enum TrackedRenderableBox {
+    case empty
+    case shown(any Renderable)
+}
+
+/// Returns a `.shown` carrying a freshly-allocated tracked renderable. The enum owns one +1 on the
+/// existential; each `TryGetShown` extraction lays down an additional +1 the proxy must release.
+public func makeTrackedRenderableBoxShown(tag: Int32) -> TrackedRenderableBox {
+    return .shown(TrackedRenderable(tag: tag))
 }
 
 /// `LifetimeTracker`-counted CLASS conforming to BOTH `Nameable` and `Ageable` (declared in

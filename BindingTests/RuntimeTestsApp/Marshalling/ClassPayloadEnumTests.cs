@@ -103,8 +103,9 @@ public class ClassPayloadEnumTests : TestBase
         AssertEqual(LabeledClassResult.CaseTag.Failed, result.Tag, "Tag == Failed");
 
         AssertTrue(result.TryGetFailed(out var error), "TryGetFailed returns true on Failed");
-        // AnyError is a struct; the TryGet returning true (above) is the structural
-        // assertion that the AnyError payload was extracted.
+        // AnyError is a reference type that owns the extracted box's +1, so dispose it
+        // once the structural extraction assertion (above) has fired.
+        error?.Dispose();
         // C#-side authored Completed factory must round-trip too — exercises the path
         // that was missing pre-fix.
         AssertFalse(result.TryGetCompleted(out var bogusSession),

@@ -55,7 +55,8 @@ public class ExistentialProjection : ITypeProjection
         else
         {
             // GetOrCreate only works for single-protocol existentials (EC1) with proxy classes.
-            // - EC0 (Any/AnyError): AnyError is a value type, can't satisfy class constraint
+            // - EC0 (bare Any): a value type, can't satisfy the class constraint (well-known AnyError
+            //   is a reference type and takes the "no proxy" direct-convertible path below)
             // - EC2+ (compositions): GetOrCreate returns EC1 but P/Invoke expects EC2+
             // - No proxy (well-known/object): always implement ISwiftExistentialConvertible directly
             //
@@ -91,7 +92,10 @@ public class ExistentialProjection : ITypeProjection
                 ? $"new {_proxyClassName}({resultName}{OwnsContainerArg})"
                 : _publicType == "object"
                     ? resultName
-                    : $"new {_publicType}({resultName})";
+                    // Well-known no-proxy existential (Swift.Foundation.AnyError): an owned +1
+                    // transfer, so the wrapper adopts the boxed error and releases it on
+                    // Dispose/finalize. The helper is a no-op for any other well-known type.
+                    : $"new {_publicType}({resultName}{ExistentialHandler.WellKnownOwnedTransferArg(_publicType)})";
         }
 
         return new MarshalPlan

@@ -146,11 +146,11 @@ public class AnyErrorDescriptionTests : TestBase
     public void TestOptionalAnyErrorClosure_Success()
     {
         using var fixture = new AnyErrorCallbackFixture();
-        AnyError? captured = new AnyError(); // sentinel non-null
+        AnyError? captured = null;
         bool invoked = false;
         fixture.ReportOptionalError(shouldSucceed: true, err => { captured = err; invoked = true; });
         AssertTrue(invoked, "Callback was not invoked (success branch)");
-        AssertFalse(captured.HasValue, "Expected null AnyError on success branch");
+        AssertTrue(captured is null, "Expected null AnyError on success branch");
     }
 
     /// <summary>
@@ -165,10 +165,10 @@ public class AnyErrorDescriptionTests : TestBase
         bool sawError = false;
         fixture.ReportOptionalError(shouldSucceed: false, err =>
         {
-            if (err.HasValue)
+            if (err != null)
             {
                 sawError = true;
-                capturedDesc = err.Value.LocalizedDescription;
+                capturedDesc = err.LocalizedDescription;
             }
         });
         AssertTrue(sawError, "Expected non-null AnyError on failure branch");
@@ -185,13 +185,13 @@ public class AnyErrorDescriptionTests : TestBase
         using var fixture = new AnyErrorCallbackFixture();
         int pin = -1;
         int status = -1;
-        AnyError? err = new AnyError();
+        AnyError? err = null;
         bool invoked = false;
         fixture.ReportPinDetails(0, (p, s, e) => { pin = p; status = s; err = e; invoked = true; });
         AssertTrue(invoked, "Callback was not invoked (success branch)");
         AssertEqual(1234, pin, $"Expected pin 1234, got {pin}");
         AssertEqual(1, status, $"Expected status 1, got {status}");
-        AssertFalse(err.HasValue, "Expected null error on success branch");
+        AssertTrue(err is null, "Expected null error on success branch");
     }
 
     /// <summary>
@@ -209,10 +209,10 @@ public class AnyErrorDescriptionTests : TestBase
         {
             pin = p;
             status = s;
-            if (e.HasValue)
+            if (e != null)
             {
                 sawError = true;
-                errDesc = e.Value.LocalizedDescription;
+                errDesc = e.LocalizedDescription;
             }
         });
         AssertEqual(0, pin, $"Expected pin 0 on failure, got {pin}");

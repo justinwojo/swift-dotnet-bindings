@@ -140,11 +140,14 @@ public static partial class ClosureEmitter
         }
         else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapFrozenReturn))
         {
-            csWriter.WriteLine($"return new {wrapFrozenReturn}({invokeExpr});");
+            // Owned return: the Swift function pointer hands the existential back to C# at +1.
+            csWriter.WriteLine($"return new {wrapFrozenReturn}({invokeExpr}{ExistentialHandler.WellKnownOwnedTransferArg(wrapFrozenReturn)});");
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var frozenProxy))
         {
-            csWriter.WriteLine($"return new {frozenProxy}({invokeExpr});");
+            // Owned return: the Swift function pointer hands the existential back at +1; the proxy
+            // (a real EC1-EC8 proxy here, never bare-`any`) adopts and releases it on Dispose/finalize.
+            csWriter.WriteLine($"return new {frozenProxy}({invokeExpr}, ownsContainer: true);");
         }
         else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
         {
@@ -325,11 +328,14 @@ public static partial class ClosureEmitter
         }
         else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapNonFrozenReturn))
         {
-            csWriter.WriteLine($"return new {wrapNonFrozenReturn}({invokeExpr});");
+            // Owned return: the Swift function pointer hands the existential back to C# at +1.
+            csWriter.WriteLine($"return new {wrapNonFrozenReturn}({invokeExpr}{ExistentialHandler.WellKnownOwnedTransferArg(wrapNonFrozenReturn)});");
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var nonFrozenProxy))
         {
-            csWriter.WriteLine($"return new {nonFrozenProxy}({invokeExpr});");
+            // Owned return: the Swift function pointer hands the existential back at +1; the proxy
+            // (a real EC1-EC8 proxy here, never bare-`any`) adopts and releases it on Dispose/finalize.
+            csWriter.WriteLine($"return new {nonFrozenProxy}({invokeExpr}, ownsContainer: true);");
         }
         else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
         {

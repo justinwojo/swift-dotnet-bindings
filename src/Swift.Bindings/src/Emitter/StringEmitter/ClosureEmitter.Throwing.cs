@@ -243,11 +243,14 @@ public static partial class ClosureEmitter
             }
             else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapThrowingReturn))
             {
-                csWriter.WriteLine($"                return {resultType}.FromSuccess(new {wrapThrowingReturn}(_rawResult));");
+                // Owned return: the throwing closure's success payload is handed back to C# at +1.
+                csWriter.WriteLine($"                return {resultType}.FromSuccess(new {wrapThrowingReturn}(_rawResult{ExistentialHandler.WellKnownOwnedTransferArg(wrapThrowingReturn)}));");
             }
             else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var throwingProxy))
             {
-                csWriter.WriteLine($"                return {resultType}.FromSuccess(new {throwingProxy}(_rawResult));");
+                // Owned return: the throwing closure's success payload is handed back at +1; the proxy
+                // (a real EC1-EC8 proxy here, never bare-`any`) adopts and releases it on Dispose/finalize.
+                csWriter.WriteLine($"                return {resultType}.FromSuccess(new {throwingProxy}(_rawResult, ownsContainer: true));");
             }
             else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
             {

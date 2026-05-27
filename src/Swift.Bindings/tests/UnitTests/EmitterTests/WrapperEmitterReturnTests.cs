@@ -295,10 +295,12 @@ public class WrapperEmitterReturnTests
     }
 
     [Fact]
-    public void Return_WellKnownExistential_EmitsAnyError()
+    public void Return_WellKnownExistential_EmitsOwnedAnyError()
     {
-        // Bug fix: `any Swift.Error` must emit `new Swift.Foundation.AnyError(result)`,
-        // not `new ErrorProxy(result)` (ErrorProxy doesn't exist)
+        // `any Swift.Error` must emit the well-known `Swift.Foundation.AnyError`,
+        // not `new ErrorProxy(result)` (ErrorProxy doesn't exist). A direct existential
+        // return transfers the boxed error at +1, so the wrapper adopts it via
+        // `ownsContainer: true` and releases it on Dispose/finalize.
         var typeDatabase = CreateTypeDatabaseWithProtocol();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Container", moduleDecl);
@@ -317,7 +319,7 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("new Swift.Foundation.AnyError(result)", csOutput);
+        Assert.Contains("new Swift.Foundation.AnyError(result, ownsContainer: true)", csOutput);
         Assert.DoesNotContain("ErrorProxy", csOutput);
     }
 

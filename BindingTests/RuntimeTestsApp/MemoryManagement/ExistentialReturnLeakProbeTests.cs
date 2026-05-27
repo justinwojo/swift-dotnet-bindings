@@ -21,11 +21,12 @@ namespace RuntimeTestsApp.MemoryManagement;
 /// run in a <c>[MethodImpl(NoInlining)]</c> helper so no stale stack slot keeps a proxy
 /// alive past its <c>Dispose</c>.
 ///
-/// The <c>(any Error)?</c> path is intentionally separate: <c>AnyError</c> is a blittable
-/// value struct that cannot own a deterministic-release +1 across bitwise copies, so the
-/// fix there is an ownership-model decision (reference-type wrapper vs. accept the bounded
-/// box leak) rather than a localized projection change. Its probe asserts balance so the
-/// leak is quantified until that decision lands.
+/// The <c>(any Error)?</c> path uses a different wrapper than the proxy paths: <c>any Error</c>
+/// is a single boxed reference wrapped in the <c>AnyError</c> reference type, which adopts the
+/// box's +1 on an owned transfer and releases it via <c>SBW_AnyError_Destroy</c> on
+/// Dispose/finalize. The enum-payload extraction (<c>TryGetFailed(out AnyError)</c>) is yet
+/// another emission mechanism — the payload is value-witness-copied out of the enum at +1, so
+/// the extracted wrapper owns a distinct release obligation from the enum's own stored +1.
 /// </summary>
 public class ExistentialReturnLeakProbeTests : TestBase
 {
@@ -251,12 +252,11 @@ public class ExistentialReturnLeakProbeTests : TestBase
 
     /// <summary>
     /// <c>(any Error)?</c> return wrapping a tracked CLASS conforming to <c>Error</c> — a 1-word
-    /// class-bound existential the marshalling wraps in the <c>AnyError</c> value struct. Because
-    /// <c>AnyError</c> is blittable and copied by value, it has no deterministic release point, so
-    /// the box's +1 on the error instance is orphaned. This probe asserts ARC balance to quantify
-    /// the leak; it stays red until the <c>AnyError</c> ownership model is decided.
+    /// class-bound existential the marshalling wraps in the <c>AnyError</c> reference type. Swift
+    /// returns the boxed error in x0 at +1; the <c>AnyError</c> adopts that retain
+    /// (<c>ownsContainer: true</c>) and releases it via <c>SBW_AnyError_Destroy</c> on Dispose.
+    /// A wrapper that did not adopt/release would orphan the box's +1 and pin one error per call.
     /// </summary>
-    [Skip("(any Error)? return leaks its payload's +1: AnyError is a blittable [StructLayout(Sequential)] value struct passed by-value across the SwiftResult<TSuccess, AnyError> P/Invoke ABI, so it cannot own a deterministic-release obligation (a SafeHandle field or class conversion would break blittability and that ABI). Fixing this is a public-API ownership-model decision (reference-type wrapper vs. accept the bounded box leak), not a localized projection change. The assertion is retained so this probe goes green once that decision lands; the opaque-existential proxy path (any Renderable) IS fixed.")]
     public void TestOptionalErrorReturnReleasesPayload()
     {
         DrainFinalizers();
@@ -274,11 +274,106 @@ public class ExistentialReturnLeakProbeTests : TestBase
     {
         for (int i = 0; i < iterations; i++)
         {
-            // AnyError is a blittable value struct with no IDisposable/release path, so there
-            // is nothing to dispose — the box's +1 is orphaned when `e` leaves scope. That is
-            // exactly the leak this probe quantifies.
             var e = TestLibFunctions.MakeTrackedErrorOptional(true, i);
-            _ = e;
+            e?.Dispose();  // owned +1: AnyError adopts the box and releases it here
         }
+    }
+
+    /// <summary>
+    /// <c>TrackedErrorBox.failure(any Error)</c> enum-payload EXTRACTION — a distinct owned-transfer
+    /// emission mechanism from the direct returns above. The generated <c>TryGetFailed(out AnyError)</c>
+    /// value-witness-copies the whole enum (retaining the boxed error at +1) into a buffer it never
+    /// destroys, then wraps the box pointer in <c>AnyError</c>. Each extraction therefore lays a fresh
+    /// +1 on the SAME tracked error the enum holds, so the leak is structured around the surviving
+    /// owner: after every extracted <c>AnyError</c> AND the enum are disposed, the error must deinit
+    /// (live count 0). If the extracted wrapper does not adopt the container, the per-extraction +1s
+    /// outlive the enum and pin the error alive.
+    /// </summary>
+    public void TestErrorEnumPayloadExtractionReleasesPayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        ExtractAndDisposeErrorPayload(50);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("TryGetFailed(out AnyError) must release each extracted error payload's +1");
+        TestLogger.Info("TrackedErrorBox.failure: 50 extractions + enum disposed, error payload released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ExtractAndDisposeErrorPayload(int extractions)
+    {
+        var box = TestLibFunctions.MakeTrackedErrorBoxFailure(7);
+        for (int i = 0; i < extractions; i++)
+        {
+            if (box.TryGetFailed(out var e))   // owned +1: copied out of the enum, never re-destroyed
+                e.Dispose();
+        }
+        (box as IDisposable)?.Dispose();        // release the enum's own stored +1
+    }
+
+    /// <summary>
+    /// Non-optional <c>any Error</c> return — the direct existential-return projection
+    /// (<c>ExistentialProjection.GetReturnPlan</c> well-known branch), a DISTINCT owned-return
+    /// emission mechanism from the <c>(any Error)?</c> path (which routes through
+    /// <c>OptionalProjection</c>). Swift returns the boxed error at +1; the wrapping
+    /// <c>AnyError</c> must adopt it (<c>ownsContainer: true</c>) and release on Dispose. A
+    /// non-owning construction here orphans one box per call.
+    /// </summary>
+    public void TestNonOptionalErrorReturnReleasesPayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        AllocAndDisposeErrors(200);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("non-optional any Error return must not orphan the error box's retain");
+        TestLogger.Info("any Error: 200 direct returns released their error payload");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void AllocAndDisposeErrors(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var e = TestLibFunctions.MakeTrackedError(i);
+            e.Dispose();  // owned +1: AnyError adopts the box and releases it here
+        }
+    }
+
+    /// <summary>
+    /// <c>TrackedRenderableBox.shown(any Renderable)</c> enum-payload EXTRACTION through a generated
+    /// <c>RenderableProxy</c> — the proxy analogue of <see cref="TestErrorEnumPayloadExtractionReleasesPayload"/>
+    /// (which goes through the well-known <c>AnyError</c> branch). This pins the
+    /// <c>EnumHandler.Marshalling.cs</c> PROXY extraction branch: <c>TryGetShown</c> value-witness-copies
+    /// the whole enum (retaining the boxed conformer at +1) into a buffer it never destroys, then wraps
+    /// the container in <c>RenderableProxy</c>. Each extraction lays a fresh +1 the proxy must adopt
+    /// (<c>ownsContainer: true</c>) and release on Dispose, distinct from the enum's own stored +1. A
+    /// non-owning proxy would pin the conformer alive (live count never returns to 0).
+    /// </summary>
+    public void TestProxyEnumPayloadExtractionReleasesPayload()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        ExtractAndDisposeRenderablePayload(50);
+        DrainFinalizers();
+
+        LifetimeTracker.AssertNoLeaks("TryGetShown(out IRenderable) must release each extracted existential payload's +1");
+        TestLogger.Info("TrackedRenderableBox.shown: 50 extractions + enum disposed, payload released");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ExtractAndDisposeRenderablePayload(int extractions)
+    {
+        var box = TestLibFunctions.MakeTrackedRenderableBoxShown(9);
+        for (int i = 0; i < extractions; i++)
+        {
+            if (box.TryGetShown(out var r))   // owned +1: copied out of the enum, never re-destroyed
+                (r as IDisposable)?.Dispose();  // r is typed as the bare IRenderable interface; the RenderableProxy behind it owns the +1
+        }
+        (box as IDisposable)?.Dispose();        // release the enum's own stored +1
     }
 }

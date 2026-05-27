@@ -1802,7 +1802,7 @@ public static class MethodClosureBridge
     /// </summary>
     private static string GetCSharpTypeForClosureArg(TypeSpec argType, MethodEnvironment env)
     {
-        // any Swift.Error existential → Swift.Foundation.AnyError runtime struct
+        // any Swift.Error existential → Swift.Foundation.AnyError runtime type
         if (IsAnyErrorExistential(argType))
             return "Swift.Foundation.AnyError";
 

@@ -303,11 +303,17 @@ public static partial class ClosureEmitter
         }
         else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapReturnType))
         {
-            returnExprFallback = $"return new {wrapReturnType}({invokeExprFallback});";
+            // Owned return: invoking the Swift function pointer hands the existential back to C# at +1,
+            // so the well-known wrapper adopts and releases it on Dispose/finalize or the payload leaks.
+            returnExprFallback = $"return new {wrapReturnType}({invokeExprFallback}{ExistentialHandler.WellKnownOwnedTransferArg(wrapReturnType)});";
         }
         else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var returnProxy))
         {
-            returnExprFallback = $"return new {returnProxy}({invokeExprFallback});";
+            // Owned return: invoking the Swift function pointer hands the existential back at +1, so
+            // the proxy adopts the container and releases it on Dispose/finalize. This branch is only
+            // reached for a real EC1-EC8 proxy (bare-`any` falls to the IsExistentialParam branch
+            // below), so the transfer is always owned.
+            returnExprFallback = $"return new {returnProxy}({invokeExprFallback}, ownsContainer: true);";
         }
         else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
         {
@@ -325,9 +331,11 @@ public static partial class ClosureEmitter
                 var elem = invRetTuple.Elements[i];
                 var acc = $"_invResult.Item{i + 1}";
                 if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out var wrt))
-                    elems.Add($"new {wrt}({acc})");
+                    // Owned tuple element: the +1 existential returned by the Swift closure is adopted here.
+                    elems.Add($"new {wrt}({acc}{ExistentialHandler.WellKnownOwnedTransferArg(wrt)})");
                 else if (closureHandler.NeedsProxyWrapping(elem, out var prn))
-                    elems.Add($"new {prn}({acc})");
+                    // Owned tuple element: the +1 existential returned by the Swift closure is adopted here.
+                    elems.Add($"new {prn}({acc}, ownsContainer: true)");
                 else if (closureHandler.IsExistentialParam(elem))
                     elems.Add($"(object){acc}");
                 else if (closureHandler.IsSimpleEnum(elem))

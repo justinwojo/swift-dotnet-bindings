@@ -144,7 +144,7 @@ public class NestedResultClosureTests : TestBase
             });
 
         AssertTrue(fired, "completion should fire on the success branch");
-        AssertFalse(captured.HasValue, "Optional-Error completion should be null on success");
+        AssertTrue(captured is null, "Optional-Error completion should be null on success");
     }
 
     /// <summary>
@@ -225,7 +225,7 @@ public class NestedResultClosureTests : TestBase
                 });
 
             AssertTrue(fired, "Update completion should fire on the success branch");
-            AssertFalse(captured.HasValue, "Update completion should be null on success");
+            AssertTrue(captured is null, "Update completion should be null on success");
             AssertEqual(42, session.Configuration.Theme,
                 "Update should have mutated the receiver's configuration through the @_cdecl wrapper");
         }

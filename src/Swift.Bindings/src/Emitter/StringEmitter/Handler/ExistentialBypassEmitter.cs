@@ -770,7 +770,7 @@ public static class ExistentialBypassEmitter
                 ? ", ownsContainer: true"
                 : string.Empty;
             returnWrapExpr = env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnown)
-                ? $"new {wellKnown}(__existentialResult)"
+                ? $"new {wellKnown}(__existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wellKnown)})"
                 : $"new {env.ExistentialHandler.GetQualifiedProxyClassName(protocolList)}(__existentialResult{ownsArg})";
         }
 

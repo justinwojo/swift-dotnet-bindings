@@ -820,9 +820,9 @@ internal class MethodMarshalPlanBuilder
             // Optional<any P> direct CallConvSwift sret: the Swift function writes the
             // address-only Optional<existential> into the sret buffer using its full ABI shape
             // (≥41 bytes, alignment 8). The wrapper-signature return type for the C# wrapper is
-            // a nullable projection (e.g. `Foo.AnyError?` → Nullable<AnyError>) which has no
-            // Swift type-metadata producer — sizing the buffer through it throws
-            // "Unable to get type metadata for type Nullable`1" at the first call.
+            // a nullable existential projection (e.g. `(any Renderable)?` → `IRenderable?`) — a
+            // C#-side type with no Swift type-metadata producer, so sizing the buffer through it
+            // throws "Unable to get type metadata" at the first call.
             //
             // Size from SwiftOptional<ExistentialContainerN> instead. ExistentialContainerN
             // implements IExistentialContainer (metadata via swift_getExistentialTypeMetadata),

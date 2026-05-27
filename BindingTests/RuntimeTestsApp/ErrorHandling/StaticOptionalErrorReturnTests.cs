@@ -45,8 +45,8 @@ public class StaticOptionalErrorReturnTests : TestBase
     /// </summary>
     public void TestStaticOptionalErrorReturn_None()
     {
-        var result = StaticOptionalErrorReturn.ValidateNone();
-        AssertFalse(result.HasValue, "Expected null AnyError for validateNone()");
+        using var result = StaticOptionalErrorReturn.ValidateNone();
+        AssertTrue(result is null, "Expected null AnyError for validateNone()");
     }
 
     /// <summary>
@@ -55,10 +55,10 @@ public class StaticOptionalErrorReturnTests : TestBase
     /// </summary>
     public void TestStaticOptionalErrorReturn_MathError()
     {
-        var result = StaticOptionalErrorReturn.ValidateMathError();
-        AssertTrue(result.HasValue, "Expected non-null AnyError for validateMathError()");
+        using var result = StaticOptionalErrorReturn.ValidateMathError();
+        AssertTrue(result != null, "Expected non-null AnyError for validateMathError()");
 
-        var desc = result!.Value.LocalizedDescription;
+        var desc = result!.LocalizedDescription;
         TestLogger.Info($"validateMathError -> AnyError.LocalizedDescription = \"{desc}\"");
         AssertTrue(desc.Contains("divisionByZero"),
             $"Expected 'divisionByZero' in description, got: \"{desc}\"");
@@ -71,10 +71,10 @@ public class StaticOptionalErrorReturnTests : TestBase
     /// </summary>
     public void TestStaticOptionalErrorReturn_ValidationError()
     {
-        var result = StaticOptionalErrorReturn.ValidateValidationError();
-        AssertTrue(result.HasValue, "Expected non-null AnyError for validateValidationError()");
+        using var result = StaticOptionalErrorReturn.ValidateValidationError();
+        AssertTrue(result != null, "Expected non-null AnyError for validateValidationError()");
 
-        var desc = result!.Value.LocalizedDescription;
+        var desc = result!.LocalizedDescription;
         TestLogger.Info($"validateValidationError -> AnyError.LocalizedDescription = \"{desc}\"");
         AssertTrue(desc.Contains("tooLong"),
             $"Expected 'tooLong' in description, got: \"{desc}\"");
@@ -86,10 +86,10 @@ public class StaticOptionalErrorReturnTests : TestBase
     /// </summary>
     public void TestStaticOptionalErrorReturn_NSError()
     {
-        var result = StaticOptionalErrorReturn.ValidateNSError();
-        AssertTrue(result.HasValue, "Expected non-null AnyError for validateNSError()");
+        using var result = StaticOptionalErrorReturn.ValidateNSError();
+        AssertTrue(result != null, "Expected non-null AnyError for validateNSError()");
 
-        var desc = result!.Value.LocalizedDescription;
+        var desc = result!.LocalizedDescription;
         TestLogger.Info($"validateNSError -> AnyError.LocalizedDescription = \"{desc}\"");
         AssertTrue(
             desc.Contains("Static validation failure") || desc.Contains("StaticValidate"),

@@ -144,6 +144,19 @@ public func sbw_anyErrorGetDescription(_ containerPtr: UnsafeRawPointer) -> Unsa
     }
 }
 
+/// Releases the boxed `any Error` value held at the front of a C# `AnyError` container.
+///
+/// `any Error` is a single 8-byte boxed reference (swift_errorRelease-managed), not the
+/// 5-word opaque existential. C# stores it in `Payload0` of an `ExistentialContainer1`; the
+/// remaining container words are unused (zero or garbage). Reinterpreting only the first word
+/// as `(any Error)` and deinitializing it runs the error existential's destroy — the
+/// swift_errorRelease-equivalent — without touching the unused words. Called from the owning
+/// `AnyError`'s Dispose/finalizer when it adopted a Swift-returned error at +1.
+@_cdecl("SBW_AnyError_Destroy")
+public func sbw_anyErrorDestroy(_ containerPtr: UnsafeMutableRawPointer) {
+    containerPtr.assumingMemoryBound(to: (any Error).self).deinitialize(count: 1)
+}
+
 // MARK: - SwiftString Wrapper Functions
 //
 // SwiftString.cs uses CallConvSwift P/Invokes for ToString() and Length,

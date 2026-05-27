@@ -56,11 +56,13 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Existential_ReturnPlan_WellKnown_ConstructsType()
+    public void Existential_ReturnPlan_WellKnown_ConstructsOwnedType()
     {
+        // A non-optional `any Error` return is an owned +1 transfer: the AnyError wrapper adopts
+        // the boxed error and releases it on Dispose/finalize, so the owned ctor arg is emitted.
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", proxyClassName: null);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("new Swift.Foundation.AnyError(result)", plan.PInvokeExpression);
+        Assert.Equal("new Swift.Foundation.AnyError(result, ownsContainer: true)", plan.PInvokeExpression);
     }
 
     [Fact]

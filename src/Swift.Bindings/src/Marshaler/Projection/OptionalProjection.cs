@@ -365,9 +365,11 @@ public class OptionalProjection : ITypeProjection
             {
                 return new MarshalPlan
                 {
+                    // Owned return: Swift returns the boxed error in x0 at +1, so the AnyError adopts
+                    // it and releases it on Dispose/finalize (ownsContainer: true) or the box leaks.
                     PInvokeExpression =
                         $"({resultName} == IntPtr.Zero ? (Swift.Foundation.AnyError?)null : " +
-                        $"new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultName} }}))"
+                        $"new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultName} }}, ownsContainer: true))"
                 };
             }
 

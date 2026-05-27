@@ -86,6 +86,42 @@ public class TestClass
     }
 
     [Fact]
+    public async Task UndisposedAnyErrorLocal_ReportsInfo()
+    {
+        // Swift.Runtime ships AnyError as `sealed class AnyError : ISwiftObject` so an `any Error`
+        // wrapper that owns a Swift box's +1 must trip SB1001 when left undisposed, exactly like a
+        // generated proxy. Mirror that shape (sealed, ISwiftObject, Swift.Foundation) to lock the
+        // contract in — AnyError is a runtime type, not generated, so nothing else guards it.
+        var testCode = @"
+using System;
+using Swift.Foundation;
+namespace Swift.Runtime { public interface ISwiftObject : IDisposable { } }
+namespace Swift.Foundation { public sealed class AnyError : Swift.Runtime.ISwiftObject { public void Dispose() { } } }
+public class TestClass
+{
+    public void Method()
+    {
+        var e = new AnyError();
+    }
+}
+";
+
+        // AnyError implements ISwiftObject (class type) — Info severity. "AnyError" is 8 chars, so
+        // the declarator span ends at the same column as the FooProxy case.
+        var expected = new DiagnosticResult(SwiftObjectDisposeAnalyzer.DiagnosticId, DiagnosticSeverity.Info)
+            .WithSpan(10, 13, 10, 31)
+            .WithArguments("e");
+
+        var test = new AnalyzerTest
+        {
+            TestCode = testCode,
+            ExpectedDiagnostics = { expected },
+        };
+
+        await test.RunAsync();
+    }
+
+    [Fact]
     public async Task UndisposedStructLocal_ReportsInfo()
     {
         var testCode = MockTypes + @"

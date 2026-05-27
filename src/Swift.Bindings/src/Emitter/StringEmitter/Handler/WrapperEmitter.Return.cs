@@ -257,7 +257,10 @@ namespace BindingsGeneration
                             var innerProtocolList = _env.ExistentialHandler.UnwrapOptionalExistential(returnArg.SwiftTypeSpec);
                             string proxyCtorExpr;
                             if (innerProtocolList != null && _env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
-                                proxyCtorExpr = $"new {wkType}(_container)";
+                                // Owned return: the getter read the inner existential out of the decomposed
+                                // (payload, hasValue) buffer at +1; the well-known wrapper adopts that retain
+                                // and releases it on Dispose/finalize or the payload's +1 leaks.
+                                proxyCtorExpr = $"new {wkType}(_container{ExistentialHandler.WellKnownOwnedTransferArg(wkType)})";
                             else if (innerProtocolList != null)
                                 // Owned return: the property getter read the inner existential out of the
                                 // decomposed (payload, hasValue) buffer at +1 and the buffer is freed in the
@@ -443,7 +446,7 @@ namespace BindingsGeneration
                     if (publicType == "Swift.Runtime.ExistentialUnion")
                     { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wkIR))
-                    { csWriter.WriteLine($"return new {wkIR}(existentialResult);"); return; }
+                    { csWriter.WriteLine($"return new {wkIR}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wkIR)});"); return; }
                     var proxyIR = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
                     // Owned return: Swift wrote the existential into the indirect-result buffer
                     // at +1, so the proxy adopts the container and releases it on Dispose.
@@ -546,10 +549,13 @@ namespace BindingsGeneration
                     var rln = ReturnLocalName;
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkType))
                     {
+                        // Owned return: Swift returned the inner existential at +1 in the marshalled
+                        // SwiftOptional; the well-known wrapper adopts and releases it on Dispose/finalize
+                        // (ownsContainer: true, EC1 only) or the payload's +1 leaks.
                         csWriter.WriteLines($$"""
                             var swiftResult = SwiftMarshal.MarshalFromSwift<{{marshalType}}>(new IntPtr(&{{rln}}));
                             if (swiftResult.Case == Swift.SwiftOptionalCases.None) return null;
-                            return new {{wkType}}(swiftResult.Some);
+                            return new {{wkType}}(swiftResult.Some{{ExistentialHandler.WellKnownOwnedTransferArg(wkType)}});
                             """);
                     }
                     else
@@ -711,7 +717,7 @@ namespace BindingsGeneration
                 if (publicType == "Swift.Runtime.ExistentialUnion")
                 { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion(existentialResult);"); return; }
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
-                { csWriter.WriteLine($"return new {wk}(existentialResult);"); return; }
+                { csWriter.WriteLine($"return new {wk}(existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return; }
                 var proxy = _env.ExistentialHandler.GetQualifiedProxyClassName(protocolList);
                 // Owned return: +1 existential read out of the @_cdecl result buffer (EC1 only).
                 csWriter.WriteLine($"return new {proxy}(existentialResult{OwnedExistentialCtorArg(containerType)});");
@@ -750,7 +756,7 @@ namespace BindingsGeneration
                 // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownReturnType))
                 {
-                    csWriter.WriteLine($"return new {wellKnownReturnType}({ReturnLocalName});");
+                    csWriter.WriteLine($"return new {wellKnownReturnType}({ReturnLocalName}{ExistentialHandler.WellKnownOwnedTransferArg(wellKnownReturnType)});");
                     return;
                 }
 
@@ -775,7 +781,7 @@ namespace BindingsGeneration
                     // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
                     if (_env.ExistentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wellKnownOptType))
                     {
-                        csWriter.WriteLine($"return new {wellKnownOptType}({ReturnLocalName});");
+                        csWriter.WriteLine($"return new {wellKnownOptType}({ReturnLocalName}{ExistentialHandler.WellKnownOwnedTransferArg(wellKnownOptType)});");
                     }
                     else
                     {

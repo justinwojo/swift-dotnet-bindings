@@ -293,16 +293,25 @@ namespace BindingsGeneration
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
                     if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktOffset))
                     {
-                        // Well-known protocol: marshal container, then wrap in runtime type (e.g., AnyError)
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
-                        csWriter.WriteLine($"{varName} = new {wktOffset}(_{varName}_raw);");
+                        // Well-known protocol (Swift.Error): `any Error` is a single boxed reference,
+                        // so read only the 8-byte box pointer into Payload0 rather than over-reading a
+                        // full ExistentialContainer1 off the enum-copy buffer (which is sized to the
+                        // enum's metadata, not the container). Owned extraction: the enum copy was taken
+                        // at +1 (InitializeWithCopy), so the self-owning wrapper adopts and releases it
+                        // (AnyError → ownsContainer: true).
+                        csWriter.WriteLine($"var _{varName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr} + (int){offsetVar}) }};");
+                        csWriter.WriteLine($"{varName} = new {wktOffset}(_{varName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktOffset)});");
                     }
                     else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
-                        // Known proxy: marshal to temp container, then wrap in proxy
+                        // Known proxy: marshal to temp container, then wrap in proxy.
+                        // Owned extraction: the enum copy was taken at +1 (InitializeWithCopy) into a
+                        // buffer that is never value-witness-destroyed, so the proxy adopts the
+                        // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
-                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw);");
+                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
                     }
                     else
                     {
@@ -447,16 +456,25 @@ namespace BindingsGeneration
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
                     if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktMarshal))
                     {
-                        // Well-known protocol: marshal container, then wrap in runtime type (e.g., AnyError)
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
-                        csWriter.WriteLine($"{varName} = new {wktMarshal}(_{varName}_raw);");
+                        // Well-known protocol (Swift.Error): `any Error` is a single boxed reference,
+                        // so read only the 8-byte box pointer into Payload0 rather than over-reading a
+                        // full ExistentialContainer1 off the enum-copy buffer (which is sized to the
+                        // enum's metadata, not the container). Owned extraction: the enum copy was taken
+                        // at +1 (InitializeWithCopy), so the self-owning wrapper adopts and releases it
+                        // (AnyError → ownsContainer: true).
+                        csWriter.WriteLine($"var _{varName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr}) }};");
+                        csWriter.WriteLine($"{varName} = new {wktMarshal}(_{varName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktMarshal)});");
                     }
                     else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
-                        // Known proxy: marshal to temp container, then wrap in proxy
+                        // Known proxy: marshal to temp container, then wrap in proxy.
+                        // Owned extraction: the enum copy was taken at +1 (InitializeWithCopy) into a
+                        // buffer that is never value-witness-destroyed, so the proxy adopts the
+                        // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
-                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw);");
+                        csWriter.WriteLine($"{varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
                     }
                     else
                     {
@@ -660,16 +678,25 @@ namespace BindingsGeneration
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
                     if (existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wktDecl))
                     {
-                        // Well-known protocol: marshal container, then wrap in runtime type (e.g., AnyError)
-                        csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
-                        csWriter.WriteLine($"var {varName} = new {wktDecl}(_{varName}_raw);");
+                        // Well-known protocol (Swift.Error): `any Error` is a single boxed reference,
+                        // so read only the 8-byte box pointer into Payload0 rather than over-reading a
+                        // full ExistentialContainer1 off the enum-copy buffer (which is sized to the
+                        // enum's metadata, not the container). Owned extraction: the enum copy was taken
+                        // at +1 (InitializeWithCopy), so the self-owning wrapper adopts and releases it
+                        // (AnyError → ownsContainer: true).
+                        csWriter.WriteLine($"var _{varName}_raw = new {containerType} {{ Payload0 = *(IntPtr*)({sourcePtr}) }};");
+                        csWriter.WriteLine($"var {varName} = new {wktDecl}(_{varName}_raw{ExistentialHandler.WellKnownOwnedTransferArg(wktDecl)});");
                     }
                     else if (existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                     {
-                        // Known proxy: marshal to temp container, then wrap in proxy
+                        // Known proxy: marshal to temp container, then wrap in proxy.
+                        // Owned extraction: the enum copy was taken at +1 (InitializeWithCopy) into a
+                        // buffer that is never value-witness-destroyed, so the proxy adopts the
+                        // existential's +1 and releases it via the container's metadata on Dispose/finalize.
                         var proxyClassName = existentialHandler.GetProxyClassName(protocolList);
+                        var ownsProxyArg = ExistentialHandler.IsOwnedExistentialContainerType(containerType) ? ", ownsContainer: true" : string.Empty;
                         csWriter.WriteLine($"var _{varName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
-                        csWriter.WriteLine($"var {varName} = new {proxyClassName}(_{varName}_raw);");
+                        csWriter.WriteLine($"var {varName} = new {proxyClassName}(_{varName}_raw{ownsProxyArg});");
                     }
                     else
                     {

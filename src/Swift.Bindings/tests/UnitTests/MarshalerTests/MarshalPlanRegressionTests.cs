@@ -715,13 +715,14 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void Existential_WellKnown_ReturnPlan_ConstructsDirectly()
+    public void Existential_WellKnown_ReturnPlan_ConstructsOwned()
     {
         var proj = new ExistentialProjection(
             "Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", null);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Equal("new Swift.Foundation.AnyError(result)", plan.PInvokeExpression);
+        // Non-optional `any Error` return is an owned +1 transfer → owned ctor arg.
+        Assert.Equal("new Swift.Foundation.AnyError(result, ownsContainer: true)", plan.PInvokeExpression);
     }
 
     [Fact]

@@ -1317,7 +1317,7 @@ public class ClosureHandler
             {
                 var innerTypeSpec = namedType.GenericParameters[0];
                 // For Optional<any Protocol>, use well-known type or container type.
-                // Well-known protocols (Swift.Error) → SwiftOptional<AnyError>.
+                // Well-known protocols (Swift.Error) → AnyError? (nullable reference).
                 // Other existentials use container type (not interface) because
                 // Optional existentials use void* in P/Invoke → MarshalFromSwift<IProtocol?>
                 // would throw NotSupportedException at runtime.
@@ -1329,7 +1329,7 @@ public class ClosureHandler
                     if (innerProtocolList != null && _existentialHandler.TryGetWellKnownProtocolType(innerProtocolList, out var wkt))
                     {
                         innerType = wkt;
-                        isWellKnownProtocol = true; // AnyError is a blittable struct → use nullable syntax
+                        isWellKnownProtocol = true; // AnyError is a reference type → use nullable annotation
                     }
                     else if (innerProtocolList != null && _existentialHandler.IsSupportedExistential(innerProtocolList))
                         innerType = _existentialHandler.GetCSharpExistentialType(innerProtocolList);

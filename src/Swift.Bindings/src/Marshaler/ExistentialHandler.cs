@@ -45,8 +45,9 @@ public class ExistentialHandler
     /// releases the container's value-witness retains on Dispose/finalize through the existential's
     /// own metadata, which destroys exactly the one conforming value the container holds regardless
     /// of how many witness-table words precede it (extra protocols add witness tables, not payloads).
-    /// <c>ExistentialContainer0</c> (bare <c>Any</c> / <c>AnyError</c>) is a value type with no proxy
-    /// ownership and is excluded.
+    /// <c>ExistentialContainer0</c> (bare <c>Any</c>) is a value type with no proxy ownership and is
+    /// excluded; the well-known <c>AnyError</c> reference type carries its own self-owning release and
+    /// likewise does not flow through this proxy predicate.
     /// <para>
     /// Gated on the container TYPE, not the declared protocol count: ObjC filtering can drop protocols,
     /// so a protocol-list count diverges from the emitted EC width (see the mixed-composition guard in
@@ -67,6 +68,18 @@ public class ExistentialHandler
         // are excluded — keep the shared ownership gate fail-closed.
         return int.TryParse(suffix, out var n) && n >= 1 && n <= MaxSupportedWitnessTables;
     }
+
+    /// <summary>
+    /// The owned-transfer constructor argument (<c>, ownsContainer: true</c>) for a well-known
+    /// existential wrapper that adopts a Swift-returned value at +1, or empty. <c>Swift.Error</c>
+    /// projects to <see cref="Swift.Foundation.AnyError"/>, a self-owning reference type that
+    /// releases the adopted boxed error on Dispose/finalize. Emitted at every Swift→C# owned
+    /// transfer (method/property returns and enum-payload extractions); borrowed closure
+    /// parameters omit it so they release nothing. Empty for any other well-known type, which has
+    /// no ownership-aware constructor.
+    /// </summary>
+    public static string WellKnownOwnedTransferArg(string? wellKnownType) =>
+        wellKnownType == "Swift.Foundation.AnyError" ? ", ownsContainer: true" : string.Empty;
 
     /// <summary>
     /// Sets the composition collector on this handler for late injection.

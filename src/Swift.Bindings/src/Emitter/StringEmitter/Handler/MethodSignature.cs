@@ -178,7 +178,7 @@ namespace BindingsGeneration
                 { Type: MarshalledType.SimpleEnum(var underlyingType, _) } => $"({underlyingType}){parameter.Name}",
                 // Existential protocol types: GetOrCreate handles both proxy and concrete types.
                 // Only for single-protocol (EC1) interfaces — compositions (EC2+), well-known
-                // value types (AnyError/EC0), and "object" use direct ISwiftExistentialConvertible.
+                // well-known types (AnyError/EC0), and "object" use direct ISwiftExistentialConvertible.
                 // When a proxy class name is known (populated by PInvokeEmitter), emit the wrap
                 // fallback so plain C# implementations of the interface are auto-wrapped without
                 // requiring the caller to construct the hidden {Protocol}Proxy manually.
