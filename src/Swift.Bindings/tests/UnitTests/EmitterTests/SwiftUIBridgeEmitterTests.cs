@@ -248,6 +248,23 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void EmitSimpleViewBridge_GeneratesTypedViewControllerAccessor()
+    {
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var csContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        // Typed accessor is UIKit-family only (the hosted controller is a UIHostingController),
+        // so it must be guarded and absent on macOS.
+        Assert.Contains("#if __IOS__ || __TVOS__ || __MACCATALYST__", csContent);
+        Assert.Contains("public global::UIKit.UIViewController? ViewController =>", csContent);
+        // Wraps the raw IntPtr accessor via the managed-peer lookup for an unowned (+0) pointer.
+        Assert.Contains("global::ObjCRuntime.Runtime.GetNSObject<global::UIKit.UIViewController>(GetViewController());", csContent);
+    }
+
+    [Fact]
     public void EmitSimpleViewBridge_GeneratesFreeWithHandleTracking()
     {
         var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };

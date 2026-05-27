@@ -1,5 +1,7 @@
 # Session 9 — SwiftUI + SwiftUICore productionization
 
+> **Status: DECLINED (not deferred).** The KeyPath-binding surface below is unreachable from a .NET consumer: SwiftUI view composition is blocked by the `@ViewBuilder` / `@resultBuilder` wall (a compile-time Swift feature with no ABI representation — `roadmap.md:148,150`), so even a fully-bound `Binding` / `ObservedObject` `@dynamicMemberLookup` has no C# caller that can assemble the view tree it projects into. SwiftUI's real, useful .NET story is the auto-generated **hosting bridge** (`SwiftUIBridgeEmitter`) — which now exposes the hosted view as a typed `UIKit.UIViewController` (`ViewController` accessor) — documented in `../Design/apple-framework-portfolio.md`. The plan below is retained for reference only. See `00-overview.md` → Status.
+
 Second-largest consumer of `KeyPath<…>` in the iOS SDK (319 lines across the two frameworks). Three architecturally distinct shapes: environment-modifier subscripts, `@dynamicMemberLookup` on `Binding` / `ObservedObject` (reference-writable, the only place this matters in production), and view-tree `id:` and `ForEach` identity selectors.
 
 ## Goal

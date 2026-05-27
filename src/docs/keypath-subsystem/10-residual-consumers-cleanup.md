@@ -1,5 +1,7 @@
 # Session 10 — Residual consumers + cleanup + close A-1
 
+> **Status: DECLINED (not deferred).** The residual consumers below are portfolio hard-skips: Charts / SwiftData / Observation are macro-driven declarative DSLs with no runtime surface (KeyPath is necessary but nowhere near sufficient), and UIKit duplicates `dotnet/macios`. Combine is a framework-boundary case consumers reach through the SwiftUI bridge. Framework-selection decisions are no longer tracked here — they live in `../Design/apple-framework-portfolio.md`. The A-1 deferral is closed by *decision*, not by binding this surface. The plan below is retained for reference only. See `00-overview.md` → Status.
+
 Final wave. After Sessions 7–9, the big-three KeyPath consumers (Foundation, AppIntents, SwiftUI) are bound. Session 10 picks up the remaining ~120 lines of `KeyPath<…>` surface across smaller consumers, runs the regression-validation sweep against the full SDK, and closes the user-visible deferral.
 
 ## Goal

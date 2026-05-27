@@ -978,6 +978,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        public IntPtr GetViewController() =>");
         sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.GetViewController(Handle);");
         sb.AppendLine();
+        EmitTypedViewControllerAccessor(sb);
 
         // CreateState inner class
         sb.AppendLine($"        private sealed class CreateState");

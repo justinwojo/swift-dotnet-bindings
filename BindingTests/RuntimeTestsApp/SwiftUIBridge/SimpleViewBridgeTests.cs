@@ -50,6 +50,75 @@ public class BridgeSimpleViewTests : TestBase
         TestLogger.Info("ClassParamView: create/read/free cycle passed");
     }
 
+    /// <summary>
+    /// The typed <c>Session.ViewController</c> accessor must hand back a real, live
+    /// <c>UIKit.UIViewController</c> managed peer for the native <c>UIHostingController</c> —
+    /// the seam a .NET MAUI / UIKit consumer uses to embed the hosted SwiftUI view. This is the
+    /// first test that crosses from the raw <c>IntPtr</c> handle into a typed UIKit object: it
+    /// asserts the peer is non-null and that its native handle is the *same* controller the raw
+    /// <c>GetViewController()</c> returns (proving <c>Runtime.GetNSObject</c> wrapped the actual
+    /// hosting controller, not a placeholder or a copy).
+    /// </summary>
+    public void TestSessionViewControllerIsTypedUIViewController()
+    {
+        var model = new SimpleModel(value: 314);
+        var session = ClassParamViewSession.Create(model);
+
+        var rawVc = session.GetViewController();
+        AssertTrue(rawVc != IntPtr.Zero, "raw GetViewController() != 0");
+
+        var vc = session.ViewController;
+        AssertTrue(vc != null, "typed ViewController is a non-null UIViewController peer");
+        AssertTrue((IntPtr)vc!.Handle == rawVc,
+            "typed ViewController.Handle must equal the raw GetViewController() pointer — " +
+            "the managed peer wraps the actual native UIHostingController.");
+
+        session.Dispose();
+        TestLogger.Info("Session.ViewController: typed UIViewController peer wraps native hosting controller");
+    }
+
+    /// <summary>
+    /// The typed <c>ViewController</c> property documents an embedding-ownership contract: the peer is
+    /// non-owning, so the hosted controller lives as long as the session <em>until</em> it is embedded in
+    /// a UIKit hierarchy, at which point the parent retains it and it stays valid past session disposal.
+    /// This exercises that contract end to end (not just at creation): it embeds the controller as a child
+    /// of a parent <c>UIViewController</c>, disposes the session — dropping the only Swift-side strong
+    /// reference — and asserts the controller is still the same live, message-able native object the parent
+    /// now owns. A freed object would crash on the post-dispose read, so reaching the end is the proof.
+    /// </summary>
+    public void TestEmbeddedViewControllerSurvivesSessionDispose()
+    {
+        var model = new SimpleModel(value: 271);
+        var session = ClassParamViewSession.Create(model);
+
+        var vc = session.ViewController;
+        AssertTrue(vc != null, "typed ViewController is non-null before embedding");
+
+        // Embed the hosted controller in a parent — the parent-retain a MAUI/UIKit consumer relies on
+        // is what must keep the controller alive after the originating session is disposed.
+        var parent = new UIKit.UIViewController();
+        parent.AddChildViewController(vc!);
+        parent.View!.AddSubview(vc!.View!);
+        vc.DidMoveToParentViewController(parent);
+
+        var handleBeforeDispose = (IntPtr)vc.Handle;
+
+        session.Dispose();
+
+        AssertTrue((IntPtr)vc.Handle == handleBeforeDispose,
+            "embedded controller's native handle is unchanged after session dispose");
+        AssertEqual(1, parent.ChildViewControllers.Length,
+            "parent still retains the embedded child after session dispose");
+        AssertTrue((IntPtr)parent.ChildViewControllers[0].Handle == handleBeforeDispose,
+            "the retained child is the same native controller the session handed back");
+
+        // Message the controller after disposal — a freed object would crash here.
+        var title = vc.Title;
+        TestLogger.Info($"Embedded ViewController survived session dispose (title='{title ?? "<null>"}')");
+
+        parent.Dispose();
+    }
+
     public unsafe void TestTypedClosureView()
     {
         TypedClosureState.Reset();

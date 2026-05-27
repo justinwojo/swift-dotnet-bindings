@@ -2214,6 +2214,7 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        public IntPtr GetViewController() =>");
         sb.AppendLine($"            {info.ViewName}BridgeNativeMethods.GetViewController(Handle);");
         sb.AppendLine();
+        EmitTypedViewControllerAccessor(sb);
 
         // Trampolines for closure parameters
         foreach (var param in bridgeParams.Where(p => p.Kind == BridgeParameterKind.VoidClosure))
@@ -2335,6 +2336,33 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("            _handle = IntPtr.Zero;");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits a typed <c>ViewController</c> property alongside the raw <c>GetViewController()</c>
+    /// IntPtr accessor. The hosted view is a <c>UIHostingController</c> on UIKit-family platforms,
+    /// so the property is gated to iOS/tvOS/Mac Catalyst (where <c>UIKit.UIViewController</c> exists)
+    /// and absent on macOS. Swift hands back the controller via <c>passUnretained</c> (+0) — the Swift
+    /// Session holds the only strong reference — and the C# side wraps it as a non-owning managed peer
+    /// (<c>Runtime.GetNSObject</c>, <c>owns: false</c>), which does not extend the native lifetime. The
+    /// controller therefore lives as long as the session, or — once embedded in a UIKit / .NET MAUI
+    /// hierarchy whose parent retains it — independently of the session.
+    /// </summary>
+    private static void EmitTypedViewControllerAccessor(StringBuilder sb)
+    {
+        sb.AppendLine("#if __IOS__ || __TVOS__ || __MACCATALYST__");
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// The hosted SwiftUI view as a typed <see cref=\"global::UIKit.UIViewController\"/>, ready to embed");
+        sb.AppendLine("        /// in a UIKit / .NET MAUI view hierarchy (e.g. <c>AddChildViewController</c> or as a page's native");
+        sb.AppendLine("        /// controller). This is a non-owning managed peer over the native hosting controller; embedding it");
+        sb.AppendLine("        /// transfers ownership to the parent (which retains it), so an embedded controller stays valid even");
+        sb.AppendLine("        /// after this session is disposed. Until embedded (or otherwise retained), the controller lives only");
+        sb.AppendLine("        /// as long as this session — do not use it after disposing an un-embedded session.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public global::UIKit.UIViewController? ViewController =>");
+        sb.AppendLine("            global::ObjCRuntime.Runtime.GetNSObject<global::UIKit.UIViewController>(GetViewController());");
+        sb.AppendLine("#endif");
         sb.AppendLine();
     }
 
