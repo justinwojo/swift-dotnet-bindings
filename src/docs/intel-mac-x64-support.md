@@ -122,6 +122,62 @@ iOS Simulator runs arm64, so they catch the divergence directly.
 
 ### Session 2 — Layer 1: multi-arch RID routing + packaging (all four x86_64 RIDs)
 
+> **Status: DONE.** Implemented as the "one fat native tree" design below:
+> `XCFrameworkSlicer` recognizes the four x86_64 RIDs (`SWIFTBIND050`), the
+> source slice ships fat where the input does, and the wrapper is compiled
+> per CPU arch and `lipo`-merged (`WrapperXCFrameworkMerger`), all gated on a
+> `--target-architectures auto` policy that folds in x86_64 only when the
+> source slice carries it (`SWIFTBIND052` fails loud on an explicitly
+> requested-but-absent arch). The implicitly-referenced Apple supplement is
+> now fat on its simulator/host slices too, so the x86_64 consumer resolves
+> it. The durable gate is `nuke X64PackGate` (`build/Build.X64PackGate.cs` +
+> committed fixture under `build/X64PackGate/`): Leg B asserts the packed
+> wrapper *and* source binaries carry the expected arch set per RID (fat for
+> the four x86_64-capable platforms, arm64-only for the iOS/tvOS device
+> slices) via `lipo -archs` + xcframework `Info.plist`; Leg A consumes the
+> packed third-party binding from a `net10.0-macos` `osx-x64` app under
+> `arch -x86_64` (Swift round-trip returns, `ProcessArchitecture=X64`) and
+> from `osx-arm64` natively (unchanged). Fixing Leg A surfaced a latent
+> packaging bug independent of x86_64: under the SDK's two-pass flow the
+> full-generate pass runs with `--skip-wrapper-compilation`, so the wrapper
+> xcframework doesn't exist when `ConsumerTargetsEmitter` writes the consumer
+> `.targets`, and the wrapper `NativeReference` was omitted for *every*
+> third-party `SwiftFramework` binding consumed via `PackageReference` (the
+> Apple-framework path is masked by `_SynthesizeAppleFrameworkConsumerTargets`,
+> which only runs for system-framework targets). The generator now emits the
+> reference on the deferred-aware "will compile" signal — the existing
+> `Exists()` guard keeps it safe — mirroring how the bridge reference is wired.
+>
+> A paired review hardened four edges in the arch-decision path: (1) the
+> `--target-architectures auto` primary arch is always pinned, never left null
+> when x86_64 is in play — an x86_64-*only* source pins to x86_64 (instead of
+> scheduling two x86_64 passes that `lipo` the same arch), and an arm+x86_64
+> source pins to a concrete arm arch (`arm64`, else the `arm64e` present) so an
+> `arm64e+x86_64` slice listing x86_64 first can't resolve the primary to x86_64
+> and drop arm64e; (2) `$(SwiftTargetArchitectures)` is part of the SDK fingerprint, so
+> flipping it no longer silently reuses a stale arm64-only wrapper; (3) the auto
+> fat-or-not decision is based on the simulator slice (`ResolveAutoArchBasis`)
+> so a `--platform-target device` resolution doesn't drop x86_64 from the
+> simulator family; (4) the per-arch compile + `lipo`-merge now lives in one
+> shared driver (`CompileWrapperForArchitectures`) used by both
+> `--compile-wrapper-only` *and* the standalone generation path, so the
+> standalone CLI honors `--target-architectures` instead of ignoring it. Two
+> further review rounds closed the extra-arch failure path: the shared driver
+> moves the built primary wrapper aside before folding in extra arches, and a
+> `lipo`/compile throw mid-merge must neither erase the primary nor leave the
+> SDK recording "no wrapper". The driver now `try`/`catch`/`finally`s the fold —
+> `finally` restores the primary on disk, and `catch` swallows the extra-arch
+> failure (warning, no rethrow) so the method returns the non-null primary
+> result. Restoring the disk alone was insufficient: the propagated exception
+> left `RunCompileWrapperOnly`'s `compilationResult` null, so the metadata write
+> recorded `_SwiftBindingHasWrapperXCFramework=False` off that null and dropped
+> the consumer `NativeReference` for every arch (arm64 included). A failed
+> x86_64 fold now degrades to a primary-only wrapper — consistent with the SDK's
+> existing `sdkMode` warning-not-fatal handling of a primary wrapper failure.
+> Unit coverage was added for the degrade-to-primary path, the
+> `ResolveAutoArchBasis` branches reachable without a fat fixture, and the
+> `$(SwiftTargetArchitectures)` fingerprint inclusion.
+
 - **Goal**: `dotnet build` of a binding produces a nupkg that ships the
   matching `runtimes/<rid>/native` for **every** target, and an `osx-x64`
   consumer app works end-to-end.
@@ -132,14 +188,39 @@ iOS Simulator runs arm64, so they catch the divergence directly.
     (new `SWIFTBIND050` cases); thread `--rid` through the slicer;
     `SwiftWrapperCompiler` builds the x64 slice (arch override already
     plumbed).
-  - SDK `Sdk.targets`: derive `_SwiftBindingNuGetRid` (lines 34-37) from the
-    consumer's `RuntimeIdentifier`/TFM instead of hardcoding arm64, and run
-    the slice + wrapper-build + pack pipeline **per target RID** so both
-    arm64 and x64 `runtimes/<rid>/native/` trees (2287-2293) land in one
-    nupkg.
+  - SDK `Sdk.targets`: thread CPU-arch coverage into the wrapper compile so
+    the packaged native tree serves both arm64 and x64 consumers.
   - **Fail loud** (`SWIFTBIND0xx`) when the input xcframework lacks an
-    x86_64 slice for the requested platform — never silently fall back to
-    arm64.
+    x86_64 slice for an **explicitly requested** arch — never silently fall
+    back to arm64.
+
+  > **Implemented design (supersedes the per-RID-trees prescription below).**
+  > We ship **one multi-arch (fat) native tree** under the existing baked RID,
+  > not duplicate `runtimes/osx-arm64` + `runtimes/osx-x64` trees. Rationale:
+  > the synthesized consumer `.targets` bakes a literal, RID-independent
+  > `$(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/…`
+  > `NativeReference` path (Sdk.targets ~2087) — it is **not** NuGet
+  > RID-asset selection, so every consumer resolves the same tree regardless
+  > of its own RID, and .NET-for-Apple's `ResolveNativeReferences` then picks
+  > the matching arch slice from the fat xcframework's `Info.plist`. The
+  > sliced **source** is already fat (the slicer prunes by platform, keeping
+  > the `macos-arm64_x86_64` slice intact); the **wrapper** is made fat by
+  > compiling once per CPU arch and `lipo`-merging
+  > (`WrapperXCFrameworkMerger`). `_SwiftBindingNuGetRid` therefore stays
+  > `*-arm64` (the tree name is a cosmetic label given the baked path), so the
+  > proven arm64 path is untouched (zero regression) and the nupkg only grows
+  > when the source genuinely ships x86_64.
+  >
+  > Arch policy lives in the **generator** (it already parses the source
+  > slice's architectures), not MSBuild. The SDK passes
+  > `--target-architectures auto` (new `SwiftTargetArchitectures` property,
+  > default `auto`); the generator folds in x86_64 **iff the source slice
+  > ships it** (fat → universal wrapper; arm64-only → arm64-only, no
+  > breakage). An explicit `--target-architectures arm64,x86_64` is validated
+  > up front and **fails loud** (`SWIFTBIND052`) if the source lacks an arch.
+  > This reconciles "fail loud on missing arch" with "don't break the very
+  > common arm64-only source." Validated by independent Codex + Grok consults
+  > (2026-05-27).
 - **Gate**: build a binding from a third-party xcframework with an x86_64
   macOS slice, pack it, consume from an `osx-x64` app, run under Rosetta,
   assert correct; arm64 unchanged. The other three RIDs get a build/slice/

@@ -899,7 +899,8 @@ namespace BindingsGeneration.Tests
                 FrameworkSearchPath = "/tmp/fw",
                 LibraryIdentifier = "ios-arm64_x86_64-simulator",
                 IsSimulatorSlice = true,
-                SelectedArchitecture = "x86_64"
+                SelectedArchitecture = "x86_64",
+                SupportedArchitectures = new[] { "arm64", "x86_64" }
             };
 
             var pi = PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -932,7 +933,8 @@ namespace BindingsGeneration.Tests
                 FrameworkSearchPath = "/tmp/fw",
                 LibraryIdentifier = "ios-arm64-simulator",
                 IsSimulatorSlice = true,
-                SelectedArchitecture = "arm64"
+                SelectedArchitecture = "arm64",
+                SupportedArchitectures = new[] { "arm64" }
             };
 
             var pi = PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -963,7 +965,8 @@ namespace BindingsGeneration.Tests
                 FrameworkSearchPath = "/tmp/fw",
                 LibraryIdentifier = "macos-arm64",
                 IsSimulatorSlice = false,
-                SelectedArchitecture = "arm64"
+                SelectedArchitecture = "arm64",
+                SupportedArchitectures = new[] { "arm64" }
             };
 
             var pi = PlatformInfoFactory.Create(ApplePlatform.macOS);

@@ -74,7 +74,8 @@ public class MixedFrameworkDetectionTests
             FrameworkSearchPath = Path.Combine(xcfwPath, sliceId),
             LibraryIdentifier = sliceId,
             IsSimulatorSlice = true,
-            SelectedArchitecture = "arm64"
+            SelectedArchitecture = "arm64",
+            SupportedArchitectures = new[] { "arm64" }
         };
     }
 

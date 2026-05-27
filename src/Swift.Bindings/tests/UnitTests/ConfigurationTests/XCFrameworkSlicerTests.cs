@@ -86,6 +86,49 @@ namespace BindingsGeneration.Tests
             return xcfwPath;
         }
 
+        // Like CreateFakeXcframework but with per-slice architecture lists, for exercising the
+        // arch-aware Intel/x64 RID path (fat macOS slices, arm64-only fail-loud, etc.).
+        private string CreateFakeXcframeworkWithArchs(
+            string rootDir, string moduleName,
+            IEnumerable<(string id, string platform, string? variant, string[] archs)> slices)
+        {
+            var xcfwPath = Path.Combine(rootDir, $"{moduleName}.xcframework");
+            Directory.CreateDirectory(xcfwPath);
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            sb.AppendLine("<plist version=\"1.0\">");
+            sb.AppendLine("<dict>");
+            sb.AppendLine("  <key>AvailableLibraries</key>");
+            sb.AppendLine("  <array>");
+            foreach (var (id, platform, variant, archs) in slices)
+            {
+                sb.AppendLine("    <dict>");
+                sb.AppendLine($"      <key>BinaryPath</key><string>{moduleName}.framework/{moduleName}</string>");
+                sb.AppendLine($"      <key>LibraryIdentifier</key><string>{id}</string>");
+                sb.AppendLine($"      <key>LibraryPath</key><string>{moduleName}.framework</string>");
+                sb.AppendLine("      <key>SupportedArchitectures</key><array>");
+                foreach (var a in archs)
+                    sb.AppendLine($"        <string>{a}</string>");
+                sb.AppendLine("      </array>");
+                sb.AppendLine($"      <key>SupportedPlatform</key><string>{platform}</string>");
+                if (variant != null)
+                    sb.AppendLine($"      <key>SupportedPlatformVariant</key><string>{variant}</string>");
+                sb.AppendLine("    </dict>");
+
+                var sliceFx = Path.Combine(xcfwPath, id, $"{moduleName}.framework");
+                Directory.CreateDirectory(sliceFx);
+                File.WriteAllText(Path.Combine(sliceFx, moduleName), "stub-mach-o");
+            }
+            sb.AppendLine("  </array>");
+            sb.AppendLine("  <key>CFBundlePackageType</key><string>XFWK</string>");
+            sb.AppendLine("  <key>XCFrameworkFormatVersion</key><string>1.0</string>");
+            sb.AppendLine("</dict>");
+            sb.AppendLine("</plist>");
+            File.WriteAllText(Path.Combine(xcfwPath, "Info.plist"), sb.ToString());
+            return xcfwPath;
+        }
+
         private static List<string> ReadSliceIdentifiers(string slicedXcfwPath)
         {
             var slices = XCFrameworkResolver.ParseInfoPlist(Path.Combine(slicedXcfwPath, "Info.plist"));
@@ -132,6 +175,58 @@ namespace BindingsGeneration.Tests
                 SupportedPlatformVariant = variant,
             };
             Assert.Equal(expected, XCFrameworkSlicer.MatchesRid(slice, rid));
+        }
+
+        // x64 RIDs are arch-aware: platform must match AND the slice's fat binary must contain
+        // the RID's CPU arch (x86_64). An arm64-only slice matches the platform but is declined
+        // on architecture, which is what makes the Intel path fail loud instead of shipping arm64.
+        [Theory]
+        // osx-x64: needs macos device slice containing x86_64.
+        [InlineData("osx-x64",          "macos", null,          "arm64,x86_64", true)]
+        [InlineData("osx-x64",          "macos", null,          "x86_64",       true)]
+        [InlineData("osx-x64",          "macos", null,          "arm64",        false)] // arch absent
+        [InlineData("osx-x64",          "ios",   null,          "arm64,x86_64", false)] // platform
+        [InlineData("osx-arm64",        "macos", null,          "arm64,x86_64", true)]  // arm64 still works on fat slice
+        // maccatalyst-x64: ios + maccatalyst variant + x86_64.
+        [InlineData("maccatalyst-x64",  "ios",   "maccatalyst", "arm64,x86_64", true)]
+        [InlineData("maccatalyst-x64",  "ios",   "maccatalyst", "arm64",        false)]
+        [InlineData("maccatalyst-x64",  "ios",   null,          "arm64,x86_64", false)]
+        // iossimulator-x64: simulator-only (no x86_64 iOS device).
+        [InlineData("iossimulator-x64", "ios",   "simulator",   "arm64,x86_64", true)]
+        [InlineData("iossimulator-x64", "ios",   null,          "arm64,x86_64", false)] // device, not sim
+        [InlineData("iossimulator-x64", "ios",   "simulator",   "arm64",        false)]
+        // tvossimulator-x64: simulator-only.
+        [InlineData("tvossimulator-x64","tvos",  "simulator",   "arm64,x86_64", true)]
+        [InlineData("tvossimulator-x64","tvos",  null,          "arm64,x86_64", false)]
+        public void MatchesRid_ArchAware(string rid, string platform, string? variant, string archs, bool expected)
+        {
+            var slice = new XCFrameworkSlice
+            {
+                BinaryPath = "Lib.framework/Lib",
+                LibraryIdentifier = "test",
+                LibraryPath = "Lib.framework",
+                SupportedArchitectures = archs.Split(',').ToList(),
+                SupportedPlatform = platform,
+                SupportedPlatformVariant = variant,
+            };
+            Assert.Equal(expected, XCFrameworkSlicer.MatchesRid(slice, rid));
+        }
+
+        [Theory]
+        [InlineData("osx-x64", "x86_64")]
+        [InlineData("maccatalyst-x64", "x86_64")]
+        [InlineData("iossimulator-x64", "x86_64")]
+        [InlineData("osx-arm64", "arm64")]
+        [InlineData("ios-arm64", "arm64")]
+        public void RequiredArchitecture_MapsSuffix(string rid, string expectedArch)
+        {
+            Assert.Equal(expectedArch, XCFrameworkSlicer.RequiredArchitecture(rid));
+        }
+
+        [Fact]
+        public void RequiredArchitecture_NoArchSuffix_Throws()
+        {
+            Assert.Throws<ArgumentException>(() => XCFrameworkSlicer.RequiredArchitecture("osx"));
         }
 
         [Fact]
@@ -194,6 +289,47 @@ namespace BindingsGeneration.Tests
                 () => XCFrameworkSlicer.Slice(src, "ios-arm64", dst, _logger));
             Assert.Contains("SWIFTBIND050", ex.Message);
             Assert.Contains("ios-arm64", ex.Message);
+        }
+
+        [Fact]
+        public void Slice_FatMacOSSource_RetainedForBothOsxRids()
+        {
+            if (!IsMacOS) return; // ditto-only
+
+            var root = MakeTempDir();
+            // A typical desktop lib: one fat macOS slice carrying arm64 + x86_64.
+            var src = CreateFakeXcframeworkWithArchs(root, "Lib", new (string, string, string?, string[])[]
+            {
+                ("macos-arm64", "macos", null, new[] { "arm64", "x86_64" }),
+                ("watchos-arm64", "watchos", null, new[] { "arm64" }),
+            });
+
+            // The SAME fat slice serves osx-arm64 AND osx-x64 — no per-arch duplication needed.
+            foreach (var rid in new[] { "osx-arm64", "osx-x64" })
+            {
+                var dst = Path.Combine(root, $"sliced-{rid}", "Lib.xcframework");
+                XCFrameworkSlicer.Slice(src, rid, dst, _logger);
+                Assert.Equal(new[] { "macos-arm64" }, ListSliceDirs(dst));
+            }
+        }
+
+        [Fact]
+        public void Slice_OsxX64_ArmOnlyMacOSSource_ThrowsSwiftBind051()
+        {
+            if (!IsMacOS) return;
+
+            var root = MakeTempDir();
+            // macOS slice exists but carries ONLY arm64 — osx-x64 must fail loud, not fall back.
+            var src = CreateFakeXcframeworkWithArchs(root, "Lib", new (string, string, string?, string[])[]
+            {
+                ("macos-arm64", "macos", null, new[] { "arm64" }),
+            });
+            var dst = Path.Combine(root, "sliced", "Lib.xcframework");
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => XCFrameworkSlicer.Slice(src, "osx-x64", dst, _logger));
+            Assert.Contains("SWIFTBIND051", ex.Message);
+            Assert.Contains("x86_64", ex.Message);
         }
 
         [Fact]

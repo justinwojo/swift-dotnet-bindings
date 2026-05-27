@@ -9,11 +9,13 @@
      `[LibraryImport("SwiftBindingsAppleSupplement")]` to it via the
      `@rpath/{name}.framework/{name}` search path.
 
-     The xcframework already encodes per-platform slices internally
-     (ios-arm64, ios-arm64-simulator, macos-arm64, ios-arm64-maccatalyst,
-     tvos-arm64, tvos-arm64-simulator), so a single NativeReference is
-     correct on every Apple TFM — the .NET Apple workload's xcframework
-     handling picks the right slice for the consumer's RID at build time. -->
+     The xcframework already encodes per-platform slices internally — the
+     device slices (ios-arm64, tvos-arm64) are arm64-only, and the
+     simulator/host slices (macos, ios-simulator, tvos-simulator,
+     ios-maccatalyst) are universal (arm64+x86_64) so x86_64 / Rosetta
+     consumers resolve too. A single NativeReference is correct on every
+     Apple TFM — the .NET Apple workload's xcframework handling picks the
+     right slice for the consumer's RID at build time. -->
 <Project>
 
   <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../runtimes/native/SwiftBindingsAppleSupplement.xcframework')">

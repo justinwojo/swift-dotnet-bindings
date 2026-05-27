@@ -437,6 +437,13 @@ namespace BindingsGeneration.Tests
             Assert.Contains("SwiftPlatformTarget", TargetsContent);
             Assert.Contains("SwiftWrapperArchitectures", TargetsContent);
             Assert.Contains("PackageId", TargetsContent);
+
+            // SwiftTargetArchitectures (the x86_64 CPU-arch selector) must sit inside BOTH
+            // fingerprint echoes — XCFramework-mode and Apple-framework-mode — adjacent to
+            // SwiftWrapperArchitectures, so flipping it invalidates _SwiftBindingUpToDate. A bare
+            // Contains would pass on the unrelated CLI-injection site, so pin the echo adjacency.
+            const string fingerprintPair = "$(SwiftWrapperArchitectures) $(SwiftTargetArchitectures)";
+            Assert.Equal(2, TargetsContent.Split(fingerprintPair).Length - 1);
         }
 
         [Fact]

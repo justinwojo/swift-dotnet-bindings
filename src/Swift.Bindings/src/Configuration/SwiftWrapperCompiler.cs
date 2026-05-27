@@ -185,8 +185,10 @@ namespace BindingsGeneration
 
             // 1. Collect and post-process Swift files (once — source is architecture-agnostic)
             var swiftFiles = CollectSwiftFiles(outputDirectory);
+            // Thunk assembly is emitted per-arch (.arm64.s / .x86_64.s); gate on the slice's
+            // actual architecture so an x86_64 pass doesn't false-negative on .arm64.s.
             var hasAssemblyFiles = !skipThunkCompilation &&
-                NativeThunkCompiler.CollectAssemblyFiles(outputDirectory).Count > 0;
+                NativeThunkCompiler.CollectAssemblyFiles(outputDirectory, simSlice.Architecture).Count > 0;
 
             if (swiftFiles.Count == 0 && !hasAssemblyFiles)
             {
@@ -311,7 +313,8 @@ namespace BindingsGeneration
                     try
                     {
                         simThunkResult = NativeThunkCompiler.CompileThunkObjects(
-                            outputDirectory, simTargetTriple, simSdkPath, logger, commandRunner);
+                            outputDirectory, simTargetTriple, simSdkPath, logger, commandRunner,
+                            arch: simSlice.Architecture);
                     }
                     catch (Exception ex)
                     {
@@ -415,7 +418,7 @@ namespace BindingsGeneration
                         Directory.CreateDirectory(deviceThunkBuildDir);
                         bool anyFiltered = false;
 
-                        foreach (var asmFile in NativeThunkCompiler.CollectAssemblyFiles(outputDirectory))
+                        foreach (var asmFile in NativeThunkCompiler.CollectAssemblyFiles(outputDirectory, deviceSlice.Architecture))
                         {
                             var filterResult = SimulatorOnlyMemberDetector.FilterThunkAssembly(
                                 asmFile, simulatorOnlyMembers, deviceThunkBuildDir);
@@ -441,7 +444,8 @@ namespace BindingsGeneration
                         try
                         {
                             devThunkResult = NativeThunkCompiler.CompileThunkObjects(
-                                deviceThunkDir, devTargetTriple, devSdkPath, logger, commandRunner);
+                                deviceThunkDir, devTargetTriple, devSdkPath, logger, commandRunner,
+                                arch: deviceSlice.Architecture);
                         }
                         catch (Exception ex)
                         {
@@ -608,10 +612,11 @@ namespace BindingsGeneration
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
 
-            // 1. Collect Swift files and assembly files
+            // 1. Collect Swift files and assembly files. Thunk assembly is emitted per-arch
+            // (.arm64.s / .x86_64.s); gate on this slice's architecture.
             var swiftFiles = CollectSwiftFiles(outputDirectory);
             var hasAssemblyFiles = !skipThunkCompilation &&
-                NativeThunkCompiler.CollectAssemblyFiles(outputDirectory).Count > 0;
+                NativeThunkCompiler.CollectAssemblyFiles(outputDirectory, slice.Architecture).Count > 0;
 
             if (swiftFiles.Count == 0 && !hasAssemblyFiles)
             {
@@ -700,7 +705,8 @@ namespace BindingsGeneration
                     try
                     {
                         thunkResult = NativeThunkCompiler.CompileThunkObjects(
-                            outputDirectory, targetTriple, sdkPath, logger, commandRunner);
+                            outputDirectory, targetTriple, sdkPath, logger, commandRunner,
+                            arch: slice.Architecture);
                     }
                     catch (Exception ex)
                     {
@@ -892,11 +898,16 @@ namespace BindingsGeneration
             HashSet<string>? nestedTypesInCollidingClass = null,
             string? swiftInterfacePath = null,
             bool skipThunkCompilation = false,
+            string? resolvedArchitecture = null,
             IReadOnlyList<string>? depModuleNamesForCollision = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var slice = pi.GetSlice(isSimulator);
+            // Override the slice CPU arch when one was explicitly resolved (e.g. forcing x86_64
+            // for an Intel/Rosetta target). Defaults preserve the historical arm64 slice arch.
+            if (!string.IsNullOrEmpty(resolvedArchitecture))
+                slice = slice with { Architecture = resolvedArchitecture };
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 slice, logger, commandRunner, internalTypeNames, additionalFrameworkSearchPaths,
                 moduleNameForCollision: moduleNameForCollision,
@@ -1290,6 +1301,8 @@ namespace BindingsGeneration
         {
             var simSliceId = slice?.SliceId ?? "ios-arm64-simulator";
             var simPlatform = slice?.XCFrameworkPlatformString ?? "ios";
+            var simArch = slice?.Architecture ?? "arm64";
+            var devArch = deviceSlice?.Architecture ?? "arm64";
             // Only default to "simulator" when no slice is provided (backward compat).
             // When a slice IS provided, use its actual variant (null for macOS/Catalyst device).
             var simVariant = slice != null ? slice.XCFrameworkPlatformVariant : "simulator";
@@ -1324,7 +1337,7 @@ namespace BindingsGeneration
                                 <string>{wrapperModuleName}.framework</string>
                                 <key>SupportedArchitectures</key>
                                 <array>
-                                    <string>arm64</string>
+                                    <string>{devArch}</string>
                                 </array>
                                 <key>SupportedPlatform</key>
                                 <string>{devPlatform}</string>{devVariantEntry}
@@ -1348,7 +1361,7 @@ namespace BindingsGeneration
                             <string>{wrapperModuleName}.framework</string>
                             <key>SupportedArchitectures</key>
                             <array>
-                                <string>arm64</string>
+                                <string>{simArch}</string>
                             </array>
                             <key>SupportedPlatform</key>
                             <string>{simPlatform}</string>{simVariantEntry}

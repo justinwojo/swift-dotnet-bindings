@@ -24,7 +24,9 @@ namespace BindingsGeneration
         /// <summary>
         /// NuGet RIDs the slicer recognizes. Mapping to <c>SupportedPlatform</c> +
         /// <c>SupportedPlatformVariant</c> matches the table in the
-        /// <c>per-rid-xcframework-slicing.md</c> design doc.
+        /// <c>per-rid-xcframework-slicing.md</c> design doc. The x86_64 RIDs cover the
+        /// Intel Apple targets (osx-x64 desktop, Mac Catalyst, iOS/tvOS x86_64 simulators);
+        /// there is no x86_64 iOS/tvOS *device*, so those Intel RIDs are simulator-only.
         /// </summary>
         public static readonly IReadOnlyList<string> SupportedRids = new[]
         {
@@ -32,6 +34,10 @@ namespace BindingsGeneration
             "tvos-arm64",
             "osx-arm64",
             "maccatalyst-arm64",
+            "osx-x64",
+            "maccatalyst-x64",
+            "iossimulator-x64",
+            "tvossimulator-x64",
         };
 
         /// <summary>
@@ -79,10 +85,31 @@ namespace BindingsGeneration
 
             if (keptSlices.Count == 0)
             {
-                var available = string.Join(", ", allSlices.Select(s =>
-                    s.SupportedPlatformVariant is null
+                static string Describe(XCFrameworkSlice s) =>
+                    (s.SupportedPlatformVariant is null
                         ? s.SupportedPlatform
-                        : $"{s.SupportedPlatform}/{s.SupportedPlatformVariant}"));
+                        : $"{s.SupportedPlatform}/{s.SupportedPlatformVariant}")
+                    + $" [{string.Join("+", s.SupportedArchitectures)}]";
+                var available = string.Join(", ", allSlices.Select(Describe));
+
+                // Distinguish "no platform match at all" from "the platform matched but the
+                // slice lacks the RID's CPU arch" so an x86_64 RID against an arm64-only
+                // slice fails loud with a pointed message instead of the generic no-match one.
+                var requiredArch = RequiredArchitecture(nuGetRid);
+                var platformMatchesArchMissing = allSlices
+                    .Where(s => MatchesPlatform(s, nuGetRid))
+                    .ToList();
+                if (platformMatchesArchMissing.Count > 0)
+                {
+                    var offenders = string.Join(", ", platformMatchesArchMissing.Select(Describe));
+                    throw new InvalidOperationException(
+                        $"SWIFTBIND051: xcframework '{Path.GetFileName(sourceXcfwPath)}' has slice(s) for NuGet " +
+                        $"RID '{nuGetRid}' but none contain the required '{requiredArch}' architecture — refusing " +
+                        $"to silently fall back to another arch. Platform-compatible slice(s): [{offenders}]. " +
+                        $"The source library must ship an '{requiredArch}' slice for this platform. " +
+                        $"Source: '{sourceXcfwPath}'.");
+                }
+
                 throw new InvalidOperationException(
                     $"SWIFTBIND050: xcframework '{Path.GetFileName(sourceXcfwPath)}' contains no slices " +
                     $"compatible with NuGet RID '{nuGetRid}'. Available slices: [{available}]. " +
@@ -115,14 +142,32 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Returns true if a slice should be retained for the given NuGet RID.
-        /// Predicate table:
-        ///   ios-arm64        → SupportedPlatform=ios   AND (variant empty OR variant=simulator)  AND variant != maccatalyst
-        ///   tvos-arm64       → SupportedPlatform=tvos  AND (variant empty OR variant=simulator)
-        ///   osx-arm64        → SupportedPlatform=macos AND variant empty (device only)
-        ///   maccatalyst-arm64 → SupportedPlatform=ios  AND variant=maccatalyst
+        /// Returns true if a slice should be retained for the given NuGet RID — i.e. the
+        /// slice's platform/variant is consumable by the RID (<see cref="MatchesPlatform"/>)
+        /// AND the slice's fat binary actually contains the RID's CPU architecture
+        /// (<see cref="RequiredArchitecture"/>). The architecture half is what makes the
+        /// x86_64 RIDs fail loud instead of silently shipping an arm64-only slice: a
+        /// macOS slice that carries only <c>arm64</c> matches <c>osx-x64</c> on platform
+        /// but not on architecture, so it is declined here and reported by <see cref="Slice"/>.
         /// </summary>
         internal static bool MatchesRid(XCFrameworkSlice slice, string nuGetRid)
+        {
+            return MatchesPlatform(slice, nuGetRid) && SliceHasArchitecture(slice, nuGetRid);
+        }
+
+        /// <summary>
+        /// Platform/variant half of <see cref="MatchesRid"/> — does NOT consult the slice's
+        /// architectures. Used by <see cref="Slice"/> to tell "no platform match at all"
+        /// apart from "platform matched but the requested CPU arch is absent".
+        /// Predicate table (arch suffix stripped to a platform token):
+        ///   ios            → SupportedPlatform=ios   AND (variant empty OR variant=simulator) AND variant != maccatalyst
+        ///   tvos           → SupportedPlatform=tvos  AND (variant empty OR variant=simulator)
+        ///   osx            → SupportedPlatform=macos AND variant empty (device only)
+        ///   maccatalyst    → SupportedPlatform=ios   AND variant=maccatalyst
+        ///   iossimulator   → SupportedPlatform=ios   AND variant=simulator (x86_64 has no device)
+        ///   tvossimulator  → SupportedPlatform=tvos  AND variant=simulator
+        /// </summary>
+        internal static bool MatchesPlatform(XCFrameworkSlice slice, string nuGetRid)
         {
             var platform = slice.SupportedPlatform ?? "";
             var variant = slice.SupportedPlatformVariant; // may be null
@@ -130,21 +175,55 @@ namespace BindingsGeneration
             bool variantIs(string v) => string.Equals(variant, v, StringComparison.OrdinalIgnoreCase);
             bool platformIs(string p) => string.Equals(platform, p, StringComparison.OrdinalIgnoreCase);
 
-            switch (nuGetRid)
+            switch (PlatformToken(nuGetRid))
             {
-                case "ios-arm64":
+                case "ios":
                     return platformIs("ios") && (variantEmpty || variantIs("simulator")) && !variantIs("maccatalyst");
-                case "tvos-arm64":
+                case "tvos":
                     return platformIs("tvos") && (variantEmpty || variantIs("simulator"));
-                case "osx-arm64":
+                case "osx":
                     return platformIs("macos") && variantEmpty;
-                case "maccatalyst-arm64":
+                case "maccatalyst":
                     return platformIs("ios") && variantIs("maccatalyst");
+                case "iossimulator":
+                    return platformIs("ios") && variantIs("simulator");
+                case "tvossimulator":
+                    return platformIs("tvos") && variantIs("simulator");
                 default:
                     throw new ArgumentException(
                         $"SWIFTBIND050: unrecognized NuGet RID '{nuGetRid}'. Supported: " +
                         string.Join(", ", SupportedRids), nameof(nuGetRid));
             }
+        }
+
+        /// <summary>
+        /// The Mach-O architecture name (<c>arm64</c> or <c>x86_64</c>) a RID requires its
+        /// slice to contain. The RID arch suffix is <c>-arm64</c> or <c>-x64</c>; the latter
+        /// maps to Apple's <c>x86_64</c> slice-architecture spelling.
+        /// </summary>
+        internal static string RequiredArchitecture(string nuGetRid)
+        {
+            if (nuGetRid.EndsWith("-x64", StringComparison.Ordinal))
+                return "x86_64";
+            if (nuGetRid.EndsWith("-arm64", StringComparison.Ordinal))
+                return "arm64";
+            throw new ArgumentException(
+                $"SWIFTBIND050: NuGet RID '{nuGetRid}' has no recognized architecture suffix " +
+                $"('-arm64' or '-x64'). Supported: " + string.Join(", ", SupportedRids), nameof(nuGetRid));
+        }
+
+        private static bool SliceHasArchitecture(XCFrameworkSlice slice, string nuGetRid) =>
+            slice.SupportedArchitectures.Any(a =>
+                string.Equals(a, RequiredArchitecture(nuGetRid), StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>Strips the <c>-arm64</c>/<c>-x64</c> suffix, leaving the platform token.</summary>
+        private static string PlatformToken(string nuGetRid)
+        {
+            if (nuGetRid.EndsWith("-x64", StringComparison.Ordinal))
+                return nuGetRid.Substring(0, nuGetRid.Length - "-x64".Length);
+            if (nuGetRid.EndsWith("-arm64", StringComparison.Ordinal))
+                return nuGetRid.Substring(0, nuGetRid.Length - "-arm64".Length);
+            return nuGetRid; // falls through to the unrecognized-RID throw in MatchesPlatform
         }
 
         private static void PrepareDestination(string destPath)
@@ -193,7 +272,13 @@ namespace BindingsGeneration
             logger.LogDebug("ditto staged slice '{Src}' -> '{Dst}'", src, dst);
         }
 
-        private static void WritePrunedInfoPlist(
+        /// <summary>
+        /// Writes a fresh xcframework <c>Info.plist</c> whose <c>AvailableLibraries</c> array is
+        /// rebuilt from <paramref name="keptSlices"/> (preserving every other root key from
+        /// <paramref name="rootDict"/>). Shared with <see cref="WrapperXCFrameworkMerger"/> so a
+        /// lipo-merged wrapper can rewrite its plist with unioned <c>SupportedArchitectures</c>.
+        /// </summary>
+        internal static void WritePrunedInfoPlist(
             Dictionary<string, object> rootDict,
             List<XCFrameworkSlice> keptSlices,
             string destPlistPath)

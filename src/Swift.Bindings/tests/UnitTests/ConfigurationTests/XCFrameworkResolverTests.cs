@@ -1631,6 +1631,47 @@ namespace BindingsGeneration.Tests
                 Directory.Delete(tmpDir, true);
             }
         }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // SelectArchitecture — forced/requested CPU arch with fail-loud
+        // ─────────────────────────────────────────────────────────────────────
+
+        private static XCFrameworkSlice FatSlice(params string[] archs) => new XCFrameworkSlice
+        {
+            BinaryPath = "Lib.framework/Lib",
+            LibraryIdentifier = "macos-arm64",
+            LibraryPath = "Lib.framework",
+            SupportedArchitectures = archs.ToList(),
+            SupportedPlatform = "macos",
+            SupportedPlatformVariant = null,
+        };
+
+        [Fact]
+        public void SelectArchitecture_NullRequest_PrefersArm64()
+        {
+            Assert.Equal("arm64", XCFrameworkResolver.SelectArchitecture(FatSlice("arm64", "x86_64"), null));
+        }
+
+        [Fact]
+        public void SelectArchitecture_NullRequest_FallsBackToFirstWhenNoArm64()
+        {
+            Assert.Equal("x86_64", XCFrameworkResolver.SelectArchitecture(FatSlice("x86_64"), null));
+        }
+
+        [Fact]
+        public void SelectArchitecture_RequestX86_64_PresentInFatSlice_Returns()
+        {
+            Assert.Equal("x86_64", XCFrameworkResolver.SelectArchitecture(FatSlice("arm64", "x86_64"), "x86_64"));
+        }
+
+        [Fact]
+        public void SelectArchitecture_RequestX86_64_Absent_ThrowsSwiftBind052()
+        {
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => XCFrameworkResolver.SelectArchitecture(FatSlice("arm64"), "x86_64"));
+            Assert.Contains("SWIFTBIND052", ex.Message);
+            Assert.Contains("x86_64", ex.Message);
+        }
     }
 
     #endregion

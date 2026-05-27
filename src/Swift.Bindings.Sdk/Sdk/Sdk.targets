@@ -566,7 +566,7 @@ done; true"
       echo &quot;@(SwiftFrameworkDependency->'%(ModuleDatabasePath)', '%0A')&quot; | while IFS= read -r db; do \
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
-      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|')&quot; \
+      echo &quot;$(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -586,7 +586,7 @@ done; true"
       if [ -f &quot;$(_SwiftAppleFrameworkTbd)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkTbd)&quot;; fi ; \
       if [ -f &quot;$(_SwiftAppleFrameworkModulemap)&quot; ]; then shasum -a 256 &quot;$(_SwiftAppleFrameworkModulemap)&quot;; fi ; \
       if [ -d &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; ]; then find -L &quot;$(_SwiftAppleFrameworkDir)/Headers&quot; -type f -name '*.h' -exec shasum -a 256 {} \; ; fi ; \
-      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
+      echo &quot;$(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -1694,6 +1694,9 @@ done"
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --platform $(_SwiftBindingPlatform)</_SwiftWrapperCmd>
       <_SwiftWrapperCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftWrapperCmd) --platform-target $(SwiftPlatformTarget)</_SwiftWrapperCmd>
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftWrapperCmd>
+      <!-- 'auto' (default) fattens the wrapper to arm64+x86_64 only when the source slice ships
+           x86_64, so one runtimes/<rid>/native/ tree serves Apple Silicon and Intel/Rosetta. -->
+      <_SwiftWrapperCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftWrapperCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftWrapperCmd>
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) -v $(SwiftGeneratorVerbosity)</_SwiftWrapperCmd>
       <!-- Resolved ProjectReference dependency xcframework paths (preferred, absolute) -->
       <_SwiftWrapperCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftWrapperCmd) @(_ResolvedDepXCFramework->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>

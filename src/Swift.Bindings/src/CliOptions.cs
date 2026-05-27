@@ -100,8 +100,19 @@ public class CliOptions
 
     public Option<string> WrapperArchitectures { get; } = new(
         aliases: new[] { "--wrapper-architectures" },
-        description: "Wrapper compilation scope: 'simulator' (default), 'device', or 'all' (both slices).",
+        description: "Wrapper compilation scope: 'simulator' (default), 'device', or 'all' (both slices). " +
+                     "This is the slice TYPE (simulator vs device), NOT the CPU architecture — see --target-architectures.",
         getDefaultValue: () => "simulator");
+
+    public Option<string?> TargetArchitectures { get; } = new(
+        aliases: new[] { "--target-architectures" },
+        description: "CPU architectures to compile the wrapper for. 'auto' matches the source slice's arch " +
+                     "coverage — a fat (arm64+x86_64) wrapper iff the source is fat, arm64-only otherwise — " +
+                     "and never fails on an arm64-only source. A comma-separated list (e.g. 'arm64,x86_64') " +
+                     "compiles exactly those and fails loud (SWIFTBIND052) if the source lacks one. Unset " +
+                     "keeps the historical single-pass arm64 preference. More than one arch fattens the " +
+                     "wrapper xcframework via lipo so a single runtimes/<rid>/native/ tree serves both Apple " +
+                     "Silicon and Intel/Rosetta consumers.");
 
     public Option<string[]> FrameworkDependency { get; } = new(
         aliases: new[] { "--framework-dependency" },
@@ -323,6 +334,7 @@ public class CliOptions
             PackageId,
             SwiftRuntimeVersion,
             WrapperArchitectures,
+            TargetArchitectures,
             FrameworkDependency,
             ModuleDatabase,
             NoAutoDetect,

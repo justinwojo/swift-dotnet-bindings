@@ -1251,7 +1251,8 @@ namespace BindingsGeneration.Tests
             FrameworkSearchPath = $"/path/to/{module}.xcframework/ios-arm64-simulator",
             LibraryIdentifier = "ios-arm64-simulator",
             IsSimulatorSlice = true,
-            SelectedArchitecture = "arm64"
+            SelectedArchitecture = "arm64",
+            SupportedArchitectures = new[] { "arm64" }
         };
 
         /// <summary>
@@ -1431,6 +1432,373 @@ namespace BindingsGeneration.Tests
             {
                 Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
             }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // ParseTargetArchitectures
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ParseTargetArchitectures_Unset_ReturnsEmptyList()
+        {
+            var result = BindingsGenerator.ParseTargetArchitectures(null, NullLogger.Instance);
+            Assert.NotNull(result);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ParseTargetArchitectures_Whitespace_ReturnsEmptyList()
+        {
+            var result = BindingsGenerator.ParseTargetArchitectures("   ", NullLogger.Instance);
+            Assert.NotNull(result);
+            Assert.Empty(result);
+        }
+
+        [Fact]
+        public void ParseTargetArchitectures_X64Alias_NormalizesToX86_64()
+        {
+            var result = BindingsGenerator.ParseTargetArchitectures("x64", NullLogger.Instance);
+            Assert.Equal(new[] { "x86_64" }, result);
+        }
+
+        [Fact]
+        public void ParseTargetArchitectures_BothArches_SortsArm64First()
+        {
+            var result = BindingsGenerator.ParseTargetArchitectures("x86_64,arm64", NullLogger.Instance);
+            Assert.Equal(new[] { "arm64", "x86_64" }, result);
+        }
+
+        [Fact]
+        public void ParseTargetArchitectures_Duplicates_Deduped()
+        {
+            var result = BindingsGenerator.ParseTargetArchitectures("arm64, x64, x86_64", NullLogger.Instance);
+            Assert.Equal(new[] { "arm64", "x86_64" }, result);
+        }
+
+        [Fact]
+        public void ParseTargetArchitectures_InvalidToken_ReturnsNull()
+        {
+            var result = BindingsGenerator.ParseTargetArchitectures("arm64,ppc64", NullLogger.Instance);
+            Assert.Null(result);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // TryDecideWrapperArchitectures — auto-match-source + explicit fail-loud
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void DecideWrapperArchs_Auto_FatSource_FoldsInX86_64()
+        {
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: true,
+                requestedArchs: new List<string>(),
+                sourceArchitectures: new[] { "arm64", "x86_64" },
+                sourceSliceId: "macos-arm64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Equal("arm64", primary); // primary pinned to the concrete arm arch; x86_64 folded as extra
+            Assert.Equal(new[] { "x86_64" }, extra);
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Auto_Arm64eAndX86_64_X86First_PinsPrimaryToArm64e()
+        {
+            // arm64e+x86_64 slice with x86_64 listed FIRST: a null primary would defer to
+            // SelectArchitecture, which (no exact "arm64") returns the slice's first arch — x86_64 —
+            // dropping arm64e. The primary must pin to the arm64e variant so the fold keeps both arches.
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: true,
+                requestedArchs: new List<string>(),
+                sourceArchitectures: new[] { "x86_64", "arm64e" },
+                sourceSliceId: "macos-arm64e_x86_64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Equal("arm64e", primary);
+            Assert.Equal(new[] { "x86_64" }, extra);
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Auto_Arm64OnlySource_StaysArm64Only()
+        {
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: true,
+                requestedArchs: new List<string>(),
+                sourceArchitectures: new[] { "arm64" },
+                sourceSliceId: "macos-arm64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Null(primary);
+            Assert.Empty(extra); // never fails, never fattens an arm64-only source
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Auto_Arm64eOnlyDevice_PrimaryStaysNull()
+        {
+            // arm64e-only device slice: a literal "arm64" primary would make SelectArchitecture
+            // drop it. auto keeps primary null so the historical preference resolves arm64e.
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: true,
+                requestedArchs: new List<string>(),
+                sourceArchitectures: new[] { "arm64e" },
+                sourceSliceId: "ios-arm64e",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Null(primary);
+            Assert.Empty(extra);
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Auto_X86_64OnlySource_PinsPrimaryToX86_64()
+        {
+            // x86_64-only source (legacy Intel-only library): the primary pass must be pinned to
+            // x86_64 with no extras. A null primary would itself resolve to x86_64 AND schedule a
+            // second x86_64 pass, leaving the merger to lipo two identical-arch binaries.
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: true,
+                requestedArchs: new List<string>(),
+                sourceArchitectures: new[] { "x86_64" },
+                sourceSliceId: "macos-x86_64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Equal("x86_64", primary);
+            Assert.Empty(extra); // single x86_64 pass, no same-arch merge
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Explicit_AllPresent_SplitsPrimaryAndExtra()
+        {
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: false,
+                requestedArchs: new[] { "arm64", "x86_64" },
+                sourceArchitectures: new[] { "arm64", "x86_64" },
+                sourceSliceId: "macos-arm64_x86_64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Equal("arm64", primary);
+            Assert.Equal(new[] { "x86_64" }, extra);
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Explicit_MissingArch_FailsLoud()
+        {
+            // Explicit x86_64 against an arm64-only source must fail (SWIFTBIND052), not narrow.
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: false,
+                requestedArchs: new[] { "arm64", "x86_64" },
+                sourceArchitectures: new[] { "arm64" },
+                sourceSliceId: "macos-arm64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.False(ok);
+            Assert.Null(primary);
+            Assert.Empty(extra);
+        }
+
+        [Fact]
+        public void DecideWrapperArchs_Explicit_Empty_NoMerge()
+        {
+            var ok = BindingsGenerator.TryDecideWrapperArchitectures(
+                autoMatchSource: false,
+                requestedArchs: new List<string>(),
+                sourceArchitectures: new[] { "arm64", "x86_64" },
+                sourceSliceId: "macos-arm64",
+                NullLogger.Instance,
+                out var primary, out var extra);
+
+            Assert.True(ok);
+            Assert.Null(primary); // unset => historical single-pass preference
+            Assert.Empty(extra);
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // CompileWrapperForArchitectures — the shared primary + fat-merge driver
+        // used by BOTH the standalone generation path and --compile-wrapper-only.
+        // ─────────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void CompileWrapperForArchs_NoExtras_CompilesPrimaryOnce_NoMergeDance()
+        {
+            var calls = new List<string?>();
+            var primaryDir = System.IO.Directory.CreateTempSubdirectory("cwa_primary_").FullName;
+            try
+            {
+                SwiftWrapperCompilationResult? Stub(string? arch)
+                {
+                    calls.Add(arch);
+                    return new SwiftWrapperCompilationResult
+                    {
+                        XCFrameworkPath = primaryDir,
+                        CompiledFileCount = 0,
+                        StrippedBlockCount = 0,
+                    };
+                }
+
+                var result = BindingsGenerator.CompileWrapperForArchitectures(
+                    primaryArch: null, extraArchs: new List<string>(), Stub, NullLogger.Instance);
+
+                Assert.Equal(new string?[] { null }, calls); // primary pass only
+                Assert.Equal(primaryDir, result!.XCFrameworkPath);
+                Assert.True(System.IO.Directory.Exists(primaryDir)); // untouched — no aside/restore
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(primaryDir)) System.IO.Directory.Delete(primaryDir, true);
+            }
+        }
+
+        [Fact]
+        public void CompileWrapperForArchs_ExtraArch_CompilesPrimaryThenExtra_AndRestoresPrimary()
+        {
+            var calls = new List<string?>();
+            var primaryDir = System.IO.Directory.CreateTempSubdirectory("cwa_primary_").FullName;
+            try
+            {
+                // Primary produces a real xcframework dir; the extra pass "produces nothing" so the
+                // lipo merge is skipped — keeps the orchestration assertion cross-platform while still
+                // exercising the primary-aside / restore dance and the per-extra compile call.
+                SwiftWrapperCompilationResult? Stub(string? arch)
+                {
+                    calls.Add(arch);
+                    return arch == null
+                        ? new SwiftWrapperCompilationResult
+                        {
+                            XCFrameworkPath = primaryDir,
+                            CompiledFileCount = 0,
+                            StrippedBlockCount = 0,
+                        }
+                        : null;
+                }
+
+                var result = BindingsGenerator.CompileWrapperForArchitectures(
+                    primaryArch: null, extraArchs: new List<string> { "x86_64" }, Stub, NullLogger.Instance);
+
+                Assert.Equal(new string?[] { null, "x86_64" }, calls); // primary, then the extra arch
+                Assert.Equal(primaryDir, result!.XCFrameworkPath);
+                Assert.True(System.IO.Directory.Exists(primaryDir)); // moved aside, then restored in place
+            }
+            finally
+            {
+                if (System.IO.Directory.Exists(primaryDir)) System.IO.Directory.Delete(primaryDir, true);
+                var aside = primaryDir + ".primary";
+                if (System.IO.Directory.Exists(aside)) System.IO.Directory.Delete(aside, true);
+            }
+        }
+
+        [Fact]
+        public void CompileWrapperForArchs_MergeThrows_DegradesToPrimary_NotErased()
+        {
+            var primaryDir = System.IO.Directory.CreateTempSubdirectory("cwa_primary_").FullName;
+            var extraDir = System.IO.Directory.CreateTempSubdirectory("cwa_extra_").FullName;
+            try
+            {
+                // Both pretend-results point at real dirs with no Info.plist, so MergeFatSlices throws
+                // (SWIFTBIND053) mid-merge — the data-loss scenario: the primary has already been moved
+                // aside when the merge fails.
+                SwiftWrapperCompilationResult? Stub(string? arch) => new SwiftWrapperCompilationResult
+                {
+                    XCFrameworkPath = arch == null ? primaryDir : extraDir,
+                    CompiledFileCount = 0,
+                    StrippedBlockCount = 0,
+                };
+
+                // The extra-arch fold failure must NOT propagate: it is swallowed so the build degrades
+                // to the primary-only wrapper. Propagating would leave the SDK caller's compilationResult
+                // null and record _SwiftBindingHasWrapperXCFramework=False off that null, dropping the
+                // NativeReference for EVERY consumer even though the primary is restored on disk.
+                var result = BindingsGenerator.CompileWrapperForArchitectures(
+                    primaryArch: null, extraArchs: new List<string> { "x86_64" }, Stub, NullLogger.Instance);
+
+                // Returns the primary result (non-null) so downstream metadata records a present wrapper,
+                // and the primary directory is restored in place rather than left aside / erased.
+                Assert.NotNull(result);
+                Assert.Equal(primaryDir, result!.XCFrameworkPath);
+                Assert.True(System.IO.Directory.Exists(primaryDir));
+            }
+            finally
+            {
+                foreach (var d in new[] { primaryDir, extraDir, primaryDir + ".primary", primaryDir + ".x86_64" })
+                    if (System.IO.Directory.Exists(d)) System.IO.Directory.Delete(d, true);
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────────
+        // ResolveAutoArchBasis — picks the slice the auto fat-or-not decision is
+        // based on. The successful device→simulator re-resolve needs a real fat
+        // xcframework (covered end-to-end by X64PackGate); the three branches
+        // below are reachable without one.
+        // ─────────────────────────────────────────────────────────────────────
+
+        private static XCFrameworkResolution MakeResolution(string sliceId, params string[] archs) =>
+            new XCFrameworkResolution
+            {
+                AbiJsonPath = "", DylibPath = "", TbdPath = "",
+                ModuleName = "TestMod", XCFrameworkPath = "", FrameworkSearchPath = "",
+                LibraryIdentifier = sliceId, IsSimulatorSlice = false,
+                SelectedArchitecture = archs.Length > 0 ? archs[0] : "arm64",
+                SupportedArchitectures = archs,
+            };
+
+        [Fact]
+        public void ResolveAutoArchBasis_SimulatorTarget_UsesResolvedSliceDirectly()
+        {
+            // Non-device target: no device→sim re-resolve, so the already-resolved (fat sim) slice
+            // is the basis verbatim — x86_64 is already present in it.
+            var resolution = MakeResolution("ios-arm64_x86_64-simulator", "arm64", "x86_64");
+
+            var (archs, sliceId) = BindingsGenerator.ResolveAutoArchBasis(
+                resolution, xcframeworkPath: "/nonexistent.xcframework", outputDirectory: "/tmp",
+                XCFrameworkPlatformTarget.Simulator, wrapperArchNormalized: "all",
+                PlatformInfoFactory.Create(ApplePlatform.iOS), NullLogger.Instance);
+
+            Assert.Equal(new[] { "arm64", "x86_64" }, archs);
+            Assert.Equal("ios-arm64_x86_64-simulator", sliceId);
+        }
+
+        [Fact]
+        public void ResolveAutoArchBasis_DeviceTarget_WrapperDeviceOnly_SkipsReResolve()
+        {
+            // wrapperArchNormalized == "device": the wrapper deliberately covers device only, so the
+            // device slice's arm-only basis is correct and the simulator re-resolve must NOT fire
+            // (the bogus path would otherwise throw and we'd still fall back — assert the arm-only basis).
+            var resolution = MakeResolution("ios-arm64", "arm64");
+
+            var (archs, sliceId) = BindingsGenerator.ResolveAutoArchBasis(
+                resolution, xcframeworkPath: "/nonexistent.xcframework", outputDirectory: "/tmp",
+                XCFrameworkPlatformTarget.Device, wrapperArchNormalized: "device",
+                PlatformInfoFactory.Create(ApplePlatform.iOS), NullLogger.Instance);
+
+            Assert.Equal(new[] { "arm64" }, archs);
+            Assert.Equal("ios-arm64", sliceId);
+        }
+
+        [Fact]
+        public void ResolveAutoArchBasis_DeviceTarget_NoSimulatorSlice_FallsBackToResolved()
+        {
+            // Device target + wrapper covers the sim family ("all"), so the re-resolve fires — but the
+            // path is bogus, so XCFrameworkResolver.Resolve throws and the catch falls back to the
+            // device resolution's arm-only basis (the device-only-library case).
+            var resolution = MakeResolution("macos-arm64", "arm64");
+
+            var (archs, sliceId) = BindingsGenerator.ResolveAutoArchBasis(
+                resolution, xcframeworkPath: "/nonexistent.xcframework", outputDirectory: "/tmp",
+                XCFrameworkPlatformTarget.Device, wrapperArchNormalized: "all",
+                PlatformInfoFactory.Create(ApplePlatform.macOS), NullLogger.Instance);
+
+            Assert.Equal(new[] { "arm64" }, archs);
+            Assert.Equal("macos-arm64", sliceId);
         }
     }
 }

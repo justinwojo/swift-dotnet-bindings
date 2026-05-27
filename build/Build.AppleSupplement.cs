@@ -123,12 +123,55 @@ partial class Build
         var sdkPath = XcRun.GetSdkPath(sdkName);
         var sliceDir = AppleSupplementBuildScratchDir / sliceId;
         var frameworkDir = sliceDir / $"{AppleSupplementModuleName}.framework";
-        var moduleDir = frameworkDir / "Modules" / $"{AppleSupplementModuleName}.swiftmodule";
         sliceDir.CreateDirectory();
-        moduleDir.CreateDirectory();
 
         Log.Information("--- Compiling {Module} slice {Slice} (target {Target}) ---",
             AppleSupplementModuleName, sliceId, target);
+
+        CompileAppleSupplementFramework(
+            target, sdkPath, moduleSuffix, plistPlatform, platform.MinOsVersion, frameworkDir, sourceFiles);
+
+        // Device slices stay arm64-only — there is no x86_64 device target. The
+        // simulator/host slices (macOS, iOS-sim, tvOS-sim, Mac Catalyst) all have an
+        // x86_64 target, so fold one in to make the slice universal. Without this the
+        // shipped supplement is arm64-only and x86_64 (Intel/Rosetta) consumers fail to
+        // resolve it — the SDK injects an implicit SwiftBindings.Apple reference into
+        // every non-ObjC binding, so this gates osx-x64 (and the other x86_64 RIDs).
+        if (!deviceSlice)
+        {
+            var x64Target = target.Replace("arm64", "x86_64");
+            var x64Suffix = moduleSuffix.Replace("arm64", "x86_64");
+            var x64FrameworkDir = sliceDir / "x86_64" / $"{AppleSupplementModuleName}.framework";
+            Log.Information("--- Folding x86_64 into {Slice} (target {Target}) ---", sliceId, x64Target);
+            CompileAppleSupplementFramework(
+                x64Target, sdkPath, x64Suffix, plistPlatform, platform.MinOsVersion, x64FrameworkDir, sourceFiles);
+
+            // lipo can't write to one of its own inputs — merge to a temp, then replace.
+            var fatBin = sliceDir / $"{AppleSupplementModuleName}.fat";
+            RunLipoCreate(
+                new[] { frameworkDir / AppleSupplementModuleName, x64FrameworkDir / AppleSupplementModuleName },
+                fatBin);
+            File.Delete(frameworkDir / AppleSupplementModuleName);
+            File.Move(fatBin, frameworkDir / AppleSupplementModuleName);
+
+            // Fold the x86_64 swiftmodule artifacts alongside the arm64 ones. Each
+            // arch's files are suffix-named (e.g. x86_64-apple-macos.swiftmodule), so
+            // they coexist in the single .swiftmodule directory.
+            var armModules = frameworkDir / "Modules" / $"{AppleSupplementModuleName}.swiftmodule";
+            var x64Modules = x64FrameworkDir / "Modules" / $"{AppleSupplementModuleName}.swiftmodule";
+            foreach (var file in Directory.EnumerateFiles(x64Modules))
+                File.Copy(file, armModules / Path.GetFileName(file), overwrite: true);
+        }
+
+        return frameworkDir;
+    }
+
+    void CompileAppleSupplementFramework(
+        string target, string sdkPath, string moduleSuffix, string plistPlatform,
+        string minOsVersion, AbsolutePath frameworkDir, IReadOnlyList<string> sourceFiles)
+    {
+        var moduleDir = frameworkDir / "Modules" / $"{AppleSupplementModuleName}.swiftmodule";
+        moduleDir.CreateDirectory();
 
         // Library-evolution + module interface so the framework is ABI-stable across
         // Swift toolchain versions, mirroring how BindingTests' fixture xcframework is
@@ -164,10 +207,8 @@ partial class Build
             $"com.swiftbindings.{AppleSupplementModuleName}",
             AppleSupplementModuleName,
             AppleSupplementModuleName,
-            platform.MinOsVersion,
+            minOsVersion,
             plistPlatform);
-
-        return frameworkDir;
     }
 
     IReadOnlyList<string> CollectAppleSupplementSources()

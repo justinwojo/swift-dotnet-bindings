@@ -50,7 +50,8 @@ namespace BindingsGeneration.Tests
                 FrameworkSearchPath = Path.Combine(_tempDir, "ios-arm64-simulator"),
                 LibraryIdentifier = isSimulator ? "ios-arm64-simulator" : "ios-arm64",
                 IsSimulatorSlice = isSimulator,
-                SelectedArchitecture = arch
+                SelectedArchitecture = arch,
+                SupportedArchitectures = new[] { arch }
             };
         }
 
@@ -359,7 +360,8 @@ namespace BindingsGeneration.Tests
                     FrameworkSearchPath = Path.Combine(tempDir, "ios-arm64-simulator"),
                     LibraryIdentifier = "ios-arm64-simulator",
                     IsSimulatorSlice = true,
-                    SelectedArchitecture = "arm64"
+                    SelectedArchitecture = "arm64",
+                    SupportedArchitectures = new[] { "arm64" }
                 };
 
                 var runner = new MockCommandRunner();

@@ -512,6 +512,38 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void WriteXCFrameworkPlist_EmitsSliceArchitecture_NotHardcodedArm64()
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                var xcfwPath = Path.Combine(dir, "Intel.xcframework");
+                Directory.CreateDirectory(xcfwPath);
+
+                // A macOS x86_64 device slice — the plist must reflect x86_64, never a hardcoded arm64.
+                var slice = new SliceVariant
+                {
+                    Platform = ApplePlatform.macOS,
+                    IsSimulator = false,
+                    SdkName = "macosx",
+                    SliceId = "macos-arm64",
+                    PlistPlatformName = "MacOSX",
+                    XCFrameworkPlatformString = "macos",
+                    XCFrameworkPlatformVariant = null,
+                    Architecture = "x86_64",
+                };
+
+                SwiftWrapperCompiler.WriteXCFrameworkPlist(xcfwPath, "Intel", includeDeviceSlice: false, slice: slice);
+
+                var parsed = XCFrameworkResolver.ParseInfoPlist(Path.Combine(xcfwPath, "Info.plist"));
+                Assert.Single(parsed);
+                Assert.Contains("x86_64", parsed[0].SupportedArchitectures);
+                Assert.DoesNotContain("arm64", parsed[0].SupportedArchitectures);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public void CreateXCFrameworkStructure_RemovesPreviousBuild()
         {
             var dir = CreateTempDir();

@@ -64,6 +64,13 @@ namespace BindingsGeneration
         /// The architecture selected for this resolution (e.g., "arm64", "x86_64").
         /// </summary>
         public required string SelectedArchitecture { get; init; }
+        /// <summary>
+        /// All Mach-O architectures the resolved source slice ships (e.g., ["arm64", "x86_64"]
+        /// for a fat macOS slice). Lets the wrapper compile match the source's arch coverage
+        /// — produce a fat (universal) wrapper when the source is fat, arm64-only otherwise —
+        /// without re-parsing the xcframework.
+        /// </summary>
+        public required IReadOnlyList<string> SupportedArchitectures { get; init; }
     }
 
     /// <summary>
@@ -150,7 +157,8 @@ namespace BindingsGeneration
             XCFrameworkPlatformTarget platformTarget,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            string? requestedArchitecture = null)
         {
             commandRunner ??= new SystemCommandRunner();
             xcframeworkPath = Path.GetFullPath(xcframeworkPath);
@@ -182,9 +190,7 @@ namespace BindingsGeneration
             //    so the static-vs-dynamic distinction does not matter for us.
             //    Without this peek, the binary-kind probe at step 7 would
             //    misroute the slice into the ObjC fallback path.
-            var selectedArch = slice.SupportedArchitectures.Contains("arm64")
-                ? "arm64"
-                : slice.SupportedArchitectures[0];
+            var selectedArch = SelectArchitecture(slice, requestedArchitecture);
             var swiftEvidence = TryDiscoverSwiftEvidence(modulesDir, selectedArch);
 
             // 6. If no Swift evidence, reject bare-static slices early so the
@@ -276,8 +282,38 @@ namespace BindingsGeneration
                 FrameworkSearchPath = Path.Combine(xcframeworkPath, slice.LibraryIdentifier),
                 LibraryIdentifier = slice.LibraryIdentifier,
                 IsSimulatorSlice = string.Equals(slice.SupportedPlatformVariant, "simulator", StringComparison.OrdinalIgnoreCase),
-                SelectedArchitecture = selectedArch
+                SelectedArchitecture = selectedArch,
+                SupportedArchitectures = slice.SupportedArchitectures.ToList()
             };
+        }
+
+        /// <summary>
+        /// Picks the Mach-O architecture to resolve from a slice. When
+        /// <paramref name="requestedArchitecture"/> is null the historical preference is kept
+        /// (arm64 if present, else the slice's first arch). When a specific architecture is
+        /// requested — the Intel/x86_64 path — it must actually be present in the slice's fat
+        /// binary, otherwise resolution fails loud rather than silently falling back to arm64.
+        /// </summary>
+        internal static string SelectArchitecture(XCFrameworkSlice slice, string? requestedArchitecture)
+        {
+            if (string.IsNullOrEmpty(requestedArchitecture))
+            {
+                return slice.SupportedArchitectures.Contains("arm64")
+                    ? "arm64"
+                    : slice.SupportedArchitectures[0];
+            }
+
+            var match = slice.SupportedArchitectures.FirstOrDefault(a =>
+                string.Equals(a, requestedArchitecture, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+                return match;
+
+            throw new InvalidOperationException(
+                $"SWIFTBIND052: slice '{slice.LibraryIdentifier}' (platform '{slice.SupportedPlatform}'" +
+                (string.IsNullOrEmpty(slice.SupportedPlatformVariant) ? "" : $"/{slice.SupportedPlatformVariant}") +
+                $") does not contain the requested '{requestedArchitecture}' architecture — refusing to fall " +
+                $"back to another arch. Available: [{string.Join("+", slice.SupportedArchitectures)}]. The " +
+                $"source library must ship a '{requestedArchitecture}' slice for this platform.");
         }
 
         /// <summary>
@@ -289,7 +325,8 @@ namespace BindingsGeneration
             string outputDirectory,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            string? requestedArchitecture = null)
         {
             commandRunner ??= new SystemCommandRunner();
             xcframeworkPath = Path.GetFullPath(xcframeworkPath);
@@ -306,7 +343,7 @@ namespace BindingsGeneration
             if (platformInfo != null && !platformInfo.HasSimulatorVariant)
             {
                 var deviceResolution = Resolve(xcframeworkPath, outputDirectory,
-                    XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo);
+                    XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo, requestedArchitecture);
                 return (deviceResolution, null);
             }
 
@@ -323,7 +360,7 @@ namespace BindingsGeneration
             }
 
             var simResolution = Resolve(xcframeworkPath, outputDirectory,
-                XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo);
+                XCFrameworkPlatformTarget.Simulator, logger, commandRunner, platformInfo, requestedArchitecture);
 
             // Try to resolve device slice
             XCFrameworkResolution? deviceResolution2 = null;
@@ -337,7 +374,7 @@ namespace BindingsGeneration
                 try
                 {
                     deviceResolution2 = Resolve(xcframeworkPath, outputDirectory,
-                        XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo);
+                        XCFrameworkPlatformTarget.Device, logger, commandRunner, platformInfo, requestedArchitecture);
                 }
                 catch (Exception ex)
                 {

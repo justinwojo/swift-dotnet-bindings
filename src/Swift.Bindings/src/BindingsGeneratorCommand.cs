@@ -46,6 +46,7 @@ public static class BindingsGeneratorCommand
         var packageId = parseResult.GetValueForOption(options.PackageId);
         var swiftRuntimeVersion = parseResult.GetValueForOption(options.SwiftRuntimeVersion);
         var wrapperArchitectures = parseResult.GetValueForOption(options.WrapperArchitectures);
+        var targetArchitectures = parseResult.GetValueForOption(options.TargetArchitectures);
         var frameworkDependencies = parseResult.GetValueForOption(options.FrameworkDependency);
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
@@ -298,7 +299,7 @@ public static class BindingsGeneratorCommand
             context.ExitCode = BindingsGenerator.RunCompileWrapperOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
-                skipThunkCompilation);
+                skipThunkCompilation, targetArchitectures);
             return;
         }
 
@@ -365,6 +366,10 @@ public static class BindingsGeneratorCommand
         XCFrameworkResolution? resolution = null;
         XCFrameworkResolver.ObjCFrameworkResolution? mixedObjcResolution = null;
         var shouldCompileWrapper = false;
+        // "A wrapper xcframework will exist" — true even under --skip-wrapper-compilation,
+        // because the SDK's _CompileSwiftWrapper target compiles + packs it in a later pass.
+        // Distinct from shouldCompileWrapper (compile *now*) and hasWrapperXcfw (exists *now*).
+        var wouldCompileWrapper = false;
         var asyncLibraryAutoWired = false;
         var platformTarget = XCFrameworkPlatformTarget.Simulator;
 
@@ -476,7 +481,7 @@ public static class BindingsGeneratorCommand
             // Auto-set --async-library whenever wrapper will be compiled (now or deferred).
             // When --skip-wrapper-compilation is used, the wrapper is compiled later by
             // _CompileSwiftWrapper, but C# generation still needs the module name for DllImport.
-            var wouldCompileWrapper = BindingsGenerator.ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly, platformInfo);
+            wouldCompileWrapper = BindingsGenerator.ShouldCompileWrapper(resolution.IsSimulatorSlice, wrapperArchEarly, platformInfo);
             if (wouldCompileWrapper && string.IsNullOrWhiteSpace(asyncLibrary))
             {
                 var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
@@ -703,13 +708,49 @@ public static class BindingsGeneratorCommand
 
             Exception? compilationException = null;
 
-            try
+            // CPU target arch(es) — mirrors the --compile-wrapper-only fast path so the standalone
+            // generation path honors --target-architectures identically: "auto" matches the source
+            // slice's coverage (fat iff the source is fat), an explicit list fails loud (SWIFTBIND052)
+            // on a missing arch, and empty/unset keeps the historical single arm64-preference pass.
+            var autoMatchSource = string.Equals(targetArchitectures?.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
+            List<string> requestedArchs;
+            if (autoMatchSource)
+            {
+                requestedArchs = new List<string>();
+            }
+            else
+            {
+                var parsed = BindingsGenerator.ParseTargetArchitectures(targetArchitectures, logger);
+                if (parsed == null)
+                {
+                    context.ExitCode = 1; // invalid arch token already logged
+                    return;
+                }
+                requestedArchs = parsed;
+            }
+
+            var (autoBasisArchs, autoBasisSliceId) = BindingsGenerator.ResolveAutoArchBasis(
+                resolution, xcframeworkPath!, outputDirectory, platformTarget, wrapperArchNormalized,
+                platformInfo, logger);
+            if (!BindingsGenerator.TryDecideWrapperArchitectures(
+                    autoMatchSource, requestedArchs, autoBasisArchs, autoBasisSliceId,
+                    logger, out var primaryArch, out var extraArchs))
+            {
+                context.ExitCode = 1; // explicit arch missing from source — already logged (SWIFTBIND052)
+                return;
+            }
+
+            // Compiles the wrapper for ONE requested CPU arch (null = historical arm64 preference).
+            // Re-resolves per arch so the right per-arch .swiftinterface/abi is used; folded into a fat
+            // build by CompileWrapperForArchitectures when extraArchs is non-empty.
+            SwiftWrapperCompilationResult? CompileForArch(string? requestedArch)
             {
                 if (wrapperArchNormalized == "all")
                 {
                     // Multi-arch: resolve both slices, compile wrapper for both
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
-                        xcframeworkPath!, outputDirectory, logger, platformInfo: platformInfo);
+                        xcframeworkPath!, outputDirectory, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
 
                     if (deviceResolution == null)
                     {
@@ -717,7 +758,7 @@ public static class BindingsGeneratorCommand
                             "Source xcframework has no device slice; wrapper will contain simulator slice only.");
                     }
 
-                    compilationResult = SwiftWrapperCompiler.CompileAll(
+                    return SwiftWrapperCompiler.CompileAll(
                         outputDirectory, resolution.ModuleName,
                         simResolution, deviceResolution, logger,
                         internalTypeNames: internalTypeNames,
@@ -727,28 +768,20 @@ public static class BindingsGeneratorCommand
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        swiftInterfacePath: simResolution.SwiftInterfacePath,
                         depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
-                    // Device-only: resolve device slice and compile for iphoneos
-                    XCFrameworkResolution deviceOnlyResolution;
-                    try
-                    {
-                        deviceOnlyResolution = XCFrameworkResolver.Resolve(
-                            xcframeworkPath!, outputDirectory,
-                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError("Cannot compile device wrapper: {Message}", ex.Message);
-                        context.ExitCode = 1;
-                        return;
-                    }
+                    // Device-only: resolve device slice and compile for iphoneos. A resolve failure
+                    // propagates to the outer try and is reported by WrapperBuildOutcome.
+                    var deviceOnlyResolution = XCFrameworkResolver.Resolve(
+                        xcframeworkPath!, outputDirectory,
+                        XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
 
-                    compilationResult = SwiftWrapperCompiler.CompileSlice(
+                    return SwiftWrapperCompiler.CompileSlice(
                         outputDirectory, resolution.ModuleName,
                         deviceOnlyResolution.FrameworkSearchPath,
                         deviceOnlyResolution.DylibPath,
@@ -760,24 +793,36 @@ public static class BindingsGeneratorCommand
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: deviceOnlyResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
+                        resolvedArchitecture: deviceOnlyResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Device);
                 }
                 else
                 {
                     // Simulator-only (default)
-                    compilationResult = SwiftWrapperCompiler.Compile(
+                    var simResolution = XCFrameworkResolver.Resolve(
+                        xcframeworkPath!, outputDirectory,
+                        platformTarget, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
+
+                    return SwiftWrapperCompiler.Compile(
                         outputDirectory, resolution.ModuleName,
-                        resolution.FrameworkSearchPath, resolution.DylibPath, logger,
+                        simResolution.FrameworkSearchPath, simResolution.DylibPath, logger,
                         internalTypeNames: internalTypeNames,
                         additionalFrameworkSearchPaths: simDepPaths,
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        swiftInterfacePath: simResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
-                        resolvedArchitecture: resolution.SelectedArchitecture,
+                        resolvedArchitecture: simResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Simulator);
                 }
+            }
+
+            try
+            {
+                compilationResult = BindingsGenerator.CompileWrapperForArchitectures(
+                    primaryArch, extraArchs, CompileForArch, logger);
             }
             catch (Exception ex)
             {
@@ -1008,17 +1053,20 @@ public static class BindingsGeneratorCommand
                     }, logger);
                 }
 
-                // Note: HasBridgeXCFramework is set to hasBridgeSwift (not hasBridgeXcfw)
-                // because the bridge xcframework doesn't exist at generation time in SDK mode.
-                // The consumer targets emit conditional NativeReference with Exists() checks,
-                // so it's safe to include the reference even if compilation happens later.
+                // Both HasWrapperXCFramework and HasBridgeXCFramework are set to the
+                // "will be produced" signal (wouldCompileWrapper / hasBridgeSwift), NOT the
+                // "exists now" one (hasWrapperXcfw / hasBridgeXcfw): under the SDK's two-pass
+                // flow the full-generate pass runs with --skip-wrapper-compilation, so neither
+                // xcframework exists yet — _CompileSwiftWrapper compiles + packs the wrapper in
+                // a later pass. The consumer targets guard each NativeReference with an Exists()
+                // check, so emitting a reference the deferred pass fulfills is safe.
                 ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
                 {
                     OutputDirectory = outputDirectory,
                     ModuleName = resolution.ModuleName,
                     PackageId = effectivePackageId,
                     EffectiveMinimumOSVersion = metadata.EffectiveMinimumOSVersion,
-                    HasWrapperXCFramework = hasWrapperXcfw,
+                    HasWrapperXCFramework = hasWrapperXcfw || wouldCompileWrapper,
                     HasBridgeXCFramework = hasBridgeSwift,
                     XcframeworkPath = xcframeworkPath,
                     PlatformInfo = platformInfo,

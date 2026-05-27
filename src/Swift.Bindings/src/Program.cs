@@ -656,18 +656,269 @@ namespace BindingsGeneration
         /// Compile-wrapper-only mode: resolves the xcframework, compiles existing .swift wrapper files,
         /// and updates binding-metadata.props. Skips all parsing and C# generation.
         /// </summary>
+        /// <summary>
+        /// Parses the <c>--target-architectures</c> value (comma-separated) into a normalized,
+        /// de-duplicated list with arm64 ordered first — it is the primary pass and carries the
+        /// device slice (there is no Intel device), so extra arches are folded into it. Returns an
+        /// empty list when unset (keep the historical per-slice arch preference) or null on an
+        /// unrecognized token (error already logged). Accepts the NuGet <c>x64</c> spelling as an
+        /// alias for Apple's <c>x86_64</c>.
+        /// </summary>
+        internal static List<string>? ParseTargetArchitectures(string? value, ILogger logger)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return new List<string>();
+
+            var result = new List<string>();
+            foreach (var raw in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var arch = raw.ToLowerInvariant();
+                if (arch == "x64") arch = "x86_64";
+                if (arch != "arm64" && arch != "x86_64")
+                {
+                    logger.LogError("Error: Invalid --target-architectures token '{Token}'. Valid: arm64, x86_64 (x64).", raw);
+                    return null;
+                }
+                if (!result.Contains(arch))
+                    result.Add(arch);
+            }
+
+            result.Sort((a, b) => a == b ? 0 : (a == "arm64" ? -1 : (b == "arm64" ? 1 : string.CompareOrdinal(a, b))));
+            return result;
+        }
+
+        /// <summary>
+        /// Decides which CPU architectures the wrapper is compiled for, given the source slice's
+        /// available architectures. Splits the result into a primary pass (<paramref name="primaryArch"/>,
+        /// always built) and zero or more <paramref name="extraArchs"/> that are lipo-merged into the
+        /// primary to form one fat wrapper xcframework.
+        ///
+        /// <para><b>auto</b> (<paramref name="autoMatchSource"/> true): match the source's coverage.
+        /// When the source ships an arm variant, the primary pass stays <c>null</c> (historical
+        /// arm64/arm64e preference, so an arm64e-only device slice is not silently dropped) and x86_64
+        /// is folded in as an extra only when present. When the source is <em>x86_64-only</em> (a legacy
+        /// Intel-only library), the primary pass is pinned to <c>x86_64</c> with no extras — leaving it
+        /// <c>null</c> would resolve to x86_64 AND schedule a second x86_64 pass, then lipo two
+        /// same-arch binaries. Never fails.</para>
+        ///
+        /// <para><b>explicit</b> list: every requested arch must be present in the source slice, or this
+        /// returns <c>false</c> after logging SWIFTBIND052. Validating up front — before the destructive
+        /// per-arch compile + lipo merge — keeps the failure loud instead of letting a mid-merge throw be
+        /// downgraded to an SDK-mode warning.</para>
+        /// </summary>
+        internal static bool TryDecideWrapperArchitectures(
+            bool autoMatchSource,
+            IReadOnlyList<string> requestedArchs,
+            IReadOnlyList<string> sourceArchitectures,
+            string sourceSliceId,
+            ILogger logger,
+            out string? primaryArch,
+            out List<string> extraArchs)
+        {
+            bool SourceHas(string arch) =>
+                sourceArchitectures.Any(a => string.Equals(a, arch, StringComparison.OrdinalIgnoreCase));
+
+            if (autoMatchSource)
+            {
+                var hasArm = SourceHas("arm64") || SourceHas("arm64e");
+                var hasX64 = SourceHas("x86_64");
+                if (hasX64 && !hasArm)
+                {
+                    // x86_64-only source: build the wrapper for x86_64 alone. A null primary
+                    // would itself resolve to x86_64 and the extra pass would compile it again,
+                    // leaving the merger to lipo two identical-arch binaries.
+                    primaryArch = "x86_64";
+                    extraArchs = new List<string>();
+                }
+                else if (hasX64)
+                {
+                    // arm + x86_64 fat source: fold x86_64 in as an extra, but pin the PRIMARY to a
+                    // concrete arm arch. A null primary defers to SelectArchitecture, which prefers an
+                    // exact "arm64" and otherwise returns the slice's FIRST arch — so an arm64e+x86_64
+                    // slice that lists x86_64 first would resolve the primary to x86_64, drop arm64e,
+                    // and (via the degrade-on-fold-failure path) ship an x86_64-only wrapper. Prefer
+                    // arm64; otherwise the arm64e variant that is present.
+                    primaryArch = SourceHas("arm64") ? "arm64" : "arm64e";
+                    extraArchs = new List<string> { "x86_64" };
+                }
+                else
+                {
+                    // arm-only source (no x86_64): keep the historical null primary — SelectArchitecture
+                    // resolves arm64, or arm64e on an arm64e-only slice (its only/first arch).
+                    primaryArch = null;
+                    extraArchs = new List<string>();
+                }
+                logger.LogInformation(
+                    "--target-architectures auto: source slice '{Slice}' provides [{Available}]; building wrapper for [{Wrapper}].",
+                    sourceSliceId,
+                    string.Join("+", sourceArchitectures),
+                    string.Join("+", new[] { primaryArch ?? "arm64" }.Concat(extraArchs)));
+                return true;
+            }
+
+            foreach (var arch in requestedArchs)
+            {
+                if (!SourceHas(arch))
+                {
+                    primaryArch = null;
+                    extraArchs = new List<string>();
+                    logger.LogError(
+                        "SWIFTBIND052: --target-architectures requested '{Arch}', but source slice '{Slice}' ships only " +
+                        "[{Available}]. Refusing to fall back to a narrower wrapper — the source library must provide a " +
+                        "'{Arch}' slice for this platform.",
+                        arch, sourceSliceId, string.Join("+", sourceArchitectures), arch);
+                    return false;
+                }
+            }
+
+            primaryArch = requestedArchs.Count > 0 ? requestedArchs[0] : null;
+            extraArchs = requestedArchs.Count > 1 ? requestedArchs.Skip(1).ToList() : new List<string>();
+            return true;
+        }
+
+        /// <summary>
+        /// Picks the source architectures the <c>auto</c> fat-or-not decision should be based on.
+        /// x86_64 only ever ships in the simulator/host slice (there is no Intel device), so when
+        /// metadata resolution was pinned to the device slice (<c>--platform-target device</c>) but the
+        /// wrapper still covers the simulator family (<c>all</c>/<c>simulator</c>), the device slice's
+        /// arm-only arch list would wrongly suppress x86_64. Re-resolve the simulator slice in that case;
+        /// fall back to the already-resolved slice when there is no simulator slice (device-only coverage,
+        /// where arm-only is correct).
+        /// </summary>
+        internal static (IReadOnlyList<string> Architectures, string SliceId) ResolveAutoArchBasis(
+            XCFrameworkResolution resolution,
+            string xcframeworkPath, string outputDirectory,
+            XCFrameworkPlatformTarget platformTarget, string wrapperArchNormalized,
+            PlatformInfo platformInfo, ILogger logger)
+        {
+            if (platformTarget == XCFrameworkPlatformTarget.Device && wrapperArchNormalized != "device")
+            {
+                try
+                {
+                    var sim = XCFrameworkResolver.Resolve(
+                        xcframeworkPath, outputDirectory,
+                        XCFrameworkPlatformTarget.Simulator, logger, platformInfo: platformInfo);
+                    return (sim.SupportedArchitectures, sim.LibraryIdentifier);
+                }
+                catch
+                {
+                    // No simulator slice — the wrapper covers device only, so the device slice's
+                    // (arm-only) arch list is the correct basis.
+                }
+            }
+            return (resolution.SupportedArchitectures, resolution.LibraryIdentifier);
+        }
+
+        /// <summary>
+        /// Compiles the wrapper for <paramref name="primaryArch"/>, then lipo-folds each
+        /// <paramref name="extraArchs"/> wrapper xcframework into it to form one fat build. Shared by the
+        /// standalone generation path and <c>--compile-wrapper-only</c> so both honor
+        /// <c>--target-architectures</c> identically. The primary pass carries the device slice (no Intel
+        /// counterpart); the merger keeps such single-arch slices as-is. Returns the primary result, whose
+        /// <c>XCFrameworkPath</c> now points at the merged fat build.
+        /// </summary>
+        internal static SwiftWrapperCompilationResult? CompileWrapperForArchitectures(
+            string? primaryArch,
+            IReadOnlyList<string> extraArchs,
+            Func<string?, SwiftWrapperCompilationResult?> compileForArch,
+            ILogger logger)
+        {
+            var compilationResult = compileForArch(primaryArch);
+
+            var wrapperXcfwPath = compilationResult?.XCFrameworkPath;
+            if (extraArchs.Count > 0 && !string.IsNullOrEmpty(wrapperXcfwPath) && Directory.Exists(wrapperXcfwPath))
+            {
+                var primaryAside = wrapperXcfwPath + ".primary";
+                if (Directory.Exists(primaryAside)) Directory.Delete(primaryAside, true);
+                Directory.Move(wrapperXcfwPath, primaryAside);
+
+                try
+                {
+                    foreach (var arch in extraArchs)
+                    {
+                        var extraResult = compileForArch(arch);
+                        var extraPath = extraResult?.XCFrameworkPath;
+                        if (string.IsNullOrEmpty(extraPath) || !Directory.Exists(extraPath))
+                        {
+                            logger.LogWarning("Target arch '{Arch}' produced no wrapper xcframework; skipping its merge.", arch);
+                            continue;
+                        }
+                        var secondaryAside = wrapperXcfwPath + "." + arch;
+                        if (Directory.Exists(secondaryAside)) Directory.Delete(secondaryAside, true);
+                        Directory.Move(extraPath, secondaryAside);
+                        WrapperXCFrameworkMerger.MergeFatSlices(primaryAside, secondaryAside, logger);
+                    }
+
+                    logger.LogInformation("Merged wrapper xcframework into a fat build ({Archs}).",
+                        string.Join(" + ", new[] { primaryArch ?? "arm64" }.Concat(extraArchs)));
+                }
+                catch (Exception ex)
+                {
+                    // Degrade to the primary-only wrapper rather than propagating. The extra-arch fold
+                    // is best-effort: a failed x86_64 compile/lipo must NOT take down the working
+                    // primary. We deliberately SWALLOW (not rethrow) so the returned compilationResult
+                    // stays non-null — the SDK --compile-wrapper-only path catches a propagated
+                    // exception, leaves compilationResult null, and then records
+                    // _SwiftBindingHasWrapperXCFramework=False off that null even though the primary is
+                    // restored on disk below, dropping the NativeReference for EVERY consumer
+                    // (arm64 included). Returning the primary result keeps metadata truthful: the
+                    // package ships the primary-arch wrapper, just not the fat fold. This mirrors the
+                    // SDK's existing sdkMode contract, where a primary wrapper failure is also a warning.
+                    logger.LogWarning(ex,
+                        "Folding extra architecture(s) [{Archs}] into the wrapper failed; shipping the "
+                        + "{Primary}-only wrapper instead. Consumers targeting the dropped arch(es) will "
+                        + "not resolve a matching native slice.",
+                        string.Join(", ", extraArchs), primaryArch ?? "arm64");
+                }
+                finally
+                {
+                    // Always move the primary back into place. On a mid-merge throw (a failed extra
+                    // compile or lipo), MergeFatSlices fails before overwriting the primary binary
+                    // (it lipos to a temp and only then replaces), so the restored primary still
+                    // carries a valid primary-arch wrapper.
+                    if (Directory.Exists(primaryAside)) Directory.Move(primaryAside, wrapperXcfwPath);
+                }
+            }
+
+            return compilationResult;
+        }
+
         internal static int RunCompileWrapperOnly(
             string xcframeworkPath, string outputDirectory,
             string? platformStr, string? platformTargetStr,
             string? wrapperArchitectures, string[]? frameworkDependencies,
             ILogger logger, PlatformInfo platformInfo,
-            bool skipThunkCompilation = false)
+            bool skipThunkCompilation = false,
+            string? targetArchitectures = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
             {
                 logger.LogError("Error: Invalid --wrapper-architectures '{Value}'. Valid values: 'simulator', 'device', 'all'.", wrapperArchitectures);
                 return 1;
+            }
+
+            // CPU target arch(es) — distinct from the slice TYPE in wrapperArchitectures.
+            //   "auto"      => match the source slice's arch coverage: a fat wrapper iff the
+            //                  source is fat, arm64-only otherwise. The SDK passes this so a
+            //                  single runtimes/<rid>/native/ tree serves both Apple Silicon and
+            //                  Intel/Rosetta without breaking the very common arm64-only source.
+            //   explicit X  => compile exactly those and fail loud (SWIFTBIND052) if the source
+            //                  lacks one — never silently narrow the wrapper.
+            //   empty/unset => historical single-pass arm64-preference (no merge).
+            // Decided into primaryArch + extraArchs once the source slice is resolved, below.
+            var autoMatchSource = string.Equals(targetArchitectures?.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
+            List<string> requestedArchs;
+            if (autoMatchSource)
+            {
+                requestedArchs = new List<string>(); // resolved from the source slice below
+            }
+            else
+            {
+                var parsed = ParseTargetArchitectures(targetArchitectures, logger);
+                if (parsed == null)
+                    return 1; // invalid arch token already logged
+                requestedArchs = parsed;
             }
 
             var platformTarget = XCFrameworkPlatformTarget.Simulator;
@@ -699,6 +950,20 @@ namespace BindingsGeneration
             }
 
             var moduleName = resolution.ModuleName;
+
+            // Decide the wrapper's CPU arch passes from the SOURCE slice. x86_64 lives only in the
+            // simulator/macOS slice (there is no Intel device); ResolveAutoArchBasis re-resolves the
+            // simulator slice when --platform-target pinned the resolution to the device slice, so a
+            // fat sim slice is still detected for both the auto fold and explicit-arch validation.
+            var (autoBasisArchs, autoBasisSliceId) = ResolveAutoArchBasis(
+                resolution, xcframeworkPath, outputDirectory, platformTarget, wrapperArchNormalized,
+                platformInfo, logger);
+            if (!TryDecideWrapperArchitectures(
+                    autoMatchSource, requestedArchs, autoBasisArchs,
+                    autoBasisSliceId, logger, out var primaryArch, out var extraArchs))
+            {
+                return 1; // explicit arch missing from source — already logged (SWIFTBIND052)
+            }
 
             // Resolve framework dependency search paths
             List<FrameworkDependencyInfo>? resolvedDeps = null;
@@ -765,18 +1030,20 @@ namespace BindingsGeneration
                     Array.Empty<string>(), Array.Empty<string>());
             }
 
-            // Compile the wrapper using existing .swift files in the output directory
-            SwiftWrapperCompilationResult? compilationResult = null;
-            Exception? compilationException = null;
-
-            try
+            // Compiles the wrapper for ONE requested CPU arch (null = historical preference).
+            // Re-resolves per arch so the right per-arch .swiftinterface/abi is used; the merged
+            // source slice (e.g. fat macos-arm64_x86_64) shares one framework search path, so
+            // re-resolution is cheap and arch-correct. Always writes the wrapper xcframework to
+            // its fixed path inside outputDirectory.
+            SwiftWrapperCompilationResult? CompileForArch(string? requestedArch)
             {
                 if (wrapperArchNormalized == "all")
                 {
                     var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
-                        xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo);
+                        xcframeworkPath, outputDirectory, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
 
-                    compilationResult = SwiftWrapperCompiler.CompileAll(
+                    return SwiftWrapperCompiler.CompileAll(
                         outputDirectory, moduleName,
                         simResolution, deviceResolution, logger,
                         internalTypeNames: internalTypeNames,
@@ -786,26 +1053,18 @@ namespace BindingsGeneration
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        swiftInterfacePath: simResolution.SwiftInterfacePath,
                         depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
-                    XCFrameworkResolution deviceResolution;
-                    try
-                    {
-                        deviceResolution = XCFrameworkResolver.Resolve(
-                            xcframeworkPath, outputDirectory,
-                            XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError("Cannot compile device wrapper: {Message}", ex.Message);
-                        return 1;
-                    }
+                    var deviceResolution = XCFrameworkResolver.Resolve(
+                        xcframeworkPath, outputDirectory,
+                        XCFrameworkPlatformTarget.Device, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
 
-                    compilationResult = SwiftWrapperCompiler.CompileSlice(
+                    return SwiftWrapperCompiler.CompileSlice(
                         outputDirectory, moduleName,
                         deviceResolution.FrameworkSearchPath,
                         deviceResolution.DylibPath,
@@ -817,23 +1076,38 @@ namespace BindingsGeneration
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                         swiftInterfacePath: deviceResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
+                        resolvedArchitecture: deviceResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Device);
                 }
                 else
                 {
-                    compilationResult = SwiftWrapperCompiler.Compile(
+                    var simResolution = XCFrameworkResolver.Resolve(
+                        xcframeworkPath, outputDirectory,
+                        platformTarget, logger, platformInfo: platformInfo,
+                        requestedArchitecture: requestedArch);
+
+                    return SwiftWrapperCompiler.Compile(
                         outputDirectory, moduleName,
-                        resolution.FrameworkSearchPath, resolution.DylibPath, logger,
+                        simResolution.FrameworkSearchPath, simResolution.DylibPath, logger,
                         internalTypeNames: internalTypeNames,
                         additionalFrameworkSearchPaths: simDepPaths,
                         platformInfo: platformInfo,
                         moduleNameForCollision: moduleNameForCollision,
                         nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                        swiftInterfacePath: resolution.SwiftInterfacePath,
+                        swiftInterfacePath: simResolution.SwiftInterfacePath,
                         skipThunkCompilation: skipThunkCompilation,
-                        resolvedArchitecture: resolution.SelectedArchitecture,
+                        resolvedArchitecture: simResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Simulator);
                 }
+            }
+
+            // Compile the wrapper using existing .swift files in the output directory.
+            SwiftWrapperCompilationResult? compilationResult = null;
+            Exception? compilationException = null;
+
+            try
+            {
+                compilationResult = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileForArch, logger);
             }
             catch (Exception ex)
             {
