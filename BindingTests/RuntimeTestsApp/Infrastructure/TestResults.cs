@@ -312,6 +312,31 @@ public class SkipOnDeviceAttribute : Attribute
 }
 
 /// <summary>
+/// Marks tests that crash on Mac Catalyst x86_64 (Rosetta on Apple Silicon) but
+/// work on Mac Catalyst arm64, macOS x86_64, and iOS Simulator arm64. Skipped on
+/// maccatalyst-x64 only — runs on every other RID, including osx-x64 under the
+/// same Rosetta layer. The reason is visible in test output.
+///
+/// The reason MUST describe the specific deterministic crash and reference the
+/// upstream filing (see <c>src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md</c>).
+///
+/// Detected at runtime via <see cref="OperatingSystem.IsMacCatalyst"/> +
+/// <see cref="System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture"/>;
+/// no enum/CLI-flag plumbing required, so the attribute is a strict superset of the
+/// previous skip surface.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+public class SkipOnCatalystX64Attribute : Attribute
+{
+    public string Reason { get; }
+
+    public SkipOnCatalystX64Attribute(string reason)
+    {
+        Reason = reason;
+    }
+}
+
+/// <summary>
 /// Marks stress/slow tests. Always runs but can be filtered if needed.
 /// </summary>
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]

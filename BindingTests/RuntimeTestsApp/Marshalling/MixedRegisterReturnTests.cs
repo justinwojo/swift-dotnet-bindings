@@ -89,4 +89,34 @@ public class MixedRegisterReturnTests : TestBase
         AssertEqual(3.0f, scaled.Scale, "Scaled WideFloatDouble.Scale = 2.0 + 1.0");
         AssertEqual(12.0, scaled.Weight, "Scaled WideFloatDouble.Weight = 3.0 * 4.0");
     }
+
+    public void TestLargeScalarFactoryTailCallRoundTrip()
+    {
+        // 40-byte (5 × Int64) struct returned INDIRECTLY by a free function — the indirect-result
+        // tail-call thunk. On x86_64 the cdecl sret pointer arrives in %rdi and must be moved to
+        // swiftcc's %rax with the explicit args shifted down; a missing or mis-shifted buffer pointer
+        // would read garbage, so reading back five distinct ascending values proves the bridge.
+        var s = TestLibFunctions.MakeLargeScalarStruct(100);
+        AssertEqual(100L, s.A, "LargeScalar.A");
+        AssertEqual(101L, s.B, "LargeScalar.B");
+        AssertEqual(102L, s.C, "LargeScalar.C");
+        AssertEqual(103L, s.D, "LargeScalar.D");
+        AssertEqual(104L, s.E, "LargeScalar.E");
+        TestLogger.Info($"MakeLargeScalarStruct(100) = ({s.A}, {s.B}, {s.C}, {s.D}, {s.E})");
+    }
+
+    public void TestLargeScalarInstanceMethodIndirectRoundTrip()
+    {
+        // Same 40-byte indirect return from a final-class INSTANCE method — the full-frame indirect
+        // path: self lands in the swiftself register and the sret pointer is bridged into %rax across
+        // the call. The free-function variant above cannot exercise this (no self → tail call). Five
+        // correct ascending fields prove self and the result buffer were both routed correctly.
+        var s = new LargeScalarStructFactory(seed: 200).Make();
+        AssertEqual(200L, s.A, "factory LargeScalar.A");
+        AssertEqual(201L, s.B, "factory LargeScalar.B");
+        AssertEqual(202L, s.C, "factory LargeScalar.C");
+        AssertEqual(203L, s.D, "factory LargeScalar.D");
+        AssertEqual(204L, s.E, "factory LargeScalar.E");
+        TestLogger.Info($"LargeScalarStructFactory(200).Make() = ({s.A}, {s.B}, {s.C}, {s.D}, {s.E})");
+    }
 }

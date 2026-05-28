@@ -951,7 +951,7 @@
   },
   "runtime_tests": {
     "simulator": {
-      "pass": 2395,
+      "pass": 2406,
       "fail": 0,
       "skip": 63,
       "crash": 0
@@ -963,15 +963,27 @@
       "crash": 0
     },
     "macos": {
-      "pass": 1448,
+      "pass": 1906,
       "fail": 0,
-      "skip": 35,
+      "skip": 47,
+      "crash": 0
+    },
+    "macos_x64": {
+      "pass": 1913,
+      "fail": 0,
+      "skip": 47,
       "crash": 0
     },
     "maccatalyst": {
-      "pass": 1448,
+      "pass": 1909,
       "fail": 0,
-      "skip": 35,
+      "skip": 47,
+      "crash": 0
+    },
+    "maccatalyst_x64": {
+      "pass": 1917,
+      "fail": 0,
+      "skip": 47,
       "crash": 0
     },
     "tvos_simulator": {

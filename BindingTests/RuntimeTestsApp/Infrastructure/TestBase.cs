@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace RuntimeTestsApp.Infrastructure;
 
@@ -12,6 +13,14 @@ public abstract class TestBase
 {
     protected TestResults Results { get; }
     protected string TestClassName { get; }
+
+    /// <summary>
+    /// True when the current process is running as Mac Catalyst on x86_64 (Rosetta
+    /// on Apple Silicon, or native Intel). Used to honor [SkipOnCatalystX64] without
+    /// adding a new TestPlatform enum value or CLI flag.
+    /// </summary>
+    private static readonly bool IsMacCatalystX64 =
+        OperatingSystem.IsMacCatalyst() && RuntimeInformation.ProcessArchitecture == Architecture.X64;
 
     protected TestBase(TestResults results)
     {
@@ -48,6 +57,17 @@ public abstract class TestBase
             if (method.SkipOnDevice != null && platform == TestPlatform.Device)
             {
                 Results.Skip(testName, $"Device: {method.SkipOnDevice}");
+                continue;
+            }
+
+            // Check method-level [SkipOnCatalystX64] — skipped on maccatalyst-x64 only.
+            // Detected at runtime via OperatingSystem.IsMacCatalyst() +
+            // RuntimeInformation.ProcessArchitecture so we don't need a separate
+            // CLI flag / TestPlatform enum value. Runs everywhere else (including
+            // osx-x64 under the same Rosetta layer, which passes cleanly).
+            if (method.SkipOnCatalystX64 != null && IsMacCatalystX64)
+            {
+                Results.Skip(testName, $"MacCatalyst-x64: {method.SkipOnCatalystX64}");
                 continue;
             }
 

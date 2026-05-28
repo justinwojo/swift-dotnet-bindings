@@ -139,6 +139,54 @@ public func makeMixedWide(tag: Int32, scale: Float, count: Int64, weight: Double
     return MixedWide(tag: tag, scale: scale, count: count, weight: weight)
 }
 
+/// A 40-byte (5 × Int64) frozen struct that exceeds the four-register direct-return budget, so
+/// swiftcc returns it INDIRECTLY through a caller-allocated result buffer. This is the shape that
+/// drives the x86_64 thunk's indirect-result paths: the SysV thunk must move the cdecl sret pointer
+/// (a hidden first argument in %rdi) into swiftcc's indirect-result register (%rax). All-integer
+/// fields keep self and the return thunk-eligible — a float/Double field would route the method to
+/// the @_cdecl wrapper instead. Readable scalar fields let a round-trip catch a wrong buffer pointer,
+/// which would otherwise return garbage silently. Round-tripped by `MixedRegisterReturnTests`.
+@frozen
+public struct LargeScalarStruct {
+    public var a: Int64
+    public var b: Int64
+    public var c: Int64
+    public var d: Int64
+    public var e: Int64
+
+    public init(a: Int64, b: Int64, c: Int64, d: Int64, e: Int64) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+    }
+}
+
+/// Free-function factory returning the 40-byte indirect struct by value — the indirect-result
+/// TAIL-CALL path (no self, so the thunk moves %rdi→%rax, shifts the explicit arguments, and jumps).
+public func makeLargeScalarStruct(seed: Int64) -> LargeScalarStruct {
+    return LargeScalarStruct(a: seed, b: seed &+ 1, c: seed &+ 2, d: seed &+ 3, e: seed &+ 4)
+}
+
+/// Final class whose instance method returns the 40-byte indirect struct by value — the
+/// indirect-result FULL-FRAME path: self in the swiftself register AND the sret pointer bridged
+/// into %rax across the call. The free-function factory above cannot reach this path because with
+/// no self it stays a tail call. self is a single class pointer (8 bytes, blittable), so the method
+/// stays thunk-eligible rather than being forced to the @_cdecl wrapper the way a >8-byte struct
+/// self would be. Round-tripped by `MixedRegisterReturnTests`.
+public final class LargeScalarStructFactory {
+    private let seed: Int64
+
+    public init(seed: Int64) {
+        self.seed = seed
+    }
+
+    public func make() -> LargeScalarStruct {
+        return LargeScalarStruct(a: seed, b: seed &+ 1, c: seed &+ 2, d: seed &+ 3, e: seed &+ 4)
+    }
+}
+
 /// A frozen struct with various property types for testing property emission.
 @frozen
 public struct FrozenStructWithProperties {

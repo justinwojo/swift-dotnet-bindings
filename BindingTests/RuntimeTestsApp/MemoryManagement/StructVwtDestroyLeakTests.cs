@@ -182,13 +182,17 @@ public class StructVwtDestroyLeakTests : TestBase
     /// stays bounded throughout and returns to 0 at the end — the struct-category
     /// analogue of the class-instance Bundle 01 stress loop.
     /// </summary>
-    [Slow]
-    public void TestStructWithRefChurnNoLeak()
+    // Churn both categories under periodic GC pressure in a non-inlined helper, for the
+    // same reason as the create-and-abandon helpers above: the final iteration's two
+    // wrappers must not stay GC-rooted on the calling test method's frame. Inline, Mono's
+    // conservative stack scan pins the last NonFrozen + last Frozen wrapper (their refs are
+    // still live in registers/temporaries because the assertion runs next in the same
+    // frame), and a reachable object survives any number of drain cycles — surfacing as a
+    // 2-object false leak. Running the loop in a separate frame that has returned clears
+    // those roots before the assertion.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void CreateAndAbandonBothCategoriesWithChurn(int iterations)
     {
-        DrainFinalizers();
-        LifetimeTracker.Reset();
-
-        const int iterations = 5_000;
         for (int i = 0; i < iterations; i++)
         {
             _ = TestLibFunctions.MakeTrackedRefStruct(i);
@@ -197,6 +201,17 @@ public class StructVwtDestroyLeakTests : TestBase
             if (i % 500 == 0)
                 GC.Collect();
         }
+    }
+
+    [Slow]
+    public void TestStructWithRefChurnNoLeak()
+    {
+        DrainFinalizers();
+        LifetimeTracker.Reset();
+
+        const int iterations = 5_000;
+        CreateAndAbandonBothCategoriesWithChurn(iterations);
+        DrainFinalizers();
 
         LifetimeTracker.AssertNoLeaks($"{iterations} create-and-abandon iterations of each struct-with-ref category must leave no live refs");
         TestLogger.Info($"Struct-with-ref churn: {iterations} iterations x 2 categories left no leaked refs");

@@ -244,6 +244,63 @@ iOS Simulator runs arm64, so they catch the divergence directly.
   works on **Mono-x86_64**, not just CoreCLR.
 - **Depends on S1 + S2.**
 
+**Status (2026-05-27): complete — both osx-x64 AND maccatalyst-x64 fully
+green.** osx-x64 lands at 1913 / 0 / 47 / 0 (Done=True) on the JIT path.
+maccatalyst-x64 lands at 1917 / 0 / 47 / 0 (Done=True) on the Mono interpreter
+path. The Mono x64 BindingTests-under-Rosetta proof of the ABI is therefore
+**confirmed on both RIDs**.
+
+The maccatalyst-x64 result is via the Mono interpreter (`MtouchInterpreter=all`
++ `UseInterpreter=true`), set as the implicit default for `--catalyst-x64` in
+the nuke `binding-tests` target. The maccatalyst-x64 Mono **JIT** still has
+four confirmed independent crash classes (`upstream-issue-04`) — interpreter
+mode bypasses all of them by construction because the failing code paths are
+all in the JIT subsystem (exception unwinder, JIT-output codegen, metadata
+parser during JIT compile, class-lookup table after JIT-driven loads).
+
+Crash classes the interpreter sidesteps:
+
+- **Class 1**: `mono_handle_exception_internal` NULL deref on first sync
+  managed throw.
+- **Class 2**: JITted-output near-null SIGSEGV in the 2-arg
+  `AppendOrThrowAsync(source, shouldThrow)` trim overload.
+- **Class 3**: JIT compile-time SIGABRT with heap corruption
+  (`nanov2_guard_corruption_detected`) inside `mono_metadata_parse_type_internal`
+  on first call to `Pipeline.GetStepCount`.
+- **Class 4**: Runtime SIGSEGV in `mono_class_from_name_checked_aux` invoked
+  from a generated SBW Swift wrapper for `Pipeline.GetModeName`.
+
+The escape hatch `--catalyst-x64-jit` re-enables the JIT path so future .NET
+SDK / iOS workload bumps can be probed for upstream fixes (expect crashes
+until those fixes land). Other RIDs are unaffected; `--catalyst` (arm64) still
+uses the JIT and remains green at 1909 / 0 / 0.
+
+In-tree artifacts from this work:
+
+- **`--catalyst-x64-jit` nuke flag** (`build/Build.RuntimeTests.cs`): opt-out
+  for the implicit interpreter default. Documented as an upstream-fix
+  verification mode, not a routine setting.
+- **`SwiftMarshal.ThrowSwiftError` restructure**: release the Swift error
+  pointer BEFORE the managed `throw`. Removes the fragile "throw inside
+  try/finally with P/Invoke in cleanup" shape proactively. Helpful on any
+  Mono x64 unwinder; harmless elsewhere.
+- **`BasicSyncThrowProbeTests`**: 4 pure-managed-throw probes inserted
+  alphabetically — defensive warmup. No-op under interpreter (Class 1 doesn't
+  exist there) but retained for `--catalyst-x64-jit` runs and as a generic
+  Mono x64 warmup probe.
+- **`SkipOnCatalystX64` attribute infrastructure** stays in tree as a generic
+  RID-specific escape hatch for any future maccatalyst-x64 issue uncovered
+  under interpreter or by `--catalyst-x64-jit` probes. Zero call sites today.
+- **clang-`swiftcall` C wrappers** for the 6 stdlib generic-collection
+  mutating ops (`src/Swift.Runtime/swift/SwiftBindingsRuntimeCollections.c`)
+  — necessary for both osx-x64 and maccatalyst-x64.
+
+Full details + iron-clad differential evidence in
+`src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md`.
+`maccatalyst_x64` baseline now ratcheted to `pass=1917, fail=0, skip=47,
+crash=0`. The upstream filing remains useful — the Mono JIT bugs are real and
+should be fixed regardless of our interpreter workaround.
+
 ### Session 4 — iOS/tvOS x86_64 simulators + the StoreKit2 reporter binding
 
 - **Goal**: the StoreKit2 reporter's binding builds, packages, and loads for

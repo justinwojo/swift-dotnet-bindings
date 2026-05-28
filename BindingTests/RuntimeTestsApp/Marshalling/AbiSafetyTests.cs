@@ -414,4 +414,20 @@ public class AbiSafetyRuntimeTests : TestBase
     }
 
     #endregion
+
+    #region sumSevenInts — Register-Spill Thunk Symmetry (@_cdecl Fallback)
+
+    public void TestSumSevenIntsRegisterSpillFallback()
+    {
+        // Seven Int args fit arm64's eight integer argument registers but spill past x86_64 SysV's
+        // six, so the x86_64 thunk declines. The generator must fall the whole method back to the
+        // @_cdecl wrapper rather than emit an arm64-only thunk the architecture-neutral C# would then
+        // import on x86_64 — that would throw EntryPointNotFound on the Rosetta slice. A correct sum
+        // proves the wrapper symbol resolves and is wired on both architectures.
+        var sum = TestLibFunctions.SumSevenInts(1, 2, 3, 4, 5, 6, 7);
+        AssertEqual((nint)28, sum, "sumSevenInts(1..7) = 28");
+        TestLogger.Info($"SumSevenInts(1..7) = {sum}");
+    }
+
+    #endregion
 }

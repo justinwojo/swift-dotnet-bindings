@@ -110,13 +110,15 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
             var methodSkip = GetAttributeReason(method, "SkipAttribute");
             var methodSimSkip = GetAttributeReason(method, "SkipOnSimulatorAttribute");
             var methodDevSkip = GetAttributeReason(method, "SkipOnDeviceAttribute");
+            var methodCatX64Skip = GetAttributeReason(method, "SkipOnCatalystX64Attribute");
 
             methods.Add(new TestMethodInfo(
                 method.Name,
                 isAsync,
                 methodSkip,
                 methodSimSkip,
-                methodDevSkip));
+                methodDevSkip,
+                methodCatX64Skip));
         }
 
         if (methods.Count == 0)
@@ -220,7 +222,8 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
                 sb.AppendLine($"                    Invoker: {invokerExpr},");
                 sb.AppendLine($"                    Skip: {QuoteOrNull(method.Skip)},");
                 sb.AppendLine($"                    SkipOnSim: {QuoteOrNull(method.SkipOnSim)},");
-                sb.AppendLine($"                    SkipOnDevice: {QuoteOrNull(method.SkipOnDevice)}){(j < cls.Methods.Length - 1 ? "," : "")}");
+                sb.AppendLine($"                    SkipOnDevice: {QuoteOrNull(method.SkipOnDevice)},");
+                sb.AppendLine($"                    SkipOnCatalystX64: {QuoteOrNull(method.SkipOnCatalystX64)}){(j < cls.Methods.Length - 1 ? "," : "")}");
             }
 
             sb.AppendLine($"            }}){(i < classes.Count - 1 ? "," : "")}");
@@ -344,14 +347,17 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
         public string? Skip { get; }
         public string? SkipOnSim { get; }
         public string? SkipOnDevice { get; }
+        public string? SkipOnCatalystX64 { get; }
 
-        public TestMethodInfo(string name, bool isAsync, string? skip, string? skipOnSim, string? skipOnDevice)
+        public TestMethodInfo(string name, bool isAsync, string? skip, string? skipOnSim, string? skipOnDevice,
+            string? skipOnCatalystX64)
         {
             Name = name;
             IsAsync = isAsync;
             Skip = skip;
             SkipOnSim = skipOnSim;
             SkipOnDevice = skipOnDevice;
+            SkipOnCatalystX64 = skipOnCatalystX64;
         }
 
         public bool Equals(TestMethodInfo? other)
@@ -359,7 +365,8 @@ public class TestDiscoveryGenerator : IIncrementalGenerator
             if (other is null) return false;
             return Name == other.Name && IsAsync == other.IsAsync
                 && Skip == other.Skip && SkipOnSim == other.SkipOnSim
-                && SkipOnDevice == other.SkipOnDevice;
+                && SkipOnDevice == other.SkipOnDevice
+                && SkipOnCatalystX64 == other.SkipOnCatalystX64;
         }
 
         public override bool Equals(object? obj) => Equals(obj as TestMethodInfo);

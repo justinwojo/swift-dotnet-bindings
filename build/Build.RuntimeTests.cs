@@ -55,8 +55,20 @@ partial class Build
     readonly bool Device;
     [Parameter("Run on macOS")]
     readonly bool Macos;
+    [Parameter("Run on macOS for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)")]
+    readonly bool MacosX64;
     [Parameter("Run on Mac Catalyst")]
     readonly bool Catalyst;
+    [Parameter("Run on Mac Catalyst for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)")]
+    readonly bool CatalystX64;
+    // The maccatalyst-x64 Mono JIT has four confirmed upstream crash classes
+    // (upstream-issue-04). Interpreter mode (MtouchInterpreter=all) is therefore
+    // the implicit default for --catalyst-x64 and gives a fully-green suite
+    // (parity with osx-x64). This opt-out flag forces the JIT path back on so
+    // future .NET SDK / iOS workload bumps can be re-tested for upstream-fix
+    // verification — expect crashes until upstream fixes land.
+    [Parameter("Force the Mono JIT on Catalyst-x64 (default is interpreter). Expect crashes — used to verify upstream JIT fixes.")]
+    readonly bool CatalystX64Jit;
     [Parameter("Run on tvOS Simulator")]
     readonly bool Tvos;
 
@@ -1042,31 +1054,46 @@ partial class Build
     // Invoked by the consolidated BindingTests target when --macos is set.
     // ============================================================
 
-    void RunMacOSPlatform()
+    void RunMacOSPlatform(ApplePlatform? platformOverride = null)
     {
+            var platform = platformOverride ?? ApplePlatform.MacOS;
+            var label = platform.RunUnderRosetta ? "macOS x64 (Rosetta)" : "macOS";
             Log.Information("=========================================");
-            Log.Information(" BindingTests Runtime Tests (macOS)");
+            Log.Information(" BindingTests Runtime Tests ({Label})", label);
             Log.Information("=========================================");
 
-            // macOS only supports CryptoKit and WeatherKit smokes — reject everything else.
-            var unsupported = GetActiveSmokeFlags()
-                .Where(f => f.Define is not ("CRYPTOKIT_SMOKE" or "WEATHERKIT_SMOKE"))
-                .ToList();
-            if (unsupported.Count > 0)
+            if (platform.RunUnderRosetta)
             {
-                var names = string.Join(", ", unsupported.Select(f => f.FlagName));
-                throw new Exception(
-                    $"{names}: smoke flags are not supported by --macos. " +
-                    "Only --enable-cryptokit-smoke and --enable-weatherkit-smoke are wired for macOS. " +
-                    "Drop the flag and rerun, or use --sim instead.");
+                // The Intel/x64 cell builds x86_64-only frameworks and runs under
+                // Rosetta; the Apple-framework smoke snapshots are arm64-only, so
+                // reject every smoke flag rather than silently skip.
+                var anySmoke = GetActiveSmokeFlags();
+                if (anySmoke.Count > 0)
+                    throw new Exception(
+                        $"{string.Join(", ", anySmoke.Select(f => f.FlagName))}: smoke flags are not " +
+                        "supported by --macos-x64 (the Apple-framework snapshots are arm64-only). " +
+                        "Drop the flag and use --macos for smoke coverage.");
             }
-
-            var platform = ApplePlatform.MacOS;
+            else
+            {
+                // macOS only supports CryptoKit and WeatherKit smokes — reject everything else.
+                var unsupported = GetActiveSmokeFlags()
+                    .Where(f => f.Define is not ("CRYPTOKIT_SMOKE" or "WEATHERKIT_SMOKE"))
+                    .ToList();
+                if (unsupported.Count > 0)
+                {
+                    var names = string.Join(", ", unsupported.Select(f => f.FlagName));
+                    throw new Exception(
+                        $"{names}: smoke flags are not supported by --macos. " +
+                        "Only --enable-cryptokit-smoke and --enable-weatherkit-smoke are wired for macOS. " +
+                        "Drop the flag and rerun, or use --sim instead.");
+                }
+            }
 
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework(platformOverride: platform);
-                RunRegenerateMacOSBindings(strict: Strict);
+                RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
                 RunBuildAsyncWrapper(platformOverride: platform);
             }
             else
@@ -1093,9 +1120,11 @@ partial class Build
                     Log.Information("    WeatherKit smoke tests: ENABLED (--enable-weatherkit-smoke)");
 
                 // Clean previous app bundle to avoid codesign "unsealed contents"
-                // errors from previously injected dylibs.
+                // errors from previously injected dylibs. The RID dir differs per
+                // arch (osx-arm64 vs osx-x64), so the x64 cell never clobbers the
+                // arm64 bundle and vice versa.
                 var macBuildDir = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
-                    $"{DotNetTfm}-macos" / "osx-arm64";
+                    $"{DotNetTfm}-macos" / platform.Rid!;
                 var appBundle = macBuildDir / "RuntimeTestsApp.Mac.app";
                 if (Directory.Exists(appBundle))
                 {
@@ -1108,7 +1137,11 @@ partial class Build
                     var built = s
                         .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.Mac")
                         .SetConfiguration("Debug")
-                        .SetVerbosity(DotNetVerbosity.quiet);
+                        .SetVerbosity(DotNetVerbosity.quiet)
+                        // Build for this cell's RID and gate the wrapper NativeReference
+                        // on this cell's wrapper slice id (macos-arm64 vs macos-x86_64).
+                        .SetProperty("RuntimeIdentifier", platform.Rid!)
+                        .SetProperty("BtNativeWrapperSlice", platform.SimulatorSliceId);
                     if (EnableCryptoKitSmoke || EnableWeatherKitSmoke)
                         built = built.SetProperty("SwiftBindingsRepoRoot", RootDirectory.ToString());
                     if (EnableCryptoKitSmoke)
@@ -1123,7 +1156,7 @@ partial class Build
 
                 // Inject native libs that NativeReference doesn't cover.
                 var monoBundle = appBundle / "Contents" / "MonoBundle";
-                InjectMacOSNativeLibraries(monoBundle);
+                InjectMacOSNativeLibraries(monoBundle, platform);
 
                 // Re-sign the .app bundle after dylib injection. The build
                 // produces a linker-signed binary, but injecting dylibs into
@@ -1136,7 +1169,7 @@ partial class Build
             }
 
             // Run natively on macOS via the .app bundle's native executable
-            RunOnMacOS();
+            RunOnMacOS(platform);
     }
 
     // ============================================================
@@ -1152,10 +1185,12 @@ partial class Build
     // Invoked by the consolidated BindingTests target when --catalyst is set.
     // ============================================================
 
-    void RunCatalystPlatform()
+    void RunCatalystPlatform(ApplePlatform? platformOverride = null)
     {
+            var platform = platformOverride ?? ApplePlatform.MacCatalyst;
+            var label = platform.RunUnderRosetta ? "Mac Catalyst x64 (Rosetta)" : "Mac Catalyst";
             Log.Information("=========================================");
-            Log.Information(" BindingTests Runtime Tests (Mac Catalyst)");
+            Log.Information(" BindingTests Runtime Tests ({Label})", label);
             Log.Information("=========================================");
 
             // Catalyst has no smoke wiring — reject any active smoke flags.
@@ -1168,8 +1203,6 @@ partial class Build
                     "Per-framework smoke wiring is not implemented for Catalyst. " +
                     "Drop the flag and rerun, or use --sim instead.");
             }
-
-            var platform = ApplePlatform.MacCatalyst;
 
             if (!EffectiveSkipRegen)
             {
@@ -1187,9 +1220,11 @@ partial class Build
                 Log.Information("--- Building RuntimeTestsApp.MacCatalyst ---");
 
                 // Clean previous app bundle to avoid codesign "unsealed contents"
-                // errors from previously injected dylibs.
+                // errors from previously injected dylibs. The RID dir differs per
+                // arch (maccatalyst-arm64 vs maccatalyst-x64), so the cells never
+                // clobber each other.
                 var catalystBuildDir = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / "bin" / "Debug" /
-                    $"{DotNetTfm}-maccatalyst" / "maccatalyst-arm64";
+                    $"{DotNetTfm}-maccatalyst" / platform.Rid!;
                 var appBundle = catalystBuildDir / "RuntimeTestsApp.MacCatalyst.app";
                 if (Directory.Exists(appBundle))
                 {
@@ -1197,17 +1232,54 @@ partial class Build
                     Log.Information("Cleaned previous app bundle.");
                 }
 
-                DotNetBuild(s => s
-                    .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.MacCatalyst")
-                    .SetConfiguration("Debug")
-                    .SetVerbosity(DotNetVerbosity.quiet));
+                // Mono interpreter is the implicit default for Catalyst-x64
+                // (upstream-issue-04 — the JIT has four confirmed crash classes
+                // on this RID). Setting --catalyst-x64-jit opts back into the
+                // JIT path purely so future .NET SDK / iOS workload bumps can
+                // be re-tested for upstream fix verification. MtouchInterpreter
+                // is the iOS-workload knob (Catalyst inherits the iOS workload);
+                // UseInterpreter is the newer alias added in .NET 9+. Set both
+                // for resilience across workload versions.
+                var useInterp = platform == ApplePlatform.MacCatalystX64 && !CatalystX64Jit;
+                if (useInterp)
+                    Log.Information("--- Mono interpreter mode (MtouchInterpreter=all) — Catalyst-x64 default; bypasses upstream-issue-04 JIT crashes ---");
+                else if (platform == ApplePlatform.MacCatalystX64)
+                    Log.Warning("--- Catalyst-x64 JIT path enabled (--catalyst-x64-jit) — expect crashes; see upstream-issue-04 ---");
+
+                DotNetBuild(s =>
+                {
+                    var b = s
+                        .SetProjectFile(BindingTestsDir / "RuntimeTestsApp.MacCatalyst")
+                        .SetConfiguration("Debug")
+                        .SetVerbosity(DotNetVerbosity.quiet)
+                        // Build for this cell's RID and gate the wrapper NativeReference
+                        // on this cell's wrapper slice id.
+                        .SetProperty("RuntimeIdentifier", platform.Rid!)
+                        .SetProperty("BtNativeWrapperSlice", platform.SimulatorSliceId);
+                    if (useInterp)
+                        b = b
+                            .SetProperty("MtouchInterpreter", "all")
+                            .SetProperty("UseInterpreter", "true");
+                    return b;
+                });
 
                 if (!Directory.Exists(appBundle))
                     throw new Exception($"Build failed - Catalyst app bundle not found at {appBundle}");
 
                 // Inject native libs that NativeReference doesn't cover.
                 var monoBundle = appBundle / "Contents" / "MonoBundle";
-                InjectCatalystNativeLibraries(monoBundle);
+                InjectCatalystNativeLibraries(monoBundle, platform);
+
+                // The Catalyst apphost is linked with only @executable_path/../Frameworks/,
+                // whereas the macOS SDK also gives the apphost @executable_path/../MonoBundle/.
+                // The dependency-wrapper .framework injected above lives in MonoBundle: a bare
+                // dylib there resolves via .NET's app-base native probing, but a .framework only
+                // resolves through the runtime resolver's @rpath/X.framework/X search path, so
+                // dyld needs a MonoBundle rpath to find it. Without it the cross-module dependency
+                // wrapper fails to load (DllNotFoundException). Add it before re-signing.
+                AddRpathIfMissing(
+                    appBundle / "Contents" / "MacOS" / "RuntimeTestsApp.MacCatalyst",
+                    "@executable_path/../MonoBundle/");
 
                 // Re-sign the .app bundle after dylib injection.
                 CodesignMacOSApp(appBundle, exeNameOverride: "RuntimeTestsApp.MacCatalyst");
@@ -1216,7 +1288,7 @@ partial class Build
             }
 
             // Run natively on macOS via the .app bundle's native executable
-            RunOnCatalyst();
+            RunOnCatalyst(platform);
     }
 
     // ============================================================
@@ -1756,38 +1828,34 @@ partial class Build
     // Shared Helpers: macOS Execution
     // ============================================================
 
-    void RunOnMacOS()
+    void RunOnMacOS(ApplePlatform platform)
     {
-        Log.Information("--- Running on macOS ---");
+        Log.Information("--- Running on {Label} ---", platform.RunUnderRosetta ? "macOS x64 (Rosetta)" : "macOS");
 
         // macOS uses --platform simulator (Mono JIT mode, same as simulator).
         // Pass --results-path so JSONL is written outside the .app bundle
         // (writing inside would invalidate the code signature seal).
-        var macResultsDir = (AbsolutePath)Path.GetTempPath() / "swift-bindings-macos-results";
+        var macResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-macos-results-{platform.Rid}";
         Directory.CreateDirectory(macResultsDir);
-        var launchArgs = $"--platform simulator --results-path \"{macResultsDir}\"";
-        if (FlakeDetect) launchArgs += " --flake-detect";
-        if (Lifetime) launchArgs += " --lifetime";
-        if (!string.IsNullOrEmpty(ClassFilter)) launchArgs += $" --class {ClassFilter}";
+        // Remove stale JSONL so a crash doesn't report a previous run's results.
+        var staleJsonl = macResultsDir / "test-results.jsonl";
+        if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
+        var argList = new List<string> { "--platform", "simulator", "--results-path", macResultsDir.ToString() };
+        if (FlakeDetect) argList.Add("--flake-detect");
+        if (Lifetime) argList.Add("--lifetime");
+        if (!string.IsNullOrEmpty(ClassFilter)) { argList.Add("--class"); argList.Add(ClassFilter); }
 
-        Log.Information("Launching RuntimeTestsApp.Mac (timeout: {Timeout}s)...", Timeout);
+        Log.Information("Launching RuntimeTestsApp.Mac{Mode} (timeout: {Timeout}s)...",
+            platform.RunUnderRosetta ? " under Rosetta (arch -x86_64)" : "", Timeout);
 
         var output = new ConcurrentQueue<string>();
         using var process = new Process();
         // net10.0-macos produces a .app bundle — launch the native executable
         // directly instead of `dotnet run`.
         var macExe = BindingTestsDir / "RuntimeTestsApp.Mac" / "bin" / "Debug" /
-            $"{DotNetTfm}-macos" / "osx-arm64" / "RuntimeTestsApp.Mac.app" /
+            $"{DotNetTfm}-macos" / platform.Rid! / "RuntimeTestsApp.Mac.app" /
             "Contents" / "MacOS" / "RuntimeTestsApp.Mac";
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = macExe,
-            Arguments = launchArgs,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        process.StartInfo = BuildHostLaunchStartInfo(macExe, argList, platform.RunUnderRosetta);
 
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
         process.ErrorDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
@@ -1849,43 +1917,64 @@ partial class Build
             Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
         }
 
-        ReportRuntimeTestResult(result, "macOS", jsonlResults);
+        ReportRuntimeTestResult(result, platform.RunUnderRosetta ? "macOS x64" : "macOS", jsonlResults);
     }
 
-    void RunOnCatalyst()
+    // Builds the ProcessStartInfo to launch a host test exe, optionally wrapping
+    // it in `arch -x86_64` so the Mono-x86_64 slice runs under Rosetta on an
+    // Apple Silicon host. ArgumentList (not a flat Arguments string) keeps paths
+    // with spaces correct across both the direct and Rosetta-wrapped forms.
+    static ProcessStartInfo BuildHostLaunchStartInfo(AbsolutePath exe, List<string> args, bool underRosetta)
     {
-        Log.Information("--- Running on Mac Catalyst ---");
+        var psi = new ProcessStartInfo
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        if (underRosetta)
+        {
+            psi.FileName = "arch";
+            psi.ArgumentList.Add("-x86_64");
+            psi.ArgumentList.Add(exe.ToString());
+        }
+        else
+        {
+            psi.FileName = exe;
+        }
+        foreach (var a in args)
+            psi.ArgumentList.Add(a);
+        return psi;
+    }
+
+    void RunOnCatalyst(ApplePlatform platform)
+    {
+        Log.Information("--- Running on {Label} ---", platform.RunUnderRosetta ? "Mac Catalyst x64 (Rosetta)" : "Mac Catalyst");
 
         // Catalyst uses --platform simulator (Mono JIT mode, same as macOS).
         // Pass --results-path so JSONL is written outside the .app bundle.
-        var catalystResultsDir = (AbsolutePath)Path.GetTempPath() / "swift-bindings-catalyst-results";
+        var catalystResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-catalyst-results-{platform.Rid}";
         Directory.CreateDirectory(catalystResultsDir);
         // Remove stale JSONL from previous runs so a crash doesn't report old results.
         var staleJsonl = catalystResultsDir / "test-results.jsonl";
         if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
-        var launchArgs = $"--platform simulator --results-path \"{catalystResultsDir}\"";
-        if (FlakeDetect) launchArgs += " --flake-detect";
-        if (Lifetime) launchArgs += " --lifetime";
-        if (!string.IsNullOrEmpty(ClassFilter)) launchArgs += $" --class {ClassFilter}";
+        var argList = new List<string> { "--platform", "simulator", "--results-path", catalystResultsDir.ToString() };
+        if (FlakeDetect) argList.Add("--flake-detect");
+        if (Lifetime) argList.Add("--lifetime");
+        if (!string.IsNullOrEmpty(ClassFilter)) { argList.Add("--class"); argList.Add(ClassFilter); }
 
-        Log.Information("Launching RuntimeTestsApp.MacCatalyst (timeout: {Timeout}s)...", Timeout);
+        Log.Information("Launching RuntimeTestsApp.MacCatalyst{Mode} (timeout: {Timeout}s)...",
+            platform.RunUnderRosetta ? " under Rosetta (arch -x86_64)" : "", Timeout);
 
         var output = new ConcurrentQueue<string>();
         using var process = new Process();
         // net10.0-maccatalyst produces a .app bundle — launch the native executable
         // directly instead of `dotnet run`.
         var catalystExe = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / "bin" / "Debug" /
-            $"{DotNetTfm}-maccatalyst" / "maccatalyst-arm64" / "RuntimeTestsApp.MacCatalyst.app" /
+            $"{DotNetTfm}-maccatalyst" / platform.Rid! / "RuntimeTestsApp.MacCatalyst.app" /
             "Contents" / "MacOS" / "RuntimeTestsApp.MacCatalyst";
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = catalystExe,
-            Arguments = launchArgs,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        process.StartInfo = BuildHostLaunchStartInfo(catalystExe, argList, platform.RunUnderRosetta);
 
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
         process.ErrorDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
@@ -1947,7 +2036,7 @@ partial class Build
             Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
         }
 
-        ReportRuntimeTestResult(result, "Mac Catalyst", jsonlResults);
+        ReportRuntimeTestResult(result, platform.RunUnderRosetta ? "Mac Catalyst x64" : "Mac Catalyst", jsonlResults);
     }
 
     // ============================================================
@@ -2132,7 +2221,9 @@ partial class Build
             "simulator" => "simulator",
             "device/nativeaot" or "device" => "device",
             "macos" => "macos",
+            "macos x64" => "macos_x64",
             "mac catalyst" => "maccatalyst",
+            "mac catalyst x64" => "maccatalyst_x64",
             "tvos simulator" => "tvos_simulator",
             _ => null
         };
@@ -2148,7 +2239,9 @@ partial class Build
             "simulator" => runtimeBaseline.Simulator,
             "device" => runtimeBaseline.Device,
             "macos" => runtimeBaseline.MacOS,
+            "macos_x64" => runtimeBaseline.MacOSX64,
             "maccatalyst" => runtimeBaseline.MacCatalyst,
+            "maccatalyst_x64" => runtimeBaseline.MacCatalystX64,
             "tvos_simulator" => runtimeBaseline.TvOSSimulator,
             _ => null,
         };
@@ -2199,7 +2292,9 @@ partial class Build
                     "simulator" => runtimeBaseline with { Simulator = newCounts },
                     "device" => runtimeBaseline with { Device = newCounts },
                     "macos" => runtimeBaseline with { MacOS = newCounts },
+                    "macos_x64" => runtimeBaseline with { MacOSX64 = newCounts },
                     "maccatalyst" => runtimeBaseline with { MacCatalyst = newCounts },
+                    "maccatalyst_x64" => runtimeBaseline with { MacCatalystX64 = newCounts },
                     "tvos_simulator" => runtimeBaseline with { TvOSSimulator = newCounts },
                     _ => runtimeBaseline,
                 };
@@ -2542,7 +2637,10 @@ partial class Build
                 var dest = depSwiftDir / Path.GetFileName(swiftFile);
                 File.Copy(swiftFile, dest, overwrite: true);
             }
-            foreach (var asmFile in Directory.GetFiles(depOutputDir, "*.arm64.s"))
+            // Carry both arm64 and x86_64 thunk assembly (*.s) so the dep wrapper
+            // can be rebuilt for either CPU arch — the device rebuild needs the
+            // arm64 thunks, the Rosetta/x64 cells need the x86_64 ones.
+            foreach (var asmFile in Directory.GetFiles(depOutputDir, "*.s"))
             {
                 var dest = depSwiftDir / Path.GetFileName(asmFile);
                 File.Copy(asmFile, dest, overwrite: true);
@@ -2576,10 +2674,14 @@ partial class Build
     /// (SwiftBindingsTestLib, dependency, async wrapper). This function injects
     /// the runtime dylib and dependency wrapper which don't have NativeReference.
     /// </summary>
-    void InjectMacOSNativeLibraries(AbsolutePath outputBin)
+    void InjectMacOSNativeLibraries(AbsolutePath outputBin, ApplePlatform? platformOverride = null)
     {
+        var platform = platformOverride ?? ApplePlatform.MacOS;
+        // The macos runtime dylib is universal (arm64 + x86_64), so both the arm64
+        // and Rosetta/x64 cells load the same file; only the dep-wrapper slice id
+        // is arch-specific (macos-arm64 vs macos-x86_64).
         InjectRuntimeDylib(outputBin, nativeSubdir: "macos");
-        InjectDependencyWrapper(outputBin, platformOverride: ApplePlatform.MacOS);
+        InjectDependencyWrapper(outputBin, platformOverride: platform);
     }
 
     /// <summary>
@@ -2587,15 +2689,35 @@ partial class Build
     /// Same pattern as macOS: NativeReference handles xcframeworks, this injects
     /// the runtime dylib and dependency wrapper.
     /// </summary>
-    void InjectCatalystNativeLibraries(AbsolutePath outputBin)
+    void InjectCatalystNativeLibraries(AbsolutePath outputBin, ApplePlatform? platformOverride = null)
     {
+        var platform = platformOverride ?? ApplePlatform.MacCatalyst;
+        // The maccatalyst runtime dylib is universal (arm64 + x86_64); the
+        // dep-wrapper slice id is arch-specific (ios-arm64-maccatalyst vs
+        // ios-x86_64-maccatalyst).
         InjectRuntimeDylib(outputBin, nativeSubdir: "maccatalyst");
-        InjectDependencyWrapper(outputBin, platformOverride: ApplePlatform.MacCatalyst);
+        InjectDependencyWrapper(outputBin, platformOverride: platform);
     }
 
     // ============================================================
     // macOS Code Signing
     // ============================================================
+
+    /// <summary>
+    /// Ensures <paramref name="binary"/> carries an <c>LC_RPATH</c> for
+    /// <paramref name="rpath"/>, adding it with <c>install_name_tool</c> when absent.
+    /// Idempotent because <c>install_name_tool -add_rpath</c> hard-fails on a duplicate:
+    /// we read the existing load commands first and skip if the rpath is already present.
+    /// </summary>
+    void AddRpathIfMissing(AbsolutePath binary, string rpath)
+    {
+        var loadCommands = XcRunTool($"otool -l \"{binary}\"", logOutput: false);
+        if (loadCommands.Any(o => o.Text.Contains($"path {rpath} (offset", StringComparison.Ordinal)))
+            return;
+
+        XcRunTool($"install_name_tool -add_rpath {rpath} \"{binary}\"");
+        Log.Information("Added LC_RPATH {Rpath} to {Binary}", rpath, binary.Name);
+    }
 
     /// <summary>
     /// Re-signs the macOS .app bundle after native library injection.

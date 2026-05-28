@@ -25,4 +25,5 @@ public record TestMethodDescriptor(
     Func<TestBase, ValueTask> Invoker,
     string? Skip,
     string? SkipOnSim,
-    string? SkipOnDevice);
+    string? SkipOnDevice,
+    string? SkipOnCatalystX64 = null);

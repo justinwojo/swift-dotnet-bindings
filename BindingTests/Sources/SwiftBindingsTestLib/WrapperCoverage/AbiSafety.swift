@@ -166,3 +166,77 @@ public struct FlexibleConfig {
         return "\(name): retries=\(retryCount)"
     }
 }
+
+// MARK: - Register-Spill Free Function (x86_64 thunk symmetry → @_cdecl fallback)
+
+/// Free function taking SEVEN Int parameters. On arm64 the eight AAPCS64 integer argument registers
+/// (x0–x7) hold all seven, so a native thunk can bridge the call; on x86_64 SysV there are only six
+/// integer argument registers (rdi, rsi, rdx, rcx, r8, r9), so the seventh would spill to the stack
+/// and the x86_64 thunk declines. Because the generated C# imports a single architecture-neutral
+/// thunk symbol, the generator must NOT emit an arm64-only thunk here — it falls the whole method
+/// back to the @_cdecl wrapper, which is correct on both architectures. The value round-trip proves
+/// the wrapper path resolves (no missing-symbol EntryPointNotFound on the x86_64 slice under Rosetta).
+public func sumSevenInts(_ a: Int, _ b: Int, _ c: Int, _ d: Int, _ e: Int, _ f: Int, _ g: Int) -> Int {
+    return a + b + c + d + e + f + g
+}
+
+// MARK: - sret + SwiftSelf combination probe (direct CallConvSwift register shape)
+
+/// Frozen struct whose MUTATING method returns another large value INDIRECTLY (SwiftIndirectResult /
+/// sret) while taking `self` by `inout` (a pointer in the swiftcc self register) plus two explicit
+/// integer arguments. This is the minimal NON-GENERIC reproduction of the exact register shape used
+/// by `Swift.stdlib`'s `Dictionary.updateValue(_:forKey:)` — sret in the indirect-result register,
+/// integer arguments in the first GPRs, and a self pointer in the self register — combining
+/// SwiftIndirectResult AND SwiftSelf in one direct `CallConvSwift` call. `SretSelfProbeTests`
+/// hand-marshals a raw `CallConvSwift` P/Invoke against this symbol (no stdlib generics, metadata, or
+/// value-witness tables involved) to isolate the calling-convention trampoline from every higher
+/// layer. The `@_cdecl` control below performs the identical computation across a plain C ABI.
+///
+/// FIVE Int fields (40 bytes) are required: under x86_64 swiftcc an all-integer aggregate of up to
+/// four eightbytes is returned DIRECTLY in registers (rax/rdx/rcx/r8), so a smaller struct would not
+/// exercise the indirect-result register at all. At 40 bytes the return is classified indirect — the
+/// `combine` body writes its result through the sret pointer in %rax while `self` arrives in %r13 and
+/// `x`/`y` in %rdi/%rsi (verified by disassembly).
+@frozen
+public struct SretSelfProbe {
+    public var a: Int
+    public var b: Int
+    public var c: Int
+    public var d: Int
+    public var e: Int
+
+    public init(a: Int, b: Int, c: Int, d: Int, e: Int) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.e = e
+    }
+
+    /// inout self (pointer in the self register) + two integer args + 40-byte indirect (sret) return.
+    public mutating func combine(_ x: Int, _ y: Int) -> SretSelfProbe {
+        a &+= x
+        b &+= y
+        c &+= x &+ y
+        d &+= x
+        e &+= y
+        return SretSelfProbe(a: a, b: b, c: c, d: d, e: e)
+    }
+}
+
+/// Plain C ABI control for `SretSelfProbe.combine`: self via an `inout` pointer, the two integer args
+/// by value, and the result written through an out pointer — none of which travels in the swiftcc
+/// indirect-result or self registers at the managed boundary. If the direct `CallConvSwift` probe
+/// crashes while this passes on the same target, the fault is the calling-convention trampoline, not
+/// the Swift method or the marshalling.
+@_cdecl("sbw_sretselfprobe_combine_cdecl")
+public func sbw_sretselfprobe_combine_cdecl(
+    _ selfPtr: UnsafeMutableRawPointer,
+    _ x: Int,
+    _ y: Int,
+    _ outResult: UnsafeMutableRawPointer
+) {
+    let selfBound = selfPtr.assumingMemoryBound(to: SretSelfProbe.self)
+    let result = selfBound.pointee.combine(x, y)
+    outResult.assumingMemoryBound(to: SretSelfProbe.self).initialize(to: result)
+}

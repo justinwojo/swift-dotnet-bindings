@@ -132,6 +132,14 @@
           "type": "boolean",
           "description": "Run on Mac Catalyst"
         },
+        "CatalystX64": {
+          "type": "boolean",
+          "description": "Run on Mac Catalyst for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)"
+        },
+        "CatalystX64Jit": {
+          "type": "boolean",
+          "description": "Force the Mono JIT on Catalyst-x64 (default is interpreter). Expect crashes — used to verify upstream JIT fixes"
+        },
         "ClassFilter": {
           "type": "string",
           "description": "Run only one test class"
@@ -224,6 +232,10 @@
         "Macos": {
           "type": "boolean",
           "description": "Run on macOS"
+        },
+        "MacosX64": {
+          "type": "boolean",
+          "description": "Run on macOS for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)"
         },
         "NuGetApiKey": {
           "type": "string",

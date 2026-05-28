@@ -2,7 +2,12 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-maccatalyst</TargetFramework>
-    <RuntimeIdentifier>maccatalyst-arm64</RuntimeIdentifier>
+    <!-- Default to arm64; the Nuke binding-tests target passes maccatalyst-x64 (a
+         global property that wins over this) for the Rosetta/x64 cell. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">maccatalyst-arm64</RuntimeIdentifier>
+    <!-- Wrapper xcframework slice id this RID consumes. Overridden to
+         ios-x86_64-maccatalyst by the x64 cell. Gates the wrapper NativeReference. -->
+    <BtNativeWrapperSlice Condition="'$(BtNativeWrapperSlice)' == ''">ios-arm64-maccatalyst</BtNativeWrapperSlice>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -15,8 +20,10 @@
     <!-- Disable build-time codesign: native dylibs are injected post-build by the
          Nuke target. The Nuke target re-signs the bundle bottom-up after injection. -->
     <EnableCodeSigning>false</EnableCodeSigning>
-    <!-- Same warning suppressions as RuntimeTestsApp -->
-    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
+    <!-- Same warning suppressions as RuntimeTestsApp. CA1418: 'visionos' is
+         missing from the .NET 10.0.107 analyzer's KnownPlatforms list on this
+         TFM, so the generated [SupportedOSPlatform("visionos1.0")] trips it. -->
+    <NoWarn>CS0169;CS0649;SB0001;SB0002;CA1418;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104</NoWarn>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
@@ -114,7 +121,7 @@
 
   <ItemGroup>
     <NativeReference Include="../output/SwiftBindings.xcframework"
-                     Condition="Exists('../output/SwiftBindings.xcframework/ios-arm64-maccatalyst')">
+                     Condition="Exists('../output/SwiftBindings.xcframework/$(BtNativeWrapperSlice)')">
       <Kind>Framework</Kind>
     </NativeReference>
   </ItemGroup>

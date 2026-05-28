@@ -52,8 +52,17 @@ public record ValidationBaseline
         [JsonPropertyName("macos")]
         public RuntimeTestsPlatformCounts? MacOS { get; init; }
 
+        // Intel/x86_64 macOS-workload cell (run under Rosetta). Tracked separately
+        // from the arm64 "macos" key so the auto-update on a green run never
+        // overwrites the arm64 floor with the x64 count (or vice versa).
+        [JsonPropertyName("macos_x64")]
+        public RuntimeTestsPlatformCounts? MacOSX64 { get; init; }
+
         [JsonPropertyName("maccatalyst")]
         public RuntimeTestsPlatformCounts? MacCatalyst { get; init; }
+
+        [JsonPropertyName("maccatalyst_x64")]
+        public RuntimeTestsPlatformCounts? MacCatalystX64 { get; init; }
 
         [JsonPropertyName("tvos_simulator")]
         public RuntimeTestsPlatformCounts? TvOSSimulator { get; init; }

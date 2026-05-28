@@ -568,9 +568,12 @@ partial class Build
             return true;
         }
 
-        // Compile native ARM64 thunk assembly files (if any)
+        // Compile the native thunk assembly files for this platform's CPU arch.
+        // The generator emits both {ns}.arm64.s and {ns}.x86_64.s; pick the set
+        // matching SliceArchitecture so the x86_64 cells compile the SysV thunks
+        // and the arm64 cells compile the AAPCS64 ones, each with its own triple.
         var thunkObjects = new List<string>();
-        foreach (var asmFile in Directory.GetFiles(outputDir, "*.arm64.s"))
+        foreach (var asmFile in Directory.GetFiles(outputDir, $"*.{platform.SliceArchitecture}.s"))
         {
             var objFile = Path.ChangeExtension(asmFile, ".o");
             XcRunTool($"clang -c {asmFile} -o {objFile} -target {platform.SimulatorTarget}");
@@ -823,14 +826,16 @@ partial class Build
             }
 
             // Runtime gate: default to --sim when no platform flag is set.
-            var anyPlatform = Sim || Device || Macos || Catalyst || Tvos;
+            var anyPlatform = Sim || Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos;
             var runSim = Sim || !anyPlatform;
 
-            if (runSim)   RunSimulatorPlatform();
-            if (Device)   RunDevicePlatform();
-            if (Macos)    RunMacOSPlatform();
-            if (Catalyst) RunCatalystPlatform();
-            if (Tvos)     RunTvOSSimulatorPlatform();
+            if (runSim)     RunSimulatorPlatform();
+            if (Device)     RunDevicePlatform();
+            if (Macos)      RunMacOSPlatform();
+            if (MacosX64)   RunMacOSPlatform(ApplePlatform.MacOSX64);
+            if (Catalyst)   RunCatalystPlatform();
+            if (CatalystX64) RunCatalystPlatform(ApplePlatform.MacCatalystX64);
+            if (Tvos)       RunTvOSSimulatorPlatform();
         });
 
     // ValidateBlastRadius runs the blast-radius smoke script and fails the build if any of
@@ -981,7 +986,7 @@ partial class Build
                         <string>{moduleName}.framework</string>
                         <key>SupportedArchitectures</key>
                         <array>
-                            <string>arm64</string>
+                            <string>{platform.SliceArchitecture}</string>
                         </array>
                         <key>SupportedPlatform</key>
                         <string>{platform.SupportedPlatform}</string>{variantXml}
