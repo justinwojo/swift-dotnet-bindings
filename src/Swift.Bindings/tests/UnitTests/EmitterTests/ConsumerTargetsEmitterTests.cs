@@ -564,6 +564,152 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region G. MacCatalyst-x64 Mono Interpreter Auto-Workaround (upstream-issue-04)
+
+    public class ConsumerTargetsMacCatalystX64WorkaroundTests
+    {
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_PropertyGroupPresent()
+        {
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var content = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.Contains("'$(RuntimeIdentifier)' == 'maccatalyst-x64'", content);
+                Assert.Contains("MtouchInterpreter", content);
+                Assert.Contains("UseInterpreter", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_HasOptOutGate()
+        {
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var content = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.Contains("SwiftBindingsMacCatalystX64UseJit", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_RespectsConsumerOverride()
+        {
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var content = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.Contains("<MtouchInterpreter Condition=\"'$(MtouchInterpreter)' == ''\">all</MtouchInterpreter>", content);
+                Assert.Contains("<UseInterpreter Condition=\"'$(UseInterpreter)' == ''\">true</UseInterpreter>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_AnnounceMessagePresent()
+        {
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var content = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.Contains("_SwiftBindingsAnnounceMacCatalystX64Workaround", content);
+                Assert.Contains("Importance=\"high\"", content);
+                Assert.Contains("upstream-issue-04", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_AnnouncementIsAccurate_NotMisleading()
+        {
+            // The message must not claim we *forced* MtouchInterpreter / UseInterpreter
+            // to specific values — the inner Condition guards make the assignments
+            // default-only, so a consumer who pre-set UseInterpreter=false keeps their
+            // value, and a "forcing UseInterpreter=true" message would be a lie.
+            // Instead it must describe the action as defaulting and expand the live
+            // values so the build log shows what the consumer actually ended up with.
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var content = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.DoesNotContain("forcing Mono interpreter", content);
+                Assert.Contains("defaults MtouchInterpreter and UseInterpreter", content);
+                Assert.Contains("$(MtouchInterpreter)", content);
+                Assert.Contains("$(UseInterpreter)", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_AnnouncementPointsAtPublicDocs()
+        {
+            // The message must include a pointer the end-user can actually follow.
+            // The source-tree path lives in a comment; the user-facing Text needs the wiki URL.
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var content = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.Contains("https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations", content);
+                // The wiki URL must appear inside the <Message Text="..."> attribute, not just in a comment.
+                var messageIdx = content.IndexOf("_SwiftBindingsAnnounceMacCatalystX64Workaround", StringComparison.Ordinal);
+                Assert.True(messageIdx > 0);
+                var afterTarget = content[messageIdx..];
+                Assert.Contains("https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations", afterTarget);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_AnnounceIdempotencyGuardShared()
+        {
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                var contentA = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                var contentB = ConsumerTargetsTestHelper.EmitAndRead(
+                    dir, "Lottie", "Lottie.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                Assert.Contains("_SwiftBindingsMacCatalystX64WorkaroundAnnounced", contentA);
+                Assert.Contains("_SwiftBindingsMacCatalystX64WorkaroundAnnounced", contentB);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Emit_MacCatalystX64Workaround_AppliesToProjectReferenceTargets()
+        {
+            // The workaround must also ship in the .ProjectReference.targets file
+            // used by local <ProjectReference> consumers; if it only lived in the
+            // nupkg buildTransitive .targets, local-dev PR workflows on maccatalyst-x64
+            // would silently get the crashing JIT path.
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                ConsumerTargetsTestHelper.EmitTargets(
+                    dir, "Nuke", "Nuke.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                var projRefPath = Path.Combine(dir, "Nuke.Swift.MacCatalyst.ProjectReference.targets");
+                Assert.True(File.Exists(projRefPath));
+                var content = File.ReadAllText(projRefPath);
+                Assert.Contains("'$(RuntimeIdentifier)' == 'maccatalyst-x64'", content);
+                Assert.Contains("SwiftBindingsMacCatalystX64UseJit", content);
+                Assert.Contains("_SwiftBindingsAnnounceMacCatalystX64Workaround", content);
+                Assert.Contains("<MtouchInterpreter Condition=\"'$(MtouchInterpreter)' == ''\">all</MtouchInterpreter>", content);
+                Assert.Contains("<UseInterpreter Condition=\"'$(UseInterpreter)' == ''\">true</UseInterpreter>", content);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+    }
+
+    #endregion
+
     #region Test Helper
 
     internal static class ConsumerTargetsTestHelper

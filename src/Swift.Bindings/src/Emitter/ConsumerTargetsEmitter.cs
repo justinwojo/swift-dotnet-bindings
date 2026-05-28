@@ -41,6 +41,40 @@ namespace BindingsGeneration
     /// </summary>
     public static class ConsumerTargetsEmitter
     {
+        // The maccatalyst-x64 Mono JIT instability workaround (upstream-issue-04).
+        // Injected into both the nupkg buildTransitive .targets and the local
+        // .ProjectReference.targets so PR-based local development is also covered.
+        // The <Message> shows the consumer-visible current values of MtouchInterpreter
+        // and UseInterpreter; if a consumer pre-set either, the default-only inner
+        // conditions leave their value intact and the message still reads truthfully.
+        internal const string MacCatalystX64Workaround = """
+                  <!-- maccatalyst-x64 Mono JIT instability workaround (upstream-issue-04).
+                       The Mono x64 workload runtime that ships with Microsoft.iOS.Sdk has
+                       four confirmed deterministic JIT crash classes during Swift interop
+                       on maccatalyst-x64 (not present on osx-x64, maccatalyst-arm64, or
+                       any other RID). Defaulting to the Mono interpreter bypasses all
+                       four because each lives in the JIT subsystem.
+                       Tracked at: src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md
+                       Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
+                       Opt out (to probe an upstream Mono fix):
+                         <SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit> -->
+                  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'maccatalyst-x64' AND '$(SwiftBindingsMacCatalystX64UseJit)' != 'true'">
+                    <MtouchInterpreter Condition="'$(MtouchInterpreter)' == ''">all</MtouchInterpreter>
+                    <UseInterpreter Condition="'$(UseInterpreter)' == ''">true</UseInterpreter>
+                  </PropertyGroup>
+                  <Target Name="_SwiftBindingsAnnounceMacCatalystX64Workaround"
+                          BeforeTargets="Build"
+                          Condition="'$(RuntimeIdentifier)' == 'maccatalyst-x64'
+                                     AND '$(SwiftBindingsMacCatalystX64UseJit)' != 'true'
+                                     AND '$(_SwiftBindingsMacCatalystX64WorkaroundAnnounced)' != 'true'">
+                    <PropertyGroup>
+                      <_SwiftBindingsMacCatalystX64WorkaroundAnnounced>true</_SwiftBindingsMacCatalystX64WorkaroundAnnounced>
+                    </PropertyGroup>
+                    <Message Importance="high"
+                             Text="SwiftBindings: maccatalyst-x64 defaults MtouchInterpreter and UseInterpreter to interpreter mode (current: MtouchInterpreter='$(MtouchInterpreter)', UseInterpreter='$(UseInterpreter)') — the Mono x64 JIT has four confirmed crash classes on this RID (upstream-issue-04). Docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations. Set &lt;SwiftBindingsMacCatalystX64UseJit&gt;true&lt;/SwiftBindingsMacCatalystX64UseJit&gt; to opt back into the JIT path (will crash until upstream fix lands)." />
+                  </Target>
+            """;
+
         /// <summary>
         /// Emits a {PackageId}.targets file into the output directory.
         /// This file is packaged into buildTransitive/{tfm}/ in the NuGet (e.g. net10.0-ios, net10.0-macos).
@@ -106,6 +140,8 @@ namespace BindingsGeneration
                   <PropertyGroup Condition="'$(SwiftBindingsInteropMode)' == 'Direct'">
                     <NoWarn>$(NoWarn);SB0001</NoWarn>
                   </PropertyGroup>
+
+                {MacCatalystX64Workaround}
 
                   <!-- Idempotency guard: prevents duplicate injection when multiple projects reference the same package -->
                   <Target Name="_Resolve{sanitized}NativeReferences"
@@ -230,6 +266,8 @@ namespace BindingsGeneration
                        The NativeReference items are inside a Target (not a static ItemGroup) to ensure
                        the Exists() conditions evaluate AFTER the library project builds — on a clean build,
                        the wrapper xcframework doesn't exist at MSBuild evaluation time. -->
+
+                {MacCatalystX64Workaround}
 
                   <!-- Idempotency guard -->
                   <Target Name="_ResolveLocal{sanitized}NativeReferences"

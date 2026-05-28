@@ -1260,6 +1260,12 @@ partial class Build
                         b = b
                             .SetProperty("MtouchInterpreter", "all")
                             .SetProperty("UseInterpreter", "true");
+                    else if (platform == ApplePlatform.MacCatalystX64)
+                        // --catalyst-x64-jit: override the SDK's auto-applied
+                        // maccatalyst-x64 interpreter workaround so the JIT path
+                        // is actually exercised (consumer .targets default to
+                        // interpreter for end-user safety per upstream-issue-04).
+                        b = b.SetProperty("SwiftBindingsMacCatalystX64UseJit", "true");
                     return b;
                 });
 

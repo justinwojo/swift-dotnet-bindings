@@ -66,6 +66,8 @@ The final row is the key resolution: switching the maccatalyst-x64 app to the Mo
 
 For our local gate, the maccatalyst-x64 cell **defaults to Mono interpreter mode** (`MtouchInterpreter=all` + `UseInterpreter=true`), set automatically by the nuke `binding-tests` target when `--catalyst-x64` is selected. The `--catalyst-x64-jit` flag opts back into the JIT path for future upstream-fix verification (expect crashes until upstream lands fixes). The `.validation-baseline.json` `maccatalyst_x64` entry now ratchets to `pass=1917, fail=0, skip=47, crash=0`.
 
+For **end-user consumers** of a SwiftBindings binding nupkg, the same workaround is applied automatically by the SDK: the consumer `.targets` file packed into every binding nupkg (`buildTransitive/<tfm>/<PackageId>.targets`) contains a `PropertyGroup` conditioned on `RuntimeIdentifier == maccatalyst-x64` that defaults `MtouchInterpreter=all` and `UseInterpreter=true` (only when the consumer hasn't already set them) plus a build-time `<Message Importance="high">` so the consumer sees the workaround applied and a pointer to this doc. The opt-out is `<SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit>`, which exists for upstream-fix verification once Mono lands the JIT fixes. Implementation in `src/Swift.Bindings/src/Emitter/ConsumerTargetsEmitter.cs` (XCFramework mode) and `src/Swift.Bindings.Sdk/Sdk/Sdk.targets:_SynthesizeAppleFrameworkConsumerTargets` (Apple-framework mode). Unit coverage in `ConsumerTargetsEmitterTests.ConsumerTargetsMacCatalystX64WorkaroundTests`.
+
 Defensive workarounds left in tree (helpful for future `--catalyst-x64-jit` probes and a no-op under interpreter):
 
 - `SwiftMarshal.ThrowSwiftError` (`src/Swift.Runtime/.../InteropServices/SwiftMarshal.cs`) releases the Swift error pointer **before** the managed `throw new SwiftException(...)` rather than via a `finally` wrapping the throw. Avoids the "throw inside try/finally with a P/Invoke in the cleanup block" shape, which is fragile under any Mono x64 unwinder.
@@ -87,6 +89,46 @@ Without `BasicSyncThrowProbeTests`, the same `BasicThrowingTests.TestDivideByZer
 **Expected behavior:**
 
 `net10.0-maccatalyst` running under Rosetta on Apple Silicon should behave identically to `net10.0-macos` running under Rosetta on Apple Silicon for the same managed code and the same native interop dylibs.
+
+## Class 2 generator-side investigation (outcome: no fix found)
+
+Per the project rule that *all* runtime crashes are our bug until proven otherwise, crash class 2 (`DefaultedAsyncRoster.AppendOrThrowAsync(source, shouldThrow)` — the 2-arg trim overload of an async-throwing instance method) was re-examined as a candidate generator/emitter defect on 2026-05-28. This section captures the diff that was investigated and ruled out, so the same ground does not have to be re-covered.
+
+**Three variants on the same fixture** (`BindingTests/Sources/SwiftBindingsTestLib/Async/AsyncGenericSequence.swift:122` — `appendOrThrowAsync<S: Sequence>(contentsOf: S, shouldThrow: Bool, options: Set<Int> = [], tag: Int = 17) async throws where S.Element: Animal`):
+
+| Variant | C# signature | Swift `@_cdecl` entry point | Result on `--catalyst-x64-jit` |
+|---|---|---|---|
+| Primary (no trim) | `AppendOrThrowAsync(source, shouldThrow, options, tag, ct)` | `SBW_CSM_…appendOrThrowAsync_2AD86145_async` | passes |
+| Trim, no-throws sibling | `AppendAsync(source, ct)` | `SBW_…appendAsync_BE22839D_async` | passes |
+| **Trim, throws (crashing)** | `AppendOrThrowAsync(source, shouldThrow, ct)` | `SBW_…appendOrThrowAsync_F4F01506_async` | **SIGSEGV** in JITted callback |
+
+The crashing trim and the two passing variants share the exact same emission machinery:
+
+- `DefaultParameterOverloadEmitter` synthesizes the trim `MethodDecl` and delegates async wrapper emission to `WrapperEmitter.EmitMethod` → `AsyncHarnessEmitter.EmitAsyncWrapper` (the same path the no-throws trim uses).
+- `ConcreteProtocolSpecializationEmitter.Async` produces the per-conformer CSM specialization upstream of the trim; the trim itself bottoms out in the unspecialized async harness template (`WrapperEmitter.Async.cs`).
+- The Swift `@_cdecl` wrapper for the crashing trim has the same 6-parameter shape as the passing trim plus a single `Int8` for `shouldThrow` and a `_SBW_dispatchSwiftError_…` catch in place of the no-throws path — i.e. the same shape the async harness template emits for any `async throws`.
+
+**Specific structural properties confirmed identical to the passing variants:**
+
+- C# P/Invoke uses `CallConvCdecl` (not `CallConvSwift`); param count and order match the Swift `@_cdecl` wrapper one-for-one.
+- `bool shouldThrow` is marshalled as `[MarshalAs(UnmanagedType.U1)]` on the C# side, declared as `Int8` on the Swift side — same convention the primary uses.
+- Callback / error-callback statics are `delegate* unmanaged[Cdecl]<…>` with `[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]` thunks (same shape as the passing variants).
+- TCS handoff via `GCHandle.Alloc(holder, GCHandleType.Normal)` → `GCHandle.FromIntPtr(handle)` in the callback, identical lifetime/cleanup loop including `CancellationRegistrationHolder` disposal.
+- `RunContinuationsAsynchronously` flag, `Task` (not `ValueTask`) return shape, holder array layout, deferred-dispose list — all match.
+- Hash suffixes (`F4F01506` for cdecl symbol, `D75380D5` for callback statics) are derived deterministically from the trim `overloadDecl.MangledName`; the C# `s_*` field names reference the same hash the `[LibraryImport]` EntryPoint string uses, so there is no name/symbol mismatch.
+
+**Only emitter-side oddity surfaced:**
+
+`DefaultParameterOverloadEmitter` emits an unused `_dbw_` `@_silgen_name` shim per async trim (`DefaultParameterOverloadEmitter.cs:622`-ish, gated on `!overloadDecl.IsAsync` only for the *cdecl method wrapper* path, not for the silgen-wrapper path). The async harness never calls this shim — it `@_cdecl`s the real Swift method directly. This is dead code in the emitted Swift wrapper, not a crash source: no symbol the runtime resolves points at it, and removing it would not change either passing variant's behavior or the crashing variant's behavior.
+
+**Why this is confirmed upstream, not a generator bug:**
+
+- The trim throws emission path is *strictly equal* in shape to two paths that pass on the same RID under the same JIT (the no-throws trim and the throws primary).
+- The same generated assembly (identical C# IL, identical native `@_cdecl` dylib symbols) **passes** on `osx-x64` under the same Rosetta layer and same Mono x64 workload bits — only the `net10.0-maccatalyst` runtime path differs.
+- Two independent reviewers (Codex, Grok) re-traced the entire emission chain (Parser → TypeDatabase → AsyncHarnessEmitter → WrapperEmitter.Async → PInvokeEmitter → NameProvider hashing) and converged on the same conclusion: no calling-convention divergence, no parameter-shape divergence, no symbol/hash mismatch, no special-case logic in the trim async-throws emitter that would explain a fault only on this combination.
+- The fault site (`cmp [rax], al` with `rax` ≈ near-null) is in JITted code on the C# side, not in the Swift wrapper — consistent with the broader class 1/3/4 pattern of Mono JIT codegen / metadata bugs specific to the Catalyst x64 runtime build.
+
+The interpreter workaround (`MtouchInterpreter=all`, auto-applied by the SDK for `RuntimeIdentifier == maccatalyst-x64` consumers) remains the answer for class 2. The upstream filing remains the durable resolution; this section exists so the next reader does not redo the generator-side audit.
 
 ## Next steps for filing
 

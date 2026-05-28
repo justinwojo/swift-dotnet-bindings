@@ -2255,6 +2255,26 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
   &lt;PropertyGroup Condition=&quot;'\%24(SwiftBindingsInteropMode)' == 'Direct'&quot;&gt;
     &lt;NoWarn&gt;\%24(NoWarn);SB0001&lt;/NoWarn&gt;
   &lt;/PropertyGroup&gt;
+  &lt;!-- maccatalyst-x64 Mono JIT instability workaround (upstream-issue-04).
+       Defaults to Mono interpreter — JIT has four confirmed crash classes on this RID.
+       Tracked at: src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md
+       Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
+       Opt out: &lt;SwiftBindingsMacCatalystX64UseJit&gt;true&lt;/SwiftBindingsMacCatalystX64UseJit&gt; --&gt;
+  &lt;PropertyGroup Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64' AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true'&quot;&gt;
+    &lt;MtouchInterpreter Condition=&quot;'\%24(MtouchInterpreter)' == ''&quot;&gt;all&lt;/MtouchInterpreter&gt;
+    &lt;UseInterpreter Condition=&quot;'\%24(UseInterpreter)' == ''&quot;&gt;true&lt;/UseInterpreter&gt;
+  &lt;/PropertyGroup&gt;
+  &lt;Target Name=&quot;_SwiftBindingsAnnounceMacCatalystX64Workaround&quot;
+          BeforeTargets=&quot;Build&quot;
+          Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64'
+                     AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true'
+                     AND '\%24(_SwiftBindingsMacCatalystX64WorkaroundAnnounced)' != 'true'&quot;&gt;
+    &lt;PropertyGroup&gt;
+      &lt;_SwiftBindingsMacCatalystX64WorkaroundAnnounced&gt;true&lt;/_SwiftBindingsMacCatalystX64WorkaroundAnnounced&gt;
+    &lt;/PropertyGroup&gt;
+    &lt;Message Importance=&quot;high&quot;
+             Text=&quot;SwiftBindings: maccatalyst-x64 defaults MtouchInterpreter and UseInterpreter to interpreter mode (current: MtouchInterpreter='\%24(MtouchInterpreter)', UseInterpreter='\%24(UseInterpreter)') — the Mono x64 JIT has four confirmed crash classes on this RID (upstream-issue-04). Docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations. Set &amp;lt;SwiftBindingsMacCatalystX64UseJit&amp;gt;true&amp;lt;/SwiftBindingsMacCatalystX64UseJit&amp;gt; to opt back into the JIT path (will crash until upstream fix lands).&quot; /&gt;
+  &lt;/Target&gt;
   &lt;Target Name=&quot;$(_CT_ResolveTarget)&quot;
           BeforeTargets=&quot;ResolveNativeReferences&quot;
           Condition=&quot;'\%24($(_CT_InjectedProp))' != 'true'&quot;&gt;

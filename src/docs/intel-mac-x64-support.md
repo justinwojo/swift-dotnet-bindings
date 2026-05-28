@@ -275,11 +275,37 @@ SDK / iOS workload bumps can be probed for upstream fixes (expect crashes
 until those fixes land). Other RIDs are unaffected; `--catalyst` (arm64) still
 uses the JIT and remains green at 1909 / 0 / 0.
 
+**Consumer-facing rollout of the interpreter workaround (SDK auto-apply).**
+The interpreter setting initially lived only in the nuke `binding-tests` test
+runner — *our* gate passed, but a downstream consumer building a
+`maccatalyst-x64` app against the published binding nupkg would still default
+to Mono JIT and hit the same four crash classes. Session-3-as-shipped was
+therefore "gate-green but consumer-broken" until the SDK was wired to inject
+the workaround into the consumer's build.
+
+The consumer `.targets` file emitted into every binding nupkg
+(`buildTransitive/<tfm>/<PackageId>.targets`, via `ConsumerTargetsEmitter`
+for XCFramework mode and `_SynthesizeAppleFrameworkConsumerTargets` in
+`Sdk.targets` for Apple-framework mode) now contains a `PropertyGroup`
+conditioned on `RuntimeIdentifier == maccatalyst-x64` that defaults
+`MtouchInterpreter=all` and `UseInterpreter=true` (only when the consumer
+hasn't already set them) plus an idempotent build-time `<Message
+Importance="high">` so the consumer sees the workaround applied and a
+pointer to upstream-issue-04. The opt-out is
+`<SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit>`
+— preserved for upstream-fix verification once Mono lands the JIT fixes.
+
+The nuke `--catalyst-x64-jit` flag now also sets
+`SwiftBindingsMacCatalystX64UseJit=true` so it can actually exercise the JIT
+path (otherwise the SDK auto-apply would force interpreter back on inside
+the test build).
+
 In-tree artifacts from this work:
 
 - **`--catalyst-x64-jit` nuke flag** (`build/Build.RuntimeTests.cs`): opt-out
-  for the implicit interpreter default. Documented as an upstream-fix
-  verification mode, not a routine setting.
+  for the implicit interpreter default. Now also sets
+  `SwiftBindingsMacCatalystX64UseJit=true` to override the SDK auto-apply.
+  Documented as an upstream-fix verification mode, not a routine setting.
 - **`SwiftMarshal.ThrowSwiftError` restructure**: release the Swift error
   pointer BEFORE the managed `throw`. Removes the fragile "throw inside
   try/finally with P/Invoke in cleanup" shape proactively. Helpful on any
