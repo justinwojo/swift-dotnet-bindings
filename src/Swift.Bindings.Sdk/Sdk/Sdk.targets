@@ -235,11 +235,16 @@ done; true"
 
     <!-- Compute swiftinterface slice name.
          Device SDK ships arm64e-apple-ios.swiftinterface;
-         Simulator SDK ships arm64-apple-ios-simulator.swiftinterface. -->
+         Simulator SDK ships arm64-apple-ios-simulator.swiftinterface.
+         For an explicit x86_64-only consumer (Intel iOS/tvOS sim), pin the
+         x86_64-apple-ios-simulator / x86_64-apple-tvos-simulator slice; the
+         arm64-fallback PropertyGroup below covers SDKs that ship only arm64. -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
-      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-ios-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(_SwiftInterfaceSlice)' == ''">arm64-apple-ios-simulator</_SwiftInterfaceSlice>
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64e-apple-ios</_SwiftInterfaceSlice>
-      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-tvos-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(_SwiftInterfaceSlice)' == ''">arm64-apple-tvos-simulator</_SwiftInterfaceSlice>
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64e-apple-tvos</_SwiftInterfaceSlice>
       <!-- macOS / Mac Catalyst: prefer the x86_64 interface slice for an x86_64-only
            (Intel) consumer; arm64e is the default for arm64 and fat builds. The
@@ -282,14 +287,17 @@ done; true"
       <_SwiftAppleFrameworkModulemap>$(_SwiftAppleFrameworkDir)/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>
     </PropertyGroup>
     <!-- x86_64 interface fallback: an Intel consumer selected an x86_64 slice, but
-         this framework ships only the arm64e slice — revert to arm64e (the textual
+         this framework ships only the arm64/arm64e slice — revert to it (the textual
          interface is arch-portable, so it drives the same API surface). Runs after
-         the interface path is resolved so Exists() can probe the real on-disk file. -->
+         the interface path is resolved so Exists() can probe the real on-disk file.
+         iOS/tvOS simulator fall back to arm64-apple-{ios,tvos}-simulator; macOS and
+         Mac Catalyst fall back to arm64e-apple-macos / arm64e-apple-ios-macabi. -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftTargetArchitectures)' == 'x86_64'
-                              AND ('$(_SwiftBindingPlatform)' == 'macos' OR '$(_SwiftBindingPlatform)' == 'maccatalyst')
                               AND !Exists('$(_SwiftAppleFrameworkInterface)')">
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64e-apple-macos</_SwiftInterfaceSlice>
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64e-apple-ios-macabi</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios-simulator</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos-simulator</_SwiftInterfaceSlice>
       <_SwiftAppleFrameworkInterface>$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule/$(_SwiftInterfaceSlice).swiftinterface</_SwiftAppleFrameworkInterface>
     </PropertyGroup>
 
@@ -358,14 +366,20 @@ done; true"
            Text="Cannot resolve platform version for Apple-framework direct mode. Set &lt;SwiftAppleFrameworkPlatformVersion&gt; to the canonical SDK version (e.g. '26.2') or use a versioned TargetFramework (e.g. net10.0-ios26.0)." />
 
     <!-- Compute swift-api-digester target triple. Uses _SwiftEffectiveMinDeploymentVersion
-         so per-platform overrides (MinMacOSVersion/MinIOSVersion/...) flow through. -->
+         so per-platform overrides (MinMacOSVersion/MinIOSVersion/...) flow through.
+         An explicit x86_64 consumer (osx-x64, maccatalyst-x64, iossimulator-x64,
+         tvossimulator-x64) gets an x86_64 triple; arm64 covers everything else. -->
     <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'">
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(_SwiftDigesterTarget)' == ''">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator' AND '$(_SwiftDigesterTarget)' == ''">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_SwiftDigesterTarget>
       <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64-apple-macos$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
-      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-macabi</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-macos$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'macos' AND '$(_SwiftDigesterTarget)' == ''">arm64-apple-macos$(_SwiftEffectiveMinDeploymentVersion)</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-macabi</_SwiftDigesterTarget>
+      <_SwiftDigesterTarget Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst' AND '$(_SwiftDigesterTarget)' == ''">arm64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-macabi</_SwiftDigesterTarget>
 
       <!-- Mac Catalyst: swift-api-digester needs -F for both iOSSupport overlay (UIKit
            etc.) and regular frameworks path (frameworks not in iOSSupport). -->
@@ -708,6 +722,15 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --platform-version $(SwiftAppleFrameworkPlatformVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
+      <!-- Apple direct mode shares the wrapper CPU-arch decision with xcframework mode
+           (constraints.md "Wrapper CPU-arch decision is shared, not per-call-site"). Without
+           this flag the generator falls back to a single arm64 wrapper compile and the resulting
+           xcframework's simulator slice advertises only arm64, so an iossimulator-x64 /
+           tvossimulator-x64 / osx-x64 / maccatalyst-x64 consumer fails NativeReference lookup
+           with "No matching framework found … SupportedArchitectures: x86_64". SwiftTargetArchitectures
+           is already echoed into the Apple fingerprint below, so flipping arm64 ↔ auto ↔ x86_64
+           correctly invalidates _SwiftWrapperSkip. -->
+      <_SwiftGenCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftGenCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'%(SwiftAppleFrameworkTarget.NamespacePattern)' != ''">$(_SwiftGenCmd) --namespace-pattern "%(SwiftAppleFrameworkTarget.NamespacePattern)"</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(SwiftAppleSupplementPrototypeDir)' != ''">$(_SwiftGenCmd) --apple-supplement-prototype-dir "$(SwiftAppleSupplementPrototypeDir)"</_SwiftGenCmd>
@@ -853,6 +876,25 @@ done; true"
       <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)</_AFW_OtherTarget>
       <_AFW_OtherTarget Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_AFW_OtherTarget>
 
+      <!-- When the second slice IS the simulator (device-first config: SwiftPlatformTarget=device),
+           Apple system frameworks ship arm64+x86_64 sim slices, so the wrapper second slice must
+           be fat too — otherwise iossimulator-x64 / tvossimulator-x64 consumers fail
+           NativeReference resolution. The generator already writes both .arm64.s and .x86_64.s
+           thunk sources regardless of platform target, so the second arch is just one more
+           swiftc + clang pass plus a lipo -create. The fat-fold fires whenever the user's wrapper
+           contract covers x86_64 — auto / all / empty (defaults to auto), or an explicit list that
+           includes x86_64 (e.g. arm64,x86_64). A single-arch pin (arm64 alone, or x86_64 alone)
+           pins the wrapper contract on the user's side and skips the fold. -->
+      <_AFW_OtherIsFatSim>false</_AFW_OtherIsFatSim>
+      <_AFW_OtherIsFatSim Condition="('$(_AFW_OtherSdk)' == 'iphonesimulator' OR '$(_AFW_OtherSdk)' == 'appletvsimulator')
+                                     AND ('$(SwiftTargetArchitectures)' == ''
+                                          OR '$(SwiftTargetArchitectures)' == 'auto'
+                                          OR '$(SwiftTargetArchitectures)' == 'all'
+                                          OR $(SwiftTargetArchitectures.Contains('x86_64')))">true</_AFW_OtherIsFatSim>
+
+      <_AFW_OtherSecondTarget Condition="'$(_AFW_OtherIsFatSim)' == 'true' AND '$(_SwiftBindingPlatform)' == 'ios'">x86_64-apple-ios$(_SwiftEffectiveMinDeploymentVersion)-simulator</_AFW_OtherSecondTarget>
+      <_AFW_OtherSecondTarget Condition="'$(_AFW_OtherIsFatSim)' == 'true' AND '$(_SwiftBindingPlatform)' == 'tvos'">x86_64-apple-tvos$(_SwiftEffectiveMinDeploymentVersion)-simulator</_AFW_OtherSecondTarget>
+
       <!-- The slice directory name in the xcframework -->
       <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' == 'simulator'">$(_SwiftBindingDeviceSliceId)</_AFW_OtherSliceId>
       <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' != 'simulator'">$(_SwiftBindingSimulatorSliceId)</_AFW_OtherSliceId>
@@ -886,13 +928,13 @@ done; true"
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_FirstSliceFramework" />
     </Exec>
 
-    <!-- Compile NativeThunk .arm64.s files for the second slice.
+    <!-- Compile NativeThunk thunk files for the second slice.
          The generator's first-slice compile wrote .arm64.o objects for its own
          target (e.g. simulator); reusing them in the device link would embed
          simulator-platform LC_BUILD_VERSION and the symbols would still be
-         missing at device runtime. Rebuild each .arm64.s against the second
-         slice's target triple + SDK, writing to a dedicated subdir so the
-         first-slice .arm64.o files are preserved. Mirrors
+         missing at device runtime. Rebuild each .arm64.s (and .x86_64.s when
+         fat-sim) against the second slice's target triple + SDK, writing to a
+         per-arch subdir so the first-slice .o files are preserved. Mirrors
          NativeThunkCompiler.CompileThunkObjects.
 
          Remove the staging dir before rebuilding so leftovers from a prior
@@ -901,28 +943,69 @@ done; true"
          up by the trailing `find '*.o'` and silently linked into this slice. -->
     <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
       <_AFW_SecondSliceThunkDir>$(_SwiftBindingIntermediateDir)_merge_slices/second/thunks</_AFW_SecondSliceThunkDir>
+      <_AFW_SecondSliceThunkArm64Dir>$(_AFW_SecondSliceThunkDir)/arm64</_AFW_SecondSliceThunkArm64Dir>
+      <_AFW_SecondSliceThunkX64Dir>$(_AFW_SecondSliceThunkDir)/x86_64</_AFW_SecondSliceThunkX64Dir>
     </PropertyGroup>
     <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
                Directories="$(_AFW_SecondSliceThunkDir)" />
     <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
-             Directories="$(_AFW_SecondSliceThunkDir)" />
+             Directories="$(_AFW_SecondSliceThunkArm64Dir)" />
+    <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+             Directories="$(_AFW_SecondSliceThunkX64Dir)" />
+
+    <!-- arm64 thunks (always) -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
-          Command="set -e; for f in `find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.arm64.s'`; do xcrun --sdk $(_AFW_OtherSdk) clang -c &quot;$f&quot; -target $(_AFW_OtherTarget) -isysroot &quot;$(_AFW_OtherSdkPath)&quot; -o &quot;$(_AFW_SecondSliceThunkDir)/`basename &quot;$f&quot; .s`.o&quot;; done; find &quot;$(_AFW_SecondSliceThunkDir)&quot; -maxdepth 1 -name '*.o' | tr '\n' ' '"
+          Command="set -e; for f in `find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.arm64.s'`; do xcrun --sdk $(_AFW_OtherSdk) clang -c &quot;$f&quot; -target $(_AFW_OtherTarget) -isysroot &quot;$(_AFW_OtherSdkPath)&quot; -o &quot;$(_AFW_SecondSliceThunkArm64Dir)/`basename &quot;$f&quot; .s`.o&quot;; done; find &quot;$(_AFW_SecondSliceThunkArm64Dir)&quot; -maxdepth 1 -name '*.o' | tr '\n' ' '"
           ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="high">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceThunkObjects" />
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceArm64ThunkObjects" />
+    </Exec>
+
+    <!-- x86_64 thunks (only when fat-sim) -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="set -e; for f in `find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.x86_64.s'`; do xcrun --sdk $(_AFW_OtherSdk) clang -c &quot;$f&quot; -target $(_AFW_OtherSecondTarget) -isysroot &quot;$(_AFW_OtherSdkPath)&quot; -o &quot;$(_AFW_SecondSliceThunkX64Dir)/`basename &quot;$f&quot; .s`.o&quot;; done; find &quot;$(_AFW_SecondSliceThunkX64Dir)&quot; -maxdepth 1 -name '*.o' | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="high">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceX64ThunkObjects" />
     </Exec>
 
     <!-- When thunk .o files exist the linker needs -framework <OriginalModule>
          so that `bl` targets inside the thunk assembly (Tj dispatch thunks,
          type metadata accessors) resolve. Mirrors the thunkLinkerFlags branch
-         in SwiftWrapperCompiler.InvokeSwiftCompiler. -->
+         in SwiftWrapperCompiler.InvokeSwiftCompiler. The arm64 set is the
+         authoritative signal (x86_64 is a strict subset — see
+         ModuleEmitter.cs's comment "x86_64 set may be a strict subset"). -->
     <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
-      <_AFW_SecondSliceThunkFrameworkFlag Condition="'$(_AFW_SecondSliceThunkObjects.Trim())' != ''">-Xlinker -framework -Xlinker $(_SwiftAppleFrameworkModule) </_AFW_SecondSliceThunkFrameworkFlag>
+      <_AFW_SecondSliceThunkFrameworkFlag Condition="'$(_AFW_SecondSliceArm64ThunkObjects.Trim())' != ''">-Xlinker -framework -Xlinker $(_SwiftAppleFrameworkModule) </_AFW_SecondSliceThunkFrameworkFlag>
     </PropertyGroup>
 
-    <!-- Compile wrapper for the second slice -->
-    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceThunkObjects)"
+    <!-- Single-arch compile: emit the framework binary directly (default sim-first
+         flow where the second slice is the device-arm64-only slice, or device-first
+         flow when the user pinned SwiftTargetArchitectures). -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' != 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+
+    <!-- Fat-sim compile: swiftc per-arch into per-arch staging dylibs, then lipo
+         -create them into the framework binary. xcodebuild -create-xcframework
+         (the merge below) detects the fat arches via lipo-inspect and names the
+         slice dir accordingly (e.g. ios-arm64_x86_64-simulator); _ResyncAppleFrameworkWrapperSliceIds
+         re-reads that name post-merge so validation/consumer-synth see the
+         correct id. The install_name + linker flags must match across arches —
+         lipo only combines per-arch slices; it does not reconcile load commands. -->
+    <PropertyGroup Condition="'$(_AFW_OtherIsFatSim)' == 'true'">
+      <_AFW_SecondSliceStagingDir>$(_SwiftBindingIntermediateDir)_merge_slices/second/staging</_AFW_SecondSliceStagingDir>
+      <_AFW_SecondSliceArm64Lib>$(_AFW_SecondSliceStagingDir)/$(_AFW_WrapperModule).arm64</_AFW_SecondSliceArm64Lib>
+      <_AFW_SecondSliceX64Lib>$(_AFW_SecondSliceStagingDir)/$(_AFW_WrapperModule).x86_64</_AFW_SecondSliceX64Lib>
+    </PropertyGroup>
+    <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+             Directories="$(_AFW_SecondSliceStagingDir)" />
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceArm64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceX64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceX64ThunkObjects)"
+          StandardOutputImportance="low" StandardErrorImportance="high" />
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="lipo -create &quot;$(_AFW_SecondSliceArm64Lib)&quot; &quot;$(_AFW_SecondSliceX64Lib)&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
     <!-- Write the second slice's embedded .framework/Info.plist before xcodebuild
@@ -995,6 +1078,12 @@ done; true"
           Command="SLICES=`find &quot;$(_AFW_XCF)&quot; -maxdepth 1 -type d -name '*-*' | wc -l | tr -d ' '`; \
 sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperSliceCount&gt;%24SLICES|&quot; &quot;$(_SwiftBindingIntermediateDir)binding-metadata.props&quot;"
           StandardOutputImportance="low" />
+
+    <!-- Slice-id resync after the fat fold lives in _ResyncAppleFrameworkWrapperSliceIds
+         (runs unconditionally per build via AfterTargets="_CompileAppleFrameworkSecondWrapperSlice").
+         Keeping the resync there — rather than inline here — ensures incremental packs
+         that skip this target (gated on _SwiftBindingUpToDate) still see the on-disk slice
+         names instead of falling back to stale single-arch property defaults. -->
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -1248,6 +1337,47 @@ done; true"
     <Warning Condition="'$(_SwiftBindingIsVersionPlaceholder)' == 'True' AND '$(PackageVersion)' == '$(_SwiftBindingPackageVersion)'"
              Code="SWIFTBIND020"
              Text="The xcframework version (1.0) appears to be an Xcode placeholder. Set &lt;PackageVersion&gt; explicitly in your project file." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 4a': Resync Apple-framework wrapper slice IDs from disk         -->
+  <!-- xcodebuild -create-xcframework renames slice dirs based on lipo arches  -->
+  <!-- (e.g. an arm64+x86_64 sim slice lives at ios-arm64_x86_64-simulator,    -->
+  <!-- not the static ios-arm64-simulator). The static property defaults at    -->
+  <!-- the top of this file are correct for single-arch slices but stale once  -->
+  <!-- a fat-fold has run. _CompileAppleFrameworkSecondWrapperSlice was the    -->
+  <!-- old source of truth for the resync, but it's gated on                   -->
+  <!-- _SwiftBindingUpToDate != 'true', so incremental packs skipped it and    -->
+  <!-- _ValidateSwiftBindingPackSlices fell back to the stale defaults — even  -->
+  <!-- though the on-disk fat slice existed and was valid (SWIFTBIND032).      -->
+  <!-- Re-reading from disk on every build keeps the in-memory ids honest     -->
+  <!-- regardless of incremental state.                                        -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <Target Name="_ResyncAppleFrameworkWrapperSliceIds"
+          AfterTargets="_ImportSwiftBindingMetadata;_CompileAppleFrameworkSecondWrapperSlice"
+          BeforeTargets="_ValidateSwiftBindingPackSlices;_SynthesizeAppleFrameworkConsumerTargets"
+          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework'
+                     AND '$(_SwiftBindingWrapperModuleName)' != ''
+                     AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">
+
+    <PropertyGroup>
+      <_AFW_ResyncXCF>$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework</_AFW_ResyncXCF>
+    </PropertyGroup>
+
+    <!-- Match by '-simulator' suffix so an arm64-only sim slice still resolves;
+         non-sim leftover is the device id (single value for iOS/tvOS — no Intel device). -->
+    <Exec Command="find &quot;$(_AFW_ResyncXCF)&quot; -maxdepth 1 -mindepth 1 -type d -name '*-simulator' -exec basename {} \;"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_ResyncSimSliceId" />
+    </Exec>
+    <Exec Command="find &quot;$(_AFW_ResyncXCF)&quot; -maxdepth 1 -mindepth 1 -type d ! -name '*-simulator' -exec basename {} \;"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_ResyncDeviceSliceId" />
+    </Exec>
+    <PropertyGroup>
+      <_SwiftBindingSimulatorSliceId Condition="'$(_AFW_ResyncSimSliceId.Trim())' != ''">$(_AFW_ResyncSimSliceId.Trim())</_SwiftBindingSimulatorSliceId>
+      <_SwiftBindingDeviceSliceId Condition="'$(_AFW_ResyncDeviceSliceId.Trim())' != ''">$(_AFW_ResyncDeviceSliceId.Trim())</_SwiftBindingDeviceSliceId>
+    </PropertyGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

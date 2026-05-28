@@ -810,6 +810,52 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Synthetic <c>auto</c> arch basis for Apple-framework direct mode, which has NO source
+        /// xcframework to inspect. Apple system frameworks always ship fat where they ship Intel at
+        /// all: iOS/tvOS simulator, macOS, and Mac Catalyst slices are arm64+x86_64; iOS/tvOS device
+        /// slices are arm64 only (no Intel device target exists).
+        ///
+        /// Basis MUST reflect what the wrapper xcframework can ship, NOT what the active compile
+        /// slice happens to have. The SDK (<c>_AFW_OtherIsFatSim</c> in Sdk.targets) packs the sim
+        /// slice as the second wrapper slice even when <c>SwiftPlatformTarget=device</c>, so the
+        /// wrapper coverage spans both slices on iOS/tvOS. Feeding the active <c>DeviceSlice</c>
+        /// here would return arm-only and cause <see cref="TryDecideWrapperArchitectures"/> to
+        /// reject explicit <c>arm64,x86_64</c> with SWIFTBIND052 — even though the SDK would
+        /// happily build the fat sim second slice. Mirror the xcframework path's
+        /// <see cref="ResolveAutoArchBasis"/> "re-resolve sim" pattern: prefer the simulator slice
+        /// when present (its natural arch list IS the wrapper's max arch coverage); fall back to
+        /// the device slice for macOS / MacCatalyst (no sim variant, single slice already ships
+        /// fat). This keeps <c>auto</c> and explicit <c>arm64,x86_64</c> producing the same fat
+        /// wrapper xcframework for a StoreKit / WeatherKit / etc. binding in either sim-first or
+        /// device-first SDK configuration.
+        /// </summary>
+        internal static (IReadOnlyList<string> Architectures, string SliceId) ResolveAppleFrameworkAutoArchBasis(
+            PlatformInfo platformInfo)
+        {
+            var basisSlice = platformInfo.SimulatorSlice ?? platformInfo.DeviceSlice;
+            return (GetAppleFrameworkSliceNaturalArchs(basisSlice), basisSlice.SliceId);
+        }
+
+        /// <summary>
+        /// Arches that can natively be compiled against this single Apple-framework slice. iOS/tvOS
+        /// simulator + macOS + MacCatalyst slices ship arm64+x86_64; iOS/tvOS device slices ship
+        /// arm64 only (no Intel device target exists). Used to filter wrapper extra-arch compiles
+        /// down to what the active slice can actually produce — the M1 contract has the wrapper
+        /// coverage span both device + sim, but the GENERATOR only compiles the active platform
+        /// target's slice. Extra arches that don't fit (e.g. x86_64 against an iOS/tvOS device
+        /// slice) are not lost: the SDK's <c>_AFW_OtherIsFatSim</c> path fat-folds them into the
+        /// second wrapper slice. Letting swiftc try anyway leaves a malformed slice dir that
+        /// breaks the SDK's downstream <c>xcodebuild -create-xcframework</c> merge.
+        /// </summary>
+        internal static IReadOnlyList<string> GetAppleFrameworkSliceNaturalArchs(SliceVariant slice) =>
+            slice.IsSimulator || !RequiresArmOnlyDevice(slice.Platform)
+                ? new[] { "arm64", "x86_64" }
+                : new[] { "arm64" };
+
+        private static bool RequiresArmOnlyDevice(ApplePlatform platform) =>
+            platform == ApplePlatform.iOS || platform == ApplePlatform.tvOS;
+
+        /// <summary>
         /// Compiles the wrapper for <paramref name="primaryArch"/>, then lipo-folds each
         /// <paramref name="extraArchs"/> wrapper xcframework into it to form one fat build. Shared by the
         /// standalone generation path and <c>--compile-wrapper-only</c> so both honor

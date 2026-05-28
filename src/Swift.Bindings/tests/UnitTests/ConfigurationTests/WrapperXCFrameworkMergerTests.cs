@@ -85,6 +85,74 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Fact]
+        public void MergeFatSlices_FattensSemanticallyEquivalentSlices_WithRenamedSliceIds()
+        {
+            // SliceVariant.WithArchitecture renames the slice id to embed the active arch:
+            // the arm64 primary pass emits "ios-arm64-simulator" and the x86_64 secondary pass
+            // emits "ios-x86_64-simulator". Both describe the SAME (platform, variant) target.
+            // The merger must match by semantic identity, lipo the two binaries, and present a
+            // single fat slice — .NET-for-Apple's NativeReference resolver requires this.
+            if (!IsMacOS) return;
+
+            const string primarySimSliceId = "ios-arm64-simulator";
+            const string secondarySimSliceId = "ios-x86_64-simulator";
+
+            var tmp = Path.Combine(Path.GetTempPath(), "merger-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tmp);
+            try
+            {
+                var runner = new SystemCommandRunner();
+                var primary = Path.Combine(tmp, "Primary.xcframework");
+                var secondary = Path.Combine(tmp, "Secondary.xcframework");
+
+                WriteSliceBinary(runner, primary, primarySimSliceId, "arm64");
+                WriteSliceBinary(runner, primary, DeviceSliceId, "arm64");
+                WritePlist(primary, new[]
+                {
+                    (primarySimSliceId, "ios", (string?)"simulator", new[] { "arm64" }),
+                    (DeviceSliceId, "ios", (string?)null, new[] { "arm64" }),
+                });
+
+                WriteSliceBinary(runner, secondary, secondarySimSliceId, "x86_64");
+                WritePlist(secondary, new[]
+                {
+                    (secondarySimSliceId, "ios", (string?)"simulator", new[] { "x86_64" }),
+                });
+
+                WrapperXCFrameworkMerger.MergeFatSlices(primary, secondary, NullLogger.Instance, runner);
+
+                // The primary's slice directory survives intact; the secondary's renamed slice
+                // directory must NOT have been copied across as a separate top-level slice.
+                Assert.True(Directory.Exists(Path.Combine(primary, primarySimSliceId)),
+                    "Primary sim slice directory should be retained as the surviving identifier.");
+                Assert.False(Directory.Exists(Path.Combine(primary, secondarySimSliceId)),
+                    "Secondary's renamed per-arch sim slice directory must not appear as a separate slice.");
+
+                var simArchs = LipoArchs(runner, BinaryPath(primary, primarySimSliceId));
+                Assert.Contains("arm64", simArchs);
+                Assert.Contains("x86_64", simArchs);
+
+                var root = PlistReader.ReadPlistDict(Path.Combine(primary, "Info.plist"), runner, NullLogger.Instance);
+                Assert.NotNull(root);
+                var slices = XCFrameworkResolver.ParseAvailableLibraries(root!);
+                // Exactly two slices: the fat sim slice (keyed by primary id) + the arm64-only device slice.
+                Assert.Equal(2, slices.Count);
+                var simSlice = slices.Single(s => s.LibraryIdentifier == primarySimSliceId);
+                Assert.Equal("ios", simSlice.SupportedPlatform);
+                Assert.Equal("simulator", simSlice.SupportedPlatformVariant);
+                Assert.Contains("arm64", simSlice.SupportedArchitectures);
+                Assert.Contains("x86_64", simSlice.SupportedArchitectures);
+                Assert.DoesNotContain(slices, s => s.LibraryIdentifier == secondarySimSliceId);
+
+                Assert.False(Directory.Exists(secondary));
+            }
+            finally
+            {
+                try { Directory.Delete(tmp, true); } catch { /* best effort */ }
+            }
+        }
+
         // ── helpers ──────────────────────────────────────────────────────────
 
         private static string BinaryPath(string xcfw, string sliceId) =>

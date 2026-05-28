@@ -49,11 +49,24 @@ namespace BindingsGeneration
             var primarySlices = XCFrameworkResolver.ParseAvailableLibraries(primaryRoot);
             var secondarySlices = XCFrameworkResolver.ParseAvailableLibraries(secondaryRoot);
 
+            // Match by *semantic identity* — (SupportedPlatform, SupportedPlatformVariant) — not by
+            // LibraryIdentifier. SliceVariant.WithArchitecture renames the slice ID to embed the
+            // active arch (e.g. "ios-arm64-simulator" → "ios-x86_64-simulator"), so a primary arm64
+            // pass and a secondary x86_64 pass on the SAME sim slice land in differently-named
+            // directories. The correct fold is still one fat sim slice with both archs — we lipo the
+            // two binaries and keep the primary's LibraryIdentifier (and on-disk directory) intact,
+            // so the resulting xcframework presents a single fat slice with SupportedArchitectures
+            // = [arm64, x86_64]. .NET-for-Apple's NativeReference resolver requires this: it asks for
+            // a slice whose (platform, variant, arch) match and rejects an xcframework that exposes
+            // two separate per-arch sim slices.
             var mergedSlices = new List<XCFrameworkSlice>();
+            var consumedSecondaryIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var p in primarySlices)
             {
                 var match = secondarySlices.FirstOrDefault(s =>
-                    string.Equals(s.LibraryIdentifier, p.LibraryIdentifier, StringComparison.Ordinal));
+                    !consumedSecondaryIds.Contains(s.LibraryIdentifier) &&
+                    string.Equals(s.SupportedPlatform, p.SupportedPlatform, StringComparison.Ordinal) &&
+                    string.Equals(s.SupportedPlatformVariant, p.SupportedPlatformVariant, StringComparison.Ordinal));
                 if (match == null)
                 {
                     // Slice only in primary (e.g. the arm64 device slice the x86_64 pass skipped —
@@ -70,22 +83,24 @@ namespace BindingsGeneration
                     throw new FileNotFoundException($"SWIFTBIND053: secondary slice binary not found: '{secondaryBin}'.");
 
                 LipoCreate(primaryBin, secondaryBin, runner, logger);
+                consumedSecondaryIds.Add(match.LibraryIdentifier);
 
                 var unionArchs = p.SupportedArchitectures
                     .Concat(match.SupportedArchitectures)
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 mergedSlices.Add(CloneWithArchitectures(p, unionArchs));
-                logger.LogInformation("Fattened wrapper slice '{Slice}' -> [{Archs}]",
-                    p.LibraryIdentifier, string.Join("+", unionArchs));
+                logger.LogInformation(
+                    "Fattened wrapper slice '{Primary}' (folded secondary '{Secondary}') -> [{Archs}]",
+                    p.LibraryIdentifier, match.LibraryIdentifier, string.Join("+", unionArchs));
             }
 
-            // Slices present ONLY in the secondary would mean the primary pass missed a platform —
-            // unexpected for the arm64-primary flow, but fold them in rather than silently drop
-            // coverage.
+            // Slices present ONLY in the secondary (no semantic match in primary) — fold them in.
+            // Unexpected for the arm64-primary flow (the primary covers every requested slice), but
+            // keep the safety net so a missed platform is preserved rather than silently dropped.
             foreach (var s in secondarySlices)
             {
-                if (primarySlices.Any(p => string.Equals(p.LibraryIdentifier, s.LibraryIdentifier, StringComparison.Ordinal)))
+                if (consumedSecondaryIds.Contains(s.LibraryIdentifier))
                     continue;
                 var srcSliceDir = Path.Combine(secondaryXcfwPath, s.LibraryIdentifier);
                 var dstSliceDir = Path.Combine(primaryXcfwPath, s.LibraryIdentifier);

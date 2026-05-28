@@ -3,6 +3,7 @@
 // Licensed under the MIT License.
 
 using System.CommandLine.Invocation;
+using System.Linq;
 using Microsoft.Extensions.Logging;
 using BindingsGeneration.ObjC;
 using BindingsGeneration.Producers;
@@ -886,6 +887,80 @@ public static class BindingsGeneratorCommand
                 ? platformInfo.DeviceSlice
                 : platformInfo.GetSlice(true);
 
+            // Apple direct mode must share the wrapper CPU-arch decision with the xcframework
+            // path (constraints.md "Wrapper CPU-arch decision is shared, not per-call-site").
+            // Without this fanout the wrapper xcframework's simulator slice is arm64-only, so
+            // an iossimulator-x64 / tvossimulator-x64 / osx-x64 / maccatalyst-x64 consumer
+            // resolves NativeReference against a slice that doesn't advertise x86_64 and
+            // dotnet-for-apple reports "No matching framework found … SupportedArchitectures: x86_64".
+            // There is no source xcframework to inspect, so the "auto" basis is synthetic and
+            // derived from PlatformInfo rather than the active compile slice (see
+            // ResolveAppleFrameworkAutoArchBasis for the device-first explicit-fat rationale).
+            var autoMatchSourceDirect = string.Equals(targetArchitectures?.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
+            List<string> requestedArchsDirect;
+            if (autoMatchSourceDirect)
+            {
+                requestedArchsDirect = new List<string>();
+            }
+            else
+            {
+                var parsedDirect = BindingsGenerator.ParseTargetArchitectures(targetArchitectures, logger);
+                if (parsedDirect == null)
+                {
+                    context.ExitCode = 1;
+                    return;
+                }
+                requestedArchsDirect = parsedDirect;
+            }
+            var (directBasisArchs, directBasisSliceId) =
+                BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
+            if (!BindingsGenerator.TryDecideWrapperArchitectures(
+                    autoMatchSourceDirect, requestedArchsDirect, directBasisArchs, directBasisSliceId,
+                    logger, out var directPrimaryArch, out var directExtraArchs))
+            {
+                context.ExitCode = 1;
+                return;
+            }
+
+            // The basis above reflects wrapper COVERAGE (sim slice arches), but the generator
+            // only compiles the ACTIVE directSlice. Filter extras to arches the active slice can
+            // natively compile — e.g. x86_64 against an iOS/tvOS device-first directSlice has no
+            // valid swiftc target and would leave a malformed xcframework slice that breaks the
+            // SDK's downstream xcodebuild -create-xcframework merge. The dropped arches are NOT
+            // lost: the SDK's _AFW_OtherIsFatSim path packs the sim second slice and fat-folds
+            // them in there. This keeps auto and explicit `arm64,x86_64` device-first producing
+            // the same wrapper (arm64 device + fat sim) without the generator attempting an
+            // impossible compile.
+            var directSliceNaturalArchs = BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(directSlice);
+            var droppedExtras = directExtraArchs
+                .Where(a => !directSliceNaturalArchs.Any(n => string.Equals(n, a, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (droppedExtras.Count > 0)
+            {
+                directExtraArchs = directExtraArchs
+                    .Where(a => directSliceNaturalArchs.Any(n => string.Equals(n, a, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                logger.LogInformation(
+                    "Apple direct: arches [{Deferred}] are not native to active compile slice '{Slice}' " +
+                    "and are covered by the SDK's fat-sim second-slice path; skipping generator compile.",
+                    string.Join("+", droppedExtras), directSlice.SliceId);
+            }
+
+            // Compiles the wrapper for ONE requested CPU arch. The shared
+            // CompileWrapperForArchitectures folds extra arches via lipo (aside→merge→restore);
+            // null primary keeps the historical default-slice arch (no WithArchitecture rename).
+            SwiftWrapperCompilationResult? CompileDirectForArch(string? requestedArch) =>
+                SwiftWrapperCompiler.CompileSlice(
+                    outputDirectory, directModuleName,
+                    frameworkSearchPath!, tbdPath,
+                    string.IsNullOrEmpty(requestedArch) ? directSlice : directSlice.WithArchitecture(requestedArch),
+                    logger,
+                    internalTypeNames: internalTypeNames,
+                    moduleNameForCollision: moduleNameForCollision,
+                    nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                    swiftInterfacePath: swiftInterface,
+                    skipThunkCompilation: skipThunkCompilation);
+
             // ResolveDeploymentTarget reads <frameworkDir>/Info.plist for MinimumOSVersion;
             // Apple system frameworks ship one. dylibPath argument is the TBD path — the
             // wrapper compiler only uses it for the Info.plist read and a (no-op-on-text)
@@ -895,15 +970,8 @@ public static class BindingsGeneratorCommand
             Exception? directException = null;
             try
             {
-                directResult = SwiftWrapperCompiler.CompileSlice(
-                    outputDirectory, directModuleName,
-                    frameworkSearchPath!, tbdPath,
-                    directSlice, logger,
-                    internalTypeNames: internalTypeNames,
-                    moduleNameForCollision: moduleNameForCollision,
-                    nestedTypesInCollidingClass: nestedTypesInCollidingClass,
-                    swiftInterfacePath: swiftInterface,
-                    skipThunkCompilation: skipThunkCompilation);
+                directResult = BindingsGenerator.CompileWrapperForArchitectures(
+                    directPrimaryArch, directExtraArchs, CompileDirectForArch, logger);
             }
             catch (Exception ex)
             {

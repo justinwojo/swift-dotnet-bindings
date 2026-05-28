@@ -50,6 +50,7 @@
         "ValidateAppleTypesManifest",
         "ValidateBlastRadius",
         "X64PackGate",
+        "X64SimGate",
         "X64ThunkGate"
       ]
     },

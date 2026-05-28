@@ -303,6 +303,48 @@ should be fixed regardless of our interpreter workaround.
 
 ### Session 4 — iOS/tvOS x86_64 simulators + the StoreKit2 reporter binding
 
+> **Status: DONE.** Sim RIDs `iossimulator-x64` and `tvossimulator-x64` build
+> and pack end-to-end for both `SwiftFramework` third-party bindings (already
+> covered by S2's fat-wrapper path) **and** Apple-framework direct-mode
+> bindings (the StoreKit2-style path that S2 left untouched). The durable
+> gate is `nuke X64SimGate` (`build/Build.X64SimGate.cs`): it packs a
+> StoreKit Apple-framework binding (no source xcframework) plus a fat
+> third-party binding from S2's fixture, then consumes both from
+> `iossimulator-x64` and `tvossimulator-x64` net10.0-ios/-tvos apps and
+> asserts `dotnet publish` succeeds — true sim *runtime* validation is moot
+> on Apple Silicon (the x86_64 iOS/tvOS simulators can only run on Intel
+> hosts), so the gate stops at compile + publish + nupkg-shape correctness.
+> Confidence on the unverified loader hop is high: S1 proved the SysV thunk
+> ABI, S3 proved Mono-x86_64 on Catalyst/macOS, and S2 proved the
+> packaging+arch-policy machinery — Session 4 only extends the *direct-mode*
+> wrapper compile to share the S2 fat-arch decision.
+>
+> Wiring change: Apple-framework direct mode (no source xcframework to
+> inspect for arches) now routes through the same
+> `TryDecideWrapperArchitectures` → `CompileWrapperForArchitectures` driver
+> as the xcframework path. `ResolveAppleFrameworkAutoArchBasis` builds a
+> synthetic arch basis from `PlatformInfo` — always derived from the
+> simulator slice when present (fat `[arm64, x86_64]`), falling back to the
+> device slice for macOS / MacCatalyst (also fat). Basis reflects what the
+> wrapper xcframework CAN ship, not what the active compile slice happens
+> to have: the SDK packs the sim slice as the second wrapper slice even
+> when `SwiftPlatformTarget=device`, so device-first explicit
+> `arm64,x86_64` must accept x86_64 instead of failing SWIFTBIND052.
+> `Sdk.targets` plumbs `$(SwiftTargetArchitectures)` into
+> `_GenerateSwiftBindingsAppleFramework` as `--target-architectures` so
+> direct mode honors the same auto/fat policy as `SwiftFramework`.
+> `_ResyncAppleFrameworkWrapperSliceIds` reads the wrapper xcframework's
+> actual on-disk slice dir names back into
+> `_SwiftBindingSimulatorSliceId` / `_SwiftBindingDeviceSliceId` on every
+> build (not gated on `_SwiftBindingUpToDate`) — Apple's
+> `xcodebuild -create-xcframework` renames fat slices
+> (`ios-arm64-simulator` becomes `ios-arm64_x86_64-simulator`) and the
+> validator/consumer-synth targets must see the live names even on
+> incremental packs that skip the second-slice compile. (The
+> `SwiftFramework` path is unaffected: its `WrapperXCFrameworkMerger`
+> preserves the primary's `LibraryIdentifier` verbatim, so its on-disk
+> dir name stays stable across fat folds.)
+
 - **Goal**: the StoreKit2 reporter's binding builds, packages, and loads for
   `iossimulator-x64`; same for `tvossimulator-x64`. (Runtime packs ship
   today — `Microsoft.NETCore.App.Runtime.Mono.iossimulator-x64` etc. — so

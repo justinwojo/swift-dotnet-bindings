@@ -1800,5 +1800,90 @@ namespace BindingsGeneration.Tests
             Assert.Equal(new[] { "arm64" }, archs);
             Assert.Equal("macos-arm64", sliceId);
         }
+
+        // ResolveAppleFrameworkAutoArchBasis — synthetic auto basis for Apple-framework direct
+        // mode (no source xcframework to inspect). Basis reflects what the wrapper xcframework
+        // CAN ship — derived from PlatformInfo.SimulatorSlice (or DeviceSlice fallback for
+        // macOS/MacCatalyst where there is no sim variant), NOT from whichever slice happens
+        // to be the active compile target. Pairs with TryDecideWrapperArchitectures to keep
+        // both `auto` and explicit `arm64,x86_64` producing the same fat wrapper for
+        // StoreKit/WeatherKit/etc. — including device-first (SwiftPlatformTarget=device), where
+        // the SDK packs the fat sim slice as the second wrapper slice.
+
+        [Fact]
+        public void ResolveAppleFrameworkAutoArchBasis_iOS_ReturnsFatFromSimSlice()
+        {
+            var platformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS);
+            var (archs, sliceId) = BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
+            Assert.Equal(new[] { "arm64", "x86_64" }, archs);
+            Assert.Equal(platformInfo.SimulatorSlice!.SliceId, sliceId);
+        }
+
+        [Fact]
+        public void ResolveAppleFrameworkAutoArchBasis_tvOS_ReturnsFatFromSimSlice()
+        {
+            var platformInfo = PlatformInfoFactory.Create(ApplePlatform.tvOS);
+            var (archs, sliceId) = BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
+            Assert.Equal(new[] { "arm64", "x86_64" }, archs);
+            Assert.Equal(platformInfo.SimulatorSlice!.SliceId, sliceId);
+        }
+
+        [Fact]
+        public void ResolveAppleFrameworkAutoArchBasis_macOS_ReturnsFatFromDeviceSlice()
+        {
+            var platformInfo = PlatformInfoFactory.Create(ApplePlatform.macOS);
+            var (archs, sliceId) = BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
+            Assert.Equal(new[] { "arm64", "x86_64" }, archs);
+            Assert.Equal(platformInfo.DeviceSlice.SliceId, sliceId);
+        }
+
+        [Fact]
+        public void ResolveAppleFrameworkAutoArchBasis_MacCatalyst_ReturnsFatFromDeviceSlice()
+        {
+            var platformInfo = PlatformInfoFactory.Create(ApplePlatform.MacCatalyst);
+            var (archs, sliceId) = BindingsGenerator.ResolveAppleFrameworkAutoArchBasis(platformInfo);
+            Assert.Equal(new[] { "arm64", "x86_64" }, archs);
+            Assert.Equal(platformInfo.DeviceSlice.SliceId, sliceId);
+        }
+
+        // GetAppleFrameworkSliceNaturalArchs — per-slice arch query used to filter generator
+        // extra-arch compiles down to what the active slice can produce. Caller drops arches
+        // the active slice can't compile (e.g. x86_64 against iOS/tvOS device) so the SDK's
+        // fat-sim second-slice path can cover them without a malformed-xcframework break.
+
+        [Fact]
+        public void GetAppleFrameworkSliceNaturalArchs_iOSSimulator_Fat()
+        {
+            var slice = PlatformInfoFactory.Create(ApplePlatform.iOS).SimulatorSlice!;
+            Assert.Equal(new[] { "arm64", "x86_64" }, BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(slice));
+        }
+
+        [Fact]
+        public void GetAppleFrameworkSliceNaturalArchs_iOSDevice_ArmOnly()
+        {
+            var slice = PlatformInfoFactory.Create(ApplePlatform.iOS).DeviceSlice;
+            Assert.Equal(new[] { "arm64" }, BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(slice));
+        }
+
+        [Fact]
+        public void GetAppleFrameworkSliceNaturalArchs_tvOSDevice_ArmOnly()
+        {
+            var slice = PlatformInfoFactory.Create(ApplePlatform.tvOS).DeviceSlice;
+            Assert.Equal(new[] { "arm64" }, BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(slice));
+        }
+
+        [Fact]
+        public void GetAppleFrameworkSliceNaturalArchs_macOS_Fat()
+        {
+            var slice = PlatformInfoFactory.Create(ApplePlatform.macOS).DeviceSlice;
+            Assert.Equal(new[] { "arm64", "x86_64" }, BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(slice));
+        }
+
+        [Fact]
+        public void GetAppleFrameworkSliceNaturalArchs_MacCatalyst_Fat()
+        {
+            var slice = PlatformInfoFactory.Create(ApplePlatform.MacCatalyst).DeviceSlice;
+            Assert.Equal(new[] { "arm64", "x86_64" }, BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(slice));
+        }
     }
 }
