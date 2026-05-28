@@ -2157,6 +2157,37 @@ namespace BindingsGeneration.Tests
             Assert.Equal("arm64", original.Architecture);
         }
 
+        // WithArchitecture must recompute SliceId so the wrapper xcframework slice
+        // directory matches the produced binary's arch. A bare `with { Architecture }`
+        // leaves SliceId stale, which mis-slices the wrapper (e.g. an x86_64 binary
+        // under a "macos-arm64" directory) and breaks NativeReference/dlopen resolution.
+        [Theory]
+        [InlineData("macos", null, "x86_64", "macos-x86_64")]
+        [InlineData("ios", "simulator", "x86_64", "ios-x86_64-simulator")]
+        [InlineData("ios", "maccatalyst", "x86_64", "ios-x86_64-maccatalyst")]
+        [InlineData("macos", null, "arm64", "macos-arm64")]
+        public void WithArchitecture_RecomputesSliceId(
+            string platformString, string? variant, string arch, string expectedSliceId)
+        {
+            var original = new SliceVariant
+            {
+                Platform = platformString == "macos" ? ApplePlatform.macOS : ApplePlatform.iOS,
+                IsSimulator = variant == "simulator",
+                SdkName = "sdk",
+                SliceId = variant == null ? $"{platformString}-arm64" : $"{platformString}-arm64-{variant}",
+                PlistPlatformName = "Plat",
+                XCFrameworkPlatformString = platformString,
+                XCFrameworkPlatformVariant = variant,
+            };
+
+            var result = original.WithArchitecture(arch);
+
+            Assert.Equal(arch, result.Architecture);
+            Assert.Equal(expectedSliceId, result.SliceId);
+            // Original is unchanged (record copy semantics).
+            Assert.Equal("arm64", original.Architecture);
+        }
+
         [Theory]
         [InlineData("arm64", "arm64-apple-ios17.0-simulator")]
         [InlineData("x86_64", "x86_64-apple-ios17.0-simulator")]

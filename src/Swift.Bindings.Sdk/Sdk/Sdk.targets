@@ -241,8 +241,15 @@ done; true"
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'ios' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64e-apple-ios</_SwiftInterfaceSlice>
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' == 'simulator'">arm64-apple-tvos-simulator</_SwiftInterfaceSlice>
       <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'tvos' AND '$(SwiftPlatformTarget)' != 'simulator'">arm64e-apple-tvos</_SwiftInterfaceSlice>
-      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64e-apple-macos</_SwiftInterfaceSlice>
-      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64e-apple-ios-macabi</_SwiftInterfaceSlice>
+      <!-- macOS / Mac Catalyst: prefer the x86_64 interface slice for an x86_64-only
+           (Intel) consumer; arm64e is the default for arm64 and fat builds. The
+           slice files are arch-portable at the API-text level, so the Exists()
+           fallback after the interface path is resolved reverts to arm64e if the
+           SDK ships no x86_64 slice. -->
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'macos' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-macos</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'macos' AND '$(_SwiftInterfaceSlice)' == ''">arm64e-apple-macos</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst' AND '$(SwiftTargetArchitectures)' == 'x86_64'">x86_64-apple-ios-macabi</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst' AND '$(_SwiftInterfaceSlice)' == ''">arm64e-apple-ios-macabi</_SwiftInterfaceSlice>
     </PropertyGroup>
 
     <!-- Resolve swiftinterface and TBD paths.
@@ -273,6 +280,17 @@ done; true"
       <_SwiftAppleFrameworkInterface>$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule/$(_SwiftInterfaceSlice).swiftinterface</_SwiftAppleFrameworkInterface>
       <_SwiftAppleFrameworkTbd>$(_SwiftAppleFrameworkDir)/$(_SwiftAppleFrameworkModule).tbd</_SwiftAppleFrameworkTbd>
       <_SwiftAppleFrameworkModulemap>$(_SwiftAppleFrameworkDir)/Modules/module.modulemap</_SwiftAppleFrameworkModulemap>
+    </PropertyGroup>
+    <!-- x86_64 interface fallback: an Intel consumer selected an x86_64 slice, but
+         this framework ships only the arm64e slice — revert to arm64e (the textual
+         interface is arch-portable, so it drives the same API surface). Runs after
+         the interface path is resolved so Exists() can probe the real on-disk file. -->
+    <PropertyGroup Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftTargetArchitectures)' == 'x86_64'
+                              AND ('$(_SwiftBindingPlatform)' == 'macos' OR '$(_SwiftBindingPlatform)' == 'maccatalyst')
+                              AND !Exists('$(_SwiftAppleFrameworkInterface)')">
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'macos'">arm64e-apple-macos</_SwiftInterfaceSlice>
+      <_SwiftInterfaceSlice Condition="'$(_SwiftBindingPlatform)' == 'maccatalyst'">arm64e-apple-ios-macabi</_SwiftInterfaceSlice>
+      <_SwiftAppleFrameworkInterface>$(_SwiftAppleFrameworkDir)/Modules/$(_SwiftAppleFrameworkModule).swiftmodule/$(_SwiftInterfaceSlice).swiftinterface</_SwiftAppleFrameworkInterface>
     </PropertyGroup>
 
     <Error Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND !Exists('$(_SwiftAppleFrameworkDir)')"

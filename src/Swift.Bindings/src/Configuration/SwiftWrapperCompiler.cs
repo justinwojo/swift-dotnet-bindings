@@ -137,7 +137,7 @@ namespace BindingsGeneration
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
             if (!string.IsNullOrEmpty(resolvedArchitecture))
-                simSlice = simSlice with { Architecture = resolvedArchitecture };
+                simSlice = simSlice.WithArchitecture(resolvedArchitecture);
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 simSlice, logger, commandRunner, internalTypeNames,
                 additionalFrameworkSearchPaths, moduleNameForCollision: moduleNameForCollision,
@@ -175,9 +175,9 @@ namespace BindingsGeneration
 
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             // Override architecture from resolution (defense-in-depth: not all xcframeworks have arm64)
-            var simSlice = pi.GetSlice(true) with { Architecture = simulatorResolution.SelectedArchitecture };
+            var simSlice = pi.GetSlice(true).WithArchitecture(simulatorResolution.SelectedArchitecture);
             var deviceSlice = deviceResolution != null
-                ? pi.DeviceSlice with { Architecture = deviceResolution.SelectedArchitecture }
+                ? pi.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture)
                 : pi.DeviceSlice;
             var primaryAdditionalSearchPaths = !pi.HasSimulatorVariant && deviceAdditionalSearchPaths != null
                 ? deviceAdditionalSearchPaths
@@ -907,7 +907,7 @@ namespace BindingsGeneration
             // Override the slice CPU arch when one was explicitly resolved (e.g. forcing x86_64
             // for an Intel/Rosetta target). Defaults preserve the historical arm64 slice arch.
             if (!string.IsNullOrEmpty(resolvedArchitecture))
-                slice = slice with { Architecture = resolvedArchitecture };
+                slice = slice.WithArchitecture(resolvedArchitecture);
             return CompileSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
                 slice, logger, commandRunner, internalTypeNames, additionalFrameworkSearchPaths,
                 moduleNameForCollision: moduleNameForCollision,

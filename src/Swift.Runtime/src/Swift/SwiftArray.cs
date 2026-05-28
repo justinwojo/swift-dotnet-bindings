@@ -331,7 +331,9 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
         {
             var metadata = SwiftObjectHelper<SwiftArray<Element>>.GetTypeMetadata();
             byte* payload = stackalloc byte[(int)ElementSize];
-            SwiftArrayPInvokes.Remove(new SwiftIndirectResult(payload), index, metadata, new SwiftSelf((void*)_payload.DangerousGetHandle()));
+            // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+            // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.ArrayRemove((IntPtr)payload, index, metadata, _payload.DangerousGetHandle());
         }
         finally
         {

@@ -1654,14 +1654,16 @@ public static class SwiftMarshal
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static void ThrowSwiftError(IntPtr errorPtr, IntPtr descPtr, Action<IntPtr> releaseError)
     {
-        try
-        {
-            var message = ReadErrorDescription(descPtr);
-            throw new SwiftException(message);
-        }
-        finally
-        {
-            releaseError(errorPtr);
-        }
+        // Read + release BEFORE throw rather than wrapping throw in try/finally with a P/Invoke
+        // in the finally. ReadErrorDescription frees descPtr inside its own try/finally; once it
+        // returns, the only remaining native handle is errorPtr. Release it eagerly, then throw.
+        // This avoids the "throw inside try/finally with a P/Invoke in the cleanup block" shape,
+        // which interacts poorly with the maccatalyst-x64 Mono workload runtime's exception
+        // unwinder under Rosetta (see src/docs/Future/upstream-issue-04-mono-catalyst-x64-instability.md).
+        // SwiftException(string) cannot throw before reaching the throw statement, so we don't
+        // need a finally to defend against an intermediate exception leaking errorPtr.
+        var message = ReadErrorDescription(descPtr);
+        releaseError(errorPtr);
+        throw new SwiftException(message);
     }
 }

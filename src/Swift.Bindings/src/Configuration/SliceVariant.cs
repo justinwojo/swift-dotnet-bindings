@@ -15,7 +15,7 @@ namespace BindingsGeneration
         /// <summary>xcrun SDK name: "iphonesimulator", "iphoneos", "macosx", etc.</summary>
         public required string SdkName { get; init; }
 
-        /// <summary>Architecture (always "arm64" for now).</summary>
+        /// <summary>Architecture: "arm64", "arm64e", or "x86_64". Defaults to "arm64".</summary>
         public string Architecture { get; init; } = "arm64";
 
         /// <summary>xcframework slice directory: "ios-arm64-simulator", "macos-arm64", etc.</summary>
@@ -46,6 +46,21 @@ namespace BindingsGeneration
                 ApplePlatform.MacCatalyst              => $"{Architecture}-apple-ios{minOSVersion}-macabi",
                 _ => throw new ArgumentOutOfRangeException(nameof(Platform)),
             };
+        }
+
+        /// <summary>
+        /// Returns a copy targeting <paramref name="architecture"/>, keeping
+        /// <see cref="SliceId"/> in sync. The slice id embeds the arch as a
+        /// dash-delimited token ("macos-arm64" → "macos-x86_64",
+        /// "ios-arm64-simulator" → "ios-x86_64-simulator"), so a bare
+        /// `with { Architecture = ... }` would leave the directory name stale and
+        /// the produced wrapper xcframework slice would be misnamed for its actual
+        /// binary — which then fails NativeReference/dlopen slice resolution.
+        /// </summary>
+        public SliceVariant WithArchitecture(string architecture)
+        {
+            var newSliceId = SliceId.Replace($"-{Architecture}", $"-{architecture}");
+            return this with { Architecture = architecture, SliceId = newSliceId };
         }
 
         public string DisplayName => IsSimulator ? $"{Platform} Simulator" : $"{Platform} Device";

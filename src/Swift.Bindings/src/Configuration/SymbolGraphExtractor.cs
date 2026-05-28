@@ -47,7 +47,7 @@ namespace BindingsGeneration
                 var minOS = SwiftWrapperCompiler.ResolveDeploymentTarget(resolution.DylibPath, logger, commandRunner);
                 var effectiveSlice = !string.IsNullOrEmpty(resolution.SelectedArchitecture)
                     && resolution.SelectedArchitecture != sliceVariant.Architecture
-                    ? sliceVariant with { Architecture = resolution.SelectedArchitecture }
+                    ? sliceVariant.WithArchitecture(resolution.SelectedArchitecture)
                     : sliceVariant;
                 var targetTriple = effectiveSlice.GetTargetTriple(minOS);
 

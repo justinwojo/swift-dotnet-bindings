@@ -237,11 +237,18 @@ public static class NativeThunkEmitter
         if (SmallStructReturnDivergesFromCAbi(env))
             return false;
 
-        // Methods requiring indirect result can't be thunked yet.
-        // Under CallConvCdecl, SwiftIndirectResult becomes a regular parameter (x0),
-        // but the thunk reads x8 (AAPCS64 indirect return convention) → SIGSEGV.
-        // This catches non-frozen structs, complex enums, and other types where
-        // MarshallingHelpers would add SwiftIndirectResult to the P/Invoke.
+        // Reject methods whose C# P/Invoke would carry an explicit SwiftIndirectResult
+        // PARAMETER — non-frozen structs, complex enums, and other types MarshallingHelpers
+        // marshals through a caller-allocated buffer argument. Those can't be thunked: under
+        // CallConvCdecl the indirect-result buffer becomes a regular leading parameter, but the
+        // thunk wires the ABI return register (x8 on AAPCS64) → mismatch → SIGSEGV.
+        //
+        // This is NOT the same as an address-only ABI return. A frozen struct wider than the
+        // direct-return register budget (e.g. a 40-byte all-scalar struct) lowers to
+        // ReturnLowering.IsIndirect but does NOT add a C# buffer parameter here, so it falls
+        // through and IS thunked — the thunk bridges the sret pointer itself (x8 on arm64,
+        // cdecl %rdi → swiftcc %rax on x86_64).
+        //
         // Guard with try-catch: MethodRequiresIndirectResult calls GetTypeRecordOrThrow
         // which throws for types not in the database (e.g., ObjC-only Foundation types).
         // ShouldEmitThunk runs before type validation, so unknown types are possible.
@@ -456,17 +463,66 @@ public static class NativeThunkEmitter
             IsStaticMethod: isStaticMethod,
             IsConstructor: isConstructor,
             Throws: methodDecl.Throws,
-            MetadataAccessorSymbol: metadataAccessorSymbol);
+            MetadataAccessorSymbol: metadataAccessorSymbol,
+            ReturnZeroExtendFromBytes: ComputeReturnZeroExtension(returnSpec, env.TypeDatabase));
+
+        // When x86_64 is also a build target, a thunk-routed method must be emittable on BOTH
+        // architectures: the generated C# references a single architecture-neutral thunk symbol, so
+        // emitting the arm64 thunk while x86_64 declines (e.g. arguments spill past the six SysV
+        // integer registers / eight %xmm registers) would leave the x86_64 slice missing the symbol
+        // the managed side imports — an EntryPointNotFound at runtime under Rosetta. Emit no thunk at
+        // all in that case and return false, so the caller (MethodHandler/PropertyHandler/
+        // SubscriptHandler) falls back to the @_cdecl wrapper for every architecture, whose C-ABI call
+        // is correct on both. An arm64-only build (x64AsmBuilder null) keeps thunking these shapes.
+        if (x64AsmBuilder != null && !ThunkTargetArch.X86_64.CanEmit(descriptor))
+            return false;
 
         asmBuilder.Append(ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.Arm64));
 
-        // Emit the parallel x86_64 (SysV) thunk when requested and encodable. Signatures whose
-        // arguments would spill past the SysV register files are skipped here and fall back to an
-        // @_cdecl wrapper on x86_64, while still getting a native ARM64 thunk above.
-        if (x64AsmBuilder != null && ThunkTargetArch.X86_64.CanEmit(descriptor))
+        // x86_64 capability was verified above when requested; emit the parallel SysV thunk.
+        if (x64AsmBuilder != null)
             x64AsmBuilder.Append(ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.X86_64));
 
         return true;
+    }
+
+    /// <summary>
+    /// Determines whether a direct integer return must be zero-extended by the x86_64 thunk, and
+    /// from what source width. A no-payload (@frozen simple) enum is returned as a 1- or 2-byte tag;
+    /// the System V AMD64 ABI does not require the callee to widen a sub-word return, so Swift's
+    /// x86_64 codegen leaves the upper bits of %eax unspecified (e.g. <c>movb $1, %al</c>) while the
+    /// generated C# reads the enum as a wider integer (its underlying type, at least 32 bits). The
+    /// thunk must therefore zero-extend the tag. AArch64 mandates sub-word widening, so this signal
+    /// is consumed only by the SysV target. Enum tags are non-negative, so zero-extension preserves
+    /// the value.
+    /// </summary>
+    /// <returns>The source width in bytes (1 or 2) to zero-extend from, or 0 when no extension is
+    /// needed: non-enum returns, or a tag already 4+ bytes wide that fully fills %eax/%rax.</returns>
+    private static int ComputeReturnZeroExtension(TypeSpec returnSpec, ITypeDatabase typeDb)
+    {
+        if (returnSpec is not NamedTypeSpec named || !named.Name.Contains('.'))
+            return 0;
+
+        var swiftTypeName = SwiftTypeName.FromTypeSpec(named);
+        if (!typeDb.TryGetTypeRecord(swiftTypeName, out var record))
+            return 0;
+
+        // Only no-payload (@frozen simple) enums are returned as a sub-word tag and read back as a
+        // wider integer. Bool, UInt8/UInt16 scalars are read at their native width (no mismatch).
+        if (record.Kind != TypeRecordKind.Enum
+            || !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+            || !record.Flags.HasFlag(TypeRecordFlags.Frozen))
+            return 0;
+
+        // A no-payload simple enum's tag width is structural: 1 byte for ≤256 cases (every
+        // realistic enum), 2 bytes for ≤65536. InlineSize carries the exact width only when the
+        // record was built from live Swift metadata; cross-module / XML-loaded records persist
+        // `simpleEnum`/`frozen` but NOT inlineSize, so it is null here. Defaulting null/0/1 to a
+        // 1-byte zero-extension is correct for the entire realistic domain (the tag is
+        // non-negative, so extending a value whose low byte already holds it is a no-op when the
+        // upper bits happen to be clean, and the fix when they are dirty). A 4+ byte tag (>65536
+        // cases) already fills %eax and needs no extension.
+        return record.InlineSize switch { 2 => 2, null or 0 or 1 => 1, _ => 0 };
     }
 
     /// <summary>

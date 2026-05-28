@@ -20,6 +20,13 @@ namespace BindingsGeneration;
 /// <param name="IsConstructor">True if this is a constructor (metatype in the swiftself register, allocating init).</param>
 /// <param name="Throws">True if the function can throw (swifterror register: ARM64 x21 / SysV r12).</param>
 /// <param name="MetadataAccessorSymbol">The metadata accessor symbol for constructors/static methods (with underscore prefix).</param>
+/// <param name="ReturnZeroExtendFromBytes">
+/// Source width (1 or 2 bytes) of a no-payload enum tag return that the x86_64 thunk must
+/// zero-extend to a clean 32-bit value, or 0 when no extension is needed. The System V AMD64 ABI
+/// does not require a callee to widen a sub-word return, so Swift's x86_64 codegen leaves the upper
+/// bits of %eax unspecified (e.g. <c>movb $1, %al</c>) while the managed side reads the enum as a
+/// wider integer. AArch64 mandates sub-word widening, so the ARM64 target ignores this field.
+/// </param>
 public record ThunkDescriptor(
     string ThunkSymbol,
     string SwiftSymbol,
@@ -31,7 +38,8 @@ public record ThunkDescriptor(
     bool IsStaticMethod,
     bool IsConstructor,
     bool Throws,
-    string? MetadataAccessorSymbol);
+    string? MetadataAccessorSymbol,
+    int ReturnZeroExtendFromBytes = 0);
 
 /// <summary>
 /// Composes native assembly thunk functions that bridge cdecl → swiftcc calling conventions.

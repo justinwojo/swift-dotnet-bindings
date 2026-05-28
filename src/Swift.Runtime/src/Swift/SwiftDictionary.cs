@@ -295,12 +295,14 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         void* resultPayload = NativeMemory.Alloc(optionalValueMetadata.Size);
         try
         {
-            SwiftDictionaryPInvokes.UpdateValue(
-                new SwiftIndirectResult(resultPayload),
+            // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+            // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+            SwiftCollectionCdeclWrappers.DictUpdateValue(
+                (IntPtr)resultPayload,
                 valuePayload,
                 keyPayload,
                 dictionaryMetadata,
-                new SwiftSelf((void*)handle));
+                handle);
         }
         finally
         {
@@ -487,11 +489,13 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             {
                 while (true)
                 {
-                    // Call Dictionary.Iterator.next() — mutates the iterator in-place
-                    SwiftDictionaryPInvokes.IteratorNext(
-                        new SwiftIndirectResult(nextResultBuffer),
+                    // Call Dictionary.Iterator.next() — mutates the iterator in-place.
+                    // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+                    // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+                    SwiftCollectionCdeclWrappers.DictIteratorNext(
+                        (IntPtr)nextResultBuffer,
                         iteratorMetadata,
-                        new SwiftSelf(iteratorBuffer));
+                        (IntPtr)iteratorBuffer);
                     bufferLive = true;
                     keyMoved = false;
                     valueMoved = false;
@@ -601,11 +605,13 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             bool slotLive = false; // resultPayload holds an initialized .some whose slot is unconsumed
             try
             {
-                SwiftDictionaryPInvokes.RemoveValue(
-                    new SwiftIndirectResult(resultPayload),
+                // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+                // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+                SwiftCollectionCdeclWrappers.DictRemoveValue(
+                    (IntPtr)resultPayload,
                     keyPayload,
                     metadata,
-                    new SwiftSelf((void*)_payload.DangerousGetHandle()));
+                    _payload.DangerousGetHandle());
 
                 // Check Optional.none before marshalling — raw MarshalFromSwift<TValue>
                 // on a .none buffer can produce undefined results depending on TValue.

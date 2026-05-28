@@ -67,17 +67,12 @@ public sealed class SysVThunkTarget : ThunkTargetArch
     /// <inheritdoc/>
     public override bool CanEmit(ThunkDescriptor descriptor)
     {
-        // An indirectly-returned (>32 byte / address-only) struct uses swiftcc's %rax sret
-        // register, not C's %rdi — so a thunk would have to move %rdi→%rax and shift every
-        // argument down, which this target does not yet implement. Decline it so the binding
-        // routes through the @_cdecl wrapper (which expresses the indirect return as an out
-        // pointer). The upstream strategy already rejects indirect results before thunking, so
-        // this is defense-in-depth that keeps the constraint local to the backend.
-        if (descriptor.ReturnLowering is { IsIndirect: true })
-            return false;
-
         // Beyond six integer registers, SysV spills to the stack; this target only bridges
         // register-resident signatures. Likewise cap float parameters at the eight %xmm regs.
+        // An indirectly-returned (>32 byte / address-only) struct consumes one integer register
+        // for the cdecl sret pointer (counted by CdeclIntegerRegisterCount via CdeclUsesSret) and
+        // is bridged by moving %rdi→%rax and shifting the explicit arguments down — see
+        // EmitTailCall / EmitFullFrame.
         return CdeclIntegerRegisterCount(descriptor) <= IntArgRegs.Length
             && descriptor.FloatParameterCount <= 8;
     }
@@ -106,10 +101,44 @@ public sealed class SysVThunkTarget : ThunkTargetArch
     /// <inheritdoc/>
     public override void EmitTailCall(StringBuilder sb, ThunkDescriptor descriptor)
     {
+        // A no-payload enum tag return must be zero-extended on x86_64 (the SysV ABI leaves the
+        // upper bits of a sub-word return unspecified), so it cannot tail-call away. Set up a
+        // minimal aligned frame, call, widen the tag, and return. On entry %rsp is 8 mod 16; the
+        // single push realigns it so the call sees a 16-byte-aligned stack. The cdecl and swiftcc
+        // argument registers already coincide here (no self/error/metatype/sret), so the arguments
+        // pass through untouched.
+        if (descriptor.ReturnZeroExtendFromBytes > 0)
+        {
+            sb.AppendLine("    pushq   %rbp");
+            sb.AppendLine("    movq    %rsp, %rbp");
+            sb.AppendLine($"    callq   {descriptor.SwiftSymbol}");
+            EmitReturnZeroExtension(sb, descriptor);
+            sb.AppendLine("    popq    %rbp");
+            sb.AppendLine("    retq");
+            return;
+        }
+
+        // An indirectly-returned (>32 byte / address-only) struct: cdecl passes the result buffer as
+        // a hidden first integer argument in %rdi, but swiftcc expects it in %rax (read on entry,
+        // preserved through return). Move the buffer into %rax and shift every explicit integer
+        // argument down one register to fill the %rdi the sret pointer vacated; float arguments stay
+        // in %xmm and never shift. The callee writes into [%rax] and returns it in %rax — exactly where
+        // the cdecl caller expects the sret result — so this stays a tail call with no frame. The
+        // ascending shift is safe because %rdi is read into %rax before the first store overwrites it.
+        // (ClassifyThunk routes here only with no self/error/metatype, and a >16-byte DIRECT return
+        // needs a register-capture bridge and goes through the full frame, so an sret here is always
+        // the indirect case.)
+        if (descriptor.ReturnLowering is { IsIndirect: true })
+        {
+            sb.AppendLine("    movq    %rdi, %rax");
+            for (int i = 0; i < descriptor.ParameterCount; i++)
+                sb.AppendLine($"    movq    %{IntArgReg(i + 1)}, %{IntArgReg(i)}");
+            sb.AppendLine($"    jmp     {descriptor.SwiftSymbol}");
+            return;
+        }
+
         // No bridging needed: the signature has no self, error, metatype, or return buffer, so the
-        // cdecl and swiftcc argument/return layouts coincide and we jump straight to the Swift
-        // symbol. (Indirect-sret shapes never reach here — CanEmit declines them — so there is no
-        // %rdi-vs-%rax sret mismatch to bridge.)
+        // cdecl and swiftcc argument/return layouts coincide and we jump straight to the Swift symbol.
         sb.AppendLine($"    jmp     {descriptor.SwiftSymbol}");
     }
 
@@ -117,6 +146,11 @@ public sealed class SysVThunkTarget : ThunkTargetArch
     public override void EmitFullFrame(StringBuilder sb, ThunkDescriptor descriptor)
     {
         bool needsReturnBridge = ThunkAssemblyEmitter.NeedsReturnBridge(descriptor);
+        // An indirect (>32 byte / address-only) return: swiftcc reads/returns the buffer in %rax,
+        // cdecl passes it in %rdi. Distinct from needsReturnBridge, which captures a 17-32 byte
+        // direct register return into the cdecl buffer. Both consume %rdi on the cdecl side
+        // (cdeclUsesSret), so both stash %rdi and shift the explicit arguments down.
+        bool swiftIndirect = descriptor.ReturnLowering is { IsIndirect: true };
         bool needsSelfBridge = descriptor.IsInstanceMethod;
         bool needsMetatype = descriptor.IsConstructor || descriptor.IsStaticMethod;
         bool needsErrorBridge = descriptor.Throws;
@@ -143,8 +177,10 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         sb.AppendLine("    subq    $8, %rsp");
         const string errorSlot = "-32(%rbp)";
 
-        // Stash the cdecl sret pointer (%rdi) before the argument shift overwrites it.
-        if (needsReturnBridge)
+        // Stash the cdecl sret pointer (%rdi) before the argument shift overwrites it. Both the
+        // direct-return bridge (capture into the buffer) and the indirect return (pass the buffer to
+        // swiftcc in %rax) own this pointer across the call.
+        if (cdeclUsesSret)
             sb.AppendLine("    movq    %rdi, %rbx");
 
         // Stash the error-out pointer before the metatype accessor call can clobber it.
@@ -163,7 +199,7 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         // argument down one register so it lands where swiftcc expects it. Ascending order is
         // safe — each source register is read before the next store would overwrite it. Float
         // arguments stay in %xmm0.. and never shift.
-        if (needsReturnBridge)
+        if (cdeclUsesSret)
         {
             for (int i = 0; i < descriptor.ParameterCount; i++)
                 sb.AppendLine($"    movq    %{IntArgReg(i + 1)}, %{IntArgReg(i)}");
@@ -173,7 +209,19 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         if (needsErrorBridge)
             sb.AppendLine("    xorl    %r12d, %r12d");
 
+        // An indirect return: swiftcc reads its result buffer from %rax on entry. Move the stashed
+        // cdecl sret pointer into %rax now — after the metatype accessor (which clobbers %rax) and
+        // the argument shift have run, and immediately before the call.
+        if (swiftIndirect)
+            sb.AppendLine("    movq    %rbx, %rax");
+
         sb.AppendLine($"    callq   {descriptor.SwiftSymbol}");
+
+        // Zero-extend a narrow no-payload-enum tag return. Mutually exclusive with the return
+        // bridge (a bridged struct is >16 bytes; an enum tag is 1-2), so it never races the
+        // %rbx → %rax restore below.
+        if (descriptor.ReturnZeroExtendFromBytes > 0)
+            EmitReturnZeroExtension(sb, descriptor);
 
         // Capture the register-resident return into the cdecl sret buffer.
         if (needsReturnBridge)
@@ -186,9 +234,10 @@ public sealed class SysVThunkTarget : ThunkTargetArch
             sb.AppendLine("    movq    %r12, (%r10)");
         }
 
-        // SysV returns the sret pointer in %rax. swiftcc's indirect return already leaves it
-        // there (passthrough), but the return-bridge path owns the buffer, so restore it.
-        if (needsReturnBridge)
+        // SysV returns the sret pointer in %rax. The return-bridge path owns the buffer it captured
+        // into, and the indirect path passed it to swiftcc; restore it from the %rbx stash either way
+        // (swiftcc preserves %rbx, so this is correct even when swiftcc already left the buffer in %rax).
+        if (cdeclUsesSret)
             sb.AppendLine("    movq    %rbx, %rax");
 
         // Epilogue.
@@ -283,6 +332,25 @@ public sealed class SysVThunkTarget : ThunkTargetArch
                 string instr = slot.ByteSize <= 4 ? "movss" : "movsd";
                 sb.AppendLine($"    {instr,-7} %xmm{slot.Index}, {BufferMem(offset)}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Zero-extends a narrow no-payload-enum tag return (1 or 2 bytes) into %eax. Writing the 32-bit
+    /// %eax also clears the upper 32 bits of %rax, so the managed side reads a clean value whether the
+    /// enum's underlying integer is 32- or 64-bit. Enum tags are non-negative, so zero-extension is
+    /// value-preserving. See <see cref="ThunkDescriptor.ReturnZeroExtendFromBytes"/>.
+    /// </summary>
+    private static void EmitReturnZeroExtension(StringBuilder sb, ThunkDescriptor descriptor)
+    {
+        switch (descriptor.ReturnZeroExtendFromBytes)
+        {
+            case 1:
+                sb.AppendLine("    movzbl  %al, %eax");
+                break;
+            case 2:
+                sb.AppendLine("    movzwl  %ax, %eax");
+                break;
         }
     }
 

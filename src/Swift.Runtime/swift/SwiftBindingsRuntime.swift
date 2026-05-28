@@ -24,11 +24,22 @@ import simd
 fileprivate typealias EnqueueOriginal = @convention(thin) (UnownedJob) -> Void
 fileprivate typealias EnqueueHook = @convention(thin) (UnownedJob, EnqueueOriginal) -> Void
 
-/// A minimal executor that runs Swift jobs on GCD.
+/// A minimal global executor that runs Swift jobs on GCD.
+///
+/// The backing queue is **concurrent**, matching the semantics of Swift's default global
+/// executor (which dispatches non-isolated jobs across a concurrent thread pool; per-actor
+/// mutual exclusion is enforced by the actor runtime scheduling at most one processing job per
+/// actor, not by the global executor being serial). A *serial* global executor self-deadlocks on
+/// any synchronous wait-over-async: a job that blocks waiting for an async result whose
+/// completion is produced by another job would strand that completion behind itself on the single
+/// serial thread. A consumer doing `swiftAsyncCall().Result`/`.Wait()` from inside another Swift
+/// async continuation hits exactly that shape. A concurrent queue lets the completion job run on a
+/// different worker, so the waiter unblocks.
 @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
 final class GCDExecutor: SerialExecutor {
     static let shared = GCDExecutor()
-    private let queue = DispatchQueue(label: "swift-bindings.executor", qos: .userInitiated)
+    private let queue = DispatchQueue(
+        label: "swift-bindings.executor", qos: .userInitiated, attributes: .concurrent)
 
     func enqueue(_ job: UnownedJob) {
         let executor = asUnownedSerialExecutor()

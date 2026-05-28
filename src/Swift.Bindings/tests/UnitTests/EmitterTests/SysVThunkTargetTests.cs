@@ -61,17 +61,44 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void EmitThunk_IndirectReturnNoSelf_EmitsJmp()
+        public void EmitThunk_IndirectReturnNoSelf_BridgesBufferThenJmps()
         {
-            // Struct returned indirectly in BOTH conventions: cdecl sret in %rdi passes straight
-            // through to swiftcc's %rdi sret. No self/error → tail call.
+            // 40-byte (address-only) struct returned indirectly. The conventions DIFFER: the cdecl
+            // sret pointer arrives in %rdi (hidden first arg), but swiftcc's x86_64 indirect-result
+            // convention expects the result-buffer pointer in %rax. With no self/error the thunk
+            // tail-calls, so it must move %rdi → %rax before jumping — a bare jmp would leave the
+            // buffer pointer in the wrong register and Swift would scribble through garbage.
             var descriptor = Free("thunk_t_big", "_$s4Test7makeBigAA0D0VyF",
                 ReturnIndirect(40), parameterCount: 0);
 
             var asm = EmitX64(descriptor);
 
+            Assert.Contains("movq    %rdi, %rax", asm);   // cdecl sret ptr → swiftcc indirect-result
             Assert.Contains("jmp     _$s4Test7makeBigAA0D0VyF", asm);
+            // No frame: the buffer bridge is a register move, not a stashed %rbx spill.
             Assert.DoesNotContain("movq    %rdi, %rbx", asm);
+            // The buffer pointer must be in %rax before the tail jump.
+            Assert.True(asm.IndexOf("movq    %rdi, %rax", System.StringComparison.Ordinal)
+                < asm.IndexOf("jmp", System.StringComparison.Ordinal));
+        }
+
+        [Fact]
+        public void EmitThunk_IndirectReturnOneArg_BridgesBufferAndShiftsArg()
+        {
+            // 40-byte indirect return + one integer arg, no self/error. cdecl is [sret=rdi, a0=rsi];
+            // swiftcc wants the buffer in %rax and a0 in %rdi. The thunk must save the buffer
+            // (%rdi → %rax) BEFORE shifting the arg down (%rsi → %rdi), or the shift clobbers the
+            // sret pointer that %rax has not yet captured.
+            var descriptor = Free("thunk_t_big1", "_$s4Test8makeBig1AA0D0VyF",
+                ReturnIndirect(40), parameterCount: 1);
+
+            var asm = EmitX64(descriptor);
+
+            Assert.Contains("movq    %rdi, %rax", asm);   // buffer pointer first
+            Assert.Contains("movq    %rsi, %rdi", asm);   // a0 shifts down past the consumed sret
+            Assert.Contains("jmp     _$s4Test8makeBig1AA0D0VyF", asm);
+            Assert.True(asm.IndexOf("movq    %rdi, %rax", System.StringComparison.Ordinal)
+                < asm.IndexOf("movq    %rsi, %rdi", System.StringComparison.Ordinal));
         }
 
         #endregion
@@ -463,6 +490,89 @@ namespace BindingsGeneration.Tests
 
         #endregion
 
+        #region No-Payload Enum Return Zero-Extension
+
+        [Fact]
+        public void EmitThunk_InstanceMethodEnumReturn_ZeroExtendsTagByte()
+        {
+            // Instance method returning a 1-byte @frozen no-payload enum tag. SysV leaves %eax[8:31]
+            // unspecified after Swift's `movb $n, %al`, so the thunk must widen %al → %eax after the
+            // call; the managed side reads the tag as a 32-bit (or wider) enum underlying value.
+            var descriptor = Instance("thunk_t_status", "_$s4Test3FooC9getStatusAA0E0OyF",
+                ReturnEnumTag(1), parameterCount: 0) with { ReturnZeroExtendFromBytes = 1 };
+
+            var asm = EmitX64(descriptor);
+
+            Assert.Contains("callq   _$s4Test3FooC9getStatusAA0E0OyF", asm);
+            Assert.Contains("movzbl  %al, %eax", asm);
+            // The widening must come after the call and survive to the return.
+            Assert.True(asm.IndexOf("callq", System.StringComparison.Ordinal)
+                < asm.IndexOf("movzbl", System.StringComparison.Ordinal));
+            Assert.Contains("retq", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_FreeFunctionEnumReturn_FramesCallInsteadOfTailJmp()
+        {
+            // A free function returning a no-payload enum has no self/error/metatype/sret, so it
+            // would normally tail-call. On x86_64 the tag must be widened, so it gets a minimal
+            // frame + call + movzbl + ret instead of a bare jmp that would skip the widening.
+            var descriptor = Free("thunk_t_curStatus", "_$s4Test13currentStatusAA0D0OyF",
+                ReturnEnumTag(1), parameterCount: 0) with { ReturnZeroExtendFromBytes = 1 };
+
+            var asm = EmitX64(descriptor);
+
+            Assert.DoesNotContain("jmp", asm);
+            Assert.Contains("pushq   %rbp", asm);
+            Assert.Contains("callq   _$s4Test13currentStatusAA0D0OyF", asm);
+            Assert.Contains("movzbl  %al, %eax", asm);
+            Assert.Contains("retq", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_TwoByteEnumReturn_ZeroExtendsTagWord()
+        {
+            // An enum with 257-65536 cases is stored as a 2-byte tag → widen %ax → %eax.
+            var descriptor = Instance("thunk_t_bigEnum", "_$s4Test3FooC4kindAA0E0OyF",
+                ReturnEnumTag(2), parameterCount: 0) with { ReturnZeroExtendFromBytes = 2 };
+
+            var asm = EmitX64(descriptor);
+
+            Assert.Contains("movzwl  %ax, %eax", asm);
+            Assert.DoesNotContain("movzbl", asm);
+        }
+
+        [Fact]
+        public void EmitThunk_NonEnumReturn_StillTailCalls()
+        {
+            // A free function returning Int (ReturnZeroExtendFromBytes = 0) keeps the zero-overhead
+            // tail call — the widening is scoped strictly to sub-word enum tags.
+            var descriptor = Free("thunk_t_count", "_$s4Test5countSiyF", ReturnInt(), parameterCount: 0);
+
+            var asm = EmitX64(descriptor);
+
+            Assert.Contains("jmp     _$s4Test5countSiyF", asm);
+            Assert.DoesNotContain("movzbl", asm);
+            Assert.DoesNotContain("movzwl", asm);
+        }
+
+        [Fact]
+        public void Arm64EnumReturn_TailCallsWithoutWidening()
+        {
+            // ARM64 is unaffected: AArch64 mandates the callee widen sub-word returns, so an
+            // enum-return free function still tail-calls with no x86 widening instruction emitted.
+            var descriptor = Free("thunk_t_curStatus", "_$s4Test13currentStatusAA0D0OyF",
+                ReturnEnumTag(1), parameterCount: 0) with { ReturnZeroExtendFromBytes = 1 };
+
+            var asm = ThunkAssemblyEmitter.EmitThunk(descriptor, ThunkTargetArch.Arm64);
+
+            Assert.Contains("b       _$s4Test13currentStatusAA0D0OyF", asm);
+            Assert.DoesNotContain("movzbl", asm);
+            Assert.DoesNotContain("movzwl", asm);
+        }
+
+        #endregion
+
         #region Arch Equivalence / Byte-Identity Guard
 
         [Fact]
@@ -497,6 +607,10 @@ namespace BindingsGeneration.Tests
         private static TypeLoweringResult ReturnInt() => new(
             new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
             IsIndirect: false, TotalByteSize: 8);
+
+        private static TypeLoweringResult ReturnEnumTag(int inlineSize) => new(
+            new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
+            IsIndirect: false, TotalByteSize: inlineSize);
 
         private static TypeLoweringResult Return3Int(int totalBytes) => new(
             new[] {

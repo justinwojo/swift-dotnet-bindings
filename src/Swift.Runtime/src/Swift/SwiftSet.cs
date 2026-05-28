@@ -491,11 +491,13 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
             try
             {
-                SwiftSetPInvokes.Remove(
-                    new SwiftIndirectResult(resultPayload),
+                // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+                // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+                SwiftCollectionCdeclWrappers.SetRemove(
+                    (IntPtr)resultPayload,
                     elementPayload,
                     metadata,
-                    new SwiftSelf((void*)_payload.DangerousGetHandle()));
+                    _payload.DangerousGetHandle());
 
                 var tag = (SwiftOptionalCases)optionalMetadata.ValueWitnessTable->GetEnumTag(
                     (byte*)resultPayload, optionalMetadata);
@@ -601,11 +603,13 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             {
                 while (true)
                 {
-                    // Call Set.Iterator.next() — mutates the iterator in-place
-                    SwiftSetPInvokes.IteratorNext(
-                        new SwiftIndirectResult(nextResultBuffer),
+                    // Call Set.Iterator.next() — mutates the iterator in-place.
+                    // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+                    // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+                    SwiftCollectionCdeclWrappers.SetIteratorNext(
+                        (IntPtr)nextResultBuffer,
                         iteratorMetadata,
-                        new SwiftSelf(iteratorBuffer));
+                        (IntPtr)iteratorBuffer);
                     resultConsumed = false; // buffer now holds an initialized Optional value
 
                     // Use VWT GetEnumTag to check Optional.none — the only correct way

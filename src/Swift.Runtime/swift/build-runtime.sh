@@ -18,6 +18,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE="$SCRIPT_DIR/SwiftBindingsRuntime.swift"
+# A small C translation unit holding cdecl wrappers for the six Swift stdlib
+# generic-collection ops whose direct CallConvSwift shape (sret + intermediate
+# integer args + SwiftSelf) is mishandled by the Mac Catalyst-x64 workload Mono
+# trampoline. Clang's `swiftcall` attribute + `swift_indirect_result` /
+# `swift_context` parameter attrs lower the inner call via LLVM swiftcc, which
+# is correct on every supported arch; C# enters via plain Cdecl, bypassing the
+# broken trampoline. See SwiftBindingsRuntimeCollections.c for the rationale.
+COLLECTIONS_SOURCE="$SCRIPT_DIR/SwiftBindingsRuntimeCollections.c"
 OUTPUT_BASE="$SCRIPT_DIR/../native"
 
 build_single_arch() {
@@ -27,6 +35,23 @@ build_single_arch() {
 
     local sdk_path
     sdk_path=$(xcrun --sdk "$sdk" --show-sdk-path)
+
+    # Compile the cdecl-collections wrappers as a temporary object file using
+    # the SAME -target triple as the Swift slice. clang's `swiftcall` lowering
+    # is target-aware (x86_64 SysV vs arm64 AAPCS64), so the slice's exact
+    # triple — not just the arch — matters for picking up macabi vs simulator
+    # variants. The object lives next to the per-arch swiftc output and is
+    # cleaned up by the caller via lipo/rm.
+    # SDKROOT="" prevents clang from preferring an externally set sysroot over
+    # the explicit per-slice `-isysroot` we pass here — without it, clang warns
+    # about "using sysroot for 'MacOSX' but targeting 'iPhone'" on the iOS/tvOS
+    # slices (objects are still correct, but the warning is misleading).
+    local collections_obj="${output%.dylib}.collections.o"
+    SDKROOT="" clang -c -O2 \
+        -target "$triple" \
+        -isysroot "$sdk_path" \
+        -o "$collections_obj" \
+        "$COLLECTIONS_SOURCE"
 
     # Unset SDKROOT to prevent clang sysroot mismatch warnings when
     # cross-compiling (swiftc uses the explicit -sdk flag instead).
@@ -42,7 +67,12 @@ build_single_arch() {
         -target "$triple" \
         -sdk "$sdk_path" \
         -Xlinker -install_name -Xlinker "@rpath/libSwiftBindingsRuntime.dylib" \
-        "$SOURCE"
+        "$SOURCE" \
+        "$collections_obj"
+
+    # The collections object is now linked into the dylib — drop the
+    # intermediate file so it doesn't end up in the published native tree.
+    rm -f "$collections_obj"
 }
 
 build_target() {
@@ -81,8 +111,15 @@ build_target() {
             rm -f "$tmp_arm64" "$tmp_x64"
             ;;
         maccatalyst)
-            # Single-arch (arm64 only) — uses macosx SDK with -macabi triple
-            build_single_arch "$output" "macosx" "arm64-apple-ios15.0-macabi"
+            # Universal binary (arm64 + x86_64) for Apple Silicon and Intel — uses macosx SDK with -macabi triples
+            local tmp_arm64="$output_dir/libSwiftBindingsRuntime_arm64.dylib"
+            local tmp_x64="$output_dir/libSwiftBindingsRuntime_x64.dylib"
+
+            build_single_arch "$tmp_arm64" "macosx" "arm64-apple-ios15.0-macabi"
+            build_single_arch "$tmp_x64"   "macosx" "x86_64-apple-ios15.0-macabi"
+
+            lipo -create "$tmp_arm64" "$tmp_x64" -output "$output"
+            rm -f "$tmp_arm64" "$tmp_x64"
             ;;
         tvos)
             # Single-arch (arm64 only) for tvOS device
