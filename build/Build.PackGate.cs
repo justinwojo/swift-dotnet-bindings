@@ -531,14 +531,22 @@ partial class Build
         });
 
     // Expected nupkg layout for the 4-TFM TipKit fixture. Keyed by NuGet RID
-    // (mirrors Sdk.props _SwiftBindingNuGetRid). Slice ids mirror Sdk.props
-    // _SwiftBindingDeviceSliceId / _SwiftBindingSimulatorSliceId. Kept as a
-    // data-driven expected set so a future regression that drops a whole
-    // xcframework or slice fails the gate explicitly rather than silently.
+    // (mirrors Sdk.props _SwiftBindingNuGetRid). Kept as a data-driven expected
+    // set so a future regression that drops a whole xcframework or slice fails
+    // the gate explicitly rather than silently.
+    //
+    // The iOS/tvOS simulator wrapper slices are universal (arm64 + x86_64): the
+    // Apple-framework-direct pack folds an x86_64 simulator arch in so Intel /
+    // Rosetta sim consumers (iossimulator-x64, tvossimulator-x64) resolve the
+    // wrapper. xcodebuild names a slice dir by the arch set it carries, so the
+    // simulator slice ids are the fat `{platform}-arm64_x86_64-simulator` form,
+    // matching ExpectedSourceXcframeworkLayout below. Device slices stay arm64-
+    // only (no x86_64 device target); macOS / Mac Catalyst wrapper slices remain
+    // arm64-only in the Apple-direct path.
     static readonly KeyValuePair<string, string[]>[] ExpectedXcframeworkLayout =
     [
-        new("ios-arm64",          new[] { "ios-arm64",          "ios-arm64-simulator" }),
-        new("tvos-arm64",         new[] { "tvos-arm64",         "tvos-arm64-simulator" }),
+        new("ios-arm64",          new[] { "ios-arm64",          "ios-arm64_x86_64-simulator" }),
+        new("tvos-arm64",         new[] { "tvos-arm64",         "tvos-arm64_x86_64-simulator" }),
         new("osx-arm64",          new[] { "macos-arm64" }),
         new("maccatalyst-arm64",  new[] { "ios-arm64-maccatalyst" }),
     ];
